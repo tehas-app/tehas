@@ -54,7 +54,8 @@ the issue gets `needs-human-attention` and one comment saying where and why it
 stopped, with pi-rukas's handoff.
 
 The six-pass review blocks a change at the severity the product's own doctrine
-states, and here that bar is MEDIUM and above. See [Operating tehas](/operating)
+states, and where it states none at pi-rukas's default of HIGH. Here that bar is
+HIGH. See [Operating tehas](/operating)
 for what a finding does and what a cycle may defer.
 
 ## What runs where

@@ -549,8 +549,9 @@ fn github_token(console: &str) -> i32 {
 }
 
 /// The renewer of the cycle's token while the container reads it. The watch
-/// ends it with a TERM.
-fn renewer(home: &Path) -> Option<Child> {
+/// ends it with a TERM. A renewer that cannot start is the line the cycle is
+/// refused with: without it the app's token ages out during a long run.
+fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
     let child = Command::new(home.join("libexec/tehas-cycle"))
@@ -562,7 +563,9 @@ fn renewer(home: &Path) -> Option<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
-    child.ok()
+    child.map_err(|e| {
+        format!("tehas work: the token renewer could not start ({e}), not starting a cycle")
+    })
 }
 
 /// The cycle's issue relay (src/relay.rs): a thread beside the renewer that
@@ -1130,14 +1133,20 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     if stop.came() {
         return STOPPED;
     }
+    // The container is given the cycle token; the app's token, which the host
+    // side acts with after the run, is kept fresh by the renewer, which ends
+    // with the container, or with the watch.
+    let renew = match renewer(home) {
+        Ok(child) => child,
+        Err(line) => {
+            eprintln!("{line}");
+            return 1;
+        }
+    };
     set.started();
 
     // The runner is the container's command, so a docker stop reaches it: it
-    // ends the cycle as interrupted and still writes its result. The container
-    // is given the cycle token; the app's token, which the host side acts with
-    // after the run, is kept fresh by the renewer, which ends with the
-    // container, or with the watch.
-    let renew = renewer(home);
+    // ends the cycle as interrupted and still writes its result.
     let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
     let models = format!("{}/.pi/agent/models.json", env("HOME"));
     let email = git_email();
@@ -1164,16 +1173,14 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         console: PathBuf::from(&g.console),
         models,
         email,
-        renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
+        renewer: renew.id().to_string(),
         docker,
         signal: stop.which(),
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
-    if let Some(c) = renew {
-        reap(c);
-    }
+    reap(renew);
     rc
 }
 
@@ -1236,6 +1243,27 @@ mod tests {
                 "{opts}"
             );
         }
+    }
+
+    #[test]
+    fn a_renewer_that_cannot_start_says_why_and_refuses_the_cycle() {
+        let d = tehas_core::testdir::TestDir::new("work-renewer");
+        // A half-run install: libexec/tehas-cycle is not there.
+        let why = renewer(d.path()).unwrap_err();
+        assert!(
+            why.starts_with("tehas work: the token renewer could not start ("),
+            "{why}"
+        );
+        assert!(why.ends_with("), not starting a cycle"), "{why}");
+        // There but not a program: the same line.
+        fs::create_dir(d.join("libexec")).unwrap();
+        fs::write(d.join("libexec/tehas-cycle"), "").unwrap();
+        let why = renewer(d.path()).unwrap_err();
+        assert!(why.contains("could not start"), "{why}");
+        // A program: the child, which the cycle reaps.
+        tehas_core::testing::write_exe(d.join("libexec/tehas-cycle"), "#!/bin/sh\nexit 0\n")
+            .unwrap();
+        reap(renewer(d.path()).unwrap());
     }
 
     #[test]
