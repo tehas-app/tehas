@@ -160,7 +160,8 @@ status, step, duration or token usage as that cycle's. The approval of such a
 start is taken off the record with the report: the millwright, a refresh and a later
 start never rest on an approval that started nothing.
 A retry moves a stopped workspace to
-`<name>-<issue>.before-retry`, which goes when that retry ends.
+`<name>-<issue>.before-retry`, which goes when that retry ends. A retry that
+ends before its container runs puts it back at `<name>-<issue>` first.
 The dispatcher removes a kept workspace at once when its issue is closed, and
 otherwise once no cycle has run on its issue for `TEHAS_WORKSPACE_KEEP_DAYS`
 days (7 by default), three issues a poll at most. With the workspace go what a cycle leaves
