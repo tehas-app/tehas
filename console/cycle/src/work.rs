@@ -1136,6 +1136,10 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // container, or with the watch.
     let renew = renewer(home);
     let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
+    let models = format!("{}/.pi/agent/models.json", env("HOME"));
+    let email = git_email();
+    // The relay masks what it posts with the names the console masks.
+    let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models, &email));
     let relay = start_relay(
         &relay_dir,
         &env("TEHAS_REPO"),
@@ -1155,8 +1159,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         stop_wait,
         console_wait,
         console: PathBuf::from(&g.console),
-        models: format!("{}/.pi/agent/models.json", env("HOME")),
-        email: git_email(),
+        models,
+        email,
         renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
         docker,
         signal: stop.which(),
