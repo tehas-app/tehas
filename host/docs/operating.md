@@ -2093,6 +2093,12 @@ the new names.
   the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
   `instance.env` prints a warning and is ignored. The approval record names
   the millwright without `[bot]`.
+- **Or a second app.** `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env`
+  makes that app the millwright in place of the factory's own. The factory
+  still acts as its own app, and its bot's `tehas:ready` then counts as any
+  outsider's: agents post as the bot, so they cannot use the grant. `tehas
+  update` records the second app's user id beside the labellers' (see
+  [Accounts by user id](/tools-update#accounts-by-user-id)).
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,

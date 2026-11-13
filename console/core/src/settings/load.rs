@@ -22,6 +22,9 @@
 //!   writes the file. An instance
 //!   that still sets TEHAS_GITHUB_APP_INSTALLATION, TEHAS_BOT_LOGIN or
 //!   TEHAS_MILLWRIGHT_LOGIN gets a warning for each; the login file wins.
+//!   TEHAS_MILLWRIGHT_APP, `<slug>[bot]`, names a second app the factory
+//!   trusts as its millwright: the load gives it to TEHAS_MILLWRIGHT_LOGIN
+//!   over the factory's own login, and TEHAS_BOT_LOGIN stays the factory's.
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
 //!   stop the load. A TEHAS_FIXER_* name stops it too.
 //! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
@@ -378,6 +381,8 @@ fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
 /// The login the app has, from state/github/login, replaces whatever the
 /// instance said of the bot and the millwright. Without the file the old
 /// lines stay as they are, each with its warning, and nothing new is set.
+/// TEHAS_MILLWRIGHT_APP, when the instance sets it, is the millwright over
+/// both, with or without the file.
 fn app_login(vars: &mut Vars, host: &mut dyn Host, file: &str) {
     for name in OBSOLETE {
         if vars.is_set(name) {
@@ -389,6 +394,12 @@ fn app_login(vars: &mut Vars, host: &mut dyn Host, file: &str) {
     let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
     if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
         vars.set("TEHAS_BOT_LOGIN", login.clone());
+        vars.set("TEHAS_MILLWRIGHT_LOGIN", login);
+    }
+    // A second app the factory trusts as its millwright, in place of its own
+    // login. A value of another shape is left to the rules to refuse.
+    let second = vars.text("TEHAS_MILLWRIGHT_APP");
+    if let Some(login) = super::login_of(second.as_bytes()) {
         vars.set("TEHAS_MILLWRIGHT_LOGIN", login);
     }
 }
@@ -1414,6 +1425,48 @@ mod tests {
         }
         assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
         assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "new[bot]");
+    }
+
+    #[test]
+    fn a_second_app_is_the_millwright_and_the_bot_stays_the_factorys() {
+        let mut host =
+            Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]).file(LOGIN, "acme-app[bot]\n");
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
+        assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "acme-app[bot]");
+        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
+        // Before the first mint writes the login file there is no bot yet,
+        // and the millwright is already the second app.
+        let mut host = Fake::with(&["TEHAS_MILLWRIGHT_APP=acme-mill[bot]"]);
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
+        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
+    }
+
+    #[test]
+    fn the_old_millwright_line_does_not_name_a_second_app() {
+        let mut host = Fake::with(&[
+            "TEHAS_MILLWRIGHT_LOGIN=old-mill[bot]",
+            "TEHAS_MILLWRIGHT_APP=acme-mill[bot]",
+        ])
+        .file(LOGIN, "acme-app[bot]\n");
+        let (vars, got) = run(&mut host);
+        assert_eq!(got, Ok(()));
+        assert_eq!(host.warned.len(), 1, "{:?}", host.warned);
+        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
+    }
+
+    #[test]
+    fn a_millwright_app_that_is_no_apps_login_is_refused() {
+        let got = refused(&["TEHAS_MILLWRIGHT_APP=acme-mill"]);
+        assert!(
+            got.starts_with(
+                "TEHAS_MILLWRIGHT_APP is not valid: expected the login of a GitHub App"
+            ),
+            "{got}"
+        );
     }
 
     #[test]
