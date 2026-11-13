@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tehas_core::file::{read_regular, ReadError};
+use tehas_core::file::{read_regular, ReadError, READ_BOUND};
 
 /// Whether a lock file is held by someone, or cannot be told apart from one
 /// that is: anything but no lock and a lock the probe took counts as held, as
@@ -169,11 +169,13 @@ pub fn plan_start(home: &Path, n: u64) -> Option<Value> {
 
 /// The why of the last live/dispatch.json, empty when it cannot be read. The
 /// key is the core report's, as is the word: a reader that kept its own copy
-/// of either would go on reading a field the poll no longer writes.
+/// of either would go on reading a field the poll no longer writes. It is read
+/// as the store publishes it, a regular file under the shared bound, so a link
+/// or a file that grew past it counts as no report.
 pub fn last_why(home: &Path) -> String {
-    fs::read_to_string(home.join("live/dispatch.json"))
+    read_regular(&home.join("live/dispatch.json"), READ_BOUND)
         .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|(bytes, _)| serde_json::from_slice::<Value>(&bytes).ok())
         .and_then(|v| {
             v.get(tehas_core::hold::KEY_WHY)
                 .and_then(Value::as_str)
@@ -465,6 +467,24 @@ mod tests {
         let d = TestDir::new(&format!("dispatch-host-{name}"));
         fs::create_dir_all(d.join("state")).unwrap();
         d
+    }
+
+    #[test]
+    fn the_last_why_is_read_only_from_a_regular_file_under_the_bound() {
+        let h = home("last-why");
+        assert_eq!(last_why(&h), "");
+        fs::create_dir_all(h.join("live")).unwrap();
+        let file = h.join("live/dispatch.json");
+        fs::write(&file, r#"{"why":"room"}"#).unwrap();
+        assert_eq!(last_why(&h), "room");
+        let pad = " ".repeat(READ_BOUND as usize);
+        fs::write(&file, format!(r#"{{"why":"room"}}{pad}"#)).unwrap();
+        assert_eq!(last_why(&h), "", "a report past the bound is none");
+        let real = h.join("real.json");
+        fs::write(&real, r#"{"why":"room"}"#).unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        assert_eq!(last_why(&h), "", "a link is not the poll's report");
     }
 
     #[test]
