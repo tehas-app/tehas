@@ -1040,6 +1040,31 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
         );
     }
+    // A container killed from outside the cycle, out of memory or by a kill
+    // nobody here sent, with no cap of its own: the kill is its end.
+    let container_killed =
+        cap.is_empty() && status == "killed" && !stopped_by_person && !process_limit;
+    if container_killed {
+        cap = "container-killed".into();
+        let in_flight = if step == "-" {
+            String::new()
+        } else {
+            format!(", step {step} in flight")
+        };
+        let memory = if kills == "0" {
+            "no process in it was counted as killed for memory".to_string()
+        } else {
+            format!("{kills} processes in it were killed for memory")
+        };
+        let tail = if reason.is_empty() {
+            String::new()
+        } else {
+            format!("; {reason}")
+        };
+        reason = runner::cut_reason(&format!(
+            "the container was killed with the exit status 137 and tehas did not stop it{in_flight}; {memory}{tail}"
+        ));
+    }
     if let Some((bad, of)) = unparsed(progress) {
         warn(
             &mut r,
@@ -1143,7 +1168,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
         why = format!(" tehas stopped the cycle: the cap `{cap}`.");
-    } else if process_limit {
+    } else if process_limit || container_killed {
         why = format!(" Its cause is recorded as the cap `{cap}`.");
     } else if !cap.is_empty() {
         let pr_why = if park_reason.is_empty() {
@@ -2027,6 +2052,45 @@ mod tests {
             "{:?}",
             comments(&r)
         );
+    }
+
+    #[test]
+    fn a_container_killed_from_outside_is_the_cap_container_killed_with_its_memory_kills() {
+        let r = notes(vec![("status", "killed\n"), ("oom", "4\n")]);
+        assert!(r.done.contains("status=killed"), "{}", r.done);
+        assert_eq!(end_cap(&r), Some("container-killed"), "{:?}", r.end);
+        assert_eq!(r.after.ended.cap, "container-killed");
+        assert_eq!(
+            r.after.ended.reason,
+            "the container was killed with the exit status 137 and tehas did not stop it; 4 processes in it were killed for memory"
+        );
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("Its cause is recorded as the cap `container-killed`.")),
+            "{:?}",
+            comments(&r)
+        );
+        let r = notes(vec![("status", "killed\n")]);
+        assert!(
+            r.after
+                .ended
+                .reason
+                .ends_with("no process in it was counted as killed for memory"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn a_killed_container_keeps_a_cap_it_had_and_a_persons_stop() {
+        let r = notes(vec![
+            ("status", "killed\n"),
+            ("stopped", "1792000000 alice\n"),
+        ]);
+        assert_eq!(r.after.ended.cap, "");
+        let r = notes(vec![("status", "killed\n"), ("forks", "3\n")]);
+        assert_eq!(r.after.ended.cap, "process-limit");
     }
 
     #[test]
