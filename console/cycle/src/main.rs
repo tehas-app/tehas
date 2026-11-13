@@ -251,8 +251,8 @@
 //! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
 //! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
 //!
-//! Exit: 0 it printed or kept its answer; 70 report: the end of the cycle is
-//! not on record; 1 what it reads could not be
+//! Exit: 0 it printed or kept its answer; 70 report: the end of the cycle, or
+//! the record of its failed GitHub step, is not on record; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
