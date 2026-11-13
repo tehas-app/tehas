@@ -46,12 +46,25 @@ cycle's container: it runs on the host after the container has gone.
 
 ## 365 days
 
-Rows older than 365 days are deleted on every write and on every poll, and the
+Rows older than 365 days are deleted on every write, and the
 file never holds more than 365 days of runs. A run is as old as its end. The
 events of an issue that started and has not ended are kept at most a day
 longer. 365 days is fixed and is not a setting. A file made when it was ten
 days says 365 in `meta` after its next prune; what was deleted before stays
 deleted.
+
+Two things a write does not do belong to `analytics prune`: the sweep of the
+`analytics.db.schema-<version>` files a migration left beside the database, and
+SQLite's `PRAGMA optimize`. Until #1769 the poll ran that command itself about
+every two minutes; nothing schedules it now, so both go undone until someone
+asks for them:
+
+```
+~/tehas/libexec/analytics prune
+```
+
+The rows need neither - the writes bound the tables - so this is the command
+that clears the aside files of [The file](#the-file) below.
 
 ## The file
 
