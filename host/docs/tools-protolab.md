@@ -57,12 +57,30 @@ builds or removes anything of a ticket, and stops with exit 78 when
 answer that question, the pass ends there with the same nothing built and
 nothing removed.
 
+The label is judged by its GitHub id too. `tehas labels` pins
+`tehas:prototype` in `~/tehas/state/labels` beside the granting labels (see
+[label pins](/github-app#label-pins)), and each pass that finds tickets reads
+the id of the label that now carries the name. When it is not the pinned one,
+or the file has no pin for it, no ticket is at the stage: the pass logs
+`refused: the label tehas:prototype ...` and removes the pages. When the label
+cannot be read, nothing is built or removed. An account is its login and its
+user id, as for the dispatcher: an application, or with `TEHAS_ISSUE_TYPES` a
+type, from a listed login with another id counts as nobody's.
+
+A ticket whose title was changed after the approval by an account outside the
+list is not built again: the log says `its title was changed by '<account>'
+since <approver> approved it, left as it was`, and a page it had keeps the
+title it was built with. An allowed account applying the label (or the type)
+again approves the title as it then is.
+
 It fetches only links to GitHub's attachment storage, in text written by an
 owner, member or collaborator of the repository, and only the types listed
 under [Operating](/operating). A ticket gets 10 megabytes and 40 files. An
 issue that has not changed since the last pass is not built again, so a quiet
 pass fetches no files: one GitHub call for its own account, one for the list,
-and one for every ticket at the stage, its label events. When GitHub cannot be
+one for the label's id when the list is not empty, and one for every ticket at
+the stage, its label events. With `TEHAS_ISSUE_TYPES` a ticket that changed
+costs one more call, its label events, for the renames. When GitHub cannot be
 reached, what is there stays. A pass that finds no console to write the pages
 with says so and exits 78 before it calls GitHub.
 

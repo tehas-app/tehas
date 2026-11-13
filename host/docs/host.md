@@ -2040,7 +2040,7 @@ Both are outside the repository and the tehas tree.
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again. GitHub's times count whole seconds, so a change by another account in the second the label went on counts as afterwards |
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
-| Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, as the dispatcher checks `tehas:ready`. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
+| Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, and that the label is the pinned one, as the dispatcher checks `tehas:ready`. A title changed since by anyone else is not published. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |
 | What a planning container is given     | A token narrowed to the product repository, with Contents and Pull requests write and Issues read, from `~/tehas/state/github-session` (read-only), renewed every 5 minutes while the turn runs. Otherwise the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | With the narrowed token: push the branch, open and edit pull requests, and read issues. Its `gh issue create`, `edit` and `comment` go through the host's relay, which comments only on the cycle's own issue and on issues the cycle created, edits only issues it created during that cycle, never sets labels, assignees or state, refuses any text with `<!-- tehas:` in it, and allows 50 writes a cycle. The relay is a host channel under the rule that a container's mounts and variables are not widened ([the relay](/github-app#the-relay-is-a-security-channel)). So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
@@ -2127,8 +2127,10 @@ What a member of the group gets, and does not:
 `/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
 platform can leave the accounts typing an older command. No tehas command runs as
 root, so none replaces it: `install.sh --check` reports it as `Login: NOT CURRENT`
-and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
-again after an update that changed `host/login/tehas`.
+and a real install prints `later: sudo <root-owned copy>/bootstrap.sh dev boss`.
+Run that command again after an update that changed `host/login/tehas`, from
+root's own copy at the new version: see
+[Root runs its own copy](/bootstrap#root-runs-its-own-copy).
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

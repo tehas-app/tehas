@@ -28,6 +28,10 @@ An account in a cycle holds the bot's token, and the bot can label, so the
 account behind the label is what is checked, not the label itself. The check
 only means something while the bot's own login is outside
 `TEHAS_ALLOWED_LABELERS`, and the Protolab stops with an error when it is not.
+The label must also be the one `tehas labels` pinned, as the granting labels
+are (see [label pins](/github-app#label-pins)), and a title changed since the
+labelling by an account outside the list is not published: the page stays as
+it was until an allowed account applies the label again.
 
 With `TEHAS_ISSUE_TYPES` mapping `prototype` to an issue type, the type puts
 a ticket at the stage in place of the label, by the same rule: see

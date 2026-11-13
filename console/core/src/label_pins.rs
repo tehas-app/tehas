@@ -1,7 +1,8 @@
-//! The pins of the granting `tehas:` labels: `$TEHAS_HOME/state/labels`,
-//! one `<name>\t<GitHub node id>` line each. The dispatcher judges each
-//! label application against them (tehas_dispatch::pins), and `tehas labels`
-//! pins the labels it made (`pin_made`).
+//! The pins of the granting `tehas:` labels and of `tehas:prototype`:
+//! `$TEHAS_HOME/state/labels`, one `<name>\t<GitHub node id>` line each. The
+//! dispatcher judges each label application against them
+//! (tehas_dispatch::pins), the Protolab its label, and `tehas labels` pins the
+//! labels it made (`pin_made`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -17,6 +18,17 @@ pub const GRANTING: [&str; 5] = [
     "tehas:refine",
     "tehas:finish",
     "tehas:lean",
+];
+
+/// The labels `tehas labels` pins: the granting ones, and the label that
+/// puts a ticket in the Protolab.
+pub const PINNED: [&str; 6] = [
+    "tehas:ready",
+    "tehas:plan",
+    "tehas:refine",
+    "tehas:finish",
+    "tehas:lean",
+    "tehas:prototype",
 ];
 
 /// Where the pins are kept, under TEHAS_HOME.
@@ -59,7 +71,7 @@ pub fn granting(name: &str) -> bool {
     GRANTING.contains(&name)
 }
 
-/// A granting label as `tehas labels` saw it: its id before it made the
+/// A label of [`PINNED`] as `tehas labels` saw it: its id before it made the
 /// labels and after, None where GitHub had no such label.
 pub struct Seen<'a> {
     pub name: &'a str,
@@ -68,14 +80,14 @@ pub struct Seen<'a> {
 }
 
 /// `tehas labels`' step, after it made the labels. With no file yet (a fresh
-/// install, or a host from before the pins) every granting label found is
-/// pinned, as the poll would pin it. Once the file exists, only a label this
+/// install, or a host from before the pins) every label of [`PINNED`] found
+/// is pinned, as the poll would pin it. Once the file exists, only a label this
 /// run made, one there was none of before, is pinned: a label that was there
 /// with no pin may be another label renamed to the name, and its name cannot
 /// tell, so it is said and left refused for a person to pin by hand. A pin is
 /// never changed here. The file is written even with no pin in it, so the poll
-/// pins nothing after. The lines to print, and whether every granting label
-/// now has its pin.
+/// pins nothing after. The lines to print, and whether every label of
+/// [`PINNED`] now has its pin.
 pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
     let kept = home.join(FILE).exists();
     let mut pins = load(home);
@@ -83,7 +95,7 @@ pub fn pin_made(home: &Path, seen: &[Seen]) -> (Vec<String>, bool) {
     let mut whole = true;
     for s in seen {
         let name = s.name;
-        if !granting(name) {
+        if !PINNED.contains(&name) {
             continue;
         }
         match (pins.get(name), &s.after) {
@@ -142,6 +154,7 @@ mod tests {
                 seen("tehas:ready", Some("LA_r"), Some("LA_r")),
                 seen("tehas:plan", None, None),
                 seen("tehas:running", None, Some("LA_x")),
+                seen("tehas:prototype", None, Some("LA_p")),
             ],
         );
         assert!(!whole);
@@ -150,11 +163,20 @@ mod tests {
             "pinned the label tehas:ready as LA_r in state/labels"
         );
         assert_eq!(said[1], "not pinned: the label tehas:plan was not found");
-        assert_eq!(said.len(), 2);
+        assert_eq!(
+            said[2],
+            "pinned the label tehas:prototype as LA_p in state/labels"
+        );
+        assert_eq!(said.len(), 3);
         assert_eq!(
             load(d.path()),
-            Pins::from([("tehas:ready".into(), "LA_r".into())])
+            Pins::from([
+                ("tehas:ready".into(), "LA_r".into()),
+                ("tehas:prototype".into(), "LA_p".into())
+            ])
         );
+        // The Protolab's label is pinned and grants the dispatcher nothing.
+        assert!(!granting("tehas:prototype"));
     }
 
     // tehas:plan has no pin and a label of that name is there: it may be a

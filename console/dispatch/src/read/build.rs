@@ -730,14 +730,9 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
 /// Whether a pull request may hold an issue: its branch is in the product
 /// repository and the factory or an allowed account opened it. Anyone can open
 /// a pull request from a fork with any body, so no other one holds an issue.
+/// tehas_core holds the rule, which `tehas-cycle finish` reads too.
 fn own_pull(p: &Value, c: &Settings) -> bool {
-    let s = |ptr: &str| p.pointer(ptr).and_then(Value::as_str).unwrap_or("");
-    let author = s("/author/login");
-    p.get("isCrossRepository") == Some(&json!(false))
-        && !c.repo.is_empty()
-        && s("/headRepository/nameWithOwner").eq_ignore_ascii_case(&c.repo)
-        && (tehas_core::accounts::factorys(author, &c.bot_login)
-            || c.allowed(crate::settings::account(author)))
+    tehas_core::accounts::own_pull(p, &c.repo, &c.bot_login, |a| c.allowed(a))
 }
 
 /// Which open pull requests name an open issue with a closing keyword in their

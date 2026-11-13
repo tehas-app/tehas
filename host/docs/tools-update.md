@@ -126,9 +126,11 @@ by the code it pulled: a checkout has no console of its own yet, so install.sh
 builds it first and a change that adds a required setting stops with 78 there,
 before anything of the host changes. The checkout must be on a branch and have nothing uncommitted, and
 only a fast-forward is done: local commits of its own, or a branch that was
-rewritten on the remote, are left for a person. When the checkout sits on a
-branch that is not the remote's default, it says so and updates the branch it is
-on.
+rewritten on the remote, are left for a person. Only the remote's default branch
+is updated, because nothing reaches it without a person: a checkout on another
+branch, or one whose `origin/HEAD` is not set, changes nothing and exits 1. To
+install another branch, run `./install.sh` in the checkout by hand.
+`git remote set-head origin --auto` sets `origin/HEAD`.
 
 While `~/tehas/state/update-hold` exists it changes nothing and exits 1, naming
 the file; `--check` says the hold is there and reports as usual. The file is
@@ -294,7 +296,7 @@ nothing under a home it cannot prove is tehas's.
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | Another update is running, the checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, a `TEHAS_HOME` that is not provably tehas's, the tests) |
+| 1    | Another update is running, the checkout has local changes, is not on a branch, is not on the default branch of origin or does not know it, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, a `TEHAS_HOME` that is not provably tehas's, the tests) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -385,7 +387,9 @@ account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts
 there as root from `host/login/tehas`. Where that setup is in place, its marker
 `/etc/tehas/manager` names the tehas user, and a copy of the command that is not
 this checkout's makes `--check` add a `Login: NOT CURRENT` line naming the command
-that installs it (`sudo ~/tehas/platform/bootstrap.sh dev boss`) and exit 1. A
+that installs it (`sudo <root-owned copy>/bootstrap.sh dev boss`) and exit 1. The
+command names root's own copy of the platform, not the checkout, which the tehas
+user can write: see [Root runs its own copy](/bootstrap#root-runs-its-own-copy). A
 real run prints the same finding on a `later:` line. It is never a `next:` step,
 because no tehas command runs as root, and nothing is recorded as owed. The name
 in that command is the marker's; a marker holding something other than an account
