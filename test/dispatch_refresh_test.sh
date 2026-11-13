@@ -278,11 +278,22 @@ t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
 t_lacks "$t_out" "hold refreshes"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
+# pull51: pull request 51 closes issue 8, which waits for its merge, and
+# conflicts: a request the scan wrote for it passes the sweep of #1973.
+pull51() {
+  jq '.data.repository.pullRequest |= (.number = 51 | .url = "https://github.com/acme/widget/pull/51"
+    | .closingIssuesReferences.nodes[0].number = 8
+    | .closingIssuesReferences.nodes[0].closedByPullRequestsReferences.nodes[0].number = 51)' \
+    "$fx/pull-50.json" >"$fx/pull-51.json"
+  jq '.number = 8' "$fx/work-7.json" >"$fx/work-8.json"
+  jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-16T09:00:00Z", pr: 51, head_sha: $h, base_sha: $b}' >"$refresh_dir/8.json"
+}
+
 t_case "with the setting off a request without asked is held, and a --pr one beside it counts"
 refresh_setup
 slots 2
 asked_pr
-jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-16T09:00:00Z", pr: 51, head_sha: $h, base_sha: $b}' >"$refresh_dir/8.json"
+pull51
 slots 1
 running_refresh 9
 t_run "$dispatch"
@@ -292,6 +303,52 @@ t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":1,"o
 t_eq "$(cat "$refresh_dir/.held")" "TEHAS_REFRESH_CONFLICTS is not 1"
 t_eq "$(grep -c "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1" <<<"$t_out")" 1
 t_eq "$(find "$refresh_dir" -name '8.json' | wc -l)" 1
+
+# #1973: with the setting off the scan does not run, so the poll drops a
+# request it wrote before once a start check fails, whatever the room.
+t_case "with the setting off a scan request whose pull request closed is dropped, and refreshHold clears"
+refresh_setup
+slots 1
+pull '.state = "CLOSED"'
+running_refresh 9
+t_run "$dispatch"
+release
+refresh_dropped "pull request #50 is not open"
+t_eq "$(jq -c '{waiting, refreshHold}' "$demand_file")" '{"waiting":0,"refreshHold":null}'
+t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
+t_lacks "$t_out" "hold refreshes"
+
+t_case "with the setting off a scan request whose issue closed is dropped"
+refresh_setup
+slots 2
+issue7
+jq '.state = "closed"' "$fx/work-7.json" >"$fx/work-7.json.new" && mv "$fx/work-7.json.new" "$fx/work-7.json"
+t_run "$dispatch"
+refresh_dropped "it is not an open issue"
+t_lacks "$t_out" "hold refreshes"
+
+t_case "with the setting off a scan request whose pull request merged clears the hold it set before"
+refresh_setup
+slots 2
+t_run "$dispatch"
+t_eq "$(cat "$refresh_dir/.held")" "TEHAS_REFRESH_CONFLICTS is not 1"
+t_eq "$(jq -r .refreshHold "$demand_file")" "TEHAS_REFRESH_CONFLICTS is not 1"
+pull '.state = "MERGED"'
+t_run "$dispatch"
+refresh_dropped "pull request #50 is not open"
+t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
+t_eq "$(jq -r .refreshHold "$demand_file")" null
+
+t_case "with the setting off a scan request whose pull request cannot be read stays held"
+refresh_setup
+slots 2
+rm -f "$fx/pull-50.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1"
+t_lacks "$t_out" "drop the refresh"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "with the setting off a --pr request whose pull request no longer conflicts is dropped"
 refresh_setup

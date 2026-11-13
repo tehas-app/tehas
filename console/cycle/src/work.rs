@@ -365,6 +365,7 @@
 use crate::gives::{self, Gap};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
+use crate::renew;
 use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
@@ -551,18 +552,14 @@ fn github_token(console: &str) -> i32 {
 /// ends it with a TERM. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
-    let every = env("TEHAS_GITHUB_RENEW_EVERY");
-    let every = if every.is_empty() {
-        "300".to_string()
-    } else {
-        every
-    };
+    let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
+    let retry = renew::RETRY.to_string();
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
         .arg(home.join("bin/tehasbot"))
         .args(["--arg", "github-token", "--arg", "--cycle"])
-        .args(["--every", &every, "--retry", "30"])
+        .args(["--every", &every, "--retry", &retry])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
