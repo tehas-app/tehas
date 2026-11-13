@@ -1,0 +1,1 @@
+{"api":1,"dockerRoot":"/var/lib/docker","filesystems":[{"freeBytes":42949672960,"mount":"/dev/x","paths":["<home>/tehas","/tmp"],"totalBytes":61440000000},{"freeBytes":42949672960,"mount":"/dev/x","paths":["/var/lib/docker"],"totalBytes":61440000000},{"paths":["/mnt/scratch"],"why":"df answered nothing"}],"generatedAt":"2026-11-13T10:10:32Z"}

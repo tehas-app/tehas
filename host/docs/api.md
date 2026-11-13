@@ -967,6 +967,39 @@ Two paths that stand on one file system are one entry that names both, so the
 same free bytes are never counted twice; a path on a device that cannot be
 told has an entry of its own.
 
+The source holds a JSON Schema of this object, `api/disk.schema.json`, and two
+samples made by the code that prints it: `api/disk.sample.json` is the plain
+answer, and `api/disk.full.json` is the one with `full`, with every field of it
+present - a file system whose figure could not be read, a place that ran out of
+a bound, the daemon's lines, and the containers it holds back. The table gives
+every field of the schema as the schema names it, under `filesystems` for a
+field of one entry and under `full` for a field of what fills them.
+
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `generatedAt` | When the answer was made, UTC. The command's own reads write nothing, so this says how old the answer on the terminal is |
+| `dockerRoot` | The directory Docker keeps its images in, as `docker info` named it. Left out when the daemon named none, which is a host with no Docker and the entry of `/var/lib/docker` all the same |
+| `filesystems` | One entry per file system the factory cares about, in the order the paths were asked |
+| `filesystems.paths` | Every watched path that stands on this file system, the one that opened the entry first |
+| `filesystems.mount` | What `df` names as the file system's own, as `/` or `/dev/sda1`. Left out with no figure to go with it |
+| `filesystems.freeBytes` | Bytes free on it, from `df`; `null` with `why` when it could not be read, never 0 |
+| `filesystems.totalBytes` | Its whole size in bytes, from `df`; `null` with `why` when it could not be read, never 0 |
+| `filesystems.why` | Why the entry has no figure: `df` gave no second line, its word was no number, or the call did not answer in `TEHAS_DISK_WAIT` seconds |
+| `full` | What fills them, only with `--full` |
+| `full.places` | The biggest places first, at most twelve: the entries of `~/tehas` and of `~/.pi/agent`, each clone's `~/tehas/dev/<name>.state/target` in place of the clone's own tree, and the scratch disk's entries when the instance has one |
+| `full.places.path` | The place, as the walk named it |
+| `full.places.bytes` | Its bytes; `null` when the walk has no figure for it, which is what `cut` says the reason for |
+| `full.places.cut` | The bound the walk ran out of: `whole` for a figure that is the whole of the place, or `entries`, `depth`, `time` or `unreadable` |
+| `full.docker` | `docker system df` as the daemon printed it |
+| `full.docker.state` | `read` when it answered lines, `none` when it answered none, `unreadable` when the call did not answer |
+| `full.docker.lines` | Its lines, in the daemon's words: at most twelve, each cut to 200 characters |
+| `full.stoppedContainers` | How many containers the daemon still holds back, from `docker ps --filter status=exited`. 0 when it listed none, and 0 on a host with no daemon: no answer is none. It is a question of the daemon, not of the disk, and `--full` is what asks it |
+| `full.containers` | The containers themselves, at most fifty: Docker's own id and image, and its command when the listing had one. Left out when it listed none, since the count above has already said none |
+| `full.containers.id` | The container's id, as Docker printed it, at most 64 characters |
+| `full.containers.image` | Its image, at most 200 characters |
+| `full.containers.command` | Its command, at most 200 characters. Left out when the listing gave no command, which is no command and not an empty one |
+
 A figure that cannot be read is `null` and carries `why`, the reason: the read
 of `df` answered nothing, its word was no number, or the call did not answer
 in `TEHAS_DISK_WAIT` seconds. It is never `0`, because no figure is never the
@@ -987,9 +1020,12 @@ clone's own tree, and the scratch disk's entries when the instance has one.
 A place that ran out of its bound keeps its figure and says so with `cut`:
 `entries`, `depth`, `time` or `unreadable`. `docker` is `docker system df` as
 the daemon printed it, `state` `read`, `none` or `unreadable`.
-`stoppedContainers` and `containers` name what the daemon still holds back,
-and belong to the published file alone: they are a question of the daemon, not
-of the disk.
+`stoppedContainers` and `containers` name what the daemon still holds back.
+They are a question of the daemon, not of the disk, so `--full` is what asks
+it: both figures are printed by `tehas disk --full --json` with no `--publish`,
+and a reader that must not write the host asks for them with the flag alone.
+`--publish` is the one form that writes, and it names them in the file too, of
+the same one call of the daemon.
 
 `--cycles` adds `cycles`: what each running cycle writes.
 
@@ -1036,7 +1072,11 @@ never the largest number there is.
 The object `tehas disk --cycles --json` prints is `api/disk-cycles.schema.json`
 in the source, and `api/disk-cycles.sample.json` is a sample of it. The
 feature `cycle-writes` of [`tehas api`](#tehas-api) says the release has the
-figures; a factory that predates it prints no `cycles` at all.
+figures; a factory that predates it prints no `cycles` at all. The two keys it
+shares with the plain answer, `filesystems` and `full`, are a copy of
+`api/disk.schema.json`, restated because api/ has no `$ref`: the one file
+names them one way and the other the same way, and the tests keep both in step
+with what the command prints.
 
 `--publish` also writes that object to `~/tehas/live/disk.json`, whole, through
 a side file renamed into place, so a reader sees a whole answer or the last

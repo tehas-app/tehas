@@ -87,7 +87,7 @@ reset
 : >"$fx/issue-fails"
 t_run "$cycle 7"
 t_eq "$t_rc" 65
-t_contains "$t_out" "refuse #7: GitHub could not be asked what the number is"
+t_contains "$t_out" "refuse #7: GitHub could not be asked what the number is (3 tries, the last: exit 1)"
 t_lacks "$t_out" "could not be read"
 t_eq "$(grep -c '^api repos/acme/widget/issues/7$' <<<"$(t_calls gh)")" 3
 t_eq "$(t_calls fake-work)" ""

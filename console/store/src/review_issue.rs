@@ -170,17 +170,12 @@ fn document(verb: &str, path: &Path) -> Result<serde_json::Value, (u8, String)> 
     Ok(document)
 }
 
-/// The words of the model made safe for a public issue: the patterns of the
-/// mask over them, then the rules of `q_clean`, then the host's own names among
-/// them. The console masks the document and the log of the run with the same
-/// two functions before it writes either file (console/src/review.rs's
-/// mask_file), so a run's words are made safe one way, in tehas_core, and a
-/// filing does not invent a second rule for what goes to GitHub. The mask is
-/// what takes a token, a password or a private address out; the rules of
-/// q_clean are what escape a comment marker and a task box and disarm an
-/// account name, which a mask does not touch and a public issue does.
+/// The words of the model made safe for a public issue by `q_clean`: the
+/// mask the console writes a run's files with (console/src/review.rs's
+/// mask_file), then what a comment needs on top of it, so a filing does not
+/// invent a second rule for what goes to GitHub.
 pub fn mask(text: &str) -> String {
-    tehas_core::question::q_clean(&tehas_core::mask::mask(text), usize::MAX)
+    tehas_core::question::q_clean(text, usize::MAX)
 }
 
 /// The first seven characters of a commit, which is what the title names and

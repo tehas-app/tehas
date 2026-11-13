@@ -877,8 +877,9 @@ fn docker_df(wait: Duration) -> Value {
     }
 }
 
-/// The containers left stopped: Docker's own id, image and command, each cut,
-/// and how many of them the list holds.
+/// The containers left stopped: Docker's own id, image and command - the last
+/// only when the listing had a command to name - and how many of them the list
+/// holds.
 fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
     let Ok(said) = run(
         "docker",
@@ -903,22 +904,37 @@ fn stopped_containers(wait: Duration) -> (u64, Vec<Value>) {
         if cols.len() < 2 {
             continue;
         }
-        out.push(json!({
-            "id": cols[0].chars().take(64).collect::<String>(),
-            "image": cols[1].chars().take(COMMAND_MAX).collect::<String>(),
-            "command": cols.get(2).map(|c| c.chars().take(COMMAND_MAX).collect::<String>()),
-        }));
+        // Docker prints the empty word for a command it does not hold; an empty
+        // word is no command, and a field this command has nothing of is left
+        // out rather than printed as null, as every other one of them is.
+        let mut one = Map::new();
+        one.insert(
+            "id".into(),
+            Value::from(cols[0].chars().take(64).collect::<String>()),
+        );
+        one.insert(
+            "image".into(),
+            Value::from(cols[1].chars().take(COMMAND_MAX).collect::<String>()),
+        );
+        insert(
+            &mut one,
+            "command",
+            cols.get(2)
+                .map(|c| c.chars().take(COMMAND_MAX).collect::<String>())
+                .filter(|c| !c.is_empty())
+                .map(Value::from),
+        );
+        out.push(Value::Object(one));
     }
     let n = out.len() as u64;
     (n, out)
 }
 
-/// The reading, as one object: the file systems, and with `--full` or
-/// `--publish` the places that fill them and the containers Docker left
-/// stopped. `--publish` is one run, so the published file names the stopped
-/// containers beside the places: asking the daemon the same question twice for
-/// one answer would be two calls where one does, and a person who asked for
-/// `--full` is given the same object whether or not it is being published.
+/// The reading, as one object: the file systems, and with `--full` the places
+/// that fill them, what `docker system df` said, and the containers Docker
+/// left stopped. `--publish` is one run of the same answer, so the published
+/// file names the stopped containers beside the places: asking the daemon the
+/// same question twice for one answer would be two calls where one does.
 /// `--cycles` adds the figures of the running cycles, which neither of the
 /// other two forms asks for.
 fn answer(host: &Host, opts: &Options) -> Value {
@@ -942,16 +958,16 @@ fn answer(host: &Host, opts: &Options) -> Value {
             "docker".into(),
             docker_df(Duration::from_secs(opts.bounds.wait)),
         );
-        // The containers left stopped belong to the published answer only: a
-        // person who asked what fills the disk asked about the trees, and the
-        // count of what the daemon still holds back is a second question,
-        // asked of the daemon and not of the disk.
-        if opts.publish {
-            let (stopped, containers) = stopped_containers(Duration::from_secs(opts.bounds.wait));
-            full.insert("stoppedContainers".into(), json!(stopped));
-            if !containers.is_empty() {
-                full.insert("containers".into(), Value::Array(containers));
-            }
+        // The containers the daemon still holds back are part of `--full`
+        // itself: a reader that must not write the host asks for them with the
+        // flag and gets them, and `--publish` is no longer the only form that
+        // names them. The daemon is still asked the one question once for the
+        // whole answer, so a run that prints and a run that publishes are one
+        // reading and not two.
+        let (stopped, containers) = stopped_containers(Duration::from_secs(opts.bounds.wait));
+        full.insert("stoppedContainers".into(), json!(stopped));
+        if !containers.is_empty() {
+            full.insert("containers".into(), Value::Array(containers));
         }
         out.insert("full".into(), Value::Object(full));
     }
@@ -966,17 +982,16 @@ fn answer(host: &Host, opts: &Options) -> Value {
 }
 
 /// The answer `tehas disk` prints: the file systems and, with `--full`, what
-/// fills them. The containers Docker left stopped are not asked for: the
-/// figures of the daemon are the sizes of images and layers, which a person
-/// reads as `docker system df` prints them, and the answer they want is what
-/// fills the trees. `--publish` names them, and asks the daemon once.
+/// fills them and the containers Docker left stopped. Both figures of the
+/// daemon come of the one call `--full` makes for them, whether or not the run
+/// also publishes.
 pub fn read(host: &Host, opts: &Options) -> Value {
     answer(host, opts)
 }
 
-/// The answer `--publish` writes, which is the same reading with the
-/// containers Docker left stopped named beside it: the file is one run's whole
-/// answer, and the daemon is asked the one question once for it.
+/// The answer `--publish` writes, which is the same reading of one run: the
+/// file systems, what fills them and the containers Docker left stopped, the
+/// daemon being asked the one question once for the whole of it.
 pub fn published(host: &Host, opts: &Options) -> Value {
     answer(
         host,
@@ -1557,7 +1572,9 @@ mod tests {
 
     // The published answer is the reading of one run: the file systems, what
     // fills them, and the containers the daemon still holds back, named once,
-    // with no second question asked for the same figures.
+    // with no second question asked for the same figures. The printed `--full`
+    // answer names them too: a reader that must not write the host is no
+    // longer sent to `--publish` to see them.
     #[test]
     fn the_published_answer_names_the_places_and_the_stopped_containers() {
         let d = dir("published");
@@ -1568,12 +1585,17 @@ mod tests {
         assert_eq!(published["api"], 1);
         assert!(published["full"]["places"].is_array(), "{published}");
         // The count is there whether or not the host has Docker: no answer is
-        // none, which is what the file says of a host without it.
+        // none, which is what the file says of a host without it. A host of
+        // these tests has no docker on its PATH, so this is the shape of a host
+        // whose daemon gave nothing: the count is there and says none.
         assert!(published["full"]["stoppedContainers"].is_number());
-        // The answer a person is given asks the daemon nothing about what it
-        // holds back: the same reading, without the container question.
+        // Without the flag the daemon is asked nothing of what it holds back.
+        // With it, and with no `--publish`, the printed answer names the
+        // stopped containers as the published file does.
         let printed = read(&host(&home), &opts());
         assert!(printed["full"].is_null(), "no --full, no places: {printed}");
+        // With the flag, and with no `--publish`, the printed answer names what
+        // the daemon holds back, as the published file does.
         let full = read(
             &host(&home),
             &Options {
@@ -1583,8 +1605,15 @@ mod tests {
         );
         assert!(full["full"]["places"].is_array());
         assert!(
-            full["full"].get("stoppedContainers").is_none(),
-            "the person's answer is not the file's: {full}"
+            full["full"]["stoppedContainers"].is_number(),
+            "the person's answer names the stopped containers: {full}"
+        );
+        // The count is the whole of the answer on a host whose daemon listed
+        // nothing: no container is held back, so the list of them is left out
+        // rather than printed empty, the way every field with nothing in it is.
+        assert!(
+            full["full"].get("containers").is_none(),
+            "no listing is no list: {full}"
         );
     }
 
