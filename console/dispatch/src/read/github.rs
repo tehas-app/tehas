@@ -171,9 +171,14 @@ fn comments_query(chunk: &[u64]) -> String {
 }
 
 /// What the refresh rule reads of a pull request and of the issue it closes.
+/// `statusCheckRollup` is the one answer `ended_badly` reads (#1751): the runs
+/// GitHub kept for the head, each with its name and its conclusion. The rule
+/// asks only whether the check the instance names went red, so a run of any
+/// other name says nothing.
 macro_rules! pull_fields {
     () => {
         r#"number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable
+        statusCheckRollup { nodes { __typename ...on CheckRun { name conclusion } ...on StatusContext { context state } } }
         author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
         closingIssuesReferences(first: 5) { totalCount nodes { number state labels(first: 50) { nodes { name } }
           closedByPullRequestsReferences(first: 10) { nodes { number state } } } }"#
