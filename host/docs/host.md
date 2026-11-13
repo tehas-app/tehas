@@ -1446,7 +1446,9 @@ Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches
 nothing, so a failure is closed, not open. Names are compared, not addresses:
 the proxy resolves a name itself, through the names of
-`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too.
+`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too. A plain `http://`
+request goes on with the `Host` of its allowed target, never the one the
+client sent.
 
 The first container that needs the proxy makes both networks and starts it,
 under `~/tehas/state/egress.lock`. It is started again when its list, the
