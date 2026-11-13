@@ -61,6 +61,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::env;
 use std::fs::{self, OpenOptions};
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -330,6 +331,19 @@ fn record_of(marker: &Path) -> Value {
         .unwrap_or(Value::Null)
 }
 
+// Write the record to `marker` through a `.new` beside it, which a failure
+// removes. The marker is either the old record or the whole new one: install.sh
+// reads its presence as "an index was built".
+fn write_record(marker: &Path, text: &str) -> io::Result<()> {
+    serde_json::from_str::<Value>(text)?;
+    let new = marker.with_extension("json.new");
+    let wrote = fs::write(&new, text).and_then(|()| fs::rename(&new, marker));
+    if wrote.is_err() {
+        let _ = fs::remove_file(&new);
+    }
+    wrote
+}
+
 #[derive(Debug, PartialEq)]
 enum State {
     Current,
@@ -592,7 +606,6 @@ impl Run {
 
         let nodes = jq_raw(answer.get("nodes"), "0");
         let edges = jq_raw(answer.get("edges"), "0");
-        let new = self.marker.with_extension("json.new");
         let text = record(
             &self.base,
             &self.branch,
@@ -601,8 +614,16 @@ impl Run {
             &edges,
             time::now(),
         );
-        if serde_json::from_str::<Value>(&text).is_ok() && fs::write(&new, text).is_ok() {
-            let _ = fs::rename(&new, &self.marker);
+        // The record is what this run exists to produce: one not written is a
+        // failed run, noted at the tip like any other so a poll does not run
+        // the indexer again at the same commit.
+        if let Err(e) = write_record(&self.marker, &text) {
+            warn(&format!(
+                "the index was built but its record {} was not written ({e}), so it counts as failed",
+                self.marker.display()
+            ));
+            let _ = fs::write(&self.failed, format!("{}\n", self.base));
+            return 1;
         }
         let _ = fs::remove_file(&self.failed);
         // This run wrote its index, so what the other image wrote is no longer
@@ -927,6 +948,30 @@ mod tests {
         d.old("x.db.stage.1");
         prune(&d.index(), soon());
         assert_eq!(d.names(), ["old.db"]);
+    }
+
+    #[test]
+    fn a_record_not_written_is_an_error_and_leaves_the_old_one() {
+        let d = Dir::new("record");
+        let marker = d.0.join("index.json");
+        fs::write(&marker, "{\"commit\":\"abc\"}\n").unwrap();
+        // A directory where the record would be renamed to.
+        let blocked = d.0.join("blocked.json");
+        fs::create_dir_all(blocked.join("x")).unwrap();
+        assert!(write_record(&blocked, "{\"commit\":\"def\"}\n").is_err());
+        assert!(!d.0.join("blocked.json.new").exists());
+        assert!(write_record(&marker, "not json").is_err());
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            "{\"commit\":\"abc\"}\n"
+        );
+        assert!(!d.0.join("index.json.new").exists());
+        write_record(&marker, "{\"commit\":\"def\"}\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            "{\"commit\":\"def\"}\n"
+        );
+        assert!(!d.0.join("index.json.new").exists());
     }
 
     #[test]
