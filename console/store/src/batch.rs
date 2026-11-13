@@ -174,9 +174,9 @@ pub fn read_input(input: &mut dyn Read) -> Result<String, String> {
 }
 
 /// The answers, one object per call, in the order of the request: rc first and
-/// out second. `out` is the text the verb prints -- its one JSON line, or the
-/// word of its refusal -- so a batch's answer and the standard output of the
-/// single call are the same bytes: a caller that reads one can read the other.
+/// out second. `out` is the text the verb prints: its one JSON line, or its
+/// refusal, word first, without the `store: ` the single call's standard error
+/// puts before it. A caller reads the word after putting that prefix back.
 fn answers(lines: Vec<(i64, String)>) -> String {
     let items: Vec<String> = lines
         .into_iter()

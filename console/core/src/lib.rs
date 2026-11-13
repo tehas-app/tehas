@@ -6,6 +6,7 @@ pub mod accounts;
 pub mod approval;
 #[cfg(feature = "mask")]
 pub mod call;
+pub mod cycle_notes;
 pub mod disk;
 pub mod egress;
 #[cfg(feature = "mask")]

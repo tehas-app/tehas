@@ -102,6 +102,17 @@ t_eq "$(cat "$ws.before-retry/left-over.txt")" unrecoverable
 t_contains "$t_out" "holds what the last cycle left"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
+t_case "a start that parks before its container puts back the workspace of the cycle that ran"
+product_nothing
+rm -rf "$ws.before-retry"
+mkdir -p "$ws"
+echo finished >"$ws/finished.txt"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cat "$ws/finished.txt")" finished
+t_eq "$(find "$ws.before-retry" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 t_case "a gate of comments and blank lines only is no gate: the cycle parks"
 product_commit .pi/verify-cmd '# scripts/verify.sh' '' '   '
 t_run "$work 7"
