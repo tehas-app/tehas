@@ -636,7 +636,16 @@ fn end(home: &Path, r: &Report, f: &Facts) -> bool {
 
 /// The record of a failed GitHub step of this end (#1726), or none: an end
 /// with no failed step removes the one an earlier cycle of the issue left.
-fn keep_end_fault(home: &Path, f: &Facts, a: &after::After, handoff: Option<&str>, now: i64) {
+/// False when the store of records is not as this end left it: a record that
+/// is not written is never tried again nor shown, and one that is not removed
+/// is.
+fn keep_end_fault(
+    home: &Path,
+    f: &Facts,
+    a: &after::After,
+    handoff: Option<&str>,
+    now: i64,
+) -> bool {
     let issue = f.issue;
     let handoff = handoff.filter(|_| a.ended.handoff_delivered == Some(false));
     let left = crate::end_failed::Left {
@@ -647,28 +656,27 @@ fn keep_end_fault(home: &Path, f: &Facts, a: &after::After, handoff: Option<&str
         pr: !a.ended.pr.is_empty(),
         handoff_failed: handoff,
     };
-    match crate::end_failed::of(&left, now) {
+    let kept = match crate::end_failed::of(&left, now) {
         Some(r) => {
             log(&format!("#{issue}: {}: on record", r.failure()));
-            if !end_fault::write(home, &r) {
-                log(&format!(
-                    "WARN: the failed end of #{issue} is not on record"
-                ));
-            }
+            end_fault::write(home, &r)
+                .map_err(|why| format!("the failed end of #{issue} is not on record: {why}"))
         }
-        None => {
-            if !end_fault::remove(home, issue) {
-                log(&format!(
-                    "WARN: could not remove {}",
-                    end_fault::path(home, issue).display()
-                ));
-            }
+        None => end_fault::remove(home, issue).map_err(|why| {
+            format!("the failed end of an earlier cycle of #{issue} is still on record: {why}")
+        }),
+    };
+    match kept {
+        Ok(()) => true,
+        Err(e) => {
+            log(&format!("ERROR: {e}"));
+            false
         }
     }
 }
 
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
-/// is not on record.
+/// or the record of its failed end is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
     let issue = s.issue;
     let workdir = format!("{}-{issue}", env("TEHAS_WORK_DIR"));
@@ -754,14 +762,14 @@ pub fn run(home: &Path, s: &Start) -> i32 {
             "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
         ));
     }
-    keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
+    let fault_kept = keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
     a.status_args = s.status_args.clone();
     a.workdir = workdir;
     after::after(home, &a);
-    if on_record {
+    if on_record && fault_kept {
         0
     } else {
         70
