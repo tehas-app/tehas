@@ -828,6 +828,39 @@ impl Poll<'_> {
             self.refresh_said = true;
             return Ok(None);
         }
+        self.refresh_checks(n, bot, req, false)
+    }
+
+    /// refresh_sweep: the requests `refresh_setting_held` holds go through
+    /// the checks of a start, whatever room the poll has, and one that fails
+    /// them is dropped. None of them starts. Without it a request the scan
+    /// wrote before the setting was turned off waits for good (#1973).
+    pub(super) fn refresh_sweep(&mut self) -> Step {
+        if self.c.refresh_conflicts {
+            return Ok(());
+        }
+        let bot = self.bot.clone();
+        for n in self.s.refresh_requests.clone() {
+            let Some(req) = self.s.issues.get(&n).and_then(|i| i.request.clone()) else {
+                continue;
+            };
+            if self.refresh_setting_held(&req) {
+                self.refresh_checks(n, &bot, req, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The checks of a refresh request and its start. A `sweep` stops once
+    /// the pull request has passed them: what is left decides whether it
+    /// starts now, not whether the request still stands.
+    fn refresh_checks(
+        &mut self,
+        n: u64,
+        bot: &str,
+        req: Value,
+        sweep: bool,
+    ) -> Step<Option<Start>> {
         if !(req.get("pr").is_some_and(Value::is_number)
             && hex40(req.get("head_sha"))
             && hex40(req.get("base_sha")))
@@ -905,6 +938,9 @@ impl Poll<'_> {
             return Ok(None);
         };
         if node.get("failed") == Some(&json!(true)) {
+            if sweep {
+                return Ok(None);
+            }
             return Err(self.fail("ERROR: gh api graphql failed", 1));
         }
         if !node.is_object() {
@@ -945,6 +981,8 @@ impl Poll<'_> {
             String::new()
         };
         match why.as_str() {
+            "" if sweep => return Ok(None),
+            "wait" | "busy" if sweep => return Ok(None),
             "" => {}
             "wait" => {
                 self.log(format!(

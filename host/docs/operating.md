@@ -2261,10 +2261,14 @@ With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher still starts such a
 request, and it counts in the demand of `tehas status`. It runs in the refresh
 lane, not in a cycle slot: while the setting is off the lane is kept only while
 such a request waits or a refresh runs. A request without
-`"asked"`, as the timed run writes, waits while the setting is off, even one
-written before it was turned off: the dispatcher's log says `hold refreshes:
-TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
-the demand's `refreshHold` names the setting only while such a request waits.
+`"asked"`, as the timed run writes, does not start while the setting is off,
+even one written before it was turned off: the dispatcher's log says `hold
+refreshes: TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the
+demand, and the demand's `refreshHold` names the setting only while such a
+request waits. Each poll still checks such a request against the pull request,
+as at a start: one whose issue is closed, whose pull request merged, closed,
+moved or no longer conflicts, or that fails another check before the count of
+refreshes goes, and `refreshHold` clears on the poll after the last one goes.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle

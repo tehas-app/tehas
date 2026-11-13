@@ -291,7 +291,42 @@ t_eq "$(started)" ""
 t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T09:00:00Z","refreshHold":"TEHAS_REFRESH_CONFLICTS is not 1"}'
 t_eq "$(cat "$refresh_dir/.held")" "TEHAS_REFRESH_CONFLICTS is not 1"
 t_eq "$(grep -c "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1" <<<"$t_out")" 1
-t_eq "$(find "$refresh_dir" -name '8.json' | wc -l)" 1
+# Issue 8 is not open, so the poll drops its request after it said the hold.
+t_contains "$t_out" "drop the refresh of #8: it is not an open issue"
+t_eq "$(find "$refresh_dir" -name '8.json' | wc -l)" 0
+
+t_case "with the setting off a request without asked whose pull request merged is dropped, and the hold clears"
+refresh_setup
+slots 2
+pull '.state = "MERGED"'
+t_run "$dispatch"
+refresh_dropped "pull request #50 is not open"
+t_eq "$(jq -r .refreshHold "$demand_file")" "TEHAS_REFRESH_CONFLICTS is not 1"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .refreshHold "$demand_file")" null
+t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
+
+t_case "with the setting off a request without asked whose issue closed is dropped while every slot is busy"
+refresh_setup
+slots 1
+running_refresh 9
+echo '{"number":7,"state":"closed","labels":[]}' >"$fx/work-7.json"
+echo '[]' >"$fx/awaiting.json"
+t_run "$dispatch"
+release
+refresh_dropped "it is not an open issue"
+
+t_case "with the setting off a request without asked that still stands is kept, and says nothing on the issue"
+refresh_setup
+slots 2
+refresh_record 2
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_lacks "$t_out" "drop the refresh"
+t_lacks "$(t_calls gh)" "comment"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "with the setting off a --pr request whose pull request no longer conflicts is dropped"
 refresh_setup

@@ -440,6 +440,7 @@ impl<'a> Poll<'a> {
             return Ok(());
         }
         self.epic_titles();
+        self.refresh_sweep()?;
         let room = self.room()?;
         self.questions(&room, &bot)?;
         self.plan_new(&room)?;
