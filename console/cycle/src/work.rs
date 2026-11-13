@@ -326,7 +326,8 @@
 //!
 //! The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
 //! every cycle. What a stopped cycle of the same issue left there is kept
-//! beside it as <name>-<issue>.before-retry. Every cycle has its workspace at the
+//! beside it as <name>-<issue>.before-retry, and put back in place of the clone
+//! when the start ends before its container runs. Every cycle has its workspace at the
 //! same path inside its container, $TEHAS_HOME/work/<name>: the code index is kept
 //! under that path, so one index serves all cycles. The container never sees the
 //! product checkout: an agent can write anything into the tree it works in, hooks
@@ -1082,7 +1083,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     }
 
     // A fresh workspace for this cycle, the gate it runs, the check that it can
-    // push, its copy of the code index and its mounts.
+    // push, its copy of the code index and its mounts. A return before the
+    // container runs puts back the workspace it moved aside.
+    let mut set = prepare::Aside::default();
     let rc = prepare::tree(
         home,
         &prepare::Tree {
@@ -1094,6 +1097,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             console: console.clone(),
             stop: stop.clone(),
         },
+        &mut set,
     );
     if rc != 0 {
         return rc;
@@ -1128,6 +1132,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     if stop.came() {
         return STOPPED;
     }
+    set.started();
 
     // The runner is the container's command, so a docker stop reaches it: it
     // ends the cycle as interrupted and still writes its result. The container
