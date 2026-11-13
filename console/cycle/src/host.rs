@@ -30,7 +30,9 @@ use crate::runner;
 ///                 the cycle's start was written by this cycle. An older one is
 ///                 a cycle that never reported, and its log is read for nothing.
 ///   nostart       one line: the container's exit status, 1 to 999, plain
-///                 digits. Anything else is no note. Left only when the
+///                 digits. Other text, or a link, is no note, and tehasbot
+///                 cycle says so; a file that could not be read is the note
+///                 with its status not known. Left only when the
 ///                 container was watched to its end, wrote neither a result nor
 ///                 a line of its stream, and nobody stopped it. It says no runner
 ///                 started, as opposed to one that died part way; tehasbot cycle
