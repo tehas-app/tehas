@@ -227,6 +227,7 @@ mod render;
 mod review;
 mod run;
 mod snapshot;
+mod start;
 mod state;
 mod status;
 mod tail;

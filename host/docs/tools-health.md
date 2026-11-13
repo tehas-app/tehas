@@ -263,7 +263,7 @@ older) and the counts in line, building, in review and stopped, and `stale`
 when the snapshot kept a part from an earlier read: the age of the snapshot is
 the age of its lists, so lists kept through ten minutes of failed reads warn as
 an old snapshot does. `checks.github` is `{failed, windowSeconds, lastAt, last}`:
-the GitHub reads the poll, `tehasbot status` and `tehas tidy` could not make
+the GitHub reads the poll, `tehasbot status` and `console tidy run` could not make
 in the last ten minutes, from `~/tehas/state/github-failures`, and the newest
 of their log lines. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the

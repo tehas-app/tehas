@@ -33,9 +33,6 @@ pub mod mask;
 pub mod models;
 pub mod order;
 pub mod out;
-pub mod overlap;
-#[cfg(test)]
-mod overlap_tests;
 pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
