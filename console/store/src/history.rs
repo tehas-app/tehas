@@ -1,5 +1,10 @@
 //! history-show: the rows of `cycle_history` and `plan_history`, the ends of
 //! cycles and planning turns that cycle-end and plan-end wrote. Read only.
+//!
+//! A cycle row also answers `easy`: whether the start it ended ran as an easy
+//! merge. The end does not keep that, so the row reads it off the approval of
+//! its own start: the subquery of `cycles` below, over the marks `started_by`
+//! and `started_easy` that start wrote on its row.
 
 use crate::verbs::{self, j, line, list, obj, row_json, Args, Fail, Kind, Q};
 use rusqlite::Connection;
@@ -66,7 +71,7 @@ fn how_words(how: Option<&'static str>) -> Option<[Option<&'static str>; 2]> {
     }
 }
 
-const CYCLE_NAMES: [&str; 18] = [
+const CYCLE_NAMES: [&str; 19] = [
     "id",
     "issue",
     "attempt",
@@ -84,6 +89,7 @@ const CYCLE_NAMES: [&str; 18] = [
     "failure_cause",
     "provider?",
     "parked?",
+    "easy?",
     "seq",
 ];
 
@@ -128,12 +134,22 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     let [first, second] = how_words(how).unwrap_or([None, None]);
     let mut q = c
         .prepare(
-            "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
-               park_reason, failure_kind, failure_cause, provider, parked, seq,
-               step_number, step_total, round
-             FROM cycle_history
-             WHERE (?1 IS NULL OR issue = ?1)
-               AND (?2 IS NULL OR how = ?2 OR how = ?3)",
+            // The mark of an easy merge lives on the approval of the start that ran
+            // it, and the keeping after a start deletes those rows with the approvals
+            // the base no longer rests on. `started_by` and `started_easy` are what the
+            // start wrote on its own row before it went, so the row of a cycle whose
+            // approval is gone still answers the mark, which is the read #1751 is for
+            // (the row an end would otherwise delete is kept by `EASY_KEPT`).
+            "SELECT h.id, h.issue, h.attempt, h.at, h.status, h.step, h.by_account, h.how, h.pr,
+               h.started_at, h.rc, h.cap, h.park_reason, h.failure_kind, h.failure_cause,
+               h.provider, h.parked,
+               (SELECT count(*) > 0 FROM approvals a
+                  WHERE a.issue = h.issue AND a.started_how = 'refresh'
+                    AND a.started_by = h.attempt AND a.started_easy = 1),
+               h.seq, h.step_number, h.step_total, h.round
+             FROM cycle_history h
+             WHERE (?1 IS NULL OR h.issue = ?1)
+               AND (?2 IS NULL OR h.how = ?2 OR h.how = ?3)",
         )
         .q()?;
     let rows = q
@@ -147,6 +163,8 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     for row in rows {
         let (seq, mut p, at) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
+        // Every cycle row answers `easy`, not only a refresh's, so a reader of
+        // one kind reads one answer for every row.
         // Where the step it ended in was, only as far as it is known.
         for (k, v) in ["step_number", "step_total", "round"].into_iter().zip(at) {
             if let Some(v) = v {

@@ -26,3 +26,10 @@ path = "src/main.rs"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde_json = "1"
 tehas-core = { path = "../core", features = ["mask"] }
+
+# rusqlite's `trace` feature is for the tests alone: it is the hook that lets
+# `tests::a_read_open_runs_no_quick_check_and_a_write_open_still_does` ask
+# whether an open ran `PRAGMA quick_check` (#1769). A feature of a dependency
+# cannot be asked for by `[dev-dependencies]` alone when `[dependencies]` also
+# names the crate, so it is named here; it adds no C and no code to the program,
+# and Cargo would resolve it for any member of the workspace that asked.

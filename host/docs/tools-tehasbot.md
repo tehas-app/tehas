@@ -269,7 +269,9 @@ What the result says is checked against GitHub. A pull request counts as the
 cycle's only when the bot opened it on the branch the result names and it
 names the issue: its head is
 `feature/issue-<n>-...`, as pi-rukas names a branch, or its body closes `#<n>`
-(`Fixes #<n>`, `Closes #<n>`). A pull request on that branch that names
+(`Fixes #<n>`, `Closes #<n>`, `Resolved #<n>`; a body that denies it, `does
+not fix #<n>`, closes nothing). Finish and the dispatcher read a pull request
+by the same rule. A pull request on that branch that names
 another issue is said in the comment and not taken. A result of `merged` is
 reported as merged only when the bot has a merged pull request for the issue
 on that branch. Without one the issue is parked, the comment says that the

@@ -8,11 +8,13 @@
 # worktree: the gate runs in a temporary worktree at that commit.
 #
 # The commit it tags must have a CHANGELOG.md whose section for the new tag,
-# or else its Unreleased section, has an "### Adopter action" heading with at
-# least one line under it, the lines of its changelog fragments
-# (changelog.d/*.md) counted. Only the collection of those fragments and the
-# move of the pinned tools below edit CHANGELOG.md: a person renames Unreleased
-# to the version in the release's pull request, or leaves it.
+# or else its Unreleased section, has a "### Changes" heading and an
+# "### Adopter action" heading, each with at least one line under it, the
+# lines of its changelog fragments (changelog.d/*.md) counted: an Adopter
+# action of "None." over no changes is a page that describes nothing. Only
+# the collection of those fragments and the move of the pinned tools below
+# edit CHANGELOG.md: a person renames Unreleased to the version in the
+# release's pull request, or leaves it.
 #
 # When the head has changelog fragments, the head's own
 # scripts/collect-changelog.sh moves their lines into that section and deletes
@@ -91,7 +93,8 @@
 #
 # Exit: 0 tagged, or the head already carries the newest tag; 1 git, the
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
-#       CHANGELOG.md has no Adopter action for the release, a polyfill it keeps
+#       CHANGELOG.md has no Changes or no Adopter action for the release,
+#       a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
 #       moved, the fragments could not be collected, or the gate failed, or
 #       no green release gate came within the bound;

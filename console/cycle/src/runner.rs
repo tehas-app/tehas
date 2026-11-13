@@ -7,7 +7,6 @@
 //! outcome jq cannot make is none, and a progress jq stops in gives the fields
 //! it had printed before it stopped.
 
-use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -283,7 +282,8 @@ pub fn run(text: &str, issue: u64) -> Run {
 
 /// The fields tehas-cycle reads of the progress summary, in its order:
 /// reviewHeld, reason, from.failure, failure.kind, failure.role and
-/// failure.cause. Each is empty past the point where jq would stop.
+/// failure.cause. Each is empty past the point where jq would stop, and
+/// reviewHeld is empty too when it is not a boolean.
 pub fn progress_fields(text: Option<&str>) -> [String; 6] {
     let mut f: [String; 6] = Default::default();
     let Some(v) = text.and_then(|t| first_value(&cut_bytes(t, 1_000_000))) else {
@@ -296,7 +296,12 @@ pub fn progress_fields(text: Option<&str>) -> [String; 6] {
         Value::String(s) => cut(&kept(s, set), most),
         _ => String::new(),
     };
-    f[0] = (get.at(&v, &["reviewHeld"]) == Some(Value::Bool(true))).to_string();
+    // reviewHeld is `true`, `false`, or empty when the progress does not say:
+    // a field that is not there is not a review that held nothing.
+    // Not through `at`, which reads `false` as nothing, as jq's `//` does.
+    if let Some(Value::Bool(b)) = v.get("reviewHeld") {
+        f[0] = b.to_string();
+    }
     let reason = match get.at(&v, &["reason"]).unwrap_or(Value::Null) {
         Value::Null | Value::Bool(false) => Value::String(String::new()),
         Value::String(s) => Value::String(s.replace('\n', " ")),
@@ -493,26 +498,9 @@ pub fn usage(outcome: &Value, progress: Option<&str>) -> (String, bool) {
     (lines.join("\n"), unreadable)
 }
 
-/// `mine` of tehas_names_issue: a pull request whose head is the issue's
-/// branch, or whose body closes the issue.
-pub fn names_issue(pr: &Value, issue: u64) -> bool {
-    let text = |k: &str| match pr.get(k) {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-    };
-    let head = text("headRefName");
-    if head == format!("feature/issue-{issue}")
-        || head.starts_with(&format!("feature/issue-{issue}-"))
-    {
-        return true;
-    }
-    let re = Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{issue}([^0-9]|$)"
-    ))
-    .unwrap();
-    re.is_match(&text("body"))
-}
+/// `mine` of tehas_names_issue: the one rule, which finish and the dispatcher
+/// ask too.
+pub use tehas_core::issue_pull::names_issue;
 
 #[cfg(test)]
 mod tests {
@@ -677,6 +665,10 @@ mod tests {
         ));
         assert_eq!(f[2..], ["result", "provider", "coder", "xy"]);
         assert_eq!(progress_fields(Some("[1]"))[0], "");
+        // Only a boolean says the review held something or nothing.
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":false}"#))[0], "false");
+        assert_eq!(progress_fields(Some(r#"{"reason":"x"}"#))[0], "");
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":"false"}"#))[0], "");
     }
 
     #[test]

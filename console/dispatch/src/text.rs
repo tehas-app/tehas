@@ -155,7 +155,7 @@ pub fn closing_numbers(body: &str) -> Vec<u64> {
 
 /// Whether the words before a closing keyword deny it: `not`, `no` or `never`
 /// one or two words back, or a word with `n't` on its end. The reading of
-/// `negated` in `console/cycle/src/finish/run.rs`, which the cycle's finish
+/// `negated` in `tehas_core::issue_pull`, which the cycle's finish
 /// reads a body with: `does not fix #7`, `no test fixes #7`, `doesn't fix #7`
 /// and `never fixed #7` name no issue. A negation further back is another
 /// clause's: `nothing here, but it fixes #7` names 7.
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn a_keyword_the_words_before_it_deny_names_nothing() {
-        // The negatives the cycle's finish reads (console/cycle's `negated`),
+        // The negatives the cycle's finish reads (`tehas_core::issue_pull::negated`),
         // so a body the finish does not call the issue's holds nothing either.
         for body in [
             "This does not fix #7",

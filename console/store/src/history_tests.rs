@@ -47,6 +47,40 @@ fn cycle(home: &Path, issue: i64, how: &str, at: i64) {
     );
 }
 
+/// A refresh of `issue` that ran as an easy merge and ended at `at`. The
+/// approval of its start carries `--easy`, which is where `history-show` reads
+/// the mark from (#1751).
+fn easy_refresh(home: &Path, issue: i64, at: i64) {
+    let at_s = (at - 10).to_string();
+    ok_at(
+        home,
+        at - 10,
+        &[
+            "approval-record",
+            &issue.to_string(),
+            "--at",
+            &at_s,
+            "--by",
+            "alice",
+            "--how",
+            "refresh",
+            "--body-sha",
+            SHA,
+            "--refresh-pr",
+            "40",
+            "--refresh-head",
+            "0123456789abcdef0123456789abcdef01234567",
+            "--easy",
+        ],
+    );
+    let (_l, a) = {
+        let lock = hold(home, issue);
+        let v = ok_at(home, at - 5, &["cycle-start", &issue.to_string()]);
+        (lock, v["attempt"].as_i64().unwrap())
+    };
+    end(home, issue, a, "failed");
+}
+
 /// A planning turn of `issue` that finished at `at`, filing one issue.
 fn turn(home: &Path, issue: i64, at: i64) {
     let brief = write_file(home, &format!("brief-{issue}.md"), b"brief");
@@ -123,7 +157,7 @@ fn history_show_lists_every_column_in_the_order_written() {
         json!({"kind":"cycle","id":id,"issue":10,"attempt":1,"at":NOW + 20,"status":"failed",
                "step":"review","by":"alice","how":"label","pr":40,"started_at":NOW + 10,"rc":3,
                "cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,
-               "provider":true,"parked":false,"seq":3})
+               "provider":true,"parked":false,"easy":false,"seq":3})
     );
     let p = all[1].clone();
     let id = p["id"].clone();
@@ -322,6 +356,129 @@ fn history_show_refuses_bad_arguments() {
         assert!(why.starts_with("usage history-show: "), "{args:?}: {why}");
         assert!(why.contains(says), "{args:?}: {why}");
     }
+}
+
+#[test]
+fn history_show_keeps_the_easy_mark_of_a_pruned_approval() {
+    // The read of #1751. A refresh that ran as an easy merge keeps its mark on the
+    // row `history-show` answers even after the row of its approval is gone: a
+    // second refresh on the same base is what makes it go, because the keeping that
+    // follows a start keeps the base and the starts on it and deletes the rest. The
+    // start that merged leaves no row of its own -- an easy merge runs no container --
+    // so the newest row of such a record is the row of the merge, and the rules of
+    // #1031 read the mark off it to hold a second easy merge back.
+    let home = home("history-easy-pruned");
+    start(&home, 31);
+    easy_refresh(&home, 31, NOW + 40);
+    let marked = rows(&home, &["31", "--kind", "cycle"]);
+    assert_eq!(
+        marked
+            .iter()
+            .filter(|r| r["how"] == "refresh" && r["easy"] == json!(true))
+            .count(),
+        1,
+        "the row of the easy merge says so: {marked:?}"
+    );
+    // The next refresh of the same base, whose start's keeping deletes the approval
+    // of the start of the easy merge.
+    easy_refresh(&home, 31, NOW + 200);
+    let after = rows(&home, &["31", "--kind", "cycle"]);
+    assert_eq!(
+        after
+            .iter()
+            .filter(|r| r["how"] == "refresh" && r["easy"] == json!(true))
+            .count(),
+        2,
+        "both rows of the easy merges still say so after the keeping: {after:?}"
+    );
+}
+
+#[test]
+fn history_show_keeps_the_easy_mark_past_a_cycle_that_never_ran() {
+    // The same read, on the other path that deletes used approvals: a cycle whose
+    // runner started no container ends `--never-ran`, which takes every used approval
+    // of the issue with it so no later start rests on an approval that started nothing
+    // -- the easy merge's row among them, and that row is what the row of its cycle
+    // answers `easy` off. With it gone the history would answer a plain `false` for a
+    // merge that ran, and the poll, reading no easy merge on the record, would choose
+    // that very merge again (#1751). A merge is one merge whether the container it
+    // asked for ever ran.
+    let home = home("history-easy-never-ran");
+    // The easy merge, and the start of the refresh after it, which the runner never
+    // started. `--never-ran` is what the unit passes for such a run, with the exit of
+    // the runner that made no container.
+    start(&home, 33);
+    easy_refresh(&home, 33, NOW + 40);
+    let (l, a) = {
+        let lock = hold(&home, 33);
+        // The row of this start is written with its own time and its own head: the
+        // helpers share one `at`, and `cycle-start` takes the newest unused row, so a
+        // row of a stale `at` would overwrite the approval of the easy merge whose
+        // mark this case reads.
+        let at = (NOW + 200).to_string();
+        let head = "b".repeat(40);
+        ok_at(
+            &home,
+            NOW + 200,
+            &[
+                "approval-record",
+                "33",
+                "--at",
+                &at,
+                "--by",
+                "alice",
+                "--how",
+                "refresh",
+                "--body-sha",
+                SHA,
+                "--refresh-pr",
+                "40",
+                "--refresh-head",
+                &head,
+            ],
+        );
+        let v = ok_at(&home, NOW + 205, &["cycle-start", "33"]);
+        assert_eq!(
+            one::<i64>(&home, "SELECT started_easy FROM approvals WHERE issue = 33"),
+            0,
+            "this start is not the easy merge: its row is its own"
+        );
+        (lock, v["attempt"].as_i64().unwrap())
+    };
+    ok_at(
+        &home,
+        NOW + 210,
+        &[
+            "cycle-end",
+            "33",
+            "--attempt",
+            &a.to_string(),
+            "--status",
+            "unknown",
+            "--rc",
+            "4",
+            "--parked",
+            "--never-ran",
+        ],
+    );
+    drop(l);
+    let after = rows(&home, &["33", "--kind", "cycle"]);
+    assert_eq!(
+        after
+            .iter()
+            .filter(|r| r["how"] == "refresh" && r["easy"] == json!(true))
+            .count(),
+        1,
+        "the row of the merge that ran says so although a later end deleted the \
+         used rows: {after:?}"
+    );
+    // Of the used approvals the end leaves one: the marked row. The record still holds
+    // no base for a later start to rest on, which is what `--never-ran` is for.
+    assert_eq!(
+        count(&home, "approvals WHERE issue = 33 AND used_by IS NOT NULL"),
+        1,
+        "the approval of the easy merge is the only used row the end leaves"
+    );
 }
 
 #[test]

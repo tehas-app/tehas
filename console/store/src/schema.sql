@@ -1,14 +1,15 @@
--- The schema of state/tehas.db, schema v13: every table, column, key and
+-- The schema of state/tehas.db, schema v14: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles is
--- written as db::STEP_13 rebuilds it and planning_notes as db::STEP_4 does. Sections 3.10 to 3.12
+-- written as db::STEP_14 rebuilds it and planning_notes as db::STEP_4 does. Sections 3.10 to 3.12
 -- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
 -- is db::STEP_11. Nothing here references them, so they are dropped rather
--- than rebuilt. Schema 12 adds start_order (db::STEP_12). Schema 13 lets
--- cycles.how say 'host', a start `tehas start` approved (db::STEP_13).
+-- than rebuilt. Schema 12 adds start_order (db::STEP_12). Schema 13 adds the
+-- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
+-- 'host', a start `tehas start` approved (db::STEP_14).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -139,6 +140,19 @@ CREATE TABLE approvals (
   used_by      INTEGER,
   input_json   TEXT,
   easy         INTEGER NOT NULL DEFAULT 0 CHECK (easy IN (0, 1)),
+  -- started_by, started_how and started_easy (v13) are what the start this approval
+  -- ran wrote on its own row: the attempt of the start, the word it ran under, and
+  -- whether it ran as an easy merge. The keeping after a start deletes the approvals
+  -- of the starts the base no longer rests on, and a record left with only its live
+  -- rows answered no refreshes, no easy merge, and no mark for the row of a cycle
+  -- whose approval had gone: the poll then took every refresh after the first easy
+  -- merge for the full one, and could drop the refresh it owed for want of a count.
+  -- These are the words of a start kept where the answers can still reach them. A
+  -- row that ran no start has 0, the empty word and 0, which counts it nowhere; the
+  -- backfill in `db.rs` writes them for the rows of a store that predates this step.
+  started_by   INTEGER NOT NULL DEFAULT 0,
+  started_how  TEXT NOT NULL DEFAULT '',
+  started_easy INTEGER NOT NULL DEFAULT 0 CHECK (started_easy IN (0, 1)),
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);

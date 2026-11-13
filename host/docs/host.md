@@ -1295,6 +1295,7 @@ hold a slot for ever:
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
 | One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |
+| A call to GitHub in a run of the improvement loop | 300 s, then a kill 10 s later | The call counts as failed, and the log says `gh <command> gave no answer in 300s, or could not be run`. A run of the loop ends at 90 minutes (`TimeoutStartSec` of `tehas-improve.service`), which a test holds above the analyst's 3600 s |
 | The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
