@@ -987,7 +987,9 @@ or the handoff comment, and whether the failure was GitHub's. GitHub's is an
 HTTP 5xx, a 429, a 403 that names a rate limit, a timeout or a connection
 error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
 request's own, and so is a failure that names none of these. A later cycle of
-the issue replaces the record, or removes it when its end failed nothing.
+the issue replaces the record, or removes it when its end failed nothing. A
+record with a field missing or of the wrong type does not read: the poll tries
+nothing on it and `tehas status` does not list it.
 
 The push and the pull request are made in the cycle's container, so the host
 knows of their failure only from the cycle's own result. The record says so
