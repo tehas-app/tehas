@@ -4,10 +4,12 @@
 //! the token a container reads under `state/github` does not run out at the
 //! top of its hour.
 //!
-//! The bash loop of `lib/github-app.sh` it replaces asked every
-//! `TEHAS_GITHUB_RENEW_EVERY` seconds and threw away what the token command
-//! said, so two failed asks in a row let the token expire and nothing was
-//! logged. Here a failed ask is one line on standard error, which the cycle's
+//! The token and its expiry are kept by console/ops/src/github.rs, which
+//! hands out the kept token while it has [`LEFT`] seconds left and makes a new
+//! one otherwise. The bash loop this replaced, once in `lib/github-app.sh`,
+//! asked every `TEHAS_GITHUB_RENEW_EVERY` seconds and threw away what the
+//! token command said, so two failed asks in a row let the token expire and
+//! nothing was logged. Here a failed ask is one line on standard error, which the cycle's
 //! work log keeps, and the next ask comes after `--retry` seconds instead of
 //! waiting the whole of `--every`.
 //!
@@ -28,6 +30,34 @@ pub type Now = fn() -> u64;
 /// which only ever makes a wait end at once.
 pub fn epoch_seconds() -> u64 {
     tehas_core::time::now().max(0) as u64
+}
+
+/// The seconds a kept token must still have for `tehasbot github-token` to
+/// hand it out instead of making a new one (console/ops/src/github.rs). A
+/// renewer that waits longer than this between two asks lets the token run
+/// out.
+pub const LEFT: u64 = 600;
+
+/// The wait after a successful ask when `TEHAS_GITHUB_RENEW_EVERY` is unset.
+pub const EVERY: u64 = 300;
+
+/// The wait after a failed ask.
+pub const RETRY: u64 = 30;
+
+/// The longest wait after a successful ask: the token it kept or made has
+/// more than [`LEFT`] seconds left, so it is still good after this wait, one
+/// failed ask and the [`RETRY`] that follows it.
+pub const MOST: u64 = LEFT - 2 * RETRY;
+
+const _: () = assert!(EVERY <= MOST && MOST + RETRY < LEFT);
+
+/// The wait after a successful ask that `TEHAS_GITHUB_RENEW_EVERY` sets:
+/// [`EVERY`] when it is empty, not a whole number or 0, and at most [`MOST`].
+pub fn every(setting: &str) -> u64 {
+    match setting.trim().parse::<u64>() {
+        Ok(0) | Err(_) => EVERY,
+        Ok(s) => s.min(MOST),
+    }
 }
 
 /// When the next ask is made after one that ended `ok`: the whole of `every`
@@ -171,6 +201,17 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn the_wait_keeps_the_token_alive_through_one_failed_ask() {
+        assert_eq!(every(""), EVERY);
+        assert_eq!(every("x"), EVERY);
+        assert_eq!(every("0"), EVERY);
+        assert_eq!(every("-5"), EVERY);
+        assert_eq!(every("120"), 120);
+        assert_eq!(every("900"), MOST);
+        assert_eq!(every(&u64::MAX.to_string()), MOST);
+    }
 
     /// A clock a case winds: the seconds it reads, and how many times it has
     /// been read. The loop reads it and counts its steps on it; the case winds
