@@ -1062,6 +1062,27 @@ mod tests {
 
     const NOW: i64 = 1_791_942_400;
 
+    /// The only way these tests put a written time into the expectation they
+    /// compare a file against: the clock read either side of the call which
+    /// wrote it brackets what that call could have stamped, so a run which
+    /// crosses a second boundary inside the call is still accepted and a time a
+    /// minute out stops the test here, with the span in its text. `must_use`
+    /// and `#[track_caller]` together mean a test which drops the check fails
+    /// the lints rather than passing without them: the stamp it compares a file
+    /// against only comes out of the check.
+    #[must_use = "a written time counts only once the span around the call holds it"]
+    #[track_caller]
+    fn iso_in(t: i64, from: i64, to: i64) -> String {
+        assert!(
+            from <= t && t <= to,
+            "written time {} is outside [{}, {}]",
+            time::iso(t),
+            time::iso(from),
+            time::iso(to),
+        );
+        time::iso(t)
+    }
+
     /// The reading of a document of one's own making.
     fn of(doc: &str) -> String {
         let d = dir("doc");
@@ -1188,9 +1209,23 @@ mod tests {
     #[test]
     fn for_makes_an_until_from_now() {
         let d = dir("for");
+        let before = now();
         set_in(&d, &["--cycles", "1", "--for", "300"]);
-        let until = read(&written(&d), NOW).field("until");
-        assert_eq!(epoch(&until), Some(now() + 300));
+        let after = now();
+        // The flag stamps its own clock and adds what it was asked for, so the
+        // file holds a second 300 on from one the clock passed through while
+        // the call ran. A minute out either way is outside that span. The stamp
+        // comes from the file, not from `read` at `NOW`, which would make any
+        // `until` agree with itself.
+        let doc = fs::read_to_string(written(&d)).unwrap();
+        let until = until_of(&doc);
+        assert_eq!(
+            doc,
+            format!(
+                "{{\"v\":1,\"cycles\":1,\"plan\":true,\"until\":\"{}\",\"reason\":\"\"}}\n",
+                iso_in(until, before + 300, after + 300),
+            )
+        );
     }
 
     #[test]
@@ -1747,6 +1782,29 @@ mod tests {
         read_pause_bytes(doc.as_bytes()).said()
     }
 
+    /// The `until` of a written limit document as the seconds since the epoch
+    /// it names.
+    fn until_of(doc: &str) -> i64 {
+        let until = serde_json::from_str::<Value>(doc)
+            .unwrap()
+            .get("until")
+            .and_then(Value::as_str)
+            .expect("the limit document holds no until")
+            .to_string();
+        epoch(&until).expect("the until of a limit is no time")
+    }
+
+    /// The `at` of a pause document as the seconds since the epoch it names.
+    fn pause_at(doc: &str) -> i64 {
+        let at = serde_json::from_str::<Value>(doc)
+            .unwrap()
+            .get("at")
+            .and_then(Value::as_str)
+            .expect("the pause document holds no at")
+            .to_string();
+        epoch(&at).expect("the at of a pause is no time")
+    }
+
     fn pause_file(d: &TestDir) -> PathBuf {
         fs::create_dir_all(d.join("state")).unwrap();
         d.join("state/pause.json")
@@ -1869,13 +1927,16 @@ mod tests {
     fn a_pause_writes_the_flag_reads_back_and_keeps_the_first_one() {
         let d = dir("pause-set");
         let file = pause_file(&d);
+        let before = now();
         assert_eq!(pause_set(&file, "waiting for the gate"), 0);
+        let after = now();
+        let at = iso_in(pause_at(&fs::read_to_string(&file).unwrap()), before, after);
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"waiting for the gate\"}}\n",
                 account::name(),
-                time::iso(now()),
+                at,
             )
         );
         assert_eq!(
@@ -1895,13 +1956,16 @@ mod tests {
     fn a_pause_with_nothing_to_say_writes_an_empty_reason() {
         let d = dir("pause-bare");
         let file = pause_file(&d);
+        let before = now();
         assert_eq!(pause_set(&file, ""), 0);
+        let after = now();
+        let at = iso_in(pause_at(&fs::read_to_string(&file).unwrap()), before, after);
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
             format!(
                 "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"\"}}\n",
                 account::name(),
-                time::iso(now()),
+                at,
             )
         );
         // The reading of such a flag has no reason, and its line says none.
@@ -1910,12 +1974,12 @@ mod tests {
             format!(
                 "{{\"state\":\"ok\",\"by\":\"{}\",\"at\":\"{}\"}}",
                 account::name(),
-                time::iso(now()),
+                at
             )
         );
         assert_eq!(
             read_pause(&file).said(),
-            format!("pause     flag, written {}", time::iso(now()))
+            format!("pause     flag, written {}", at)
         );
     }
 
