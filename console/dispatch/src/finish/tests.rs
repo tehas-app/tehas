@@ -353,6 +353,25 @@ fn the_asked_issues_are_those_with_the_label() {
     assert_eq!(asked(&snap, 1), [7, 12]);
 }
 
+#[test]
+fn asks_of_accounts_not_allowed_take_no_turn_of_the_poll() {
+    let ev = |by: &str| json!([{"event": "labeled", "label": {"name": LABEL}, "actor": {"login": by}, "created_at": AT}]);
+    let issue = |by: &str| json!({"work": {"labels": [{"name": LABEL}]}, "events": ev(by)});
+    let snap = json!({"issues": {
+        "2": issue("mallory"), "3": issue("mallory"), "4": issue("mallory"),
+        "5": {"work": {"labels": [{"name": LABEL}]}, "events": {"failed": true}},
+        "9": issue("alice"), "10": issue("acme-millwright"), "11": issue("bob"),
+    }});
+    let (asks, ignored) = counted(&settings(), &snap, 1);
+    assert_eq!(asks, [5, 9, 10, 11]);
+    assert_eq!(
+        ignored,
+        [2, 3, 4].map(|n| format!(
+            "ignore #{n}: tehas:finish was applied by 'mallory', not an allowed account"
+        ))
+    );
+}
+
 fn ran(status: Option<i32>, out: &str, err: &str) -> Ran {
     Ran {
         status,
