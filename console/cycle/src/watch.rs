@@ -358,13 +358,9 @@ pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
             Some("verify-started") => open.push((word("step"), word("command"))),
             Some("verify-completed" | "verify-aborted") => {
                 let step = word("step");
-                match open.iter().rposition(|(s, _)| *s == step) {
-                    Some(i) => {
-                        open.remove(i);
-                    }
-                    None => {
-                        open.pop();
-                    }
+                // An end that matches no start says nothing of the gates still open.
+                if let Some(i) = open.iter().rposition(|(s, _)| *s == step) {
+                    open.remove(i);
                 }
             }
             _ => {}
@@ -1662,6 +1658,17 @@ mod tests {
         // A gate closed by an aborted line is closed.
         let aborted = cut + &aborted_line(7, "verify", "make test", "TERM", 5);
         assert!(open_gates(aborted.as_bytes(), 7).is_empty());
+        // An end with no start of its step closes no gate that is running.
+        let stray = line("verify-started", "develop")
+            + &line("verify-started", "verify")
+            + &line("verify-completed", "lensreview");
+        assert_eq!(
+            open_gates(stray.as_bytes(), 7),
+            vec![
+                ("develop".to_string(), "make test".to_string()),
+                ("verify".to_string(), "make test".to_string())
+            ]
+        );
     }
 
     #[test]
