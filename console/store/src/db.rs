@@ -753,6 +753,8 @@ pub enum Purpose {
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
+/// A connection that writes also runs `PRAGMA quick_check` (#1769), so the
+/// first write of a run is refused rather than written into a damaged file.
 /// A file that exists but cannot be opened is `unreadable`, and the store does
 /// not move it (ADR 0003).
 pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
@@ -816,11 +818,21 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
     conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
-/// The same checks and the same connection as `open`, for the reader that must
+/// The same connection as `open` and the same pragmas, for the reader that must
 /// not disturb a writer's lock at all: read-only, so it waits at most READ_WAIT
 /// and writes no row. It can still make the -wal and -shm beside the file when
 /// they are absent, at the file's mode. `check` is the verb that reads, and
 /// section 4 says so.
+///
+/// A read open runs no `PRAGMA quick_check` (#1769): the check reads every page
+/// of the file, so a poll that made eight reads of the store paid eight whole
+/// scans of it, and a reader writes nothing whatever the pages hold. What a
+/// read of a damaged file can answer is the same SQLite reports for a file that
+/// is not a database at all - `classify` still turns it into 78 `corrupt` - and
+/// the damage a read cannot see is the read verb's to survive and `check`'s to
+/// name: `check` runs `PRAGMA integrity_check` over the whole file whatever the
+/// open did, and every verb that writes meets the quick_check of its own open
+/// before it changes a byte.
 pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
@@ -896,10 +908,27 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 }
 
 /// What every connection sets, in the one place: the journal mode, the busy
-/// handler, the durability and the foreign keys. The handler asks again every
-/// BUSY_POLL, for up to BUSY_TIMEOUT (5 s) on a connection that writes and
-/// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
-/// SQLite's busy_timeout, which then reads 0.
+/// handler, the durability and the foreign keys, and - for a connection that
+/// writes - `PRAGMA quick_check`. The handler asks again every BUSY_POLL, for
+/// up to BUSY_TIMEOUT (5 s) on a connection that writes and READ_WAIT (1 s) on
+/// one that reads, then the word `busy`. It replaces SQLite's busy_timeout,
+/// which then reads 0.
+///
+/// The check belongs to the writer alone (#1769). `check`, `migrate` and
+/// `create` keep it, and so does the first write of a run: those are the opens
+/// after which the store's own rows are at risk, and refusing a damaged file
+/// there is what keeps a verb from writing into one. A read pays nothing for a
+/// file it cannot change.
+///
+/// `prepare_of_the_store` is the one test's way in: it puts SQLite's trace hook on the
+/// connection between the call that makes it and the call that prepares it, which is the only
+/// moment SQLite is quiet enough for the hook, and so it opens the file itself and is given this
+/// function rather than a copy of what it says.
+#[cfg(test)]
+pub(crate) fn prepare_of_the_store(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+    prepare(conn, purpose)
+}
+
 fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
@@ -914,13 +943,15 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
         .map_err(classify)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
-    let check: String = conn
-        .query_row("PRAGMA quick_check", [], |r| r.get(0))
-        .map_err(classify)?;
-    if check != "ok" {
-        return Err(DbError::Corrupt(format!(
-            "the database failed its check: {check}"
-        )));
+    if purpose == Purpose::Write {
+        let check: String = conn
+            .query_row("PRAGMA quick_check", [], |r| r.get(0))
+            .map_err(classify)?;
+        if check != "ok" {
+            return Err(DbError::Corrupt(format!(
+                "the database failed its check: {check}"
+            )));
+        }
     }
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))

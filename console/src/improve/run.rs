@@ -14,7 +14,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+use tehas_core::call::{self, Ran};
 use tehas_core::forge::{Bounded, Forge, GitHub};
 use tehas_core::kinds::{self, Kind};
 use tehas_core::models::{self, host_path};
@@ -153,36 +154,42 @@ fn masked_copy(raw: &Path, to: &Path) -> Option<String> {
     Some(text)
 }
 
+// Every gh call of a run, under this bound: a client that stops answering
+// would hold the run's lock until the unit's own limit ends it.
+const GH_BOUND: Duration = Duration::from_secs(300);
+
+fn bounded(program: &str, args: &[&str], bound: Duration) -> Ran {
+    let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+    call::run_full(program, &args, None, bound, call::GRACE, &[])
+}
+
+fn gh(args: &[&str]) -> Ran {
+    let ran = bounded("gh", args, GH_BOUND);
+    if ran.status.is_none() {
+        say(&format!(
+            "gh {} gave no answer in {}s, or could not be run",
+            args.first().unwrap_or(&""),
+            GH_BOUND.as_secs()
+        ));
+    }
+    ran
+}
+
 fn gh_quiet(args: &[&str]) -> bool {
-    Command::new("gh")
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    gh(args).ok()
 }
 
 // What it prints on standard error goes to the run's log.
 fn gh_says(args: &[&str]) -> Option<String> {
-    let out = Command::new("gh")
-        .args(args)
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let ran = gh(args);
+    let _ = io::stderr().write_all(ran.err.as_bytes());
+    ran.ok().then_some(ran.out)
 }
 
 /// What the call printed, whether or not it failed. Nothing on standard error.
 fn gh_read(args: &[&str]) -> (bool, String) {
-    match Command::new("gh").args(args).stderr(Stdio::null()).output() {
-        Ok(out) => (
-            out.status.success(),
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-        ),
-        Err(_) => (false, String::new()),
-    }
+    let ran = gh(args);
+    (ran.ok(), ran.out)
 }
 
 /// The commit of the last close, when a commit closed it. Nothing for an issue
@@ -590,7 +597,7 @@ impl Loop {
             for r in &self.repos {
                 let mut forge = GitHub::new(
                     r.clone(),
-                    Box::new(Bounded::new("gh", std::time::Duration::from_secs(30))),
+                    Box::new(Bounded::new("gh", Duration::from_secs(30))),
                 );
                 match forge.issue_types() {
                     Ok(types) if types.contains(t) => {}
@@ -1415,6 +1422,38 @@ mod tests {
         assert_eq!(
             masked_copy(&d.join("none"), &d.join("m")).as_deref(),
             Some("")
+        );
+    }
+
+    #[test]
+    fn a_call_that_does_not_answer_is_ended_at_its_bound() {
+        let began = std::time::Instant::now();
+        let ran = bounded("sh", &["-c", "sleep 60"], Duration::from_secs(1));
+        assert_eq!(ran.status, None);
+        assert!(!ran.ok());
+        assert!(began.elapsed() < Duration::from_secs(30));
+        assert!(bounded("sh", &["-c", "echo hi"], GH_BOUND).ok());
+    }
+
+    // The unit's limit ends the run, so it outlasts the analyst, its kill,
+    // and a gh call after it.
+    #[test]
+    fn the_unit_gives_the_run_more_than_the_analyst_bound() {
+        let unit = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../host/systemd/tehas-improve.service"
+        ));
+        let limit = unit
+            .lines()
+            .find_map(|l| l.strip_prefix("TimeoutStartSec="))
+            .expect("the unit sets TimeoutStartSec");
+        let secs: u64 = match limit.strip_suffix("min") {
+            Some(m) => m.parse::<u64>().expect("minutes") * 60,
+            None => limit.parse().expect("seconds"),
+        };
+        assert!(
+            secs >= BOUND + 60 + GH_BOUND.as_secs(),
+            "TimeoutStartSec={limit} is less than the analyst bound {BOUND}s, its kill and a gh call"
         );
     }
 }

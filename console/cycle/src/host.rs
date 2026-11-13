@@ -262,6 +262,13 @@ mod tests {
     use crate::runner::LOG_TAIL;
     use tehas_core::testdir::TestDir;
 
+    #[test]
+    fn each_name_of_files_is_a_cycle_note() {
+        for name in FILES {
+            assert!(tehas_core::cycle_notes::is_note(name), "{name}");
+        }
+    }
+
     /// At least `n` bytes of what a runner writes between its steps: one line,
     /// so the steps after it are still whole lines.
     fn written(n: usize) -> String {
