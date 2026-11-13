@@ -145,7 +145,7 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_lacks "$t_out" "gives a cycle none"
 t_contains "$t_out" "the approval record of issue 7, or the manifest kept for it, could not be read"
-t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"
+t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read (attach: left-out exited 1): nothing is said about what this cycle was not given"
 t_eq "$(kept_manifests)" 1
 
 t_case "a link of the record that is not of GitHub's storage is not counted"
