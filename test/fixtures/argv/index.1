@@ -5,6 +5,10 @@ run
 tehas-index
 --network
 none
+--cap-drop
+ALL
+--security-opt
+no-new-privileges:true
 --cgroup-parent
 tehas.slice
 --memory

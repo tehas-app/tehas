@@ -425,6 +425,27 @@ fn a_file_replaced_with_no_old_copy_is_a_gap_read_from_its_start() {
     assert!(b.gaps.is_empty() && b.events.is_empty());
 }
 
+// The cursor's hash is of the masked text: two logs that differ only in a
+// token give the same hash, so the cursor tells nothing the events do not.
+#[test]
+fn the_cursor_hash_is_of_the_masked_text() {
+    let heads = |name: &str, token: &str| {
+        let env = Env::new(name);
+        env.append(
+            "dispatch.log",
+            &line(T0, &format!("ERROR: gh api failed with {token}")),
+        );
+        env.append("dispatch.log", &line(T0 + 1, "start #2"));
+        let next = poll(&env.dirs, None, None).next;
+        let parts: Vec<String> = next.split('.').map(String::from).collect();
+        (parts[2].clone(), parts[4].clone(), parts[8].clone())
+    };
+    let one = heads("hash-one", &token());
+    let two = heads("hash-two", &format!("ghp_{}", "Z".repeat(36)));
+    assert_ne!(one.0, "0");
+    assert_eq!(one, two);
+}
+
 #[test]
 fn a_truncated_file_is_a_gap_read_from_its_start() {
     let env = Env::new("truncated");

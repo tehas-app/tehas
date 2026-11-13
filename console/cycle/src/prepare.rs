@@ -427,13 +427,65 @@ fn aside(tree: &str) -> bool {
     ran(Command::new("rm").args(["-rf", &kept])) && ran(Command::new("mv").args([tree, &kept]))
 }
 
+/// The workspace of the cycle before, moved aside by this start. A start that
+/// ends before its container runs drops it, and the workspace is put back in
+/// place of this start's clone: the clone holds no commits, and the end of the
+/// cycle removes what is under the name beside.
+#[derive(Default)]
+pub struct Aside {
+    tree: Option<String>,
+}
+
+impl Aside {
+    /// aside(), what it moves held here.
+    fn take(&mut self, tree: &str) -> bool {
+        let before = Path::new(tree).exists();
+        if !aside(tree) {
+            return false;
+        }
+        if before {
+            self.tree = Some(tree.to_string());
+        }
+        true
+    }
+
+    /// The container runs: what was moved aside stays there.
+    pub fn started(mut self) {
+        self.tree = None;
+    }
+}
+
+impl Drop for Aside {
+    fn drop(&mut self) {
+        let Some(tree) = self.tree.take() else {
+            return;
+        };
+        if !put_back(&tree) {
+            say(&format!(
+                "tehas work: could not put the workspace of the last cycle back at {tree}, it is at {tree}.before-retry"
+            ));
+        }
+    }
+}
+
+/// The kept workspace in place of the clone beside it.
+fn put_back(tree: &str) -> bool {
+    let kept = format!("{tree}.before-retry");
+    Path::new(&kept).is_dir()
+        && ran(Command::new("rm").args(["-rf", tree]))
+        && ran(Command::new("mv").args([&kept, tree]))
+}
+
 /// The workspace of this cycle, at the tip the product checkout last fetched for
 /// the branch. pi-rukas writes the three names into it, and a product needs no
 /// .gitignore lines for them.
-fn make_tree(tree: &str, state_dir: &str, branch: &str) -> bool {
+fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool {
     let works = Path::new(tree).parent().unwrap_or(Path::new(""));
     let marked = fs::create_dir_all(works).is_ok()
         && fs::File::create(works.join(".tehas-workspaces")).is_ok();
+    if !marked || !set.take(tree) {
+        return false;
+    }
     let exclude = |tree: &str| {
         OpenOptions::new()
             .append(true)
@@ -444,9 +496,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str) -> bool {
             })
             .is_ok()
     };
-    marked
-        && aside(tree)
-        && ran(Command::new("rm").args(["-rf", state_dir]))
+    ran(Command::new("rm").args(["-rf", state_dir]))
         && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch)
         && exclude(tree)
 }
@@ -659,8 +709,8 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
     Some(78)
 }
 
-/// The second step. Its exit status.
-pub fn tree(home: &Path, t: &Tree) -> i32 {
+/// The second step. Its exit status. What it moves aside is in `set`.
+pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     let Some(mut state) = read_state(&t.file) else {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -670,7 +720,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
     if t.stop.came() {
         return STOPPED;
     }
-    if !make_tree(&tree, &state_dir, &t.branch) {
+    if !make_tree(&tree, &state_dir, &t.branch, set) {
         eprintln!("tehas work: could not make the workspace {tree}, not starting a cycle");
         return 78;
     }
@@ -681,7 +731,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
             t.branch
         );
         eprintln!(
-            "tehas work: {tree} is left in place with what it holds, and {tree}.before-retry holds what the last cycle left, if any"
+            "tehas work: {tree} holds what the last cycle left, or this start's clone when it left none, and {tree}.before-retry what the cycle before it left, if any"
         );
         return 78;
     }
@@ -979,6 +1029,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn each_name_of_protocol_is_a_cycle_note() {
+        for name in PROTOCOL {
+            assert!(tehas_core::cycle_notes::is_note(name), "{name}");
+        }
+    }
+
+    #[test]
     fn the_container_runs_the_image_its_record_got_and_the_tag_without_one() {
         let id = format!("sha256:{}", "e".repeat(64));
         let r = Record {
@@ -1091,5 +1148,56 @@ mod tests {
         assert!(!d.join("w.before-retry/old").exists());
         assert!(aside(tree.to_str().unwrap()));
         assert!(d.join("w.before-retry/new").exists());
+    }
+
+    /// The workspace of a cycle that ran, then the start after it: whether
+    /// that start ran its container, and what is left under each name.
+    #[test]
+    fn a_start_that_never_ran_puts_back_the_workspace_it_moved_aside() {
+        for (ran, at_tree, beside) in [(false, "finished", None), (true, "clone", Some("finished"))]
+        {
+            let d = tehas_core::testdir::TestDir::new("prepare-aside");
+            let tree = d.join("w");
+            let tree = tree.to_str().unwrap();
+            fs::create_dir_all(d.join("w")).unwrap();
+            fs::write(d.join("w/finished"), "x").unwrap();
+            let mut set = Aside::default();
+            assert!(set.take(tree));
+            fs::create_dir_all(d.join("w")).unwrap();
+            fs::write(d.join("w/clone"), "x").unwrap();
+            if ran {
+                set.started();
+            } else {
+                drop(set);
+            }
+            assert!(d.join("w").join(at_tree).exists(), "{ran}");
+            let other = if at_tree == "clone" {
+                "finished"
+            } else {
+                "clone"
+            };
+            assert!(!d.join("w").join(other).exists(), "{ran}");
+            match beside {
+                Some(f) => assert!(d.join("w.before-retry").join(f).exists(), "{ran}"),
+                None => assert!(!d.join("w.before-retry").exists(), "{ran}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_start_that_moved_nothing_aside_keeps_its_clone() {
+        let d = tehas_core::testdir::TestDir::new("prepare-aside-none");
+        fs::create_dir_all(d.join("w")).unwrap();
+        fs::write(d.join("w/clone"), "x").unwrap();
+        let tree = d.join("nothing-yet");
+        let mut set = Aside::default();
+        assert!(set.take(tree.to_str().unwrap()));
+        fs::create_dir_all(&tree).unwrap();
+        drop(set);
+        assert!(tree.exists());
+        assert!(d.join("w/clone").exists());
+        let tree = d.join("w");
+        assert!(!put_back(tree.to_str().unwrap()));
+        assert!(d.join("w/clone").exists());
     }
 }
