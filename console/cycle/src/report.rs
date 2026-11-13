@@ -663,6 +663,20 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     // word that is no count of seconds is no stop there and here, so neither
     // the step nor the stop of that file counts.
     let secs = |s: &str| re(r"^(0|[1-9][0-9]{0,8})$", s);
+    // A stop file that is there but unusable is said: it is the only account of
+    // why tehas stopped the container.
+    for (name, what) in [
+        ("stalled", "stall"),
+        ("timed", "time limit"),
+        ("stopped", "tehas stop"),
+    ] {
+        if f.file(name) == &File::Unreadable {
+            warn(
+                &mut r,
+                format!("the {what} note of #{issue} could not be read, so a stop for it is not recorded"),
+            );
+        }
+    }
     let stalled = match f.file("stalled").text() {
         Some(t) => {
             let (a, b) = two_lines(t);
@@ -671,6 +685,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 40,
             );
             if !secs(&a) {
+                warn(
+                    &mut r,
+                    format!("the stall note of #{issue} holds no count of seconds, so the stall is not recorded"),
+                );
                 ("0".to_string(), String::new())
             } else {
                 let s = if at.is_empty() || at == "-" {
@@ -690,6 +708,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             let by = ws.get(1).cloned().unwrap_or_default();
             let at = ws.get(2).cloned().unwrap_or_default();
             if !secs(&n) {
+                warn(
+                    &mut r,
+                    format!("the time limit note of #{issue} holds no count of seconds, so the stop is not recorded"),
+                );
                 ("0".to_string(), String::new(), String::new())
             } else {
                 let s = if re(r"^[A-Za-z0-9_.:-]{1,40}$", &at) && at != "-" {
@@ -1624,7 +1646,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
-        if f.file(name) != &File::Absent {
+        if matches!(f.file(name), File::Text(_) | File::Link) {
             r.files.push(k.to_string());
         }
     }
@@ -1920,6 +1942,53 @@ mod tests {
             comments(&r)
         );
         assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert!(
+            r.log
+                .iter()
+                .any(|l| l.starts_with("WARN: the stall note of #7 holds no count")),
+            "{:?}",
+            r.log
+        );
+    }
+
+    #[test]
+    fn a_stop_note_that_could_not_be_read_is_said_not_taken_for_no_stop() {
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "rc": 2,
+            "started": 1000,
+            "now": 4600,
+            "start": { "attempt": 1 },
+            "files": {
+                "stalled": { "unreadable": true },
+                "timed": { "unreadable": true },
+                "stopped": { "unreadable": true },
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        let r = report(&f, &mut Given(facts["github"].clone()));
+        for what in ["stall", "time limit", "tehas stop"] {
+            let said = format!("WARN: the {what} note of #7 could not be read");
+            assert!(
+                r.log.iter().any(|l| l.starts_with(&said)),
+                "{what}: {:?}",
+                r.log
+            );
+        }
+        assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
+    }
+
+    #[test]
+    fn a_stall_note_that_reads_warns_of_nothing() {
+        let r = notes(vec![("stalled", "1800\nstall-step\n")]);
+        assert!(
+            !r.log.iter().any(|l| l.contains("note of #7")),
+            "{:?}",
+            r.log
+        );
     }
 
     #[test]
@@ -2005,6 +2074,13 @@ mod tests {
             comments(&r).iter().all(|c| !c.contains("timed-step")),
             "{:?}",
             comments(&r)
+        );
+        assert!(
+            r.log
+                .iter()
+                .any(|l| l.starts_with("WARN: the time limit note of #7 holds no count")),
+            "{:?}",
+            r.log
         );
     }
 
