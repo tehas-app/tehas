@@ -306,6 +306,89 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   live tickets: `tehasbot status` no longer writes `live/orders.json`, the
   analytics program has no `orders` command and the docs server no longer
   serves the file (#1968).
+- The store no longer runs its whole-file check when a command only opens it to
+  read, and the dispatcher no longer prunes the analytics database on every poll.
+  Both were paid about ten times in each two-minute poll, on a file neither of
+  them can change. A damaged store is still refused: every verb that writes meets
+  the check before it changes a byte, and `store check` still answers for the file
+  (#1769).
+- `tehas disk --full --json` prints what the daemon still holds back. The count
+  of stopped containers and the list of them, which before came only from a run
+  that also published, are now part of `--full` itself: a reader that must not
+  write the host asks for both figures with the flag alone. The command's own
+  reads still write nothing, and `--publish` is still the one form that does.
+- The answer of `tehas disk` has a JSON Schema and two samples in `api/`:
+  `disk.schema.json`, `disk.sample.json` for the plain answer and
+  `disk.full.json` for the one with `full`. A program that reads the object can
+  copy the samples into its own tests.
+- `tehas update` no longer hangs at its end when a sandbox build ignores the
+  TERM of its time limit: every call the update bounds is now killed 60 seconds
+  after its limit, and a call's output stops being read a few seconds after the
+  call itself exits, even if something it started still holds the output open.
+- `tehas stop` now also clears a cycle's `.disk`, `.comments` and unfinished `.runner_exit.new` / `.status.new` notes, and a new cycle clears the unfinished `.new` notes an earlier one left. Every step that clears a cycle's notes reads one list, so a new note cannot be missed by one of them.
+- With `TEHAS_OVERLAP_HOLD=1`, a start that goes ahead because a running cycle's branch could not be read is now logged (`#N starts unchecked for overlap: ...`). Before, it looked the same as a start that overlapped nothing.
+- `tehas index` now fails (exit 1, with a warning naming the file) when the index was built but its record `state/index.json` could not be written, instead of reporting success. The tip is noted as failed, so the dispatcher's poll no longer runs the indexer again at the same commit on every poll.
+- A park owed a refine whose record the dispatcher cannot read is no longer skipped in silence every poll: one with no time its cycle began is logged as a skip and spent like any other refusal, and one with no readable issue number is logged as a WARN line.
+- `analytics outcomes` (and the MCP tool `factory_outcomes`) no longer drops runs from `failureKinds` and `parkReasons`: a kind or reason that is recorded but is not a valid word now counts under `unrecognised`, and runs that share one second are each counted in every map.
+- A store refusal of one read inside a batched poll read (such as a busy database) is now read with its own word and exit, as the single call reads it, so a transient lock skips that one issue instead of ending the poll as an unusable store.
+- A retry that is refused before its container runs (a failed push check or install, a product with no gate, a stop) now puts the stopped cycle's workspace back at `~/tehas/work/<name>-<issue>`. Before, the refused start left its own empty clone there and the finished workspace under `.before-retry`, which the end of the cycle then removed.
+- A new `tehas:ready` on a parked issue whose park question is no longer on record now starts the cycle. Before, the label was held on the unchanged body while every box of that park was refused, so only an edit of the body could restart it.
+- A cycle's read of its issue from GitHub before it starts is now bounded: each of its three tries ends after 60 seconds, so a `gh` that never answers no longer holds the issue's lock and a slot until the unit's 8-hour limit. The refusal line now says how the last try ended.
+- The text tehas posts to an issue, a park or a planning question, is now masked by the same rules as the console: provider keys, bearer values, passwords in any URL and any `*KEY*`, `*PASSWD*` or `*CREDENTIAL*` assignment are hidden there too.
+- A preview whose state file cannot be written now says why on standard error (the directory, `pull.json` or `state.json`, with the system's error) instead of failing without a word.
+- Every GitHub call of the improvement loop now ends after 300 seconds, so a `gh` client that stops answering no longer holds the run, and its lock, until the unit's 90-minute limit.
+- A cycle's start no longer waits without end on Docker before its start on record: the read of the sandbox image's pi-rukas commit is cut after 30 seconds, and a daemon that has not answered by then costs only the commit, so the start goes on record well inside the dispatcher's 300-second wait instead of holding the issue's lock past it.
+- CI now installs the pinned node of `host/versions.env`, checksummed, before the gate, so the front page's tests run on every pull request and in the release gate instead of printing a `skip` line.
+- `tehas drain` says on stderr when the poll's lock could not be tried at all, instead of reporting it only as a poll that held its lock for the whole wait. It still reports not drained in that case.
+- `analytics plan` now refuses an empty `--rc` as a usage error instead of recording a plan with no exit status; the issue number, `--at` and `--rc` are checked by the workspace's one whole-number rule.
+- `install.sh --check` also checks the owner and mode of
+  `~/.config/tehas/env` and `~/.config/tehas/instance-dir`: a file another
+  account can write is a finding, as for `instance.env`.
+- The indexing container runs with no capabilities and `no-new-privileges`.
+- Text the host posts drops control and invisible characters, and the release
+  notes `tehas update` prints do too.
+- `console gh` counts the attached forms of `gh api` options, such as
+  `-X=POST` and `-fbody=x`, as writes.
+- The mask hides each key of `TEHAS_MCP_KEYS` on its own, not only the whole
+  list.
+- A `tehas:finish` the poll ignores no longer counts toward the three asks a
+  poll runs, and no longer keeps a failed end from being finished by the poll.
+- The poll reads every open pull request for the hold on a closing keyword,
+  not the newest 100, and `tehasbot refresh` reads them all before it removes a
+  request. More than 5000 open pull requests is a read that failed.
+- The note that a `tehas:blocked` hold has cleared counts as said only when
+  the bot wrote it.
+- Every service in `host/systemd` sets `NoNewPrivileges=yes`, and `tehas-mcp`,
+  `tehas-top` and `tehas-energy` have `MemoryMax=256M`. The cycle's unit
+  passes the issue to its shell as an argument.
+- The docs server runs as the edge router does: a read-only root, every
+  capability dropped but `NET_BIND_SERVICE`, and `no-new-privileges`.
+- The dashboard draws a link from the queue file only when it is a web
+  address.
+- With `TEHAS_EGRESS=1`, the push check and the install of the product's
+  dependencies before a cycle are on the cycle's network too.
+- The product's `.pi/settings.json` in a workspace is read only as a plain
+  file of at most 64 KiB; the manual names the files the host reads there.
+- A bounded call of the poll holds no more of a program's answer than its
+  ceiling.
+- The issue titles and bodies a cycle posts through the relay are masked as
+  the console masks a log, and their `@` mentions notify nobody.
+- The mask and the store's check share one list of token shapes: the mask now
+  hides Slack tokens, AWS key ids, JWTs and private key blocks, and the check
+  also knows a JWT.
+- The MCP server's `factory_events` cursor hashes the masked start of a log.
+  A cursor from an earlier version is taken once as a replaced log: that log
+  is read from its start and named in `gaps`.
+- The MCP server closes a connection whose answer is not read within 10
+  seconds and one more for each 128 KiB of it.
+- The egress proxy sends a plain `http://` request with the `Host` of its
+  allowed target, not the one the client sent.
+- The sandbox base image is built from pinned inputs: ubuntu by digest, and
+  node, gh, bun and rustup at the versions and checksums of `versions.env`
+  rather than from install scripts. pi, ctx7 and parallel-cli come from the npm
+  trees in `host/npm`, which `install.sh` now installs to `~/tehas/npm`. The
+  first stage builds with `RUST_VERSION` instead of stable. A change to any of
+  these pins asks for a sandbox build.
 
 ### Held back
 
@@ -360,6 +443,62 @@ next runs `bootstrap.sh`, make root's own copy as the bootstrap page says
 
 A `live/orders.json` left by an earlier release is no longer read or served
 and may be deleted.
+
+Nothing is needed for the rows: every write of the analytics program prunes the
+tables it just wrote. The poll's run of `analytics prune` was also the only
+automatic sweep of the `analytics.db.schema-<version>` files a migration leaves
+beside the database, and the only `PRAGMA optimize`. Both are `analytics prune`
+alone, and it now runs only when asked:
+
+```
+~/tehas/libexec/analytics prune
+```
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+If `install.sh --check` names `~/.config/tehas/env` or
+`~/.config/tehas/instance-dir`, make it the tehas user's own and writable by
+no one else (`chmod go-w`).
+
+With `TEHAS_EGRESS=1`, a product whose install fetches from a host outside the
+proxy's list now fails its install before the cycle starts: add that host to
+`TEHAS_EGRESS_HOSTS`.
+
+The next `tehas update` rebuilds the sandbox image. The build passes the npm
+trees as a named build context, so it needs Docker's BuildKit builder (buildx),
+which the base build already needed.
 
 ## v0.25.1 (2026-11-07)
 
