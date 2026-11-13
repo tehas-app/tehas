@@ -63,6 +63,20 @@ pub fn run_full(
     grace: Duration,
     extra: &[(&str, &str)],
 ) -> Ran {
+    run_capped(program, args, input, bound, grace, extra, None)
+}
+
+/// run_full, its standard output held up to `ceiling` bytes when there is one.
+/// What comes past it is read and dropped, so the program is not held up.
+fn run_capped(
+    program: &str,
+    args: &[String],
+    input: Option<&str>,
+    bound: Duration,
+    grace: Duration,
+    extra: &[(&str, &str)],
+    ceiling: Option<u64>,
+) -> Ran {
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new(program);
     cmd.args(args);
@@ -104,11 +118,22 @@ pub fn run_full(
     let mut out = child.stdout.take();
     let mut err = child.stderr.take();
     let reader = std::thread::spawn(move || {
-        let mut o = String::new();
-        if let Some(s) = out.as_mut() {
+        let Some(s) = out.as_mut() else {
+            return (String::new(), false);
+        };
+        let Some(cap) = ceiling else {
+            let mut o = String::new();
             let _ = s.read_to_string(&mut o);
+            return (o, false);
+        };
+        let mut o = Vec::new();
+        let _ = s.by_ref().take(cap + 1).read_to_end(&mut o);
+        let over = o.len() as u64 > cap;
+        if over {
+            o.truncate(cap as usize);
+            let _ = std::io::copy(s, &mut std::io::sink());
         }
-        o
+        (String::from_utf8_lossy(&o).into_owned(), over)
     });
     let ereader = std::thread::spawn(move || {
         let mut e = String::new();
@@ -118,11 +143,12 @@ pub fn run_full(
         e
     });
     let status = wait(&mut child, bound, grace, true);
+    let (out, truncated) = reader.join().unwrap_or_default();
     Ran {
         status,
-        out: reader.join().unwrap_or_default(),
+        out,
         err: ereader.join().unwrap_or_default(),
-        truncated: false,
+        truncated,
     }
 }
 
@@ -140,14 +166,7 @@ pub fn run_input_bounded(
     extra: &[(&str, &str)],
     ceiling: u64,
 ) -> Ran {
-    let mut r = run_input_env(program, args, input, bound, extra);
-    if r.out.len() as u64 > ceiling {
-        // The bytes past the ceiling were never meant for the poll; keeping a
-        // line of them for the log is enough.
-        r.out.truncate(ceiling as usize);
-        r.truncated = true;
-    }
-    r
+    run_capped(program, args, input, bound, GRACE, extra, Some(ceiling))
 }
 
 /// Run a program with a bound and no pipe: nothing it leaves running can hold
@@ -473,6 +492,25 @@ mod tests {
         assert_eq!(gh_why("request timed out"), ": timed out");
         assert_eq!(gh_why("something an agent wrote"), "");
         assert_eq!(gh_why(""), "");
+    }
+
+    #[test]
+    fn a_bounded_call_holds_no_more_than_its_ceiling() {
+        let bound = Duration::from_secs(20);
+        let r = run_input_bounded(
+            "head",
+            &a(&["-c", "200000000", "/dev/zero"]),
+            None,
+            bound,
+            &[],
+            10,
+        );
+        assert_eq!((r.status, r.out.len(), r.truncated), (Some(0), 10, true));
+        // A ceiling inside a character cuts there, not at a panic.
+        let r = run_input_bounded("printf", &a(&["ééé"]), None, bound, &[], 3);
+        assert_eq!((r.out.as_str(), r.truncated), ("é\u{fffd}", true));
+        let r = run_input_bounded("printf", &a(&["é"]), None, bound, &[], 3);
+        assert_eq!((r.out.as_str(), r.truncated), ("é", false));
     }
 
     #[test]
