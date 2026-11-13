@@ -430,9 +430,7 @@ impl End<'_> {
         // their order: the sample reads the status's files. A poll that
         // started, stopped, wrote or turned nothing leaves both to the next
         // poll that does - the poll's cost is still recorded, as health and
-        // status read it whatever the last poll did. The prune keeps its
-        // schedule, being the one step of the end that bounds what the others
-        // read.
+        // status read it whatever the last poll did.
         if self.changed.queue {
             let mut printed = Vec::new();
             w.status(&mut printed);
@@ -468,12 +466,14 @@ impl End<'_> {
             ));
         }
         let mut log = Vec::new();
-        // The sample of the queue as the status above wrote it; the rule and
-        // the prune's exemption are stated at the status.
+        // The sample of the queue as the status above wrote it; the rule is
+        // stated at the status. Nothing else of the end reads the analytics
+        // database: the prune of the old poll asked the same question the
+        // writes answer for themselves, since `run`, `plan`, `event` and
+        // `sample` each prune after they write (#1769).
         if self.changed.queue {
             w.analytics(&["sample".into()], &mut log);
         }
-        w.analytics(&["prune".into()], &mut log);
         for l in &log {
             say(l);
         }
