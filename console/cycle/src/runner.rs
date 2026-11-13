@@ -7,7 +7,6 @@
 //! outcome jq cannot make is none, and a progress jq stops in gives the fields
 //! it had printed before it stopped.
 
-use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -493,26 +492,9 @@ pub fn usage(outcome: &Value, progress: Option<&str>) -> (String, bool) {
     (lines.join("\n"), unreadable)
 }
 
-/// `mine` of tehas_names_issue: a pull request whose head is the issue's
-/// branch, or whose body closes the issue.
-pub fn names_issue(pr: &Value, issue: u64) -> bool {
-    let text = |k: &str| match pr.get(k) {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-    };
-    let head = text("headRefName");
-    if head == format!("feature/issue-{issue}")
-        || head.starts_with(&format!("feature/issue-{issue}-"))
-    {
-        return true;
-    }
-    let re = Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{issue}([^0-9]|$)"
-    ))
-    .unwrap();
-    re.is_match(&text("body"))
-}
+/// `mine` of tehas_names_issue: the one rule, which finish and the dispatcher
+/// ask too.
+pub use tehas_core::issue_pull::names_issue;
 
 #[cfg(test)]
 mod tests {

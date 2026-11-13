@@ -20,6 +20,7 @@ pub mod grammar;
 pub mod hold;
 pub mod hostnet;
 pub mod install;
+pub mod issue_pull;
 #[cfg(feature = "mask")]
 pub mod journal;
 pub mod jq;

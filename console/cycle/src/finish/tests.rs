@@ -1092,36 +1092,28 @@ fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
 }
 
 #[test]
-fn a_body_closes_an_issue_only_when_a_word_of_closing_names_it() {
-    for (text, yes) in [
-        ("Fixes #7.", true),
-        ("Closes #7", true),
-        ("resolves #7 in one line", true),
-        ("close: #7", true),
-        ("This fixes #7.", true),
-        ("FIXED #7", true),
-        ("Fixes #70.", false),
-        ("see #7", false),
-        ("Fixes #7x", false),
-        ("Fixes#7", false),
-        ("unfixes #7", false),
-        ("This does not fix #7.", false),
-        ("not fixed #7", false),
-        ("no test fixes #7", false),
-        ("never resolved #7", false),
-        ("This doesn't fix #7.", false),
-        ("it isn't fixed #7", false),
-        // A word of nothing further back is the case's own claim and not a
-        // denial of the closing word: the factory's bodies put that word at the
-        // end of what they say.
-        ("nothing here, but it fixes #7", true),
-        ("##7", false),
-        ("", false),
+fn finish_and_the_runner_take_the_same_pull_requests_for_an_issue() {
+    // Bodies and heads the two used to read differently. Each is the issue's
+    // pull request for both or for neither.
+    let url = "https://github.com/acme/widget/pull/3";
+    for (head, text, yes) in [
+        ("x", "Fixes #7", true),
+        ("x", "Resolved #7", true),
+        ("x", "some textfixes #7", false),
+        ("x", "This does not fix #7.", false),
+        ("x", "Fixes #7x", false),
+        ("x", "fixes:#7", true),
+        ("feature/issue-7-a+b", "", true),
+        ("feature/issue-70", "", false),
     ] {
+        let mut p = pr(3, head, text);
+        p["url"] = json!(url);
+        let runner = crate::runner::names_issue(&p, 7);
+        assert_eq!(runner, yes, "runner: {head:?} {text:?}");
         assert_eq!(
-            super::run::closes_issue(text, "#7"),
+            pull_for_issue(&[p], 7).is_some(),
             yes,
-            "{text:?} closes #7: {yes}"
+            "finish: {head:?} {text:?}"
         );
     }
 }
