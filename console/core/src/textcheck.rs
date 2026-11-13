@@ -224,7 +224,7 @@ fn shape(c: char) -> char {
 /// The invisible characters. The mask's list of them is behind the `mask`
 /// feature and this rule is not, so the range it guards is repeated here
 /// rather than pulling the feature onto this module.
-fn invisible(c: char) -> bool {
+pub(crate) fn invisible(c: char) -> bool {
     matches!(
         c,
         '\u{ad}'
