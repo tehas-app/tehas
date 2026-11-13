@@ -7,18 +7,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// The program of this build, beside the harness or one directory up.
+/// The program of this build (see `tests::store_binary`).
 fn program() -> PathBuf {
-    let deps = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let here = deps.join("store");
-    if here.exists() {
-        return here;
-    }
-    deps.parent().unwrap().join("store")
+    crate::tests::store_binary()
 }
 
 /// What the program prints on standard output for `args`, and its status.
