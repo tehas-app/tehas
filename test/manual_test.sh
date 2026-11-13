@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Tests for the manual: what it says about libexec/, the anchors it links to,
-# the pages the commands are split over, and the environment its by-hand
-# compose lines are run in. A statement about what a directory holds goes false
-# when a program moves into or out of it, an anchor whose heading is renamed or
-# moved lands a reader on the top of a page, and a compose line that never
-# sourced the host's environment recreates a container from the defaults.
+# the pages the commands are split over, the commands its lists name, and the
+# environment its by-hand compose lines are run in. A statement about what a
+# directory holds goes false when a program moves into or out of it, an anchor
+# whose heading is renamed or moved lands a reader on the top of a page, a
+# command the front routes and no page names is a command nobody can find, and
+# a compose line that never sourced the host's environment recreates a container
+# from the defaults.
 # shellcheck disable=SC2016  # the slug rule and the greps are literal text
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -160,6 +162,127 @@ t_case "the tools pages hold the 44 sections of tools.md, each once"
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 45
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
+
+# ---------------------------------------------------------------------------
+# The commands the manual names. The front of the two commands routes one word
+# after `tehas` or `tehasbot` (console/src/front.rs); a command it routes and no
+# page of the commands names is a command no person can find, which is what the
+# summary blocks of tools.md are for.
+
+# t_front_verbs <tehas|tehasbot> <file>: the words the front routes for that
+# command, one per line, read from the source of the console rather than from a
+# list written here: a verb added to the front is a verb this case asks for. The
+# `tehas` verbs are the entries of VERBS plus the two commands that are a script
+# of libexec. The `tehasbot` verbs are the words of the one match of tehasbot,
+# from its opening to `Some(c)`, the arm that answers a word none of the others
+# is. Words of a test are not read: the source holds the same lists in its own
+# cases. The list is written to a file and not returned down a pipe, as t_anchors
+# says, so a grep that closes early is no failure of the case.
+t_front_verbs() { # <tehas|tehasbot> <file>
+  local which=$1 file=$2
+  case $which in
+  tehas)
+    sed -n '/^const VERBS: /,/^];/p' console/src/front.rs | grep -o '"[a-z-]*"' |
+      sed 's/"//g' >"$file" || true
+    printf '%s\n' setup update >>"$file"
+    ;;
+  tehasbot)
+    # The words of the one match of tehasbot, which are its commands. Read up to
+    # the arm that answers a word none of them is, and no further: the words of
+    # that arm's fall name a script of libexec, and tehasbot has none.
+    sed -n '/"health" | "status"/,/Some(c) => script("tehasbot"/p' console/src/front.rs \
+      >"$T/front-words" || true
+    # The route's own words, and not the words of a pattern that only asks what
+    # the word after the command is: the guard of the `mcp` arm reads the second
+    # word, so `serve` is no command of its own, and `tehasbot` is the name of
+    # the program in the name of the arm this stops at.
+    grep -o '"[a-z-]*"' "$T/front-words" | sed 's/"//g' | sort -u |
+      grep -vx serve | grep -vx tehasbot >"$file" || true
+    rm -f "$T/front-words"
+    ;;
+  *) t_bad "no verbs read for $which" ;;
+  esac
+}
+
+# t_lists_of <tehas|tehasbot> <file>: the commands of that program named at the
+# head of a line of the fenced command blocks of the tools pages. The block of a
+# summary is a fence whose lines open with the program's name, a space and a word
+# that is a command's name, so a prose line that names a command in a sentence is
+# not one read here, nor an example's output such as `tehas v0.8.0`, nor a
+# command of a fence of the other program.
+t_lists_of() { # <tehas|tehasbot> <file>
+  local which=$1 file=$2
+  awk -v prog="$which" '
+    /^```/ { infence = !infence; next }
+    infence && index($0, prog " ") == 1 { if (substr($2, 1, 1) ~ /[a-z]/) print $2 }
+  ' "${TOOLS_PAGES[@]}" | sort -u >"$file"
+}
+
+# The two readers before they judge anything: a rule that found no verb, or no
+# command of the lists, would answer every command below with nothing and pass.
+t_case "the front's verbs and the lists of the pages are both read"
+t_front_verbs tehas "$T/verbs-tehas"
+t_front_verbs tehasbot "$T/verbs-tehasbot"
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 29
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
+t_lists_of tehas "$T/list-tehas"
+t_lists_of tehasbot "$T/list-tehasbot"
+[ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
+  t_bad "the command blocks name 25 tehas commands or fewer"
+[ "$(grep -c . "$T/list-tehasbot" | tr -d ' ')" -ge 13 ] ||
+  t_bad "the command blocks name 13 tehasbot commands or fewer"
+
+# Every command the front routes is named in a command block of the pages, which
+# is where a person looks for it. A word the blocks name is matched as a whole
+# argument of the line, so `preview` of the one block is the command of a line
+# of `tehasbot preview --sweep`, and a line of `tehas state pack` is no line of
+# `tehas state copy`.
+t_case "every command the front routes is named in the command blocks of the pages"
+for which in tehas tehasbot; do
+  while IFS= read -r word; do
+    [ -n "$word" ] || continue
+    case $word in
+    help) continue ;;
+    esac
+    found=0
+    for page in "${TOOLS_PAGES[@]}"; do
+      awk -v prog="$which" -v cmd="$word" '
+        /^```/ { infence = !infence; next }
+        infence && index($0, prog " ") == 1 && substr($2, 1, 1) ~ /[a-z]/ {
+          for (i = 2; i <= NF; i++) if ($i == cmd) { print "yes"; exit }
+        }
+      ' "$page" | grep -q yes && { found=1; break; }
+    done
+    [ "$found" = 1 ] || echo "$which $word: no command block of the tools pages names it"
+  done < <(sort -u "$T/verbs-$which")
+done >"$T/tmp-verbs" 2>&1
+t_eq "$(wc -l < "$T/tmp-verbs" | tr -d ' ')" 0
+
+# The commands the front does not route, told from the ones it does: a case that
+# read the verbs of the front as nothing, or read them from a list written here,
+# would keep its silence whatever the source said. Each half of the pair is one
+# word the blocks name and the front routes, and one of each program that no
+# page names and no route answers.
+t_case "the front's verbs are its own, and not the commands of the pages"
+printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehas" &&
+  t_bad "the verbs read hold bogus, a command no route answers"
+grep -qxF -f "$T/list-tehas" <(printf 'work\n') ||
+  t_bad "the command blocks read hold no work, which every list of tehas gives"
+printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehasbot" &&
+  t_bad "the verbs read hold bogus, a command no route answers"
+grep -qxF -f "$T/list-tehasbot" <(printf 'clean\n') ||
+  t_bad "the command blocks read hold no clean, which the block of tehasbot gives"
+
+# A command named in the source as one that does not exist: no route answers it,
+# and no page gives it a section. `tehas tidy` is the one this page had, which
+# is `console tidy run`, and `tehasbot work` the other a review of the manual
+# found.
+t_case "no page names a command that is not a verb of either program"
+for word in 'tehas tidy' 'tehasbot work'; do
+  hits=$(grep -rn "$word" "${TOOLS_PAGES[@]}" "$docs/operating.md" "$docs/features.md" \
+    "$docs/tools-health.md" 2>/dev/null || true)
+  [ -z "$hits" ] || t_bad "names a command that is not one: $hits"
+done
 
 # ---------------------------------------------------------------------------
 # The compose lines of the manual, and the environment they are run in. The two
