@@ -155,6 +155,15 @@ fn an_adopter_action_needs_a_line_under_its_heading() {
 }
 
 #[test]
+fn changes_need_a_line_under_their_heading() {
+    assert!(changes("### Changes\n\n- a\n\n### Adopter action\n\nNone."));
+    assert!(!changes("### Adopter action\n\nNone."));
+    assert!(!changes("### Changes\n\n### Adopter action\n\nNone."));
+    assert!(!changes("### Changes\n \t\n"));
+    assert!(!changes("### Changeset\n\n- a"));
+}
+
+#[test]
 fn a_carried_polyfill_is_three_words_the_last_taking_the_rest() {
     let c = carried("someFeature up/r#1 up/r#2\n  other  up/r#3\nbare\n\n");
     assert_eq!(
