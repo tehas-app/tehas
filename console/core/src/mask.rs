@@ -261,11 +261,20 @@ fn secret_name(name: &str) -> bool {
 /// secret, and the literals of models.json, which name themselves. Both are
 /// trimmed and measured here, by the one bound, so a list a caller brings is no
 /// different from one read from the environment. The longest first, so a value
-/// that holds another is hidden whole.
+/// that holds another is hidden whole. A setting whose name ends in KEYS is a
+/// list split at white space, as TEHAS_MCP_KEYS is, and each of its words is a
+/// value of its own too.
 fn secret_list(vars: impl Iterator<Item = (String, String)>, models: &[String]) -> Vec<String> {
     let mut values: Vec<String> = vars
         .filter(|(name, _)| secret_name(name))
-        .map(|(_, value)| value)
+        .flat_map(|(name, value)| {
+            let words: Vec<String> = if name.to_ascii_uppercase().ends_with("KEYS") {
+                value.split_whitespace().map(str::to_string).collect()
+            } else {
+                Vec::new()
+            };
+            std::iter::once(value).chain(words)
+        })
         .chain(models.iter().cloned())
         .map(|value| value.trim().to_string())
         .filter(|v| v.chars().count() >= SHORTEST_SECRET)
@@ -595,6 +604,21 @@ mod tests {
             values.replace_all(&format!("{kept} and {short}"), "***"),
             format!("*** and {short}")
         );
+    }
+
+    #[test]
+    fn each_key_of_a_list_setting_is_hidden_alone() {
+        let (one, two) = (key(32), format!("{}x", key(32)));
+        let vars = vec![("TEHAS_MCP_KEYS".to_string(), format!("{one}\t{two}\n"))];
+        let values = secret_values(vars.into_iter(), &[]).expect("values are kept");
+        assert_eq!(
+            values.replace_all(&format!("a {two} b {one} c"), "***"),
+            "a *** b *** c"
+        );
+        // Any other setting is one value: a word of it alone is no secret.
+        let vars = vec![("SOME_TOKEN".to_string(), format!("{one} {two}"))];
+        let values = secret_values(vars.into_iter(), &[]).expect("one value is kept");
+        assert_eq!(values.replace_all(&one, "***"), one);
     }
 
     #[test]
