@@ -1106,19 +1106,40 @@ pub fn answer(run: &AnswerRun, net: &dyn Net) -> Result<(String, String), String
         .map(|e| format!("- {}: {}", e.shown("link"), e.shown("reason")))
         .collect();
 
-    let old = format!("{dir}.old");
-    let swapped = chmod(&copy, 0o755)
-        .and_then(|()| chmod(&new_path, 0o644))
-        .and_then(|()| rm_rf(&old))
-        .and_then(|()| fs::rename(dir, &old))
-        .and_then(|()| fs::rename(&copy, dir))
-        .and_then(|()| rm_rf(&old));
-    if swapped.is_err() {
-        if !Path::new(dir).exists() {
-            let _ = fs::rename(&old, dir);
-        }
+    if let Err(why) = swap(dir, &copy, &new_path) {
         let _ = rm_rf(&copy);
-        return Err(NOT_WRITTEN.replace("issue's", "session's"));
+        return Err(why);
     }
     Ok((new.join("\n"), out.join("\n")))
+}
+
+/// Puts the session's `copy` in the place of `dir`. Once the copy is in, the
+/// images are written: an earlier directory that cannot be removed is said on
+/// stderr and left. Err names the step that failed and the OS error, with `dir`
+/// as it was, or, when it could not be moved back, said so.
+pub(crate) fn swap(dir: &str, copy: &str, manifest: &str) -> Result<(), String> {
+    let failed = |step: &str, e: io::Error| {
+        format!("the session's images could not be written ({step}: {e})")
+    };
+    let old = format!("{dir}.old");
+    chmod(copy, 0o755).map_err(|e| failed("the copy's mode", e))?;
+    chmod(manifest, 0o644).map_err(|e| failed("the manifest's mode", e))?;
+    rm_rf(&old).map_err(|e| failed("removing an earlier directory", e))?;
+    fs::rename(dir, &old).map_err(|e| failed("moving the directory aside", e))?;
+    if let Err(e) = fs::rename(copy, dir) {
+        let why = failed("moving the copy in", e);
+        return match fs::rename(&old, dir) {
+            Ok(()) => Err(why),
+            Err(back) => {
+                eprintln!("attach: answer: {old} could not be moved back to {dir}: {back}");
+                Err(format!(
+                    "{why}, and the earlier directory could not be moved back"
+                ))
+            }
+        };
+    }
+    if let Err(e) = rm_rf(&old) {
+        eprintln!("attach: answer: the session's images were written, {old} is left: {e}");
+    }
+    Ok(())
 }
