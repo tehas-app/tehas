@@ -229,10 +229,13 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   installed for the scripts, the dispatcher and the cycle (#1807).
 - `tehas host-message set <id> --level info|warn|alert --text TEXT [--link URL]`, `clear <id>` and `list [--json]` keep up to 20 short messages for a factory in `state/host-messages.json`, and `tehas api` lists the feature `host-message` (#1873).
 - The MCP server masks the same values as the host: the secret settings and the literal model keys of `models.json`, wherever they stand in a log. The server gets salted sums of them, not the values.
+- The pinned Node moves from 22.23.4 to 22.23.5.
+- The pinned gh moves from 2.103.3 to 2.104.0.
+- The pinned Rust moves from 1.99.1 to 1.100.0.
 
 ### Held back
 
-- Node 26.13.0 is out, a new major version. `host/versions.env` keeps 22.23.4: the move is a person's call.
+- Node 26.13.1 is out, a new major version. `host/versions.env` keeps 22.23.5: the move is a person's call.
 
 ### Adopter action
 
