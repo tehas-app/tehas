@@ -10,7 +10,7 @@ import { test } from "node:test";
 import "../host/fun/host-bridge.js";
 
 const HB = globalThis.TEHAS_HOST_BRIDGE;
-const { read, ticketHref, notesOf, chips, drawNotices, keeper } = HB;
+const { read, ticketHref, notesOf, chips, keeper } = HB;
 
 const sample = (name) => readFileSync(new URL(`../api/host-bridge.${name}.json`, import.meta.url), "utf8");
 const NOW = Date.parse("2026-11-08T12:00:20Z");
@@ -22,11 +22,6 @@ const ISSUE = (n) => `https://github.com/${REPO}/issues/${n}`;
 test("the full sample gives every element", () => {
   const a = read(sample("full"), NOW);
   assert.equal(a.ticketLink, "/host/ticket/{n}");
-  assert.deepEqual(a.notices, [
-    { id: "n-1", level: "info", text: "Example notice.", link: "/host/notice/n-1" },
-    { id: "n-2", level: "warn", text: "Example warning.", link: "https://host.example/notice/n-2" },
-    { id: "n-3", level: "alert", text: "Example alert.", link: null },
-  ]);
   assert.deepEqual(notesOf(a, 42), [{ text: "Example note", link: "/host/ticket/42" }, { text: "Second note", link: null }]);
   assert.deepEqual(notesOf(a, 7), [{ text: "Another note", link: "https://host.example/ticket/7" }]);
   assert.deepEqual(notesOf(a, 8), []);
@@ -35,7 +30,7 @@ test("the full sample gives every element", () => {
 
 test("the bare sample is an answer with nothing to draw", () => {
   const a = read(sample("bare"), NOW);
-  assert.deepEqual(a, { ticketLink: null, notices: [], notes: new Map(), menu: [] });
+  assert.deepEqual(a, { ticketLink: null, notes: new Map(), menu: [] });
   assert.equal(ticketHref(a, REPO, ISSUE(42)), null);
 });
 
@@ -71,12 +66,12 @@ test("an answer more than 5 minutes old is ignored, and one as far ahead", () =>
 test("unknown fields are ignored, at the top and in each element", () => {
   const v = full();
   v.later = { any: 1 };
-  v.notices[0].later = [1];
+  v.menu[0].later = [1];
   v.ticketNotes[0].later = "x";
   const a = readOf(v);
-  assert.equal(a.notices.length, 3);
   assert.equal(notesOf(a, 42).length, 2);
-  assert.equal(Object.hasOwn(a.notices[0], "later"), false);
+  assert.equal(a.menu.length, 1);
+  assert.equal(Object.hasOwn(a.menu[0], "later"), false);
 });
 
 test("the host is shown nowhere and not read", () => {
@@ -92,7 +87,7 @@ test("a ticket link needs /host/, {n} once and at most 200 characters, else tick
     v.ticketLink = bad;
     const a = readOf(v);
     assert.equal(a.ticketLink, null, String(bad));
-    assert.equal(a.notices.length, 3);
+    assert.equal(notesOf(a, 42).length, 2);
   }
   const v = full();
   v.ticketLink = "/host/" + "x".repeat(191) + "{n}";
@@ -109,36 +104,6 @@ test("a ticket of the repository links to the host; a pull request, another repo
     assert.equal(ticketHref(a, REPO, url), null, String(url));
   }
   for (const repo of [null, "", "nope", "a/b/c"]) assert.equal(ticketHref(a, repo, ISSUE(42)), null, String(repo));
-});
-
-test("each breach of a notice drops that notice alone", () => {
-  const ok = { id: "ok", level: "info", text: "Fine." };
-  const bad = [
-    null, "x", [], { ...ok, id: "Big" }, { ...ok, id: "" }, { ...ok, id: "a".repeat(33) }, { ...ok, id: 1 },
-    { ...ok, level: "loud" }, { ...ok, level: undefined }, { ...ok, text: "" }, { ...ok, text: "   " },
-    { ...ok, text: "t".repeat(201) }, { ...ok, text: 5 }, { ...ok, link: "http://x.example/" },
-    { ...ok, link: "javascript:alert(1)" }, { ...ok, link: "/other/x" }, { ...ok, link: "https://" },
-    { ...ok, link: "https://u:p@x.example/" }, { ...ok, link: "https://x.example/" + "p".repeat(512) },
-    { ...ok, link: "/host/a b" }, { ...ok, link: null },
-  ];
-  for (const n of bad) {
-    const v = full();
-    v.notices = [n, ok];
-    assert.deepEqual(readOf(v).notices.map((x) => x.id), ["ok"], JSON.stringify(n));
-  }
-});
-
-test("notices: at most 5, ids unique, control characters as spaces, 200 characters kept whole", () => {
-  const v = full();
-  v.notices = [
-    { id: "a", level: "info", text: "one" }, { id: "a", level: "warn", text: "again" },
-    { id: "b", level: "warn", text: "tab\there\nand a line" }, { id: "c", level: "alert", text: "é".repeat(200) },
-    { id: "d", level: "info", text: "x" }, { id: "e", level: "info", text: "x" }, { id: "f", level: "info", text: "x" },
-  ];
-  const a = readOf(v);
-  assert.deepEqual(a.notices.map((n) => n.id), ["a", "b", "c", "d", "e"]);
-  assert.equal(a.notices[1].text, "tab here and a line");
-  assert.equal(a.notices[2].text.length, 200);
 });
 
 test("each breach of a ticket note drops that note alone; at most 3 a ticket and 200 in all", () => {
@@ -195,6 +160,15 @@ test("an answer that still carries tokens is read whole, and the tokens are igno
   assert.equal("drawTokens" in HB, false);
 });
 
+test("an answer that still carries notices is read whole, and the notices are ignored", () => {
+  const v = full();
+  v.notices = [{ id: "n-1", level: "warn", text: "Example warning.", link: "/host/notice/n-1" }];
+  const a = readOf(v);
+  assert.deepEqual(a, readOf(full()));
+  assert.equal("notices" in a, false);
+  assert.equal("drawNotices" in HB, false);
+});
+
 function stubDocument() {
   const make = (name) => ({
     name, className: "", textContent: "", href: "", hidden: false, attrs: {}, kids: [],
@@ -207,42 +181,29 @@ function stubDocument() {
 
 test("text is set as text, never markup, and a host link opens in the same tab", () => {
   const v = full();
-  v.notices = [{ id: "x", level: "alert", text: "<img src=x onerror=alert(1)>", link: "/host/n" },
-    { id: "y", level: "info", text: "<b>b</b>", link: "https://host.example/y" }];
-  v.ticketNotes = [{ issue: 3, text: "<script>1</script>", link: "/host/t/3" }, { issue: 3, text: "plain" }];
+  v.ticketNotes = [{ issue: 3, text: "<script>1</script>", link: "/host/t/3" }, { issue: 3, text: "plain" },
+    { issue: 3, text: "<b>b</b>", link: "https://host.example/t/3" }];
   const a = readOf(v);
   const doc = stubDocument();
-  drawNotices(doc.el, a.notices, doc);
-  assert.equal(doc.el.hidden, false);
-  const [p, q] = doc.el.kids;
-  assert.equal(p.className, "industry-alert host-notice");
-  assert.equal(p.attrs["data-level"], "alert");
-  assert.deepEqual(p.kids.map((k) => [k.name, k.textContent]), [["b", "Alert"], ["span", "<img src=x onerror=alert(1)>"], ["a", "Open"]]);
-  assert.equal(p.kids[2].href, "/host/n");
-  assert.equal(p.kids[2].attrs.target, undefined);
-  assert.equal(q.kids[2].attrs.target, "_blank");
-  assert.equal(q.kids[2].attrs.rel, "noopener noreferrer");
   const box = chips(doc, notesOf(a, 3));
   assert.equal(box.className, "host-notes");
   assert.deepEqual(box.kids.map((k) => [k.name, k.className, k.textContent, k.href]),
-    [["a", "host-note", "<script>1</script>", "/host/t/3"], ["span", "host-note", "plain", ""]]);
+    [["a", "host-note", "<script>1</script>", "/host/t/3"], ["span", "host-note", "plain", ""],
+      ["a", "host-note", "<b>b</b>", "https://host.example/t/3"]]);
   assert.equal(box.kids[0].attrs.target, undefined);
+  assert.equal(box.kids[2].attrs.target, "_blank");
+  assert.equal(box.kids[2].attrs.rel, "noopener noreferrer");
   for (const f of ["innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"]) {
     assert.ok(!readFileSync(new URL("../host/fun/host-bridge.js", import.meta.url), "utf8").includes(f), f);
   }
 });
 
-test("with no answer nothing changes: no link, no chip, and the notices stay hidden and empty", () => {
+test("with no answer nothing changes: no link and no chip", () => {
   assert.equal(HB.current(), null);
   assert.equal(HB.ticket(REPO, ISSUE(42)), null);
   assert.equal(HB.notes(stubDocument(), 42), null);
   assert.equal(ticketHref(null, REPO, ISSUE(42)), null);
   assert.equal(chips(stubDocument(), notesOf(null, 42)), null);
-  const doc = stubDocument();
-  doc.el.hidden = true;
-  drawNotices(doc.el, [], doc);
-  assert.equal(doc.el.hidden, true);
-  assert.deepEqual(doc.el.kids, []);
 });
 
 // A fetch that answers from a list of responses, and a clock to move.
