@@ -23,12 +23,14 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot refresh --pr N       # ask for the refresh of pull request N now
+tehasbot refresh --pr N --json  # the same, and print what it asked as one object
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # the GitHub writes of the last day, by hour
+tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -37,7 +39,10 @@ as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
 `tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
 run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
-by a person), and one `tehas-cycle@<issue>.service` per running
+by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
+`tehasbot mcp serve` only while `TEHAS_MCP=1`, and
+[The MCP server](/mcp-server) is how it is switched on), and one
+`tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -195,7 +200,7 @@ keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
 approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
-`refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
+`refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30
 seconds costs only the commit: the start goes on record without it. Started by
