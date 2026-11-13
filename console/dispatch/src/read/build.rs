@@ -1228,6 +1228,9 @@ case "$line" in
   $(sed -n 2p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"history-show","rows":[]}' >"$out" ;;
   $(sed -n 3p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"park-show","parks":[]}' >"$out" ;;
   approval-current*) printf '%s' '{"api":1,"ok":true,"verb":"approval-current","current":null}' >"$out" ;;
+  # The approvals of `tehas start` a case wrote beside the programs, or none.
+  approval-hosts*) if [ -f "$here/../.approval-hosts" ]; then cat "$here/../.approval-hosts" >"$out"
+    else printf '%s' '{"api":1,"ok":true,"verb":"approval-hosts","waiting":[]}' >"$out"; fi ;;
   # The answer of any other verb is the one line of its own: a store of this
   # host has nothing to say. The leading dot is spelled out so that the body
   # file `tehas_core::testing` leaves beside the program cannot answer for a
@@ -1878,6 +1881,44 @@ esac"#,
         );
         assert_eq!(parsed.issues[&22].plan_start, None);
         assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
+    }
+
+    /// The host's approvals reach the rules only for the issues open on the
+    /// queue's page: an approval of a closed issue, or of a number the page
+    /// does not hold, is dropped, so nothing of it is started.
+    #[test]
+    fn a_host_approval_of_an_issue_not_open_is_dropped() {
+        let _clock = crate::read::run::no_case_clock();
+        let mut w = world();
+        w["queue"]["data"]["repository"]["closedRunning"]["nodes"] = json!([{"number": 40}]);
+        let dir = host(&w, &[]);
+        let waiting = |n: u64| json!({"issue": n, "at": 1_793_404_000, "body_sha256": "x", "title_sha256": null});
+        fixture(
+            &dir,
+            "approval-hosts",
+            &json!({"api": 1, "ok": true, "verb": "approval-hosts",
+                    "waiting": [waiting(21), waiting(40), waiting(77)]}),
+        );
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        let starts: Vec<u64> = snap["host_starts"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the approvals were read: {}", snap["host_starts"]))
+            .iter()
+            .filter_map(|h| h["issue"].as_u64())
+            .collect();
+        assert_eq!(starts, vec![21], "only the open issue's approval stands");
+        let parsed = Snapshot::parse(&snap);
+        let hosts: Vec<u64> = parsed
+            .host_starts
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|h| h["issue"].as_u64())
+            .collect();
+        assert_eq!(hosts, vec![21]);
     }
 
     /// A comment that names nothing asks nothing of the blockers: the poll pays
