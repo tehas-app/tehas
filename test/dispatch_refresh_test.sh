@@ -246,6 +246,73 @@ t_run "$dispatch"
 t_eq "$(started)" ""
 t_contains "$t_out" "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1"
 
+# asked_pr: the request of issue 7 is one tehasbot refresh --pr N wrote.
+asked_pr() {
+  jq '. + {asked: "pr"}' "$refresh_dir/7.json" >"$refresh_dir/7.json.new" && mv "$refresh_dir/7.json.new" "$refresh_dir/7.json"
+}
+
+t_case "with the setting off a request tehasbot refresh --pr N wrote starts a refresh"
+refresh_setup
+slots 2
+asked_pr
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_contains "$t_out" "start #7 (refresh by alice)"
+t_lacks "$t_out" "hold refreshes"
+t_contains "$(label_pair)" "$mark_call"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
+
+t_case "with the setting off a --pr request counts in the demand, and nothing is held"
+refresh_setup
+slots 2
+asked_pr
+# Every slot is busy, so the request waits.
+slots 1
+running_refresh 9
+t_run "$dispatch"
+release
+t_eq "$(started)" ""
+t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T09:00:00Z","refreshHold":null}'
+t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
+t_lacks "$t_out" "hold refreshes"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "with the setting off a request without asked is held, and a --pr one beside it counts"
+refresh_setup
+slots 2
+asked_pr
+jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-16T09:00:00Z", pr: 51, head_sha: $h, base_sha: $b}' >"$refresh_dir/8.json"
+slots 1
+running_refresh 9
+t_run "$dispatch"
+release
+t_eq "$(started)" ""
+t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T09:00:00Z","refreshHold":"TEHAS_REFRESH_CONFLICTS is not 1"}'
+t_eq "$(cat "$refresh_dir/.held")" "TEHAS_REFRESH_CONFLICTS is not 1"
+t_eq "$(grep -c "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1" <<<"$t_out")" 1
+t_eq "$(find "$refresh_dir" -name '8.json' | wc -l)" 1
+
+t_case "with the setting off a --pr request whose pull request no longer conflicts is dropped"
+refresh_setup
+slots 2
+asked_pr
+pull '.mergeable = "MERGEABLE"'
+t_run "$dispatch"
+refresh_dropped "pull request #50 no longer conflicts"
+
+t_case "with the setting off an image without --continue-pr holds a --pr request, which is not counted"
+refresh_setup
+slots 2
+asked_pr
+echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart"]}}}' >"$fx/caps.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$(jq -r .refreshHold "$demand_file")" "does not take --continue-pr"
+t_eq "$(jq -r .waiting "$demand_file")" 0
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
 t_case "an image without --continue-pr holds refreshes: said once, and in tehas status's demand"
 refresh_setup
 echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart"]}}}' >"$fx/caps.json"
