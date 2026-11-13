@@ -71,6 +71,10 @@ fn at(b: &[u8], i: usize) -> Option<(usize, usize)> {
         // The block to its footer, or to the end of the text when the footer
         // is not in it.
         let keep = key_line_end(b, i + 11)?;
+        // A header followed by `***` is one the mask has already hidden.
+        if b[keep..].starts_with(b"***") {
+            return None;
+        }
         let end = (keep..b.len())
             .find(|&j| b[j..].starts_with(b"-----END "))
             .and_then(|j| key_line_end(b, j + 9))
