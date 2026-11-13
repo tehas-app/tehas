@@ -29,6 +29,7 @@ tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # the GitHub writes of the last day, by hour
+tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -37,7 +38,10 @@ as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
 `tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
 run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
-by a person), and one `tehas-cycle@<issue>.service` per running
+by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
+`tehasbot mcp serve` only while `TEHAS_MCP=1`, and
+[The MCP server](/mcp-server) is how it is switched on), and one
+`tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
