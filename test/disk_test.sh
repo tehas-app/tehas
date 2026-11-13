@@ -150,19 +150,59 @@ t_eq "$(jq -r '[.full.places[].path] | any(. == "'"$th"'/dev/alpha.state/target"
 t_eq "$(jq -r --arg home "$th" '[.full.places[] | select(.path | startswith($home))][0].path' <<<"$t_out")" "$th/logs"
 t_eq "$(jq -r '.full.docker.state' <<<"$t_out")" read
 
-# --publish is the one form that writes, and it writes the same object whole,
-# in the file the MCP server reads. The stopped containers belong to that file
-# and not to what a person is printed, so it is the only form asked of them.
+# --full names the containers the daemon still holds back beside the places, and
+# it is not the form that writes: a reader that must not touch the host asks for
+# both figures with the flag alone. The listing is the same `ps` question the
+# published file has always asked, so the case plants two stopped containers and
+# reads the count and both names back out of what was printed.
+t_case "--full --json without --publish names the stopped containers and writes nothing"
+reset
+t_df
+t_disk || t_skip "no console: $t_console_why"
+mkdir -p "$th/logs" "$T/fx"
+dd if=/dev/zero of="$th/logs/big.log" bs=1k count=200 status=none
+# The two lines are what the daemon prints for two stopped containers: three
+# tab-divided columns for the one that has a command to name, and two for the
+# one whose command the listing left empty.
+printf 'ab12\ttehas-sandbox:1\t/bin/sh -c sleep\ncd34\tubuntu:24.04\n' >"$T/fx/containers"
+t_run "$disk --full --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.full.stoppedContainers' <<<"$t_out")" 2
+t_eq "$(jq -r '[.full.containers[].id] | @json' <<<"$t_out")" '["ab12","cd34"]'
+t_eq "$(jq -r '.full.containers[0].image' <<<"$t_out")" 'tehas-sandbox:1'
+# The third column is Docker's command. `docker ps` prints the empty word for a
+# container whose command it does not hold, and that is no command: the field is
+# left out rather than printed as a word of nothing.
+t_eq "$(jq -r '.full.containers[0].command' <<<"$t_out")" '/bin/sh -c sleep'
+t_eq "$(jq -r '.full.containers[1] | has("command")' <<<"$t_out")" false
+# The one form that did not run writes nothing: no live/disk.json, and no side
+# file of a run that never published.
+t_eq "$([ -e "$th/live/disk.json" ] && echo written)" ""
+t_eq "$([ -e "$th/live" ] && echo there)" ""
+# One listing of the daemon for the printed answer, and no second one.
+t_eq "$(t_calls docker | grep -c '^ps --filter status=exited')" 1
+
+# The one form that writes is the form the cleaner's timer runs, and it writes
+# the same object whole, in the file the MCP server reads. The stopped
+# containers are in it, as they are in what the same run prints: one question of
+# the daemon for both, asked once for the file and the line alike.
 t_case "--publish writes live/disk.json whole and names the containers left stopped"
 reset
 t_df
 mkdir -p "$th/logs"
 dd if=/dev/zero of="$th/logs/big.log" bs=1k count=200 status=none
+# No listing of the daemon for this case: a host whose daemon has nothing to
+# say is what the published file of the cleaner is read as, and no container was
+# stopped on it.
 t_run "$disk --publish --json"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$th/live/disk.json" ] && echo written)" written
 t_eq "$(jq -r '.api' "$th/live/disk.json")" 1
 t_eq "$(jq -r '.full.stoppedContainers' "$th/live/disk.json")" 0
+# The file the MCP server reads names the stopped containers, and the daemon
+# was asked the one question once for it. The printed object of this form is the
+# reading the flag asked for, which `--full` alone is tested for above.
+t_eq "$(t_calls docker | grep -c '^ps --filter status=exited')" 1
 # The file is one object on one line, and no side file of the run is left.
 t_eq "$(jq -s length "$th/live/disk.json")" 1
 t_eq "$(find "$th/live" -mindepth 1 | wc -l)" 1

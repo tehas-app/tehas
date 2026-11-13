@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/disk.schema.json",
+  "title": "tehas disk --json",
+  "description": "The object tehas disk --json prints, version 1: one entry per file system the factory cares about, and with --full what fills them. The feature disk of tehas api says the release has the command. host/docs/api.md, under tehas disk, says what each field means and how it is read: that a figure that could not be read is null and carries why and is never 0, which bound a place that ran out of one names with cut, and which calls make the figures. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. The keys under filesystems and full are the same object tehas disk --cycles --json carries, restated here because there is no $ref in api/; test/disk_test.sh reads a real answer of the command and fails when either copy no longer names what the command prints. test/json_contract_test.sh checks the samples beside this file, and what the command prints, against it.",
+  "type": "object",
+  "required": ["api", "generatedAt", "filesystems"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "dockerRoot": {"type": "string", "maxLength": 4096},
+    "filesystems": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["paths"],
+        "additionalProperties": false,
+        "properties": {
+          "paths": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+          "mount": {"type": "string", "maxLength": 256},
+          "freeBytes": {"type": ["integer", "null"], "minimum": 0},
+          "totalBytes": {"type": ["integer", "null"], "minimum": 0},
+          "why": {"type": "string", "minLength": 1, "maxLength": 200}
+        }
+      }
+    },
+    "full": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "places": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "bytes": {"type": ["integer", "null"], "minimum": 0},
+              "cut": {"enum": ["entries", "depth", "time", "unreadable"]}
+            }
+          }
+        },
+        "docker": {
+          "type": "object",
+          "required": ["state"],
+          "additionalProperties": false,
+          "properties": {
+            "state": {"enum": ["read", "none", "unreadable"]},
+            "lines": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 200}}
+          }
+        },
+        "stoppedContainers": {"type": "integer", "minimum": 0},
+        "containers": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["id", "image"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {"type": "string", "maxLength": 64},
+              "image": {"type": "string", "maxLength": 200},
+              "command": {"type": "string", "minLength": 1, "maxLength": 200}
+            }
+          }
+        }
+      }
+    }
+  }
+}
