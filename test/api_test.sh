@@ -51,8 +51,8 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "cycle-writes"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "settings-rules"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "start-order"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-message"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 28
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "host-message-health"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 29
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_eq "$(t_calls gh)$(t_calls git)" ""
