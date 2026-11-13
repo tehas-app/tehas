@@ -31,6 +31,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tehas_core::call::{gh_why, run_full, GRACE};
 use tehas_core::time;
 
 /// The notes of an earlier cycle, killed outright before it could report. A
@@ -256,29 +257,39 @@ fn end_refused(home: &Path, n: &str, attempt: &str) {
     }
 }
 
-/// The answer for the number. A call that only failed is tried again rather
-/// than refusing a cycle that was already authorized.
-fn ask_github(repo: &str, n: &str) -> Option<String> {
+/// One try at the issue's answer, then TERM and a kill after GRACE: a gh that
+/// never answers ends the try. Three tries and two waits end within minutes,
+/// not at the unit's RuntimeMaxSec with the issue's lock held.
+const ASK_BOUND: Duration = Duration::from_secs(60);
+
+/// The answer for the number, or why there is none. A call that only failed
+/// is tried again rather than refusing a cycle that was already authorized.
+fn ask_github(repo: &str, n: &str) -> Result<String, String> {
     let wait: u64 = std::env::var("TEHAS_CYCLE_RETRY_WAIT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
+    let args = ["api".to_string(), format!("repos/{repo}/issues/{n}")];
+    ask("gh", &args, ASK_BOUND, Duration::from_secs(wait))
+}
+
+/// Three tries of `program`, each under `bound`, `wait` between them.
+fn ask(program: &str, args: &[String], bound: Duration, wait: Duration) -> Result<String, String> {
+    let mut why = String::new();
     for attempt in 1..=3 {
-        let out = Command::new("gh")
-            .args(["api", &format!("repos/{repo}/issues/{n}")])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output();
-        if let Ok(o) = out {
-            if o.status.success() {
-                return Some(String::from_utf8_lossy(&o.stdout).into_owned());
-            }
+        let r = run_full(program, args, None, bound, GRACE, &[]);
+        if r.ok() {
+            return Ok(r.out);
         }
+        why = match r.status {
+            None | Some(137) => format!("no answer within {}s", bound.as_secs()),
+            Some(c) => format!("exit {c}{}", gh_why(&r.err)),
+        };
         if attempt < 3 {
-            std::thread::sleep(Duration::from_secs(wait));
+            std::thread::sleep(wait);
         }
     }
-    None
+    Err(why)
 }
 
 fn exit_code(s: ExitStatus) -> i32 {
@@ -369,12 +380,15 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         _ => String::new(),
     };
     let repo = std::env::var("TEHAS_REPO").unwrap_or_default();
-    let Some(issue) = ask_github(&repo, &n) else {
-        log(&format!(
-            "refuse #{n}: GitHub could not be asked what the number is"
-        ));
-        end_refused(home, &n, &attempt);
-        return 65;
+    let issue = match ask_github(&repo, &n) {
+        Ok(issue) => issue,
+        Err(why) => {
+            log(&format!(
+                "refuse #{n}: GitHub could not be asked what the number is (3 tries, the last: {why})"
+            ));
+            end_refused(home, &n, &attempt);
+            return 65;
+        }
     };
     match number(&issue) {
         Number::Open => {}
@@ -438,6 +452,45 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn sh(script: &str) -> Vec<String> {
+        vec!["-c".to_string(), script.to_string()]
+    }
+
+    #[test]
+    fn a_call_that_never_answers_ends_at_its_bound() {
+        let began = std::time::Instant::now();
+        let got = ask(
+            "sh",
+            &sh("exec sleep 30"),
+            Duration::from_secs(1),
+            Duration::ZERO,
+        );
+        assert_eq!(got, Err("no answer within 1s".to_string()));
+        assert!(
+            began.elapsed() < Duration::from_secs(15),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_failed_call_says_how_it_failed() {
+        let got = ask(
+            "sh",
+            &sh("echo 'HTTP 502: Bad Gateway' >&2; exit 1"),
+            Duration::from_secs(10),
+            Duration::ZERO,
+        );
+        assert_eq!(got, Err("exit 1: HTTP 502".to_string()));
+        let got = ask(
+            "sh",
+            &sh("printf '{}'"),
+            Duration::from_secs(10),
+            Duration::ZERO,
+        );
+        assert_eq!(got, Ok("{}".to_string()));
+    }
 
     #[test]
     fn a_number_is_what_github_answers_for_it() {
