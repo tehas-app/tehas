@@ -723,6 +723,12 @@ impl<'a> Poll<'a> {
                 x.get("body")
                     .and_then(Value::as_str)
                     .is_some_and(|b| b.contains(HOLD_CLEARED))
+                    && tehas_core::accounts::factorys(
+                        x.pointer("/author/login")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        &self.c.bot_login,
+                    )
                     && at(x) >= since
             });
             if !said {
@@ -2163,7 +2169,8 @@ impl<'a> Poll<'a> {
 
     /// overlap_ok: with TEHAS_OVERLAP_HOLD=1, a start waits while a running
     /// cycle's branch changes a path the issue's body names. A branch that
-    /// could not be read holds nothing, and nothing on the issue changes.
+    /// could not be read holds nothing, but the log names it, and nothing on
+    /// the issue changes.
     fn overlap_ok(&mut self, n: u64) -> bool {
         if !self.c.overlap_hold {
             return true;
@@ -2191,6 +2198,17 @@ impl<'a> Poll<'a> {
             Some((*m, path))
         });
         let Some((m, path)) = hit else {
+            let unread: Vec<String> = others
+                .iter()
+                .filter(|m| matches!(changed.get(m), Some(None)))
+                .map(|m| format!("#{m}"))
+                .collect();
+            if !unread.is_empty() {
+                let list = unread.join(", ");
+                self.log(format!(
+                    "#{n} starts unchecked for overlap: the changes of the running cycle on {list} could not be read"
+                ));
+            }
             return true;
         };
         self.log(format!("wait #{n}: a running cycle on #{m} changes {path}"));
@@ -2999,7 +3017,8 @@ fn in_flow(labels: &[String]) -> bool {
 pub(crate) const LABEL_ALONE_MAX: usize = 50;
 
 /// The marker of the comment `hold_cleared` writes. It does not start
-/// `<!-- tehas:blocked`, so `newest_marker` never reads it as one.
+/// `<!-- tehas:blocked`, so `newest_marker` never reads it as one. Only the
+/// bot's own comment counts as said.
 const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
 
 /// The wait line of a `tehas:blocked` that counts while no comment names its

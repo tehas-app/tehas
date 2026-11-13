@@ -63,6 +63,41 @@ pub fn asked(snap: &Value, control: u64) -> Vec<u64> {
     out
 }
 
+/// Who applied the label and how they may ask, or the line that ignores the
+/// ask: the label of an account outside the list that is not the millwright.
+fn asker(c: &Settings, n: u64, ev: &[Event]) -> Result<(String, String, &'static str), String> {
+    let (who, at) = label_actor(ev, LABEL);
+    if c.allowed(&who) {
+        Ok((who, at, "label"))
+    } else if c.is_millwright(&who) {
+        Ok((who, at, "millwright"))
+    } else {
+        let who = if who.is_empty() { "unknown" } else { &who };
+        Err(format!(
+            "ignore #{n}: {LABEL} was applied by '{who}', not an allowed account"
+        ))
+    }
+}
+
+/// The asks the step judges, in order, and the lines of those it ignores.
+/// An ask is ignored on its label events before the poll's cap, so the label
+/// of an account not allowed takes no turn of an allowed one. An ask whose
+/// events cannot be read is kept: it waits.
+pub fn counted(c: &Settings, snap: &Value, control: u64) -> (Vec<u64>, Vec<String>) {
+    let mut asks = Vec::new();
+    let mut ignored = Vec::new();
+    for n in asked(snap, control) {
+        if let Events::Read(ev) = Events::parse(&snap["issues"][n.to_string()]["events"]) {
+            if let Err(line) = asker(c, n, &ev) {
+                ignored.push(line);
+                continue;
+            }
+        }
+        asks.push(n);
+    }
+    (asks, ignored)
+}
+
 /// What the step knows of one asked issue.
 pub struct Ask {
     pub n: u64,
@@ -204,16 +239,9 @@ pub fn judge(c: &Settings, a: &Ask) -> Verdict {
             ))
         }
     };
-    let (who, at) = label_actor(ev, LABEL);
-    let how = if c.allowed(&who) {
-        "label"
-    } else if c.is_millwright(&who) {
-        "millwright"
-    } else {
-        let who = if who.is_empty() { "unknown" } else { &who };
-        return Verdict::Ignore(format!(
-            "ignore #{n}: {LABEL} was applied by '{who}', not an allowed account"
-        ));
+    let (who, at, how) = match asker(c, n, ev) {
+        Ok(a) => a,
+        Err(line) => return Verdict::Ignore(line),
     };
     let refuse = |why: String| Verdict::Refuse {
         by: who.clone(),
