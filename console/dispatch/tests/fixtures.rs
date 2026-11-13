@@ -375,7 +375,8 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
-    // parked: the park on record, {reason, body, told, retries, question}.
+    // parked: the park on record, {reason, body, told, retries, question},
+    // the question 4001 unless one is given (null for none).
     if let Some(m) = c.get("parked").and_then(Value::as_object) {
         let mut is = issues(snap);
         for (n, x) in m {
@@ -383,10 +384,16 @@ fn expand(c: &Value, snap: &mut Value) {
             let park = json!({"reason": x.get("reason").unwrap_or(&json!("intent-park")),
                 "body_sha256": body_sha256(&json!({"body": x["body"]})),
                 "retries": x.get("retries").unwrap_or(&json!(0)),
-                "question": x.get("question").unwrap_or(&Value::Null),
+                "question": x.get("question").unwrap_or(&json!("4001")),
                 "told_at": if told { json!("2026-10-01T03:00:00Z") } else { Value::Null }});
             let i = is.entry(n.clone()).or_insert_with(|| json!({}));
             i["park"] = park;
+            // The default question is unticked, as dispatch_lib.sh's parked
+            // leaves it. A case that names its question gives its comments.
+            if x.get("question").is_none() && i.get("comments").is_none() {
+                i["comments"] =
+                    json!({"data": {"repository": {"issue": {"comments": {"nodes": []}}}}});
+            }
         }
         snap["issues"] = Value::Object(is);
     }
