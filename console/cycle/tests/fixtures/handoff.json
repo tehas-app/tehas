@@ -2410,7 +2410,8 @@
     "9"
    ],
    "log": [
-    "WARN: the progress of #7 could not be read, so its rows are not summed into the totals"
+    "WARN: the progress of #7 could not be read, so its rows are not summed into the totals",
+    "WARN: the progress of #7 does not say whether its review held findings, so its pull request is not said to wait only for a merge"
    ],
    "writes": [
     [
@@ -2419,7 +2420,7 @@
     ],
     [
      "question",
-     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its review ran out of rounds with findings still open, so it is not waiting only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle handed off with its pull request open: status `handoff`, last step `ci`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge. Read the pull request before you retry: https://github.com/acme/widget/pull/9. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=ci kind= provider=0 sig=a11236985fced9d6efd259c83c3830a4b01fb2767382c0dbcbf8159abde106fe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3636,7 +3637,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\",\n      \"usage\": {\n        \"turns\": 4,\n        \"input\": 35,\n        \"output\": 11,\n        \"cacheRead\": 1,\n        \"dispatches\": 3\n      }\n    }\n  ]\n}\n",
-    "progress.json": "{\"roles\":[{\"role\":\"developer\",\"dispatches\":2,\"turns\":3,\"input\":30,\"output\":10,\"cacheRead\":1}],\"reason\":\"\"}\n"
+    "progress.json": "{\"roles\":[{\"role\":\"developer\",\"dispatches\":2,\"turns\":3,\"input\":30,\"output\":10,\"cacheRead\":1}],\"reason\":\"\",\"reviewHeld\":false}\n"
    },
    "record": {
     "api": 1,
