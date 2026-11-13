@@ -933,9 +933,12 @@ fn finish_step(
     snap: &Value,
     d: &crate::Decision,
 ) {
-    use crate::finish::{asked, step, Ask, PER_POLL};
+    use crate::finish::{counted, step, Ask, PER_POLL};
     use tehas_core::events::Events;
-    let numbers = asked(snap, settings.control);
+    let (numbers, ignored) = counted(settings, snap, settings.control);
+    for line in ignored {
+        say(&line);
+    }
     if numbers.is_empty() {
         return;
     }
@@ -998,8 +1001,9 @@ fn finish_hands<'a>(home: &Path, settings: &Settings, w: &'a mut Writer) -> Fini
 
 /// The step that finishes a cycle whose push or pull request failed on
 /// GitHub's side (src/auto_finish.rs): the records the cycles left, the issue
-/// of each that is due, and the step over them. An issue that carries
-/// `tehas:finish` is the ask's, and one that runs or starts now waits.
+/// of each that is due, and the step over them. An issue whose `tehas:finish`
+/// the finish step does not ignore is the ask's, and one that runs or starts
+/// now waits.
 fn auto_finish_step(
     home: &Path,
     settings: &Settings,
@@ -1013,7 +1017,7 @@ fn auto_finish_step(
     if records.is_empty() {
         return;
     }
-    let asked = crate::finish::asked(snap, settings.control);
+    let (asked, _) = crate::finish::counted(settings, snap, settings.control);
     let running: Vec<u64> = snap["running"]
         .as_array()
         .into_iter()

@@ -947,7 +947,8 @@ Who may ask:
 
 The poll's finish step takes no slot and starts no agent and no cycle. It runs
 after the poll's own decisions, at most three asks a poll, and not on a poll
-that is paused, dry or that failed. For each ask it checks the rules above, the
+that is paused, dry or that failed. An ignored label does not count toward
+the three. For each ask it checks the rules above, the
 comment (the asker's newest marked one, written in the ten minutes before the
 label and edited by nobody after it), and that no cycle of the issue is
 running. Then it takes `tehas:finish` off and runs `tehas-cycle finish <n>
