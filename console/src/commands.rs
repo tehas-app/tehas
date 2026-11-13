@@ -16,6 +16,7 @@
 //!   console tehas drain [--wait SECONDS] [--json]
 //!   console tehas history [--json] [--after CURSOR] [--issue N]
 //!   console tehas export [--json] --after CURSOR <dir>
+//!   console tehas start <issue> [--clear] [--json]
 //!   console tehas stop <issue> [--keep-workspace]
 //!   console tehas freeze <issue> [--reason TEXT] [--json]
 //!   console tehas thaw <issue> [--json]
@@ -42,7 +43,7 @@
 
 use crate::{
     api, clean, dev, disk, export, flags, freeze, github, health, history, host_message, labels,
-    mcp, order, panel, queue, review, state, status, stop, top,
+    mcp, order, panel, queue, review, start, state, status, stop, top,
 };
 use std::env;
 use std::io::{self, Write};
@@ -153,6 +154,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "state" => state::main(rest),
         "limit" => flag(limit_words(rest)),
         "order" => order::main(rest),
+        "start" => start::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
         "top" => top::view(rest),
@@ -272,6 +274,11 @@ pub fn check(given: &[String]) -> u8 {
     let said = match words[..] {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "order"] => order::words(rest).map(|_| ()),
+        ["tehas", "start"] => match start::words(rest) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(ANSWERED),
+            Err(rc) => Err(rc),
+        },
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
@@ -342,7 +349,7 @@ fn issue_words(word: Option<&String>, usage: &str) -> Result<(), u8> {
 pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
-        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
+        ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels" | "start"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
         ["tehas", "resume"] | ["tehasbot", "status"] => &[
             "TEHAS_REPO",
@@ -383,6 +390,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
+        "start" => start::USAGE,
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),

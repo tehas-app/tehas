@@ -102,6 +102,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 
     let calls = &mut src.calls;
     s["order"] = store::order(calls);
+    let mut host_starts = store::host_starts(calls);
     let types = !c.improvement_type.is_empty();
     let mut q = github::queue(calls, &c.repo, types)?;
     s["repo"] = json!(q.repo);
@@ -132,6 +133,28 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         names_from_bodies(&mut s, pulls, &q.open, c);
     }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
+    // Each start the host approved is told whether its issue is open, and with
+    // what labels, from the same page the queue reads.
+    for h in host_starts.as_array_mut().into_iter().flatten() {
+        let n = h["issue"].as_u64().unwrap_or(0);
+        let o = q.open.iter().find(|o| o.number == n);
+        h["open"] = json!(o.is_some());
+        h["labels"] = json!(o
+            .map(|o| o
+                .labels
+                .iter()
+                .map(|l| json!({"name": l}))
+                .collect::<Vec<_>>())
+            .unwrap_or_default());
+    }
+    let hosted: Vec<u64> = host_starts
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|h| h["open"] == json!(true))
+        .filter_map(|h| h["issue"].as_u64())
+        .collect();
+    s["host_starts"] = host_starts;
     let mut issues = Map::new();
     for o in &q.open {
         let mut i = github::issue(o);
@@ -418,6 +441,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     );
     let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
     candidates.extend(numbers(&s["blocked"]));
+    candidates.extend(&hosted);
     let candidates: Vec<u64> = candidates.into_iter().collect();
     for n in &candidates {
         if let Some(record) = host::plan_start(home, *n) {

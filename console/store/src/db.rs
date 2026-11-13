@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -198,6 +198,43 @@ CREATE TABLE start_order (
   until_at INTEGER,
   reason TEXT,
   set_at INTEGER NOT NULL
+);
+";
+
+/// The step from 12 to 13: the starts approved from the host (#1967), and
+/// `cycles.how` takes 'host'. The CHECK cannot change in place, so `cycles`
+/// is rebuilt as schema.sql writes it and every row is copied, with foreign
+/// keys off as for `step_4`.
+pub const STEP_13: &str = "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
+CREATE TABLE host_starts (
+  issue INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  at    INTEGER NOT NULL
 );
 ";
 
@@ -506,7 +543,7 @@ pub const COUNTED_INDEXES: [&str; 14] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 24] = [
+pub const COUNTED_TABLES: [&str; 25] = [
     "actions",
     "approvals",
     "cycle_history",
@@ -517,6 +554,7 @@ pub const COUNTED_TABLES: [&str; 24] = [
     "cycles",
     "endings",
     "heartbeats",
+    "host_starts",
     "issues",
     "journal",
     "meta",
@@ -1118,7 +1156,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1128,7 +1167,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
@@ -1137,7 +1177,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
@@ -1145,36 +1186,45 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         8 => step(conn, 9, STEP_9)
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
         9 => step(conn, 10, STEP_10)
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        // The store of the release before last sits at 10.
-        10 => step_11(conn).and_then(|()| step(conn, 12, STEP_12)),
-        // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
+        10 => step_11(conn)
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step_13(conn)),
+        // The store of the release before last sits at 11.
+        11 => step(conn, 12, STEP_12).and_then(|()| step_13(conn)),
+        // The store of the previous release sits at 12.
+        12 => step_13(conn),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -1250,6 +1300,20 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
 /// at 10 with every row.
 fn step_11(conn: &mut Connection) -> Result<(), DbError> {
     step(conn, 11, STEP_11)?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 13, with foreign keys off while `cycles` is rebuilt, as for
+/// `step_4`: dropping it with them on would delete every row that references
+/// it. `step` checks them before it commits, and the VACUUM after gives back
+/// the pages of the old table.
+fn step_13(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 13, STEP_13);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
     conn.execute_batch("VACUUM").map_err(classify)
 }
 

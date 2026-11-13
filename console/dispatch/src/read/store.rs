@@ -374,6 +374,18 @@ pub fn order(calls: &mut Calls) -> Value {
     }
 }
 
+/// host-start-list: the starts the host approved, `[{issue, at}]`, or
+/// `{"failed": true}` when the store did not answer.
+pub fn host_starts(calls: &mut Calls) -> Value {
+    match calls.store(&["host-start-list"]) {
+        Ok(v) => match get(&v, "host_starts") {
+            Value::Array(a) => Value::Array(a),
+            _ => json!({"failed": true}),
+        },
+        Err(_) => json!({"failed": true}),
+    }
+}
+
 /// cycle-show --running: each running cycle's record as running_starts
 /// reads it, Err with the store's failure.
 pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {

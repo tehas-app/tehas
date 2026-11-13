@@ -449,6 +449,10 @@ pub fn reads_images() -> String {
     }
 }
 
+/// The how of a start approved from the host with `tehas start` (#1967). It
+/// names no GitHub login, so no list of accounts is asked about it.
+pub const HOST: &str = "host";
+
 /// Whether <login> is one of TEHAS_ALLOWED_LABELERS.
 pub fn allowed(login: &str) -> bool {
     events::allowed_in(&env("TEHAS_ALLOWED_LABELERS"), login)
@@ -498,12 +502,13 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "retry-tick" | "outage-retry")
+        matches!(s, "label" | "retry-tick" | "outage-retry" | HOST)
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });
     let by = base.get("by").and_then(Value::as_str)?;
-    (ok && events::allowed_in(allowed, by)).then(|| {
+    let host = base.get("how").and_then(Value::as_str) == Some(HOST);
+    (ok && (host || events::allowed_in(allowed, by))).then(|| {
         let field = |k: &str| base.get(k).cloned().unwrap_or(Value::Null);
         json!({"at": field("at"), "by": field("by"), "how": field("how"),
             "body_sha256": field("body_sha256")})
@@ -598,6 +603,20 @@ mod tests {
             let got = base(&shape, "alice bob").expect("an approval");
             assert_eq!(got["by"], "alice");
             assert_eq!(got["how"], "label");
+        }
+    }
+
+    /// A start the host approved names no login, and the millwright may rest
+    /// on it whatever the list of accounts says (#1967).
+    #[test]
+    fn a_record_rests_on_the_host_s_approval() {
+        let mut host = person("host");
+        host["how"] = json!(HOST);
+        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+        for shape in [host, fixer] {
+            let got = base(&shape, "alice").expect("an approval");
+            assert_eq!(got["how"], HOST);
         }
     }
 

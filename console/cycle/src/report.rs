@@ -1534,7 +1534,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 by.clear();
             }
             let at = epoch.parse::<i64>().ok().map(iso).unwrap_or_default();
-            let said = if !by.is_empty() && !at.is_empty() {
+            // The host's approval names no GitHub login to mention.
+            let host = f.start_how == "host" || (f.start_how == "refresh" && base_by == "host");
+            let said = if host {
+                " The host approved this start with `tehas start`; tehas keeps no record of an approval that started nothing, so `tehas start` or a fresh `tehas:ready` asks for another start.".to_string()
+            } else if !by.is_empty() && !at.is_empty() {
                 format!(" @{by} approved this start at {at}; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start.")
             } else if !by.is_empty() {
                 format!(" @{by} approved this start; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start.")

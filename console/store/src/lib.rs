@@ -11,6 +11,7 @@ mod db;
 #[cfg(debug_assertions)]
 mod exercise;
 mod history;
+mod host_start;
 mod import;
 mod journal;
 mod live;
@@ -34,6 +35,8 @@ mod call_tests;
 mod cycle_tests;
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod host_start_tests;
 #[cfg(test)]
 mod import_tests;
 #[cfg(test)]

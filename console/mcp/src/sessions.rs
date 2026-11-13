@@ -23,7 +23,7 @@ pub const KINDS: [&str; 2] = ["work", "plan"];
 // filter both read this list, and nothing else in the crate names it; the test
 // of the filter reads it here, so it pins the tool to what it says rather than
 // to a list written twice.
-pub const HOWS: [&str; 9] = [
+pub const HOWS: [&str; 10] = [
     "label",
     "refresh",
     "retry-tick",
@@ -33,6 +33,7 @@ pub const HOWS: [&str; 9] = [
     "answer",
     "refine",
     "hand",
+    "host",
 ];
 // A filter of either word matches records of both, so old records that say
 // `fixer` are found by the new word and new records by the old one. The `how`

@@ -54,7 +54,7 @@ pub const RUN_FIELDS: [Field; 40] = [
     (
         "how",
         Shape::Text,
-        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine or hand.",
+        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine, hand or host.",
     ),
     ("started", Shape::Time, "When it started, UTC."),
     (

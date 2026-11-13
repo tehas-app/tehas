@@ -258,6 +258,19 @@ compute on the issue.
 - To start it ahead of other ready issues, put it first in the start order:
   `tehas order set --issues N`. The order only sorts; the issue still needs
   its `tehas:ready`. See [tehas order](/api#tehas-order).
+- **From the host**, `tehas start N` approves the issue with no label and no
+  GitHub login: the host is who approves. A program that runs the factory
+  from the host, such as an industry, says what starts this way. The next
+  poll starts it under the same rules as a label: the pause, the limit, the
+  slots, its blockers, an open pull request, a park and the start order. A
+  hold takes nothing off: the approval waits, and the log says
+  `wait #N: ...` or `skip #N: ...` each poll. The start spends the
+  approval, and so does any other start of the issue. A `tehas:ready` from an
+  allowed account goes first. A change of the title or text after the
+  approval by an account outside `TEHAS_ALLOWED_LABELERS` holds the start;
+  `tehas start N --clear` withdraws the approval, and `tehas start N` gives
+  it again. The cycle's comment says it was approved from the host, and its
+  history line has `how` `host`. See [tehas start](/api#tehas-start).
 
 The factory works on open issues only. A closed issue is never taken, and the
 number of a pull request is never taken, open, merged or closed. A label does

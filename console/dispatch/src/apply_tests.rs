@@ -781,6 +781,36 @@ fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
 }
 
 #[test]
+fn a_start_the_host_approved_is_recorded_as_the_host_s_and_mentions_no_login() {
+    let mut t = world();
+    let mut st = start_of(12, "host");
+    st["by"] = json!("host");
+    st["how"] = json!("start from the host");
+    st["verb"] = json!("approved from the host");
+    st["remove"] = json!([]);
+    let a = t.apply(json!([st]));
+    assert_eq!(a.exit, None);
+    assert_eq!(a.log, vec!["start #12 (approved from the host by host)"]);
+    let c = t.writes();
+    assert!(c[0].contains("approval-record 12 --at 1793008800 --by host --how host"));
+    assert!(!c[0].contains("--label"));
+    assert_eq!(
+        c[3],
+        "gh issue edit 12 --repo example-owner/example-product --add-label tehas:running"
+    );
+    assert!(c[4].contains("(approved from the host with `tehas start`)."));
+    assert!(!c[4].contains('@'));
+}
+
+#[test]
+fn a_dropped_host_approval_is_cleared_on_the_store() {
+    let mut t = world();
+    let a = t.apply(json!([{"host_start_drop": 12}]));
+    assert_eq!(a.exit, None);
+    assert!(t.writes().iter().any(|c| c == "store host-start-clear 12"));
+}
+
+#[test]
 fn a_read_only_start_that_worked_is_kept_on_record_and_one_that_failed_is_not() {
     let mut t = world();
     t.w.host.read_only = true;

@@ -53,7 +53,7 @@ fn record_ok(r: &Value) -> bool {
         && text("by").is_some_and(|s| all_of(s, |b| b.is_ascii_alphanumeric() || b == b'-'))
         && matches!(
             text("how"),
-            Some("label" | "retry-tick" | "outage-retry" | "fixer" | "refresh")
+            Some("label" | "retry-tick" | "outage-retry" | "fixer" | "refresh" | "host")
         )
         && matches!(
             r.get("comment_links"),
@@ -214,7 +214,14 @@ mod tests {
 
     #[test]
     fn every_way_of_approving_is_a_shape_it_reads() {
-        for how in ["label", "retry-tick", "outage-retry", "fixer", "refresh"] {
+        for how in [
+            "label",
+            "retry-tick",
+            "outage-retry",
+            "fixer",
+            "refresh",
+            "host",
+        ] {
             let mut r = approved("Words.", None);
             r["how"] = json!(how);
             assert_eq!(hold(Some(&r), &json!({"body": "Words."})), Ok(()));

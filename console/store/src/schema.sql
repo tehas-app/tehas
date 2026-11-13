@@ -1,13 +1,14 @@
--- The schema of state/tehas.db, schema v12: every table, column, key and
+-- The schema of state/tehas.db, schema v13: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
--- same columns. SQLite cannot change a CHECK in place, so cycles and
--- planning_notes are written as db::STEP_4 rebuilds them. Sections 3.10 to 3.12
+-- same columns. SQLite cannot change a CHECK in place, so planning_notes is
+-- written as db::STEP_4 rebuilds it and cycles as db::STEP_13 does. Sections 3.10 to 3.12
 -- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
 -- is db::STEP_11. Nothing here references them, so they are dropped rather
--- than rebuilt. Schema 12 adds start_order (db::STEP_12).
+-- than rebuilt. Schema 12 adds start_order (db::STEP_12), and schema 13
+-- host_starts and the how 'host' of cycles (db::STEP_13).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -56,13 +57,14 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
 -- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
 -- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
--- the aliases in console/store.
+-- the aliases in console/store. 'host' (v13) is a start approved from the host
+-- with `tehas start`, which names no GitHub login.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -376,4 +378,11 @@ CREATE TABLE start_order (
   until_at INTEGER,
   reason TEXT,
   set_at INTEGER NOT NULL
+);
+-- The starts approved from the host (#1967): `tehas start <n>` writes one row,
+-- one start still owed, and cycle-start takes it off with any start of the
+-- issue. at is when it was given.
+CREATE TABLE host_starts (
+  issue INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  at    INTEGER NOT NULL
 );

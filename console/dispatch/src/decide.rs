@@ -48,6 +48,18 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 /// The label that chooses the lean driver for one issue.
 pub(crate) const LEAN: &str = "tehas:lean";
 
+/// What a start the host approved with `tehas start <n>` is (#1967): its how,
+/// its approver and the ask of the rules it passes. No GitHub login gave it and
+/// no label asks for it, so a refusal takes no label off: the approval waits
+/// until the host withdraws it or the issue starts.
+pub(crate) const HOST: &str = "host";
+
+/// Whether a person's approval, as `fixer_base` reads it, still counts: its
+/// account is allowed, or the host gave it.
+pub(crate) fn base_counts(c: &Settings, base: &Value) -> bool {
+    base["how"] == HOST || c.allowed(base["by"].as_str().unwrap_or(""))
+}
+
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
 /// it cannot drift apart.
@@ -328,6 +340,47 @@ impl<'a> Poll<'a> {
             ));
         }
         true
+    }
+
+    /// The starts the host approved whose issue is open.
+    fn hosted(&self) -> impl Iterator<Item = (u64, &crate::snapshot::HostStart)> {
+        self.s
+            .host_starts
+            .iter()
+            .flatten()
+            .filter(|(_, h)| h.open)
+            .map(|(n, h)| (*n, h))
+    }
+
+    /// When the host approved a start of `n`, if it did and the issue is open.
+    fn host_at(&self, n: u64) -> Option<i64> {
+        self.hosted().find(|(h, _)| *h == n).map(|(_, h)| h.at)
+    }
+
+    /// The starts the host approved of an issue that is not open: each goes,
+    /// and the log says so once. A store that could not list them starts none.
+    fn host_unopened(&mut self) {
+        let Some(all) = &self.s.host_starts else {
+            self.log("WARN: the starts the host approved could not be read from the state store: none starts this poll");
+            return;
+        };
+        let gone: Vec<u64> = all
+            .iter()
+            .filter(|(_, h)| !h.open)
+            .map(|(n, _)| *n)
+            .collect();
+        for n in gone {
+            if self.dry {
+                self.log(format!(
+                    "would drop the host's approval of #{n}: it is not an open issue"
+                ));
+            } else {
+                self.log(format!(
+                    "drop #{n}: the host approved a start of it, and it is not an open issue"
+                ));
+                self.act(json!({"host_start_drop": n}));
+            }
+        }
     }
 
     fn plan_open(&self, n: u64) -> bool {
@@ -768,6 +821,11 @@ impl<'a> Poll<'a> {
         let blocked = self.list(&self.s.blocked.clone())?;
         let mut all: Vec<Listed> = ready;
         all.extend(blocked.into_iter().filter(|i| !in_flow(&i.labels)));
+        all.extend(self.hosted().map(|(n, h)| Listed {
+            number: Some(n),
+            labels: h.labels.clone(),
+            state: "OPEN".into(),
+        }));
         all.sort_by_key(|i| i.number);
         all.dedup_by_key(|i| i.number);
         Ok(all)
@@ -1142,7 +1200,9 @@ impl<'a> Poll<'a> {
         let ready = self.ready()?;
         Ok(ready
             .iter()
-            .filter(|i| has(&i.labels, "tehas:ready"))
+            .filter(|i| {
+                has(&i.labels, "tehas:ready") || i.number.is_some_and(|n| self.host_at(n).is_some())
+            })
             .filter_map(|i| i.number)
             .filter(|n| !self.plan_open(*n) && !self.running(*n))
             .count() as i64)
@@ -1417,6 +1477,12 @@ impl<'a> Poll<'a> {
     /// would run classic in lean's place. `why` is the reason a person reads
     /// and `dry_line` what the log says in their place, so far.
     fn refuse_start(&mut self, n: u64, ask: &str, labels: &[String], why: &str, dry_line: &str) {
+        // The host's approval has no label to take off: it waits, and the log
+        // says why each poll.
+        if ask == HOST {
+            self.log(format!("wait #{n}: the host's approval waits: {dry_line}"));
+            return;
+        }
         let mut off = vec![ask];
         if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
             off.push("tehas:blocked");
@@ -1875,7 +1941,7 @@ impl<'a> Poll<'a> {
         self.log(format!(
             "skip #{n}: pull request {url} is open and closes it"
         ));
-        if !self.dry {
+        if !self.dry && ask != HOST {
             self.act(json!({
                 "issue": n, "remove": [ask],
                 "fail": Self::label_fail(n, &[ask], &[]),
@@ -2575,7 +2641,7 @@ impl<'a> Poll<'a> {
         };
         let record = record.ok_or_else(none)?;
         let base = fixer_base(&record)
-            .filter(|b| self.c.allowed(b["by"].as_str().unwrap_or("")))
+            .filter(|b| base_counts(self.c, b))
             .ok_or_else(none)?;
         let by = base["by"].as_str().unwrap_or("").to_string();
         if sum != base["body_sha256"].as_str().unwrap_or("") {
@@ -2640,6 +2706,7 @@ impl<'a> Poll<'a> {
             want_refresh,
             ..
         } = room;
+        self.host_unopened();
         let ready = self.ready()?;
         let (ranked, only) = self.ranked(&ready);
         let mut order: Vec<(char, u64)> = Vec::new();
@@ -2716,7 +2783,12 @@ impl<'a> Poll<'a> {
             if self.read_only_ran(n) {
                 continue;
             }
-            let ask = if has(&labels, "tehas:ready") {
+            // A person's label goes first; the host's approval is asked only
+            // of an issue no `tehas:ready` asks for.
+            let host = self.host_at(n).filter(|_| !has(&labels, "tehas:ready"));
+            let ask = if host.is_some() {
+                HOST
+            } else if has(&labels, "tehas:ready") {
                 "tehas:ready"
             } else {
                 "tehas:blocked"
@@ -2724,44 +2796,58 @@ impl<'a> Poll<'a> {
             let mut fixer = None;
             let mut epic: Option<EpicGrant> = None;
             let mut planned = false;
-            let (who, at) = match self.plan_start(n, ask)? {
-                Planned::Refused => continue,
-                Planned::Go(who, at) => {
-                    planned = true;
-                    (who, at)
+            let (who, at) = if let Some(t) = host {
+                let at = iso(t.max(0) as u64);
+                if !self.unchanged_since(
+                    n,
+                    &at,
+                    HOST,
+                    "the host approved it",
+                    "run `tehas start --clear` and `tehas start` on the host",
+                )? {
+                    continue;
                 }
-                Planned::No => match self.approval(n, ask)? {
-                    Ok(a) => a,
-                    Err(refused) => {
-                        if ask == "tehas:ready"
-                            && !refused.is_empty()
-                            && self.c.is_millwright(&refused)
-                        {
-                            let ev = self.events(n)?;
-                            let (_, at) = label_actor(&ev, "tehas:ready");
-                            match self.epic_ready(n, &refused, &at)? {
-                                Some(Some(g)) => {
-                                    let by = g.by.clone();
-                                    epic = Some(g);
-                                    (by, at)
-                                }
-                                Some(None) => continue,
-                                None => {
-                                    match self.fixer_ok(n, &refused, &at, &labels)? {
-                                        Some(grant) => fixer = Some(grant),
-                                        None => continue,
-                                    }
-                                    (refused, at)
-                                }
-                            }
-                        } else {
-                            if ask == "tehas:ready" && !refused.is_empty() {
-                                self.clear_unauthorised(n, "tehas:ready", &refused);
-                            }
-                            continue;
-                        }
+                (HOST.to_string(), at)
+            } else {
+                match self.plan_start(n, ask)? {
+                    Planned::Refused => continue,
+                    Planned::Go(who, at) => {
+                        planned = true;
+                        (who, at)
                     }
-                },
+                    Planned::No => match self.approval(n, ask)? {
+                        Ok(a) => a,
+                        Err(refused) => {
+                            if ask == "tehas:ready"
+                                && !refused.is_empty()
+                                && self.c.is_millwright(&refused)
+                            {
+                                let ev = self.events(n)?;
+                                let (_, at) = label_actor(&ev, "tehas:ready");
+                                match self.epic_ready(n, &refused, &at)? {
+                                    Some(Some(g)) => {
+                                        let by = g.by.clone();
+                                        epic = Some(g);
+                                        (by, at)
+                                    }
+                                    Some(None) => continue,
+                                    None => {
+                                        match self.fixer_ok(n, &refused, &at, &labels)? {
+                                            Some(grant) => fixer = Some(grant),
+                                            None => continue,
+                                        }
+                                        (refused, at)
+                                    }
+                                }
+                            } else {
+                                if ask == "tehas:ready" && !refused.is_empty() {
+                                    self.clear_unauthorised(n, "tehas:ready", &refused);
+                                }
+                                continue;
+                            }
+                        }
+                    },
+                }
             };
             if !self.links_ok(n) {
                 continue;
@@ -2818,7 +2904,11 @@ impl<'a> Poll<'a> {
             };
             self.d.picked.push(n);
             ready_picked += 1;
-            let mut remove = vec![ask.to_string()];
+            let mut remove = if ask == HOST {
+                Vec::new()
+            } else {
+                vec![ask.to_string()]
+            };
             if ask != "tehas:blocked" && has(&labels, "tehas:blocked") {
                 remove.push("tehas:blocked".into());
             }
@@ -2879,6 +2969,11 @@ impl<'a> Poll<'a> {
                     "`tehas:ready` label on epic #{} at {}, which the fixer carried to this sub-issue",
                     g.epic, g.at
                 );
+            }
+            if ask == HOST {
+                st.verb = "approved from the host".into();
+                st.how = "start from the host".into();
+                st.given_how = HOST.into();
             }
             if planned {
                 st.verb = "planned".into();
@@ -2976,7 +3071,7 @@ pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
             .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
         && !by.is_empty()
         && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        && matches!(how, "label" | "retry-tick" | "outage-retry")
+        && matches!(how, "label" | "retry-tick" | "outage-retry" | HOST)
         && sum.len() == 64
         && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
     ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))

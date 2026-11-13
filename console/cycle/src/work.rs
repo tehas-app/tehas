@@ -679,11 +679,17 @@ enum Approved {
 fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
-        // start of the millwright's counts on the person's approval it rests on.
-        let by = start::record_value(Path::new(record))
-            .and_then(|r| r.get("by").and_then(|b| b.as_str().map(String::from)))
-            .unwrap_or_default();
+        // start of the millwright's counts on the person's approval it rests on,
+        // and one the host approved with `tehas start` names no login (#1967).
+        let r = start::record_value(Path::new(record));
+        let field = |k: &str| {
+            r.as_ref()
+                .and_then(|r| r.get(k).and_then(|b| b.as_str().map(String::from)))
+                .unwrap_or_default()
+        };
+        let by = field("by");
         let ok = gives::allowed(&by)
+            || field("how") == gives::HOST
             || (gives::millwright_is(&by) && gives::millwright_base(record).is_some());
         return if ok { Approved::Yes } else { Approved::No };
     }

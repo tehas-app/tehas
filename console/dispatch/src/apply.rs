@@ -227,6 +227,13 @@ impl Writer {
             self.plan_close(n, log);
         } else if let Some(n) = a.get("plan_start_drop").and_then(Value::as_u64) {
             self.plan_start_drop(n);
+        } else if let Some(n) = a.get("host_start_drop").and_then(Value::as_u64) {
+            if let Err(f) = self.store_try(3, &["host-start-clear", &n.to_string()]) {
+                log.push(format!(
+                    "WARN: #{n}: the host's approval could not be dropped ({})",
+                    word(&f)
+                ));
+            }
         } else if let Some(n) = a.get("units").and_then(Value::as_u64) {
             if !self.units(n, log) {
                 self.ended = Some(1);

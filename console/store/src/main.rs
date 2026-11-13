@@ -79,6 +79,9 @@
 //!   store publish [--dispatch <file>] [--health <file>]
 //!   store order-show | order-set --issues N[,N...] [--only] [--until <unix>]
 //!                [--reason TEXT] | order-clear
+//!   store host-start-set <issue> --at <unix> | host-start-clear <issue>
+//!                | host-start-list
+//!                (the starts approved from the host: src/host_start.rs)
 //!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
 //!                [--comment-id <id> --body-sha <sha256>]
 //!   store park-show <issue> | --automatic | --refine
@@ -89,8 +92,8 @@
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
-//!                (the hows are label, refresh, retry-tick, outage-retry and
-//!                millwright; the old `fixer` is taken too, and is written as
+//!                (the hows are label, refresh, retry-tick, outage-retry,
+//!                host and millwright; the old `fixer` is taken too, and is written as
 //!                `millwright` until the shell stops sending it)
 //!   store approval-current <issue>
 //!   store approval-view <issue> [--attempt N]

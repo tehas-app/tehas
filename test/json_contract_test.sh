@@ -143,6 +143,21 @@ surfaces=(
   # and 0, which no reading of the command can print.
   'bound	issue	.issue = 1	.issue = 0	under 1'
   'required	["api","issue","running","asked","frozen"]'
+  # The object `tehas start <issue> --json` prints, read from the state store
+  # (console/src/start.rs): an approval written now, one asked for again, one
+  # withdrawn, and a withdrawal of none. The surface has no state, so it has no
+  # `state` lines.
+  'surface	start'
+  'sample	sample'
+  'sample	again'
+  'sample	clear'
+  'sample	none'
+  'check	del(.changed) | .zz = 1 | .approved = "yes"	.: changed is missing'
+  'check	del(.changed) | .zz = 1 | .approved = "yes"	.zz: not in the schema'
+  'check	del(.changed) | .zz = 1 | .approved = "yes"	.approved: string, not boolean'
+  'bound	issue	.issue = 1	.issue = 0	under 1'
+  'bound	at	.at = "2026-10-17T15:00:60Z"	.at = "2026-10-17T15:00:61Z"	does not match'
+  'required	["api","issue","approved","changed"]'
   # The listing `tehas history --json` prints: the ends of cycles and of
   # planning turns, oldest first, and the cursor to keep. The two samples are
   # the two readings of the store: three ends on it, and nothing. One `items`
@@ -516,6 +531,29 @@ order_reading() { # <name>
   t_run "TEHAS_STORE_TEST_NOW=$(limit_now "$1") '$T_CONSOLE' tehas order --json | jq ."
 }
 
+# The world of one `start` sample, on the state store: GitHub answers that
+# issue 12 is open, and `again`, `clear` and `none` are read after an approval
+# was given at the moment the limit is written (`none` after it was withdrawn
+# too). The approval of `sample` is written by its reading.
+start_world() { # <name>
+  t_store_home "$T/home/tehas"
+  t_stub gh 'echo "{\"number\": 12, \"state\": \"open\"}"'
+  case $1 in
+    again | clear | none) t_run "TEHAS_REPO=acme/widget TEHAS_STORE_TEST_NOW=$limit_written \
+        '$T_CONSOLE' tehas start 12 >/dev/null 2>&1" ||
+      t_bad "approving #12 failed: $t_out" ;;
+  esac
+  [ "$1" != none ] || t_run "TEHAS_REPO=acme/widget '$T_CONSOLE' tehas start 12 --clear >/dev/null 2>&1" ||
+    t_bad "withdrawing #12 failed: $t_out"
+}
+
+start_reading() { # <name>
+  local clear=
+  case $1 in clear | none) clear=--clear ;; esac
+  t_run "TEHAS_REPO=acme/widget TEHAS_STORE_TEST_NOW=$limit_written \
+    '$T_CONSOLE' tehas start 12 $clear --json | jq ."
+}
+
 # The moment the limit file is written at: 2026-10-17T14:00:20Z, when it is in
 # force, whichever reading of it a sample is. `set` takes the same moment for
 # its own now, so it never sees a `--until` of the past. Named here so the two
@@ -765,6 +803,11 @@ printed() { # <surface> <name>
       # reading, so nothing later waits for a cycle that has ended.
       freeze_holder_end
       printf '%s\n' "$t_out"
+      ;;
+    start)
+      start_world "$name"
+      start_reading "$name"
+      printf '%s\n' "$t_out" | jq .
       ;;
     panel)
       panel_world "$name"

@@ -766,7 +766,13 @@ impl Writer {
                 let names: Vec<String> = left_out.iter().map(|l| format!("`{l}`")).collect();
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
-            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by @{by}'s {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
+            // The host's approval names no GitHub login to mention.
+            let authorized = if given == crate::decide::HOST {
+                "approved from the host with `tehas start`".to_string()
+            } else {
+                format!("authorized by @{by}'s {how}")
+            };
+            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC ({authorized}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
         }
         if self.unit_start(n, before, log) {
             self.analytics(&["event".into(), n.to_string(), "started".into()], log);

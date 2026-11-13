@@ -77,19 +77,25 @@ pub fn lifted_note(v: &Value) -> bool {
         && id.is_some_and(|i| !i.is_empty() && i.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The kinds of approval a person gave, which a fixer or refresh start rests on.
-const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
+/// The kinds of approval a person or the host gave, which a fixer or refresh
+/// start rests on. `host` is `tehas start <n>` (#1967).
+const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host')";
+
+/// The how of a start approved from the host with `tehas start <n>`: no
+/// GitHub login gave it, and its `by` is this word too.
+pub const HOST: &str = "host";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string), with
 /// `fixer` as the alias `Args::word` takes beside the word it stands for.
 /// `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [(&str, &str); 5] = [
+const CURRENT_HOWS: [(&str, &str); 6] = [
     (MILLWRIGHT, FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
     ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
+    (HOST, HOST),
 ];
 
 /// Whether `how` names the millwright's start, in either spelling.

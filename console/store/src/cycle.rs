@@ -554,6 +554,7 @@ fn start(
             .q()?;
             approval::retain(c, issue)?;
         }
+        crate::host_start::spend(c, issue)?;
         Ok(line(
             "cycle-start",
             &[

@@ -19,6 +19,17 @@ pub struct Listed {
     pub state: String,
 }
 
+/// A start the host approved with `tehas start` (#1967), as host-start-list
+/// answers it and the queue's page finds its issue.
+#[derive(Clone, Debug)]
+pub struct HostStart {
+    /// When it was given, in Unix seconds.
+    pub at: i64,
+    /// The issue is on the page of open issues.
+    pub open: bool,
+    pub labels: Vec<String>,
+}
+
 /// What a poll reads of one issue when it decides about it.
 #[derive(Clone, Debug)]
 pub struct Issue {
@@ -172,6 +183,9 @@ pub struct Snapshot {
     pub limit: Value,
     /// The start order as `tehas order` reads it (tehas_core::order).
     pub order: Value,
+    /// The starts the host approved, by issue. None when the store could not
+    /// say: then none starts this poll.
+    pub host_starts: Option<BTreeMap<u64, HostStart>>,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
@@ -259,6 +273,27 @@ fn names(v: Option<&Value>) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The host's starts as the snapshot holds them: none when the snapshot names
+/// none, and None for a read that failed or a row of another shape.
+fn host_starts(v: Option<&Value>) -> Option<BTreeMap<u64, HostStart>> {
+    let Some(v) = v else {
+        return Some(BTreeMap::new());
+    };
+    v.as_array()?
+        .iter()
+        .map(|h| {
+            Some((
+                h.get("issue").and_then(Value::as_u64)?,
+                HostStart {
+                    at: h.get("at").and_then(Value::as_i64)?,
+                    open: h.get("open").and_then(Value::as_bool)?,
+                    labels: names(h.get("labels")),
+                },
+            ))
+        })
+        .collect()
 }
 
 /// A number as GitHub may give it: a number, or text that is one.
@@ -509,6 +544,7 @@ impl Snapshot {
                 .get("order")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            host_starts: host_starts(v.get("host_starts")),
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
             endpoint_hold: v
                 .get("endpoint")

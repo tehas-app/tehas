@@ -3,7 +3,9 @@
 //! with, the store opened for a writer or a reader, the issues stub and the
 //! mapping of an error to its exit.
 
-use crate::{approval, cycle, db, history, journal, live, order, park, plan, poll, upkeep};
+use crate::{
+    approval, cycle, db, history, host_start, journal, live, order, park, plan, poll, upkeep,
+};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::os::unix::fs::MetadataExt;
@@ -27,6 +29,7 @@ pub enum Call {
     Poll(poll::Call),
     Journal(journal::Call),
     Order(order::Call),
+    HostStart(host_start::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -61,6 +64,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = order::parse(name, rest) {
         return Some(r.map(Call::Order));
     }
+    if let Some(r) = host_start::parse(name, rest) {
+        return Some(r.map(Call::HostStart));
+    }
     history::parse(name, rest).map(|r| r.map(Call::History))
 }
 
@@ -76,6 +82,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Poll(c) => poll::run(home, c, now),
         Call::Journal(c) => journal::run(home, c, now),
         Call::Order(c) => order::run(home, c, now),
+        Call::HostStart(c) => host_start::run(home, c),
     }
 }
 

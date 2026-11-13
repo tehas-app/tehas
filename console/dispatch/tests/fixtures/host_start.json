@@ -1,0 +1,661 @@
+{
+ "suite": "host starts (#1967)",
+ "later": [],
+ "not_ported": [],
+ "cases": [
+  {
+   "case": "an issue the host approved starts at the next poll, credited to the host",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     12
+    ],
+    "log": [
+     "start #12 (approved from the host by host)"
+    ],
+    "actions": [
+     {
+      "start": 12,
+      "by": "host",
+      "given": "host",
+      "how": "start from the host",
+      "at": "2026-10-30T22:40:00Z",
+      "remove": []
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says it would start the issue the host approved",
+   "dry": true,
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "would run a cycle for #12 (approved from the host by host)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a paused factory does not start what the host approved",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    },
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": "weekend"
+    }
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "a limit of no cycles does not start what the host approved",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    },
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "with no slot free the host's approval waits",
+   "ready_n": [],
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "a blocked-by link holds what the host approved and takes nothing off",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": [],
+      "work": {
+       "number": 12,
+       "state": "open",
+       "issue_dependencies_summary": {
+        "blocked_by": 1
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "wait #12: a blocked-by link holds it: 1 blocker is open"
+    ],
+    "no_actions": [
+     {
+      "start": 12
+     },
+     {
+      "issue": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:blocked holds what the host approved until its blockers close",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": [
+       {
+        "name": "tehas:blocked"
+       }
+      ]
+     }
+    ],
+    "blocked": [
+     {
+      "number": 12,
+      "labels": [
+       {
+        "name": "tehas:blocked"
+       }
+      ]
+     }
+    ]
+   },
+   "blocked_by": {
+    "12": "alice"
+   },
+   "notes": {
+    "12": [
+     [
+      10,
+      "alice",
+      "<!-- tehas:blocked by=30 -->"
+     ]
+    ]
+   },
+   "states": {
+    "12": {
+     "30": "OPEN"
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "wait #12: tehas:blocked holds it: #30 is open"
+    ],
+    "no_actions": [
+     {
+      "start": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "a start from the host takes tehas:blocked off once its blockers are closed",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": [
+       {
+        "name": "tehas:blocked"
+       }
+      ]
+     }
+    ],
+    "blocked": [
+     {
+      "number": 12,
+      "labels": [
+       {
+        "name": "tehas:blocked"
+       }
+      ]
+     }
+    ]
+   },
+   "blocked_by": {
+    "12": "alice"
+   },
+   "notes": {
+    "12": [
+     [
+      10,
+      "alice",
+      "<!-- tehas:blocked by=30 -->"
+     ]
+    ]
+   },
+   "states": {
+    "12": {
+     "30": "CLOSED"
+    }
+   },
+   "expect": {
+    "picked": [
+     12
+    ],
+    "actions": [
+     {
+      "start": 12,
+      "given": "host",
+      "remove": [
+       "tehas:blocked"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an open pull request holds what the host approved and takes no label off",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": [],
+      "prs": [
+       {
+        "state": "OPEN",
+        "url": "https://github.com/acme/widget/pull/40"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #12: pull request https://github.com/acme/widget/pull/40 is open and closes it"
+    ],
+    "no_actions": [
+     {
+      "start": 12
+     },
+     {
+      "issue": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "a change by an account outside the list after the approval holds the start",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": [],
+      "edit": {
+       "lastEditedAt": "2026-10-30T23:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #12: its text was changed by 'mallory' after the host approved it"
+    ],
+    "no_actions": [
+     {
+      "start": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "a change by an allowed account after the approval does not hold it",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": [],
+      "edit": {
+       "lastEditedAt": "2026-10-30T23:00:00Z",
+       "editor": {
+        "login": "alice"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     12
+    ]
+   }
+  },
+  {
+   "case": "a person's tehas:ready goes first, and its start is the label's",
+   "ready_n": [
+    12
+   ],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     12
+    ],
+    "actions": [
+     {
+      "start": 12,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "the start order sorts what the host approved with the ready issues",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 1
+   },
+   "ready_n": [
+    7
+   ],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    },
+    "order": {
+     "state": "ok",
+     "issues": [
+      12,
+      7
+     ],
+     "only": false
+    }
+   },
+   "expect": {
+    "picked": [
+     12
+    ]
+   }
+  },
+  {
+   "case": "the start order with --only holds what the host approved outside it",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "12": {
+      "events": []
+     }
+    },
+    "order": {
+     "state": "ok",
+     "issues": [
+      7
+     ],
+     "only": true
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "wait #12: not in the start order (--only)"
+    ]
+   }
+  },
+  {
+   "case": "the host's approval of an issue that is not open is dropped",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 12,
+      "at": 1793400000,
+      "open": false,
+      "labels": []
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "drop #12: the host approved a start of it, and it is not an open issue"
+    ],
+    "actions": [
+     {
+      "host_start_drop": 12
+     }
+    ]
+   }
+  },
+  {
+   "case": "the control issue never starts from the host",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": [
+     {
+      "issue": 1,
+      "at": 1793400000,
+      "open": true,
+      "labels": []
+     }
+    ],
+    "issues": {
+     "1": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 1
+     }
+    ]
+   }
+  },
+  {
+   "case": "a store that could not list the host's approvals starts none of them",
+   "ready_n": [],
+   "snapshot": {
+    "host_starts": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "WARN: the starts the host approved could not be read from the state store"
+    ]
+   }
+  },
+  {
+   "case": "the millwright's tehas:ready rests on the host's approval as on a person's",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "host",
+     "how": "host",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "tehas-fixer",
+      "given": "millwright",
+      "fixer_starts": 1,
+      "rests_on": {
+       "by": "host",
+       "at": "2026-10-01T00:00:00Z",
+       "how": "host"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

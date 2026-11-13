@@ -251,7 +251,7 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
       ORDER BY a.used_at DESC, a.at DESC LIMIT 1),
     h.park_reason,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
-      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry')
+      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host')
       AND c.started_by IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
       AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))

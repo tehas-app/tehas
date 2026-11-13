@@ -17,7 +17,7 @@
 //! poll logs is the record: `finish #<n>: ...` in `dispatch.log`, which
 //! `factory_decisions` answers.
 
-use crate::decide::{fixer_base, fixer_starts};
+use crate::decide::{base_counts, fixer_base, fixer_starts};
 use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
@@ -192,8 +192,7 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     let Some(record) = record else {
         return Ok(none());
     };
-    let Some(base) = fixer_base(record).filter(|b| c.allowed(b["by"].as_str().unwrap_or("")))
-    else {
+    let Some(base) = fixer_base(record).filter(|b| base_counts(c, b)) else {
         return Ok(none());
     };
     let by = base["by"].as_str().unwrap_or("");

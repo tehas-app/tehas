@@ -1,0 +1,43 @@
+tehas start: approve one issue for a start from the host.
+
+The approval is the host's own: it names no GitHub login, so a program that
+runs the factory from this host needs no account of its own on GitHub to say
+what starts. Nothing starts at once. The next poll starts the issue under the
+usual rules: the pause, the limit and the slots, a drain, the issue's
+blockers (a blocked-by link, tehas:blocked), an open pull request that closes
+it, a park, the start order and the rest. A hold the poll meets takes nothing
+off: the approval waits until the issue starts or the host withdraws it.
+
+The start spends the approval, and so does any other start of the issue: one
+approval starts one cycle. The cycle's comment on the issue says it was
+approved from the host, and tehas history --json gives it "how": "host". A
+tehas:ready from an allowed account goes first;
+the approval is asked only of an issue no tehas:ready asks for. The text the
+approval covers is the issue as it reads when it is given: a change by an
+account outside TEHAS_ALLOWED_LABELERS after it holds the start, until the
+approval is withdrawn and given again.
+
+Before it writes, the command asks GitHub about the issue: one that is not
+an open issue of TEHAS_REPO, or is the control issue, is refused and nothing
+is written. The approval is kept in the state store (state/tehas.db).
+
+Usage:
+  tehas start <issue> [--json]          approve it; asked again, the
+                                        approval there is kept as it was
+  tehas start <issue> --clear [--json]  withdraw an approval that has not
+                                        started, asking GitHub nothing
+
+Each prints one line:
+
+  #12: approved from the host at 2026-11-13T10:00:00Z: the next poll starts
+  it under the usual rules, and the start spends the approval
+
+With --json, {"api": 1, "issue": 12, "approved": true, "changed": true,
+"at": "2026-11-13T10:00:00Z"}: approved says whether an approval stands after
+the command, changed whether this run wrote or withdrew it, and at when the
+approval was given (left out when there is none).
+
+Exit: 0 approved, approved already, withdrawn, or nothing to withdraw; 1 the
+issue was refused, GitHub could not be asked, or the state store refused or
+could not be read; 64 a bad argument, which writes nothing; 78 the instance
+settings are missing or malformed, which writes nothing.
