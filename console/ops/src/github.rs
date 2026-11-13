@@ -51,10 +51,11 @@ use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::{settings, time};
+use tehas_cycle::renew;
 
 const USAGE: &str = "usage: tehasbot github-token [--cycle | --session] [--check] [--login]";
 const ACCEPT: &str = "Accept: application/vnd.github+json";
-const LEFT: i64 = 600;
+const LEFT: i64 = renew::LEFT as i64;
 const LOCK_WAIT: Duration = Duration::from_secs(30);
 
 pub struct App {
@@ -733,18 +734,15 @@ pub fn session_token_env() -> Result<String, u8> {
 
 /// Keeps state/github-session fresh for the rest of this process, as
 /// `tehas-cycle renew` keeps a cycle's token: a thread asks `tehasbot
-/// github-token --session` every TEHAS_GITHUB_RENEW_EVERY seconds [300], the
-/// first one period after the start, and 30 seconds after a failed ask. A planning turn and a dev session run their
-/// container in this process, so the thread ends with them.
+/// github-token --session` every TEHAS_GITHUB_RENEW_EVERY seconds, as
+/// `renew::every` reads it, the first one period after the start, and
+/// `renew::RETRY` seconds after a failed ask. A planning turn and a dev session
+/// run their container in this process, so the thread ends with them.
 pub fn renew_session() {
     static NEVER: AtomicBool = AtomicBool::new(false);
-    let every = env::var("TEHAS_GITHUB_RENEW_EVERY")
-        .ok()
-        .and_then(|e| e.parse().ok())
-        .filter(|e| *e > 0)
-        .unwrap_or(300);
+    let every = renew::every(&env::var("TEHAS_GITHUB_RENEW_EVERY").unwrap_or_default());
     let cmd = home_dir("bin/tehasbot");
-    session_renewer(cmd, every, 30, &NEVER);
+    session_renewer(cmd, every, renew::RETRY, &NEVER);
 }
 
 fn session_renewer(
@@ -757,14 +755,7 @@ fn session_renewer(
         // The command has just made the token: the first ask is one period on.
         sleep(Duration::from_secs(every));
         let args = ["github-token".to_string(), "--session".to_string()];
-        tehas_cycle::renew::renew(
-            &cmd,
-            &args,
-            every,
-            retry,
-            stop,
-            tehas_cycle::renew::epoch_seconds,
-        );
+        renew::renew(&cmd, &args, every, retry, stop, renew::epoch_seconds);
     })
 }
 
