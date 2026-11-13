@@ -1981,7 +1981,9 @@ impl<'a> Poll<'a> {
         self.log(format!(
             "skip #{n}: it is an epic with {open} {word} open, and an epic is never started"
         ));
-        if !has(labels, ask) {
+        // A host start has no label of its own: a label that is only named
+        // `host` stays on and is not talked about.
+        if ask == HOST || !has(labels, ask) {
             return false;
         }
         if self.dry {
@@ -2155,7 +2157,7 @@ impl<'a> Poll<'a> {
             return Ok(true);
         }
         self.log(format!("skip #{n}: its body names {files} files, more than TEHAS_SIZE_MAX_FILES ({max}), and one cycle does not make that many changes"));
-        if !has(labels, ask) {
+        if ask == HOST || !has(labels, ask) {
             return Ok(false);
         }
         if self.dry {
