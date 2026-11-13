@@ -59,7 +59,8 @@ const BUSY_ASKS: u32 = 20;
 const BUSY_WAIT: Duration = Duration::from_millis(50);
 
 /// What a command answered: its exit status and what it printed. A status of
-/// None is a command that could not be run or did not end in its bound.
+/// None is a command that could not be run, did not end in its bound, or was
+/// ended by a signal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Done {
     pub status: Option<i32>,
@@ -386,9 +387,12 @@ pub(super) fn within(
     let name = Path::new(program)
         .file_name()
         .map_or(program.into(), |n| n.to_string_lossy());
-    let status = loop {
+    // Whether the run stopped the call at its bound. A status of None alone does
+    // not say so: a program that died of a signal has no code either, and its
+    // own last words are the line a refusal quotes.
+    let (status, stopped) = loop {
         match child.try_wait() {
-            Ok(Some(s)) => break s.code(),
+            Ok(Some(s)) => break (s.code(), false),
             Ok(None) if Instant::now() >= until => {
                 stop("-TERM");
                 let gone = Instant::now() + grace;
@@ -397,7 +401,7 @@ pub(super) fn within(
                 }
                 stop("-KILL");
                 let _ = child.wait();
-                break None;
+                break (None, true);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
@@ -410,7 +414,7 @@ pub(super) fn within(
     let drained = Instant::now() + grace;
     let (out, out_ended) = taken(out, drained);
     let (mut err, err_ended) = taken(err, drained);
-    if status.is_none() {
+    if stopped {
         // The first line is what a refusal quotes, so it names the call.
         err = format!(
             "{name} did not end within {} s and was stopped\n{err}",
