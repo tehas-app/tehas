@@ -211,8 +211,13 @@ pub(crate) fn between<'a>(
         .filter(move |r| !older(&to, &r.tag) && (from.is_empty() || older(&from, &r.tag)))
 }
 
-/// A body as a person reads it under its version.
+/// A body as a person reads it under its version. It goes to a terminal, so
+/// no control or invisible character of it does.
 fn indented(body: &str) -> String {
+    let body: String = body
+        .chars()
+        .filter(|&c| c != '\r' && !tehas_core::text::hidden(c))
+        .collect();
     let text = format!("{body}\n");
     text.split_inclusive('\n')
         .map(|line| format!("  {line}"))
@@ -1197,7 +1202,15 @@ mod tests {
         assert_eq!(indented("a\nb"), "  a\n  b\n");
         assert_eq!(indented("a\n"), "  a\n  \n");
         assert_eq!(indented(""), "  \n");
-        assert_eq!(indented("a\r\nb"), "  a\r\n  b\n");
+        assert_eq!(indented("a\r\nb"), "  a\n  b\n");
+    }
+
+    #[test]
+    fn a_body_reaches_the_terminal_without_control_characters() {
+        assert_eq!(
+            indented("a\u{1b}]0;x\u{7}b\u{1b}[2J\u{9b}c\u{202e}d\te"),
+            "  a]0;xb[2Jcd\te\n"
+        );
     }
 
     #[test]
