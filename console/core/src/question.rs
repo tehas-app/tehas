@@ -59,32 +59,11 @@ pub fn box_line(label: &str, ticked: bool) -> String {
 }
 
 /// q_clean: an agent's words, safe to post on a public issue, cut at `max`
-/// characters. Line by line, as sed reads them.
+/// characters. The secrets, private addresses and names are what
+/// `mask::mask` takes out, the one rule set the console uses too; the rules
+/// here are a comment's own: a comment marker, a task box and a mention.
+/// Line by line, as sed reads them.
 pub fn q_clean(text: &str, max: usize) -> String {
-    static RULES: OnceLock<Vec<(Regex, String)>> = OnceLock::new();
-    let rules = RULES.get_or_init(|| {
-        [
-            (r"(^|[^A-Za-z0-9_])(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}", "${1}${2}***"),
-            (r"(postgres(ql)?://[^:[:space:]/]+:)[^@[:space:]]+@", "${1}***@"),
-            (
-                r"(^|[^A-Z0-9_])([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)[^[:space:]]+",
-                "${1}${2}***",
-            ),
-            (
-                r"(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}",
-                "${1}[private address]",
-            ),
-            (
-                r"(^|[^0-9A-Fa-f:])[fF][cCdD][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{0,4}){2,}",
-                "${1}[private address]",
-            ),
-            (r"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.ts\.net", "[private name]"),
-            (r"<!--", r"<\!--"),
-        ]
-        .into_iter()
-        .map(|(p, r)| (Regex::new(p).unwrap(), r.to_string()))
-        .collect()
-    });
     static BOX: OnceLock<Regex> = OnceLock::new();
     let boxed = BOX.get_or_init(|| {
         Regex::new(r"^([[:space:]>]*(?:(?:[-*+]|[0-9]+[.)])[[:space:]>]+)+)\[([ xX])\]").unwrap()
@@ -92,15 +71,12 @@ pub fn q_clean(text: &str, max: usize) -> String {
     static AT: OnceLock<Regex> = OnceLock::new();
     let at = AT.get_or_init(|| Regex::new(r"@([A-Za-z0-9])").unwrap());
     // jq -r adds the line end the text is then read with.
-    let whole = format!("{text}\n").replace('\r', "");
+    let whole = format!("{}\n", crate::mask::mask(text)).replace('\r', "");
     let lines: Vec<String> = whole
         .split('\n')
         .map(|l| {
-            let mut l = l.to_string();
-            for (re, with) in rules {
-                l = re.replace_all(&l, with.as_str()).into_owned();
-            }
-            l = boxed
+            let l = l.replace("<!--", r"<\!--");
+            let l = boxed
                 .replace(&l, |c: &Captures| {
                     let glyph = if &c[2] == " " { '☐' } else { '☑' };
                     format!("{}{glyph}", &c[1])
@@ -505,6 +481,18 @@ mod tests {
         assert_eq!(
             q_clean(&text, 60000),
             "key ghp_*** and GH_TOKEN=*** at [private address]:80 on [private name]\npostgres://u:***@\u{200b}db/x"
+        );
+    }
+
+    #[test]
+    fn what_the_console_masks_a_comment_masks() {
+        let key = format!("sk-{}", "abcdefghijklmnopqrstuvwxyz");
+        let text = format!(
+            "OPENAI_KEY=v1 DB_PASSWD=v2 Authorization: Bearer abcdefghijklmnopqrstuv {key} mysql://u:pw@h/x"
+        );
+        assert_eq!(
+            q_clean(&text, 60000),
+            "OPENAI_KEY=*** DB_PASSWD=*** Authorization: Bearer *** sk-*** mysql://u:***@\u{200b}h/x"
         );
     }
 
