@@ -809,60 +809,60 @@ impl Calls {
                 "store: garbled: batch answered 0 without its answer",
             ));
         }
-        Ok(answers
-            .into_iter()
-            .map(|a| {
-                // One call's answer, read as the answer of that call: the exit
-                // it had, and what it printed, which is the one line the verb
-                // writes and so the one JSON object the single call gives. An
-                // element whose shape is not that is no answer of the store, and
-                // is read as one: the garbled 78 the single call gives for the
-                // same bytes, not a refusal of a word of nothing.
-                let Some(rc) = a.get("rc").and_then(Value::as_i64) else {
-                    return store_failed(
-                        78,
-                        "garbled",
-                        "store: garbled: an answer of the batch holds no exit",
-                    );
-                };
-                let Some(text) = a.get("out").and_then(Value::as_str) else {
-                    return store_failed(
-                        78,
-                        "garbled",
-                        "store: garbled: an answer of the batch holds no line",
-                    );
-                };
-                if rc == 0 {
-                    match serde_json::from_str(text) {
-                        Ok(v) => v,
-                        Err(_) => store_failed(
-                            78,
-                            "garbled",
-                            &format!("store: garbled: a read answered no JSON: {text}"),
-                        ),
-                    }
-                } else {
-                    match word_of(text) {
-                        // The word the verb's own line says, as the single call
-                        // reads it, and the same garbled answer for a refusal
-                        // that does not name one.
-                        Some(word) => store_failed(rc as i32, word, text),
-                        None if rc == 1 => store_failed(
-                            78,
-                            "garbled",
-                            &format!("store: garbled: a read refused without a word: {text}"),
-                        ),
-                        None => store_failed(rc as i32, "", text),
-                    }
-                }
-            })
-            .collect())
+        Ok(answers.into_iter().map(batch_answer).collect())
     }
 
     /// The store's answer to a read verb, or its failure as tehas_core::call
     /// keeps it: {failed, word, rc, line}.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
         call::store(&self.store, args, self.store_bound, GRACE, &[])
+    }
+}
+
+/// One answer of a batch, read as the answer of that call alone: the JSON line
+/// of a read, or the failure the single call gives for the same refusal. The
+/// store writes a refusal into `out` as the verb's word and reason, without the
+/// `store: ` its standard error carries for a single call, so the prefix is put
+/// back before the word is read: a `busy` of one row stays the `busy` of rc 1
+/// that skips one issue, not the garbled 78 that ends the poll.
+fn batch_answer(a: Value) -> Value {
+    let Some(rc) = a.get("rc").and_then(Value::as_i64) else {
+        return store_failed(
+            78,
+            "garbled",
+            "store: garbled: an answer of the batch holds no exit",
+        );
+    };
+    let Some(text) = a.get("out").and_then(Value::as_str) else {
+        return store_failed(
+            78,
+            "garbled",
+            "store: garbled: an answer of the batch holds no line",
+        );
+    };
+    if rc == 0 {
+        return match serde_json::from_str(text) {
+            Ok(v) => v,
+            Err(_) => store_failed(
+                78,
+                "garbled",
+                &format!("store: garbled: a read answered no JSON: {text}"),
+            ),
+        };
+    }
+    let line = if text.starts_with("store: ") {
+        text.to_string()
+    } else {
+        format!("store: {text}")
+    };
+    match word_of(&line) {
+        Some(word) => store_failed(rc as i32, word, &line),
+        None if rc == 1 => store_failed(
+            78,
+            "garbled",
+            &format!("store: garbled: a read refused without a word: {text}"),
+        ),
+        None => store_failed(rc as i32, "", &line),
     }
 }
 
@@ -1316,5 +1316,66 @@ printf '[{{"number":1}}]\n'
             assert_eq!(calls.gh_token, None, "a failed run of {body}");
             assert_eq!(given(&mut calls), "untouched");
         }
+    }
+
+    /// A refusal inside a batch is read as the same refusal of the single call:
+    /// the store writes the word without the `store: ` of its standard error, and
+    /// the rc and word must still match, or a `busy` row ends the poll.
+    #[test]
+    fn a_refusal_in_a_batch_reads_as_the_single_call_reads_it() {
+        let cases = [
+            (1, "busy park-show: database is locked"),
+            (1, "conflict #7: the park moved"),
+            (1, "input #7: no such question"),
+            (78, "corrupt park-show: file is not a database"),
+            (78, "unreadable park-show: permission denied"),
+            (78, "future park-show: the database has schema 99"),
+            (78, "missing park-show"),
+            (64, "usage park-show: --x is not a flag"),
+        ];
+        for (rc, out) in cases {
+            let batch = batch_answer(json!({"api": 1, "rc": rc, "out": out}));
+            let alone = Ran {
+                status: Some(rc),
+                out: String::new(),
+                err: format!("store: {out}\n"),
+                truncated: false,
+            };
+            let (rc1, word1, _) =
+                store_failure("park-show", &alone, Duration::from_secs(5), "store").unwrap();
+            assert_eq!(batch["failed"], true, "{out}: {batch}");
+            assert_eq!(batch["rc"], rc1, "{out}: {batch}");
+            assert_eq!(batch["word"], word1.as_str(), "{out}: {batch}");
+        }
+        let busy = batch_answer(json!({"rc": 1, "out": "busy park-show: database is locked"}));
+        assert_eq!(busy["rc"], 1, "a busy row skips one issue: {busy}");
+        assert_eq!(busy["word"], "busy");
+        assert_eq!(busy["line"], "store: busy park-show: database is locked");
+        // A line that already carries the prefix is not given a second one.
+        let said = batch_answer(json!({"rc": 1, "out": "store: busy park-show"}));
+        assert_eq!(said["word"], "busy");
+        assert_eq!(said["line"], "store: busy park-show");
+    }
+
+    /// The store that cannot be used, and an answer that is no answer, keep the
+    /// 78 that ends the poll.
+    #[test]
+    fn a_batch_answer_that_names_no_word_is_garbled() {
+        let unusable = batch_answer(json!({"rc": 78, "out": "corrupt park-show: not a database"}));
+        assert_eq!(unusable["rc"], 78, "{unusable}");
+        assert_eq!(unusable["word"], "corrupt");
+        for a in [
+            json!({"rc": 1, "out": "#7: no word"}),
+            json!({"rc": 1, "out": ""}),
+            json!({"rc": 1}),
+            json!({"out": "busy park-show"}),
+            json!({"rc": 0, "out": "not json"}),
+        ] {
+            let v = batch_answer(a.clone());
+            assert_eq!(v["rc"], 78, "{a}: {v}");
+            assert_eq!(v["word"], "garbled", "{a}: {v}");
+        }
+        let read = batch_answer(json!({"rc": 0, "out": "{\"api\":1,\"ok\":true}"}));
+        assert_eq!(read["ok"], true, "{read}");
     }
 }

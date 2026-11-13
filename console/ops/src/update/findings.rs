@@ -13,7 +13,8 @@
 //!
 //! In order, and the first two stop at their first finding:
 //!
-//! 1. The instance directory, its instance.env and its sandbox.Dockerfile are
+//! 1. ~/.config/tehas/env and ~/.config/tehas/instance-dir, the instance
+//!    directory, its instance.env and its sandbox.Dockerfile are
 //!    the tehas user's own: owned by this account, writable by nobody else, and
 //!    by a group only when it is the account's own primary group. A symlink is
 //!    judged by the file it points at, and a file that is not there is the
@@ -91,7 +92,10 @@ pub(crate) fn findings(
     load: impl FnOnce(&mut Vars) -> Result<(), String>,
 ) -> Vec<String> {
     let dir = settings::instance_dir(&vars);
+    let config = format!("{}/.config/tehas", vars.text("HOME"));
     for file in [
+        format!("{config}/env"),
+        format!("{config}/instance-dir"),
         dir.clone(),
         format!("{dir}/instance.env"),
         format!("{dir}/sandbox.Dockerfile"),
@@ -281,6 +285,26 @@ mod tests {
                 inst(&d)
             )]
         );
+    }
+
+    #[test]
+    fn the_hosts_own_settings_files_are_judged_too() {
+        for name in ["env", "instance-dir"] {
+            let (d, vars) = instance(&[("instance.env", ""), ("models.json", MODELS)]);
+            let config = d.0.join(".config/tehas");
+            fs::create_dir_all(&config).unwrap();
+            let file = config.join(name);
+            fs::write(&file, "").unwrap();
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o622)).unwrap();
+            let found = findings(vars, &me(), |_| panic!("the file was loaded"));
+            assert_eq!(
+                found,
+                [format!(
+                    "tehas: {} is writable by everyone (chmod o-w)",
+                    file.display()
+                )]
+            );
+        }
     }
 
     #[test]

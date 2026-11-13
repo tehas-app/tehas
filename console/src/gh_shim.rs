@@ -85,19 +85,38 @@ fn api(args: &[String]) -> Option<(String, String, String)> {
             _ => {}
         }
         prev = a;
-        if let Some(m) = a
-            .strip_prefix("-X")
-            .filter(|m| m.starts_with(|c: char| c.is_ascii_alphabetic()))
-        {
-            method = m.to_string();
+        if let Some((flag, value)) = short(a) {
+            if value.is_empty() {
+                // The value is the next word, read as the separate form is.
+                prev = flag;
+                fields |= flag != "-X";
+            } else if flag == "-X" {
+                method = value.to_string();
+            } else {
+                fields = true;
+                if let Some(q) = value.strip_prefix("query=").filter(|_| flag == "-f") {
+                    query = q;
+                }
+            }
         } else if let Some(m) = a.strip_prefix("--method=") {
             method = m.to_string();
         } else if let Some(r) = a.strip_prefix("-R=").or_else(|| a.strip_prefix("--repo=")) {
             repo = r.to_string();
         } else if a == "graphql" {
             graphql = args.get(1).is_some_and(|s| s == "graphql");
-        } else if matches!(a, "-f" | "-F" | "--field" | "--raw-field" | "--input") {
+        } else if matches!(a, "--field" | "--raw-field" | "--input") {
             fields = true;
+        } else if let Some(v) = ["--field=", "--raw-field=", "--input="]
+            .iter()
+            .find_map(|p| a.strip_prefix(p))
+        {
+            fields = true;
+            if let Some(q) = v
+                .strip_prefix("query=")
+                .filter(|_| !a.starts_with("--input="))
+            {
+                query = q;
+            }
         } else if let Some(q) = a.strip_prefix("query=") {
             if given {
                 query = q;
@@ -122,6 +141,22 @@ fn api(args: &[String]) -> Option<(String, String, String)> {
         repo = path_repo;
     }
     Some((kind, repo, number))
+}
+
+// -X, -f or -F as gh reads a word of short options: after any number of -i,
+// which takes no value, with the value attached, after an `=` or not, or
+// empty when it is the next word. None for any other word.
+fn short(a: &str) -> Option<(&'static str, &str)> {
+    let rest = a.strip_prefix('-').filter(|r| !r.starts_with('-'))?;
+    let rest = rest.trim_start_matches('i');
+    let flag = match rest.chars().next()? {
+        'X' => "-X",
+        'f' => "-f",
+        'F' => "-F",
+        _ => return None,
+    };
+    let value = &rest[1..];
+    Some((flag, value.strip_prefix('=').unwrap_or(value)))
 }
 
 // The operation is the first word of the document, or its second when the
@@ -572,6 +607,53 @@ mod tests {
             c(&["api", "-X", "DELETE", "repos/a/b"]),
             w("api DELETE", "a/b", "")
         );
+        assert_eq!(
+            c(&["api", "-X=POST", "repos/a/b"]),
+            w("api POST", "a/b", "")
+        );
+        assert_eq!(
+            c(&["api", "-iXPATCH", "repos/a/b"]),
+            w("api PATCH", "a/b", "")
+        );
+        assert_eq!(
+            c(&["api", "-iX", "PUT", "repos/a/b"]),
+            w("api PUT", "a/b", "")
+        );
+        assert_eq!(c(&["api", "-X=GET", "repos/a/b"]), w("api GET", "a/b", ""));
+    }
+
+    #[test]
+    fn the_field_forms_post_alike() {
+        for words in [
+            &["api", "repos/o/r/issues/7/comments", "-fbody=x"][..],
+            &["api", "repos/o/r/issues/7/comments", "-f=body=x"],
+            &["api", "repos/o/r/issues/7/comments", "-Fbody=x"],
+            &["api", "repos/o/r/issues/7/comments", "-ifbody=x"],
+            &["api", "repos/o/r/issues/7/comments", "-iF", "body=x"],
+            &["api", "repos/o/r/issues/7/comments", "--field=body=x"],
+            &["api", "repos/o/r/issues/7/comments", "--raw-field=body=x"],
+            &["api", "repos/o/r/issues/7/comments", "--input=file"],
+        ] {
+            assert_eq!(c(words), w("api POST", "o/r", "7"), "{words:?}");
+            assert!(!reads(
+                &words.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            ));
+        }
+        // -i alone, or another short option, is no field.
+        assert_eq!(c(&["api", "-i", "repos/o/r"]), None);
+        assert_eq!(c(&["api", "-HAccept:x", "repos/o/r"]), None);
+    }
+
+    #[test]
+    fn a_graphql_mutation_is_seen_in_the_attached_forms_too() {
+        for words in [
+            &["api", "graphql", "-fquery=mutation { a }"][..],
+            &["api", "graphql", "-f=query=mutation { a }"],
+            &["api", "graphql", "--raw-field=query=mutation { a }"],
+        ] {
+            assert_eq!(c(words), w("api POST", "", ""), "{words:?}");
+        }
+        assert_eq!(c(&["api", "graphql", "-fquery=query { a }"]), None);
     }
 
     #[test]

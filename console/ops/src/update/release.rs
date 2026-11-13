@@ -211,8 +211,13 @@ pub(crate) fn between<'a>(
         .filter(move |r| !older(&to, &r.tag) && (from.is_empty() || older(&from, &r.tag)))
 }
 
-/// A body as a person reads it under its version.
+/// A body as a person reads it under its version. It goes to a terminal, so
+/// no control or invisible character of it does.
 fn indented(body: &str) -> String {
+    let body: String = body
+        .chars()
+        .filter(|&c| c != '\r' && !tehas_core::text::hidden(c))
+        .collect();
     let text = format!("{body}\n");
     text.split_inclusive('\n')
         .map(|line| format!("  {line}"))
@@ -750,6 +755,12 @@ fn prune(host: &Host) {
         if !dir.is_dir() || keep.contains(&name.as_str()) || same_file(&dir, &host.current()) {
             continue;
         }
+        // VERSION goes first: a tree it is left in is taken as whole, and a
+        // removal that stops partway must not leave one that is not.
+        match fs::remove_file(dir.join("VERSION")) {
+            Err(e) if e.kind() != ErrorKind::NotFound => continue,
+            _ => {}
+        }
         if fs::remove_dir_all(&dir).is_ok() {
             say(&format!(
                 "release: removed {name}, older than the last three"
@@ -1197,7 +1208,15 @@ mod tests {
         assert_eq!(indented("a\nb"), "  a\n  b\n");
         assert_eq!(indented("a\n"), "  a\n  \n");
         assert_eq!(indented(""), "  \n");
-        assert_eq!(indented("a\r\nb"), "  a\r\n  b\n");
+        assert_eq!(indented("a\r\nb"), "  a\n  b\n");
+    }
+
+    #[test]
+    fn a_body_reaches_the_terminal_without_control_characters() {
+        assert_eq!(
+            indented("a\u{1b}]0;x\u{7}b\u{1b}[2J\u{9b}c\u{202e}d\te"),
+            "  a]0;xb[2Jcd\te\n"
+        );
     }
 
     #[test]
@@ -1376,6 +1395,23 @@ mod tests {
             left,
             [".unpack-abc", "v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0"]
         );
+    }
+
+    #[test]
+    fn a_tree_prune_could_not_remove_whole_no_longer_says_its_version() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir("prune-part");
+        d.file("versions/v1.0.0/VERSION", "v1.0.0");
+        d.file("versions/v1.0.0/stuck/file", "");
+        d.file("versions/v1.1.0/VERSION", "v1.1.0");
+        d.file("state/release-history", "v1.1.0\n");
+        unix_fs::symlink("versions/v1.1.0", d.0.join("current")).unwrap();
+        let stuck = d.0.join("versions/v1.0.0/stuck");
+        fs::set_permissions(&stuck, fs::Permissions::from_mode(0o500)).unwrap();
+        prune(&host(&d.0));
+        fs::set_permissions(&stuck, fs::Permissions::from_mode(0o700)).ok();
+        assert_eq!(first_line(&d.0.join("versions/v1.0.0/VERSION")), "");
+        assert_eq!(first_line(&d.0.join("versions/v1.1.0/VERSION")), "v1.1.0");
     }
 
     #[test]
