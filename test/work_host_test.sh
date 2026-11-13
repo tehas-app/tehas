@@ -347,6 +347,17 @@ t_contains "$t_out" "tehas work: this cycle's container reached its limit of pro
 t_eq "$(cat "$forks_file")" 41
 t_lacks "$t_out" "killed for memory"
 
+t_case "the pids limit the container reached goes on the second line of the count"
+fresh
+slice_good
+slice_child "$cid" 1000 0 max
+printf 'max 21\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+printf '2048\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.max"
+container "\"\$nap\" 1; rm -rf '$T_CGROUP/tehas.slice/docker-$cid.scope'; \"\$nap\" 0.5"
+t_run "$work 7"
+t_eq "$(cat "$forks_file")" "21
+2048"
+
 t_case "a container that stayed under the pids limit leaves no count, and one left by an earlier cycle is removed"
 fresh
 slice_good
