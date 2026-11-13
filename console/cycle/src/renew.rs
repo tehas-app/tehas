@@ -49,6 +49,8 @@ pub const RETRY: u64 = 30;
 /// failed ask and the [`RETRY`] that follows it.
 pub const MOST: u64 = LEFT - 2 * RETRY;
 
+const _: () = assert!(EVERY <= MOST && MOST + RETRY < LEFT);
+
 /// The wait after a successful ask that `TEHAS_GITHUB_RENEW_EVERY` sets:
 /// [`EVERY`] when it is empty, not a whole number or 0, and at most [`MOST`].
 pub fn every(setting: &str) -> u64 {
@@ -158,8 +160,6 @@ mod tests {
         assert_eq!(every("120"), 120);
         assert_eq!(every("900"), MOST);
         assert_eq!(every(&u64::MAX.to_string()), MOST);
-        assert!(EVERY <= MOST);
-        assert!(MOST + RETRY < LEFT);
     }
 
     /// A clock a case winds: the seconds it reads, and how many times it has
