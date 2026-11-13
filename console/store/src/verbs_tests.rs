@@ -301,7 +301,7 @@ fn every_64_names_the_flag_and_an_enumerated_word() {
             ][..],
             // The old `fixer` is taken but not advertised: the refusal names
             // only the words of this release.
-            "usage approval-record: --how is not one of millwright, label, refresh, retry-tick, outage-retry: \"bogus\"",
+            "usage approval-record: --how is not one of millwright, label, refresh, retry-tick, outage-retry, host: \"bogus\"",
         ),
         (
             &[

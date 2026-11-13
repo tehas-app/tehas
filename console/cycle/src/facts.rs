@@ -143,6 +143,21 @@ impl Facts {
             .get("attempt")
             .and_then(Value::as_u64)
             .ok_or("the facts name no attempt")?;
+        // The report's outcome and the writes of the cycle's end depend on
+        // these: a default would report a wrong outcome or write to no repo.
+        let repo = v
+            .get("repo")
+            .and_then(Value::as_str)
+            .filter(|r| !r.is_empty())
+            .ok_or("the facts name no repo")?
+            .to_string();
+        let time = |k: &str| v.get(k).and_then(Value::as_i64);
+        let started = time("started").ok_or("the facts hold no start time")?;
+        let now = time("now").ok_or("the facts hold no time now")?;
+        let signalled = v
+            .get("signalled")
+            .and_then(Value::as_bool)
+            .ok_or("the facts do not say whether a signal stopped the cycle")?;
         let flag = |k: &str| v.get(k).and_then(Value::as_bool).unwrap_or(false);
         // An exit status of 0 is the verdict of success, so a missing one is
         // not read as 0.
@@ -171,7 +186,7 @@ impl Facts {
         });
         Ok(Facts {
             issue,
-            repo: st(v, "repo"),
+            repo,
             home: st(v, "home"),
             hostname: st(v, "hostname"),
             workdir: st(v, "workdir"),
@@ -179,9 +194,9 @@ impl Facts {
             workdir_dir: flag("workdir_dir"),
             before_retry_dir: flag("before_retry_dir"),
             rc: int("rc")?,
-            signalled: flag("signalled"),
-            started: int("started")?,
-            now: int("now")?,
+            signalled,
+            started,
+            now,
             attempt,
             start_by: st(&start, "by"),
             start_how: st(&start, "how"),
@@ -260,6 +275,50 @@ fn first_bytes_any(text: &str, n: usize) -> &str {
 mod tests {
     use super::*;
 
+    fn minimal() -> Value {
+        serde_json::json!({
+            "issue": 7, "repo": "acme/widget", "rc": 0, "signalled": false,
+            "started": 1000, "now": 1600, "start": {"attempt": 1},
+        })
+    }
+
+    #[test]
+    fn facts_with_what_the_end_needs_are_read() {
+        let f = Facts::from_json(&minimal()).expect("the facts read");
+        assert_eq!(
+            (f.repo.as_str(), f.started, f.now, f.signalled),
+            ("acme/widget", 1000, 1600, false)
+        );
+    }
+
+    #[test]
+    fn facts_missing_or_mistyping_what_the_end_needs_are_refused() {
+        for (k, bad) in [
+            ("repo", Value::Null),
+            ("repo", Value::from("")),
+            ("repo", Value::from(5)),
+            ("started", Value::Null),
+            ("started", Value::from("1000")),
+            ("now", Value::Null),
+            ("now", Value::from(1.5)),
+            ("signalled", Value::Null),
+            ("signalled", Value::from("false")),
+        ] {
+            let mut v = minimal();
+            match bad {
+                Value::Null => {
+                    v.as_object_mut().unwrap().remove(k);
+                }
+                b => v[k] = b,
+            }
+            assert!(
+                Facts::from_json(&v).is_err(),
+                "{k} = {:?} was read",
+                v.get(k)
+            );
+        }
+    }
+
     #[test]
     fn reads_are_bashs() {
         assert_eq!(first_bytes("12345\nx", 3), "123");
@@ -272,7 +331,8 @@ mod tests {
     }
 
     fn least() -> Value {
-        serde_json::json!({"issue": 7, "rc": 0, "started": 100, "now": 160,
+        serde_json::json!({"issue": 7, "repo": "acme/widget", "rc": 0,
+                           "signalled": false, "started": 100, "now": 160,
                            "start": {"attempt": 1}})
     }
 
@@ -297,7 +357,12 @@ mod tests {
                 }
             }
             let e = Facts::from_json(&v).unwrap_err();
-            assert_eq!(e, format!("the facts hold no whole number for {k}"));
+            let want = match k {
+                "started" => "the facts hold no start time".to_string(),
+                "now" => "the facts hold no time now".to_string(),
+                _ => format!("the facts hold no whole number for {k}"),
+            };
+            assert_eq!(e, want);
         }
     }
 

@@ -38,7 +38,7 @@ static LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(LINK_RULE).unwrap(
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+\z").unwrap());
 static HOW: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(label|retry-tick|outage-retry|fixer|refresh)\z").unwrap());
+    LazyLock::new(|| Regex::new(r"^(label|retry-tick|outage-retry|fixer|refresh|host)\z").unwrap());
 static COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(pr-)?comment:[0-9]+\z").unwrap());
 
 static NULL: Value = Value::Null;
