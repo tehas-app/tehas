@@ -71,8 +71,7 @@ pub fn q_clean(text: &str, max: usize) -> String {
     static AT: OnceLock<Regex> = OnceLock::new();
     let at = AT.get_or_init(|| Regex::new(r"@([A-Za-z0-9])").unwrap());
     // jq -r adds the line end the text is then read with.
-    let whole = format!("{}
-", crate::text::shown(&crate::mask::mask(text))).replace('', "");
+    let whole = format!("{}\n", crate::text::shown(&crate::mask::mask(text))).replace('\r', "");
     let lines: Vec<String> = whole
         .split('\n')
         .map(|l| {
