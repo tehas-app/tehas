@@ -745,6 +745,13 @@ impl Writer {
         let when = iso(tehas_core::time::now() as u64).replacen('T', " ", 1);
         let when = &when[..16];
         let how = text(a, "how");
+        // The host's approval is no GitHub account's, and an `@` before its
+        // word would mention one.
+        let whose = if given == crate::decide::HOST || by == crate::decide::HOST {
+            "the host's".to_string()
+        } else {
+            format!("@{by}'s")
+        };
         let branch = a
             .pointer("/refresh_of/branch")
             .and_then(Value::as_str)
@@ -754,11 +761,11 @@ impl Writer {
         // container still runs the full refresh, so the comment says that too.
         if easy {
             let url = text(a, "refresh_url");
-            self.say(n, &format!("Tehas chose the easy merge of this issue on `{host}` at {when} UTC: it merges `{branch}` into {url} with no model and no container. This cycle is the full refresh kept in reserve for what the easy merge cannot do. It rests on @{by}'s {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
+            self.say(n, &format!("Tehas chose the easy merge of this issue on `{host}` at {when} UTC: it merges `{branch}` into {url} with no model and no container. This cycle is the full refresh kept in reserve for what the easy merge cannot do. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
         } else if refresh_pr.is_some() {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
-            self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @{by}'s {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
+            self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
         } else {
             let left = if left_out.is_empty() {
                 String::new()
@@ -766,7 +773,7 @@ impl Writer {
                 let names: Vec<String> = left_out.iter().map(|l| format!("`{l}`")).collect();
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
-            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by @{by}'s {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
+            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
         }
         if self.unit_start(n, before, log) {
             self.analytics(&["event".into(), n.to_string(), "started".into()], log);

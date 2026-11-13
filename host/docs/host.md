@@ -785,7 +785,8 @@ JSON answer:
   under `state/`. The step then compacts the file, so the migrate rewrites
   it. The step to 12 adds `start_order`, the order
   [`tehas order`](/api#tehas-order) sets; `store check` counts 24 tables
-  after it.
+  after it. The step to 13 rebuilds `cycles` so its `how` may say `host`,
+  a start [`tehas start`](/api#tehas-start) approved, and keeps every row.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become

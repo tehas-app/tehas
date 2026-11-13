@@ -1,13 +1,14 @@
--- The schema of state/tehas.db, schema v12: every table, column, key and
+-- The schema of state/tehas.db, schema v13: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
--- same columns. SQLite cannot change a CHECK in place, so cycles and
--- planning_notes are written as db::STEP_4 rebuilds them. Sections 3.10 to 3.12
+-- same columns. SQLite cannot change a CHECK in place, so cycles is
+-- written as db::STEP_13 rebuilds it and planning_notes as db::STEP_4 does. Sections 3.10 to 3.12
 -- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
 -- is db::STEP_11. Nothing here references them, so they are dropped rather
--- than rebuilt. Schema 12 adds start_order (db::STEP_12).
+-- than rebuilt. Schema 12 adds start_order (db::STEP_12). Schema 13 lets
+-- cycles.how say 'host', a start `tehas start` approved (db::STEP_13).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -62,7 +63,7 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
   started_by     TEXT,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand')),
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,

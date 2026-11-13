@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and taken out only with the feature itself.
-const FEATURES: [&str; 30] = [
+const FEATURES: [&str; 31] = [
     "status",
     "millwright-grant",
     "fixer-grant",
@@ -42,6 +42,7 @@ const FEATURES: [&str; 30] = [
     "host-message-health",
     "refresh-pr-starts",
     "refresh-pr-lane",
+    "host-start",
 ];
 
 /// The longest version text read, which `head -c` kept it to.

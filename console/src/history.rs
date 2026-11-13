@@ -497,7 +497,7 @@ fn text_line(line: &J) -> String {
         )
     } else {
         format!(
-            "rc {}{}{}{}{}",
+            "rc {}{}{}{}{}{}",
             or_unknown("status"),
             on("step", "step"),
             if line.get("parked").is_true() {
@@ -507,6 +507,11 @@ fn text_line(line: &J) -> String {
             },
             on("repeat", "repeat"),
             on("pr", "pr"),
+            if line.get("how").as_str() == Some("host") {
+                "  started from the host"
+            } else {
+                ""
+            },
         )
     };
     format!(
@@ -620,6 +625,18 @@ mod tests {
     #[test]
     fn the_text_is_one_line_each_as_jq_rendered_it() {
         assert_eq!(listed_after(None).text(), TEXT);
+    }
+
+    #[test]
+    fn a_cycle_the_host_started_says_so_in_its_text() {
+        let line = J::parse(
+            r#"{"cursor":"1-12-2","kind":"work","issue":12,"outcome":"merged","status":0,"how":"host","by":"host"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            text_line(&line),
+            "1-12-2  work  #12  merged  rc 0  started from the host"
+        );
     }
 
     #[test]

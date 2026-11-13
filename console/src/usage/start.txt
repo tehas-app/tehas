@@ -1,0 +1,52 @@
+tehas start <issue>: approve an issue for a start, from the host.
+
+A person or a program on the host says here which issue the factory starts,
+in place of a tehas:ready label from an allowed account. It needs no GitHub
+account of its own: the approval is the host's, recorded in the state store
+(state/tehas.db) as an approval of the kind `host`.
+
+Nothing starts at once. The next poll starts the issue under the rules every
+start passes: the room in the slots and the limit, a pause or a drain, a
+blocked-by link or tehas:blocked, an open pull request that closes it, a park
+on the same text, and the start order, which sorts it with the ready issues.
+Until then the approval waits, through restarts, and a poll that cannot start
+it yet tries again.
+
+The approval binds the issue's title and text as GitHub answers them now. If
+either changes before the start, the poll starts nothing and says so in
+dispatch.log: read the issue, then run tehas start again. Running it again
+replaces the approval that waits. A start of the issue from a label, a
+retry or a refresh uses it up, as a start from it does. A tehas:ready on
+the issue comes off when the host's approval starts it.
+
+The start comment, `tehas history` and `tehas status` say the cycle was started
+from the host. The millwright may retry a cycle the host started, as it may
+one a person's label started.
+
+Usage:
+  tehas start <issue>           approve the issue for the next poll
+  tehas start <issue> --clear   take back an approval no cycle has used
+  tehas start ... --json        answer with what was recorded
+
+  <issue>  an open issue of TEHAS_REPO. A number that is no issue, a pull
+           request or a closed issue is refused and nothing is recorded
+
+Each command prints one line:
+
+  approved #12 from the host at 2026-10-17T14:05:00Z: the next poll starts it when there is room and nothing holds it
+  withdrew the host's approval of #12 of 2026-10-17T14:05:00Z
+  #12 has no approval from the host waiting: nothing to withdraw
+
+With --json, {"api": 1, "issue": 12, "approval": {"at": "...", "by": "host",
+"how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}.
+--clear answers the approval it took back, or null, and cleared true when it
+took one.
+
+Exit: 0 approved, withdrawn, or nothing to withdraw, so a second --clear is
+safe; 1 GitHub has no open issue of that number or did not answer, or the
+state store refused or is not installed; 64 a bad argument, which writes
+nothing; 78 the instance settings are missing or malformed, which writes
+nothing.
+
+Instance settings (lib/config.sh): TEHAS_REPO, the repository the issue is
+read from.

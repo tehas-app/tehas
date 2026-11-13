@@ -374,6 +374,15 @@ pub fn order(calls: &mut Calls) -> Value {
     }
 }
 
+/// approval-hosts: the host's approvals that wait for a start, or
+/// `{"failed": true}`.
+pub fn hosts(calls: &mut Calls) -> Value {
+    match calls.store(&["approval-hosts"]) {
+        Ok(v) if v.get("waiting").is_some_and(Value::is_array) => get(&v, "waiting"),
+        _ => json!({"failed": true}),
+    }
+}
+
 /// cycle-show --running: each running cycle's record as running_starts
 /// reads it, Err with the store's failure.
 pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {

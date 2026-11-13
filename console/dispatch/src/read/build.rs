@@ -418,6 +418,23 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     );
     let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
     candidates.extend(numbers(&s["blocked"]));
+    // The issues `tehas start` approved are candidates as the labelled ones
+    // are, each open one with its labels. A paused poll asks nothing of them.
+    if !paused(&s, c) {
+        s["host_starts"] = match store::hosts(calls) {
+            Value::Array(list) => list
+                .into_iter()
+                .filter_map(|mut h| {
+                    let n = h.get("issue").and_then(Value::as_u64)?;
+                    let o = q.open.iter().find(|o| o.number == n)?;
+                    h["labels"] = o.labels.iter().map(|l| json!({"name": l})).collect();
+                    candidates.insert(n);
+                    Some(h)
+                })
+                .collect(),
+            failed => failed,
+        };
+    }
     let candidates: Vec<u64> = candidates.into_iter().collect();
     for n in &candidates {
         if let Some(record) = host::plan_start(home, *n) {
