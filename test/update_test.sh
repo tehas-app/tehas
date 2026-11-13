@@ -995,6 +995,19 @@ t_eq "$(step_order)" "systemd: restarted
 docs: updating"
 t_eq "$(owed_steps)" ""
 
+t_case "an owed units line from before a unit was retired restarts the current units and leaves nothing owed"
+instance
+platform 1 'echo "tehas is up to date"'
+mkdir -p "$th/state"
+# What the version before this one wrote: the full list of its units, the
+# retired tehas-refresh.timer among them.
+printf 'units tehas-dispatch.timer tehas-refresh.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer\n' >"$owed_file"
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"
+t_lacks "$t_out" "tehas-refresh.timer"
+t_eq "$(owed_steps)" ""
+
 t_case "the compose files pin the project names the liveness check filters on"
 for pair in "docs.compose.yaml tehas-docs" "router.compose.yaml tehas-edge"; do
   t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"

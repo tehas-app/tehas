@@ -459,8 +459,11 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
 fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     let mut given: Vec<String> = Vec::new();
     let mut add = |line: &str| {
-        if !line.is_empty() && !given.iter().any(|have| have == line) {
-            given.push(line.to_string());
+        let Some(line) = steps::current(line) else {
+            return;
+        };
+        if !line.is_empty() && !given.contains(&line) {
+            given.push(line);
         }
     };
     next_lines(out).for_each(&mut add);
