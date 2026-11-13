@@ -328,6 +328,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
     given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
+    given("TEHAS_GITHUB_RENEW_EVERY", Rule::Count),
     given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),

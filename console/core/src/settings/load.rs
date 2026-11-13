@@ -1008,6 +1008,21 @@ mod tests {
     }
 
     #[test]
+    fn a_renewal_period_is_whole_seconds_or_left_out() {
+        assert_eq!(loads(&[]).text("TEHAS_GITHUB_RENEW_EVERY"), "");
+        assert_eq!(
+            loads(&["TEHAS_GITHUB_RENEW_EVERY=600"]).text("TEHAS_GITHUB_RENEW_EVERY"),
+            "600"
+        );
+        for typo in ["5m", "0", "300s"] {
+            assert_eq!(
+                refused(&[&format!("TEHAS_GITHUB_RENEW_EVERY={typo}")]),
+                format!("TEHAS_GITHUB_RENEW_EVERY is not valid: expected a positive whole number (see {FILE})")
+            );
+        }
+    }
+
+    #[test]
     fn a_ceiling_the_instance_names_asks_no_host() {
         let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=4"]);
         let (vars, got) = run(&mut host);
