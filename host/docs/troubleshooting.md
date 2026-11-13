@@ -746,9 +746,10 @@ that names `wall-clock` is the cap below.
 The container started, ran its preflight, and ended before the driver of
 pi-rukas wrote its first event. Nothing of the issue was read, no step began,
 no branch was made, and no model time was spent. This cap is tehas's, not
-pi-rukas's: `tehas work` watched the container to its end, found no result and
-not one line in the cycle's stream, and left the account of it in
-`state/cycles/<N>.nostart`. The comment says `no step started`, the record's
+pi-rukas's: `tehas work` watched the container to its end, found its result
+empty and not one line in the cycle's stream, and left the account of it in
+`state/cycles/<N>.nostart`. A result it could not read is still a result: that
+runner started, and no note is left for it. The comment says `no step started`, the record's
 `step` is `no-step`, and its `capReason` names the container's own exit status
 (`the container ended with the exit status 1 and wrote no line of its stream, so
 the driver wrote no event and no step started`), so a run of this kind can be
