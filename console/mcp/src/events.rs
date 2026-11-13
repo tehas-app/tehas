@@ -6,7 +6,8 @@
 //!
 //! The cursor holds, per log, the inode of the file it was read from, the byte
 //! offset read to, whether that offset is inside a line too long for one read,
-//! and a hash of the file's first bytes up to that offset. The hash tells a file
+//! and a hash of the file's first bytes up to that offset, masked as the
+//! events are. The hash tells a file
 //! that was replaced or truncated and written again from the one that was read,
 //! whatever its inode. When the file read is no longer the log, the rest is
 //! read from the rotated copy when that copy is the file read, and then the new
@@ -75,6 +76,12 @@ fn hash(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// The hash of a file's first bytes, masked first: a client holds the hash,
+/// so it covers only what the events would show.
+fn head_hash(bytes: &[u8]) -> String {
+    hash(mask(&String::from_utf8_lossy(bytes)).as_bytes())
 }
 
 fn parse_cursor(s: &str) -> Result<[Pos; 2], ToolError> {
@@ -171,7 +178,7 @@ impl Opened {
             ino: self.ino,
             off,
             skip,
-            head: hash(&self.read(0, upto.min(HEAD))?),
+            head: head_hash(&self.read(0, upto.min(HEAD))?),
         })
     }
 
