@@ -659,22 +659,21 @@ mod tests {
     /// honest about the program a host runs, so an absent store is built, not
     /// skipped.
     fn store_binary() -> PathBuf {
-        let exe = std::env::current_exe().unwrap();
-        let deps = exe.parent().unwrap();
-        for cand in [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()] {
-            let cand = cand.join("store");
-            if cand.is_file() {
-                return cand;
-            }
+        // The nearest folder above the harness that holds the store: cargo puts
+        // the harness in `<profile>/deps` or `<profile>/build/...`, the store in
+        // `<profile>`.
+        let near = || {
+            let exe = std::env::current_exe().unwrap();
+            exe.ancestors()
+                .skip(1)
+                .map(|dir| dir.join("store"))
+                .find(|p| p.is_file())
+        };
+        if let Some(found) = near() {
+            return found;
         }
         build_store();
-        for cand in [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()] {
-            let cand = cand.join("store");
-            if cand.is_file() {
-                return cand;
-            }
-        }
-        panic!("the store of this build is beside the test binary");
+        near().expect("the store of this build is above the test binary")
     }
 
     /// One build of the store for the whole harness, into the directory the
