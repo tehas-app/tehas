@@ -137,17 +137,6 @@
       "reason": "expected 0 or 1"
     },
     {
-      "name": "TEHAS_OVERLAP_HOLD",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "0",
-        "1"
-      ],
-      "reason": "expected 0 or 1"
-    },
-    {
       "name": "TEHAS_READ_ONLY",
       "rule": "one-of",
       "when": "always",

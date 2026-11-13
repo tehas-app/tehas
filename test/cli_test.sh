@@ -241,7 +241,7 @@ t_case "every command in the usage of tehas has a text that says how to use it"
 reset
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order drain history export state top analytics mcp pause resume stop freeze thaw "
+t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order start drain history export state top analytics mcp pause resume stop freeze thaw "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0

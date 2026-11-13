@@ -258,6 +258,12 @@ compute on the issue.
 - To start it ahead of other ready issues, put it first in the start order:
   `tehas order set --issues N`. The order only sorts; the issue still needs
   its `tehas:ready`. See [tehas order](/api#tehas-order).
+- On the host, `tehas start N` approves issue N in place of the label, as
+  the host and not as a GitHub account. The next poll starts it under every
+  rule above and below, and the record, the start comment, `tehas history`
+  and `tehas status` say it was started from the host. `tehas start N
+  --clear` takes the approval back while no cycle has used it. See
+  [tehas start](/api#tehas-start).
 
 The factory works on open issues only. A closed issue is never taken, and the
 number of a pull request is never taken, open, merged or closed. A label does
@@ -325,7 +331,7 @@ The dispatcher takes the ready issues of the start order first, in the order giv
 
 An issue with an open native blocked-by link is not started, whatever label asks for it: add the link under the issue's **Relationships** on GitHub ("Mark as blocked by"). The page each poll reads carries the count of open blockers (`issueDependenciesSummary`), so the hold costs no call of its own, and the log says `wait #N: a blocked-by link holds it: 1 blocker is open`. A link only holds an issue back. It never starts one: once every blocker is closed the issue starts under the usual approval rules, so `tehas:ready` from an allowed labeller, or a `tehas:blocked` whose marked comment counts, is still needed. Apply `tehas:ready` with the link and the issue starts when its last blocker closes. A link and a marked comment both hold: the issue waits while either names an open blocker. A forge that answers no such field holds nothing by links, and the marked comment below is all that names blockers there.
 
-With `TEHAS_OVERLAP_HOLD=1` on the instance an issue also waits while a running cycle's branch changes a path its body names in a `[paths: ...]` list. A named file holds on a change to that file, and a named directory, one that ends in `/`, on a change to any file under it; a ` (new)` after a path is ignored. The branches are the running issue's `feature/issue-N`, `feature/issue-N-*` and `finish/issue-N` as the dispatcher's own checkout last fetched them, compared with the default branch there. Git is never run in a cycle's workspace, so a cycle's first run, which has pushed no branch yet, holds nothing. The log says `wait #N: a running cycle on #M changes lib/a.sh`, nothing is said on the issue, and the issue starts at the first poll after that cycle ends or its branch stops changing the path. A branch that cannot be read holds nothing, and the log says `#N starts unchecked for overlap: the changes of the running cycle on #M could not be read`; a body with no paths list holds nothing either. The setting is off unless the instance turns it on.
+To keep two issues that change the same files apart, hold one of them out of the start order: `tehas order set --only --issues 12,15` lets only #12 and #15 start and holds every other ready issue, #14 among them, so a host that runs the factory leaves #14 out until #12's pull request is merged and then names it again.
 
 The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
@@ -350,7 +356,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
+| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; the poll's tidy and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -988,11 +994,13 @@ HTTP 5xx, a 429, a 403 that names a rate limit, a timeout or a connection
 error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
 request's own, and so is a failure that names none of these. A later cycle of
 the issue replaces the record, or removes it when its end failed nothing. A
-record the report cannot write, or an earlier one it cannot remove, is
-`ERROR: the failed end of #N is not on record: <why>` or `ERROR: the failed end
-of an earlier cycle of #N is still on record: <why>`, where the why names the
-file and the error, and the cycle ends with exit 70 rather than 0: without the
-record the poll tries nothing and `tehas status` shows nothing.
+record with a field missing or of the wrong type does not read: the poll tries
+nothing on it and `tehas status` does not list it. A record the report cannot
+write, or an earlier one it cannot remove, is `ERROR: the failed end of #N is
+not on record: <why>` or `ERROR: the failed end of an earlier cycle of #N is
+still on record: <why>`, where the why names the file and the error, and the
+cycle ends with exit 70 rather than 0: without the record the poll tries
+nothing and `tehas status` shows nothing.
 
 The push and the pull request are made in the cycle's container, so the host
 knows of their failure only from the cycle's own result. The record says so
@@ -1238,7 +1246,7 @@ store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
 or as not done, and never made again. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
-wait, at most six times a poll; `tehasbot status` and `tehas tidy` follow the
+wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
 error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
 and goes on `~/tehas/state/github-failures`, the record of the last ten
@@ -2273,6 +2281,14 @@ such a request waits or a refresh runs. A request without
 written before it was turned off: the dispatcher's log says `hold refreshes:
 TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
 the demand's `refreshHold` names the setting only while such a request waits.
+As the timed run is off then, the dispatcher sweeps such a request itself at
+each poll, whatever the room: it is dropped, with `drop the refresh of #N:
+<why>` in the log, once its request cannot be read, its issue is closed or
+no longer carries the labels below, or its pull request is not open, moved,
+no longer conflicts or is no longer one the rule keeps. One whose issue or
+pull request could not be read this poll stays. When the last such request
+goes, `refreshHold` clears in that poll. `tehas api` lists the feature
+`refresh-pr-sweep`.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
@@ -2497,7 +2513,12 @@ its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
 Skips the queue, the labels and the comments:
 
 ```
-tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123            # exit 0 merged; 10, 11, 20, 21, 30 or 40 are the runner's own:
+                          # handoff, handoff for clarification, aborted, interrupted,
+                          # a crash or its time limit, refused to start. 2 means this
+                          # command stopped it as stalled or at the limit, or the runner
+                          # ended without a result
+                          # (see tehas work: console/cycle/src/work.rs)
 tehas work 123 --restart
 ```
 
