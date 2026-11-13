@@ -2130,10 +2130,16 @@ mod tests {
             let r = handed(progress);
             assert_eq!(r.arm, "handoff-parked", "{case}");
             let said = comments(&r).join("\n");
-            assert!(said.contains("does not say whether its review"), "{case}: {said}");
+            assert!(
+                said.contains("does not say whether its review"),
+                "{case}: {said}"
+            );
             assert!(!said.contains("ran out of rounds"), "{case}: {said}");
             assert!(
-                r.log.iter().any(|l| l.starts_with("WARN: ") && l.contains("does not say whether its review")),
+                r.log
+                    .iter()
+                    .any(|l| l.starts_with("WARN: ")
+                        && l.contains("does not say whether its review")),
                 "{case}: {:?}",
                 r.log
             );
