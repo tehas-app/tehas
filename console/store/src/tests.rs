@@ -693,17 +693,16 @@ fn a_store_the_tests_did_not_shorten_waits_the_installed_bounds() {
 /// The store of this build, for the one test that must run the program rather
 /// than call into it. cargo names it for an integration test; the unit tests of
 /// the binary find it beside the harness it was built with.
+/// The `store` program of this build: the nearest folder above the test binary
+/// that holds it. Older cargo puts tests in `<profile>/deps`, newer in
+/// `<profile>/build/store/<hash>`; the program is in `<profile>` either way.
 fn store_binary() -> PathBuf {
-    let deps = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let here = deps.join("store");
-    if here.exists() {
-        return here;
-    }
-    deps.parent().unwrap().join("store")
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors()
+        .skip(1)
+        .map(|dir| dir.join("store"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| exe.parent().unwrap().join("store"))
 }
 
 #[test]

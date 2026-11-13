@@ -7,18 +7,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// The program of this build, beside the harness or one directory up.
+/// The program of this build: the nearest folder above the harness that holds
+/// it, under either cargo's `<profile>/deps` or its `<profile>/build/...` layout.
 fn program() -> PathBuf {
-    let deps = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let here = deps.join("store");
-    if here.exists() {
-        return here;
-    }
-    deps.parent().unwrap().join("store")
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors()
+        .skip(1)
+        .map(|dir| dir.join("store"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| exe.parent().unwrap().join("store"))
 }
 
 /// What the program prints on standard output for `args`, and its status.
