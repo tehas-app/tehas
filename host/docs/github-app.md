@@ -180,7 +180,10 @@ ignored once `~/tehas/state/github/login` exists; take them out too.
   and a session have no relay. `tehas work` renews the cycle's token
   every 5 minutes while the cycle runs. A failed renewal is one line
   in the cycle's work log, never a token, and is tried again after 30 seconds,
-  so two failures in a row no longer let the token run out. The renewer is
+  so two failures in a row no longer let the token run out. One renewal
+  that runs past 60 seconds is stopped, with what it started, and counts as a
+  failed one, so a hung call to GitHub neither stops the renewals nor holds
+  the end of the cycle. The renewer is
   `tehas-cycle renew` (`console/cycle/src/renew.rs`).
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
