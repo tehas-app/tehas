@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Tests for live/analytics.json, the ten-day report tehasbot status writes from
-# `analytics report --json` for the dashboard, live/orders.json that
-# `analytics orders` writes beside it, and for the two private files it
+# `analytics report --json` for the dashboard, and for the two private files it
 # asks the program to write under mcp/ for the MCP server: their keys and their
 # modes, and what happens when analytics is off, missing or failing.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -95,8 +94,7 @@ reset
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
-t_eq "$(t_calls analytics)" "orders
-report --json
+t_eq "$(t_calls analytics)" "report --json
 sessions --out $T/home/tehas/mcp
 outcomes --out $T/home/tehas/mcp"
 t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
@@ -145,7 +143,6 @@ esac'
 rm -f "$T/calls/analytics"
 t_run "$status"
 t_eq "$(t_calls analytics)" "event 5 awaiting
-orders
 report --json
 sessions --out $T/home/tehas/mcp
 outcomes --out $T/home/tehas/mcp"
@@ -187,13 +184,11 @@ t_case "TEHAS_ANALYTICS=off removes the file and asks for no report"
 reset
 t_run "$status"
 t_eq "$(there)" there
-echo '{}' >"$live/orders.json"
 rm -f "$T/calls/analytics"
 t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(there)" gone
-t_eq "$([ -e "$live/orders.json" ] && echo there || echo gone)" gone
 t_eq "$(t_calls analytics)" ""
 
 t_case "a host without the program has no file"
