@@ -283,7 +283,8 @@ pub fn run(text: &str, issue: u64) -> Run {
 
 /// The fields tehas-cycle reads of the progress summary, in its order:
 /// reviewHeld, reason, from.failure, failure.kind, failure.role and
-/// failure.cause. Each is empty past the point where jq would stop.
+/// failure.cause. Each is empty past the point where jq would stop, and
+/// reviewHeld is empty too when it is not a boolean.
 pub fn progress_fields(text: Option<&str>) -> [String; 6] {
     let mut f: [String; 6] = Default::default();
     let Some(v) = text.and_then(|t| first_value(&cut_bytes(t, 1_000_000))) else {
@@ -296,7 +297,12 @@ pub fn progress_fields(text: Option<&str>) -> [String; 6] {
         Value::String(s) => cut(&kept(s, set), most),
         _ => String::new(),
     };
-    f[0] = (get.at(&v, &["reviewHeld"]) == Some(Value::Bool(true))).to_string();
+    // reviewHeld is `true`, `false`, or empty when the progress does not say:
+    // a field that is not there is not a review that held nothing.
+    // Not through `at`, which reads `false` as nothing, as jq's `//` does.
+    if let Some(Value::Bool(b)) = v.get("reviewHeld") {
+        f[0] = b.to_string();
+    }
     let reason = match get.at(&v, &["reason"]).unwrap_or(Value::Null) {
         Value::Null | Value::Bool(false) => Value::String(String::new()),
         Value::String(s) => Value::String(s.replace('\n', " ")),
@@ -677,6 +683,10 @@ mod tests {
         ));
         assert_eq!(f[2..], ["result", "provider", "coder", "xy"]);
         assert_eq!(progress_fields(Some("[1]"))[0], "");
+        // Only a boolean says the review held something or nothing.
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":false}"#))[0], "false");
+        assert_eq!(progress_fields(Some(r#"{"reason":"x"}"#))[0], "");
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":"false"}"#))[0], "");
     }
 
     #[test]
