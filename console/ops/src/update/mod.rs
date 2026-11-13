@@ -219,11 +219,14 @@ pub(crate) fn code(status: ExitStatus) -> i32 {
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
-/// A program under `timeout <seconds>`.
+/// How long a call that outlived its limit is given to stop after the TERM.
+const KILL_AFTER: &str = "60";
+
+/// A program under `timeout -k 60 <seconds>`. Without the kill, timeout waits
+/// for as long as a child that ignores the TERM takes, and so does whoever
+/// reads the child's output to its end.
 pub(crate) fn timed(seconds: u32, program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut cmd = Command::new("timeout");
-    cmd.arg(seconds.to_string()).arg(program);
-    cmd
+    crate::store::bounded(KILL_AFTER, &seconds.to_string(), program)
 }
 
 /// What a command printed on standard output, as a `$(...)` of the shell gives
