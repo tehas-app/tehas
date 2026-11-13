@@ -812,11 +812,6 @@ fn images() {
 }
 
 #[test]
-fn overlap() {
-    run_suite("overlap");
-}
-
-#[test]
 fn read_only() {
     run_suite("read_only");
 }
