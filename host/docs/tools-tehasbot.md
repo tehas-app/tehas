@@ -335,7 +335,16 @@ recorded as `cap:provider-outage`, as only tehas names an outage), and with the 
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. The reason is kept whole up to 2000 characters, as many as the
 condensed stream keeps of a text; a longer one ends ` (cut)`, and so does the
-park comment's. The record's `handoffDelivered` says whether pi-rukas's
+park comment's. A `capReason` is never the bare cap word: a cap whose reason
+is empty, or only repeats the cap or its first word, is on record as
+`no evidence from the driver`. When processes in the container were killed for
+memory, the record's `capReason` says how many (`; 1 process in its container
+was killed for memory`), so a memory plan that is too tight is not read as a
+change that failed its gate. The line `tehas work` writes to the cycle's
+`err.txt` at a cap follows the same rule and names the killed processes where
+the kernel log gives their names, and the console file gets the line
+`tehas work: <n> processes in this cycle's container were killed for memory`.
+The record's `handoffDelivered` says whether pi-rukas's
 handoff reached a comment, on the issue or on its pull request: `true` when
 the cycle's park or comment that carries it was posted, or lean posted its own
 report; `false` when every post of it failed, and the log then says
