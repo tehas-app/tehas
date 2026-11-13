@@ -323,6 +323,70 @@ mod tests {
         assert!(RELEASE.contains("runs-on: [self-hosted, tehas]\n"));
     }
 
+    /// The jobs of a workflow: each one's name and text.
+    fn jobs(text: &str) -> Vec<(&str, String)> {
+        let body = text.split_once("\njobs:\n").map_or("", |(_, b)| b);
+        let mut out: Vec<(&str, String)> = Vec::new();
+        for line in body.lines() {
+            match line.strip_prefix("  ").and_then(|l| l.strip_suffix(':')) {
+                Some(name) if !name.starts_with(' ') => out.push((name, String::new())),
+                _ => {
+                    if let Some((_, job)) = out.last_mut() {
+                        job.push_str(line);
+                        job.push('\n');
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_ci_run_of_the_gate_runs_every_step() {
+        for (name, text) in [("release-gate", GATE), ("verify", VERIFY)] {
+            for (job, body) in jobs(text) {
+                if body.contains("run: scripts/verify.sh") {
+                    assert!(
+                        body.contains("\n      TEHAS_VERIFY_FRESH: 1\n"),
+                        "{name}/{job}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_names_list_is_only_on_a_hosted_runner_that_runs_no_pull_request_code() {
+        let mut seen = 0;
+        for (name, text) in [
+            ("release-gate", GATE),
+            ("verify", VERIFY),
+            ("release", RELEASE),
+        ] {
+            for (job, body) in jobs(text) {
+                if !body.contains("secrets.GENERIC_NAMES") {
+                    continue;
+                }
+                seen += 1;
+                assert!(body.contains("    runs-on: ubuntu-"), "{name}/{job}");
+                assert!(!body.contains("scripts/verify.sh"), "{name}/{job}");
+                assert!(!body.contains("self-hosted"), "{name}/{job}");
+            }
+        }
+        assert_eq!(seen, 2);
+        let names = jobs(VERIFY)
+            .into_iter()
+            .find(|(_, b)| b.contains("secrets.GENERIC_NAMES"))
+            .map(|(_, b)| b)
+            .unwrap_or_default();
+        // A pull request's own lint does not run with the list: its base's does.
+        let base = names
+            .find("git show \"origin/$GITHUB_BASE_REF:scripts/check-generic.sh\"")
+            .expect("the base branch's lint");
+        let secret = names.find("secrets.GENERIC_NAMES").unwrap_or(0);
+        assert!(base < secret);
+    }
+
     #[test]
     fn every_action_is_pinned_to_a_commit() {
         for (name, text) in [
