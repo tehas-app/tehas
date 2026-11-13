@@ -5,15 +5,32 @@
 
 use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
-use super::run::{has_commits, issue_branch_of, pull_for_issue, pull_named, Why};
+use super::run::{has_commits, issue_branch_of, own_pulls, pull_for_issue, pull_named, Why};
 use super::{finish, Finished};
 use crate::finish::cmd::{asked, asked_of_git, Done, Live};
 use crate::finish::Host;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::testdir::TestDir;
 use tehas_core::testing::write_exe;
+
+/// An open pull request as GraphQL answers it: on a branch of the case's
+/// repository, opened by the factory's bot.
+fn pr(n: u64, head: &str, text: &str) -> Value {
+    json!({"url": format!("https://github.com/acme/widget/pull/{n}"),
+        "headRefName": head, "body": text, "isCrossRepository": false,
+        "headRepository": {"nameWithOwner": "acme/widget"},
+        "author": {"login": "tehas-bot"}})
+}
+
+/// The GraphQL answer that holds `nodes`, a JSON list, or the text itself as
+/// the list when it is no JSON.
+fn pulls(nodes: &str) -> String {
+    let nodes: Value = serde_json::from_str(nodes).unwrap_or_else(|_| json!(nodes));
+    json!({"data": {"repository": {"pullRequests": {"nodes": nodes}}}}).to_string()
+}
 
 /// The scratch root of one case.
 fn root(name: &str) -> TestDir {
@@ -325,20 +342,25 @@ impl World {
             default: "main".to_string(),
             reason: "a flaky test in a file this change does not touch".to_string(),
             remote: Some(self.origin.display().to_string()),
+            bot: "tehas-bot[bot]".to_string(),
+            allowed: vec!["alice".to_string(), "bob".to_string()],
         }
     }
 
-    /// The `gh` of a case: one line per call in `gh.calls`; `pr list` answers from
-    /// `list.answer` and `pr create` from `create.answer`, an absent file being
-    /// GitHub's nothing and a file of `fail` a refusal of the call. The body file
-    /// of a create is copied so a case can read what the draft said.
+    /// The `gh` of a case: one line per call in `gh.calls`; the GraphQL list of
+    /// open pull requests answers from `list.answer` and `pr create` from
+    /// `create.answer`, an absent file being GitHub's nothing and a file of
+    /// `fail` a refusal of the call. A list answer is the nodes alone, as
+    /// [`pulls`] wraps them. The body file of a create is copied so a case can
+    /// read what the draft said.
     fn stub(&self, list: &str, create: &str) {
         write_exe(
             &self.gh,
             r#"#!/bin/sh
-# The gh of finish's cases. It records every call and answers pr list and pr
-# create from a file of the case; a file of fail refuses its call. The body file
-# of a create is copied, so a case can read what the draft said.
+# The gh of finish's cases. It records every call and answers the list of open
+# pull requests and pr create from a file of the case; a file of fail refuses its
+# call. The body file of a create is copied, so a case can read what the draft
+# said.
 set -u
 dir=$(dirname "$0")
 kind=other
@@ -346,7 +368,8 @@ prev=
 for a in "$@"; do
   case "$a" in
     pr) kind=pr ;;
-    list) [ "$kind" = pr ] && kind=list ;;
+    api) kind=api ;;
+    graphql) [ "$kind" = api ] && kind=list ;;
     create) [ "$kind" = pr ] && kind=create ;;
   esac
   if [ "$kind" = create ] && [ "$prev" = --body-file ]; then
@@ -354,7 +377,7 @@ for a in "$@"; do
   fi
   prev=$a
 done
-[ "$kind" = pr ] && kind=other
+case "$kind" in pr|api) kind=other ;; esac
 printf '%s %s\n' "$*" "$kind" >>"$dir/gh.calls"
 ans=$dir/$kind.answer
 if [ -f "$ans" ]; then
@@ -362,13 +385,18 @@ if [ -f "$ans" ]; then
   [ "$kind" = other ] || { cat "$ans"; exit 0; }
   exit 0
 fi
-[ "$kind" = list ] && { echo '[]'; exit 0; }
+[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}'; exit 0; }
 exit 0
 "#,
         )
         .unwrap();
         if !list.is_empty() {
-            fs::write(self.dir.join("list.answer"), format!("{list}\n")).unwrap();
+            let answer = if list == "fail" {
+                list.to_string()
+            } else {
+                pulls(list)
+            };
+            fs::write(self.dir.join("list.answer"), format!("{answer}\n")).unwrap();
         }
         if !create.is_empty() {
             fs::write(self.dir.join("create.answer"), format!("{create}\n")).unwrap();
@@ -661,23 +689,29 @@ fn a_branch_with_no_commit_over_the_default_branch_is_refused() {
 
 #[test]
 fn an_issue_that_already_has_an_open_pull_request_is_refused() {
+    let mut by_alice = pr(13, "someone-else", "Fixes #7");
+    by_alice["author"] = json!({"login": "alice"});
     for (what, answer) in [
         (
             "its-head-is-the-issue-s-branch",
-            r#"[{"url":"https://github.com/acme/widget/pull/9","headRefName":"feature/issue-7-default","body":""}]"#,
+            pr(9, "feature/issue-7-default", ""),
         ),
         (
             "its-body-closes-the-issue",
-            r#"[{"url":"https://github.com/acme/widget/pull/10","headRefName":"someone-else","body":"Closes #7 and nothing else."}]"#,
+            pr(10, "someone-else", "Closes #7 and nothing else."),
         ),
         (
             "its-head-is-the-branch-this-run-would-push",
-            r#"[{"url":"https://github.com/acme/widget/pull/12","headRefName":"finish/issue-7","body":""}]"#,
+            pr(12, "finish/issue-7", ""),
         ),
+        ("an-allowed-account-opened-it", by_alice),
     ] {
         let w = World::new(what);
         w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
-        w.stub(answer, "https://github.com/acme/widget/pull/1");
+        w.stub(
+            &json!([answer]).to_string(),
+            "https://github.com/acme/widget/pull/1",
+        );
         let mut h = w.host();
         let got = finish(&w.plan(), &mut h);
         assert!(
@@ -701,13 +735,60 @@ fn a_pull_request_that_names_nothing_is_not_the_issue_s() {
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
     // `#70` and `#7x` name no issue, and a head of the wrong number names none.
     w.stub(
-        r#"[{"url":"https://github.com/acme/widget/pull/11","headRefName":"feature/issue-70-x","body":"see issue #70 and fix #7x"}]"#,
+        &json!([pr(11, "feature/issue-70-x", "see issue #70 and fix #7x")]).to_string(),
         "https://github.com/acme/widget/pull/12",
     );
     let mut h = w.host();
     let got = finish(&w.plan(), &mut h);
     assert_eq!(got.why, "", "{}", got.why);
     assert!(w.remote_has("finish/issue-7"));
+}
+
+#[test]
+fn a_pull_request_the_factory_did_not_open_does_not_stop_the_run() {
+    type Change = fn(&mut Value);
+    let cases: [(&str, Change); 6] = [
+        ("an-outsider-s-fork", |p| {
+            p["isCrossRepository"] = json!(true);
+            p["headRepository"] = json!({"nameWithOwner": "mallory/widget"});
+            p["author"] = json!({"login": "mallory"});
+        }),
+        ("an-allowed-account-s-fork", |p| {
+            p["isCrossRepository"] = json!(true);
+            p["headRepository"] = json!({"nameWithOwner": "alice/widget"});
+            p["author"] = json!({"login": "alice"});
+        }),
+        ("an-outsider-on-a-branch-of-the-repository", |p| {
+            p["author"] = json!({"login": "mallory"});
+        }),
+        ("a-head-of-another-repository", |p| {
+            p["headRepository"] = json!({"nameWithOwner": "acme/other"});
+        }),
+        ("no-author", |p| {
+            p["author"] = Value::Null;
+        }),
+        ("no-cross-repository-answer", |p| {
+            p.as_object_mut().unwrap().remove("isCrossRepository");
+        }),
+    ];
+    for (what, change) in cases {
+        let w = World::new(what);
+        w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+        // Each names the issue every way a run reads: its head is the issue's
+        // branch, its body closes it, and another's head is the pushed name.
+        let mut named = pr(20, "feature/issue-7-default", "Fixes #7.");
+        let mut pushed = pr(21, "finish/issue-7", "");
+        change(&mut named);
+        change(&mut pushed);
+        w.stub(
+            &json!([named, pushed]).to_string(),
+            "https://github.com/acme/widget/pull/22",
+        );
+        let mut h = w.host();
+        let got = finish(&w.plan(), &mut h);
+        assert_eq!(got.why, "", "{what}: {}", got.why);
+        assert!(w.remote_has("finish/issue-7"), "{what}");
+    }
 }
 
 #[test]
@@ -890,6 +971,13 @@ fn a_word_that_is_no_word_stops_the_run_before_a_call() {
         },
         "reason",
     );
+    bad(
+        Plan {
+            allowed: vec![],
+            ..p.clone()
+        },
+        "TEHAS_ALLOWED_LABELERS",
+    );
     bad(Plan { issue: 0, ..p }, "issue number");
 }
 
@@ -903,6 +991,8 @@ fn the_words_of_a_run_name_its_workspace_its_scratch_and_its_branch() {
         default: "main".to_string(),
         reason: "the gate's time bound".to_string(),
         remote: None,
+        bot: String::new(),
+        allowed: vec!["alice".to_string()],
     };
     assert_eq!(p.check(), Ok(()));
     assert_eq!(p.remote(), "https://github.com/acme/widget.git");
@@ -940,7 +1030,9 @@ fn the_issue_s_branch_among_the_names_git_answers() {
 fn the_open_pull_request_of_an_issue_among_the_answers() {
     let url = "https://github.com/acme/widget/pull/3";
     let one = |head: &str, text: &str| {
-        format!(r#"[{{"url":"{url}","headRefName":"{head}","body":"{text}"}}]"#)
+        let mut p = pr(3, head, text);
+        p["url"] = json!(url);
+        vec![p]
     };
     assert_eq!(
         pull_for_issue(&one("feature/issue-7", ""), 7).as_deref(),
@@ -955,12 +1047,10 @@ fn the_open_pull_request_of_an_issue_among_the_answers() {
         Some(url)
     );
     assert_eq!(pull_for_issue(&one("anything", ""), 7), None);
-    assert_eq!(pull_for_issue("[]", 7), None);
-    assert_eq!(pull_for_issue("not json", 7), None);
-    assert_eq!(pull_for_issue(r#"{"url":"x"}"#, 7), None);
+    assert_eq!(pull_for_issue(&[], 7), None);
     // A pull request with no URL of its own is no pull request to name.
     assert_eq!(
-        pull_for_issue(r#"[{"headRefName":"feature/issue-7"}]"#, 7),
+        pull_for_issue(&[json!({"headRefName": "feature/issue-7"})], 7),
         None
     );
     assert_eq!(
@@ -971,6 +1061,34 @@ fn the_open_pull_request_of_an_issue_among_the_answers() {
         pull_named(&one("feature/issue-7", ""), "finish/issue-7"),
         None
     );
+}
+
+#[test]
+fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
+    let plan = Plan {
+        issue: 7,
+        repo: "acme/widget".to_string(),
+        home: PathBuf::from("/home/t/tehas"),
+        work_dir: PathBuf::from("/home/t/tehas/work/widget"),
+        default: "main".to_string(),
+        reason: "the gate's time bound".to_string(),
+        remote: None,
+        bot: "tehas-bot[bot]".to_string(),
+        allowed: vec!["alice".to_string()],
+    };
+    let own = pr(1, "feature/issue-7", "");
+    let mut fork = pr(2, "feature/issue-7", "");
+    fork["isCrossRepository"] = json!(true);
+    let mut alice = pr(3, "x", "");
+    alice["author"] = json!({"login": "alice"});
+    let mut bob = pr(4, "y", "");
+    bob["author"] = json!({"login": "bob"});
+    let answer = pulls(&json!([own.clone(), fork, alice.clone(), bob]).to_string());
+    assert_eq!(own_pulls(&answer, &plan), vec![own, alice]);
+    assert!(own_pulls("not json", &plan).is_empty());
+    assert!(own_pulls("[]", &plan).is_empty());
+    assert!(own_pulls(r#"{"url":"x"}"#, &plan).is_empty());
+    assert!(own_pulls(&pulls("{}"), &plan).is_empty());
 }
 
 #[test]

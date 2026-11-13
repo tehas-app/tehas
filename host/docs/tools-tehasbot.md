@@ -110,19 +110,24 @@ The draft's body says `Fixes #<issue>.`, that the factory opened it from a
 stopped cycle, and that its gate did not pass, with the `--reason` as the asker
 put it: whether the failure was outside the change is the asker's judgement, and
 the draft never says the gate was green. Of the settings it reads only
-`TEHAS_WORK_DIR`, the name the workspace was given by; the rest it is given, so
-what it works on is what the caller named. It asks no authorisation: who asked
+`TEHAS_WORK_DIR`, the name the workspace was given by, and `TEHAS_BOT_LOGIN`
+and `TEHAS_ALLOWED_LABELERS`, whose pull requests count; the rest it is given,
+so what it works on is what the caller named. It asks no authorisation: who asked
 is what [the poll's finish step](/operating#finishing-a-stopped-cycle) checks
 before it calls this.
 
 It refuses with one line on standard error and exit 1, and changes nothing,
-when: the workspace or the branch is missing or is no git repository, the
+when: `TEHAS_ALLOWED_LABELERS` names no account, the workspace or the branch
+is missing or is no git repository, the
 working tree holds work that was never committed (nobody has checked it), the
 branch holds no commit over `origin/<branch>`, `origin/<branch>` is not a branch
 of the remote, `finish/issue-<issue>` already stands on the remote, the issue
 already has an open pull request of its branch or one whose body closes it (a
 body that denies the closing word, `this does not fix #<n>`, names no pull
-request of the issue), or the rebase conflicts. A push the remote refuses is not
+request of the issue), or the rebase conflicts. Only the factory's own open
+pull requests count, as for the poll: one on a branch of the repository that
+the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. One from a fork, or
+from any other account, does not stop it. A push the remote refuses is not
 tried again. A refusal
 names the rule and, where the command said something, its first line. On a
 host the poll runs it when an issue asks with a marked comment and

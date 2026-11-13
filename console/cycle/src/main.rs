@@ -715,7 +715,9 @@ fn outcome_verb(result: &str, n: &str) {
 /// the name `tehas work` gave the tree the cycle worked in and the name the poll
 /// keeps when the cycle stops. The rest are given, so the command reads no
 /// setting but that one, and it is refused when the host has none — the poll
-/// step of part 2 has it, as every command that works on a workspace has.
+/// step of part 2 has it, as every command that works on a workspace has. The
+/// poll's environment also gives `TEHAS_BOT_LOGIN` and `TEHAS_ALLOWED_LABELERS`,
+/// whose open pull requests count; a run with no allowed account is refused.
 fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
     let mut home = None;
     let mut repo = None;
@@ -741,6 +743,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => fail("TEHAS_WORK_DIR is not set".to_string()),
     };
+    let setting = |k: &str| std::env::var(k).unwrap_or_default();
     let plan = finish::Plan {
         issue: n,
         repo,
@@ -749,6 +752,11 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         default,
         reason,
         remote: None,
+        bot: setting("TEHAS_BOT_LOGIN"),
+        allowed: setting("TEHAS_ALLOWED_LABELERS")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
     };
     let mut host = match finish::Live::new() {
         Ok(host) => host,
