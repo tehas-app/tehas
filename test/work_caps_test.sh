@@ -631,7 +631,7 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 # stub of test/setup_test.sh writes are one contract, so a change to its
 # spelling that only one of the three follows fails here. The
 # value is not a secret: it is a command on PATH, and the host's operator's own
-# helper is the only value that is withheld, in console/src/setup.rs.
+# helper is the only value that is withheld, in console/ops/src/setup.rs.
 t_case "the helper a container's git runs is the one key and the one command"
 # The container's own entries, read off the docker options of the cycle the
 # cases above started: the name on one line and its value on the next, the way

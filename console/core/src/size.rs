@@ -1,6 +1,6 @@
 //! The measure of one issue body: four counts, read off its own text. `tehas
 //! work` measures the body of an approved start and keeps the answer in
-//! state/sizes.jsonl (console/src/size.rs). The poll's hold on a wide issue
+//! state/sizes.jsonl (console/ops/src/size.rs). The poll's hold on a wide issue
 //! reads the files count.
 //!
 //! The four counts:

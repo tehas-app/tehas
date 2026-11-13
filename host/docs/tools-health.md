@@ -20,7 +20,7 @@ by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's
-(`console/src/shipped.rs`), the ones `console tidy run` reads too, so
+(`console/ops/src/shipped.rs`), the ones `console tidy run` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` reads from the same answer which shipped
 issues lack the label, those whose labels do not hold it or could not be read,
 and gives each of them the label;
@@ -241,7 +241,7 @@ the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
-beside the command (`console tehasbot health`, `console/src/health.rs`): it
+beside the command (`console tehasbot health`, `console/ops/src/health.rs`): it
 makes the five calls of the state store, the `systemctl --user --failed` read
 and the publish itself. `console run` starts it: the settings are
 loaded first, so the budget it reads from `TEHAS_POLL_BUDGET` is the

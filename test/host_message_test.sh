@@ -10,7 +10,7 @@ kept=$T/home/tehas/state/host-messages.json
 schema=$T_ROOT/api/host-messages.schema.json
 t_stub gh
 
-# The list is read and written by the console (console/src/host_message.rs).
+# The list is read and written by the console (console/ops/src/host_message.rs).
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 

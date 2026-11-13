@@ -73,7 +73,7 @@ mod host;
 mod lock;
 mod pi;
 mod programs;
-pub(crate) mod release;
+pub mod release;
 mod report;
 mod run;
 mod sandbox;
@@ -101,7 +101,7 @@ pub(crate) const ANSWERED: u8 = 99;
 /// `gate`: go on, with no lock to take: --check changes nothing on the host.
 const NO_LOCK: u8 = 98;
 
-const USAGE: &str = include_str!("../usage/update.txt");
+const USAGE: &str = include_str!("../../../src/usage/update.txt");
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) enum Mode {

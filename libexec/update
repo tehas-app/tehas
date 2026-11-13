@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bring this host up to date in one step, from a release or from the platform
 # checkout. `tehas help update` says what it does. The console does all of it
-# (console/src/update/run.rs); this execs it with its own path, so the console
+# (console/ops/src/update/run.rs); this execs it with its own path, so the console
 # install.sh leaves there, or the one it kept, finishes the run. A console that
 # does not start cannot say so itself, so it is asked first.
 #

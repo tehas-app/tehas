@@ -27,7 +27,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 code() { # every tracked file that is installed or run and could name a record
-  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src console/src/export.rs console/src/stop.rs
+  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src console/src/export.rs console/ops/src/stop.rs
 }
 
 # The old files of the records that moved, as extended regular expressions,
@@ -95,43 +95,43 @@ forbid "$p"'\.history\.jsonl\b' 'files=("$TEHAS_HOME/state/cycles/plan-$issue.hi
 forbid '\bplan_record_number\b' 'plan_record_number "$st" || continue'
 forbid '\btehas_plan_history_add\b' 'tehas_plan_history_add "$n" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
-  'console/src/stop.rs' \
+  'console/ops/src/stop.rs' \
   "work tells the cycle how the runner ended"
 carrier "$n"'\.status\b' 'status_file=$TEHAS_HOME/state/cycles/$issue.status' \
   '' \
   "work tells the cycle the runner's status word"
 carrier '\.oom\b' 'oom_file=${cycles:?}/${issue:?}.oom' \
-  "console/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
+  "console/ops/src/stop.rs $an/main.rs $an/run.rs $an/tests.rs" \
   "work counts the container's kills for memory for the cycle"
 carrier '\.forks\b' 'forks_file=$TEHAS_HOME/state/cycles/$issue.forks' \
-  "console/src/stop.rs $an/main.rs $an/run.rs" \
+  "console/ops/src/stop.rs $an/main.rs $an/run.rs" \
   "work counts the container's refused forks for the cycle"
 carrier '\.stalled\b' 'stall_file=${cycles:?}/${issue:?}.stalled' \
-  'console/src/stop.rs' \
+  'console/ops/src/stop.rs' \
   "work tells the cycle the container stalled"
 carrier '\.timed\b' 'timed_file=${cycles:?}/${issue:?}.timed' \
-  'console/src/stop.rs' \
+  'console/ops/src/stop.rs' \
   "work tells the cycle the container ran out of time"
 carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
-  'console/src/stop.rs' \
+  'console/ops/src/stop.rs' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "console/src/export.rs console/src/stop.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "console/src/export.rs console/ops/src/stop.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "console/src/export.rs console/src/stop.rs $an/run.rs $an/tests.rs" \
+  "console/src/export.rs console/ops/src/stop.rs $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   '' \
   "the dispatcher tells a running cycle why it is done"
 carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
-  'console/src/stop.rs' \
+  'console/ops/src/stop.rs' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'console/src/dev.rs console/src/stop.rs' \
+  'console/src/dev.rs console/ops/src/stop.rs' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
-  'console/src/export.rs console/src/stop.rs' \
+  'console/src/export.rs console/ops/src/stop.rs' \
   "the images a container is given, mounted into it"
 carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"' \
   '' \
@@ -140,10 +140,10 @@ carrier '\.retry-context\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.retr
   '' \
   "what a reviewer said before a retry, mounted into the container"
 carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
-  'console/src/health.rs' \
+  'console/ops/src/health.rs' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'console/src/health.rs' \
+  'console/ops/src/health.rs' \
   "the lock a planning turn holds while it runs; nothing moves its .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(cat "$st.out")' \
   "$an/plan.rs $an/tests.rs" \
@@ -217,26 +217,26 @@ t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"
 
 t_case "the console names the store program only to see that it is installed"
-# The console calls the store in its own process (console/src/store.rs). The
+# The console calls the store in its own process (console/ops/src/store.rs). The
 # program stays installed for the shell, the cycle and the dispatcher, so the
 # console names its path only where it asks whether it is there: ready and the
 # absent refusal through store::program, and clean's upkeep check. The update
 # installs the program and never runs it.
 allowed=(
-  'console/src/store.rs:    home.join("libexec").join("store")'
-  'console/src/clean.rs:        let bin = self.home.join("libexec").join("store");'
+  'console/ops/src/store.rs:    home.join("libexec").join("store")'
+  'console/ops/src/clean.rs:        let bin = self.home.join("libexec").join("store");'
 )
-# The tests of console/src/update/programs.rs make the programs a home holds,
+# The tests of console/ops/src/update/programs.rs make the programs a home holds,
 # the store among them, so the lines of its #[cfg(test)] module are left out:
 # the one module, from its attribute to the closing brace on the file's last
 # line. Its other lines are searched as every file is.
-programs=console/src/update/programs.rs
+programs=console/ops/src/update/programs.rs
 tests_at=$(grep -n '^#\[cfg(test)\]$' "$T_ROOT/$programs" | cut -d: -f1)
 t_eq "$(wc -l <<<"$tests_at")" 1
 t_eq "$(sed -n "$((tests_at + 1))p" "$T_ROOT/$programs")" "mod tests {"
 t_eq "$(sed -n "$tests_at,\$p" "$T_ROOT/$programs" | grep -n '^}' | head -1 | cut -d: -f1)" \
   "$(($(wc -l <"$T_ROOT/$programs") - tests_at + 1))"
-named=$(git -C "$T_ROOT" grep -nE 'libexec/store\b|"libexec"\)\.join\("store"\)' -- 'console/src/*.rs' |
+named=$(git -C "$T_ROOT" grep -nE 'libexec/store\b|"libexec"\)\.join\("store"\)' -- 'console/src/*.rs' 'console/ops/src/*.rs' |
   awk -F: -v f="$programs" -v t="$tests_at" '!($1 == f && $2 >= t)' | sed -E 's/^([^:]+):[0-9]+:/\1:/')
 while IFS= read -r hit; do
   [ -n "$hit" ] || continue

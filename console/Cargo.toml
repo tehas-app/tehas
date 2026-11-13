@@ -4,11 +4,11 @@
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
-# easy merge of a pull request in merge/ and the development tasks behind
-# scripts/ in xtask/ as well.
+# easy merge of a pull request in merge/, the operations modules in ops/ and
+# the development tasks behind scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store", "xtask"]
-default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store", "xtask"]
+members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "store", "xtask"]
+default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "store", "xtask"]
 
 [package]
 name = "console"
@@ -25,13 +25,17 @@ rustix = { version = "1", default-features = false, features = ["std"] }
 serde_json = "1"
 sha2 = "0.10"
 signal-hook = "0.3"
-# The state store, called in this process (src/store.rs).
+# The state store, called in this process (ops/src/store.rs).
 store = { path = "store" }
 tehas-core = { path = "core", features = ["mask"] }
 tehas-cycle = { path = "cycle" }
+# The operations modules (ops/src), which main.rs takes by one use line.
+tehas-ops = { path = "ops" }
 
 [dev-dependencies]
-# The dispatcher's read of the limit, which a test holds to the console's.
+# The store's test hook, which the history tests plant answers in.
+tehas-ops = { path = "ops", features = ["testing"] }
+# The dispatcher's read of a refresh request, which a test holds to the console's.
 tehas-dispatch = { path = "dispatch" }
 
 # Line tables only, and no incremental data: a build of the workspace in the

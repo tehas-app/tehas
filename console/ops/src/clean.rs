@@ -1,4 +1,4 @@
-//! What `tehasbot clean` removes. `console run` (src/run.rs) loads the settings
+//! What `tehasbot clean` removes. `console run` (console/src/run.rs) loads the settings
 //! and reads the free disk; this names the two images, takes the run's lock and
 //! runs the seven steps.
 //!
@@ -123,7 +123,7 @@ still never touched.
                                        under the minimum free and with no
                                        session open, under the clone's lock
 
-The steps are the console's (console/src/clean.rs); this checks the settings,
+The steps are the console's (console/ops/src/clean.rs); this checks the settings,
 reads the free disk and names the two images.
 
 Docker volumes are never touched, a person's call (see the host manual).
@@ -423,6 +423,7 @@ fn scratch_made(given: &[String]) -> u8 {
 /// another account left - makes the lock and takes it. `tehas dev` holds what it
 /// returns for the session's life. The words go to standard error, and name who
 /// else holds the lock. `wait` is in seconds.
+#[allow(clippy::result_unit_err)]
 pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
     let devs = Path::new(home).join("dev");
     let state = devs.join(format!("{name}.state"));

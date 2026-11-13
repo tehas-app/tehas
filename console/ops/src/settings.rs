@@ -232,7 +232,7 @@ pub(crate) fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
 /// tehas_load on this process's own environment, so all it starts is given the
 /// settings. Call it before any thread. Err is the status, 78, the line said on
 /// standard error. Ok is what was loaded, for [`require`].
-pub(crate) fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
+pub fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
     let start = this_environment();
     let mut vars = start.clone();
     let got = load_into(&mut vars, uid, bash);
@@ -253,7 +253,7 @@ pub(crate) fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
 }
 
 /// tehas_require on what [`load_here`] loaded.
-pub(crate) fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
+pub fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
     match refusal(names, vars) {
         Some(line) => {
             eprintln!("{line}");
@@ -460,7 +460,7 @@ mod tests {
     fn the_rules_are_the_file_a_release_carries() {
         assert_eq!(
             rules_json(),
-            include_str!("../../api/settings-rules.json"),
+            include_str!("../../../api/settings-rules.json"),
             "write api/settings-rules.json again: console settings rules --json"
         );
     }

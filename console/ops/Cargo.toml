@@ -1,0 +1,31 @@
+# The operations of the console: setup, update, clean, health, flags, stop,
+# the store calls and the modules they share. A library member of the
+# workspace in ../Cargo.toml; the console in ../src takes it.
+[package]
+name = "tehas-ops"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_ops"
+path = "src/lib.rs"
+
+[features]
+# The store's test hook (src/store.rs), for the tests of the console too.
+testing = []
+
+[dependencies]
+libc = "0.2"
+rustix = { version = "1", default-features = false, features = ["std"] }
+serde_json = "1"
+sha2 = "0.10"
+# The state store, called in this process (src/store.rs).
+store = { path = "../store" }
+tehas-core = { path = "../core", features = ["mask"] }
+tehas-cycle = { path = "../cycle" }
+
+[dev-dependencies]
+# The dispatcher's read of the limit, which a test holds to the console's.
+tehas-dispatch = { path = "../dispatch" }

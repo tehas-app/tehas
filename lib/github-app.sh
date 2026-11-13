@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The factory's GitHub App, as a login shell acts as it. The token itself is
-# made and kept by console/src/github.rs (docs/specs/2026-10-24-github-app.md).
+# made and kept by console/ops/src/github.rs (docs/specs/2026-10-24-github-app.md).
 # host/env.sh sources it after tehas_load.
 #
 #   tehas_github_app_env    drop GH_TOKEN, put $TEHAS_HOME/shim first on PATH

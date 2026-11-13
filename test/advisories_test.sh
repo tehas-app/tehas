@@ -38,7 +38,7 @@ t_lacks "$step" 'continue-on-error'
 t_lacks "$step" 'npm audit'
 # The sum is taken for the asset the step downloads. Two names in two languages
 # for one file is where a pin goes wrong, so they are checked against each other.
-t_contains "$(cat "$T_ROOT/console/src/pins/tools.rs")" '"osv-scanner_linux_amd64"'
+t_contains "$(cat "$T_ROOT/console/ops/src/pins/tools.rs")" '"osv-scanner_linux_amd64"'
 
 t_case "every lockfile this tree tracks is one the scan is given"
 locks=$(git -C "$T_ROOT" ls-files -- '*Cargo.lock' '*package-lock.json' '*yarn.lock' '*pnpm-lock.yaml' '*bun.lock')

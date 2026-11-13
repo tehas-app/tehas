@@ -3476,7 +3476,7 @@ mod tests {
     #[test]
     fn the_sample_alerts_file_of_the_api_is_read() {
         let h = home("alerts-sample");
-        let sample = include_str!("../../api/industry-alerts.sample.json");
+        let sample = include_str!("../../../api/industry-alerts.sample.json");
         let r = with_alerts(&h, Some(sample));
         let alerts = r.at(&["checks", "industry", "alerts"]).items().to_vec();
         let kinds: Vec<String> = alerts.iter().map(|a| a.get("kind").text()).collect();

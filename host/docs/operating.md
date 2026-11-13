@@ -388,7 +388,7 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 `needs-human-attention` and the labels a person chooses, such as `tehas:lean`,
 stay. The list, the two searches, the decision of what comes
 off which issue and the edits are the console's (`console tidy run`,
-`console/src/tidy.rs`).
+`console/ops/src/tidy.rs`).
 
 The same edit puts `tehas:shipped` on an issue that a merged pull request
 closed: from the close event's merged pull request, or, when that event names no
@@ -400,7 +400,7 @@ tidies and adds the label in the call that strips their state labels, so the
 label says one thing, that a merge closed the issue, whatever the queue's list
 happened to hold. Two commands
 put the label from a merged closer, and both make the one read of
-the query of `console/src/shipped.rs` and go by the same rule:
+the query of `console/ops/src/shipped.rs` and go by the same rule:
 `console tidy run` in the edit that takes the state labels off, and
 `tehasbot status` from its own read of the list for any issue missing it.
 `console tidy run` is the one that says what it did in

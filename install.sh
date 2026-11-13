@@ -88,7 +88,7 @@
 # leave the files it did copy with no follow-up owed.
 #
 # The follow-ups are named by id (units, sandbox, docs, edge, labels) in the
-# console, console/src/update/steps.rs, which is the one place that names them.
+# console, console/ops/src/update/steps.rs, which is the one place that names them.
 # This script asks it for each changed file, prints them as "next: <step>" and
 # has it record them; `tehas update` runs them and clears the record. So a real
 # run needs a console before its first copy: the one of the release tree, the
@@ -453,7 +453,7 @@ fi
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line, and any finding stops a real run before it changes
-# anything. The console names them (console/src/update/findings.rs): settings
+# anything. The console names them (console/ops/src/update/findings.rs): settings
 # another account can write, judged before instance.env is sourced, then the
 # load, the settings an instance has to set, and models.json against the models
 # the agents and the product's session use. What the instance's own shell
@@ -564,7 +564,7 @@ agent=$HOME/.pi/agent
 units=$HOME/.config/systemd/user
 
 # Pi's settings and model list are made from the instance, not copied as they
-# are, by the console that read the settings (console/src/update/pi.rs). The
+# are, by the console that read the settings (console/ops/src/update/pi.rs). The
 # session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
 # PI_ENSEMBLE_SUBAGENT_MODEL; a settings.json that names its own keeps it. A
 # model entry needs only its id; the keys Pi also wants get today's defaults,
@@ -672,7 +672,7 @@ done
 shopt -u nullglob
 
 # Whether this run owes the sandbox build, asked once before any copy is made
-# (console/src/update/sandbox.rs): the pins of versions.env the image reads, by
+# (console/ops/src/update/sandbox.rs): the pins of versions.env the image reads, by
 # the host's copy against this checkout's, and the instance's own sandbox file
 # against what the last install saw. Asked before the record of follow-ups
 # below, so a host that changed either is not called current. A sandbox file
@@ -692,7 +692,7 @@ report=()
 stage=""
 
 # copy_files [<option>...] <table: the copies, the compares and the sweeps,
-# made by the console (console/src/update/files.rs), which records each copy's
+# made by the console (console/ops/src/update/files.rs), which records each copy's
 # steps before it makes it. Its changed lines go into changed[], the others are
 # said. A failure has said why on stderr and stops the run.
 copy_files() {
@@ -749,7 +749,7 @@ record_step() { # one source path from the file table
 # host/login/tehas reaches an account that is not the tehas user as
 # /usr/local/bin/tehas, installed by root. The console compares it with this
 # checkout's copy where bootstrap.sh dev left its marker, and names the command
-# that fixes a difference (console/src/update/host.rs). Nothing writes to either.
+# that fixes a difference (console/ops/src/update/host.rs). Nothing writes to either.
 login_bin=${BOOTSTRAP_BIN:-/usr/local/bin}/tehas
 login_fix=$("$loaded_console" update login "$root" "$login_bin" "${BOOTSTRAP_ETC:-/etc}/tehas/manager") || exit 1
 
@@ -792,8 +792,8 @@ else
   [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
   # The console that read the settings: the one built from this tree, or in
   # --check the one an earlier build left or the one installed. It sums each
-  # program's source (console/src/update/sources.rs) and compares the stamps
-  # (console/src/update/programs.rs).
+  # program's source (console/ops/src/update/sources.rs) and compares the stamps
+  # (console/ops/src/update/programs.rs).
   programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
   programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
@@ -847,7 +847,7 @@ fi
 # --- 2c. The ids of the accounts that may authorise work ----------------------
 # Each login of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN, and its
 # GitHub user id, in state/account-ids: a label, tick, answer or comment counts
-# only from the recorded pair (console/src/ids.rs). A login that does not
+# only from the recorded pair (console/ops/src/ids.rs). A login that does not
 # resolve, or whose id changed, stops the run before the first copy.
 if [ "$check" != 1 ]; then
   "$steps_console" ids record || { echo "tehas: nothing was installed" >&2; exit 78; }
@@ -966,7 +966,7 @@ fi
 
 # The operating manual and the front page are directories; pages come and go.
 # They are installed from a stage, not from host/ itself: the console stages them
-# first (console/src/update/assets.rs) and gives every script and stylesheet a
+# first (console/ops/src/update/assets.rs) and gives every script and stylesheet a
 # dashboard page names by tag a copy named with the hash of its bytes, which is
 # the name the docs server caches for ever. The two syncs below read that stage,
 # so a home holds exactly what the stage holds and a hashed name of older content
@@ -1043,7 +1043,7 @@ a_cycle_runs() { # true while a cycle holds its lock
 }
 
 # The files of an older layout, as the console lists them
-# (console/src/update/retired.list). Found here, removed in step 5 once systemd
+# (console/ops/src/update/retired.list). Found here, removed in step 5 once systemd
 # has the new units.
 old=()
 while IFS= read -r f; do
@@ -1062,7 +1062,7 @@ done <<<"$retired"
 
 # The slice file on the host, which the console compares with the one in this
 # checkout, and what the sandbox image says of the images a cycle is given
-# (console/src/update/report.rs). Inside the tests the slice is not checked
+# (console/ops/src/update/report.rs). Inside the tests the slice is not checked
 # unless a test asks.
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
 slice=(--slice "$slice_to")
@@ -1070,7 +1070,7 @@ slice=(--slice "$slice_to")
 images=(--images "$TEHAS_WORK_IMAGES" "$PI_ENSEMBLE_IMAGE")
 
 # --- 4. Report (--check) -----------------------------------------------------
-# One line a finding, made by the console (console/src/update/report.rs) from
+# One line a finding, made by the console (console/ops/src/update/report.rs) from
 # what this run found: the files that differ, the shell, the store and the
 # login command. It runs bootstrap.sh check, compares the slice, reads the
 # sandbox image, the health, the last check-product and the record of steps
@@ -1131,7 +1131,7 @@ store_db() {
 store_db
 
 # A planning session's kept directory moves out of state/ to beside the
-# workspaces, while no turn holds the issue's lock (console/src/update/host.rs).
+# workspaces, while no turn holds the issue's lock (console/ops/src/update/host.rs).
 "$loaded_console" update keeps "$TEHAS_HOME" "$TEHAS_WORK_DIR" || exit 1
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
@@ -1147,7 +1147,7 @@ done
 
 # The previews' network keeps a preview from the host: it reaches the router
 # and the other previews and nothing else. What that takes is in
-# console/src/edge.rs, and `tehasbot preview` decides by the same code before
+# console/ops/src/edge.rs, and `tehasbot preview` decides by the same code before
 # every run. The router's compose file names the network as external and
 # `tehasbot preview` puts containers on it, so it is made here, whichever of the
 # two starts first. A host with no Docker yet gets it from `tehasbot preview`. A

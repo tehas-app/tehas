@@ -1,5 +1,5 @@
 // The pages of the project the dashboard links, read once from
-// /live/panels.json (written by tehas panel, see console/src/panel.rs), and
+// /live/panels.json (written by tehas panel, see console/ops/src/panel.rs), and
 // the host bridge's menu (host/fun/host-bridge.js), as it comes and goes. Both
 // front pages load it: each is an item in the page's menu, and pressing it
 // opens the page in a dock at the side.

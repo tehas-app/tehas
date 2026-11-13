@@ -1,6 +1,6 @@
 //! The read-only MCP server's command: `tehasbot mcp serve` runs the program
 //! in its container, `tehas mcp key` prints a new key. What each does for a
-//! person is in src/usage/mcp.txt.
+//! person is in console/src/usage/mcp.txt.
 //!
 //!   console tehas|tehasbot mcp serve
 //!   console tehas|tehasbot mcp key
@@ -9,7 +9,7 @@
 //! container is a security boundary: its arguments are pinned by
 //! test/mcp_test.sh, and keys reach it by name, never in an argument.
 //!
-//! Exit: see src/usage/mcp.txt.
+//! Exit: see console/src/usage/mcp.txt.
 
 use std::env;
 use std::fs::{self, File};
