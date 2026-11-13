@@ -124,6 +124,7 @@ const TO_8: &str = db::STEP_8;
 const TO_9: &str = db::STEP_9;
 const TO_10: &str = db::STEP_10;
 const TO_11: &str = db::STEP_11;
+const TO_12: &str = db::STEP_12;
 
 /// The tables schema 11 drops (#1770): no verb wrote them and nothing read them.
 const DROPPED: [&str; 18] = [
@@ -165,6 +166,7 @@ fn old_home(name: &str, at: i64, rows: &str, later: &str) -> TestDir {
         (9, TO_9),
         (10, TO_10),
         (11, TO_11),
+        (12, TO_12),
     ] {
         if to <= at {
             c.execute_batch(sql).unwrap();
@@ -290,13 +292,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_12() {
-    assert_eq!(db::SCHEMA_VERSION, 12);
-    let home = home("schema-12");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 12);
+fn init_writes_schema_13() {
+    assert_eq!(db::SCHEMA_VERSION, 13);
+    let home = home("schema-13");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 13);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "12"
+        "13"
     );
     assert_eq!(count(&home, "planning_notes"), 0);
     let c = conn(&home);
@@ -337,7 +339,7 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     drop(before);
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(1), Some(12)));
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(1), Some(13)));
     let after = conn(&home);
     let left = tables(&after);
     for t in DROPPED {
@@ -354,17 +356,17 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
             .collect();
         assert_eq!(&dump(&after, t, &cols), rows, "{t}");
     }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 12);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 13);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "12"
+        "13"
     );
     // meta keeps its rows; only `schema` moves with the version.
     let meta_after = dump(&after, "meta", &columns(&after, "meta"));
     assert_eq!(meta_after.len(), meta.len());
     for (was, is) in meta.iter().zip(&meta_after) {
         if was[0] == Sql::Text("schema".to_string()) {
-            assert_eq!(is[1], Sql::Text("12".to_string()));
+            assert_eq!(is[1], Sql::Text("13".to_string()));
         } else {
             assert_eq!(was, is);
         }
@@ -388,7 +390,7 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     );
     // Both copies: the one the answer names and the store as it was found.
     let found = home.join("state/backup").join(format!("tehas-1-{NOW}.db"));
-    let reported = home.join("state/backup").join(format!("tehas-12-{NOW}.db"));
+    let reported = home.join("state/backup").join(format!("tehas-13-{NOW}.db"));
     assert_eq!(v["backup"], reported.to_str().unwrap());
     for copy in [&found, &reported] {
         let c = Connection::open(copy).unwrap();
@@ -399,7 +401,7 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     }
     let report = execute(&home, &Verb::Check, NOW).unwrap();
     assert!(
-        report.contains("\"schema\":12,\"integrity\":\"ok\""),
+        report.contains("\"schema\":13,\"integrity\":\"ok\""),
         "{report}"
     );
 }
@@ -410,8 +412,8 @@ fn the_steps_from_2_add_the_heartbeat_s_text() {
     let rows = count(&home, "heartbeats");
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(2), Some(12)));
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 12);
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(2), Some(13)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 13);
     assert_eq!(count(&home, "heartbeats WHERE text IS NULL"), rows);
 }
 
@@ -429,8 +431,8 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
     let before: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(3), Some(12)));
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 12);
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(3), Some(13)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 13);
     // Dropping `cycles` deletes nothing that references it.
     let after: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     assert_eq!(after, before);
@@ -448,7 +450,7 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
     // The pages of the dropped tables are given back.
     assert_eq!(one::<i64>(&home, "PRAGMA freelist_count"), 0);
     // Both copies are of the store at 3.
-    for v in [3, 12] {
+    for v in [3, 13] {
         let copy = home.join(format!("state/backup/tehas-{v}-{NOW}.db"));
         let c = Connection::open(&copy).unwrap();
         let at: i64 = c
@@ -509,8 +511,8 @@ fn the_step_from_4_adds_auto_to_planning() {
     assert!(sessions > 0 && turns > 0);
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(4), Some(12)));
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 12);
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(4), Some(13)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 13);
     assert_eq!(count(&home, "planning WHERE auto = 0"), sessions);
     assert_eq!(count(&home, "plan_history WHERE auto = 0"), turns);
 }
@@ -528,7 +530,7 @@ fn the_step_from_5_numbers_the_ends_in_the_order_they_were_listed() {
     );
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(5), Some(12)));
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(5), Some(13)));
     let order = |c: &Connection| -> Vec<(String, i64, i64)> {
         let mut q = c
             .prepare(
@@ -625,7 +627,7 @@ fn the_verbs_refuse_a_store_at_1_until_it_is_migrated() {
     assert_eq!(code, 78);
     assert!(line.starts_with("unreadable "), "{line}");
     assert!(
-        line.contains("the store is at schema 1, this store writes 12; run store migrate"),
+        line.contains("the store is at schema 1, this store writes 13; run store migrate"),
         "{line}"
     );
     assert_eq!(refused(&home, &["park-told", "7"]).0, 78);
@@ -655,7 +657,7 @@ fn the_step_from_6_adds_the_cost_of_a_poll() {
     assert!(!tables(&conn(&home)).contains(&"poll_cost".to_string()));
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(6), Some(12)));
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(6), Some(13)));
     assert_eq!(count(&home, "poll_cost"), 0);
     assert_eq!(
         count(&home, "cycle_history WHERE seq IS NOT NULL"),

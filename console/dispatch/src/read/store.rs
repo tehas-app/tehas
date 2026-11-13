@@ -418,8 +418,9 @@ pub fn owed(calls: &mut Calls, which: &str) -> Value {
 }
 
 /// The shape of `store approval-view`: the approval of the issue's latest start as the
-/// readers of approval-view have it. Null for none.
-pub(crate) fn approval_shape(v: &Value) -> Option<Value> {
+/// readers of approval-view have it. Null for none. The dispatch tests read it
+/// too, so the world of a case shapes its approval as the poll's own read does.
+pub fn approval_shape(v: &Value) -> Option<Value> {
     let c = v.get("current")?;
     if c.is_null() {
         return Some(Value::Null);
