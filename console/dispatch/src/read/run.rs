@@ -184,6 +184,32 @@ fn why_words(err: &str) -> Option<String> {
     (!why.is_empty()).then(|| why.replacen(": ", "", 1))
 }
 
+/// The words of one answer the line quotes: gh's own, or, when gh said none
+/// and its answer could not be read, that it could not. An unread answer at
+/// exit 0 said nothing of itself, and a line without the reason would read as
+/// a failure of no kind.
+fn why_of(ran: &Ran) -> Option<String> {
+    why_words(&ran.err).or_else(|| ran.unread.then(|| "its answer could not be read".into()))
+}
+
+/// Whether a read of gh answered: it exited 0 and what it printed was read to
+/// its end. An exit of 0 whose streams could not be read is no answer, and its
+/// empty output is not gh's: it is a failure the rule owes another try.
+fn answered(ran: &Ran) -> bool {
+    ran.ok() && !ran.unread
+}
+
+/// How the poll runs one gh process: the program, its arguments, the bound,
+/// and the variables given to the child. A field of `Calls` so a case can give
+/// an answer no real process can be made to give, such as one whose output
+/// could not be read.
+pub(crate) type GhRun = fn(&str, &[String], Duration, &[(&str, &str)]) -> Ran;
+
+/// The gh process of every `Calls` but a case's.
+pub(crate) fn gh_process(gh: &str, args: &[String], bound: Duration, extra: &[(&str, &str)]) -> Ran {
+    run_input_env(gh, args, None, bound, extra)
+}
+
 /// What the failed line quotes: gh's words of the attempt the retry replaced
 /// when there was one, and of the answer the caller keeps otherwise. So a read
 /// that failed twice says what the first attempt said, which the answer now
@@ -191,7 +217,7 @@ fn why_words(err: &str) -> Option<String> {
 fn gh_why_err(first_err: &Option<String>, ran: &Ran) -> Option<String> {
     match first_err {
         Some(e) if !e.is_empty() => why_words(e),
-        _ => why_words(&ran.err),
+        _ => why_of(ran),
     }
 }
 
@@ -303,7 +329,7 @@ impl RetryPolicy {
         let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
         let outcome = tried(call, &mut budget);
         drop(budget);
-        if !outcome.ran.ok() {
+        if !answered(&outcome.ran) {
             self.log(word, &Note::of(&outcome, &outcome.ran));
         }
         outcome
@@ -476,6 +502,8 @@ pub struct Calls {
     /// another poll's retries or take its lines; only the fixture that names its
     /// `Calls` field by field gives it one of its own.
     pub retry: RetryPolicy,
+    /// How each gh process of this `Calls` is run; `gh_process` but in a case.
+    pub(crate) run_gh: GhRun,
 }
 
 impl Calls {
@@ -494,6 +522,7 @@ impl Calls {
             gh_count: 0,
             gh_token: None,
             retry: RetryPolicy::default(),
+            run_gh: gh_process,
         }
     }
 
@@ -514,6 +543,7 @@ impl Calls {
             gh_count: 0,
             gh_token: None,
             retry: retry.clone(),
+            run_gh: gh_process,
         }
     }
 }
@@ -572,7 +602,7 @@ impl GhFail {
     /// taken by value because the chunk is done with it and the failure owns it.
     fn chunk(word: &str, r: Ran) -> GhFail {
         let note = Note {
-            first_err: why_words(&r.err),
+            first_err: why_of(&r),
             attempts: 1,
             stopped: None,
         };
@@ -594,6 +624,7 @@ impl Calls {
     /// Several reads of gh side by side, each answer as `gh` gives it.
     pub fn gh_all(&mut self, calls: &[Vec<String>]) -> Vec<Result<Value, GhFail>> {
         let bound = self.bound;
+        let run_gh = self.run_gh;
         let gh = self.gh.clone();
         // The token, owned, so each spawned call holds its own view of it and
         // the borrow of self ends here.
@@ -620,8 +651,10 @@ impl Calls {
                             // this thread: a read the chunk could not answer is
                             // tried again serially on the main thread below, so
                             // no retry of a gh read ever runs on a thread.
-                            let r = run_input_env(&gh, args, None, bound, &extra);
-                            if r.ok() {
+                            let r = run_gh(&gh, args, bound, &extra);
+                            // An exit of 0 whose answer could not be read is a
+                            // failure owed a retry, not an empty answer.
+                            if answered(&r) {
                                 Ok(parse(&r.out))
                             } else {
                                 Err(GhFail::chunk(&word, r))
@@ -666,11 +699,9 @@ impl Calls {
             // it are new processes of the poll, and a read GitHub refused outright
             // never reaches this line at all.
             let extra = gh_env(self.gh_token.as_deref());
-            let outcome = policy.read(&word, &mut || {
-                run_input_env(&self.gh, args, None, bound, &extra)
-            });
+            let outcome = policy.read(&word, &mut || (self.run_gh)(&self.gh, args, bound, &extra));
             self.gh_count += outcome.attempts.saturating_sub(1);
-            if outcome.ran.ok() {
+            if answered(&outcome.ran) {
                 // A bad minute the retry cleared leaves no line: the poll reads
                 // the answer and nothing of the outage.
                 *slot = Ok(parse(&outcome.ran.out));
@@ -688,10 +719,13 @@ impl Calls {
         }
         let extra = gh_env(self.gh_token.as_deref());
         let outcome = self.retry.read(&word, &mut || {
-            run_input_env(&self.gh, &args, None, self.bound, &extra)
+            (self.run_gh)(&self.gh, &args, self.bound, &extra)
         });
         self.gh_count += outcome.attempts;
-        if !outcome.ran.ok() {
+        // Every attempt may have exited 0 and still left nothing that could be
+        // read: the read failed, and the caller is told so rather than handed
+        // an empty answer as gh's own.
+        if !answered(&outcome.ran) {
             let line = line(&word, &Note::of(&outcome, &outcome.ran));
             return Err(GhFail {
                 line,
@@ -1378,5 +1412,93 @@ printf '[{{"number":1}}]\n'
         }
         let read = batch_answer(json!({"rc": 0, "out": "{\"api\":1,\"ok\":true}"}));
         assert_eq!(read["ok"], true, "{read}");
+    }
+
+    /// The answer of a gh whose output could not be read: it exited 0 and
+    /// printed nothing anyone read. No real process can be made to give it, so
+    /// the cases below give it through `Calls::run_gh`.
+    fn lost() -> Ran {
+        Ran {
+            status: Some(0),
+            out: String::new(),
+            err: String::new(),
+            truncated: false,
+            unread: true,
+        }
+    }
+
+    /// A gh whose every answer is lost.
+    fn always_unread(_: &str, _: &[String], _: Duration, _: &[(&str, &str)]) -> Ran {
+        lost()
+    }
+
+    /// A gh whose first answer is lost and whose every later one is read. Its
+    /// count is its own, so no other case moves it.
+    static UNREAD_ONCE: AtomicU64 = AtomicU64::new(0);
+    fn unread_once(_: &str, _: &[String], _: Duration, _: &[(&str, &str)]) -> Ran {
+        if UNREAD_ONCE.fetch_add(1, Ordering::SeqCst) == 0 {
+            return lost();
+        }
+        Ran {
+            out: "[{\"number\":1}]".into(),
+            unread: false,
+            ..lost()
+        }
+    }
+
+    #[test]
+    fn a_read_whose_answer_is_never_read_fails_and_says_so() {
+        // Every attempt exits 0 and none is read: the rule tries it to its cap,
+        // and the caller is given a failure, not an empty answer as gh's own.
+        let _measured = measured();
+        let _tokens = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut calls = Calls::idle(Duration::from_secs(5), "store".into());
+        calls.run_gh = always_unread;
+        let err = calls
+            .gh(&["api", "rate_limit"])
+            .expect_err("an answer that could not be read is no answer");
+        assert_eq!(calls.gh_count, 2, "tried again, to the cap");
+        assert!(
+            err.line
+                .starts_with("ERROR: gh api rate_limit failed: its answer could not be read"),
+            "the line says why: {}",
+            err.line
+        );
+        assert!(err.line.contains("tried 2 times"), "{}", err.line);
+        assert_eq!(calls.retry.taken(), vec![err.line.clone()]);
+
+        // The parallel path gives the same failure for the same answer.
+        let mut calls = Calls::idle(Duration::from_secs(5), "store".into());
+        calls.run_gh = always_unread;
+        let got = calls.gh_all(&[a(&["api", "rate_limit"])]);
+        let err = match &got[..] {
+            [Err(f)] => f,
+            [Ok(v)] => panic!("an answer that could not be read is no answer: {v}"),
+            other => panic!("one read, not {}", other.len()),
+        };
+        assert!(
+            err.line.contains("its answer could not be read"),
+            "{}",
+            err.line
+        );
+    }
+
+    #[test]
+    fn a_chunk_read_whose_answer_was_lost_is_asked_again() {
+        // The chunk's read exits 0 and is not read: before this it was taken
+        // for an empty answer and never asked again.
+        let _measured = measured();
+        let _tokens = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        UNREAD_ONCE.store(0, Ordering::SeqCst);
+        let mut calls = Calls::idle(Duration::from_secs(5), "store".into());
+        calls.run_gh = unread_once;
+        let got = calls.gh_all(&[a(&["api", "rate_limit"])]);
+        match &got[..] {
+            [Ok(v)] => assert_eq!(v, &json!([{"number": 1}])),
+            [Err(f)] => panic!("the retry's answer, not {}", f.line),
+            other => panic!("one read, not {}", other.len()),
+        }
+        assert_eq!(UNREAD_ONCE.load(Ordering::SeqCst), 2, "the chunk's read and one more");
+        assert!(calls.retry.taken().is_empty(), "a cleared read leaves no line");
     }
 }
