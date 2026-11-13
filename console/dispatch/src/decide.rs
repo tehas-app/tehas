@@ -723,6 +723,12 @@ impl<'a> Poll<'a> {
                 x.get("body")
                     .and_then(Value::as_str)
                     .is_some_and(|b| b.contains(HOLD_CLEARED))
+                    && tehas_core::accounts::factorys(
+                        x.pointer("/author/login")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        &self.c.bot_login,
+                    )
                     && at(x) >= since
             });
             if !said {
@@ -2999,7 +3005,8 @@ fn in_flow(labels: &[String]) -> bool {
 pub(crate) const LABEL_ALONE_MAX: usize = 50;
 
 /// The marker of the comment `hold_cleared` writes. It does not start
-/// `<!-- tehas:blocked`, so `newest_marker` never reads it as one.
+/// `<!-- tehas:blocked`, so `newest_marker` never reads it as one. Only the
+/// bot's own comment counts as said.
 const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
 
 /// The wait line of a `tehas:blocked` that counts while no comment names its

@@ -335,7 +335,7 @@ Blocked by #12 and #34.
 <!-- tehas:blocked by=12,34 -->
 ```
 
-Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. Only the bot's own such comment counts as said. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
 An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
 
@@ -947,7 +947,8 @@ Who may ask:
 
 The poll's finish step takes no slot and starts no agent and no cycle. It runs
 after the poll's own decisions, at most three asks a poll, and not on a poll
-that is paused, dry or that failed. For each ask it checks the rules above, the
+that is paused, dry or that failed. An ignored label does not count toward
+the three. For each ask it checks the rules above, the
 comment (the asker's newest marked one, written in the ten minutes before the
 label and edited by nobody after it), and that no cycle of the issue is
 running. Then it takes `tehas:finish` off and runs `tehas-cycle finish <n>
@@ -2231,7 +2232,7 @@ takes `--continue-pr` and says so with `features.continuePr` in its
 nothing and the dispatcher says so.
 
 **What it reads.** `tehasbot refresh`, every `TEHAS_REFRESH_EVERY` minutes (10
-unless the instance says otherwise), lists the open pull requests of the repository. It keeps the bot's that close
+unless the instance says otherwise), lists the open pull requests of the repository, all of them in pages of 100. It keeps the bot's that close
 exactly one open issue carrying `tehas:awaiting-merge`, or `needs-human-attention`
 after a handoff that left the pull request open, without `tehas:running` and not
 the control issue, that are the only open pull request that closes it, and come
