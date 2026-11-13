@@ -526,7 +526,7 @@ reset
 t_stub_analytics 'printf "%s\n" "{\"report\":1}"'
 T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_FROM_POLL=1; $status"
 t_eq "$t_rc" 0
-t_eq "$(wc -l <"$T/calls/analytics")" 4
+t_eq "$(wc -l <"$T/calls/analytics")" 3
 
 t_case "with GitHub down for three hours, health warns and the queue line says how old it is"
 reset

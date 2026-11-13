@@ -54,7 +54,8 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-message"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
 t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr-lane"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-starts"'

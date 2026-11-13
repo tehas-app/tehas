@@ -118,10 +118,10 @@ t_eq "$(printf '%s\n' "$table" | LC_ALL=C sort -u | tr '\n' ' ')" \
 t_eq "$(printf '%s\n' "$unnamed" | LC_ALL=C sort -u | tr '\n' ' ')" \
   "$(printf '%s\n' "$unnamed" | LC_ALL=C sort | tr '\n' ' ')"
 
-t_case "the live list holds the 21 names the dashboard, the console and the server read"
-t_eq "$(printf '%s\n' "$table" | wc -l)" 21
+t_case "the live list holds the 20 names the dashboard, the console and the server read"
+t_eq "$(printf '%s\n' "$table" | wc -l)" 20
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
-  /dispatch.json /demand.json /energy.json /analytics.json /orders.json /top.json \
+  /dispatch.json /demand.json /energy.json /analytics.json /top.json \
   /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
   printf '%s\n' "$table" | grep -qxF -- "$want" || t_bad "the list does not name $want"
