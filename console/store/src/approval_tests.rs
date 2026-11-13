@@ -438,6 +438,102 @@ fn an_unused_label_approval_is_never_a_base() {
 }
 
 #[test]
+fn a_start_taken_by_the_unit_but_not_yet_ended_still_names_its_base() {
+    // The dispatcher records the approval of a start before the unit writes the start
+    // itself, and `cycle-end` writes the row of the history that names it. A record
+    // whose newest used row has no row of the history is such a record: the row of a
+    // start taken and not yet ended. `approval-current` answers its base off the row and
+    // the history together; read off the history alone it would name no start at all,
+    // and the dispatcher drops a refresh whose record names no base -- the request goes
+    // and nothing starts it again (#1751).
+    let home = home("approval-start-not-yet-ended");
+    let (l, a) = start(&home, 34);
+    end(&home, 34, a, "handoff");
+    drop(l);
+    let (l, tick) = {
+        let lock = hold(&home, 34);
+        approve(&home, 34, "alice", "retry-tick");
+        let v = ok(&home, &["cycle-start", "34"]);
+        assert_eq!(v["how"], "retry-tick", "the start ran on the tick: {v}");
+        (lock, v["attempt"].as_i64().unwrap())
+    };
+    // The row of the tick's cycle is the one the record does not hold: the row of the
+    // start, taken and not yet ended. This is the state a poll reads
+    // `approval-current` in while the cycle of a start runs.
+    let c = conn(&home);
+    c.execute(
+        "DELETE FROM cycle_history WHERE issue = 34 AND attempt = 2",
+        [],
+    )
+    .unwrap();
+    drop(c);
+    let v = current(&home, 34);
+    assert_eq!(
+        v["current"]["used_by"], tick,
+        "the tick is the current approval, its cycle not on the history: {v}"
+    );
+    assert_eq!(
+        v["rests_on"]["how"], "label",
+        "and the start the tick made rests on the person's approval, read before the row          of its own cycle exists: {v}"
+    );
+    assert_eq!(
+        v["rests_on"]["used_by"], 1,
+        "the base is the labelled start: {v}"
+    );
+    end(&home, 34, tick, "handoff");
+    drop(l);
+    // The same question once the end has written the row of the tick's cycle. A retry
+    // tick is a base of its own, so the base the record names from here is the tick; the
+    // point this case pins is that the read of the window names the base the record held
+    // before it, and not no base at all (#1751).
+    let v = current(&home, 34);
+    assert_eq!(
+        v["rests_on"]["how"], "retry-tick",
+        "with the row of the tick on record the tick is itself the base: {v}"
+    );
+}
+
+#[test]
+fn a_refresh_after_a_tick_that_is_not_yet_taken_rests_on_that_tick() {
+    // The same record one step on: the tick's cycle has ended, and the dispatcher has
+    // recorded the approval of a refresh on that tick which no start has taken. The
+    // poll asks before the cycle of the refresh is on record, so the record holds no
+    // history row of the refresh itself: a read that named no base would make the poll
+    // drop the refresh request for good (#1751).
+    let home = home("approval-refresh-on-untaken-tick");
+    let (l, a) = start(&home, 35);
+    end(&home, 35, a, "handoff");
+    drop(l);
+    // The tick of the merge, and the cycle of the merge that ran on it.
+    approve(&home, 35, "alice", "retry-tick");
+    let (l, a) = {
+        let lock = hold(&home, 35);
+        let v = ok(&home, &["cycle-start", "35"]);
+        (lock, v["attempt"].as_i64().unwrap())
+    };
+    end(&home, 35, a, "merged");
+    drop(l);
+    let refresh_at = approve(&home, 35, "alice", "refresh");
+    let v = current(&home, 35);
+    // The approval of the refresh the poll is about to start is not the current row:
+    // `current` is the last start the record holds. It is the row the poll reads as the
+    // approval of its refresh, unused and newer than the merge's start.
+    assert_eq!(
+        v["approval"]["at"], refresh_at,
+        "the record holds the refresh the poll is owed, unused: {v}"
+    );
+    assert_eq!(
+        v["approval"]["used_by"],
+        serde_json::json!(null),
+        "no start has taken it: {v}"
+    );
+    assert_eq!(
+        v["rests_on"]["how"], "retry-tick",
+        "and the refresh rests on the tick of the merge, not on the label before it: {v}"
+    );
+}
+
+#[test]
 fn approvals_keep_only_the_base_and_its_starts() {
     let home = home("approval-retain");
     for (by, how) in [

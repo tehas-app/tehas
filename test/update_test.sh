@@ -624,7 +624,7 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
 # Every call outside the command went through a timeout, install.sh included,
 # and nothing is owed now.
-t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "git -C $checkout fetch --prune origin
+t_eq "$(t_calls timeout | sed 's/^-k 60 [0-9]* //')" "git -C $checkout fetch --prune origin
 $checkout/install.sh
 systemctl --user daemon-reload
 systemctl --user is-active tehas-dispatch.timer
@@ -1042,6 +1042,29 @@ t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "pi-rukas: the image was not moved to the commit versions.env follows"
 
+t_case "a build that ignores its TERM is killed, and the update still answers"
+instance
+platform 0
+rukas_build 0
+# A build whose docker calls do not answer the TERM at the limit: without a kill
+# timeout waits on it, and the update reads its output to the end, for ever. A
+# timeout that kills only its own child leaves the sleep holding the pipe, so
+# the update stops reading a few seconds after the build is gone.
+printf '%s\n' '#!/usr/bin/env bash' "trap '' TERM" 'sleep 30' >"$th/sandbox/build.sh"
+# The build's limit is cut to a second and its grace to one more; whether it was
+# given a kill at all is kept.
+t_stub timeout "case \"\$*\" in
+  *build.sh*) if [ \"\$1\" = -k ]; then shift 3; exec $real_timeout -k 1 1 \"\$@\"; fi
+    shift; exec $real_timeout 1 \"\$@\" ;;
+  *) exec $real_timeout \"\$@\" ;;
+esac"
+t_start
+t_run "$update"
+t_fast 15000
+t_eq "$t_rc" 1
+t_contains "$(t_calls timeout)" "-k 60 1800 $th/sandbox/build.sh --if-moved"
+t_contains "$t_out" "pi-rukas: the image was not moved to the commit versions.env follows"
+
 t_case "--check says the commit moved and builds nothing"
 instance
 platform 0
@@ -1150,7 +1173,7 @@ compose -f $th/edge/docs.compose.yaml up -d --force-recreate"
 t_eq "$(owed_steps)" ""
 # Every call of this run went through a timeout, and none of them was git's: the
 # fetch a real run makes first is not made at all here.
-t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "$th/sandbox/build.sh
+t_eq "$(t_calls timeout | sed 's/^-k 60 [0-9]* //')" "$th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate"
 
@@ -1290,7 +1313,7 @@ t_contains "$t_out" "labels: making the tehas labels"
 t_eq "$(t_calls tehas)" "labels"
 # Like every other outside call of a run, it goes through a timeout, and the lock
 # descriptor is closed for the child that would otherwise hold it after this run.
-t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "$th/bin/tehas labels"
+t_eq "$(t_calls timeout | sed 's/^-k 60 [0-9]* //')" "$th/bin/tehas labels"
 t_eq "$(owed_steps)" ""
 
 # The labels of a product repository are the last thing an update touches, so a

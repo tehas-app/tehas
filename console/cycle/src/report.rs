@@ -663,6 +663,20 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     // word that is no count of seconds is no stop there and here, so neither
     // the step nor the stop of that file counts.
     let secs = |s: &str| re(r"^(0|[1-9][0-9]{0,8})$", s);
+    // A stop file that is there but unusable is said: it is the only account of
+    // why tehas stopped the container.
+    for (name, what) in [
+        ("stalled", "stall"),
+        ("timed", "time limit"),
+        ("stopped", "tehas stop"),
+    ] {
+        if f.file(name) == &File::Unreadable {
+            warn(
+                &mut r,
+                format!("the {what} note of #{issue} could not be read, so a stop for it is not recorded"),
+            );
+        }
+    }
     let stalled = match f.file("stalled").text() {
         Some(t) => {
             let (a, b) = two_lines(t);
@@ -671,6 +685,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 40,
             );
             if !secs(&a) {
+                warn(
+                    &mut r,
+                    format!("the stall note of #{issue} holds no count of seconds, so the stall is not recorded"),
+                );
                 ("0".to_string(), String::new())
             } else {
                 let s = if at.is_empty() || at == "-" {
@@ -690,6 +708,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             let by = ws.get(1).cloned().unwrap_or_default();
             let at = ws.get(2).cloned().unwrap_or_default();
             if !secs(&n) {
+                warn(
+                    &mut r,
+                    format!("the time limit note of #{issue} holds no count of seconds, so the stop is not recorded"),
+                );
                 ("0".to_string(), String::new(), String::new())
             } else {
                 let s = if re(r"^[A-Za-z0-9_.:-]{1,40}$", &at) && at != "-" {
@@ -1432,8 +1454,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
         r.actions.push(tidy);
     } else if (rc == 10 || rc == 11) && status == "handoff" && !pr.is_empty() {
-        let held = if review_held != "false" && cap == "awaiting-human-merge" {
+        let held = if review_held == "true" && cap == "awaiting-human-merge" {
             " Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
+        } else if review_held.is_empty() && waits_only_for_a_merge(&cap) {
+            let s = " Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge.";
+            warn(&mut r, format!("the progress of #{issue} does not say whether its review held findings, so its pull request is not said to wait only for a merge"));
+            s
         } else {
             ""
         };
@@ -1624,7 +1650,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
-        if f.file(name) != &File::Absent {
+        if matches!(f.file(name), File::Text(_) | File::Link) {
             r.files.push(k.to_string());
         }
     }
@@ -1920,6 +1946,53 @@ mod tests {
             comments(&r)
         );
         assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert!(
+            r.log
+                .iter()
+                .any(|l| l.starts_with("WARN: the stall note of #7 holds no count")),
+            "{:?}",
+            r.log
+        );
+    }
+
+    #[test]
+    fn a_stop_note_that_could_not_be_read_is_said_not_taken_for_no_stop() {
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "rc": 2,
+            "started": 1000,
+            "now": 4600,
+            "start": { "attempt": 1 },
+            "files": {
+                "stalled": { "unreadable": true },
+                "timed": { "unreadable": true },
+                "stopped": { "unreadable": true },
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        let r = report(&f, &mut Given(facts["github"].clone()));
+        for what in ["stall", "time limit", "tehas stop"] {
+            let said = format!("WARN: the {what} note of #7 could not be read");
+            assert!(
+                r.log.iter().any(|l| l.starts_with(&said)),
+                "{what}: {:?}",
+                r.log
+            );
+        }
+        assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
+    }
+
+    #[test]
+    fn a_stall_note_that_reads_warns_of_nothing() {
+        let r = notes(vec![("stalled", "1800\nstall-step\n")]);
+        assert!(
+            !r.log.iter().any(|l| l.contains("note of #7")),
+            "{:?}",
+            r.log
+        );
     }
 
     #[test]
@@ -2006,6 +2079,13 @@ mod tests {
             "{:?}",
             comments(&r)
         );
+        assert!(
+            r.log
+                .iter()
+                .any(|l| l.starts_with("WARN: the time limit note of #7 holds no count")),
+            "{:?}",
+            r.log
+        );
     }
 
     #[test]
@@ -2077,6 +2157,69 @@ mod tests {
         });
         let f = Facts::from_json(&facts).expect("the facts read");
         report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// A cycle that handed off at the cap `awaiting-human-merge` with a
+    /// ready pull request open, its progress file `progress` (`None`: none).
+    fn handed(progress: Option<&str>) -> Report {
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [
+            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": "awaiting-human-merge"}]});
+        let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
+                        "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
+        let mut files = json!({"result.json": result.to_string(), "runner_exit": "10\n"});
+        if let Some(p) = progress {
+            files["progress.json"] = json!(p);
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 10,
+            "started": 1000,
+            "now": 2620,
+            "start": { "attempt": 1 },
+            "files": files,
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [pr], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    // A review whose progress does not say it held nothing is not taken for
+    // one that did: only an explicit `reviewHeld: false` waits for a merge.
+    #[test]
+    fn only_a_review_that_said_it_held_nothing_waits_for_a_merge() {
+        let r = handed(Some(r#"{"roles":[],"reason":"","reviewHeld":false}"#));
+        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
+        let r = handed(Some(r#"{"roles":[],"reason":"","reviewHeld":true}"#));
+        assert_eq!(r.arm, "handoff-parked");
+        let said = comments(&r).join("\n");
+        assert!(said.contains("ran out of rounds"), "{said}");
+        for (case, progress) in [
+            ("absent", None),
+            ("not json", Some("{\"roles\":[")),
+            ("an array", Some("[1]")),
+            ("no field", Some(r#"{"roles":[],"reason":""}"#)),
+            ("not a boolean", Some(r#"{"reviewHeld":"false"}"#)),
+        ] {
+            let r = handed(progress);
+            assert_eq!(r.arm, "handoff-parked", "{case}");
+            let said = comments(&r).join("\n");
+            assert!(
+                said.contains("does not say whether its review"),
+                "{case}: {said}"
+            );
+            assert!(!said.contains("ran out of rounds"), "{case}: {said}");
+            assert!(
+                r.log
+                    .iter()
+                    .any(|l| l.starts_with("WARN: ")
+                        && l.contains("does not say whether its review")),
+                "{case}: {:?}",
+                r.log
+            );
+        }
     }
 
     fn end_cap(r: &Report) -> Option<&str> {

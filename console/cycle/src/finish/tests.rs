@@ -7,7 +7,7 @@ use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
 use super::run::{has_commits, issue_branch_of, own_pulls, pull_for_issue, pull_named, Why};
 use super::{finish, Finished};
-use crate::finish::cmd::{asked, asked_of_git, Done, Live};
+use crate::finish::cmd::{asked, asked_of_git, within, Done, Live};
 use crate::finish::Host;
 use serde_json::{json, Value};
 use std::fs;
@@ -1092,36 +1092,28 @@ fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
 }
 
 #[test]
-fn a_body_closes_an_issue_only_when_a_word_of_closing_names_it() {
-    for (text, yes) in [
-        ("Fixes #7.", true),
-        ("Closes #7", true),
-        ("resolves #7 in one line", true),
-        ("close: #7", true),
-        ("This fixes #7.", true),
-        ("FIXED #7", true),
-        ("Fixes #70.", false),
-        ("see #7", false),
-        ("Fixes #7x", false),
-        ("Fixes#7", false),
-        ("unfixes #7", false),
-        ("This does not fix #7.", false),
-        ("not fixed #7", false),
-        ("no test fixes #7", false),
-        ("never resolved #7", false),
-        ("This doesn't fix #7.", false),
-        ("it isn't fixed #7", false),
-        // A word of nothing further back is the case's own claim and not a
-        // denial of the closing word: the factory's bodies put that word at the
-        // end of what they say.
-        ("nothing here, but it fixes #7", true),
-        ("##7", false),
-        ("", false),
+fn finish_and_the_runner_take_the_same_pull_requests_for_an_issue() {
+    // Bodies and heads the two used to read differently. Each is the issue's
+    // pull request for both or for neither.
+    let url = "https://github.com/acme/widget/pull/3";
+    for (head, text, yes) in [
+        ("x", "Fixes #7", true),
+        ("x", "Resolved #7", true),
+        ("x", "some textfixes #7", false),
+        ("x", "This does not fix #7.", false),
+        ("x", "Fixes #7x", false),
+        ("x", "fixes:#7", true),
+        ("feature/issue-7-a+b", "", true),
+        ("feature/issue-70", "", false),
     ] {
+        let mut p = pr(3, head, text);
+        p["url"] = json!(url);
+        let runner = crate::runner::names_issue(&p, 7);
+        assert_eq!(runner, yes, "runner: {head:?} {text:?}");
         assert_eq!(
-            super::run::closes_issue(text, "#7"),
+            pull_for_issue(&[p], 7).is_some(),
             yes,
-            "{text:?} closes #7: {yes}"
+            "finish: {head:?} {text:?}"
         );
     }
 }
@@ -1310,6 +1302,159 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
         None,
         "a name that is no branch of the issue is no branch"
     );
+}
+
+/// Stops the process a stub left behind, by the pid it wrote.
+fn stop_left(pid_file: &Path) {
+    if let Ok(pid) = fs::read_to_string(pid_file) {
+        let _ = Command::new("kill")
+            .args(["-KILL", pid.trim()])
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[test]
+fn a_call_that_ended_is_not_held_by_a_process_it_left_with_its_output() {
+    // A program can leave a process behind that keeps its streams open. The call
+    // has ended and said what it had to say; the run reads that and goes on
+    // instead of waiting for the process that was left.
+    let dir = root("left");
+    let pid = dir.join("pid");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        format!(
+            "#!/bin/sh
+printf 'https://example.invalid/pull/1\\n'
+sleep 60 &
+echo $! > '{}'
+exit 0
+",
+            pid.display()
+        ),
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    stop_left(&pid);
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, Some(0), "{got:?}");
+    assert_eq!(got.out, "https://example.invalid/pull/1\n", "{got:?}");
+    assert!(
+        got.err
+            .contains("stub left a process that held its output open"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn a_call_past_its_bound_is_not_held_by_a_process_outside_its_group_and_says_so() {
+    // The group is signalled when a call outlives its bound, but a process that
+    // left the group is not reached and still holds the streams. The run is not
+    // held by it, and the line a refusal quotes names the call that was stopped.
+    let dir = root("outlived");
+    let pid = dir.join("pid");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        format!(
+            "#!/bin/sh
+printf 'a word before\\n' >&2
+setsid sleep 60 &
+echo $! > '{}'
+sleep 60
+",
+            pid.display()
+        ),
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(1),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    stop_left(&pid);
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, None, "{got:?}");
+    assert_eq!(
+        got.said().as_deref(),
+        Some("stub did not end within 1 s and was stopped"),
+        "{got:?}"
+    );
+    assert!(got.err.contains("a word before"), "{got:?}");
+}
+
+#[test]
+fn a_call_killed_by_a_signal_before_its_bound_does_not_say_it_was_stopped() {
+    // A program that dies of a signal has no exit code either, but it ended on
+    // its own and long before the bound. Its own last words are what a refusal
+    // quotes, and nothing claims the run stopped it.
+    let dir = root("signalled");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        "#!/bin/sh
+printf 'fatal: the last word\\n' >&2
+kill -KILL $$
+",
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, None, "{got:?}");
+    assert_eq!(
+        got.said().as_deref(),
+        Some("fatal: the last word"),
+        "{got:?}"
+    );
+    assert!(!got.err.contains("did not end within"), "{got:?}");
+}
+
+#[test]
+fn a_stream_past_what_is_kept_is_read_to_its_end_and_cut() {
+    // A program that prints more than a run keeps is still read to its end, so it
+    // never stops on a full pipe, and the run keeps only the first of it.
+    let dir = root("long");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        "#!/bin/sh
+head -c 300000 /dev/zero | tr '\\0' a
+exit 3
+",
+    )
+    .unwrap();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    assert_eq!(got.status, Some(3), "{got:?}");
+    assert_eq!(got.out.len(), 1 << 16);
+    assert!(got.out.bytes().all(|b| b == b'a'));
+    assert_eq!(got.err, "");
 }
 
 #[test]

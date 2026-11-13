@@ -103,7 +103,11 @@
 //!                                     and --retry after a failure, and say
 //!                                     one line on standard error for each
 //!                                     failure, never the command's output
-//!                                     (src/renew.rs). It ends 0 on TERM.
+//!                                     (src/renew.rs). One run of <path> is
+//!                                     stopped after 60 seconds, its group
+//!                                     sent TERM and then KILL, and counted
+//!                                     a failure. It ends 0 on TERM, at once
+//!                                     even while <path> runs.
 //!   tehas-cycle finish <issue> --home <dir> --repo <owner/name> --default <branch>
 //!       --reason <text>
 //!                                     the factory opens the draft pull
