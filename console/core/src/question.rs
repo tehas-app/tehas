@@ -71,7 +71,8 @@ pub fn q_clean(text: &str, max: usize) -> String {
     static AT: OnceLock<Regex> = OnceLock::new();
     let at = AT.get_or_init(|| Regex::new(r"@([A-Za-z0-9])").unwrap());
     // jq -r adds the line end the text is then read with.
-    let whole = format!("{}\n", crate::mask::mask(text)).replace('\r', "");
+    let whole = format!("{}
+", crate::text::shown(&crate::mask::mask(text))).replace('', "");
     let lines: Vec<String> = whole
         .split('\n')
         .map(|l| {
@@ -214,6 +215,15 @@ mod tests {
         ] {
             assert_eq!(q_clean(agent, 100), clean, "{agent}");
         }
+    }
+
+    #[test]
+    fn q_clean_drops_what_a_reader_does_not_see() {
+        // A hidden character between the parts of a word does not keep it whole.
+        assert_eq!(q_clean("a\u{202e}b\u{1b}[1mc\u{feff}", 100), "ab[1mc");
+        assert_eq!(q_clean("@\u{2060}alice", 100), "@\u{200b}alice");
+        assert_eq!(q_clean("<\u{200f}!--", 100), r"<\!--");
+        assert_eq!(q_clean("a\tb", 100), "a\tb");
     }
 
     #[test]
