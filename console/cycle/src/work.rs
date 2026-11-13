@@ -86,7 +86,7 @@
 //!              container it saw killed leaves state/cycles/<issue>.status with
 //!              the word `killed`, which is the only account of the end when the
 //!              runner wrote no result at all. A container it watched to its end
-//!              that wrote no result and not one line of its stream leaves
+//!              that wrote no byte of its result and no line of its stream leaves
 //!              state/cycles/<issue>.nostart with the container's own exit
 //!              status: one line, plain digits, 1 to 999, no sign and no leading
 //!              zero. tehasbot cycle makes that as tehas's own cap

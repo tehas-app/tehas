@@ -399,6 +399,9 @@ pub struct Seen<'a> {
     pub at_limit: bool,
     /// The container's stream holds nothing. False when it could not be read.
     pub log_empty: bool,
+    /// The result file holds nothing. False when it holds text the reader
+    /// refused: that runner wrote a result, so it started.
+    pub result_empty: bool,
 }
 
 /// Whether the stream at `log` holds nothing. A failure to look is an error,
@@ -492,7 +495,8 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.disk
         && s.rc != 137
         && (1..=999).contains(&s.rc)
-        && s.log_empty;
+        && s.log_empty
+        && s.result_empty;
     Decided {
         status,
         ran_out,
@@ -1154,6 +1158,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     w.write_note(&w.files.runner_exit, &rc.to_string());
     let log_look = stream_empty(&g.log);
     let log_empty = matches!(log_look, Ok(true));
+    let result_empty = result.as_deref().is_none_or(str::is_empty);
     let seen_end = Seen {
         rc,
         outcome: outcome.as_ref(),
@@ -1165,6 +1170,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         stopped,
         at_limit: time::now() - started - w.frozen_secs >= g.limit as i64,
         log_empty,
+        result_empty,
     };
     let decided = decide(&seen_end);
     let status = decided.status.clone();
@@ -1377,6 +1383,7 @@ mod tests {
             stopped: false,
             at_limit: false,
             log_empty: false,
+            result_empty: true,
         }
     }
 
@@ -1772,6 +1779,16 @@ mod tests {
         ] {
             assert!(!decide(&s).nostart);
         }
+    }
+
+    #[test]
+    fn a_result_the_reader_refuses_is_still_a_runner_that_started() {
+        let quiet = Seen {
+            log_empty: true,
+            result_empty: false,
+            ..seen(1)
+        };
+        assert!(!decide(&quiet).nostart);
     }
 
     #[test]
