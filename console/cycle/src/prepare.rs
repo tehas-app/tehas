@@ -489,9 +489,9 @@ fn git_out(tree: &str, args: &[&str]) -> String {
 /// its main checkout. None when they were; else the status to exit with.
 fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Option<i32> {
     let words = sandbox::install_run(
-        &list(state, "limits"),
-        &list(state, "security"),
+        &[list(state, "limits"), list(state, "security")].concat(),
         &sandbox::user(),
+        &list(state, "hosts"),
         &env("TEHAS_WORK_DIR"),
         tree,
         &env("PI_ENSEMBLE_IMAGE"),
@@ -552,6 +552,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         &list(state, "security"),
         &sandbox::user(),
         &list(state, "env"),
+        &list(state, "hosts"),
         &env("TEHAS_WORK_DIR"),
         tree,
         &image,
