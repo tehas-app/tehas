@@ -1,6 +1,6 @@
-//! Masks tokens, keys, passwords, the program's own secret settings, the
-//! provider keys the host's models.json holds as literals, and private
-//! network addresses.
+//! Masks tokens (the shapes of crate::secret), keys, passwords, the program's
+//! own secret settings, the provider keys the host's models.json holds as
+//! literals, and private network addresses.
 //!
 //! An agent can print its environment and the console file is served by the
 //! dashboard, which may be on the internet. The mask is a net for accidents,
@@ -30,19 +30,11 @@ fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
 }
 
-// A token is a token whatever comes before it: a URL-encoded one follows a
-// letter or a digit. A classic token has no underscore, which keeps the
-// pattern off words of snake case.
-static GITHUB_TOKEN: LazyLock<Regex> =
-    LazyLock::new(|| regex(r"(gh[pousr]_)[A-Za-z0-9]{16,}|(github_pat_)[A-Za-z0-9_]{16,}"));
 static URL_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?i)([a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@"));
 static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
     regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL)[A-Z0-9_]*=)\S+")
 });
-// The shape model providers give their keys: sk-, then a long run.
-static PROVIDER_KEY: LazyLock<Regex> =
-    LazyLock::new(|| regex(r"(?-u:\b)(sk-)[A-Za-z0-9][A-Za-z0-9_-]{19,}"));
 // A name that ends in one of these words, in any case, then `=` or `:`, as in
 // a shell, a YAML file or JSON (`"apiKey": "..."`). The value ends where a
 // quote, a separator or white space does, so the rest of the line is kept.
@@ -118,12 +110,12 @@ pub fn mask(s: &str) -> String {
         Some(sums) => sums.hide(&s),
         None => s,
     };
-    let s = GITHUB_TOKEN.replace_all(&s, "${1}${2}***");
+    // The shapes of a token are the store's check's own: one list.
+    let s = crate::secret::hide(&s);
     let s = URL_PASSWORD.replace_all(&s, "${1}***@");
     let s = SECRET_ASSIGNMENT.replace_all(&s, "${1}***");
     let s = KEYED_SECRET.replace_all(&s, "${1}***");
     let s = BEARER.replace_all(&s, "${1}***");
-    let s = PROVIDER_KEY.replace_all(&s, "${1}***");
     let s = PRIVATE_IPV4.replace_all(&s, private_address);
     let s = PRIVATE_IPV6.replace_all(&s, private_address);
     let s = TAILNET_NAME.replace_all(&s, "[private name]");
@@ -269,11 +261,20 @@ fn secret_name(name: &str) -> bool {
 /// secret, and the literals of models.json, which name themselves. Both are
 /// trimmed and measured here, by the one bound, so a list a caller brings is no
 /// different from one read from the environment. The longest first, so a value
-/// that holds another is hidden whole.
+/// that holds another is hidden whole. A setting whose name ends in KEYS is a
+/// list split at white space, as TEHAS_MCP_KEYS is, and each of its words is a
+/// value of its own too.
 fn secret_list(vars: impl Iterator<Item = (String, String)>, models: &[String]) -> Vec<String> {
     let mut values: Vec<String> = vars
         .filter(|(name, _)| secret_name(name))
-        .map(|(_, value)| value)
+        .flat_map(|(name, value)| {
+            let words: Vec<String> = if name.to_ascii_uppercase().ends_with("KEYS") {
+                value.split_whitespace().map(str::to_string).collect()
+            } else {
+                Vec::new()
+            };
+            std::iter::once(value).chain(words)
+        })
         .chain(models.iter().cloned())
         .map(|value| value.trim().to_string())
         .filter(|v| v.chars().count() >= SHORTEST_SECRET)
@@ -546,6 +547,31 @@ mod tests {
     }
 
     #[test]
+    fn masks_every_shape_the_store_refuses() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+        for (text, masked) in [
+            (
+                format!("slack xoxb-{} no", "1".repeat(12)),
+                "slack xoxb-*** no".to_string(),
+            ),
+            (
+                format!("aws AKIA{} no", "B".repeat(16)),
+                "aws AKIA*** no".to_string(),
+            ),
+            (format!("jwt {jwt} no"), "jwt eyJ*** no".to_string()),
+            (
+                "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEE\n-----END EC PRIVATE KEY-----"
+                    .to_string(),
+                "-----BEGIN EC PRIVATE KEY-----***".to_string(),
+            ),
+        ] {
+            assert!(crate::secret::secret(text.as_bytes()), "{text}");
+            assert_eq!(mask(&text), masked);
+            assert!(!crate::secret::secret(mask(&text).as_bytes()), "{text}");
+        }
+    }
+
+    #[test]
     fn masks_a_provider_shaped_key() {
         let key = format!("sk-{}", "a1B2".repeat(8));
         assert_eq!(mask(&format!("key is {key} ok")), "key is sk-*** ok");
@@ -578,6 +604,21 @@ mod tests {
             values.replace_all(&format!("{kept} and {short}"), "***"),
             format!("*** and {short}")
         );
+    }
+
+    #[test]
+    fn each_key_of_a_list_setting_is_hidden_alone() {
+        let (one, two) = (key(32), format!("{}x", key(32)));
+        let vars = vec![("TEHAS_MCP_KEYS".to_string(), format!("{one}\t{two}\n"))];
+        let values = secret_values(vars.into_iter(), &[]).expect("values are kept");
+        assert_eq!(
+            values.replace_all(&format!("a {two} b {one} c"), "***"),
+            "a *** b *** c"
+        );
+        // Any other setting is one value: a word of it alone is no secret.
+        let vars = vec![("SOME_TOKEN".to_string(), format!("{one} {two}"))];
+        let values = secret_values(vars.into_iter(), &[]).expect("one value is kept");
+        assert_eq!(values.replace_all(&one, "***"), one);
     }
 
     #[test]

@@ -655,6 +655,10 @@ fn run_args(r: &Run, limits: &[String], user: &str, tree: &Path) -> Vec<String> 
         CONTAINER,
         "--network",
         "none",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges:true",
     ]
     .map(String::from)
     .to_vec();

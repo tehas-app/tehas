@@ -36,6 +36,10 @@
 //! `tehas:` without regard to ASCII case. So `<!--  TEHAS:` is one, wherever
 //! it stands: in a code block or a quoted email too.
 //!
+//! A title and a body that pass go on masked as the console masks a log, with
+//! the host's names given by `tehas work`, and with every `@` mention broken
+//! by a zero-width space.
+//!
 //! Which issues: a comment goes only on the cycle's own issue or on one the
 //! cycle created through the relay, and an edit only on one it created. An
 //! edit made with the app's token counts as the bot's, which the dispatcher
@@ -188,6 +192,8 @@ fn plan(
     if texts.into_iter().flatten().any(has_marker) {
         return Err(MARKER.to_string());
     }
+    let title = title.as_deref().map(posted);
+    let input = input.as_deref().map(posted);
     // Each value joined to its flag, so a title such as `--label` stays a title.
     let mut argv = vec!["issue".to_string(), verb.to_string()];
     argv.extend(number);
@@ -197,6 +203,21 @@ fn plan(
     }
     argv.push(format!("--repo={repo}"));
     Ok((argv, input))
+}
+
+/// A title or body as the host posts it: masked as the console masks a log,
+/// and with every mention broken, so a cycle's text notifies nobody.
+fn posted(text: &str) -> String {
+    let masked = tehas_core::mask::mask(text);
+    let mut out = String::with_capacity(masked.len());
+    let mut chars = masked.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(c);
+        if c == '@' && chars.peek().is_some_and(char::is_ascii_alphanumeric) {
+            out.push('\u{200b}');
+        }
+    }
+    out
 }
 
 /// Which issues a cycle's writes may touch, and how many it has run.
@@ -712,6 +733,39 @@ mod tests {
         assert_eq!(input.as_deref(), Some("from file"));
         let (_, input) = plan(&args(&["issue", "edit", "3", "-t", "T"]), None, REPO).unwrap();
         assert_eq!(input, None);
+    }
+
+    #[test]
+    fn a_title_and_a_body_are_posted_masked_and_notify_nobody() {
+        let token = format!("ghp_{}", "A".repeat(36));
+        let (argv, input) = plan(
+            &args(&[
+                "issue",
+                "create",
+                "--title",
+                &format!("token {token} for @alice"),
+                "--body",
+                &format!("key AKIA{} and GH_TOKEN=abc ask @bob", "B".repeat(16)),
+            ]),
+            None,
+            REPO,
+        )
+        .unwrap();
+        assert_eq!(argv[2], "--title=token ghp_*** for @\u{200b}alice");
+        assert_eq!(
+            input.as_deref(),
+            Some("key AKIA*** and GH_TOKEN=*** ask @\u{200b}bob")
+        );
+        let (_, input) = plan(
+            &args(&["issue", "comment", "3", "-F", "f"]),
+            Some("mail a@b.example, @ alone, xoxb-1234567890ab"),
+            REPO,
+        )
+        .unwrap();
+        assert_eq!(
+            input.as_deref(),
+            Some("mail a@\u{200b}b.example, @ alone, xoxb-***")
+        );
     }
 
     #[test]
