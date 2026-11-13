@@ -209,6 +209,11 @@ unstable, which may be empty. A line of the log that is no JSON, such as the
 last line of a container killed mid-write, is left out of that count; the file
 then names how many lines it left out and of how many, as
 `"unparsed":{"lines":N,"of":M}`, and `tehasbot cycle` says so in its log.
+Its `from` says where roles and failure come from: `result`, `progress`
+when the run wrote no result (no file, or an empty one, as a runner that
+crashed or never started leaves it), or `bad-result` when the result has
+something in it but gives no entry for the issue (a link, no JSON, another
+schema version, or no entry with the issue's number).
 Before the cycle's container, after the push check, `tehas work` installs the
 product's dependencies in the workspace, in a container of the sandbox image
 with the cycle's limits and security options, the workspace and no token (see

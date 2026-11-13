@@ -11,11 +11,16 @@
 //! empty. reviewHeld is a stable cap-hit that ended the review on its round cap
 //! and sent the cycle on to ci, so its findings were left open. It always
 //! comes from the progress lines, whatever `from` says of roles and failure.
+//! `from` is `result`, `progress` when there is no result (no file, or a file
+//! with nothing but white space in it, as a runner that printed nothing leaves
+//! the container's stdout), or `bad-result` when the file has something in it
+//! and gives no entry for the issue.
 
 use crate::runner::{self, kept, RESULT_SCHEMA};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 use tehas_core::jq::{obj, J};
 
@@ -208,25 +213,33 @@ fn from_lines(text: &str) -> Lines {
 }
 
 /// The issue's entry of a schema 5 result. A file of more than one JSON value
-/// is none.
-fn entry(path: &Path, issue: u64) -> Option<J> {
-    if fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
-        return None;
+/// is none. Err(false) when there is no result: no file, or one of nothing but
+/// white space. Err(true) when there is a result and it gives no entry: a
+/// link, an unreadable file, no JSON value, another schema, no issues, or no
+/// entry for `issue`.
+fn entry(path: &Path, issue: u64) -> Result<J, bool> {
+    let m = fs::symlink_metadata(path).map_err(|e| e.kind() != ErrorKind::NotFound)?;
+    if m.file_type().is_symlink() {
+        return Err(true);
     }
-    let text = String::from_utf8_lossy(&fs::read(path).ok()?).into_owned();
-    let r = J::parse(&text)?;
+    let text = String::from_utf8_lossy(&fs::read(path).map_err(|_| true)?).into_owned();
+    if text.trim().is_empty() {
+        return Err(false);
+    }
+    let r = J::parse(&text).ok_or(true)?;
     if !is_number(r.get("schemaVersion"), RESULT_SCHEMA as f64) {
-        return None;
+        return Err(true);
     }
     let entries: Vec<&J> = match r.get("issues") {
         J::Arr(a) => a.iter().collect(),
         J::Obj(o) => o.iter().map(|(_, v)| v).collect(),
-        _ => return None,
+        _ => return Err(true),
     };
     entries
         .into_iter()
         .find(|e| matches!(**e, J::Obj(_)) && is_number(e.get("issue"), issue as f64))
         .cloned()
+        .ok_or(true)
 }
 
 fn is_number(v: &J, n: f64) -> bool {
@@ -285,7 +298,11 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
     let text = String::from_utf8_lossy(&text);
     let lines = from_lines(&text);
     let (bad, of) = unparsed(&text);
-    let entry = result.and_then(|(path, issue)| entry(path, issue));
+    let (entry, bad_result) = match result.map(|(path, issue)| entry(path, issue)) {
+        Some(Ok(e)) => (Some(e), false),
+        Some(Err(b)) => (None, b),
+        None => (None, false),
+    };
     // The failure of the entry, only when it is an object: a plain get of a
     // missing key is null, which is not a failure.
     let failure = entry
@@ -321,6 +338,7 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
             },
             "result",
         ),
+        None if bad_result => (lines.roles, lines.reason, J::Null, "bad-result"),
         None => (lines.roles, lines.reason, J::Null, "progress"),
     };
     let mut fields = vec![
@@ -510,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn another_issue_another_schema_a_link_and_no_file_are_no_result() {
+    fn a_result_that_gives_no_entry_is_a_bad_result_and_no_result_is_progress() {
         let d = TestDir::new("progress");
         let log = file(&d, "f.jsonl", "");
         let other = file(
@@ -528,20 +546,37 @@ mod tests {
             &link,
         )
         .unwrap();
-        for (path, issue) in [
-            (other.as_path(), 7),
-            (link.as_path(), 7),
-            (Path::new("/nothing/here"), 7),
-        ] {
-            assert!(summary(&log, Some((path, issue))).contains(r#""roles":"progress""#));
-        }
+        let two = file(&d, "t.json", "{} {}");
+        let garbage = file(&d, "g.json", "not json");
+        let no_issues = file(&d, "n.json", r#"{"schemaVersion":5,"issues":7}"#);
         let good = file(
             &d,
             "h.json",
             r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#,
         );
-        assert!(summary(&log, Some((&good, 8))).contains(r#""roles":"progress""#));
-        assert!(summary(&log, Some((&good, 7))).contains(r#""roles":"result""#));
+        let from = |w: &str| format!(r#""from":{{"roles":"{w}","failure":"{w}"}}"#);
+        for (path, issue) in [
+            (other.as_path(), 7),
+            (link.as_path(), 7),
+            (two.as_path(), 7),
+            (garbage.as_path(), 7),
+            (no_issues.as_path(), 7),
+            (Path::new(&*d), 7),
+            (good.as_path(), 8),
+        ] {
+            let s = summary(&log, Some((path, issue)));
+            assert!(s.contains(&from("bad-result")), "{path:?} {s}");
+            assert!(s.contains(r#""failure":null"#), "{s}");
+        }
+        // A runner that printed nothing leaves the container's stdout empty.
+        let empty = file(&d, "e.json", "");
+        let blank = file(&d, "b.json", " \n\t\n");
+        for path in [Path::new("/nothing/here"), &empty, &blank] {
+            let s = summary(&log, Some((path, 7)));
+            assert!(s.contains(&from("progress")), "{path:?} {s}");
+        }
+        assert!(summary(&log, None).contains(&from("progress")));
+        assert!(summary(&log, Some((&good, 7))).contains(&from("result")));
     }
 
     #[test]
