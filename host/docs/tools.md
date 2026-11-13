@@ -280,7 +280,9 @@ every step in a log of its own, `<mode>-<UTC time>-<pid>.log` under
 `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`, else `/tmp/tehas-verify`),
 the newest 20 of them, and a run that failed names its log on the last line:
 `log: <path>`. A tree that passed already prints the lines of that run and
-keeps no new log.
+keeps no new log. CI sets `TEHAS_VERIFY_FRESH=1` and runs every step: a
+runner keeps its checkout between jobs, and a pass one job kept there is not
+trusted by the next.
 
 `--changed` takes the paths changed since the merge base with `origin/main`,
 uncommitted and untracked files included, and hands them to
@@ -509,9 +511,14 @@ addresses only. With `--names-only` the address rule is skipped, for an
 infrastructure repository that must hold addresses; names are still checked,
 and without a list it exits 0 after saying so. With `--messages
 <rev-range>` it also checks the commit messages of the range and the branch
-name (`GITHUB_HEAD_REF`, else the current branch) against the names. The
-verify workflow writes the list from the `GENERIC_NAMES` secret when it has
-one, and runs `--messages` on a pull request. `scripts/verify.sh` runs the
+name (`GITHUB_HEAD_REF`, else the current branch) against the names. A
+link in the tree is not read. The verify workflow checks the names in a job
+of its own on a GitHub-hosted runner: it writes the list from the
+`GENERIC_NAMES` secret when it has one, and runs `--names-only`, with
+`--messages` on a pull request. On a pull request that job runs the base
+branch's `check-generic.sh`, not the pull request's. The jobs on the
+organization's own runners never get the list, so their run of the lint
+checks addresses only. `scripts/verify.sh` runs the
 lint and `scripts/test.sh` together.
 ## The pages
 
