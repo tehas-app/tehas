@@ -88,13 +88,28 @@ reset() {
   gh_labels
 }
 
+# Whether the holder of an issue's lock took it: the marker the holder writes
+# just after flock succeeds. It is not an underscore name on purpose: the real
+# `tehas held <issue>` asks the state store for an issue and is not this.
+real_held() { # <issue>
+  [ -e "$state/$1.held" ]
+}
 # A cycle of <issue> that is running: its lock, held by a process the stubbed
-# stop ends.
+# stop ends. The holder says so by a marker once flock has the lock, and these
+# two wait for it: a holder that has not locked yet is a cycle the stop finds no
+# lock for, and a case that read it then would pass for the wrong reason.
 hold() { # <issue>
   mkdir -p "$state"
   : >"$state/$1.lock"
-  ( exec 9>"$state/$1.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
+  rm -f "$state/$1.held"
+  (
+    exec 9>"$state/$1.lock"
+    flock -n 9 || exit 1
+    : >"$state/$1.held"
+    exec sleep 30
+  ) </dev/null >/dev/null 2>&1 &
   echo "$!" >"$T/holder"
+  t_wait_held "$1"
 }
 # The same, but the lock stays held however the unit is stopped: its holder is
 # a process the stop's kill does not name, so the run stops the unit, waits for
@@ -102,13 +117,32 @@ hold() { # <issue>
 hold_whole() { # <issue>
   mkdir -p "$state"
   : >"$state/$1.lock"
-  ( exec 9>"$state/$1.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
+  rm -f "$state/$1.held"
+  (
+    exec 9>"$state/$1.lock"
+    flock -n 9 || exit 1
+    : >"$state/$1.held"
+    exec sleep 30
+  ) </dev/null >/dev/null 2>&1 &
   echo "$!" >"$T/holder-keep"
   # A holder of no cycle at all, so the stop's kill ends nothing of this case.
   : >"$T/holder"
   T_ENV=("${T_ENV[@]}" KILL=0)
-  # The lock never frees, so the stop's ten seconds of naps are cut to one.
+  # The lock never frees, so the stop's ten seconds of naps are cut to one. The
+  # holder above is asked for the marker before this stub stands, so the wait is
+  # the real one and the nap that follows is the short one.
+  t_wait_held "$1"
   t_stub sleep 'command -p sleep 0.05'
+}
+# Wait for the marker of <issue>'s holder: ten seconds of looks, which is what a
+# fork and an flock cost a loaded machine many times over.
+t_wait_held() { # <issue>
+  local _look
+  for _look in $(seq 1 100); do
+    real_held "$1" && return 0
+    command -p sleep 0.1
+  done
+  t_bad "the holder of the lock of #$1 never wrote its marker"
 }
 release() {
   local pid
@@ -336,9 +370,21 @@ rm -f "$state/5.stopped"
 mkdir -p "$state"
 # A cycle whose lock the stubbed stop frees and whose unit it stops: the holder
 # is the process the stop's kill ends, so the run stops the unit, finds the lock
-# free, and clears the host.
-( exec 9>"$state/5.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
+# free, and clears the host. hold cannot stand here: the case makes the marker's
+# name a directory after the holder takes the lock, and it is the lock of #5 the
+# holder holds, so the marker of #5 is the one name that has to stay clear until
+# the holder has it.
+( exec 9>"$state/5.lock"; flock -n 9 || exit 1; : >"$state/5.held"; exec sleep 30 ) \
+  </dev/null >/dev/null 2>&1 &
 echo "$!" >"$T/holder"
+# The real sleep, asked for before the case stubs anything of its own: this stop
+# naps while the lock of #5 never frees, and the nap is shortened by the stub
+# below, not by this wait.
+for _look in $(seq 1 100); do
+  [ -e "$state/5.held" ] && break
+  command -p sleep 0.1
+done
+t_eq "$([ -e "$state/5.held" ] && echo held)" held
 systemctl_live
 mkdir "$state/5.stopped"
 T_ENV=(UNIT_STATE=active CONTAINERS=)
