@@ -10,7 +10,7 @@ import { test } from "node:test";
 import "../host/fun/host-bridge.js";
 
 const HB = globalThis.TEHAS_HOST_BRIDGE;
-const { read, ticketHref, notesOf, chips, drawNotices, drawTokens, keeper } = HB;
+const { read, ticketHref, notesOf, chips, drawNotices, keeper } = HB;
 
 const sample = (name) => readFileSync(new URL(`../api/host-bridge.${name}.json`, import.meta.url), "utf8");
 const NOW = Date.parse("2026-11-08T12:00:20Z");
@@ -31,15 +31,11 @@ test("the full sample gives every element", () => {
   assert.deepEqual(notesOf(a, 7), [{ text: "Another note", link: "https://host.example/ticket/7" }]);
   assert.deepEqual(notesOf(a, 8), []);
   assert.deepEqual(a.menu, [{ id: "m-1", label: "Example page", url: "https://host.example/page" }]);
-  assert.deepEqual(a.tokens.days.map((d) => d.date), ["2026-11-07", "2026-11-08"]);
-  assert.deepEqual(a.tokens.days[1], { date: "2026-11-08", requests: 412, input: 9120000, output: 81000, cached: 8700000 });
-  assert.deepEqual(a.tokens.models, [{ model: "example-model", requests: 792, input: 17520000, output: 157000, cached: 16700000 }]);
-  assert.equal(a.tokens.unknown, 3);
 });
 
 test("the bare sample is an answer with nothing to draw", () => {
   const a = read(sample("bare"), NOW);
-  assert.deepEqual(a, { ticketLink: null, notices: [], notes: new Map(), menu: [], tokens: null });
+  assert.deepEqual(a, { ticketLink: null, notices: [], notes: new Map(), menu: [] });
   assert.equal(ticketHref(a, REPO, ISSUE(42)), null);
 });
 
@@ -182,37 +178,21 @@ test("each breach of a menu item drops that item alone; ids unique and four the 
   assert.deepEqual(readOf(v).menu, []);
 });
 
-test("each breach of a token day or model drops it alone; empty ones are left out and days run oldest first", () => {
-  const c = (over = {}) => ({ requests: 1, input: 10, output: 2, cached: 5, ...over });
+test("an answer that still carries tokens is read whole, and the tokens are ignored", () => {
   const v = full();
   v.tokens = {
-    days: [
-      { date: "2026-11-08", ...c() }, { date: "2026-11-01", ...c() }, { date: "2026-11-08", ...c({ input: 99 }) },
-      { date: "2026-02-30", ...c() }, { date: "2026-11-2", ...c() }, { date: "2026-11-03", ...c({ input: -1 }) },
-      { date: "2026-11-04", ...c({ output: 1.5 }) }, { date: "2026-11-05", ...c({ cached: 1e15 + 1 }) },
-      { date: "2026-11-06", ...c({ requests: "1" }) }, { date: "2026-11-07", ...c({ input: 0, output: 0 }) },
-      { date: "2026-11-09", ...c() },
-    ],
-    models: [
-      { model: "m1", ...c() }, { model: "m1", ...c() }, { model: "", ...c() }, { model: "x".repeat(81), ...c() },
-      { model: " two\nlines ", ...c() }, { model: "idle", ...c({ input: 0, output: 0, requests: 4 }) }, { model: "m2" },
-      ...Array.from({ length: 20 }, (_, i) => ({ model: `n${i}`, ...c() })),
-    ],
-    unknown: 2,
+    days: [{ date: "2026-11-08", requests: 412, input: 9120000, output: 81000, cached: 8700000 }],
+    models: [{ model: "example-model", requests: 412, input: 9120000, output: 81000, cached: 8700000 }],
+    unknown: 3,
   };
-  const t = readOf(v).tokens;
-  assert.deepEqual(t.days.map((d) => d.date), ["2026-11-01", "2026-11-08"]);
-  assert.equal(t.days[1].input, 10);
-  assert.deepEqual(t.models.map((m) => m.model), ["m1", "two lines", ...Array.from({ length: 13 }, (_, i) => `n${i}`)]);
-  assert.equal(t.unknown, 2);
-  for (const unknown of [-1, 1.5, "3", null, undefined]) {
-    v.tokens = { unknown };
-    assert.deepEqual(readOf(v).tokens, { days: [], models: [], unknown: 0 }, String(unknown));
-  }
-  for (const tokens of [undefined, null, [], "x", 1]) {
+  const a = readOf(v);
+  assert.deepEqual(a, readOf(full()));
+  assert.equal("tokens" in a, false);
+  for (const tokens of [null, [], "x", 1, { days: "x" }]) {
     v.tokens = tokens;
-    assert.equal(readOf(v).tokens, null, String(tokens));
+    assert.deepEqual(readOf(v), readOf(full()), String(tokens));
   }
+  assert.equal("drawTokens" in HB, false);
 });
 
 function stubDocument() {
@@ -337,27 +317,4 @@ test("the pages read the answer only through the module, and only when it is the
     assert.ok(!src.includes("/host/bridge.json"), f);
     assert.ok(src.includes("globalThis.TEHAS_HOST_BRIDGE || null"), f);
   }
-});
-
-test("token use is drawn as text in two tables, an unknown count beside them, and nothing when empty", () => {
-  const v = full();
-  v.tokens.models[0].model = "<img src=x onerror=alert(1)>";
-  const doc = stubDocument();
-  drawTokens(doc.el, readOf(v).tokens, doc);
-  assert.equal(doc.el.hidden, false);
-  const [h, days, models, note] = doc.el.kids;
-  assert.equal(h.textContent, "Token use");
-  const rows = (t) => t.kids[1].kids.map((tr) => tr.kids.map((c) => c.textContent));
-  assert.deepEqual(days.kids[0].kids[0].kids.map((c) => c.textContent), ["Day", "Requests", "Input", "Cached", "Output"]);
-  assert.deepEqual(rows(days), [["2026-11-07", "380", "8.4M", "8M", "76K"], ["2026-11-08", "412", "9.1M", "8.7M", "81K"]]);
-  assert.deepEqual(rows(models), [["<img src=x onerror=alert(1)>", "792", "17.5M", "16.7M", "157K"]]);
-  assert.equal(models.kids[1].kids[0].kids[3].className, "is-cached");
-  assert.equal(note.textContent, "3 unknown");
-  drawTokens(doc.el, { days: [], models: [], unknown: 0 }, doc);
-  assert.equal(doc.el.hidden, true);
-  assert.deepEqual(doc.el.kids, []);
-  drawTokens(doc.el, null, doc);
-  assert.equal(doc.el.hidden, true);
-  drawTokens(doc.el, { days: [], models: [], unknown: 5 }, doc);
-  assert.deepEqual(doc.el.kids.map((k) => k.textContent), ["Token use", "5 unknown"]);
 });

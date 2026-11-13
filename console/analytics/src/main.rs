@@ -51,11 +51,6 @@
 //!     live/analytics.json. Among the figures, `gate`: report.rs's `gate`
 //!     says what it holds, and tehasbot status publishes no key it does not
 //!     name, which `gate` is not.
-//!   analytics orders
-//!     Writes live/orders.json: the runs, seconds and tokens of each issue
-//!     live/status.json lists, for the front page's work order (orders.rs
-//!     says what is in it). tehasbot status asks for it after it writes the
-//!     snapshot.
 //!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
 //!     (sessions.rs lists the keys): a header line, then one session per
@@ -102,7 +97,6 @@
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 mod db;
-mod orders;
 mod outcomes;
 mod plan;
 mod publish;
@@ -128,7 +122,7 @@ use tehas_core::time::now;
 pub const LEDGER_MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | orders | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -161,7 +155,6 @@ pub enum Cmd {
     Prune,
     Report,
     ReportText,
-    Orders,
     Sessions(Option<PathBuf>),
     Outcomes(outcomes::Filter, Option<PathBuf>),
     Export(PathBuf, bool),
@@ -188,7 +181,6 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c] if c == "prune" => Some(Cmd::Prune),
         [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
         [c] if c == "report" => Some(Cmd::ReportText),
-        [c] if c == "orders" => Some(Cmd::Orders),
         [c, rest @ ..] if c == "sessions" => sessions_command(rest),
         [c, rest @ ..] if c == "outcomes" => outcome_command(rest),
         [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
@@ -456,7 +448,6 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             }
             Ok(())
         }
-        Cmd::Orders => orders::write(&home.join("live"), &conn, now),
         Cmd::Sessions(to) => {
             match to {
                 None => {

@@ -2,8 +2,7 @@
 //! tehasbot status: its issue events, and what it publishes.
 //!
 //! live/analytics.json is the ten-day report for the dashboard. It is public,
-//! so only the keys named here reach it. live/orders.json is what each listed
-//! issue's runs spent, and the program writes it. sessions.jsonl, the last
+//! so only the keys named here reach it. sessions.jsonl, the last
 //! thirty days, and outcomes.jsonl, how the runs ended for a year back, are the
 //! private files of the MCP server under mcp/ (never live/): the program makes
 //! the directory (700) and writes both itself (600, renamed into place).
@@ -184,7 +183,6 @@ impl Analytics {
         let pid = std::process::id();
         let raw = live.join(format!("analytics.json.{pid}.raw.new"));
         let new = live.join(format!("analytics.json.{pid}.new"));
-        self.call(To::Nowhere, &["orders"], false);
         let rc = self.call(To::File(&raw), &["report", "--json"], false);
         let filtered = (rc == Some(0))
             .then(|| fs::read_to_string(&raw).ok())
@@ -203,7 +201,6 @@ impl Analytics {
         match rc {
             None => {
                 let _ = fs::remove_file(&file);
-                let _ = fs::remove_file(live.join("orders.json"));
             }
             Some(0) => {
                 log("WARN analytics report: not a report");

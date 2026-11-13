@@ -517,16 +517,15 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
   const queue = { mode: "auto", readAt: null, all: null, repo: null, signature: "" };
   const IMPLIED = { queued: "tehas:ready", running: "tehas:running", awaiting: "tehas:awaiting-merge", stopped: "needs-human-attention" };
 
-  // `orders` is what each ticket's runs spent (work-orders.js), or null.
-  function fromSnapshot(s, orders) {
+  // The snapshot carries no runs, tokens or time; the work order leaves those rows out.
+  function fromSnapshot(s) {
     const byNumber = new Map();
     const take = (key, closed) => {
       for (const item of Array.isArray(s[key]) ? s[key] : []) {
         const number = Number(item && item.number);
         if (!Number.isSafeInteger(number) || number <= 0 || typeof item.title !== "string") continue;
-        const spent = (orders && orders.get(number)) || {};
         const t = byNumber.get(number) || { number, title: item.title, state: "OPEN", labels: [], url: item.url,
-          createdAt: item.createdAt, updatedAt: item.updatedAt, closedAt: item.closedAt, tokens: spent.tokens, timeSpentSeconds: spent.seconds, runs: spent.runs };
+          createdAt: item.createdAt, updatedAt: item.updatedAt, closedAt: item.closedAt };
         if (IMPLIED[key]) t.labels.push(IMPLIED[key]);
         if (closed) t.state = "CLOSED";
         byNumber.set(number, t);
@@ -571,12 +570,10 @@ import { DEFAULT_KW, LINE, STAGES, ago, finishingIssues, normalize } from "./gam
     const all = s.links && typeof s.links.all === "string" && s.links.all.startsWith("https://") ? s.links.all : null;
     queue.all = all;
     queue.repo = typeof s.repo === "string" ? s.repo : null;
-    const orders = window.TEHAS_ORDERS ? await window.TEHAS_ORDERS.read() : null;
-    if (queue.mode !== "auto") return state.live;
-    const data = fromSnapshot(s, orders);
+    const data = fromSnapshot(s);
     // The words can change while the tickets on the line stay as they were.
     if (state.live) words = data.words;
-    const signature = JSON.stringify([data.paused, data.pause, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.createdAt, t.updatedAt, t.closedAt, t.tokens, t.seconds, t.runs])]);
+    const signature = JSON.stringify([data.paused, data.pause, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.createdAt, t.updatedAt, t.closedAt])]);
     if (!state.live) {
       queue.signature = signature;
       show(data, "LIVE QUEUE", "");
