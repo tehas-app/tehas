@@ -129,13 +129,20 @@ pub fn ask(head: &[u8]) -> Ask {
         return Ask::Other(format!("{method} {target}"));
     };
     // One request per connection: the server closes after its answer, so a
-    // client does not send a request for another host down this tunnel.
-    let mut out = format!("{method} {path} {version}\r\n");
+    // client does not send a request for another host down this tunnel. The
+    // Host is the allowed one, never the client's, so a server with several
+    // names serves only the one the list names.
+    let mut out = format!("{method} {path} {version}\r\nHost: {authority}\r\n");
     for line in lines.filter(|l| !l.is_empty()) {
-        let name = line.split(':').next().unwrap_or("").to_ascii_lowercase();
+        let name = line
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         if !matches!(
             name.as_str(),
-            "connection" | "proxy-connection" | "proxy-authorization" | "keep-alive"
+            "connection" | "proxy-connection" | "proxy-authorization" | "keep-alive" | "host"
         ) {
             out.push_str(line);
             out.push_str("\r\n");
@@ -331,7 +338,19 @@ mod tests {
             panic!("not plain");
         };
         assert_eq!(port, 80);
-        assert!(out.starts_with(b"GET / HTTP/1.1\r\n"));
+        assert!(out.starts_with(b"GET / HTTP/1.1\r\nHost: m.example\r\n"));
+    }
+
+    #[test]
+    fn a_plain_request_names_the_host_it_was_allowed_for() {
+        let head = b"GET http://models.example:8080/v1 HTTP/1.1\r\nhost: other.example\r\nHost : again.example\r\nAccept: */*\r\n\r\n";
+        let Ask::Plain(_, _, out) = ask(head) else {
+            panic!("not plain");
+        };
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "GET /v1 HTTP/1.1\r\nHost: models.example:8080\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+        );
     }
 
     /// A proxy on a free port, allowed to reach <allowed>, and its address.
@@ -420,7 +439,9 @@ mod tests {
         assert!(got.ends_with("\r\n\r\nok"), "{got}");
         assert_eq!(
             seen.join().unwrap(),
-            "GET /v1/models HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            format!(
+                "GET /v1/models HTTP/1.1\r\nHost: localhost:{port}\r\nConnection: close\r\n\r\n"
+            )
         );
     }
 }
