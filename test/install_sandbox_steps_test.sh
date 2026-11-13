@@ -100,7 +100,7 @@ rm -f "$th/state/update-pending"
 # checkout's pins, and the later: line still names bootstrap.sh user, but the
 # image reads nothing here so no build is asked for. The line is printed only on
 # a run that copied the file, so this run is the one that reads for it.
-versions_line NODE_VERSION 22.22.2
+versions_line OSV_SCANNER_VERSION 2.7.2
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/versions.env"
@@ -113,7 +113,7 @@ t_eq "$t_rc" 0
 # The run that copies the file is the one that says the pins moved, so the pin is
 # moved once more for it: a run with nothing to copy calls the host current and
 # says nothing about a file it did not touch.
-versions_line NODE_VERSION 22.22.3
+versions_line OSV_SCANNER_VERSION 2.7.3
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/versions.env"
