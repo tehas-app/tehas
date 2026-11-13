@@ -414,6 +414,7 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # by hand.
 t_store_home "$T/home/tehas"
 t_verb "$shim/libexec/work" tehas work
+t_renewer "$T/home/tehas"
 T_ENV+=(GH_CYCLE_TOKEN=cycle-token)
 t_run "$shim/libexec/work 7"
 unset 'T_ENV[-1]'
