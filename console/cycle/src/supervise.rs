@@ -144,22 +144,35 @@ fn by_hand() -> bool {
     var("TEHAS_CYCLE_FROM") != "unit" && var("INVOCATION_ID").is_empty()
 }
 
+/// A read on the way to a start: long past any answer. The dispatcher waits
+/// 300 seconds for the start on record, and the reads, the store and the tries
+/// of GitHub all fit in that.
+const READ_BOUND: Duration = Duration::from_secs(30);
+/// Between the TERM and the KILL of such a read.
+const READ_GRACE: Duration = Duration::from_secs(5);
+
+fn strings(cmd: &[&str], rest: &[&str]) -> Vec<String> {
+    cmd[1..].iter().chain(rest).map(|s| s.to_string()).collect()
+}
+
 /// The pi-rukas commit of the image a cycle started now runs.
 fn rukas_commit() -> Option<String> {
     let image = std::env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default();
+    commit_of(&["docker"], &image, READ_BOUND)
+}
+
+/// The commit `cmd image inspect` says the image's label holds. A daemon that
+/// does not answer in `bound` holds the start no longer: the start goes on
+/// record without the commit.
+fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
     let format =
         "{{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}}";
-    let out = Command::new("docker")
-        .args(["image", "inspect", "--format", format, &image])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
+    let args = strings(cmd, &["image", "inspect", "--format", format, image]);
+    let out = run_full(cmd[0], &args, None, bound, READ_GRACE, &[]);
+    if !out.ok() {
         return None;
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let commit = text.lines().next()?.split('|').next()?;
+    let commit = out.out.lines().next()?.split('|').next()?;
     let shaped = (7..=40).contains(&commit.len())
         && commit
             .bytes()
@@ -452,6 +465,8 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::Instant;
+    use tehas_core::testdir::TestDir;
 
     fn sh(script: &str) -> Vec<String> {
         vec!["-c".to_string(), script.to_string()]
@@ -523,6 +538,90 @@ mod tests {
         assert!(!wants_restart(r#"{"labels":null}"#));
         assert!(!wants_restart(r#"{}"#));
         assert!(!wants_restart("not json"));
+    }
+
+    /// A stand-in for docker or gh: `sh <script>`, so no test runs a file it
+    /// has just written.
+    fn stand_in(d: &TestDir, body: &str) -> String {
+        let p = d.join("stand-in.sh");
+        fs::write(&p, body).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_daemon_that_does_not_answer_holds_the_start_no_longer_than_its_bound() {
+        let d = TestDir::new("supervise-inspect-hangs");
+        let script = stand_in(&d, "exec sleep 30\n");
+        let began = Instant::now();
+        let got = commit_of(&["sh", &script], "img", Duration::from_secs(1));
+        assert_eq!(got, None);
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            began.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_commit_is_the_label_docker_answers() {
+        let d = TestDir::new("supervise-inspect");
+        let script = stand_in(
+            &d,
+            "[ \"$1 $2 $5\" = 'image inspect img' ] || exit 1\necho 'abcdef1|x'\n",
+        );
+        assert_eq!(
+            commit_of(&["sh", &script], "img", READ_BOUND).as_deref(),
+            Some("abcdef1")
+        );
+        let script = stand_in(&d, "echo 'not-a-commit|x'\n");
+        assert_eq!(commit_of(&["sh", &script], "img", READ_BOUND), None);
+    }
+
+    #[test]
+    fn a_github_that_does_not_answer_is_three_bounded_tries() {
+        let d = TestDir::new("supervise-ask-hangs");
+        let calls = d.join("calls");
+        let script = stand_in(
+            &d,
+            &format!("echo \"$*\" >>'{}'\nexec sleep 30\n", calls.display()),
+        );
+        let began = Instant::now();
+        let got = ask(
+            "sh",
+            &strings(&["sh", &script], &["api", "repos/acme/widget/issues/7"]),
+            Duration::from_secs(1),
+            Duration::ZERO,
+        );
+        assert_eq!(got, Err("no answer within 1s".to_string()));
+        assert!(
+            began.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(
+            fs::read_to_string(&calls).unwrap(),
+            "api repos/acme/widget/issues/7\n".repeat(3)
+        );
+    }
+
+    #[test]
+    fn a_github_that_answers_late_in_its_tries_is_heard() {
+        let d = TestDir::new("supervise-ask");
+        let count = d.join("count");
+        let script = stand_in(
+            &d,
+            &format!(
+                "echo x >>'{c}'\n[ \"$(wc -l <'{c}')\" -ge 3 ] || exit 1\necho '{{\"state\":\"open\"}}'\n",
+                c = count.display()
+            ),
+        );
+        let got = ask(
+            "sh",
+            &strings(&["sh", &script], &["api", "repos/acme/widget/issues/7"]),
+            ASK_BOUND,
+            Duration::ZERO,
+        );
+        assert_eq!(number(&got.unwrap()), Number::Open);
     }
 
     #[test]
