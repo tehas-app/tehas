@@ -3598,6 +3598,45 @@ fn plan_s_arguments_are_checked() {
     }
 }
 
+// The issue, the --at of an event and the --rc of plan are whole numbers under
+// the one rule in tehas_core::grammar::digits: no leading zero, a cap on the
+// digits, and "0" only where zero is a value. Each word is put in its place in
+// a command that is otherwise right, so a refusal is the number's own.
+#[test]
+fn the_whole_numbers_of_the_arguments_follow_the_shared_rule() {
+    let parsed = |words: &[&str]| parse(&words.iter().map(|w| w.to_string()).collect::<Vec<_>>());
+    let issue = |n: &str| parsed(&["event", n, "merged"]);
+    let at = |t: &str| parsed(&["event", "12", "ready", "--at", t]);
+    let rc = |c: &str| parsed(&["plan", "7", "--rc", c, "--facts", "/f.json"]);
+    assert_eq!(issue("1"), Some(Cmd::Event(1, "merged".into(), None)));
+    assert_eq!(
+        issue("999999999"),
+        Some(Cmd::Event(999_999_999, "merged".into(), None))
+    );
+    for bad in ["", "0", "00", "012", "1234567890", "1a", "+1", " 1"] {
+        assert_eq!(issue(bad), None, "issue {bad:?}");
+    }
+    for (t, secs) in [("0", 0), ("1", 1), ("999999999999", 999_999_999_999)] {
+        assert_eq!(
+            at(t),
+            Some(Cmd::Event(12, "ready".into(), Some(secs))),
+            "--at {t}"
+        );
+    }
+    for bad in ["", "00", "012", "1234567890123", "1a", "+1"] {
+        assert_eq!(at(bad), None, "--at {bad:?}");
+    }
+    for c in ["0", "1", "255", "999"] {
+        assert!(
+            matches!(rc(c), Some(Cmd::Plan(7, ref g)) if g.rc == c),
+            "--rc {c}"
+        );
+    }
+    for bad in ["", "00", "012", "1000", "1a", "+1"] {
+        assert_eq!(rc(bad), None, "--rc {bad:?}");
+    }
+}
+
 // The known data set of the report's tests: six work runs in the window on
 // three version pairs, one before it, a planning turn, three shipped issues,
 // six samples (one before the window) and the gate of three of the runs.
