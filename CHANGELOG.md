@@ -298,6 +298,14 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   says to run `bootstrap.sh` as root only from a copy root owns, never from
   the tehas user's checkout or `~/tehas/current`.
 - `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env` names a second GitHub App the factory trusts as its millwright in place of its own app. The load gives it to `TEHAS_MILLWRIGHT_LOGIN`; the factory still acts as its own app, whose `tehas:ready` then counts as any outsider's. A value that is not `<slug>[bot]` stops every command with 78. A `TEHAS_MILLWRIGHT_LOGIN` line still warns and is ignored.
+- The business front page no longer draws a "Token use" table from the host
+  bridge, and `tehas api` no longer lists the feature `host-bridge-tokens`. A
+  host bridge answer that still carries `tokens` is read as before and the
+  field is ignored. The factory's own analytics of its cycles stay (#1968).
+- The factory floor's work order no longer shows the runs, tokens and time of
+  live tickets: `tehasbot status` no longer writes `live/orders.json`, the
+  analytics program has no `orders` command and the docs server no longer
+  serves the file (#1968).
 
 ### Held back
 
@@ -349,6 +357,9 @@ origin's default branch and that `origin/HEAD` is set:
 `git -C ~/tehas/platform remote set-head origin --auto` sets it. Before root
 next runs `bootstrap.sh`, make root's own copy as the bootstrap page says
 (`sudo git clone <the platform repository> /opt/tehas`) and run it from there.
+
+A `live/orders.json` left by an earlier release is no longer read or served
+and may be deleted.
 
 ## v0.25.1 (2026-11-07)
 
