@@ -845,6 +845,13 @@ impl Watch<'_> {
             return true;
         }
         let _ = fs::remove_file(&new);
+        self.lost(file);
+        false
+    }
+
+    /// A file of the protocol that could not be written is said in the
+    /// cycle's own record, not only on this command's stream.
+    fn lost(&self, file: &Path) {
         let line = format!("tehas work: could not write {}", file.display());
         eprintln!("{line}");
         if !append(&self.err, format!("{line}\n").as_bytes()) {
@@ -854,12 +861,11 @@ impl Watch<'_> {
                 file.display()
             );
         }
-        false
     }
 
     fn write_or_say(&self, file: &Path, words: &str) {
         if fs::write(file, words).is_err() {
-            eprintln!("tehas work: could not write {}", file.display());
+            self.lost(file);
         }
     }
 
@@ -1288,12 +1294,21 @@ fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
     line + "\n"
 }
 
+/// The reason the runner's progress gives, empty when there is none. The file
+/// is read as the store reads it: a regular file under the bound it is
+/// recorded with, so a link or a file past the bound gives no reason.
+fn end_reason(progress: &Path) -> String {
+    let text = tehas_core::file::read_regular(progress, tehas_core::file::READ_BOUND)
+        .ok()
+        .and_then(|(bytes, _)| String::from_utf8(bytes).ok());
+    runner::progress_fields(text.as_deref())[1].clone()
+}
+
 /// What reaches err.txt of the cycle's improvement record for a cycle that ended
 /// at a cap or was aborted: an empty one there reads as nothing happened.
 fn tell_the_end(w: &Watch, cap: &str) {
     let n = w.g.issue;
-    let progress = fs::read_to_string(&w.files.progress).ok();
-    let reason = runner::progress_fields(progress.as_deref())[1].clone();
+    let reason = end_reason(&w.files.progress);
     let line = if cap.is_empty() {
         format!("tehas work: issue {n} ended as aborted with no cap\n")
     } else if reason.is_empty() {
@@ -1334,6 +1349,27 @@ mod tests {
 
     fn dir(name: &str) -> TestDir {
         TestDir::new(&format!("watch-{name}"))
+    }
+
+    #[test]
+    fn the_end_reason_is_read_only_from_a_regular_file_under_the_bound() {
+        let d = dir("end-reason");
+        let file = d.join("progress.json");
+        assert_eq!(end_reason(&file), "");
+        fs::write(&file, r#"{"reason":"out of turns"}"#).unwrap();
+        assert_eq!(end_reason(&file), "out of turns");
+        let pad = " ".repeat(tehas_core::file::READ_BOUND as usize);
+        fs::write(&file, format!(r#"{{"reason":"out of turns"}}{pad}"#)).unwrap();
+        assert_eq!(
+            end_reason(&file),
+            "",
+            "a progress past the bound gives none"
+        );
+        let real = d.join("real.json");
+        fs::write(&real, r#"{"reason":"out of turns"}"#).unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        assert_eq!(end_reason(&file), "", "a link is not the runner's progress");
     }
 
     #[test]
@@ -1875,6 +1911,14 @@ mod tests {
         assert!(fs::read_to_string(&w.err)
             .unwrap()
             .contains("could not write"));
+        // A stop note lost the same way is said in the record too.
+        fs::create_dir_all(&w.files.stalled).unwrap();
+        w.write_or_say(&w.files.stalled, "600\ndevelop\n");
+        let err = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            err.contains(&format!("could not write {}", w.files.stalled.display())),
+            "{err}"
+        );
     }
 
     #[test]

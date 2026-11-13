@@ -662,12 +662,28 @@ fn poll_passed(lock: &Path, wait: u64) -> bool {
         eprintln!("tehas drain: could not open {}", lock.display());
         return false;
     };
+    match try_until(|| f.try_lock(), wait) {
+        Ok(taken) => taken,
+        Err(e) => {
+            eprintln!("tehas drain: could not probe {}: {e}", lock.display());
+            false
+        }
+    }
+}
+
+/// Try a lock until it is taken or `wait` seconds have passed: `Ok(false)`
+/// when it was held the whole time, `Err` when it could not be tried at all.
+fn try_until(
+    mut attempt: impl FnMut() -> Result<(), TryLockError>,
+    wait: u64,
+) -> Result<bool, std::io::Error> {
     let deadline = Instant::now() + Duration::from_secs(wait);
     loop {
-        match f.try_lock() {
-            Ok(()) => return true,
+        match attempt() {
+            Ok(()) => return Ok(true),
             Err(TryLockError::WouldBlock) if Instant::now() < deadline => sleep(LOCK_TRY),
-            Err(_) => return false,
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(e)) => return Err(e),
         }
     }
 }
@@ -1735,6 +1751,37 @@ mod tests {
         holder.wait().unwrap();
         assert!(poll_passed(&lock, 0));
         assert!(!poll_passed(&d.join("no/such/dir"), 0));
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_tried_is_an_error_not_a_held_lock() {
+        let mut tries = 0;
+        let held = try_until(
+            || {
+                tries += 1;
+                Err(TryLockError::WouldBlock)
+            },
+            0,
+        );
+        assert_eq!((held.ok(), tries), (Some(false), 1));
+        let mut tries = 0;
+        let freed = try_until(
+            || {
+                tries += 1;
+                if tries < 3 {
+                    Err(TryLockError::WouldBlock)
+                } else {
+                    Ok(())
+                }
+            },
+            1,
+        );
+        assert_eq!((freed.ok(), tries), (Some(true), 3));
+        let broken = try_until(
+            || Err(TryLockError::Error(std::io::Error::other("no locks"))),
+            1,
+        );
+        assert_eq!(broken.unwrap_err().to_string(), "no locks");
     }
 
     #[test]

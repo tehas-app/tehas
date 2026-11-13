@@ -19,6 +19,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::issue_pull::names_issue;
 
 /// The name the status reads to know the poll ran it, and the value that means
 /// so. It is one of the names the load of the settings keeps.
@@ -335,22 +336,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     }
     let dropped = items.len() - keep;
     (items.into_iter().skip(dropped).collect(), dropped)
-}
-
-/// tehas_names_issue: a pull request is the issue's when its head is the
-/// issue's branch or its body closes it.
-fn names_issue(pr: &Value, n: u64) -> bool {
-    use regex::Regex;
-    let head = pr.get("headRefName").and_then(Value::as_str).unwrap_or("");
-    let branch = format!("feature/issue-{n}");
-    if head == branch || head.starts_with(&format!("{branch}-")) {
-        return true;
-    }
-    let body = pr.get("body").and_then(Value::as_str).unwrap_or("");
-    Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{n}([^0-9]|$)"
-    ))
-    .is_ok_and(|re| re.is_match(body))
 }
 
 /// The comment that lifts a park's hold off the millwright's `tehas:ready` at

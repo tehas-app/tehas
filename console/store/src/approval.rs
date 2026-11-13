@@ -490,14 +490,45 @@ fn current_used_by(c: &Connection, issue: i64) -> Result<Option<(i64, String)>, 
     .q()
 }
 
-fn rests_on(c: &Connection, issue: i64) -> Result<Option<Base>, Fail> {
-    let Some((top, how)) = current_used_by(c, issue)? else {
+fn rests_on(c: &Connection, issue: i64, last: Option<i64>) -> Result<Option<Base>, Fail> {
+    // The attempt of the last start and the word it ran under. The history holds a
+    // row for every cycle the issue ran, while the keeping deletes the approvals of
+    // the starts the base no longer rests on, so the history is what says which start
+    // ran last; the word of a start whose own row stands is read from that row, and
+    // `started_how` is what the start wrote before its row went (#1751).
+    //
+    // The history is asked last, and the newest used row before it: the dispatcher
+    // records the approval of a start before the unit writes the start itself, so a
+    // record whose newest row is one no cycle has taken yet answers its start off
+    // that row. Read as no start at all it would answer no base, and the dispatcher
+    // drops a refresh whose record names no base (#1751).
+    let Some(attempt) = last.or_else(|| current_used_by(c, issue).ok().flatten().map(|(a, _)| a))
+    else {
         return Ok(None);
     };
+    let how = c
+        .query_row(
+            "SELECT CASE WHEN used_by IS NOT NULL THEN how ELSE started_how END
+             FROM approvals WHERE issue = ?1 AND (used_by = ?2 OR started_by = ?2)",
+            params![issue, attempt],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .q()?
+        .or_else(|| {
+            c.query_row(
+                "SELECT how FROM cycle_history WHERE issue = ?1 AND attempt = ?2",
+                params![issue, attempt],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+        })
+        .unwrap_or_default();
     let below = if is_millwright(&how) || how == "refresh" {
-        top - 1
+        attempt - 1
     } else {
-        top
+        attempt
     };
     c.query_row(
         &format!(
@@ -513,9 +544,10 @@ fn rests_on(c: &Connection, issue: i64) -> Result<Option<Base>, Fail> {
 }
 
 /// Run by cycle-start after it used an approval: what stays is what
-/// approval-current reads, the base and the starts on it.
+/// approval-current reads, the base and the starts on it, and every easy merge
+/// the record still answers (#1751).
 pub fn retain(c: &Connection, issue: i64) -> Result<(), Fail> {
-    let keep_from = match rests_on(c, issue)? {
+    let keep_from = match rests_on(c, issue, last_start(c, issue)?.map(|(a, _)| a))? {
         Some(base) => base.4,
         None => match current_used_by(c, issue)? {
             Some((top, _)) => top,
@@ -523,24 +555,60 @@ pub fn retain(c: &Connection, issue: i64) -> Result<(), Fail> {
         },
     };
     c.execute(
-        "DELETE FROM approvals WHERE issue = ?1 AND used_by IS NOT NULL AND used_by < ?2",
+        &format!(
+            "DELETE FROM approvals WHERE issue = ?1 AND used_by IS NOT NULL
+               AND used_by < ?2 AND NOT ({EASY_KEPT})"
+        ),
         params![issue, keep_from],
     )
     .q()?;
     Ok(())
 }
 
+/// Whether the cycle of an approval has had its end written: `cycle_history`
+/// holds a row for every cycle the issue ended. This is what makes the row of an
+/// easy merge the only one the keeping of a later start holds beyond the base --
+/// the row of a merge whose cycle has ended says all the record needs, and the
+/// keeping drops the row itself.
+///
+/// The mark is read from `started_how` and `easy`, the words `cycle-start` stamps
+/// on the row it runs on, and not from `started_by`: an approval is a refresh row
+/// of the merge whatever the number of the start that ran on it.
+///
+/// Read against `cycles`, not the end's own row of `cycle_history`: the end of a
+/// cycle writes that row and deletes the used approvals in one transaction, so a
+/// row the same call inserted would answer this before the delete runs and leave
+/// nothing for the read of #1751 to answer `easy` off. The open row of the cycle
+/// carries the same attempt and is not touched by the end.
+pub const EASY_KEPT: &str = "easy = 1 AND started_how = 'refresh'
+     AND NOT EXISTS (SELECT 1 FROM cycle_history h
+                       JOIN cycles c ON c.issue = h.issue AND c.attempt = h.attempt
+                      WHERE h.issue = approvals.issue
+                        AND h.attempt = approvals.started_by)";
+
 /// The starts on the base above `floor`, as two counts: the millwright's and
 /// the refreshes. One statement, because the two are read together; an old row
 /// still says `fixer`, so a millwright start is either word of the pair and
-/// both are summed.
+/// both are summed. The words of each start are the ones it wrote on the approval
+/// it ran -- `started_by` and `started_how` -- so a record that ran its refreshes
+/// keeps counting them after the keeping has deleted the rows they ran on (#1751).
+///
+/// A start is an approval the dispatcher took: `cycle-start` names the row it ran on
+/// and stamps when it took it, so an approval of neither word is one no start has run
+/// -- the approval a refresh is owed, which the dispatcher records before it asks the
+/// store anything (#1751). It counts nowhere. Read as a refresh, it would answer the
+/// refreshes of a record that ran none as one, and the dispatcher drops a refresh
+/// whose record does not say how many there were.
 fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
     let mut millwright_starts = 0;
     let mut refreshes = 0;
     let mut q = c
         .prepare(
             "SELECT how, count(*) FROM approvals
-             WHERE issue = ?1 AND used_by > ?2 AND how IN (?3, ?4, 'refresh')
+             WHERE issue = ?1
+               AND (used_by IS NOT NULL OR started_by IS NOT NULL)
+               AND (CASE WHEN used_by IS NOT NULL THEN used_by ELSE started_by END) > ?2
+               AND how IN (?3, ?4, 'refresh')
              GROUP BY how",
         )
         .q()?;
@@ -561,17 +629,46 @@ fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
     Ok((millwright_starts, refreshes))
 }
 
-/// Whether the one easy merge this approval is owed has been had: 1 when a
-/// start on the base above `floor` was a refresh that ran as one (#1031). A
-/// refresh row of an older store keeps `easy` 0, which is the right answer for
-/// it: what it ran was a full cycle, so no easy merge was spent on it.
+/// Whether the one easy merge this approval is owed has been had: 1 when a start on
+/// the base above `floor` was a refresh that ran as one (#1031). A refresh row of an
+/// older store keeps `easy` 0, which is the right answer for it: what it ran was a
+/// full cycle, so no easy merge was spent on it.
+///
+/// A start is an approval the dispatcher took, which is what `starts` reads too: the
+/// row of the refresh a poll is about to start is written before the poll asks, so an
+/// approval of neither word is no start and has spent no easy merge. Read as one, the
+/// row the poll is about to start would spend the easy merge of the base under itself
+/// and the poll would be told its own refresh had already run (#1751).
 fn easy_had(c: &Connection, issue: i64, floor: i64) -> Result<bool, Fail> {
     c.query_row(
         "SELECT count(*) > 0 FROM approvals
-         WHERE issue = ?1 AND used_by > ?2 AND how = 'refresh' AND easy = 1",
+         WHERE issue = ?1 AND how = 'refresh' AND easy = 1
+           AND (used_by IS NOT NULL OR started_by IS NOT NULL)
+           AND (CASE WHEN used_by IS NOT NULL THEN used_by ELSE started_by END) > ?2",
         params![issue, floor],
         |r| r.get::<_, bool>(0),
     )
+    .q()
+}
+
+/// The last start the record holds: the newest row of `cycle_history`, whose `how` is
+/// the word the start ran under. The keeping of a later start deletes the approvals of
+/// the starts the base no longer rests on, so the history is the record that says which
+/// start ran last; a store of schema 1 has no word for a row, which is no start the
+/// rules of an old record can use (#1751).
+fn last_start(c: &Connection, issue: i64) -> Result<Option<(i64, String)>, Fail> {
+    c.query_row(
+        "SELECT attempt, how FROM cycle_history
+         WHERE issue = ?1 AND how IS NOT NULL ORDER BY at DESC LIMIT 1",
+        [issue],
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            ))
+        },
+    )
+    .optional()
     .q()
 }
 
@@ -589,9 +686,20 @@ pub(crate) fn current(c: &Connection, issue: i64) -> Result<String, Fail> {
         "issue = ?1 AND used_by IS NOT NULL ORDER BY used_by DESC",
         [issue],
     )?;
-    let base = rests_on(c, issue)?;
+    // The last start of the record, read off the history: the keeping of a later
+    // start deletes the approval of the one before it, so the history is what says
+    // which start ran last and what kind it ran as (#1751).
+    let last = last_start(c, issue)?;
+    let base = rests_on(c, issue, last.as_ref().map(|(a, _)| *a))?;
+    // The counts and the mark of the base are taken over every start the issue ever
+    // ran, not over the rows the keeping left: the row of an easy merge that pushed
+    // is gone by the time the next poll asks, and a record that forgot it would owe
+    // the approval a second easy merge it never spent (#1751).
     let floor = base.as_ref().map_or(0, |b| b.4);
     let (millwright_starts, refreshes) = starts(c, issue, floor)?;
+    // Whether the base has had its one easy merge, read whether the approvals of the
+    // starts still stand or the keeping has deleted them and left the mark behind,
+    // which is the read #1751 is for.
     let easy = easy_had(c, issue, floor)?;
     let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
         obj(&[

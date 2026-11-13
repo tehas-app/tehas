@@ -29,8 +29,8 @@ fn counts(desc: &str) -> Value {
 const ENTRY: [(&str, &str); 4] = [
     ("runs", "Runs in this group."),
     ("outcomes", "Runs per outcome: pr, merged, handoff, parked, failed, refused and stopped, and unknown for a run that recorded none."),
-    ("failureKinds", "Runs per failure kind. A run that failed with no kind recorded is counted in runs and outcomes, not here."),
-    ("parkReasons", "Runs per park reason. A run parked with no reason recorded is counted in runs and outcomes, not here."),
+    ("failureKinds", "Runs per failure kind. A run that failed with no kind recorded is counted in runs and outcomes, not here; a kind recorded that is no word counts under unrecognised."),
+    ("parkReasons", "Runs per park reason. A run parked with no reason recorded is counted in runs and outcomes, not here; a reason recorded that is no word counts under unrecognised."),
 ];
 
 /// The schema's description of one entry's keys, from `ENTRY`.

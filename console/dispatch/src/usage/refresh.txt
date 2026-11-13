@@ -12,8 +12,8 @@ once and calls nothing.
 It lists the open pull requests of TEHAS_REPO and keeps the bot's that close
 exactly one open issue carrying tehas:awaiting-merge or, after a handoff,
 needs-human-attention, and not tehas:running, not the control issue, and are
-the only open pull request that closes it; whose branch is in the
-repository and that are no draft (console/dispatch/src/decide/retry.rs). Of
+the only open pull request that closes it; and whose branch is in the
+repository. A draft is kept as any other (console/dispatch/src/decide/retry.rs). Of
 those, the ones GitHub says are CONFLICTING get a request,
 $TEHAS_HOME/state/refresh/<issue>.json:
 {at, pr, head_sha, base_sha}. A request for the same pull request at the
@@ -34,7 +34,10 @@ Its line in logs/refresh.log is "asked for pull request #N: wrote the
 request of #M" or "asked for pull request #N: not refreshed: <why>".
 
 It decides only that a pull request conflicts. Whether a refresh starts is
-the dispatcher's, which checks each request again at the start.
+the dispatcher's, which checks each request again at the start. With
+TEHAS_REFRESH_CONFLICTS other than 1 the dispatcher also drops, at each
+poll, a request this run wrote before once its issue or pull request fails
+one of those checks, as when either was closed.
 
 Usage:
   tehasbot refresh             one run
