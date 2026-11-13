@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -220,6 +220,38 @@ ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
 UPDATE approvals SET started_by = used_by, started_how = how,
                      started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
   WHERE used_by IS NOT NULL;
+";
+
+/// The step from 13 to 14: `cycles.how` takes 'host', the start of an approval
+/// `tehas start` recorded (#1967). The table is rebuilt as `STEP_4` rebuilds it,
+/// with foreign keys off (`step_14`), and every row is copied.
+pub(crate) const STEP_14: &str = "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1171,7 +1203,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1182,7 +1215,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
@@ -1192,7 +1226,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
@@ -1201,7 +1236,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
@@ -1209,38 +1245,49 @@ pub fn migrate(
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         8 => step(conn, 9, STEP_9)
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         9 => step(conn, 10, STEP_10)
             .and_then(|()| step_11(conn))
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         // The store of the release before last sits at 10.
         10 => step_11(conn)
             .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12).and_then(|()| step(conn, 13, STEP_13)),
+        11 => step(conn, 12, STEP_12)
+            .and_then(|()| step(conn, 13, STEP_13))
+            .and_then(|()| step_14(conn)),
         // A store at 12 is one this binary wrote before the easy mark was kept
-        // on the approval: the step to 13 is all it needs.
-        12 => step(conn, 13, STEP_13),
+        // on the approval: the steps to 13 and 14 are all it needs.
+        12 => step(conn, 13, STEP_13).and_then(|()| step_14(conn)),
+        // A store at 13 is one this binary wrote before `cycles.how` took
+        // 'host': the step to 14 is all it needs.
+        13 => step_14(conn),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -1301,6 +1348,17 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 4, STEP_4);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 14, run as `step_4` runs its rebuild of `cycles`.
+fn step_14(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 14, STEP_14);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

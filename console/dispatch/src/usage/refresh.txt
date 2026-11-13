@@ -32,6 +32,11 @@ rule. A CONFLICTING or UNKNOWN one gets its request, with a last field
 "asked": "pr". It does not read or write last-run and removes no request.
 Its line in logs/refresh.log is "asked for pull request #N: wrote the
 request of #M" or "asked for pull request #N: not refreshed: <why>".
+With --json it also prints one object on standard output for exit 0, 3 and
+1: {"asked", "pr", "issue", "head_sha", "why"}. asked is true when the
+request was written, and why is then null; otherwise why is the reason, the
+same words as on stderr. issue and head_sha are null when GitHub did not
+name them.
 
 It decides only that a pull request conflicts. Whether a refresh starts is
 the dispatcher's, which checks each request again at the start. With
@@ -42,6 +47,8 @@ one of those checks, as when either was closed.
 Usage:
   tehasbot refresh             one run
   tehasbot refresh --pr N      ask for the refresh of pull request N now
+  tehasbot refresh --pr N --json
+                               the same, and print what it asked as JSON
   tehasbot refresh -h|--help   print this text and exit 0
 
 Exit: 0 the run ended, or the setting is off, or the --pr request was

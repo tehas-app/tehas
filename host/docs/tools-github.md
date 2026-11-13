@@ -10,6 +10,7 @@ description: "Asking for refreshes, the App's tokens, and the writes of the last
 ```
 tehasbot refresh            # one run; one line in ~/tehas/logs/refresh.log
 tehasbot refresh --pr 50    # ask for the refresh of pull request #50 now
+tehasbot refresh --pr 50 --json  # the same, and say what it asked as one object
 systemctl --user enable --now tehas-refresh.timer
 tail ~/tehas/logs/refresh.log
 ```
@@ -54,6 +55,20 @@ of GitHub failed or named no pull request, nothing written; 64 N is not a whole
 number above 0; 78 a setting is missing or malformed. The timed run that
 follows rewrites the request in its own layout, or removes it when the pull
 request no longer conflicts.
+
+With `--json` it also prints one object on standard output on exit 0, 3 and
+1, so a caller does not read standard error for the reason:
+
+```
+{"asked": true, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": null}
+{"asked": false, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
+```
+
+`asked` is `true` when the request was written, and `why` is then `null`;
+otherwise `why` holds the same words as standard error. `issue` and
+`head_sha` are `null` when GitHub did not name them, as when its read
+failed. Exit 64 and 78 print no object. Whether the timed run scans at all
+is `refreshScan` in [`tehas api --json`](/api#tehas-api).
 
 ## tehasbot github-token
 
