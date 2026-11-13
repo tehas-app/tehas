@@ -238,21 +238,21 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
-/// `tehasbot refresh --pr N`, N a whole number above 0: the one form of
+/// `tehasbot refresh --pr N [--json]`, N a whole number above 0: the one form of
 /// refresh with arguments that runs under the settings, whatever
 /// TEHAS_REFRESH_CONFLICTS says. tehas-dispatch's `refresh::asked_pr` decides
 /// the same, and a test holds the two together.
 fn asks_one(rest: &[String]) -> bool {
-    match rest {
-        [flag, n] => {
-            flag == "--pr"
-                && !n.is_empty()
-                && !n.starts_with('0')
-                && n.bytes().all(|b| b.is_ascii_digit())
-                && n.parse::<u64>().is_ok()
-        }
-        _ => false,
-    }
+    let (flag, n) = match rest {
+        [flag, n] => (flag, n),
+        [flag, n, json] if json == "--json" => (flag, n),
+        _ => return false,
+    };
+    flag == "--pr"
+        && !n.is_empty()
+        && !n.starts_with('0')
+        && n.bytes().all(|b| b.is_ascii_digit())
+        && n.parse::<u64>().is_ok()
 }
 
 /// Steps 2 to 4. Err is the status of a refusal.
@@ -354,6 +354,10 @@ mod tests {
             &["--pr", ""],
             &["--pr", "-1"],
             &["--pr", "50", "51"],
+            &["--pr", "50", "--json"],
+            &["--pr", "50", "--jsn"],
+            &["--json", "--pr", "50"],
+            &["--pr", "0", "--json"],
             &["--pr", "99999999999999999999999"],
             &["--help"],
             &["50"],
