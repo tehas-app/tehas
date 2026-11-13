@@ -657,6 +657,29 @@ t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'if [ "$(jq --version)" !=
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"'
 
+# Without node on the job's PATH the gate skips the front page's tests, so CI
+# takes the host's node pin the way it takes jq's. The step on its own, from
+# its name to the next one, and before the gate runs.
+t_case "CI puts the pinned node on the job's PATH before the gate runs"
+t_eq "$(grep -cE '^NODE_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$T_ROOT/host/versions.env")" 1
+t_eq "$(grep -cE '^NODE_SHA256=[0-9a-f]{64}$' "$T_ROOT/host/versions.env")" 1
+# The asset bootstrap.sh installs on the host is the one CI downloads.
+t_contains "$(cat "$T_ROOT/bootstrap.sh")" 'https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz'
+# Both workflows that run the gate: a pull request's, and the release gate's.
+for workflow in "$T_ROOT/.github/workflows/verify.yml" "$T_ROOT/.github/workflows/release-gate.yml"; do
+  node_step=$(awk '/- name: node at the pinned version/{s = 1; next}
+    s && /- name:/{exit}
+    s' "$workflow")
+  t_contains "$node_step" 'https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz'
+  t_contains "$node_step" 'echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -'
+  t_contains "$node_step" 'echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"'
+  t_contains "$node_step" 'test "$("$RUNNER_TEMP/node/bin/node" --version)" = "v$NODE_VERSION"'
+  t_lacks "$node_step" 'continue-on-error'
+  node_at=$(grep -n -- '- name: node at the pinned version' "$workflow" | cut -d : -f 1)
+  gate_at=$(grep -n -- '- name: scripts/verify.sh' "$workflow" | cut -d : -f 1)
+  t_eq "$([ -n "$node_at" ] && [ -n "$gate_at" ] && [ "$node_at" -lt "$gate_at" ] && echo "before ${workflow##*/}")" "before ${workflow##*/}"
+done
+
 t_case "a download that does not match its checksum is refused"
 all_present
 t_stub gh 'echo "gh version 1.0.0"'
