@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/versions.js";
 
-const { line, alerts, draw } = globalThis.TEHAS_VERSIONS;
+const { line, alerts, messages, draw } = globalThis.TEHAS_VERSIONS;
 const a = "a".repeat(40);
 const health = (checks) => ({ status: "pass", checks });
 
@@ -104,6 +104,49 @@ test("the banner shows an alert and is hidden for an empty list", () => {
   assert.equal(p.kids[3].href, "https://industry.example/f/1");
   assert.equal(p.kids[3].attrs.rel, "noopener noreferrer");
   draw(el, alerts(industry({ alerts: [] }), NOW), doc);
+  assert.equal(el.hidden, true);
+  assert.deepEqual(el.kids, []);
+});
+
+const message = (id, level, over = {}) => ({ id, level, text: `${id} text`, link: null, at: "2026-10-17T13:00:00Z", ...over });
+
+test("a health with only host messages draws one line for each and shows the banner", () => {
+  const h = health({ hostMessages: { list: [
+    message("move", "alert", { link: "https://example.com/move" }),
+    message("disk", "warn", { link: "javascript:alert(1)", at: "soon" }),
+    message("note", "info", { text: "<b>Read</b> the notes." }),
+    message("odd", "loud"),
+  ] } });
+  assert.deepEqual(messages(h, NOW), [
+    { word: "Alert", text: "move text", ago: "60 min ago", link: "https://example.com/move", set: true },
+    { word: "Warning", text: "disk text", ago: "", link: null, set: true },
+    { word: "Notice", text: "<b>Read</b> the notes.", ago: "60 min ago", link: null, set: true },
+  ]);
+  const doc = stubDocument();
+  const el = doc.banner;
+  el.hidden = true;
+  draw(el, [...alerts(h, NOW), ...messages(h, NOW)], doc);
+  assert.equal(el.hidden, false);
+  assert.equal(el.kids.length, 3);
+  assert.deepEqual(el.kids[0].kids.map((k) => [k.name, k.textContent]), [
+    ["b", "Alert"], ["span", "move text"], ["small", "set 60 min ago"], ["a", "Open"],
+  ]);
+  assert.equal(el.kids[0].kids[3].href, "https://example.com/move");
+  assert.deepEqual(el.kids[1].kids.map((k) => [k.name, k.textContent]), [["b", "Warning"], ["span", "disk text"]]);
+  assert.deepEqual(el.kids[2].kids[1].textContent, "<b>Read</b> the notes.");
+});
+
+test("an empty list, no list or an unreadable file is no message, and the banner hides", () => {
+  for (const h of [
+    health({ hostMessages: { list: [] } }),
+    health({ hostMessages: { list: null, unreadable: true } }),
+    health({}),
+    null,
+  ]) assert.deepEqual(messages(h, NOW), [], JSON.stringify(h));
+  const doc = stubDocument();
+  const el = doc.banner;
+  const h = health({ hostMessages: { list: [] } });
+  draw(el, [...alerts(h, NOW), ...messages(h, NOW)], doc);
   assert.equal(el.hidden, true);
   assert.deepEqual(el.kids, []);
 });
