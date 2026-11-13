@@ -755,14 +755,7 @@ fn session_renewer(
         // The command has just made the token: the first ask is one period on.
         sleep(Duration::from_secs(every));
         let args = ["github-token".to_string(), "--session".to_string()];
-        renew::renew(
-            &cmd,
-            &args,
-            every,
-            retry,
-            stop,
-            renew::epoch_seconds,
-        );
+        renew::renew(&cmd, &args, every, retry, stop, renew::epoch_seconds);
     })
 }
 
