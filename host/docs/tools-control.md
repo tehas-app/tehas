@@ -185,8 +185,10 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.signal`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.refresh-conflict`, `.progress.json` and
-`.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
+`.timed`, `.signal`, `.oom`, `.forks`, `.disk`, `.nostart`, `.lean-refused`,
+`.refresh-conflict`, `.comments`, `.progress.json`, `.result.json`, `.freeze`
+and `.frozen`, a `.nostart.new`, `.runner_exit.new` or `.status.new` whose
+write never finished, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
 

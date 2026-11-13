@@ -32,31 +32,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
-use tehas_core::time;
-
-/// The notes of an earlier cycle, killed outright before it could report. A
-/// freeze left by one would pause this cycle the moment it starts.
-const NOTES: [&str; 19] = [
-    "oom",
-    "forks",
-    "stalled",
-    "timed",
-    "signal",
-    "disk",
-    "stopped",
-    "stopped.new",
-    "result.json",
-    "progress.json",
-    "nostart",
-    "lean-refused",
-    "refresh-conflict",
-    "comments",
-    "done",
-    "runner_exit",
-    "status",
-    "freeze",
-    "frozen",
-];
+use tehas_core::{cycle_notes, time};
 
 /// What tehasbot cycle gives this.
 pub struct Given {
@@ -420,7 +396,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let started = time::now();
     let restart = wants_restart(&issue);
     let cycles = home.join("state/cycles");
-    for note in NOTES {
+    // The notes of an earlier cycle, killed outright before it could report. A
+    // freeze left by one would pause this cycle the moment it starts.
+    for note in cycle_notes::started() {
         let _ = fs::remove_file(cycles.join(format!("{n}.{note}")));
     }
     // The driver's record of the cycle before this one, had it kept one. Its
