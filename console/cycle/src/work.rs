@@ -365,6 +365,7 @@
 use crate::gives::{self, Gap};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
+use crate::renew;
 use crate::start;
 use crate::watch;
 use std::fs::{self, OpenOptions};
@@ -550,18 +551,14 @@ fn github_token(console: &str) -> i32 {
 /// The renewer of the cycle's token while the container reads it. The watch
 /// ends it with a TERM.
 fn renewer(home: &Path) -> Option<Child> {
-    let every = env("TEHAS_GITHUB_RENEW_EVERY");
-    let every = if every.is_empty() {
-        "300".to_string()
-    } else {
-        every
-    };
+    let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
+    let retry = renew::RETRY.to_string();
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
         .arg(home.join("bin/tehasbot"))
         .args(["--arg", "github-token", "--arg", "--cycle"])
-        .args(["--every", &every, "--retry", "30"])
+        .args(["--every", &every, "--retry", &retry])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
