@@ -9,12 +9,13 @@
 //! next poll starts the issue under the rules every start passes, and nothing
 //! starts here. `--clear` takes back an approval no cycle has used.
 //!
-//! The clock is the host's, or `TEHAS_STORE_TEST_NOW` when that names whole
-//! seconds, the store's own test clock.
+//! The clock is the host's. A debug build takes `TEHAS_STORE_TEST_NOW` when it
+//! is set, the store's own test clock; a release build never reads it.
 //!
 //! Exit: 0 approved, withdrawn, or nothing to withdraw; 1 GitHub has no open
 //! issue of that number or did not answer, or the store refused or could not be
-//! read; 64 a bad argument, which writes nothing.
+//! read; 64 a bad argument, or a test clock that is not a Unix time, which
+//! writes nothing.
 
 use crate::store;
 use serde_json::{json, Value};
@@ -67,11 +68,27 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
     Ok(Asked { issue, clear, json })
 }
 
-fn now() -> i64 {
-    match env::var("TEHAS_STORE_TEST_NOW") {
-        Ok(s) => s.parse().expect("TEHAS_STORE_TEST_NOW is not a Unix time"),
-        Err(_) => time::now(),
+/// The host's clock. A debug build -- the tests' -- takes the store's test
+/// clock when it is set, read as the store reads it; a release build never
+/// reads the variable. A value that is not a Unix time is the line that says
+/// so, and the command stops with 64 rather than fall back to the real clock.
+fn now() -> Result<i64, String> {
+    #[cfg(debug_assertions)]
+    let given = env::var_os(::store::TEST_NOW);
+    #[cfg(not(debug_assertions))]
+    let given: Option<std::ffi::OsString> = None;
+    clock(given.as_deref())
+}
+
+/// The time `given` names, or the host's when it names none.
+fn clock(given: Option<&std::ffi::OsStr>) -> Result<i64, String> {
+    #[cfg(debug_assertions)]
+    if let Some(t) = ::store::test_clock(given)? {
+        return Ok(t);
     }
+    #[cfg(not(debug_assertions))]
+    let _ = given;
+    Ok(time::now())
 }
 
 fn home() -> Option<PathBuf> {
@@ -130,6 +147,13 @@ fn shown(a: &Value) -> Value {
 
 fn approve(here: &std::path::Path, repo: &str, a: &Asked) -> u8 {
     let n = a.issue;
+    let at = match now() {
+        Ok(t) => t.to_string(),
+        Err(why) => {
+            eprintln!("tehas start: {why}; nothing was recorded");
+            return 64;
+        }
+    };
     let issue = match issue_of(repo, n) {
         Ok(v) => v,
         Err(why) => {
@@ -137,7 +161,7 @@ fn approve(here: &std::path::Path, repo: &str, a: &Asked) -> u8 {
             return 1;
         }
     };
-    let (num, at, body) = (n.to_string(), now().to_string(), body_sha256(&issue));
+    let (num, body) = (n.to_string(), body_sha256(&issue));
     let title = title_sha256(&issue);
     let mut args = vec![
         "approval-record",
@@ -272,5 +296,17 @@ mod tests {
         ] {
             assert_eq!(words(&w(bad)), Err(64), "{bad:?}");
         }
+    }
+
+    /// A test clock that is not a Unix time is a line to say, never a panic,
+    /// and with none set the clock is the host's. A release build reads none.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_bad_test_clock_is_a_line_and_not_a_panic() {
+        use std::ffi::OsStr;
+        assert_eq!(clock(Some(OsStr::new("1793404800"))), Ok(1_793_404_800));
+        assert!(clock(None).is_ok_and(|t| t > 1_793_404_800));
+        let why = clock(Some(OsStr::new("soon"))).unwrap_err();
+        assert!(why.contains("TEHAS_STORE_TEST_NOW"), "{why}");
     }
 }
