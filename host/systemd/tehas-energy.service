@@ -2,6 +2,8 @@
 Description=Tehas: sample the model mesh's power every 15 seconds for the dashboard
 
 [Service]
+NoNewPrivileges=yes
+MemoryMax=256M
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot energy --every"
 Restart=always
 RestartSec=15

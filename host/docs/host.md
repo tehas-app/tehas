@@ -1913,6 +1913,12 @@ that cycle ran.
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
 | One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
+Every service in `host/systemd` sets `NoNewPrivileges=yes`: nothing a unit
+runs gains rights through a setuid program. The three that never end,
+`tehas-mcp`, `tehas-top` and `tehas-energy`, also have `MemoryMax=256M`. The
+ceiling holds where the user's systemd is given the memory controller, as
+current systemd does by default.
+
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so each line above sources `~/tehas/env.sh` first: run from a shell that has

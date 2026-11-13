@@ -2,6 +2,7 @@
 Description=Tehas: the work cycle for issue %i
 
 [Service]
+NoNewPrivileges=yes
 Type=exec
 # The cycle is the unit's: its start needs the approval the dispatcher recorded.
 Environment=TEHAS_CYCLE_FROM=unit
