@@ -2333,6 +2333,19 @@ impl<'a> Poll<'a> {
             }
             None => {}
         }
+        // With no question on record no tick can start the park (rule 4
+        // unticks it and points at the label), so the label is not held.
+        let asked = match p.get("question") {
+            Some(Value::Number(_)) => true,
+            Some(Value::String(s)) => !s.is_empty(),
+            _ => false,
+        };
+        if !asked {
+            self.log(format!(
+                "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted as its park has no question on record to tick"
+            ));
+            return Ok(false);
+        }
         let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
         if !told && !self.dry {
             self.act(json!({
