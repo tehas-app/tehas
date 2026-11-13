@@ -2312,6 +2312,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 2,
             "started": 1000,
