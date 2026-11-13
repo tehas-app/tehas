@@ -845,6 +845,13 @@ impl Watch<'_> {
             return true;
         }
         let _ = fs::remove_file(&new);
+        self.lost(file);
+        false
+    }
+
+    /// A file of the protocol that could not be written is said in the
+    /// cycle's own record, not only on this command's stream.
+    fn lost(&self, file: &Path) {
         let line = format!("tehas work: could not write {}", file.display());
         eprintln!("{line}");
         if !append(&self.err, format!("{line}\n").as_bytes()) {
@@ -854,12 +861,11 @@ impl Watch<'_> {
                 file.display()
             );
         }
-        false
     }
 
     fn write_or_say(&self, file: &Path, words: &str) {
         if fs::write(file, words).is_err() {
-            eprintln!("tehas work: could not write {}", file.display());
+            self.lost(file);
         }
     }
 
@@ -1905,6 +1911,14 @@ mod tests {
         assert!(fs::read_to_string(&w.err)
             .unwrap()
             .contains("could not write"));
+        // A stop note lost the same way is said in the record too.
+        fs::create_dir_all(&w.files.stalled).unwrap();
+        w.write_or_say(&w.files.stalled, "600\ndevelop\n");
+        let err = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            err.contains(&format!("could not write {}", w.files.stalled.display())),
+            "{err}"
+        );
     }
 
     #[test]
