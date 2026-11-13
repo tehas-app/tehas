@@ -11,7 +11,7 @@ Usage:
   tehasbot protolab             build the Protolab pages (the timer)
   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
   tehasbot improve              one run of the improvement loop (the timer)
-  tehasbot refresh              find the pull requests to refresh (the timer)
+  tehasbot refresh --pr N       ask for the refresh of pull request N
   tehasbot review               review the branch since the last review
   tehasbot clean                remove what the host can make again (the timer)
   tehasbot mcp serve            the read-only MCP server (the service)

@@ -471,13 +471,28 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_EPICS=1 >"$TEHAS_INSTANCE_DIR/i
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_EPICS]\""
 t_eq "$t_out" "[1]"
 
-t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
+t_case "two refreshes of one pull request and a lane of one by default"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
-t_eq "$t_out" "[0][2][10][1]"
-t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_EVERY=1440 TEHAS_REFRESH_SLOTS=8
-t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
-t_eq "$t_out" "[1][5][1440][8]"
+t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_SLOTS]\""
+t_eq "$t_out" "[2][1]"
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_SLOTS=8
+t_run "$load && echo \"[\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_SLOTS]\""
+t_eq "$t_out" "[5][8]"
+
+t_case "the settings of the timed refresh scan are gone: a value they took loads and is dropped, any other is refused"
+for line in TEHAS_REFRESH_CONFLICTS=0 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_CONFLICTS= TEHAS_REFRESH_EVERY= \
+  TEHAS_REFRESH_EVERY=10 TEHAS_REFRESH_EVERY=1440; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load && echo \"[\${TEHAS_REFRESH_CONFLICTS-unset}][\${TEHAS_REFRESH_EVERY-unset}]\""
+  t_eq "$line $t_out" "$line [unset][unset]"
+done
+for line in TEHAS_REFRESH_CONFLICTS=yes TEHAS_REFRESH_CONFLICTS=2 TEHAS_REFRESH_EVERY=0 TEHAS_REFRESH_EVERY=1441 \
+  TEHAS_REFRESH_EVERY=010 TEHAS_REFRESH_EVERY=10m TEHAS_REFRESH_EVERY=+10 TEHAS_REFRESH_EVERY=+1; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "${line%%=*} is not valid and no longer read: this version of tehas has no timed refresh scan"
+done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[0]"
@@ -534,8 +549,7 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.en
 t_run "$load && echo \"[\$TEHAS_REVIEW]\""
 t_eq "$t_out" "[1]"
 
-for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
-  "TEHAS_REFRESH_EVERY=0" "TEHAS_REFRESH_EVERY=1441" "TEHAS_REFRESH_EVERY=010" "TEHAS_REFRESH_EVERY=10m" \
+for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
   "TEHAS_REFRESH_SLOTS=9" "TEHAS_REFRESH_SLOTS=-1" "TEHAS_REFRESH_SLOTS=01" "TEHAS_REFRESH_SLOTS=one"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1524,7 +1538,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
-  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_EVERY TEHAS_REFRESH_MAX
+  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
   TEHAS_TICKET_CONCURRENCY TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
@@ -1533,7 +1547,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "9fe87ec87dd9e2b0053c4afc703521bbaece6f77887fae698fc633c6ba16d2a7"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "b135a681a4503342a2d5ca7719ea4cbb8e6f05057bfe5f14ff285e2bc763cf2f"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1634,7 +1648,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "51a211b26d30b39ccb7b818a6717fed5633fdf2236bd119b6c20e18351d1b1cf"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "c83e885bf304465270748aa354233a8d005cc0df6780d5d25febd53a9e11d281"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

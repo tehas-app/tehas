@@ -34,7 +34,7 @@ issue7() {
 refresh_setup() { # [<instance settings>...]
   reset
   rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
-  slots 2 TEHAS_REFRESH_CONFLICTS=1 "$@"
+  slots 2 "$@"
   echo '[]' >"$fx/ready.json"
   echo '[]' >"$fx/events-7.json"
   echo '[{"number":7}]' >"$fx/awaiting.json"
@@ -239,21 +239,13 @@ comments 7 "$(plan_body ' ' ' ' ' ')" ""
 t_run "$dispatch"
 refresh_dropped "a planning session is open on it"
 
-t_case "with the setting off a request starts nothing"
-refresh_setup
-slots 2
-t_run "$dispatch"
-t_eq "$(started)" ""
-t_contains "$t_out" "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1"
-
 # asked_pr: the request of issue 7 is one tehasbot refresh --pr N wrote.
 asked_pr() {
   jq '. + {asked: "pr"}' "$refresh_dir/7.json" >"$refresh_dir/7.json.new" && mv "$refresh_dir/7.json.new" "$refresh_dir/7.json"
 }
 
-t_case "with the setting off a request tehasbot refresh --pr N wrote starts a refresh"
+t_case "a request tehasbot refresh --pr N wrote starts a refresh"
 refresh_setup
-slots 2
 asked_pr
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -263,9 +255,16 @@ t_lacks "$t_out" "hold refreshes"
 t_contains "$(label_pair)" "$mark_call"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
 
-t_case "with the setting off a --pr request counts in the demand, and nothing is held"
+t_case "a request without asked, as the timed scan of before wrote it, starts too"
 refresh_setup
-slots 2
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_lacks "$t_out" "hold refreshes"
+t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
+
+t_case "a --pr request counts in the demand, and nothing is held"
+refresh_setup
 asked_pr
 # Every slot is busy, so the request waits.
 slots 1
@@ -278,9 +277,8 @@ t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
 t_lacks "$t_out" "hold refreshes"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "with the setting off a request without asked is held, and a --pr one beside it counts"
+t_case "a request without asked counts in the demand beside a --pr one"
 refresh_setup
-slots 2
 asked_pr
 jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-16T09:00:00Z", pr: 51, head_sha: $h, base_sha: $b}' >"$refresh_dir/8.json"
 slots 1
@@ -288,22 +286,18 @@ running_refresh 9
 t_run "$dispatch"
 release
 t_eq "$(started)" ""
-t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T09:00:00Z","refreshHold":"TEHAS_REFRESH_CONFLICTS is not 1"}'
-t_eq "$(cat "$refresh_dir/.held")" "TEHAS_REFRESH_CONFLICTS is not 1"
-t_eq "$(grep -c "hold refreshes: TEHAS_REFRESH_CONFLICTS is not 1" <<<"$t_out")" 1
-t_eq "$(find "$refresh_dir" -name '8.json' | wc -l)" 1
+t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":2,"oldest":"2026-10-16T09:00:00Z","refreshHold":null}'
+t_lacks "$t_out" "hold refreshes"
 
-t_case "with the setting off a --pr request whose pull request no longer conflicts is dropped"
+t_case "a --pr request whose pull request no longer conflicts is dropped"
 refresh_setup
-slots 2
 asked_pr
 pull '.mergeable = "MERGEABLE"'
 t_run "$dispatch"
 refresh_dropped "pull request #50 no longer conflicts"
 
-t_case "with the setting off an image without --continue-pr holds a --pr request, which is not counted"
+t_case "an image without --continue-pr holds a --pr request, which is not counted"
 refresh_setup
-slots 2
 asked_pr
 echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart"]}}}' >"$fx/caps.json"
 t_run "$dispatch"
@@ -315,7 +309,7 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 # The slice of reset holds four containers: a quarter of it is a container's
 # ceiling.
-t_case "with the setting off a --pr request keeps the lane: it starts there and the hold says so"
+t_case "a --pr request keeps the lane: it starts there and the hold says so"
 refresh_setup
 slots 4 TEHAS_REFRESH_SLOTS=1
 asked_pr
@@ -326,7 +320,7 @@ t_eq "$(started)" "7 20 21 22 "
 t_contains "$t_out" "holding: 3 of 4 free slots start: tehas.slice has room for 4 more and the refresh lane keeps 1"
 t_contains "$t_out" "start #7 (refresh by alice)"
 
-t_case "with the setting off a running refresh fills the lane: a --pr request waits"
+t_case "a running refresh fills the lane: a --pr request waits"
 refresh_setup
 slots 3 TEHAS_REFRESH_SLOTS=1
 asked_pr
@@ -338,7 +332,7 @@ t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: the refresh lane is full (1 of 1)"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "with the setting off and TEHAS_REFRESH_SLOTS=0 a --pr request takes a cycle slot"
+t_case "with TEHAS_REFRESH_SLOTS=0 a --pr request takes a cycle slot"
 refresh_setup
 slots 1 TEHAS_REFRESH_SLOTS=0
 asked_pr
@@ -349,9 +343,10 @@ t_eq "$(started)" "7 "
 t_lacks "$t_out" "refresh lane"
 t_eq "$(jq -r .refreshRoom "$dispatch_json")" null
 
-t_case "with the setting off a request without asked keeps no lane, and tehas:refreshing is not listed"
+t_case "with no request and no refresh the lane keeps nothing, and tehas:refreshing is not listed"
 refresh_setup
 slots 4
+rm -f "$refresh_dir/7.json"
 queue 20 21 22 23
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -359,9 +354,8 @@ t_eq "$(started)" "20 21 22 23 "
 t_lacks "$t_out" "refresh lane"
 t_lacks "$(t_calls gh)" "--label tehas:refreshing"
 
-t_case "with the setting off a stale tehas:refreshing is cleared while a --pr request waits"
+t_case "a stale tehas:refreshing is cleared while a --pr request waits"
 refresh_setup
-slots 2
 asked_pr
 echo '[{"number":60,"labels":[{"name":"tehas:refreshing"}]}]' >"$fx/refreshing.json"
 t_run "$dispatch"
@@ -400,7 +394,7 @@ t_contains "$t_out" "hold refreshes"
 
 t_case "a refresh that waits for room counts in the demand"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1
+slots 1
 running_refresh 9
 t_run "$dispatch"
 release
@@ -523,7 +517,7 @@ t_contains "$(label_pair)" "--remove-label tehas:awaiting-merge --remove-label t
 
 t_case "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1
+slots 1
 handed_off tehas:ready
 echo '[]' >"$fx/ready.json"
 t_run "$dispatch"

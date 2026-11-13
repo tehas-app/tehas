@@ -53,10 +53,12 @@ t_case "the units with no redirect are the commands that write their own log"
 # are believed. Today: tehasbot clean opens logs/clean.log and tehasbot refresh
 # opens logs/refresh.log. A command of this class prints each line it writes,
 # so the unit for it adds no redirect: the redirect would write each line of a
-# run into that file a second time.
+# run into that file a second time. tehasbot refresh --pr N has no unit: what
+# schedules refreshes runs it.
 t_eq "$(grep -o 'logs/[a-z]*\.log' "$T_ROOT/console/src/run.rs" | sed 's#logs/##; s#\.log##' | LC_ALL=C sort -u | tr '\n' ' ')" \
   "$(printf '%s\n' "${self_writing[@]}" | LC_ALL=C sort | tr '\n' ' ')"
 for name in "${self_writing[@]}"; do
+  [ "$name" != refresh ] || continue
   unit=$units/tehas-$name.service
   [ -f "$unit" ] || { t_bad "$unit is not there"; continue; }
   # The cleaner's own step is its first, and carries the - of the case above.

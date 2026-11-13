@@ -432,7 +432,7 @@ t_contains "$t_out" "hold #7: its text says SCREENSHOT GOES HERE"
 
 t_case "a refresh of an issue whose text promises a file starts nothing"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_REFRESH_CONFLICTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
 mesh '{"data":[{"id":"test-model"}]}'
 declares '["text","image"]'
 : >"$fx/reads-images"

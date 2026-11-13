@@ -21,7 +21,6 @@ tehasbot protolab             # build the Protolab; what tehas-protolab.timer ru
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
-tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot refresh --pr N       # ask for the refresh of pull request N now
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
@@ -34,8 +33,7 @@ tehasbot github-writes        # the GitHub writes of the last day, by hour
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
-`tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
-`tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
+`tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the review loop's `tehas-review.timer` (weekly, and a
 run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.

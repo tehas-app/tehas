@@ -2224,7 +2224,7 @@ the new names.
 
 ## Refreshes
 
-Optional, off unless `TEHAS_REFRESH_CONFLICTS=1`. A pull request the factory
+A pull request the factory
 opened waits in `tehas:awaiting-merge` for a person. While it waits, other work
 merges, and it may start to conflict with the branch. A refresh is a cycle that
 merges the branch into that pull request, resolves the conflicts and pushes to
@@ -2234,40 +2234,27 @@ takes `--continue-pr` and says so with `features.continuePr` in its
 `--capabilities` (pi-rukas#1468, in v0.14.0); until then a refresh starts
 nothing and the dispatcher says so.
 
-**What it reads.** `tehasbot refresh`, every `TEHAS_REFRESH_EVERY` minutes (10
-unless the instance says otherwise), lists the open pull requests of the repository, all of them in pages of 100. It keeps the bot's that close
-exactly one open issue carrying `tehas:awaiting-merge`, or `needs-human-attention`
-after a handoff that left the pull request open, without `tehas:running` and not
-the control issue, that are the only open pull request that closes it, and come
-from a branch of the repository. A draft is read as any other pull request.
-Those GitHub says are `CONFLICTING` get a request,
-`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again on the next run. A
-request whose pull request no longer qualifies goes. `tehas-refresh.timer`
-starts it every minute, and it goes ahead only when the last run began that
-many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
-counts. Each run writes one line to `~/tehas/logs/refresh.log`: the open
-pull requests it read, and of those how many conflict, how many GitHub still
-has `UNKNOWN`, and how many are not ours to refresh (another account's, a
-fork, one the rule rejects, or one whose head or base is no sha). The rest are
-the bot's that do not conflict, so `0 conflict` beside `2 unknown` is not yet
-a fact:
+**Who asks.** The factory does not look for conflicts on its own. What
+schedules its refreshes (an industry, an operator, a script) asks for one pull
+request at a time with `tehasbot refresh --pr N` (see
+[tehasbot refresh](/tools-github#tehasbot-refresh)). It reads that pull request
+now and keeps it when it is the bot's, closes exactly one open issue carrying
+`tehas:awaiting-merge`, or `needs-human-attention` after a handoff that left
+the pull request open, without `tehas:running` and not the control issue, is
+the only open pull request that closes it, and comes from a branch of the
+repository. A draft is read as any other pull request. When GitHub says it is
+`CONFLICTING` or `UNKNOWN` it writes a request,
+`~/tehas/state/refresh/<issue>.json`, with `"asked": "pr"`; otherwise it exits
+3 and says why. Each run writes one line to `~/tehas/logs/refresh.log`:
 
 ```
-2026-10-18T09:00:00Z read 9 pull requests: 1 conflict, 2 unknown, 3 not ours to refresh, wrote 1 requests
+2026-10-18T09:00:00Z asked for pull request #50: wrote the request of #7
 ```
 
-An operator or a script can ask for one pull request at once with
-`tehasbot refresh --pr N`, while the timed run is off or not due (see
-[tehasbot refresh](/tools-github#tehasbot-refresh)). It writes the same request
-with `"asked": "pr"`, and the dispatcher still checks it at the start as below.
-With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher still starts such a
-request, and it counts in the demand of `tehas status`. It runs in the refresh
-lane, not in a cycle slot: while the setting is off the lane is kept only while
-such a request waits or a refresh runs. A request without
-`"asked"`, as the timed run writes, waits while the setting is off, even one
-written before it was turned off: the dispatcher's log says `hold refreshes:
-TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
-the demand's `refreshHold` names the setting only while such a request waits.
+The dispatcher starts every request it finds as below and counts it in the
+demand of `tehas status`, whoever wrote it. A request left by the timed scan
+of an earlier version, without `"asked"`, is checked the same way: it starts
+when its pull request still qualifies and goes when it does not.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
@@ -2313,11 +2300,12 @@ cycle slot busy the hold line ends `the refresh lane has 1 of 1 free`, and a
 request that finds the lane full waits: `wait #<issue>: the refresh lane is
 full (1 of 1)`. `tehas status` shows the lane's free slots on the slice line.
 `TEHAS_REFRESH_SLOTS=0` turns the lane off: refreshes then take the cycles'
-slots, and no room is kept, whatever `TEHAS_REFRESH_CONFLICTS` says. With
-`TEHAS_REFRESH_CONFLICTS` off the room is kept only while a request
-`tehasbot refresh --pr N` wrote waits or a refresh runs; the rest of the time
-the cycles have every slot. With it on but an image that cannot refresh, the
-room is still kept: turn refreshes off on such a host.
+slots, and no room is kept. Otherwise the room is kept only while a request
+waits or a refresh runs; the rest of the time the cycles have every slot. On
+an image that cannot refresh a waiting request still keeps the room: ask for
+no refreshes on such a host. Each container's CPU share and pids limit count
+the lane's slots beside the cycles, so they are the same whether a refresh
+runs or not.
 
 Pause, the limit, the slots of the lane and the slice's room hold a refresh as
 they hold any start; the limit of `tehas limit` counts refreshes and cycles
@@ -2340,6 +2328,8 @@ push to it. The dispatcher applies it before it marks the issue, and a start
 whose label change fails starts nothing. `tehasbot cycle` takes it off when the
 cycle ends, whatever the outcome. The dispatcher takes it off a pull request
 whose issue has no cycle running, and one applied by any account but the bot.
+It looks for such marks while a refresh of this host is on record, runs or
+waits as a request; a host that never refreshed reads no list of them.
 Both directions go through GitHub's REST issues endpoint, not `gh pr edit`,
 which asks GitHub a GraphQL question the bot's token may not answer
 (see [issue #120](https://github.com/tehas-ai/tehas/issues/120)); a 404 is
@@ -2389,21 +2379,13 @@ the bot did not open, from forks or closing several issues, and conflicts
 between two open pull requests of the factory: each is resolved against the
 branch when the other merges.
 
-**To turn it on**, set `TEHAS_REFRESH_CONFLICTS=1` in `instance.env` and
-enable the timer, which `install.sh` and `tehas update` install but do not
-start:
-
-```
-systemctl --user enable --now tehas-refresh.timer
-```
-
-The first run is at once. `~/tehas/logs/refresh.log` says what it found.
-
-**To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
-`instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
-no refresh the scan found. It still starts one written by `tehasbot refresh
---pr N`. `systemctl --user disable --now tehas-refresh.timer` stops the hourly
-run as well.
+**No timed scan.** Earlier versions also ran `tehasbot refresh` on
+`tehas-refresh.timer` and looked for conflicts every `TEHAS_REFRESH_EVERY`
+minutes when `TEHAS_REFRESH_CONFLICTS=1`. That scan is gone: `install.sh`
+stops and disables the timer and removes its two unit files. Neither name is
+a setting any more. A line with a value they took (`0` or `1`, and 1 to 1440
+minutes) still loads and does nothing, so take it out when you can; any other
+value stops every command with 78.
 
 ## Updating tehas
 

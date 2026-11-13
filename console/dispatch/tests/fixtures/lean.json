@@ -1513,8 +1513,7 @@
   {
    "case": "a refresh keeps the driver of the start it follows",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_TICKET_CONCURRENCY": 2
    },
    "snapshot": {
     "ready": [],
@@ -1660,8 +1659,7 @@
   {
    "case": "a refresh with the label off is classic",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_TICKET_CONCURRENCY": 2
    },
    "snapshot": {
     "ready": [],
@@ -1797,8 +1795,7 @@
   {
    "case": "a refresh over a stranger's tehas:lean is dropped and says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_TICKET_CONCURRENCY": 2
    },
    "snapshot": {
     "ready": [],
@@ -2855,8 +2852,7 @@
   {
    "case": "a refresh runs the driver of the start it follows: its body needs no pi-spec v1 block",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_TICKET_CONCURRENCY": 2
    },
    "snapshot": {
     "ready": [],

@@ -97,10 +97,6 @@ pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> St
     }
 }
 
-/// Why `refresh_setting_held` holds a request, in the log, `.held` and
-/// `refreshHold`.
-pub(super) const REFRESH_SETTING_HOLD: &str = "TEHAS_REFRESH_CONFLICTS is not 1";
-
 /// The largest start this rule can put a date on, as the other rules that
 /// read a start from the store take it: 9999-12-31T23:59:59Z.
 const MAX_START: u64 = 99_999_999_999;
@@ -756,8 +752,7 @@ impl Poll<'_> {
     }
 
     /// refresh_held: why the sandbox image lets no refresh start on this
-    /// host, empty when it lets one. `TEHAS_REFRESH_CONFLICTS` is a hold of
-    /// each request, `refresh_setting_held`.
+    /// host, empty when it lets one.
     pub(super) fn refresh_held(&mut self) -> Option<String> {
         match self.s.continues {
             None => {
@@ -770,14 +765,6 @@ impl Poll<'_> {
                 self.c.image
             )),
         }
-    }
-
-    /// refresh_setting_held: `TEHAS_REFRESH_CONFLICTS` is not 1 and the
-    /// request was not written by `tehasbot refresh --pr N`. It keys on the
-    /// marker, so a request left from before the setting was turned off does
-    /// not start.
-    pub(super) fn refresh_setting_held(&self, req: &Value) -> bool {
-        !self.c.refresh_conflicts && req.get("asked").and_then(Value::as_str) != Some("pr")
     }
 
     fn refresh_drop(&mut self, n: u64, why: &str) -> Step<Option<Start>> {
@@ -821,13 +808,6 @@ impl Poll<'_> {
             self.need("request");
             return Ok(None);
         };
-        if self.refresh_setting_held(&req) {
-            if !self.refresh_said {
-                self.log(format!("hold refreshes: {REFRESH_SETTING_HOLD}"));
-            }
-            self.refresh_said = true;
-            return Ok(None);
-        }
         if !(req.get("pr").is_some_and(Value::is_number)
             && hex40(req.get("head_sha"))
             && hex40(req.get("base_sha")))
