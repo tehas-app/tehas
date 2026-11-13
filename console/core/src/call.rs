@@ -23,6 +23,10 @@ pub struct Ran {
     /// Set when a bounded read gave up on the answer at its ceiling, which is
     /// the answer of a program that printed more than the caller would hold.
     pub truncated: bool,
+    /// Set when a stream of the program could not be read to its end: an
+    /// empty `out` is then no answer of the program's, and the call is owed
+    /// another try.
+    pub unread: bool,
 }
 
 impl Ran {
@@ -102,6 +106,7 @@ fn run_capped(
             out: String::new(),
             err: format!("{program} could not be run"),
             truncated: false,
+            unread: false,
         };
     };
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -119,37 +124,44 @@ fn run_capped(
     let mut err = child.stderr.take();
     let reader = std::thread::spawn(move || {
         let Some(s) = out.as_mut() else {
-            return (String::new(), false);
+            return (String::new(), false, false);
         };
         let Some(cap) = ceiling else {
-            let mut o = String::new();
-            let _ = s.read_to_string(&mut o);
-            return (o, false);
+            let (o, read) = drain(s);
+            return (o, false, !read);
         };
         let mut o = Vec::new();
-        let _ = s.by_ref().take(cap + 1).read_to_end(&mut o);
+        let mut read = s.by_ref().take(cap + 1).read_to_end(&mut o).is_ok();
         let over = o.len() as u64 > cap;
         if over {
             o.truncate(cap as usize);
-            let _ = std::io::copy(s, &mut std::io::sink());
+            read &= std::io::copy(s, &mut std::io::sink()).is_ok();
         }
-        (String::from_utf8_lossy(&o).into_owned(), over)
+        (String::from_utf8_lossy(&o).into_owned(), over, !read)
     });
-    let ereader = std::thread::spawn(move || {
-        let mut e = String::new();
-        if let Some(s) = err.as_mut() {
-            let _ = s.read_to_string(&mut e);
-        }
-        e
+    let ereader = std::thread::spawn(move || match err.as_mut() {
+        Some(s) => drain(s),
+        None => (String::new(), true),
     });
     let status = wait(&mut child, bound, grace, true);
-    let (out, truncated) = reader.join().unwrap_or_default();
+    // A reader that panicked read nothing that can be trusted.
+    let (out, truncated, out_unread) = reader.join().unwrap_or((String::new(), false, true));
+    let (err, err_read) = ereader.join().unwrap_or_default();
     Ran {
         status,
         out,
-        err: ereader.join().unwrap_or_default(),
+        err,
         truncated,
+        unread: out_unread || !err_read,
     }
+}
+
+/// All of a stream, and whether it was read to its end. Bytes that are not
+/// UTF-8 are replaced rather than losing the whole answer.
+fn drain(s: &mut impl Read) -> (String, bool) {
+    let mut o = Vec::new();
+    let read = s.read_to_end(&mut o).is_ok();
+    (String::from_utf8_lossy(&o).into_owned(), read)
 }
 
 /// run_input_env with a ceiling on what the program prints. Its standard output
@@ -352,6 +364,18 @@ pub fn store_failure(
             "timeout",
             format!("store: timeout: {what} did not answer in {secs} s"),
         ),
+        Some(126 | 127) => named(
+            78,
+            "absent",
+            format!("store: absent: {store} could not be run"),
+        ),
+        // Its answer was lost on the way and not refused: busy's and
+        // timeout's rc, so the caller asks again.
+        Some(_) if r.unread => named(
+            1,
+            "timeout",
+            format!("store: timeout: {what}'s answer could not be read"),
+        ),
         Some(0) => None,
         Some(rc @ (1 | 64 | 78)) => {
             // The bash merges the error stream into the answer, so either of
@@ -373,11 +397,6 @@ pub fn store_failure(
                 }
             }
         }
-        Some(126 | 127) => named(
-            78,
-            "absent",
-            format!("store: absent: {store} could not be run"),
-        ),
         Some(124 | 137) => named(
             1,
             "timeout",
@@ -511,6 +530,54 @@ mod tests {
         assert_eq!((r.out.as_str(), r.truncated), ("é\u{fffd}", true));
         let r = run_input_bounded("printf", &a(&["é"]), None, bound, &[], 3);
         assert_eq!((r.out.as_str(), r.truncated), ("é", false));
+    }
+
+    #[test]
+    fn a_stream_that_fails_is_unread_and_not_empty() {
+        struct Failing;
+        impl Read for Failing {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("the pipe failed"))
+            }
+        }
+        assert_eq!(drain(&mut Failing), (String::new(), false));
+        assert_eq!(drain(&mut "said".as_bytes()), ("said".to_string(), true));
+        // An answer with a byte that is not UTF-8 is kept, not lost whole.
+        let r = run("printf", &a(&["ok\\377"]), Duration::from_secs(5));
+        assert_eq!((r.out.as_str(), r.unread), ("ok\u{fffd}", false));
+        let r = run("true", &[], Duration::from_secs(5));
+        assert_eq!((r.out.as_str(), r.unread), ("", false));
+    }
+
+    #[test]
+    fn a_store_answer_that_could_not_be_read_is_asked_again() {
+        let lost = Ran {
+            status: Some(0),
+            out: String::new(),
+            err: String::new(),
+            truncated: false,
+            unread: true,
+        };
+        let bound = Duration::from_secs(5);
+        let (rc, word, line) = store_failure("show", &lost, bound, "store").unwrap();
+        assert_eq!((rc, word.as_str()), (1, "timeout"));
+        assert_eq!(line, "store: timeout: show's answer could not be read");
+        let refused = Ran {
+            status: Some(78),
+            ..lost
+        };
+        assert_eq!(
+            store_failure("show", &refused, bound, "store").unwrap().1,
+            "timeout"
+        );
+        let absent = Ran {
+            status: Some(127),
+            ..refused
+        };
+        assert_eq!(
+            store_failure("show", &absent, bound, "store").unwrap().1,
+            "absent"
+        );
     }
 
     #[test]

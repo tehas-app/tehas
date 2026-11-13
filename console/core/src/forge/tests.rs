@@ -945,3 +945,11 @@ fn the_owners_issue_types_are_read_and_an_answer_with_no_repository_is_an_error(
     let (mut f, _) = forge(vec![Ok("not json".into())]);
     assert!(f.typed_by(7, "Prototype").is_err());
 }
+
+#[test]
+fn a_gh_answer_with_a_byte_that_is_not_utf8_is_kept_and_not_emptied() {
+    // A read that failed on one byte used to give an empty answer at exit 0,
+    // which reads as gh having printed nothing.
+    let mut gh = super::Bounded::new("printf", std::time::Duration::from_secs(10));
+    assert_eq!(gh.run(&["[1]\\377"]), Ok("[1]\u{fffd}".to_string()));
+}

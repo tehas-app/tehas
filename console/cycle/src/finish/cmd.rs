@@ -279,13 +279,13 @@ const SCRUBBED: [&str; 17] = [
 /// that filled a pipe nobody drained would never reach its end.
 fn bounded_stream<S: std::io::Read + Send + 'static>(
     stream: Option<S>,
-) -> Option<std::thread::JoinHandle<String>> {
+) -> Option<std::thread::JoinHandle<Option<String>>> {
     let s = stream?;
     Some(std::thread::spawn(move || {
         use std::io::Read;
-        let mut text = String::new();
-        let _ = s.take(KEPT).read_to_string(&mut text);
-        text
+        let mut text = Vec::new();
+        s.take(KEPT).read_to_end(&mut text).ok()?;
+        Some(String::from_utf8_lossy(&text).into_owned())
     }))
 }
 
@@ -353,12 +353,14 @@ fn bounded(program: &str, args: &[String], dir: &Path) -> Done {
             }
         }
     };
-    let given = |r: Option<std::thread::JoinHandle<String>>| {
-        r.and_then(|h| h.join().ok()).unwrap_or_default()
+    // A stream that is not there reads as empty; one that failed or panicked
+    // is None, and the command's answer is not known.
+    let given = |r: Option<std::thread::JoinHandle<Option<String>>>| match r {
+        Some(h) => h.join().ok().flatten(),
+        None => Some(String::new()),
     };
-    Done {
-        status,
-        out: given(out),
-        err: given(err),
+    match (given(out), given(err)) {
+        (Some(out), Some(err)) => Done { status, out, err },
+        _ => missing(&format!("{program}'s answer could not be read")),
     }
 }
