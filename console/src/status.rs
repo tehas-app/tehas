@@ -930,16 +930,22 @@ mod tests {
     #[test]
     fn a_cycle_waiting_to_be_finished_has_its_next_try_or_why_not() {
         use tehas_core::end_fault::EndFault;
-        let mut push = EndFault::new(7, 1, "push", "HTTP 502: Bad Gateway", NOW - 60);
+        let seen = |n, step, err, at| EndFault {
+            host: true,
+            ..EndFault::new(n, 1, step, err, at)
+        };
+        let mut push = seen(7, "push", "HTTP 502: Bad Gateway", NOW - 60);
         push.tries.push(NOW - 60);
-        let fresh = EndFault::new(8, 1, "pr", "HTTP 429", NOW);
+        let fresh = seen(8, "pr", "HTTP 429", NOW);
         let own = EndFault::new(9, 1, "pr", "HTTP 422: Validation Failed", NOW);
+        let told = EndFault::new(10, 1, "push", "HTTP 502", NOW);
         assert_eq!(
-            end_lines(&[push, fresh, own], NOW),
+            end_lines(&[push, fresh, own, told], NOW),
             vec![
                 "finish    #7: its push failed on GitHub's side (HTTP 502); the poll tries to finish it in 9 min, 1 of 3 tries made",
                 "finish    #8: its pull request failed on GitHub's side (HTTP 429); the poll finishes it at its next run, 0 of 3 tries made",
                 "finish    #9: its pull request failed by a fault of the request itself (HTTP 422); waits for tehas:finish: the failure was the request's own, not GitHub's, so only tehas:finish finishes it",
+                "finish    #10: its push failed on GitHub's side (HTTP 502); waits for tehas:finish: only the cycle's own result says so, so only tehas:finish finishes it",
             ]
         );
     }

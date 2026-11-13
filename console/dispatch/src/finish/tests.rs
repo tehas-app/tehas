@@ -400,6 +400,28 @@ fn the_command_is_read_by_its_exit_and_its_one_line() {
 }
 
 #[test]
+fn what_the_refusing_command_said_goes_to_the_log_and_not_the_issue() {
+    let err = "tehas-cycle: finish: #7: the command said: Rebasing (1/1)\rerror: could not apply 1a2b... @alice <b>\n\
+               tehas-cycle: finish: #7: the rebase onto origin/main conflicts\n";
+    let r = ran(Some(1), "", err);
+    let why = outcome(7, &r, 300).unwrap_err();
+    assert_eq!(why, "the rebase onto origin/main conflicts");
+    assert!(!refused(7, &why).contains("@alice"));
+    assert_eq!(
+        said(7, &r).as_deref(),
+        Some("the finish of #7 was refused, the command said: Rebasing (1/1) error: could not apply 1a2b... @alice <b>")
+    );
+    assert_eq!(said(8, &r), None);
+    assert_eq!(
+        said(
+            7,
+            &ran(Some(1), "", "tehas-cycle: finish: #7: no workspace\n")
+        ),
+        None
+    );
+}
+
+#[test]
 fn a_long_reason_is_one_short_line_in_the_log() {
     let long = format!("line one\nline two {}", "x".repeat(300));
     let l = one_line(&long);

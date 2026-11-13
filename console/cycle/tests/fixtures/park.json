@@ -1,6 +1,6 @@
 [
  {
-  "case": "a step that failed on a provider error is parked by a provider outage, and asks for one retry",
+  "case": "a step that failed on a provider error is parked by a provider outage, and waits for a person",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -141,7 +141,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -153,7 +153,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Tehas starts it again once on its own, when the model endpoint answers.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -565,7 +565,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -577,7 +577,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -724,7 +724,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -736,7 +736,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was the retry tehas made on its own after an outage, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1179,7 +1179,7 @@
   }
  },
  {
-  "case": "a failure of kind provider is an outage whatever the cap, and asks for one retry",
+  "case": "a failure of kind provider is said as an outage whatever the cap, and owes no retry",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1295,7 +1295,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "spawn-backstop",
     "--step",
     "handoff"
    ],
@@ -1307,7 +1307,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `spawn-backstop`: rate limited; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=729e4da8891fa7568e7a9daa2a3db9110bfa1722f4cc9617c4790e1879ff7ff0 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `spawn-backstop`: rate limited; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=729e4da8891fa7568e7a9daa2a3db9110bfa1722f4cc9617c4790e1879ff7ff0 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3332,7 +3332,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarialx",
     "--step",
     "handoff"
    ],
@@ -3344,7 +3344,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=a75933a171dc2cf101dd898c366020774ea9f44b663c10b27a1fc2da4a8ce03a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=a75933a171dc2cf101dd898c366020774ea9f44b663c10b27a1fc2da4a8ce03a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5005,7 +5005,7 @@
     "--attempt",
     "2",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -5017,7 +5017,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5741,7 +5741,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -5753,7 +5753,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6736,7 +6736,7 @@
     "--attempt",
     "1",
     "--reason",
-    "provider-outage",
+    "step-failed:adversarial",
     "--step",
     "handoff"
    ],
@@ -6748,7 +6748,7 @@
     ],
     [
      "comment",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its park could not be recorded, so it waits for a person. To retry, apply `tehas:ready`.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Only the cycle's own result names the outage, so tehas does not start it again on its own: it waits for a person. To retry, apply `tehas:ready`.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=723036791d499aa6a70bb2f606b0671d45f0916156c95700ecc2d052049dc802 -->"
     ]
    ]
   }

@@ -327,6 +327,23 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
     }
 }
 
+/// What the command that refused said, from the line `tehas-cycle finish`
+/// prints before its refusal, as a line for the poll's log. The issue is told
+/// only the refusal: this line can quote what the cycle wrote.
+pub fn said(n: u64, ran: &Ran) -> Option<String> {
+    let lead = format!("tehas-cycle: finish: #{n}: the command said: ");
+    ran.err
+        .lines()
+        .find_map(|l| l.trim().strip_prefix(lead.as_str()))
+        .filter(|w| !w.trim().is_empty())
+        .map(|w| {
+            format!(
+                "the finish of #{n} was refused, the command said: {}",
+                one_line(w)
+            )
+        })
+}
+
 /// What `tehas-cycle finish` answered: the URL it printed, or its line of why
 /// not, without the command's own prefix.
 pub fn outcome(n: u64, ran: &Ran, bound: u64) -> Result<String, String> {

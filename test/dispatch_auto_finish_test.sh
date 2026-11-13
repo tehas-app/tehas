@@ -10,24 +10,27 @@
 . "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # The stand-in for tehas-cycle finish: the URL, or the one line of a refusal
-# when $fx/finish-says holds it.
+# when $fx/finish-says holds it, after what the refusing command said when
+# $fx/finish-said holds that.
 t_stub fake-finish 'if [ -s "$T/fx/finish-says" ]; then
+  if [ -s "$T/fx/finish-said" ]; then
+    echo "tehas-cycle: finish: #$2: the command said: $(cat "$T/fx/finish-said")" >&2; fi
   echo "tehas-cycle: finish: #$2: $(cat "$T/fx/finish-says")" >&2; exit 1; fi
 echo "https://github.com/acme/widget/pull/90"'
 
 record=$T/home/tehas/state/cycles/7.end-failed.json
 # Issue 7 is parked, and its last cycle's <step> failed a minute ago with
-# <why>, GitHub's fault or not.
-stopped() { # <step> <github> <why>
+# <why>, GitHub's fault or not, as the host saw it fail unless [host] is false.
+stopped() { # <step> <github> <why> [host]
   reset
   T_ENV+=(TEHAS_FINISH_CMD=fake-finish)
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
-  rm -f "$fx/finish-says"
+  rm -f "$fx/finish-says" "$fx/finish-said"
   echo '[]' >"$fx/ready.json"
   echo '{"number":7,"state":"open","labels":[{"name":"needs-human-attention"}]}' >"$fx/work-7.json"
   mkdir -p "${record%/*}"
-  jq -nc --arg step "$1" --argjson github "$2" --arg why "$3" --argjson at "$(($(date +%s) - 60))" \
-    '{issue: 7, attempt: 1, step: $step, github: $github, why: $why, at: $at, tries: [], stopped: "", said: false}' >"$record"
+  jq -nc --arg step "$1" --argjson github "$2" --arg why "$3" --argjson host "${4:-true}" --argjson at "$(($(date +%s) - 60))" \
+    '{issue: 7, attempt: 1, step: $step, github: $github, host: $host, why: $why, at: $at, tries: [], stopped: "", said: false}' >"$record"
 }
 # Eleven minutes pass: the failure and every try are moved back.
 later() {
@@ -70,6 +73,23 @@ later
 t_run "$dispatch"
 t_eq "$(finishes)" 3
 t_eq "$(t_calls gh | grep -c 'result=stopped by=poll')" 1
+
+t_case "a push only the cycle's own result names is not finished and nothing is said"
+stopped push true "HTTP 502" false
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-finish)" ""
+t_lacks "$(t_calls gh)" "tehas:finish issue=7"
+t_eq "$(jq -c '[.tries, .stopped, .said]' "$record")" '[[],"",false]'
+
+t_case "a refusal tells the issue the rule's words and the log what the command said"
+stopped push true "HTTP 502"
+echo "the rebase onto origin/main conflicts" >"$fx/finish-says"
+echo "error: could not apply 1a2b... @alice look here" >"$fx/finish-said"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "its finish was refused: the rebase onto origin/main conflicts"
+t_lacks "$(t_calls gh)" "@alice"
+t_contains "$t_out" "the finish of #7 was refused, the command said: error: could not apply 1a2b... @alice look here"
 
 t_case "a 422 is not retried"
 stopped pr false "HTTP 422"
