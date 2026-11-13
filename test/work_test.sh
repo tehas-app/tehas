@@ -737,4 +737,19 @@ t_eq "$(cycle_args)" ""
 
 caps_good
 
+t_case "the cycle starts the token renewer, and one that cannot start refuses the cycle before its container"
+t_instance "${T_MINIMAL[@]}"
+rm -f "$T"/calls/* "$T/renew.calls"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(cat "$T/renew.calls")" "renew --cmd $T/home/tehas/bin/tehasbot --arg github-token --arg --cycle --every 300 --retry 30"
+mv "$T/home/tehas/libexec/tehas-cycle" "$T/renewer.kept"
+rm -f "$T"/calls/* "$T/renew.calls"
+t_run "$work 7"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas work: the token renewer could not start ("
+t_contains "$t_out" "), not starting a cycle"
+t_eq "$(t_calls docker | grep -c -e --cidfile)" 0
+mv "$T/renewer.kept" "$T/home/tehas/libexec/tehas-cycle"
+
 t_done

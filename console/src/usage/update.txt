@@ -55,11 +55,12 @@ A record that exists but cannot be read stops the run too: answering "nothing
 is owed" for a file this account cannot open would let the next write replace
 steps somebody else recorded.
 
-pi-rukas is not pinned. Last, where the installed versions.env names a branch
-for it, the sandbox image is moved to that branch's head when the head is not
-the commit the image was built on, also when no file of tehas changed. A run
+pi-rukas is not pinned. Last, the sandbox image is moved to the commit
+`PI_RUKAS_FOLLOW` names (the newest tag of the line in `versions.env` by default)
+when that commit is not
+the one the image was built on, also when no file of tehas changed. A run
 that built the image already, or whose steps failed, skips this. --check only
-says whether the head moved. The host's clone of pi-rukas follows only when
+says whether the commit moved. The host's clone of pi-rukas follows only when
 bootstrap.sh user runs, so a run that left the image on a commit the clone is
 not on prints the follow-up: one later: line naming that command, whether or
 not versions.env changed, and with no change to the exit status.
@@ -148,10 +149,10 @@ Exit: 0 updated, or already up to date,
         gave no answer within its limit, systemd did not reload the unit files, a
         follow-up install.sh asked for is one this command does not know, or
         --check found something to update (a checkout behind, steps left
-        over from an earlier run, or a pi-rukas head the image is not on) or
+        over from an earlier run, or a pi-rukas commit the image is not on) or
         something an update does not fix (the host's tools, the slice, root's
         copy of the command, the tests), each said apart, or the image could
-        not be moved to the pi-rukas head. A record of steps owed that exists but this
+        not be moved to the pi-rukas commit it follows. A record of steps owed that exists but this
         account cannot read is a failure too: reading it as "nothing is owed"
         would let the next write replace steps somebody else recorded. A status
         of install.sh that this command does not know (126 when its exec bit is
