@@ -248,10 +248,12 @@ pub fn cycle_variables(verify: &str, child_seconds: u64, deadline: Option<i64>) 
 /// The container that asks whether the sandbox can push, before a cycle spends
 /// an hour of model time: a dry run needs the same credentials a real push does
 /// and creates nothing. It is outside the slice: a container of a few seconds.
+/// `network` is the cycle's [`network`], so it reaches only what the cycle can.
 pub fn push_check(
     security: &[String],
     user: &str,
     env: &[String],
+    network: &[String],
     tree: &str,
     host: &str,
     image: &str,
@@ -260,6 +262,7 @@ pub fn push_check(
     w.extend_from_slice(security);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(env);
+    w.extend_from_slice(network);
     w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
     w.extend(words(&["--entrypoint", "git", image]));
     w.extend(words(&["push", "--dry-run", "origin"]));
@@ -270,20 +273,22 @@ pub fn push_check(
 /// The container that installs the product's dependencies in a cycle's
 /// workspace before the cycle starts: <script> is [`crate::install::script`].
 /// It has the cycle's limits and the workspace at the cycle's path, and none of
-/// the cycle's variables: an install runs code no one reviewed.
+/// the cycle's variables: an install runs code no one reviewed. `held` is the
+/// cycle's limits and then its security options; `network` is the cycle's
+/// [`network`], so it reaches only what the cycle can.
 pub fn install_run(
-    limits: &[String],
-    security: &[String],
+    held: &[String],
     user: &str,
+    network: &[String],
     tree: &str,
     host: &str,
     image: &str,
     script: &str,
 ) -> Vec<String> {
     let mut w = words(&["docker", "run", "--rm"]);
-    w.extend_from_slice(limits);
-    w.extend_from_slice(security);
+    w.extend_from_slice(held);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
+    w.extend_from_slice(network);
     w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
     w.extend(words(&["--entrypoint", "bash", image]));
     w.extend(words(&["-c", script]));
@@ -381,10 +386,48 @@ fn merged(a: serde_json::Value, b: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// The most of the product's .pi/settings.json that is read, in bytes.
+const PROJECT_SETTINGS_MAX: u64 = 64 * 1024;
+
+/// The product's .pi/settings.json in the workspace <host>, which a container
+/// has written by now: None when there is none, Err when .pi or the file is a
+/// link or something other than a plain file, or larger than the bound.
+fn project_settings(host: &str) -> Result<Option<Vec<u8>>, String> {
+    use std::io::Read;
+    let dir = format!("{host}/.pi");
+    let file = format!("{dir}/settings.json");
+    let plain = |p: &str, dir: bool| {
+        fs::symlink_metadata(p).map(|m| if dir { m.is_dir() } else { m.is_file() })
+    };
+    match (plain(&dir, true), plain(&file, false)) {
+        (Err(_), _) | (Ok(true), Err(_)) => return Ok(None),
+        (Ok(true), Ok(true)) => {}
+        _ => return Err(format!("{file} is not a plain file")),
+    }
+    let not_read = || format!("{file} could not be read");
+    let f = fs::File::open(&file).map_err(|_| not_read())?;
+    if !f.metadata().is_ok_and(|m| m.is_file()) {
+        return Err(format!("{file} is not a plain file"));
+    }
+    let mut text = Vec::new();
+    f.take(PROJECT_SETTINGS_MAX + 1)
+        .read_to_end(&mut text)
+        .map_err(|_| not_read())?;
+    if text.len() as u64 > PROJECT_SETTINGS_MAX {
+        return Err(format!(
+            "{file} is larger than {PROJECT_SETTINGS_MAX} bytes"
+        ));
+    }
+    Ok(Some(text))
+}
+
 fn first_json(file: &str) -> Option<serde_json::Value> {
+    first_json_of(&fs::read(file).ok()?)
+}
+
+fn first_json_of(text: &[u8]) -> Option<serde_json::Value> {
     use serde_json::Value;
-    let text = fs::read(file).ok()?;
-    let mut all = serde_json::Deserializer::from_slice(&text).into_iter::<Value>();
+    let mut all = serde_json::Deserializer::from_slice(text).into_iter::<Value>();
     let first = all.next().transpose().ok()?;
     match first.unwrap_or(Value::Null) {
         Value::Null | Value::Bool(false) => Some(Value::Object(Default::default())),
@@ -401,12 +444,13 @@ pub fn retry_line(host: &str) -> String {
     if !std::path::Path::new(&global).is_file() {
         return format!("provider retry: unknown, {global} is missing");
     }
-    let mut project = format!("{host}/.pi/settings.json");
-    if fs::File::open(&project).is_err() {
-        project = "/dev/null".to_string();
-    }
+    let (project, text) = match project_settings(host) {
+        Ok(Some(text)) => (format!("{host}/.pi/settings.json"), text),
+        Ok(None) => ("/dev/null".to_string(), Vec::new()),
+        Err(why) => return format!("provider retry: unknown, {why}"),
+    };
     let not_json = || format!("provider retry: unknown, {global} or {project} is not JSON");
-    let (Some(g), Some(p)) = (first_json(&global), first_json(&project)) else {
+    let (Some(g), Some(p)) = (first_json(&global), first_json_of(&text)) else {
         return not_json();
     };
     if !g.is_object() || !p.is_object() {
@@ -805,6 +849,39 @@ fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_products_settings_are_read_only_as_a_plain_file_of_a_bounded_size() {
+        use std::os::unix::fs::symlink;
+        let d = std::env::temp_dir().join(format!("tehas-project-settings-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        let ws = d.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        let host = ws.to_str().unwrap();
+        assert_eq!(project_settings(host), Ok(None));
+        fs::create_dir_all(ws.join(".pi")).unwrap();
+        let file = ws.join(".pi/settings.json");
+        fs::write(&file, "{}").unwrap();
+        assert_eq!(project_settings(host), Ok(Some(b"{}".to_vec())));
+        fs::write(&file, vec![b' '; PROJECT_SETTINGS_MAX as usize + 1]).unwrap();
+        assert!(project_settings(host)
+            .unwrap_err()
+            .contains("is larger than"));
+        fs::remove_file(&file).unwrap();
+        fs::write(d.join("elsewhere.json"), "{}").unwrap();
+        symlink(d.join("elsewhere.json"), &file).unwrap();
+        assert!(project_settings(host)
+            .unwrap_err()
+            .contains("is not a plain file"));
+        fs::remove_dir_all(ws.join(".pi")).unwrap();
+        fs::create_dir_all(d.join("other")).unwrap();
+        fs::write(d.join("other/settings.json"), "{}").unwrap();
+        symlink(d.join("other"), ws.join(".pi")).unwrap();
+        assert!(project_settings(host)
+            .unwrap_err()
+            .contains("is not a plain file"));
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn the_idle_timeout_is_read_at_the_top_level_and_under_retry_provider() {

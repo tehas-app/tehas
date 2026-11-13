@@ -438,3 +438,20 @@ test("a factory that is not read-only shows no read-only pill or section", async
   assert.equal(p.hidden("ro"), true);
   assert.deepEqual(p.items("ro-list"), []);
 });
+
+test("a link of the queue file that is not a web address is not drawn as one", async () => {
+  const issue = (url) => ({ number: 3, title: "t", url, updatedAt: new Date(T * 1000).toISOString() });
+  const p = await page({
+    top: 404,
+    status: {
+      links: { all: "javascript:void 0", queued: "data:text/html,x", awaiting: "a", stopped: "s", completed: "c" },
+      queued: [issue("javascript:void 0"), ...Array.from({ length: 10 }, () => issue("https://github.com/acme/widget/issues/3"))],
+    },
+  });
+  assert.deepEqual(p.errors, []);
+  const anchors = p.node("queued").kids.map((li) => li.kids.find((k) => k.name === "a"));
+  assert.deepEqual(anchors.map((a) => a.href), [
+    "", ...Array(9).fill("https://github.com/acme/widget/issues/3"), "",
+  ]);
+  assert.equal(p.node("all").href, "");
+});

@@ -9,6 +9,10 @@
 # in every page; without them there is none. TEHAS_DESIGN draws every page
 # and picks the front page: beesknees26 (the business page) or pixel (the
 # factory floor); without it beesknees26.
+#
+# It answers from its mounts and writes nothing, so it is held as the router
+# is: a read-only root, every capability dropped but the one the image's caddy
+# binary is marked with, and no gain of rights.
 name: tehas-docs
 services:
   docs:
@@ -30,3 +34,13 @@ services:
       - "${TEHAS_HOST_ADDR:-127.0.0.1}:8080:8080"
     restart: unless-stopped
     mem_limit: 128m
+    read_only: true
+    tmpfs:
+      - /config
+      - /data
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true

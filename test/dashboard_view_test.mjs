@@ -20,7 +20,7 @@ test("the module loads with no document and names the element of its page", () =
 
 test("the module imports its siblings relatively", () => {
   assert.ok(VIEW.includes('import "./dom.js";'));
-  assert.ok(VIEW.includes('import { ago, agoText, dueToRead, layout } from "./host-data.js";'));
+  assert.ok(VIEW.includes('import { ago, agoText, dueToRead, layout, webHref } from "./host-data.js";'));
   assert.ok(VIEW.includes('import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";'));
   assert.ok(!VIEW.includes('from "/fun/'));
 });

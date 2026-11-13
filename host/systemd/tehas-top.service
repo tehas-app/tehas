@@ -2,6 +2,8 @@
 Description=Tehas: publish the host's load and processes for the dashboard every 5 seconds
 
 [Service]
+NoNewPrivileges=yes
+MemoryMax=256M
 # It writes nothing unless the instance sets TEHAS_TOP=1: with 0 it removes
 # live/top.json and waits, so a host that publishes no host section serves none.
 # A setting that is malformed ends each run with 78 rather than a loop that

@@ -254,6 +254,6 @@ t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./te
 t_case "a cycle's unit runs tehasbot cycle from the cycle's own copy of the code"
 # Which command every other unit names is pinned in console/src/front.rs.
 t_eq "$(grep -L 'bin/tehasbot ' "$T_ROOT"/host/systemd/*.service)" "$T_ROOT/host/systemd/tehas-cycle@.service"
-t_contains "$(grep -h -o 'libexec/tehas-cycle run %i' "$T_ROOT/host/systemd/tehas-cycle@.service")" "tehas-cycle run %i"
+t_contains "$(grep -h -o 'libexec/tehas-cycle run \\"$$1\\".* tehas-cycle %i$' "$T_ROOT/host/systemd/tehas-cycle@.service")" "tehas-cycle %i"
 
 t_done
