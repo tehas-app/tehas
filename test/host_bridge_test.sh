@@ -78,24 +78,14 @@ out=$(check "$T/bad.json")
 t_contains "$out" ".notices: more than 5 items"
 t_contains "$out" ".ticketNotes: more than 200 items"
 
-t_case "the check finds a token day or model that breaks a rule, and lists too long"
-jq '.tokens.days[0].date = "7 Nov" | .tokens.days[1].input = -1 | .tokens.models[0].model = ""
-    | .tokens.models[0].output = 1.5 | .tokens.unknown = 1000000000000001' "$api/host-bridge.full.json" >"$T/bad.json"
-out=$(check "$T/bad.json")
-t_contains "$out" '.tokens.days[0].date: "7 Nov" does not match'
-t_contains "$out" ".tokens.days[1].input: -1 is under 0"
-t_contains "$out" ".tokens.models[0].model: shorter than 1"
-t_contains "$out" ".tokens.unknown: 1000000000000001 is over 1000000000000000"
-jq '.tokens.days = [range(11) | {date: "2026-11-01", requests: 0, input: 0, output: 0, cached: 0}]
-    | .tokens.models = [range(21) | {model: "m\(.)", requests: 0, input: 0, output: 0, cached: 0}]' \
-  "$api/host-bridge.full.json" >"$T/bad.json"
-out=$(check "$T/bad.json")
-t_contains "$out" ".tokens.days: more than 10 items"
-t_contains "$out" ".tokens.models: more than 20 items"
+t_case "an answer that still carries tokens fits the schema: the field is unknown now and ignored"
+jq '.tokens = {days: [{date: "7 Nov", input: -1}], models: "x", unknown: 1.5}' "$api/host-bridge.full.json" >"$T/old.json"
+t_eq "$(check "$T/old.json")" ""
+t_eq "$(jq -c '.properties | has("tokens")' "$schema")" false
 
-t_case "the business front page draws token use at the foot of the Performance section, hidden until there is some"
-t_eq "$(awk '/id="period"/ {p = 1} p && /id="host-tokens"[^>]* hidden><\/div>/ {print "in"; exit} p && /<\/section>/ {print "out"; exit}' \
-  "$T_ROOT/host/fun/business.html")" in
+t_case "the business front page draws no token table"
+t_eq "$(grep -c 'host-tokens\|token-use\|token-table' "$T_ROOT/host/fun/business.html" "$T_ROOT/host/fun/business.css" "$T_ROOT/host/fun/business-view.js" | awk -F: '{n += $2} END {print n}')" 0
+t_eq "$(grep -c 'drawTokens\|tokensOf' "$T_ROOT/host/fun/host-bridge.js")" 0
 
 t_case "the docs server answers every path under /host/ with 404, before anything else it serves"
 t_contains "$(cat "$caddyfile")" "@host path /host /host/*"
@@ -122,11 +112,10 @@ for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
   t_eq "$(grep -A1 'id="industry-alerts"' "$page" | grep -c 'id="host-notices"[^>]* hidden></section>')" 1
 done
 
-t_case "tehas api lists the features host-bridge and host-bridge-tokens, and the manual names them"
+t_case "tehas api lists the feature host-bridge and no longer host-bridge-tokens, and the manual names it"
 t_contains "$(cat "$T_ROOT/console/src/api.rs")" '"host-bridge",'
-t_contains "$(cat "$T_ROOT/console/src/api.rs")" '"host-bridge-tokens",'
+t_eq "$(grep -c 'host-bridge-tokens' "$T_ROOT/console/src/api.rs" "$T_ROOT/host/docs/api.md" | awk -F: '{n += $2} END {print n}')" 0
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '## The host bridge'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-bridge` ([the host bridge](#the-host-bridge))'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-bridge-tokens` (the dashboard draws `tokens`'
 
 t_done

@@ -117,7 +117,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "host-bridge-tokens", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -142,7 +142,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `host-bridge-tokens` (the dashboard draws `tokens` of [the host bridge](#the-host-bridge)) `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) and `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) and `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -1197,7 +1197,7 @@ written, and still: treat all of it as public.
 
 | Name | Written by | Read by |
 | --- | --- | --- |
-| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`; the store's `publish` and `analytics orders`; `console/ops/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
+| `status.json` | `console/src/queue.rs`, run as `tehasbot status` ([tehasbot status and the console](/tools-health#tehasbot-status-and-the-console)) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`; the store's `publish`; `console/ops/src/health.rs`, `console/analytics/src/sample.rs`, the MCP server (`factory_status`, `factory_issues`, `factory_issue`, `factory_sessions`) |
 | `running.json` | the store's `publish` (`console/store/src/live.rs`) | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/game-view.js`, `host/fun/console-tabs.js`; `console/ops/src/health.rs`, `console/src/dev.rs`; the MCP server (`factory_status`, `factory_issue`, `factory_sessions`) |
 | `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
@@ -1207,7 +1207,6 @@ written, and still: treat all of it as public.
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
 | `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
-| `orders.json` | `console/analytics/src/orders.rs`, run by `tehasbot status` | `host/fun/work-orders.js` |
 | `top.json` | `console/src/top.rs` run as `tehasbot top`, when `TEHAS_TOP=1` ([tehasbot top](/tools-health#tehasbot-top)) | `host/fun/host-view.js`, `host/fun/host-data.js`, `host/fun/dashboard-view.js` |
 | `panels.json` | `console/ops/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
 | `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
@@ -1230,7 +1229,7 @@ GET /host/bridge.json
 ```
 
 ```json
-{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}], "tokens": {"days": [{"date": "2026-11-08", "requests": 412, "input": 9120000, "output": 81000, "cached": 8700000}], "models": [{"model": "example-model", "requests": 412, "input": 9120000, "output": 81000, "cached": 8700000}], "unknown": 0}}
+{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
 ```
 
 A contract between the dashboard and a host that fronts the factory's domain.
@@ -1267,16 +1266,13 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
 | `menu.url` | An `http://` or `https://` address with no user or password, at most 512 characters, not on the dashboard's own origin |
-| `tokens` | Optional. Token use over the last 10 days, from the host's own records. Absent, or not an object: nothing is drawn |
-| `tokens.days` | At most 10, one per UTC date. Each has `date` (`YYYY-MM-DD`, unique in the list) and the counts `requests`, `input`, `output` and `cached`, integers from 0 to 10^15. `cached` is the part of `input` read from a cache |
-| `tokens.models` | At most 20, totals over the days. Each has `model` (one line, 1 to 80 characters, unique in the list) and the same four counts |
-| `tokens.unknown` | Requests whose usage the host could not read, an integer from 0 to 10^15. Anything else counts as 0 |
 
 - Not JSON, over 256 KiB, or a bad `bridge` or `time`: the answer is ignored
   whole.
 - An element that breaks a rule is dropped alone; the rest is used. Past the
   limit of a list, the elements after it are dropped.
-- Unknown fields are ignored, at the top level and in each element.
+- Unknown fields are ignored, at the top level and in each element. A
+  `tokens` field, which an earlier release drew, is one of them.
 - Text goes into the page as text only, never as markup.
 - A link is used only if it passes its rule. A path under `/host/` opens in
   the same tab; an `https://` address in a new one.
@@ -1293,20 +1289,13 @@ How the dashboard draws it:
   `live/panels.json`, four in all. Pressing one opens its page in the dock at
   the side, framed as a panel is; an item that goes from the answer goes from
   the menu.
-- `tokens`: a "Token use" block at the foot of the Performance section of
-  the business front page, under its charts: a table of the days, oldest
-  first, and a table of the models, each with requests, input, cached and
-  output. A day or a model with no input or output tokens is not listed.
-  `unknown` above 0 is shown as "N unknown", never as zero tokens. The block
-  is drawn only while the section is.
 
 The answer is data and never runs code on the dashboard's pages. Pages under
 `/host/` share the dashboard's origin: tehas keeps no secret on it, and a host
 that fronts the domain is trusted as the factory's operator is. tehas
 registers no service worker, and the front pages and `/dashboard` unregister
 any they find on their origin. `live/` stays public; the bridge does not
-change it. `tehas api` lists the feature `host-bridge`, and `host-bridge-tokens`
-when the dashboard draws `tokens`.
+change it. `tehas api` lists the feature `host-bridge`.
 
 ## Settings rules
 
