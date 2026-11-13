@@ -60,6 +60,18 @@ export function ago(iso, nowMs) {
   return agoText((nowMs - at) / 1000);
 }
 
+// An address a published file names, as a link may take it: an http: or https:
+// address, or one relative to the page. Anything else is "", no link.
+export function webHref(u) {
+  if (typeof u !== "string") return "";
+  try {
+    const p = new URL(u, "https://page.invalid/").protocol;
+    return p === "https:" || p === "http:" ? u : "";
+  } catch {
+    return "";
+  }
+}
+
 // data: the parsed top file. nowMs: the present, by the server's clock.
 export function layout(data, nowMs) {
   const file = data && typeof data === "object" ? data : {};

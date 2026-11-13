@@ -18,7 +18,7 @@ import "./dom.js";
 // one module, shared with the panel on the factory floor (host/fun/host-view.js).
 // ago() is the same words for the stamp of a file rather than a reading, so no
 // page counts an age of its own.
-import { ago, agoText, dueToRead, layout } from "./host-data.js";
+import { ago, agoText, dueToRead, layout, webHref } from "./host-data.js";
 // The "Last 10 days" section: what live/analytics.json means, worked out by one
 // module (host/fun/analytics-data.js); here it is drawn.
 import { analyticsView, dueToRead as dueAnalytics } from "./analytics-data.js";
@@ -56,7 +56,7 @@ export function start() {
     for (const it of items.slice(0, MAX)) {
       const li = el("li");
       const a = el("a", null, it.title);
-      a.href = (bridge() && bridge().ticket(repo, it.url)) || it.url;
+      a.href = (bridge() && bridge().ticket(repo, it.url)) || webHref(it.url);
       li.append(el("span", "num", "#" + it.number), a);
       const notes = notesOf(it.number);
       if (notes) li.append(" ", notes);
@@ -66,7 +66,7 @@ export function start() {
     if (items.length > MAX) {
       const li = el("li", "empty");
       const a = el("a", "more", "all " + items.length + " on GitHub");
-      a.href = moreUrl;
+      a.href = webHref(moreUrl);
       li.append(a);
       ul.append(li);
     }
@@ -335,7 +335,7 @@ export function start() {
     lastStatus = s;
     lastNow = now;
     $("fresh").textContent = "queue read " + ago(s.generatedAt);
-    $("all").href = s.links.all;
+    $("all").href = webHref(s.links.all);
 
     lists(s);
     show();
