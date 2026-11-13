@@ -453,6 +453,26 @@ t_eq "$(cat "$marker")" "$before"
 t_eq "$(cat "$failed")" "$tip"
 T_ENV=("$root" "$wait")
 
+t_case "a record that cannot be written counts as failed, and a poll does not run again at that tip"
+commit unwritable
+git -C "$checkout" fetch -q
+tip=$(git -C "$upstream" rev-parse main)
+before=$(cat "$marker")
+rm -f "$failed"
+reset
+mkdir -p "$marker.new/x"
+t_run "$index"
+t_eq "$t_rc" 1
+t_contains "$t_out" "its record $marker was not written"
+t_eq "$(cat "$marker")" "$before"
+t_eq "$(cat "$failed")" "$tip"
+t_run "$index --before-cycle"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not tried again before the branch moves"
+t_eq "$(runs)" 1
+rm -rf "$marker.new"
+rm -f "$failed"
+
 t_case "a container left by a killed run is removed before the run, under timeout"
 reset
 t_run "$index"
