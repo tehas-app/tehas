@@ -9,7 +9,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The stop is a verb of the console (console/src/stop.rs), found beside the
+# The stop is a verb of the console (console/ops/src/stop.rs), found beside the
 # command on a host: TEHAS_CONSOLE names the console of this checkout instead.
 t_console || t_bad "$t_console_why"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")

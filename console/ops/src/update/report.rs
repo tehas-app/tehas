@@ -546,7 +546,7 @@ mod tests {
 
     #[test]
     fn the_retired_files_are_paths_under_the_home_that_this_tree_no_longer_ships() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut seen = HashSet::new();
         for path in retired() {
             assert!(seen.insert(path), "{path} is listed twice");

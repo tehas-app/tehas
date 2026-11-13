@@ -37,7 +37,7 @@ With --json, {"api": 1, "state": "ok", "cycles": 1, "plan": false,
 and a field without a value is left out.
 
 The settings are loaded here, and the arguments of set, the
-reading, the writing and the printing are the console's (console/src/flags.rs).
+reading, the writing and the printing are the console's (console/ops/src/flags.rs).
 
 Exit: 0 shown, set or cleared; 64 a bad argument, which writes nothing; 78
 the instance settings are missing or malformed, which writes nothing.

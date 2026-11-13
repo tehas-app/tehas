@@ -166,7 +166,7 @@ fn answer(home: &Path, args: &[&str]) -> Result<(Value, String), Refusal> {
 /// answers planted for it (`testing::plant`), which go to `call_with` rather
 /// than through the environment the tests share.
 fn run(home: &Path, args: &[&str]) -> ::store::Answer {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     if let Some(file) = testing::noted(home, args) {
         return ::store::call_with(home, args, &mut io::empty(), Some(&file));
     }
@@ -193,7 +193,7 @@ pub fn try_call(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refusal
 /// The unit tests' hook: answers planted for one home, and the calls made in
 /// it. Keyed by home, so the tests of the harness, each with a home of its own,
 /// run side by side.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod testing {
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};

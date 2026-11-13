@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for tehas update from releases (console/src/update/release.rs through
+# Tests for tehas update from releases (console/ops/src/update/release.rs through
 # libexec/update): which version is the target, the notes between, the two
 # checks of a download, the instance checked against the target's own rules,
 # the switch of current, the image a version ran with, and the last three
@@ -21,7 +21,7 @@ rel=$T/releases
 T_ENV=(T_IN_TEST=1)
 
 # The asset name the release of a machine answers with, the same words
-# console/src/update/release.rs answers with. The cases stub
+# console/ops/src/update/release.rs answers with. The cases stub
 # uname; where they do not, this run's own machine decides, as it does on a host.
 arch_of() { # [machine]
   local machine=${1:-$(uname -m)}

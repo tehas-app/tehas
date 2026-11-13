@@ -7,7 +7,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 # The command as a host has it: beside the console, which runs the steps
-# (console/src/clean.rs) and is this checkout's own build. The tests of its
+# (console/ops/src/clean.rs) and is this checkout's own build. The tests of its
 # parts are beside its source.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"

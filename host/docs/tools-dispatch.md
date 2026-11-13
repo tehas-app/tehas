@@ -63,7 +63,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:lean`,
 `tehas:prototype`). It is one console verb
-(`console/src/tidy.rs`), with the settings of the poll's environment: the list,
+(`console/ops/src/tidy.rs`), with the settings of the poll's environment: the list,
 the searches, the decision of what comes off which issue and the edits are all
 there. It makes one search,
 for the closed issues
@@ -84,7 +84,7 @@ names the issue in its text is on it. One further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
 [tehasbot status](/tools-health#tehasbot-status-and-the-console) makes, and the same console
-code decides its answer (`console/src/shipped.rs`).
+code decides its answer (`console/ops/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person or an unmerged pull request, and which

@@ -13,7 +13,7 @@ Usage: tehas resume
 It calls GitHub to read the control issue, and only after it has removed the
 flag: the host's own switch comes off whatever GitHub then says.
 
-The console (console/src/flags.rs) checks the argument, removes the flag and
+The console (console/ops/src/flags.rs) checks the argument, removes the flag and
 reads the control issue. A name of the flag is removed only when it holds a
 regular file of this account, never a symlink.
 

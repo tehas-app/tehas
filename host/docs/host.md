@@ -501,7 +501,7 @@ file it was copying as it was.
 
 The manual and the front page are not copied from `host/` as they stand.
 `install.sh` first asks the console to stage them (`console update assets`,
-`console/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
+`console/ops/src/update/assets.rs`), which copies `host/fun` and `host/docs` to a
 scratch directory and, for each `<script src="/fun/X.js">` and each
 `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
 `fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
@@ -1714,7 +1714,7 @@ repository gitignores it, so `tehas update` sees no local change in it and the b
 is the only thing that decides what stands there. `test/build_test.sh` reads the
 recipe docker was handed and says which step is shared and which belongs to one
 uid. The console writes the copy owner-only (`console sandbox stage`,
-`console/src/sandbox.rs`, which also checks the recipe), and a link or a directory under the name
+`console/ops/src/sandbox.rs`, which also checks the recipe), and a link or a directory under the name
 of one of the two is refused rather than removed: the cleaner takes a copy of that
 name and shape and no other.
 

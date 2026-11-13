@@ -3,7 +3,7 @@
 # release carries: the file and what `console settings rules --json` prints
 # both fit api/settings-rules.schema.json, and a one-of row's words and reason
 # are what `console settings valid` answers. The console's own tests hold the
-# file byte for byte against the table (console/src/settings.rs). See
+# file byte for byte against the table (console/ops/src/settings.rs). See
 # "Settings rules" in host/docs/api.md.
 #
 # To write the file again after a change to a rule:

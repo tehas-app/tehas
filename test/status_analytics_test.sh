@@ -23,7 +23,7 @@ live=$T/home/tehas/live
 file=$live/analytics.json
 
 # No sandbox image: status asks docker for the label of the one cycles run
-# (src/rukas.rs), and this host's own must not answer.
+# (console/ops/src/rukas.rs), and this host's own must not answer.
 t_stub docker 'exit 1'
 t_stub gh '
 [ ! -e "$T/github-down" ] || exit 1

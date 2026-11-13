@@ -183,7 +183,7 @@ likeliest to fail in - and a reading that could not be written fails the unit,
 seen in `journalctl --user -u tehas-clean`. The
 [`factory_disk`](/mcp-server#the-tools) tool of the MCP server reads that file
 and so asks the host's disk nothing. The reading, the bounds and the printing
-are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
+are the console's (`~/tehas/libexec/console disk`, `console/ops/src/disk.rs`);
 it reads the home, the scratch disk and the bound of the wait from the
 instance's own file, so `bin/tehas` loads nothing for it and hands the
 arguments straight over. See

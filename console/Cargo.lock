@@ -99,6 +99,7 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
+ "tehas-ops",
 ]
 
 [[package]]
@@ -608,6 +609,20 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "tehas-core",
+]
+
+[[package]]
+name = "tehas-ops"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "serde_json",
+ "sha2 0.10.9",
+ "store",
+ "tehas-core",
+ "tehas-cycle",
+ "tehas-dispatch",
 ]
 
 [[package]]

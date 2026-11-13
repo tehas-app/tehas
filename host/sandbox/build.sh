@@ -141,7 +141,7 @@ fi
 
 # The tracked recipe, the copy of it docker is handed (the only file this
 # script writes) and the temporaries of earlier runs are the console's to check
-# (console sandbox recipe, console/src/sandbox.rs), before git or docker is asked.
+# (console sandbox recipe, console/ops/src/sandbox.rs), before git or docker is asked.
 "$console" sandbox recipe "$here" "$mode" || exit 1
 
 if ! target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}"); then

@@ -505,10 +505,10 @@ fn every_host_command_uses_token_env() {
     sources(&root, &mut all);
     assert!(all.len() > 50, "the sources were found: {}", all.len());
     let owns = |rel: &str| {
-        rel == "src/github.rs"
+        rel == "ops/src/github.rs"
             || rel == "core/src/settings.rs"
             || rel.starts_with("core/src/settings/")
-            || rel.starts_with("src/setup")
+            || rel.starts_with("ops/src/setup")
     };
     let mut found = Vec::new();
     for path in all {
