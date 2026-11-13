@@ -100,13 +100,7 @@ pub fn comments_said(f: &Facts) -> String {
         .and_then(runner::values)
         .and_then(|all| {
             all.iter().rev().find_map(|r| {
-                let per_issue = r.get("issues").and_then(|is| match is {
-                    Value::Array(a) => a
-                        .iter()
-                        .find(|e| e.get("issue").and_then(Value::as_u64) == Some(f.issue))
-                        .and_then(|e| e.get("comments")),
-                    _ => None,
-                });
+                let per_issue = runner::issue_entry(r, f.issue).and_then(|e| e.get("comments"));
                 per_issue
                     .or_else(|| r.get("comments"))
                     .filter(|c| c.is_object())
