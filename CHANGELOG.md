@@ -232,6 +232,35 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The pinned Node moves from 22.23.4 to 22.23.5.
 - The pinned gh moves from 2.103.3 to 2.104.0.
 - The pinned Rust moves from 1.99.1 to 1.100.0.
+- `tehasbot refresh --pr N` asks for the refresh of one pull request at once, whatever `TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY` say. It applies the timed run's rule, writes the request with `"asked": "pr"`, and exits 3 when the pull request is not one the factory refreshes or does not conflict. `tehas api` lists the feature `refresh-pr` (#1874).
+- The messages of `tehas host-message` show in the health file as `checks.hostMessages`, in `tehas status`, in the MCP `factory_status` answer and in the front pages' banner. An `alert` or `warn` message makes the factory warn with its text, and `tehas api` lists the feature `host-message-health` (#1875).
+- With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher starts a refresh that `tehasbot refresh --pr N` asked for (`"asked": "pr"`), in a cycle slot, and counts it in the demand of `tehas status`. A request without `"asked"` still waits, and `refreshHold` names the setting only while such a request waits. The sandbox image's hold and every other start check are as before. `tehas api` lists the feature `refresh-pr-starts` (#1876).
+- Attachment links are taken only from GitHub's attachment folders. A part of
+  a link's path that is `.` or `..`, or holds an escaped `.`, `/` or `\`, ends
+  the link there, curl asks for the path as written, and the bot's token goes
+  only with a whole attachment link. This holds for the images and files a
+  cycle is given and for the Protolab's files.
+- The improvement loop's analyst is given the body of an issue only when the
+  issue carries `tehas:improvement` or is of the improvement type. Of any other
+  issue it is given the title and labels, and the Cycles lines of its body are
+  no longer read.
+- MCP answers say which text comes from outside the factory: the handshake's
+  instructions and the descriptions of the tools that return issue titles,
+  failure causes, park reasons, console, log, event or decision text call it
+  third-party text, to be read as data. An issue title is served on one line,
+  without control or direction characters, and cut to 200 characters.
+- Only the factory's own pull requests hold an issue. An open pull request takes `tehas:ready` off an issue it closes only when its branch is in the product repository and the bot or an account in `TEHAS_ALLOWED_LABELERS` opened it. A pull request from a fork, or by any other account, holds nothing.
+- A planning turn carries only files inside its tree from one turn to the next: no part of the session's path is followed through a link, special files are left out, and one carry takes at most 1024 files and 32 MB.
+- A preview's build runs with no network and in `tehas.slice`, under the slice's memory limit. A `FROM` image is still pulled; a `RUN` step reaches nothing.
+- The release workflow publishes only a tag whose commit is on `main` and that
+  an admin of the repository pushed. A tag on any other commit, or one pushed by
+  a bot or an account without admin rights, publishes nothing.
+- An edit in the second of an approval ends it. GitHub's times count whole
+  seconds, so an edit or rename of an issue by another account in the second
+  `tehas:ready` was applied, or a retry was ticked, now counts as after it, and
+  the issue waits until it is approved again. The approver's own change in that
+  second is still the text it approved.
+- The scratch cap counts every file a cycle writes: a scratch under `TEHAS_SCRATCH_DIR` with more than 500,000 files and directories counts as over `TEHAS_SCRATCH_MAX`, and as the largest under `TEHAS_CYCLE_STOP_FREE`, instead of as the part that was read.
 
 ### Held back
 
@@ -269,6 +298,8 @@ repository named in the platform, and it is gone for every host.
 - A pull request whose title still starts with `WIP: ` or `HALT: ` keeps it: tehas does not change it again. Take the prefix off by hand before merging if you do not want it in the merge commit. A program that read `pr-title` from `tehas api` should read the issue's labels instead.
 
 Take `TEHAS_PRIORITY_FIELD`, `TEHAS_LOW_GATE` and `TEHAS_LOW_GATE_WAIT` out of `instance.env` and `optional.env` before updating. To keep an issue first, run `tehas order set --issues <n>`. The labels `tehas:urgent` and `tehas:next` order nothing now; delete them from the repository with `gh label delete tehas:urgent` and `gh label delete tehas:next` once no issue needs them.
+
+A `preview/Dockerfile` whose `RUN` steps fetch from the network (a package install, a download) now fails to build. Put what it needs in the commit or in the `FROM` image. To try a recipe by hand, build it with `docker build --network none`.
 
 ## v0.25.1 (2026-11-07)
 
