@@ -2235,8 +2235,9 @@ An operator or a script can ask for one pull request at once with
 [tehasbot refresh](/tools-github#tehasbot-refresh)). It writes the same request
 with `"asked": "pr"`, and the dispatcher still checks it at the start as below.
 With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher still starts such a
-request, and it counts in the demand of `tehas status`. It takes a cycle slot,
-as no lane is kept for refreshes while the setting is off. A request without
+request, and it counts in the demand of `tehas status`. It runs in the refresh
+lane, not in a cycle slot: while the setting is off the lane is kept only while
+such a request waits or a refresh runs. A request without
 `"asked"`, as the timed run writes, waits while the setting is off, even one
 written before it was turned off: the dispatcher's log says `hold refreshes:
 TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
@@ -2286,9 +2287,11 @@ cycle slot busy the hold line ends `the refresh lane has 1 of 1 free`, and a
 request that finds the lane full waits: `wait #<issue>: the refresh lane is
 full (1 of 1)`. `tehas status` shows the lane's free slots on the slice line.
 `TEHAS_REFRESH_SLOTS=0` turns the lane off: refreshes then take the cycles'
-slots, and no room is kept. With `TEHAS_REFRESH_CONFLICTS` off no room is kept
-either. With it on but an image that cannot refresh, the room is still kept:
-turn refreshes off on such a host.
+slots, and no room is kept, whatever `TEHAS_REFRESH_CONFLICTS` says. With
+`TEHAS_REFRESH_CONFLICTS` off the room is kept only while a request
+`tehasbot refresh --pr N` wrote waits or a refresh runs; the rest of the time
+the cycles have every slot. With it on but an image that cannot refresh, the
+room is still kept: turn refreshes off on such a host.
 
 Pause, the limit, the slots of the lane and the slice's room hold a refresh as
 they hold any start; the limit of `tehas limit` counts refreshes and cycles

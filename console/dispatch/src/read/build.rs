@@ -366,7 +366,17 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         Value::Array(_) => json!(from),
         e => e,
     };
-    if c.refresh_conflicts || !from.is_empty() {
+    // The requests are read before the list: with the setting off, a request
+    // `tehasbot refresh --pr N` wrote starts in the lane, and the clean-up of
+    // the marks runs while it waits. A request without that marker does not.
+    let (requests, refresh_warn) = host::requests(home);
+    if !refresh_warn.is_empty() {
+        s["refresh_warn"] = json!(refresh_warn);
+    }
+    let pr_asked = requests
+        .iter()
+        .any(|(_, r)| r.get("asked").and_then(Value::as_str) == Some("pr"));
+    if c.refresh_conflicts || !from.is_empty() || pr_asked {
         s["refreshing"] = github::list(
             calls,
             &[
@@ -393,10 +403,6 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .zip(events_all(calls, &c.repo, &refreshing))
     {
         entry(&mut issues, *pr)["events"] = r;
-    }
-    let (requests, refresh_warn) = host::requests(home);
-    if !refresh_warn.is_empty() {
-        s["refresh_warn"] = json!(refresh_warn);
     }
     want(
         &mut per_issue,
@@ -1803,6 +1809,36 @@ esac"#,
             calls.len(),
             "the poll counted every gh call it made"
         );
+    }
+
+    /// With `TEHAS_REFRESH_CONFLICTS` off and no refresh on record, the
+    /// pull requests marked tehas:refreshing are listed while a request
+    /// `tehasbot refresh --pr N` wrote waits, and not for a request without
+    /// that marker.
+    #[test]
+    fn the_refreshing_list_is_read_with_the_setting_off_while_a_pr_request_waits() {
+        for (body, read) in [(r#"{"asked":"pr"}"#, true), (r#"{"at":"x"}"#, false)] {
+            let _clock = crate::read::run::no_case_clock();
+            let mut w = world();
+            w["refreshing"] = json!([]);
+            let dir = host(&w, &[]);
+            std::fs::write(dir.join("state/refresh/40.json"), body).unwrap();
+            let mut src = sources(&dir);
+            let s = settings();
+            assert!(!s.refresh_conflicts, "the setting is off");
+            let snap = match snapshot(&mut src, &s) {
+                Ok(s) => s,
+                Err(f) => panic!("the stubs answer: {}", f.line),
+            };
+            let calls = calls_of(&dir, "gh");
+            assert_eq!(
+                calls.iter().any(|c| c.contains("tehas:refreshing")),
+                read,
+                "{body}: {calls:?}"
+            );
+            assert_eq!(snap.get("refreshing").is_some(), read, "{body}");
+            assert_eq!(snap["refresh_requests"], json!([40]));
+        }
     }
 
     /// The record of a plan's start is read for the issues the rule can start,

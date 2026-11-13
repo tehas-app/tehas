@@ -767,6 +767,21 @@ impl<'a> Poll<'a> {
         Ok(all)
     }
 
+    /// pr_asked: a waiting refresh request was written by
+    /// `tehasbot refresh --pr N` (`"asked": "pr"`), which starts with
+    /// `TEHAS_REFRESH_CONFLICTS` off.
+    fn pr_asked(&self) -> bool {
+        self.s.refresh_requests.iter().any(|n| {
+            self.s
+                .issues
+                .get(n)
+                .and_then(|i| i.request.as_ref())
+                .and_then(|r| r.get("asked"))
+                .and_then(Value::as_str)
+                == Some("pr")
+        })
+    }
+
     /// 2 and 3: the slots, the limit, the slice and the cap on unreviewed
     /// work, with the hold that keeps cycles back when one does.
     fn room(&mut self) -> Step<Room> {
@@ -775,8 +790,10 @@ impl<'a> Poll<'a> {
         let count = self.live().count() as i64;
         let mut cycles = count;
         let mut lane: Option<i64> = None;
-        if c.refresh_conflicts && c.refresh_slots > 0 {
-            let refreshing = self.live().filter(|(_, how)| how == "refresh").count() as i64;
+        let refreshing = self.live().filter(|(_, how)| how == "refresh").count() as i64;
+        // With the setting off the lane is kept only while a `--pr` request
+        // waits or a refresh runs, so the cycles keep every slot otherwise.
+        if c.refresh_slots > 0 && (c.refresh_conflicts || refreshing > 0 || self.pr_asked()) {
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
