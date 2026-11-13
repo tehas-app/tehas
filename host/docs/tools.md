@@ -20,6 +20,8 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
+tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
@@ -28,12 +30,17 @@ tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
+tehas freeze <issue> [--reason R]  # hold a running cycle still, its clocks stopped
+tehas thaw <issue>               # let a frozen cycle go on
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas state pack|unpack -        # move a stopped factory's state to another machine
 tehas state check [--json]       # the state store's integrity and rows
+tehas state copy --to <file>     # a copy of the store, taken while cycles run
+tehas state load --from <file>   # fill a drained factory's empty store from one
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
+tehas mcp key                    # a new key for the read-only MCP server
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -48,7 +55,9 @@ scripts from `libexec/` in the platform repository (`dev-login`, `setup` and
 of `bootstrap.sh dev` runs the first) and the Rust programs it builds (the
 console, analytics, the MCP server, the state store, the attachment checker,
 `tehas-dispatch` and `tehas-cycle`). The two commands only choose one and run
-it, and exit with its status. `tehas status` and `tehas disk` need no settings.
+it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
+`tehas dev` and `tehas mcp key` need no settings, and `tehasbot mcp key` and
+`tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
@@ -62,6 +71,16 @@ prints the same text as `tehas help <command>`.
 Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
+
+The two lists name every command the two programs route. Four of them have no
+section of these pages and are on the page that describes them: `tehas panel`
+and `tehas host-message` on [the factory API](/api#tehas-panel) and
+[the factory API](/api#tehas-host-message), `tehas mcp key` and
+`tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
+`tehas-mcp.service` runs. `tehas state copy --to <file>` and
+`tehas state load --from <file>` are the two verbs `tehas state` holds beside
+[`pack`, `unpack` and `check`](/tools-control#tehas-state), on
+[the factory API](/api#tehas-state-copy).
 
 ## Instance settings
 
