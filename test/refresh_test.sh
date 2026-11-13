@@ -282,7 +282,11 @@ t_contains "$t_out" "Usage:"
 # such an edit changes this line on purpose.
 t_case "the refresh text is the words it had before it moved"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "3be15c7b336e92e84b774e6c3cbadeac7c2f30cec888064ce9cbdfc5840cdae5"
+  "b8de223409db07f7f6e1b1232eafc982db024b593b7d1b4488076d27207586e9"
+
+t_case "the refresh text says drafts are kept, as the rule keeps them"
+t_lacks "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")" "no draft"
+t_contains "$(tr '\n' ' ' <"$T_ROOT/console/dispatch/src/usage/refresh.txt")" "A draft is kept as any other"
 
 t_case "--help prints the refresh text word for word"
 reset
