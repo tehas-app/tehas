@@ -24,7 +24,7 @@ fn a_cycle_report_printed_to_a_closed_stdout_ends_141_without_a_panic() {
     // `cycle` pipes the report of an ended cycle into what reads it.
     let d = TestDir::new("cycle-closed-stdout");
     let facts = d.join("facts.json");
-    std::fs::write(&facts, r#"{"issue":7,"start":{"attempt":1}}"#).unwrap();
+    std::fs::write(&facts, r#"{"issue":7,"repo":"acme/widget","signalled":false,"started":1000,"now":1600,"start":{"attempt":1}}"#).unwrap();
     let (reader, writer) = std::io::pipe().unwrap();
     drop(reader);
     let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))

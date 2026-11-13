@@ -1884,6 +1884,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 2,
             "started": 1000,
@@ -1994,6 +1995,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "rc": 2,
             "started": 1000,
             "now": 4600,
@@ -2182,6 +2184,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "rc": 2,
             "started": 1000,
             "now": 4600,
@@ -2214,6 +2217,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 10,
             "started": 1000,
@@ -2246,6 +2250,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 10,
             "started": 1000,
@@ -2371,6 +2376,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 2,
             "started": 1000,
@@ -2405,6 +2411,7 @@ mod tests {
         let facts = json!({
             "issue": 7,
             "repo": "acme/widget",
+            "signalled": false,
             "home": "/home/tehas",
             "rc": 20,
             "started": started,

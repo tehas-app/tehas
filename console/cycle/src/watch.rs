@@ -399,6 +399,9 @@ pub struct Seen<'a> {
     pub at_limit: bool,
     /// The container's stream holds nothing. False when it could not be read.
     pub log_empty: bool,
+    /// The result file holds nothing. False when it holds text the reader
+    /// refused: that runner wrote a result, so it started.
+    pub result_empty: bool,
 }
 
 /// Whether the stream at `log` holds nothing. A failure to look is an error,
@@ -492,7 +495,8 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.disk
         && s.rc != 137
         && (1..=999).contains(&s.rc)
-        && s.log_empty;
+        && s.log_empty
+        && s.result_empty;
     Decided {
         status,
         ran_out,
@@ -865,10 +869,13 @@ impl Watch<'_> {
         }
     }
 
-    fn write_or_say(&self, file: &Path, words: &str) {
-        if fs::write(file, words).is_err() {
+    /// Whether the file was written; a file that was not is said in the record.
+    fn write_or_say(&self, file: &Path, words: &str) -> bool {
+        let wrote = fs::write(file, words).is_ok();
+        if !wrote {
             self.lost(file);
         }
+        wrote
     }
 
     fn append_or_say(&self, line: &[u8]) {
@@ -1151,6 +1158,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     w.write_note(&w.files.runner_exit, &rc.to_string());
     let log_look = stream_empty(&g.log);
     let log_empty = matches!(log_look, Ok(true));
+    let result_empty = result.as_deref().is_none_or(str::is_empty);
     let seen_end = Seen {
         rc,
         outcome: outcome.as_ref(),
@@ -1162,6 +1170,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         stopped,
         at_limit: time::now() - started - w.frozen_secs >= g.limit as i64,
         log_empty,
+        result_empty,
     };
     let decided = decide(&seen_end);
     let status = decided.status.clone();
@@ -1269,7 +1278,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     let _ = fs::remove_file(&w.console_now);
     let _ = fs::copy(&w.files.result, beside(&g.log, ".result.json"));
     let summary = progress::summary(&g.log, Some((&w.files.result, g.issue)));
-    w.write_or_say(&w.files.progress, &format!("{summary}\n"));
+    let wrote_progress = w.write_or_say(&w.files.progress, &format!("{summary}\n"));
     // A stop this command made is its own cap, unless the runner had ended first.
     let mut cap = text(outcome.as_ref(), "cap");
     match status.as_str() {
@@ -1295,7 +1304,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         && empty_err
         && (!cap.is_empty() || status == "aborted")
     {
-        tell_the_end(&w, &cap);
+        tell_the_end(&w, &cap, wrote_progress);
     }
     code
 }
@@ -1325,35 +1334,51 @@ fn killed_line(step: &str, ooms: u32) -> String {
     format!("tehas work: the container was killed (137) at step {step} and tehas did not stop it; {memory}\n")
 }
 
-/// The reason the runner's progress gives, empty when there is none. The file
-/// is read as the store reads it: a regular file under the bound it is
-/// recorded with, so a link or a file past the bound gives no reason.
-fn end_reason(progress: &Path) -> String {
-    let text = tehas_core::file::read_regular(progress, tehas_core::file::READ_BOUND)
-        .ok()
-        .and_then(|(bytes, _)| String::from_utf8(bytes).ok());
-    runner::progress_fields(text.as_deref())[1].clone()
+/// The reason the runner's progress gives: empty when there is no file,
+/// `None` when a file is there but cannot be read. The file is read as the
+/// store reads it: a regular file under the bound it is recorded with, so a
+/// link or a file past the bound is not read.
+fn end_reason(progress: &Path) -> Option<String> {
+    use tehas_core::file::{read_regular, ReadError, READ_BOUND};
+    let text = match read_regular(progress, READ_BOUND) {
+        Ok((bytes, _)) => Some(String::from_utf8(bytes).ok()?),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return None,
+    };
+    Some(runner::progress_fields(text.as_deref())[1].clone())
 }
 
 /// What reaches err.txt of the cycle's improvement record for a cycle that ended
 /// at a cap or was aborted: an empty one there reads as nothing happened.
-fn tell_the_end(w: &Watch, cap: &str) {
+/// `wrote` is whether this command wrote the progress file: when it did not,
+/// a file left by an earlier run of the issue must not give this run's reason.
+fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {
     let n = w.g.issue;
-    let reason = end_reason(&w.files.progress);
-    let line = if cap.is_empty() {
-        format!("tehas work: issue {n} ended as aborted with no cap\n")
-    } else if reason.is_empty() {
-        format!("tehas work: issue {n} ended at the cap {cap}\n")
+    let reason = if wrote {
+        end_reason(&w.files.progress).ok_or("read")
     } else {
-        format!("tehas work: issue {n} ended at the cap {cap}: {reason}\n")
+        Err("written")
+    };
+    let line = match (cap.is_empty(), reason) {
+        (true, _) => format!("tehas work: issue {n} ended as aborted with no cap\n"),
+        (false, Err(how)) => format!(
+            "tehas work: issue {n} ended at the cap {cap}; the progress file could not be {how}, so its reason is not in this line\n"
+        ),
+        (false, Ok(r)) if r.is_empty() => format!("tehas work: issue {n} ended at the cap {cap}\n"),
+        (false, Ok(r)) => format!("tehas work: issue {n} ended at the cap {cap}: {r}\n"),
     };
     w.append_or_say(line.as_bytes());
-    let lines = diag(&fs::read(&w.g.log).unwrap_or_default());
-    if !lines.is_empty() && !append(&w.err, &lines) {
-        eprintln!("tehas work: could not write {}", w.err.display());
-    }
     let name = w.g.log.file_name().unwrap_or_default().to_string_lossy();
-    let line = format!("tehas work: the driver's diagnostics are in {name}\n");
+    let line = match fs::read(&w.g.log) {
+        Ok(stream) => {
+            let lines = diag(&stream);
+            if !lines.is_empty() && !append(&w.err, &lines) {
+                eprintln!("tehas work: could not write {}", w.err.display());
+            }
+            format!("tehas work: the driver's diagnostics are in {name}\n")
+        }
+        Err(_) => format!("tehas work: the driver's diagnostics could not be read from {name}\n"),
+    };
     w.append_or_say(line.as_bytes());
 }
 
@@ -1375,6 +1400,7 @@ mod tests {
             stopped: false,
             at_limit: false,
             log_empty: false,
+            result_empty: true,
         }
     }
 
@@ -1386,21 +1412,88 @@ mod tests {
     fn the_end_reason_is_read_only_from_a_regular_file_under_the_bound() {
         let d = dir("end-reason");
         let file = d.join("progress.json");
-        assert_eq!(end_reason(&file), "");
+        assert_eq!(end_reason(&file), Some(String::new()), "absent: no reason");
         fs::write(&file, r#"{"reason":"out of turns"}"#).unwrap();
-        assert_eq!(end_reason(&file), "out of turns");
+        assert_eq!(end_reason(&file).as_deref(), Some("out of turns"));
         let pad = " ".repeat(tehas_core::file::READ_BOUND as usize);
         fs::write(&file, format!(r#"{{"reason":"out of turns"}}{pad}"#)).unwrap();
         assert_eq!(
             end_reason(&file),
-            "",
-            "a progress past the bound gives none"
+            None,
+            "a progress past the bound is not read"
         );
         let real = d.join("real.json");
         fs::write(&real, r#"{"reason":"out of turns"}"#).unwrap();
         fs::remove_file(&file).unwrap();
         std::os::unix::fs::symlink(&real, &file).unwrap();
-        assert_eq!(end_reason(&file), "", "a link is not the runner's progress");
+        assert_eq!(
+            end_reason(&file),
+            None,
+            "a link is not the runner's progress"
+        );
+        fs::remove_file(&file).unwrap();
+        fs::write(&file, b"\xff\xfe").unwrap();
+        assert_eq!(
+            end_reason(&file),
+            None,
+            "bytes that are not text are not read"
+        );
+        fs::remove_file(&file).unwrap();
+        fs::create_dir_all(&file).unwrap();
+        assert_eq!(end_reason(&file), None, "a directory is not read");
+    }
+
+    #[test]
+    fn the_end_line_says_when_its_reason_or_diagnostics_could_not_be_carried() {
+        let d = dir("end-line");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let w = a_watch(&d, &home, &g);
+        let err = || fs::read_to_string(&w.err).unwrap_or_default();
+        let reset = || {
+            let _ = fs::remove_file(&w.err);
+        };
+        fs::write(&g.log, "[pi-rukas] WARN 1\nother\n").unwrap();
+
+        // Absent progress: a bare cap, as before.
+        tell_the_end(&w, "turns", true);
+        assert_eq!(
+            err(),
+            "tehas work: issue 7 ended at the cap turns\n[pi-rukas] WARN 1\ntehas work: the driver's diagnostics are in log\n"
+        );
+        reset();
+
+        // This run's write failed: a previous run's file does not answer for it.
+        fs::write(&w.files.progress, r#"{"reason":"the old run's reason"}"#).unwrap();
+        tell_the_end(&w, "turns", false);
+        let got = err();
+        assert!(!got.contains("old run"), "{got}");
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap turns; the progress file could not be written, so its reason is not in this line\n"),
+            "{got}"
+        );
+        reset();
+
+        // There but unreadable: said, not an empty reason.
+        fs::remove_file(&w.files.progress).unwrap();
+        fs::create_dir_all(&w.files.progress).unwrap();
+        tell_the_end(&w, "turns", true);
+        let got = err();
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap turns; the progress file could not be read, so its reason is not in this line\n"),
+            "{got}"
+        );
+        reset();
+
+        // An unreadable driver log is said, not passed over as no diagnostics.
+        fs::remove_file(&g.log).unwrap();
+        fs::create_dir_all(&g.log).unwrap();
+        tell_the_end(&w, "", true);
+        assert_eq!(
+            err(),
+            "tehas work: issue 7 ended as aborted with no cap\ntehas work: the driver's diagnostics could not be read from log\n"
+        );
     }
 
     #[test]
@@ -1706,6 +1799,16 @@ mod tests {
     }
 
     #[test]
+    fn a_result_the_reader_refuses_is_still_a_runner_that_started() {
+        let quiet = Seen {
+            log_empty: true,
+            result_empty: false,
+            ..seen(1)
+        };
+        assert!(!decide(&quiet).nostart);
+    }
+
+    #[test]
     fn the_step_in_flight_is_the_results_then_the_consoles() {
         let d = dir("inflight");
         let now = d.join("now");
@@ -1926,12 +2029,8 @@ mod tests {
         assert!(diag(b"nothing here\n").is_empty());
     }
 
-    #[test]
-    fn a_note_is_written_whole_or_not_at_all() {
-        let d = dir("note");
-        let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
-        let g = Given {
+    fn given(d: &Path) -> Given {
+        Given {
             issue: 7,
             attempt: String::new(),
             log: d.join("log"),
@@ -1949,11 +2048,14 @@ mod tests {
             docker: vec![],
             signal: Arc::default(),
             scratch: scratch::Bounds::default(),
-        };
-        let w = Watch {
-            home: &home,
-            g: &g,
-            files: Files::of(&home, 7),
+        }
+    }
+
+    fn a_watch<'a>(d: &Path, home: &'a Path, g: &'a Given) -> Watch<'a> {
+        Watch {
+            home,
+            g,
+            files: Files::of(home, 7),
             err: d.join("log.err"),
             console_now: d.join("now"),
             stop: Arc::new(AtomicBool::new(false)),
@@ -1971,7 +2073,16 @@ mod tests {
             frozen_secs: 0,
             frozen_wall: 0,
             freeze_said: false,
-        };
+        }
+    }
+
+    #[test]
+    fn a_note_is_written_whole_or_not_at_all() {
+        let d = dir("note");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let w = a_watch(&d, &home, &g);
         assert!(w.write_note(&w.files.runner_exit, "10"));
         assert_eq!(fs::read_to_string(&w.files.runner_exit).unwrap(), "10\n");
         assert!(!beside(&w.files.runner_exit, ".new").exists());

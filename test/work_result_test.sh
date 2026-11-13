@@ -50,6 +50,19 @@ for line in "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"
   t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
 done
 
+t_case "a container that wrote a result the reader refuses is not a runner that never started"
+for shape in 'not json' '{"schemaVersion":4,"issues":[]}' \
+  '{"schemaVersion":5,"issues":[{"issue":8}]}' \
+  '{"schemaVersion":5,"issues":[{"issue":7,"handoff":"x"}]}' \
+  '{"schemaVersion":5,"issues":[{"issue":7,"usage":"x"}]}'; do
+  fresh
+  container "printf '%s\n' '$shape'; exit 1"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+  t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
+done
+
 t_case "a killed container, one tehas stopped, and one that wrote its result leave no note of a runner that never started"
 fresh
 container 'exit 137'
