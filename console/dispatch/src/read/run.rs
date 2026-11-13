@@ -813,9 +813,19 @@ impl Calls {
     }
 
     /// The store's answer to a read verb, or its failure as tehas_core::call
-    /// keeps it: {failed, word, rc, line}.
+    /// keeps it: {failed, word, rc, line}. The home the `Calls` names is given
+    /// to the store as `TEHAS_HOME`, as every other store call of the poll is:
+    /// a poll exports it to its whole environment, so a `Calls` that means a
+    /// store of its own cannot leave the child to inherit whatever the process
+    /// carries.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
-        call::store(&self.store, args, self.store_bound, GRACE, &[])
+        match self.home.as_deref() {
+            Some(home) => {
+                let extra = [("TEHAS_HOME", home)];
+                call::store(&self.store, args, self.store_bound, GRACE, &extra)
+            }
+            None => call::store(&self.store, args, self.store_bound, GRACE, &[]),
+        }
     }
 }
 

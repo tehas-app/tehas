@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -199,6 +199,27 @@ CREATE TABLE start_order (
   reason TEXT,
   set_at INTEGER NOT NULL
 );
+";
+
+/// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
+/// The keeping after a start deletes the approvals of the starts the base no longer
+/// rests on, and a record left with only its live rows answered no refreshes, no easy
+/// merge, and no mark for the row of a cycle whose approval had gone: the poll took
+/// every refresh after the first easy merge for the full one, and could drop the
+/// refresh it owed for want of a count. `started_by`, `started_how` and `started_easy`
+/// are written by the start itself, so the record says what its starts were after their
+/// rows are gone. The `UPDATE` backfills them from the rows that still stand, which is
+/// all a store can say of the starts whose approvals it kept; a start whose row the
+/// keeping deleted before this step is unknowable, and counts nowhere it was not
+/// already counted.
+pub const STEP_13: &str = "
+ALTER TABLE approvals ADD COLUMN started_by INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE approvals ADD COLUMN started_how TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
+  CHECK (started_easy IN (0, 1));
+UPDATE approvals SET started_by = used_by, started_how = how,
+                     started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
+  WHERE used_by IS NOT NULL;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -753,6 +774,8 @@ pub enum Purpose {
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
+/// A connection that writes also runs `PRAGMA quick_check` (#1769), so the
+/// first write of a run is refused rather than written into a damaged file.
 /// A file that exists but cannot be opened is `unreadable`, and the store does
 /// not move it (ADR 0003).
 pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
@@ -816,11 +839,21 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
     conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
-/// The same checks and the same connection as `open`, for the reader that must
+/// The same connection as `open` and the same pragmas, for the reader that must
 /// not disturb a writer's lock at all: read-only, so it waits at most READ_WAIT
 /// and writes no row. It can still make the -wal and -shm beside the file when
 /// they are absent, at the file's mode. `check` is the verb that reads, and
 /// section 4 says so.
+///
+/// A read open runs no `PRAGMA quick_check` (#1769): the check reads every page
+/// of the file, so a poll that made eight reads of the store paid eight whole
+/// scans of it, and a reader writes nothing whatever the pages hold. What a
+/// read of a damaged file can answer is the same SQLite reports for a file that
+/// is not a database at all - `classify` still turns it into 78 `corrupt` - and
+/// the damage a read cannot see is the read verb's to survive and `check`'s to
+/// name: `check` runs `PRAGMA integrity_check` over the whole file whatever the
+/// open did, and every verb that writes meets the quick_check of its own open
+/// before it changes a byte.
 pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
@@ -896,10 +929,27 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 }
 
 /// What every connection sets, in the one place: the journal mode, the busy
-/// handler, the durability and the foreign keys. The handler asks again every
-/// BUSY_POLL, for up to BUSY_TIMEOUT (5 s) on a connection that writes and
-/// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
-/// SQLite's busy_timeout, which then reads 0.
+/// handler, the durability and the foreign keys, and - for a connection that
+/// writes - `PRAGMA quick_check`. The handler asks again every BUSY_POLL, for
+/// up to BUSY_TIMEOUT (5 s) on a connection that writes and READ_WAIT (1 s) on
+/// one that reads, then the word `busy`. It replaces SQLite's busy_timeout,
+/// which then reads 0.
+///
+/// The check belongs to the writer alone (#1769). `check`, `migrate` and
+/// `create` keep it, and so does the first write of a run: those are the opens
+/// after which the store's own rows are at risk, and refusing a damaged file
+/// there is what keeps a verb from writing into one. A read pays nothing for a
+/// file it cannot change.
+///
+/// `prepare_of_the_store` is the one test's way in: it puts SQLite's trace hook on the
+/// connection between the call that makes it and the call that prepares it, which is the only
+/// moment SQLite is quiet enough for the hook, and so it opens the file itself and is given this
+/// function rather than a copy of what it says.
+#[cfg(test)]
+pub(crate) fn prepare_of_the_store(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+    prepare(conn, purpose)
+}
+
 fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
@@ -914,13 +964,15 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
         .map_err(classify)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
-    let check: String = conn
-        .query_row("PRAGMA quick_check", [], |r| r.get(0))
-        .map_err(classify)?;
-    if check != "ok" {
-        return Err(DbError::Corrupt(format!(
-            "the database failed its check: {check}"
-        )));
+    if purpose == Purpose::Write {
+        let check: String = conn
+            .query_row("PRAGMA quick_check", [], |r| r.get(0))
+            .map_err(classify)?;
+        if check != "ok" {
+            return Err(DbError::Corrupt(format!(
+                "the database failed its check: {check}"
+            )));
+        }
     }
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -1118,7 +1170,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
@@ -1128,7 +1181,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
@@ -1137,7 +1191,8 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
@@ -1145,36 +1200,47 @@ pub fn migrate(
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         6 => step(conn, 7, STEP_7)
             .and_then(|()| step(conn, 8, STEP_8))
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         7 => step(conn, 8, STEP_8)
             .and_then(|()| step(conn, 9, STEP_9))
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         8 => step(conn, 9, STEP_9)
             .and_then(|()| step(conn, 10, STEP_10))
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         9 => step(conn, 10, STEP_10)
             .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         // The store of the release before last sits at 10.
-        10 => step_11(conn).and_then(|()| step(conn, 12, STEP_12)),
+        10 => step_11(conn)
+            .and_then(|()| step(conn, 12, STEP_12))
+            .and_then(|()| step(conn, 13, STEP_13)),
         // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12),
+        11 => step(conn, 12, STEP_12).and_then(|()| step(conn, 13, STEP_13)),
+        // A store at 12 is one this binary wrote before the easy mark was kept
+        // on the approval: the step to 13 is all it needs.
+        12 => step(conn, 13, STEP_13),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()

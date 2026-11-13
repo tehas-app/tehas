@@ -2268,6 +2268,14 @@ such a request waits or a refresh runs. A request without
 written before it was turned off: the dispatcher's log says `hold refreshes:
 TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
 the demand's `refreshHold` names the setting only while such a request waits.
+As the timed run is off then, the dispatcher sweeps such a request itself at
+each poll, whatever the room: it is dropped, with `drop the refresh of #N:
+<why>` in the log, once its request cannot be read, its issue is closed or
+no longer carries the labels below, or its pull request is not open, moved,
+no longer conflicts or is no longer one the rule keeps. One whose issue or
+pull request could not be read this poll stays. When the last such request
+goes, `refreshHold` clears in that poll. `tehas api` lists the feature
+`refresh-pr-sweep`.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle

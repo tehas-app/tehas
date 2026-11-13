@@ -248,4 +248,39 @@ t_contains "$t_out" "did not happen (it was never attempted); this poll decides 
 t_contains "$t_out" "start #7 (labelled by alice)"
 t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
 
+# The analytics program, where install.sh puts it, stood in for by the stub of
+# test/lib.sh. The poll runs it only through `$TEHAS_HOME/libexec/analytics`, and
+# only with `TEHAS_ANALYTICS` on (its default), so the file has to be there for
+# its calls to be recorded at all.
+analytics_stub() { # [<bash body>]
+  t_stub_analytics "${1:-}"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_ANALYTICS=on
+}
+
+t_case "a poll that starts nothing runs no analytics, and a poll that starts one samples it and prunes nothing"
+# The prune of the old poll opened the analytics database, checked it and read
+# the whole of it for a table the writes bound by themselves: `run`, `plan`,
+# `event` and `sample` each prune after they write (#1769). An idle poll of a
+# factory with analytics on reads that database not at all, and the end of a
+# poll that started something still samples the queue it just wrote - which is
+# what keeps the case from passing because the poll stopped reaching for the
+# program altogether.
+reset
+analytics_stub
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_calls analytics)" ""
+reset
+analytics_stub
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+# The events of the start belong to the start; what the end of the poll adds is
+# the one sample of the queue, and nothing else.
+t_eq "$(t_calls analytics)" "event 7 ready
+event 7 started
+sample"
+
 t_done
