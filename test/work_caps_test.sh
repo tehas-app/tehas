@@ -379,7 +379,7 @@ for h in "$(pr_branch feature/two clean.txt "a new file")" "$(printf 'e%.0s' {1.
 done
 t_contains "$t_out" "whether pull request #50 conflicts with origin/main could not be read, the refresh runs"
 
-for how in label retry-tick outage-retry fixer; do
+for how in label retry-tick outage-retry fixer host; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh
   caps_continue

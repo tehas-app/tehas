@@ -812,11 +812,6 @@ fn images() {
 }
 
 #[test]
-fn overlap() {
-    run_suite("overlap");
-}
-
-#[test]
 fn read_only() {
     run_suite("read_only");
 }
@@ -859,4 +854,9 @@ fn queue() {
 #[test]
 fn slots() {
     run_suite("slots");
+}
+
+#[test]
+fn host_start() {
+    run_suite("host_start");
 }

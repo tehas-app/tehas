@@ -26,7 +26,7 @@ fn a_cycle_report_printed_to_a_closed_stdout_ends_141_without_a_panic() {
     let facts = d.join("facts.json");
     std::fs::write(
         &facts,
-        r#"{"issue":7,"rc":0,"started":1,"now":2,"start":{"attempt":1}}"#,
+        r#"{"issue":7,"repo":"acme/widget","rc":0,"signalled":false,"started":1000,"now":1600,"start":{"attempt":1}}"#,
     )
     .unwrap();
     let (reader, writer) = std::io::pipe().unwrap();
