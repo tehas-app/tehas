@@ -139,13 +139,13 @@ t_eq "$(jq -r '.issues[0].cap' "$cycle_log.result.json")" verify-failed:develop
 t_contains "$t_out" "status=handoff step=develop cap=verify-failed:develop runner_exit=10"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"handoff"]'
 
-t_case "a cycle that ended at a cap with nothing in its error stream leaves the cap there, with the stream's name"
+t_case "a cycle that ended at a cap with nothing in its error stream leaves the cap there, as no evidence, with the stream's name"
 fresh
 container 'says handoff verify-failed:develop; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop: no evidence from the driver
 tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
 t_lacks "$(cat "$cycle_log.err")" "holds nothing"
 t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
@@ -170,7 +170,7 @@ says handoff developer-timeout; exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap developer-timeout
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap developer-timeout: no evidence from the driver
 [pi-rukas] WARN work-driver: plan to-spec gate, halting before branch
 [pi-rukas] killed after 7200000ms timeout, after 71620 lines
 [pi-rukas] work-driver: exec error tail is unattributed, no FAILED marker found
