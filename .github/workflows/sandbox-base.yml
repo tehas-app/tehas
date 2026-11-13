@@ -40,4 +40,7 @@ jobs:
           # are not built.
           docker build --no-cache --progress=plain --target cargo-tools \
             "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
-            "--build-arg=OO_VERSION=$OO_VERSION" - < host/sandbox/base.Dockerfile
+            "--build-arg=OO_VERSION=$OO_VERSION" \
+            "--build-arg=RUST_VERSION=$RUST_VERSION" \
+            "--build-arg=RUSTUP_VERSION=$RUSTUP_VERSION" \
+            "--build-arg=RUSTUP_SHA256=$RUSTUP_SHA256" - < host/sandbox/base.Dockerfile
