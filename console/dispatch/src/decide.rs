@@ -217,6 +217,8 @@ struct Poll<'a> {
     /// this poll closed.
     plan_busy: Option<u64>,
     plan_closed: Vec<u64>,
+    /// The refresh requests refresh_sweep dropped this poll.
+    refresh_swept: Vec<u64>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -245,6 +247,7 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
+        refresh_swept: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -420,6 +423,7 @@ impl<'a> Poll<'a> {
                 rc,
             ));
         }
+        self.refresh_sweep(&bot);
         if !self.dry {
             let demand = self.demand();
             self.d.demand = Some(demand);
@@ -558,7 +562,13 @@ impl<'a> Poll<'a> {
         // `tehasbot refresh --pr N` wrote is not held by the setting). The hold
         // is in the file, and the log has it once.
         let mut held = String::new();
-        let requests = self.s.refresh_requests.clone();
+        let requests: Vec<u64> = self
+            .s
+            .refresh_requests
+            .iter()
+            .copied()
+            .filter(|n| !self.refresh_swept.contains(n))
+            .collect();
         if !requests.is_empty() {
             held = self.refresh_held().unwrap_or_default();
             if held.is_empty() {
@@ -2658,7 +2668,13 @@ impl<'a> Poll<'a> {
         let mut order: Vec<(char, u64)> = Vec::new();
         let numbers: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
         order.extend(ranked.iter().map(|n| ('o', *n)));
-        order.extend(self.s.refresh_requests.iter().map(|n| ('r', *n)));
+        order.extend(
+            self.s
+                .refresh_requests
+                .iter()
+                .filter(|n| !self.refresh_swept.contains(n))
+                .map(|n| ('r', *n)),
+        );
         order.extend(
             numbers
                 .iter()
