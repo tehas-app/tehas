@@ -184,7 +184,8 @@ the unit's `TimeoutStopSec`. A hangup is taken as a stop too. It checks no autho
 the dispatcher did that before it started the unit. It does check the number:
 once it holds its lock it starts its record in the state store, then asks
 GitHub what the number is before a label is changed, a comment is posted or a
-container starts, tried three times like its other calls, and refuses a closed
+container starts, tried three times like its other calls, each try cut after
+60 seconds, and refuses a closed
 issue and a pull request (exit 65) with one line in the log, ending its record
 as refused. A number GitHub could not answer for at all is refused the same
 way, with a line that says that. Because the start was on record first, the
@@ -194,7 +195,9 @@ keeps `tehas:running`, and the next poll clears it in silence.
 **The start on record.** The record holds the attempt, when it started, the
 approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
 `refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
-outage, and the pi-rukas commit of the sandbox image. Started by
+outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
+commit before the record starts, and a daemon that has not answered in 30
+seconds costs only the commit: the start goes on record without it. Started by
 `tehas-cycle@.service`, which sets `TEHAS_CYCLE_FROM=unit` (a unit file not
 refreshed yet is known by systemd's `INVOCATION_ID`), the start needs the
 approval the dispatcher recorded and uses it; without one it runs nothing.
