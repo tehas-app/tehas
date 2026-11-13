@@ -86,8 +86,46 @@ pub fn print(given: &[String]) -> u8 {
     }
     let poll = poll_line(&home);
     let product = home.join("state/check-product.json");
-    let ends = end_lines(&tehas_core::end_fault::all(&home), now);
+    let mut ends = host_lines(&home, now);
+    ends.extend(end_lines(&tehas_core::end_fault::all(&home), now));
     answer(&file, now, Some((&poll, product.to_str())), &ends)
+}
+
+/// The starts `tehas start` asked for (#1967): each cycle one started that
+/// still runs, then each approval that waits for a poll. A store that cannot
+/// answer is no line.
+fn host_lines(home: &Path, now: i64) -> Vec<String> {
+    let Ok(v) = store::call(home, &["approval-hosts"]) else {
+        return Vec::new();
+    };
+    host_lines_of(&J::parse(&v.to_string()).unwrap_or(J::Null), now)
+}
+
+fn host_lines_of(v: &J, now: i64) -> Vec<String> {
+    let when = |t: &J| {
+        t.as_f64()
+            .map_or("at an unknown time".to_string(), |s| ago(s as i64, now))
+    };
+    let mut lines: Vec<String> = v
+        .get("running")
+        .items()
+        .iter()
+        .map(|r| {
+            format!(
+                "start     #{} started from the host {}, running",
+                r.get("issue").text(),
+                when(r.get("started_at"))
+            )
+        })
+        .collect();
+    lines.extend(v.get("waiting").items().iter().map(|w| {
+        format!(
+            "start     #{} approved from the host {}, waits for the next poll",
+            w.get("issue").text(),
+            when(w.get("at"))
+        )
+    }));
+    lines
 }
 
 /// The cycles whose last GitHub step failed (#1726): the next try of the poll,
@@ -971,6 +1009,20 @@ mod tests {
             status_json(&health, NOW, false).get("planning").dump(),
             r#"[{"issue":7,"turn":2,"since":"2026-10-17T13:48:20Z"},{"issue":9,"turn":3,"since":"2026-10-17T13:58:20Z"}]"#
         );
+    }
+
+    #[test]
+    fn the_hosts_starts_have_a_line_each() {
+        let v =
+            h(r#"{"running":[{"issue":12,"started_at":1000}],"waiting":[{"issue":14,"at":1540}]}"#);
+        assert_eq!(
+            host_lines_of(&v, 1600),
+            [
+                "start     #12 started from the host 10 min ago, running",
+                "start     #14 approved from the host 60 s ago, waits for the next poll",
+            ]
+        );
+        assert!(host_lines_of(&h(r#"{"running":[],"waiting":[]}"#), 1600).is_empty());
     }
 
     #[test]

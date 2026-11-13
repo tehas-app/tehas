@@ -205,7 +205,10 @@ Rules, in order:
      expired order logs order expired at <time>: ready issues start lowest
      number first, and one that cannot be read logs WARN: the start order
      could not be read from the state store: ready issues start lowest
-     number first; either is no order. tehas:blocked in rule 6 counts when
+     number first; either is no order. An open issue tehas start approved
+     is a ready issue with no label: its approval counts in place of one,
+     and a title or text changed since the approval starts nothing.
+     tehas:blocked in rule 6 counts when
      its latest event applies it and is by an allowed account or the fixer.
      A running cycle is never stopped to make room.
   8. After the rules, a poll that is not paused, dry or failed runs the finish

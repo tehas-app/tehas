@@ -51,6 +51,9 @@ pub fn has_spec(body: &str) -> bool {
 /// `pi-spec v1` block: the reason, and what a person does next. One sentence
 /// for the log and the comment both.
 pub fn no_spec_said(ask: &str) -> String {
+    if ask == crate::decide::HOST {
+        return format!("its text holds no `{SPEC_INFO}` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and the host approves it again with `tehas start`.");
+    }
     format!("its text holds no `{SPEC_INFO}` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `{ask}` again.")
 }
 

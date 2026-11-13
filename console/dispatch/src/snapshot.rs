@@ -172,6 +172,11 @@ pub struct Snapshot {
     pub limit: Value,
     /// The start order as `tehas order` reads it (tehas_core::order).
     pub order: Value,
+    /// The open issues `tehas start` approved that no cycle has used yet, as
+    /// `store approval-hosts` lists them with each issue's labels: {issue,
+    /// at, body_sha256, title_sha256, labels}. None when the list could not
+    /// be read.
+    pub host_starts: Option<Vec<Value>>,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
@@ -509,6 +514,11 @@ impl Snapshot {
                 .get("order")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            host_starts: match v.get("host_starts") {
+                None => Some(Vec::new()),
+                Some(Value::Array(a)) => Some(a.clone()),
+                Some(_) => None,
+            },
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
             endpoint_hold: v
                 .get("endpoint")

@@ -47,7 +47,15 @@ logged as `wait #N: not in the start order (--only)`; refreshes do not wait.
 An expired order is logged as `order expired at <time>: ready issues start
 lowest number first`, and one the poll cannot read as `WARN: the
 start order could not be read from the state store: ready issues start lowest
-number first`. Either way the poll goes on as with no order. The cap on issues
+number first`. Either way the poll goes on as with no order. An open issue
+[tehas start](/api#tehas-start) approved is a ready issue with no label:
+it starts as `start #N (started from the host)` under every hold above,
+and a title or text changed since the approval is logged as `skip #N: its
+title or text changed since the host approved it at <time>; run `tehas start
+N` again to approve it`. A list of those approvals the poll cannot read is
+logged as `WARN: the host's approvals could not be read from the state store:
+no issue starts on one this poll`, and the labelled issues start as before.
+The cap on issues
 awaiting merge holds no refresh: it takes a pull request out of awaiting
 merge as it starts. Who applied `tehas:ready` is read at the decision, when
 the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
@@ -389,8 +397,9 @@ issue is marked `tehas:running`; if that label change fails, the poll stops.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `retry-tick`, `millwright`, `refresh`, or `outage-retry` for the one start
-after a provider outage), `body_sha256`, the sha256 of the body that approval
+(`label`, `retry-tick`, `millwright`, `refresh`, `outage-retry` for the one start
+after a provider outage, or `host` for an approval of `tehas start`, whose `by`
+is `host` too), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
 inputs `links`, the links to GitHub's attachment storage in that body, and

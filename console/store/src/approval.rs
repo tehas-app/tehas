@@ -1,4 +1,5 @@
-//! The approval verbs: approval-record, approval-current and approval-view. An
+//! The approval verbs: approval-record, approval-current, approval-view and
+//! approval-hosts. An
 //! issue has at most one unused approval; the current one is the used row with the highest
 //! `used_by`. Order never depends on `at`, which mixes GitHub's clock with the
 //! host's.
@@ -14,6 +15,7 @@ pub enum Call {
     Undo { issue: i64, at: i64 },
     Current { issue: i64 },
     View { issue: i64, want: Option<i64> },
+    Hosts,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,19 +79,25 @@ pub fn lifted_note(v: &Value) -> bool {
         && id.is_some_and(|i| !i.is_empty() && i.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The how of an approval `tehas start` records on the host (#1967): no GitHub
+/// login gave it, and its row says `host` for the account too.
+pub const HOST: &str = "host";
+
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
-const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
+/// The host's approval is one of them.
+const BASES: &str = "('label', 'retry-tick', 'outage-retry', 'host')";
 
 /// The hows of this release: what `approval-record` takes, in the order a
 /// refusal prints them (the case in `verbs_tests.rs` pins that string), with
 /// `fixer` as the alias `Args::word` takes beside the word it stands for.
 /// `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [(&str, &str); 5] = [
+const CURRENT_HOWS: [(&str, &str); 6] = [
     (MILLWRIGHT, FIXER),
     ("label", "label"),
     ("refresh", "refresh"),
     ("retry-tick", "retry-tick"),
     ("outage-retry", "outage-retry"),
+    (HOST, HOST),
 ];
 
 /// Whether `how` names the millwright's start, in either spelling.
@@ -128,6 +136,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "approval-record" => record_args(rest),
         "approval-current" => Args::parse("approval-current", rest, &[], true)
             .and_then(|a| Ok(Call::Current { issue: a.issue()? })),
+        "approval-hosts" => Args::parse("approval-hosts", rest, &[], false).map(|_| Call::Hosts),
         "approval-view" => Args::parse("approval-view", rest, &[("--attempt", Kind::Value)], true)
             .and_then(|a| {
                 Ok(Call::View {
@@ -274,6 +283,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
         Call::Undo { issue, at } => undo(home, *issue, *at),
         Call::Current { issue } => verbs::look(home, |c| current(c, *issue)),
         Call::View { issue, want } => view(home, *issue, *want),
+        Call::Hosts => verbs::look(home, hosts),
     }
 }
 
@@ -413,6 +423,56 @@ fn undo(home: &Path, issue: i64, at: i64) -> Result<String, Fail> {
             .q()?;
         Ok(line("approval-record", &[("undone", j(n > 0))]))
     })
+}
+
+/// `approval-hosts`: the host's approvals no cycle has used yet, the oldest
+/// issue first, and the cycles running on one, which is what the poll and
+/// `tehas status` read of them.
+fn hosts(c: &Connection) -> Result<String, Fail> {
+    let mut q = c
+        .prepare(
+            "SELECT issue, at, body_sha256, title_sha256 FROM approvals
+             WHERE how = ?1 AND used_at IS NULL ORDER BY issue, at",
+        )
+        .q()?;
+    let waiting = q
+        .query_map([HOST], |r| {
+            Ok(obj(&[
+                ("issue", j(r.get::<_, i64>(0)?)),
+                ("at", j(r.get::<_, i64>(1)?)),
+                ("body_sha256", j(r.get::<_, String>(2)?)),
+                (
+                    "title_sha256",
+                    r.get::<_, Option<String>>(3)?.map_or("null".to_string(), j),
+                ),
+            ]))
+        })
+        .q()?
+        .collect::<Result<Vec<_>, _>>()
+        .q()?;
+    let mut q = c
+        .prepare(
+            "SELECT issue, started_at FROM cycles WHERE how = ?1 AND ended_at IS NULL
+             ORDER BY issue",
+        )
+        .q()?;
+    let running = q
+        .query_map([HOST], |r| {
+            Ok(obj(&[
+                ("issue", j(r.get::<_, i64>(0)?)),
+                ("started_at", j(r.get::<_, i64>(1)?)),
+            ]))
+        })
+        .q()?
+        .collect::<Result<Vec<_>, _>>()
+        .q()?;
+    Ok(line(
+        "approval-hosts",
+        &[
+            ("waiting", format!("[{}]", waiting.join(","))),
+            ("running", format!("[{}]", running.join(","))),
+        ],
+    ))
 }
 
 /// The person's approval the current one rests on: `(at, by, how, body_sha256,
