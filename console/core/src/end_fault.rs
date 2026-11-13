@@ -138,18 +138,19 @@ impl EndFault {
         let step = v["step"].as_str().filter(|s| STEPS.contains(s))?;
         Some(EndFault {
             issue: v["issue"].as_u64().filter(|n| *n > 0)?,
-            attempt: v["attempt"].as_u64().unwrap_or(0),
+            attempt: v["attempt"].as_u64().filter(|n| *n > 0)?,
             step: step.to_string(),
             github: v["github"].as_bool()?,
             host: v["host"].as_bool().unwrap_or(false),
             why: one_line(v["why"].as_str().unwrap_or("")),
             at: v["at"].as_i64()?,
             tries: v["tries"]
-                .as_array()
-                .map(|a| a.iter().filter_map(Value::as_i64).collect())
-                .unwrap_or_default(),
+                .as_array()?
+                .iter()
+                .map(Value::as_i64)
+                .collect::<Option<_>>()?,
             stopped: one_line(v["stopped"].as_str().unwrap_or("")),
-            said: v["said"].as_bool().unwrap_or(false),
+            said: v["said"].as_bool()?,
         })
     }
 
@@ -334,6 +335,28 @@ mod tests {
         r.tries = vec![1000, 1700];
         assert_eq!(EndFault::from_json(&r.to_json()), Some(r));
         assert_eq!(EndFault::from_json(&json!({"step": "deploy"})), None);
+    }
+
+    #[test]
+    fn a_record_with_a_damaged_attempt_tries_or_said_does_not_read() {
+        let good = seen("push", "HTTP 502").to_json();
+        for (field, bad) in [
+            ("attempt", json!(0)),
+            ("attempt", json!("1")),
+            ("attempt", Value::Null),
+            ("tries", json!(["x"])),
+            ("tries", json!([1000, {"at": 1600}])),
+            ("tries", json!("1000")),
+            ("tries", Value::Null),
+            ("said", json!("false")),
+            ("said", Value::Null),
+        ] {
+            let mut v = good.clone();
+            v[field] = bad.clone();
+            assert_eq!(EndFault::from_json(&v), None, "{field}: {bad}");
+            v.as_object_mut().unwrap().remove(field);
+            assert_eq!(EndFault::from_json(&v), None, "{field} missing");
+        }
     }
 
     #[test]
