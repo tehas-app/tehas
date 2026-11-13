@@ -57,6 +57,10 @@ pub(crate) const BLOCKED: &str = "tehas:blocked";
 /// mapping improvement, an issue of that type carries it in the snapshot.
 pub(crate) const IMPROVEMENT: &str = "tehas:improvement";
 
+/// What asks for the start of an issue `tehas start` approved (#1967), where a
+/// label would: no label, so nothing comes off the issue when a rule holds it.
+pub(crate) const HOST: &str = "host";
+
 /// The driver a start runs, as `Poll::driver` reads it.
 enum Driver {
     Classic,
@@ -778,9 +782,57 @@ impl<'a> Poll<'a> {
         let blocked = self.list(&self.s.blocked.clone())?;
         let mut all: Vec<Listed> = ready;
         all.extend(blocked.into_iter().filter(|i| !in_flow(&i.labels)));
+        match &self.s.host_starts {
+            Some(hosts) => all.extend(hosts.iter().filter_map(|h| {
+                Some(Listed {
+                    number: Some(h.get("issue")?.as_u64()?),
+                    labels: h
+                        .get("labels")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|l| l.get("name")?.as_str().map(str::to_string))
+                        .collect(),
+                    state: "OPEN".into(),
+                })
+            })),
+            None => self.log(
+                "WARN: the host's approvals could not be read from the state store: no issue starts on one this poll",
+            ),
+        }
         all.sort_by_key(|i| i.number);
         all.dedup_by_key(|i| i.number);
         Ok(all)
+    }
+
+    /// The approval `tehas start` recorded for `n` that waits for a start.
+    fn host_start(&self, n: u64) -> Option<Value> {
+        self.s
+            .host_starts
+            .as_ref()?
+            .iter()
+            .find(|h| h.get("issue").and_then(Value::as_u64) == Some(n))
+            .cloned()
+    }
+
+    /// host_ok: the host's approval binds the title and the text it was given
+    /// on; a change since starts nothing until the host approves it again. The
+    /// time of the approval, or None.
+    fn host_ok(&mut self, n: u64, h: &Value) -> Option<String> {
+        let at = h.get("at").and_then(Value::as_u64).map(iso)?;
+        let t = self.text(n);
+        let body = h.get("body_sha256").and_then(Value::as_str) == Some(&text::body_sha256(&t));
+        let title = match h.get("title_sha256").and_then(Value::as_str) {
+            Some(sum) => text::title_sha256(&t).as_deref() == Some(sum),
+            None => true,
+        };
+        if body && title {
+            return Some(at);
+        }
+        self.log(format!(
+            "skip #{n}: its title or text changed since the host approved it at {at}; run `tehas start {n}` again to approve it"
+        ));
+        None
     }
 
     /// pr_asked: a waiting refresh request was written by
@@ -1427,6 +1479,11 @@ impl<'a> Poll<'a> {
     /// would run classic in lean's place. `why` is the reason a person reads
     /// and `dry_line` what the log says in their place, so far.
     fn refuse_start(&mut self, n: u64, ask: &str, labels: &[String], why: &str, dry_line: &str) {
+        // A start the host asked for has no label to take off: the line its
+        // caller logged is the answer, and the approval waits.
+        if ask == HOST {
+            return;
+        }
         let mut off = vec![ask];
         if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
             off.push("tehas:blocked");
@@ -1885,7 +1942,7 @@ impl<'a> Poll<'a> {
         self.log(format!(
             "skip #{n}: pull request {url} is open and closes it"
         ));
-        if !self.dry {
+        if !self.dry && ask != HOST {
             self.act(json!({
                 "issue": n, "remove": [ask],
                 "fail": Self::label_fail(n, &[ask], &[]),
@@ -1934,7 +1991,9 @@ impl<'a> Poll<'a> {
         self.log(format!(
             "skip #{n}: it is an epic with {open} {word} open, and an epic is never started"
         ));
-        if !has(labels, ask) {
+        // A host start has no label of its own: a label that is only named
+        // `host` stays on and is not talked about.
+        if ask == HOST || !has(labels, ask) {
             return false;
         }
         if self.dry {
@@ -2108,7 +2167,7 @@ impl<'a> Poll<'a> {
             return Ok(true);
         }
         self.log(format!("skip #{n}: its body names {files} files, more than TEHAS_SIZE_MAX_FILES ({max}), and one cycle does not make that many changes"));
-        if !has(labels, ask) {
+        if ask == HOST || !has(labels, ask) {
             return Ok(false);
         }
         if self.dry {
@@ -2175,54 +2234,6 @@ impl<'a> Poll<'a> {
             "hold #{n}: its text links an attachment and TEHAS_WORK_IMAGES is 1, but {hold}"
         ));
         Ok(false)
-    }
-
-    /// overlap_ok: with TEHAS_OVERLAP_HOLD=1, a start waits while a running
-    /// cycle's branch changes a path the issue's body names. A branch that
-    /// could not be read holds nothing, but the log names it, and nothing on
-    /// the issue changes.
-    fn overlap_ok(&mut self, n: u64) -> bool {
-        if !self.c.overlap_hold {
-            return true;
-        }
-        let w = self.work(n);
-        let Some(body) = w.get("body").and_then(Value::as_str).map(str::to_string) else {
-            return true;
-        };
-        if tehas_core::overlap::named(&body).is_empty() {
-            return true;
-        }
-        let others: Vec<u64> = self.live().map(|(m, _)| *m).filter(|m| *m != n).collect();
-        if others.is_empty() {
-            return true;
-        }
-        let Some(changed) = &self.s.overlap else {
-            self.need("overlap");
-            return false;
-        };
-        let hit = others.iter().find_map(|m| {
-            let files = changed.get(m)?.as_ref()?;
-            let path = tehas_core::overlap::matches(&body, files)
-                .into_iter()
-                .next()?;
-            Some((*m, path))
-        });
-        let Some((m, path)) = hit else {
-            let unread: Vec<String> = others
-                .iter()
-                .filter(|m| matches!(changed.get(m), Some(None)))
-                .map(|m| format!("#{m}"))
-                .collect();
-            if !unread.is_empty() {
-                let list = unread.join(", ");
-                self.log(format!(
-                    "#{n} starts unchecked for overlap: the changes of the running cycle on {list} could not be read"
-                ));
-            }
-            return true;
-        };
-        self.log(format!("wait #{n}: a running cycle on #{m} changes {path}"));
-        false
     }
 
     /// image_missing_ok: a text that promises a file and links none waits for
@@ -2598,7 +2609,7 @@ impl<'a> Poll<'a> {
         };
         let record = record.ok_or_else(none)?;
         let base = fixer_base(&record)
-            .filter(|b| self.c.allowed(b["by"].as_str().unwrap_or("")))
+            .filter(|b| base_stands(self.c, b))
             .ok_or_else(none)?;
         let by = base["by"].as_str().unwrap_or("").to_string();
         if sum != base["body_sha256"].as_str().unwrap_or("") {
@@ -2745,7 +2756,10 @@ impl<'a> Poll<'a> {
             if self.read_only_ran(n) {
                 continue;
             }
-            let ask = if has(&labels, "tehas:ready") {
+            let host = self.host_start(n);
+            let ask = if host.is_some() {
+                HOST
+            } else if has(&labels, "tehas:ready") {
                 "tehas:ready"
             } else {
                 "tehas:blocked"
@@ -2753,44 +2767,51 @@ impl<'a> Poll<'a> {
             let mut fixer = None;
             let mut epic: Option<EpicGrant> = None;
             let mut planned = false;
-            let (who, at) = match self.plan_start(n, ask)? {
-                Planned::Refused => continue,
-                Planned::Go(who, at) => {
-                    planned = true;
-                    (who, at)
+            let (who, at) = if let Some(h) = &host {
+                match self.host_ok(n, h) {
+                    Some(at) => (HOST.to_string(), at),
+                    None => continue,
                 }
-                Planned::No => match self.approval(n, ask)? {
-                    Ok(a) => a,
-                    Err(refused) => {
-                        if ask == "tehas:ready"
-                            && !refused.is_empty()
-                            && self.c.is_millwright(&refused)
-                        {
-                            let ev = self.events(n)?;
-                            let (_, at) = label_actor(&ev, "tehas:ready");
-                            match self.epic_ready(n, &refused, &at)? {
-                                Some(Some(g)) => {
-                                    let by = g.by.clone();
-                                    epic = Some(g);
-                                    (by, at)
-                                }
-                                Some(None) => continue,
-                                None => {
-                                    match self.fixer_ok(n, &refused, &at, &labels)? {
-                                        Some(grant) => fixer = Some(grant),
-                                        None => continue,
-                                    }
-                                    (refused, at)
-                                }
-                            }
-                        } else {
-                            if ask == "tehas:ready" && !refused.is_empty() {
-                                self.clear_unauthorised(n, "tehas:ready", &refused);
-                            }
-                            continue;
-                        }
+            } else {
+                match self.plan_start(n, ask)? {
+                    Planned::Refused => continue,
+                    Planned::Go(who, at) => {
+                        planned = true;
+                        (who, at)
                     }
-                },
+                    Planned::No => match self.approval(n, ask)? {
+                        Ok(a) => a,
+                        Err(refused) => {
+                            if ask == "tehas:ready"
+                                && !refused.is_empty()
+                                && self.c.is_millwright(&refused)
+                            {
+                                let ev = self.events(n)?;
+                                let (_, at) = label_actor(&ev, "tehas:ready");
+                                match self.epic_ready(n, &refused, &at)? {
+                                    Some(Some(g)) => {
+                                        let by = g.by.clone();
+                                        epic = Some(g);
+                                        (by, at)
+                                    }
+                                    Some(None) => continue,
+                                    None => {
+                                        match self.fixer_ok(n, &refused, &at, &labels)? {
+                                            Some(grant) => fixer = Some(grant),
+                                            None => continue,
+                                        }
+                                        (refused, at)
+                                    }
+                                }
+                            } else {
+                                if ask == "tehas:ready" && !refused.is_empty() {
+                                    self.clear_unauthorised(n, "tehas:ready", &refused);
+                                }
+                                continue;
+                            }
+                        }
+                    },
+                }
             };
             if !self.links_ok(n) {
                 continue;
@@ -2831,9 +2852,6 @@ impl<'a> Poll<'a> {
             {
                 continue;
             }
-            if !self.overlap_ok(n) {
-                continue;
-            }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
                 Driver::Wait => continue,
                 Driver::Stranger(s) => {
@@ -2847,7 +2865,13 @@ impl<'a> Poll<'a> {
             };
             self.d.picked.push(n);
             ready_picked += 1;
-            let mut remove = vec![ask.to_string()];
+            // A host start takes off a `tehas:ready` that is on the issue too,
+            // so the label does not start the issue again after this cycle.
+            let mut remove = match ask {
+                HOST if has(&labels, "tehas:ready") => vec!["tehas:ready".to_string()],
+                HOST => Vec::new(),
+                _ => vec![ask.to_string()],
+            };
             if ask != "tehas:blocked" && has(&labels, "tehas:blocked") {
                 remove.push("tehas:blocked".into());
             }
@@ -2871,6 +2895,11 @@ impl<'a> Poll<'a> {
                 park_lifted: None,
                 extra: Map::new(),
             };
+            if ask == HOST {
+                st.verb = "started from the host".into();
+                st.how = "`tehas start`".into();
+                st.given_how = HOST.into();
+            }
             if let Some((base, count)) = fixer {
                 let s = |k: &str| {
                     base.get(k)
@@ -2966,7 +2995,11 @@ impl<'a> Poll<'a> {
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
             "given": st.given_how, "remove": st.remove, "verb": st.verb,
             // The line apply logs as the start begins.
-            "log": format!("start #{n} ({} by {})", st.verb, st.starter),
+            "log": if st.given_how == HOST {
+                format!("start #{n} ({})", st.verb)
+            } else {
+                format!("start #{n} ({} by {})", st.verb, st.starter)
+            },
             "text": !t.as_object().is_none_or(|o| o.is_empty()),
             "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
             "links": text::link_list(body),
@@ -3005,10 +3038,16 @@ pub(crate) fn fixer_base(record: &Value) -> Option<Value> {
             .all(|b| b.is_ascii_digit() || matches!(b, b'T' | b':' | b'.' | b'Z' | b'-'))
         && !by.is_empty()
         && by.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        && matches!(how, "label" | "retry-tick" | "outage-retry")
+        && matches!(how, "label" | "retry-tick" | "outage-retry" | HOST)
         && sum.len() == 64
         && sum.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
     ok.then(|| json!({"at": at, "by": by, "how": how, "body_sha256": sum}))
+}
+
+/// Whether a base of `fixer_base` still approves: the host's approval names no
+/// account (#1967), and a person's stands while the list names its account.
+pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
+    base["how"] == HOST || c.allowed(base["by"].as_str().unwrap_or(""))
 }
 
 /// The fixer starts a record counts, at most six digits.
@@ -3119,7 +3158,7 @@ fn blockers(body: &str) -> Option<Vec<u64>> {
 
 #[cfg(test)]
 mod fixer_tests {
-    use super::{fixer_base, fixer_starts};
+    use super::{base_stands, fixer_base, fixer_starts};
     use serde_json::{json, Value};
 
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -3157,6 +3196,20 @@ mod fixer_tests {
         let mut own = person("alice");
         own["how"] = json!("fixer");
         assert_eq!(fixer_base(&own), None);
+    }
+
+    /// #1967: the host's approval is a base the fixer and a finish may rest
+    /// on, whatever the list of accounts names; a person's needs the list.
+    #[test]
+    fn the_hosts_approval_stands_as_a_base_with_no_account_on_the_list() {
+        let c = crate::Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice"}));
+        let mut host = person("host");
+        host["how"] = json!("host");
+        let base = fixer_base(&by_fixer(json!(1), host)).unwrap();
+        assert_eq!(base["how"], "host");
+        assert!(base_stands(&c, &base));
+        assert!(base_stands(&c, &fixer_base(&person("alice")).unwrap()));
+        assert!(!base_stands(&c, &fixer_base(&person("host")).unwrap()));
     }
 
     #[test]

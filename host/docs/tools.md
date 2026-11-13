@@ -20,6 +20,8 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
+tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
@@ -27,13 +29,19 @@ tehas api [--json]               # what this factory speaks, for a program
 tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
+tehas start <issue> [--clear]    # approve an issue for a start, from the host
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
+tehas freeze <issue> [--reason R]  # hold a running cycle still, its clocks stopped
+tehas thaw <issue>               # let a frozen cycle go on
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas state pack|unpack -        # move a stopped factory's state to another machine
 tehas state check [--json]       # the state store's integrity and rows
+tehas state copy --to <file>     # a copy of the store, taken while cycles run
+tehas state load --from <file>   # fill a drained factory's empty store from one
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
+tehas mcp key                    # a new key for the read-only MCP server
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -48,7 +56,9 @@ scripts from `libexec/` in the platform repository (`dev-login`, `setup` and
 of `bootstrap.sh dev` runs the first) and the Rust programs it builds (the
 console, analytics, the MCP server, the state store, the attachment checker,
 `tehas-dispatch` and `tehas-cycle`). The two commands only choose one and run
-it, and exit with its status. `tehas status` and `tehas disk` need no settings.
+it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
+`tehas dev` and `tehas mcp key` need no settings, and `tehasbot mcp key` and
+`tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
@@ -62,6 +72,16 @@ prints the same text as `tehas help <command>`.
 Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
+
+The two lists name every command the two programs route. Four of them have no
+section of these pages and are on the page that describes them: `tehas panel`
+and `tehas host-message` on [the factory API](/api#tehas-panel) and
+[the factory API](/api#tehas-host-message), `tehas mcp key` and
+`tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
+`tehas-mcp.service` runs. `tehas state copy --to <file>` and
+`tehas state load --from <file>` are the two verbs `tehas state` holds beside
+[`pack`, `unpack` and `check`](/tools-control#tehas-state), on
+[the factory API](/api#tehas-state-copy).
 
 ## Instance settings
 
@@ -112,7 +132,6 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_EPICS`       | `0`                                      | 1 lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_EASY_MERGE`             | `0`                                      | 1 lets the dispatcher choose an easy merge for a refresh start instead of the full refresh cycle (see [refreshes](/operating#refreshes)): one merge of the branch into the pull request with no model and no container, at most once since the person's approval. The full refresh runs when the setting is off, when that approval has had its easy merge, when the store names no row for an easy merge it says the approval had, when nothing ran on record after the last easy merge, or when a check named by `TEHAS_BRANCH_CHECK` failed on the pull request after it. Today the choice is on the approval record, in `dispatch.log` and in the comment on the issue: the cycle an easy start runs is still the full refresh, so no host has merged this way yet. Anything but 0 or 1 stops every command with 78 |
-| `TEHAS_OVERLAP_HOLD`           | `0`                                      | 1 holds a start while a running cycle's branch changes a path the issue's body names (see [what happens next](/operating#3-what-happens-next)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_READ_ONLY`              | `0`                                      | 1 writes nothing to GitHub: every write of the host and of a cycle's container is refused and said, and the dispatcher keeps its starts on the host (see [read-only](/operating#read-only)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |

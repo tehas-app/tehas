@@ -100,13 +100,7 @@ pub fn comments_said(f: &Facts) -> String {
         .and_then(runner::values)
         .and_then(|all| {
             all.iter().rev().find_map(|r| {
-                let per_issue = r.get("issues").and_then(|is| match is {
-                    Value::Array(a) => a
-                        .iter()
-                        .find(|e| e.get("issue").and_then(Value::as_u64) == Some(f.issue))
-                        .and_then(|e| e.get("comments")),
-                    _ => None,
-                });
+                let per_issue = runner::issue_entry(r, f.issue).and_then(|e| e.get("comments"));
                 per_issue
                     .or_else(|| r.get("comments"))
                     .filter(|c| c.is_object())
@@ -1046,6 +1040,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
         );
     }
+    if let Some((bad, of)) = unparsed(progress) {
+        warn(
+            &mut r,
+            format!("{bad} of {of} lines of the stream of #{issue} could not be parsed, so what the report says of the run leaves them out"),
+        );
+    }
     let (usage, unreadable) = runner::usage(&outcome, progress);
     if unreadable {
         warn(
@@ -1769,6 +1769,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
 /// comment it posts when the question is not posted (`comment`) or the park
 /// not taken (`comment_unrecorded`), each as it reads after a label change
 /// that worked (`ok`) and one that did not (`stuck`).
+/// The lines of the stream the progress says could not be parsed, and of how
+/// many, when there were any.
+fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
+    let v: Value = serde_json::from_str(progress?.trim()).ok()?;
+    let count = |k: &str| v.get("unparsed")?.get(k)?.as_u64();
+    let (bad, of) = (count("lines")?, count("of")?);
+    (bad > 0).then_some((bad, of))
+}
+
 pub fn to_json(r: &Report, issue: u64) -> Value {
     let both = |f: &dyn Fn(bool) -> String| json!({"ok": f(false), "stuck": f(true)});
     let actions: Vec<Value> = r
@@ -2296,6 +2305,34 @@ mod tests {
         let r = refused("0\n", None);
         assert_eq!(end_cap(&r), None, "{:?}", r.end);
         assert!(r.history.get("cap").is_none(), "{}", r.history);
+    }
+
+    #[test]
+    fn a_stream_of_cut_lines_is_said_to_be_unparsed_not_unstarted() {
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "home": "/home/tehas",
+            "rc": 2,
+            "started": 1000,
+            "now": 1600,
+            "start": { "attempt": 1 },
+            "files": {
+                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false,\"unparsed\":{\"lines\":1,\"of\":1}}\n",
+                "runner_exit": "2\n",
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        let r = report(&f, &mut Given(facts["github"].clone()));
+        let log = r.log.join("\n");
+        assert!(
+            log.contains("1 of 1 lines of the stream of #7 could not be parsed"),
+            "{log}"
+        );
+        let all = format!("{log}\n{}\n{}", r.done, comments(&r).join("\n"));
+        assert!(!all.contains("no step started"), "{all}");
     }
 
     /// The report of a cycle that started at `started` and found `prs` on its

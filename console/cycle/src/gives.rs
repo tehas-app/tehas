@@ -474,7 +474,8 @@ fn shaped(v: &Value, key: &str, ok: impl Fn(&str) -> bool) -> bool {
 /// The person's approval a record rests on, {at, by, how, body_sha256}: the
 /// record's own when a person gave it, its rests_on when the millwright or a
 /// refresh did. None for a missing record, a link, a shape it does not know, or
-/// an account that is not allowed now.
+/// an account that is not allowed now. The host's approval (#1967) names no
+/// account to allow: its kind is what makes it a base.
 pub fn millwright_base(record: &str) -> Option<Value> {
     if !is_record(record) {
         return None;
@@ -498,12 +499,13 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "retry-tick" | "outage-retry")
+        matches!(s, "label" | "retry-tick" | "outage-retry" | "host")
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });
     let by = base.get("by").and_then(Value::as_str)?;
-    (ok && events::allowed_in(allowed, by)).then(|| {
+    let host = base.get("how").and_then(Value::as_str) == Some("host");
+    (ok && (host || events::allowed_in(allowed, by))).then(|| {
         let field = |k: &str| base.get(k).cloned().unwrap_or(Value::Null);
         json!({"at": field("at"), "by": field("by"), "how": field("how"),
             "body_sha256": field("body_sha256")})
@@ -599,6 +601,20 @@ mod tests {
             assert_eq!(got["by"], "alice");
             assert_eq!(got["how"], "label");
         }
+    }
+
+    /// #1967: the host's approval is a base with no account on the list.
+    #[test]
+    fn the_hosts_approval_is_a_base_without_an_allowed_account() {
+        let mut host = person("host");
+        host["how"] = json!("host");
+        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+        for shape in [host, fixer] {
+            let got = base(&shape, "alice").expect("an approval");
+            assert_eq!(got["how"], "host");
+        }
+        assert!(base(&person("host"), "alice").is_none());
     }
 
     #[test]

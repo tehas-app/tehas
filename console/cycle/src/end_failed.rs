@@ -22,21 +22,10 @@ fn s<'a>(v: &'a Value, p: &str) -> &'a str {
 }
 
 /// The issue's entry of a result, as the runner wrote it.
-fn entry(result: &str, issue: u64) -> Value {
-    crate::runner::values(result)
-        .unwrap_or_default()
-        .iter()
-        .rev()
-        .find_map(|r| {
-            let list: Vec<&Value> = match &r["issues"] {
-                Value::Array(a) => a.iter().collect(),
-                Value::Object(o) => o.values().collect(),
-                _ => return None,
-            };
-            list.into_iter()
-                .find(|e| e["issue"].as_u64() == Some(issue))
-                .cloned()
-        })
+pub(crate) fn entry(result: &str, issue: u64) -> Value {
+    let all = crate::runner::values(result).unwrap_or_default();
+    crate::runner::last_issue_entry(&all, issue)
+        .cloned()
         .unwrap_or(Value::Null)
 }
 
