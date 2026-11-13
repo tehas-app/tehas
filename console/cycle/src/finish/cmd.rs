@@ -59,7 +59,8 @@ const BUSY_ASKS: u32 = 20;
 const BUSY_WAIT: Duration = Duration::from_millis(50);
 
 /// What a command answered: its exit status and what it printed. A status of
-/// None is a command that could not be run or did not end in its bound.
+/// None is a command that could not be run, did not end in its bound, or was
+/// ended by a signal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Done {
     pub status: Option<i32>,
@@ -274,24 +275,72 @@ const SCRUBBED: [&str; 17] = [
     "ENV",
 ];
 
-/// One of a command's streams, read on a thread of its own to the bound of
-/// [`KEPT`] bytes: what a run reads is a name, a count and a URL, and a child
-/// that filled a pipe nobody drained would never reach its end.
-fn bounded_stream<S: std::io::Read + Send + 'static>(
-    stream: Option<S>,
-) -> Option<std::thread::JoinHandle<String>> {
-    let s = stream?;
-    Some(std::thread::spawn(move || {
-        use std::io::Read;
-        let mut text = String::new();
-        let _ = s.take(KEPT).read_to_string(&mut text);
-        text
-    }))
+/// One of a command's streams, read on a thread of its own as it is written.
+/// The first [`KEPT`] bytes are kept and the rest is read and dropped, so a child
+/// never stops on a full pipe. What was kept is in `text` at any moment, for a
+/// stream whose end never comes.
+struct Stream {
+    text: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    done: std::sync::mpsc::Receiver<()>,
+}
+
+fn bounded_stream<S: std::io::Read + Send + 'static>(stream: Option<S>) -> Option<Stream> {
+    let mut s = stream?;
+    let text = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (tx, done) = std::sync::mpsc::channel();
+    let kept = std::sync::Arc::clone(&text);
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match s.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let Ok(mut t) = kept.lock() else { break };
+                    let room = (KEPT as usize).saturating_sub(t.len());
+                    t.extend_from_slice(&buf[..n.min(room)]);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(());
+    });
+    Some(Stream { text, done })
+}
+
+/// What a stream said by `until`. A stream still open then is one a process
+/// outside the call's reach holds, and is not waited for: the call has ended.
+/// The answer says whether the stream reached its end.
+fn taken(s: Option<Stream>, until: Instant) -> (String, bool) {
+    let Some(s) = s else {
+        return (String::new(), true);
+    };
+    let left = until.saturating_duration_since(Instant::now());
+    let ended = s.done.recv_timeout(left).is_ok();
+    let text = s
+        .text
+        .lock()
+        .map(|t| String::from_utf8_lossy(&t).into_owned())
+        .unwrap_or_default();
+    (text, ended)
 }
 
 /// One command in `dir`, its standard input closed, both streams read as they
 /// are written, and its process group killed when it outlives [`BOUND`].
 fn bounded(program: &str, args: &[String], dir: &Path) -> Done {
+    within(program, args, dir, BOUND, GRACE)
+}
+
+/// [`bounded`] with a bound and a grace of the caller's own. After the call
+/// ends, its streams get `grace` to reach their end; one that does not is cut
+/// there, and the answer says so.
+pub(super) fn within(
+    program: &str,
+    args: &[String],
+    dir: &Path,
+    bound: Duration,
+    grace: Duration,
+) -> Done {
     let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(dir)
@@ -324,26 +373,35 @@ fn bounded(program: &str, args: &[String], dir: &Path) -> Done {
     let out = bounded_stream(child.stdout.take());
     let err = bounded_stream(child.stderr.take());
     let pid = child.id().to_string();
-    let until = Instant::now() + BOUND;
+    let until = Instant::now() + bound;
     // TERM to the group and KILL after the grace, as `timeout -k` does: gh's and
     // git's own helpers go with them.
     let stop = |signal: &str| {
         let _ = Command::new("kill")
-            .args([signal, &format!("-{pid}")])
+            .args([signal, "--", &format!("-{pid}")])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
     };
-    let status = loop {
+    let name = Path::new(program)
+        .file_name()
+        .map_or(program.into(), |n| n.to_string_lossy());
+    // Whether the run stopped the call at its bound. A status of None alone does
+    // not say so: a program that died of a signal has no code either, and its
+    // own last words are the line a refusal quotes.
+    let (status, stopped) = loop {
         match child.try_wait() {
-            Ok(Some(s)) => break s.code(),
+            Ok(Some(s)) => break (s.code(), false),
             Ok(None) if Instant::now() >= until => {
                 stop("-TERM");
-                std::thread::sleep(GRACE);
+                let gone = Instant::now() + grace;
+                while Instant::now() < gone && matches!(child.try_wait(), Ok(None)) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 stop("-KILL");
                 let _ = child.wait();
-                break None;
+                break (None, true);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
@@ -353,12 +411,23 @@ fn bounded(program: &str, args: &[String], dir: &Path) -> Done {
             }
         }
     };
-    let given = |r: Option<std::thread::JoinHandle<String>>| {
-        r.and_then(|h| h.join().ok()).unwrap_or_default()
-    };
-    Done {
-        status,
-        out: given(out),
-        err: given(err),
+    let drained = Instant::now() + grace;
+    let (out, out_ended) = taken(out, drained);
+    let (mut err, err_ended) = taken(err, drained);
+    if stopped {
+        // The first line is what a refusal quotes, so it names the call.
+        err = format!(
+            "{name} did not end within {} s and was stopped\n{err}",
+            bound.as_secs()
+        );
     }
+    if !(out_ended && err_ended) {
+        if !err.is_empty() && !err.ends_with('\n') {
+            err.push('\n');
+        }
+        err.push_str(&format!(
+            "{name} left a process that held its output open; it was not waited for\n"
+        ));
+    }
+    Done { status, out, err }
 }
