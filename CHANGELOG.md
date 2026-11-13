@@ -399,6 +399,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   keeping of a later start and past the end of a cycle that never ran, so the
   record of a host still says which start ran as an easy merge and never offers
   the same easy merge twice (#1751).
+- With `TEHAS_REFRESH_CONFLICTS` other than 1, a refresh request the timed run of `tehasbot refresh` wrote (one without `"asked"`) no longer waits for good. The timed run exits at once with the setting off, so the dispatcher sweeps such a request itself at each poll, whatever the room: it drops one whose issue is closed or no longer waits for a merge, or whose pull request is closed, merged, moved, no longer conflicts or is no longer one the rule keeps, and `refreshHold` clears in the poll that drops the last one. A request whose issue or pull request could not be read stays. `tehas api` lists the feature `refresh-pr-sweep`. The usage of `tehasbot refresh` no longer says drafts are left out: they are kept as any other pull request (#1973).
+- `scripts/tag-release.sh` no longer tags a release whose changelog section lists no changes. A section with an Adopter action of "None." and no `### Changes` lines under it used to pass; the tagger now refuses it, names the section it read and tags nothing.
+- The dispatcher's read of the last poll report, and the cycle's read of the runner's progress when it ends at a cap, now use the shared bounded reader: a link, or a file larger than 1 MiB, counts as no report instead of being read whole.
+- A planning turn whose reply adds images is no longer refused when only the removal of the session's earlier image directory fails: the new images are in place, and the leftover `.old` directory is named on stderr. A swap that does fail now says which step failed and the OS error.
+- The runner, the report, finish and the dispatcher now decide by one rule whether a pull request belongs to an issue. Before, a body such as `Resolved #7` or `does not fix #7` counted for one and not the other, so finish could open a second pull request, or refuse one, where the report saw the cycle's own.
+- The GitHub token renewer no longer waits so long between asks that the token runs out: `TEHAS_GITHUB_RENEW_EVERY` is capped at 540 seconds, which keeps the token valid through one failed ask, and a value that is not a whole number above 0 falls back to 300.
+- `finish` no longer hangs on a git or gh call whose program left a process holding its output open: the call's streams get the grace after it ends, a call stopped at its bound says so in the refusal (a program that died of a signal keeps its own words), and the grace after TERM ends as soon as the call does.
+- A cycle's stall, time-limit or `tehas stop` note that could not be written or read is now said: the watch records a lost note in the cycle's error log, and the end report warns of a note it cannot read or that holds no count of seconds, instead of reporting the run as one that was never stopped.
+- A cycle's token renewer no longer hangs on a token command that never ends: one renewal is stopped after 60 seconds, with what it started, logged as a failed renewal and retried after 30 seconds, and a stop of the cycle ends the renewer at once even while a renewal runs.
+- A cycle that hands off with its pull request open is moved to `tehas:awaiting-merge` only when its progress says the review held nothing (`reviewHeld: false`). A progress file that is silent on the review, not JSON or missing now parks the issue with a warning and a comment saying so, instead of releasing it or claiming the review ran out of rounds.
 
 ### Held back
 
@@ -509,6 +519,26 @@ proxy's list now fails its install before the cycle starts: add that host to
 The next `tehas update` rebuilds the sandbox image. The build passes the npm
 trees as a named build context, so it needs Docker's BuildKit builder (buildx),
 which the base build already needed.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
 
 ## v0.25.1 (2026-11-07)
 
