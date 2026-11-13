@@ -216,10 +216,23 @@ fn space(c: char) -> bool {
 /// Whether the section has an "### Adopter action" heading with a line under
 /// it, before the next heading.
 pub fn adopter_action(section: &str) -> bool {
+    lines_under(section, "### Adopter action")
+}
+
+/// Whether the section has a "### Changes" heading with a line under it,
+/// before the next heading: a release whose section names no change has a
+/// page that describes nothing, however its Adopter action reads.
+pub fn changes(section: &str) -> bool {
+    lines_under(section, "### Changes")
+}
+
+/// Whether the section has the heading, alone on its line, with a line that
+/// is not blank under it before the next heading.
+fn lines_under(section: &str, heading: &str) -> bool {
     let mut inside = false;
     for line in records(section) {
         if line
-            .strip_prefix("### Adopter action")
+            .strip_prefix(heading)
             .is_some_and(|r| r.chars().all(space))
         {
             inside = true;
@@ -533,6 +546,10 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     };
     if !adopter_action(&text) {
         eprintln!("tag-release: the {name} section of CHANGELOG.md needs an \"### Adopter action\" heading with a line under it (\"None.\" will do); nothing was tagged");
+        return 1;
+    }
+    if !changes(&text) {
+        eprintln!("tag-release: the {name} section of CHANGELOG.md lists no changes: it needs a \"### Changes\" heading with a line under it; nothing was tagged");
         return 1;
     }
 
