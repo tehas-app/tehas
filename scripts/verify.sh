@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The gate of this repository: what must pass before a change is proposed.
 #
-#   scripts/verify.sh          the lint for product and host names, the
+#   scripts/verify.sh          the lint for the names of particular
+#                              installations and private addresses, the
 #                              ceiling on bash lines, shellcheck,
 #                              every shell test, the tests of the cargo
 #                              workspace, its format and lints (rustfmt,
@@ -25,7 +26,11 @@
 # cargo the gate fails, fast or full: the dispatcher's rules are Rust tests. A
 # missing node is a "skip" line in the fast gate and a failure in the full one;
 # rustfmt and clippy, which not every toolchain holds, are "skip" lines
-# except in CI and with --full, where they fail. No
+# except in CI and with --full, where they fail. A step that checked less
+# than it names is a "skip" line too: the name lint without
+# scripts/check-generic.names, and the shell step whose runner reported a
+# check it did not run. The line of the name lint says what it did not check
+# by its own name, `the names in platform files`. No
 # network, no sandbox image, no product checkout: except that cargo fetches the
 # workspace's crates the first time it builds it. The workspace's tests run at
 # the same time as the shell tests; each step's output is printed in the order
@@ -60,6 +65,11 @@ mode=${mode:-plain}
 
 # A tree that passed is not checked again: the same files, tracked or not, in
 # the same mode, from the same merge base for --changed, with the same tools.
+# git add -A does not see the names list, which .gitignore keeps out of the
+# tree, nor CI, so both are hashed here: a pass made without the list is not
+# replayed once it is there, nor a plain one under CI. rustfmt and clippy are
+# hashed with the rest of the tools: a pass made on a toolchain without them
+# says nothing about a run that needs them.
 # The pass is kept in the repository's git directory, so its worktrees share
 # it and hosts do not. A failure is never kept, nor a pass of a tree that
 # changed during the run. TEHAS_VERIFY_FRESH=1 runs every step.
@@ -72,8 +82,16 @@ tree_key() {
     echo "${1:-plain}"
     GIT_INDEX_FILE=$idx git write-tree
     [ "$changed" = 0 ] || git merge-base HEAD origin/main 2>/dev/null
+    # The list itself, which git add -A cannot see, and CI, which is no file.
+    # A file and its contents cannot print the same line: a list whose first
+    # line is '42' hashes to an object id, which is no 'names 42'.
+    echo "names ${CI-}"
+    [ -f scripts/check-generic.names ] && git hash-object scripts/check-generic.names
     for t in bash jq shellcheck cargo rustc node; do
       ! command -v "$t" >/dev/null || "$t" --version 2>&1 | head -n 1
+    done
+    for t in fmt clippy; do
+      ! command -v cargo >/dev/null || cargo "$t" --version 2>&1 | head -n 1
     done
   } | git hash-object --stdin
 }
@@ -94,21 +112,50 @@ if [ -z "${TEHAS_VERIFY_FRESH:-}" ] && key=$(tree_key "${1:-}") && [ -n "$key" ]
   exit "$rc"
 fi
 
-report() { # name rc output-file
+# Why a step that ended 0 did not check everything it names, or empty when it
+# checked it all. Only the two steps that can under-check ask: the name lint,
+# which checks addresses alone without its list, and the shell step, whose
+# runner says SKIPPED: <reason> in column 1 for a check it did not run. The
+# step's own words stay in the log; the line gives the short reason.
+report_skip() { # kind output-file
+  case $1 in
+    names)
+      grep -q '^check-generic: no names list' "$2" && echo "no names list"
+      ;;
+    shell)
+      local reasons
+      reasons=$(grep '^SKIPPED: ' "$2" | sed 's/^SKIPPED: //' | paste -sd ',' -)
+      [ -n "$reasons" ] && echo "${reasons//,/, }"
+      ;;
+  esac
+  return 0
+}
+
+report() { # name rc output-file [why]
   { echo "== $1: exit $2" && cat "$3" && echo; } >>"$tmp/log" 2>/dev/null
-  if [ "$2" = 0 ]; then
-    echo "ok    $1"
-  else
+  if [ "$2" != 0 ]; then
     echo "FAIL  $1"
     tail -n 40 "$3" | sed 's/^/      /'
     failed=1
+    return
+  fi
+  if [ -n "${4:-}" ]; then
+    echo "skip  $1 ($4)"
+  else
+    echo "ok    $1"
   fi
 }
+
 step() { # name command...
-  local name=$1 rc=0
+  local name=$1 rc=0 why
   shift
   "$@" >"$tmp/out" 2>&1 || rc=$?
-  report "$name" "$rc" "$tmp/out"
+  case $name in
+    "the names in platform files") why=$(report_skip names "$tmp/out") ;;
+    "shellcheck"*) why=$(report_skip shell "$tmp/out") ;;
+    *) why= ;;
+  esac
+  report "$name" "$rc" "$tmp/out" "$why"
 }
 has() { command -v "$1" >/dev/null 2>&1; }
 
@@ -166,7 +213,7 @@ if has cargo && [ "$cargo_wanted" = 1 ]; then
   cargo_pid=$!
 fi
 
-step "no product or host names in platform files" scripts/check-generic.sh
+step "the names in platform files" scripts/check-generic.sh
 step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-lines.sh
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
