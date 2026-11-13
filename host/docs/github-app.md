@@ -274,6 +274,11 @@ GraphQL carry the id of their label:
   label events read from REST carry no label id, so they could not be told
   from another label renamed to the name.
 
+`tehas labels` pins `tehas:prototype` the same way, and the
+[Protolab](/tools-protolab#tehasbot-protolab) publishes no ticket while the
+label under that name is not the pinned one. The dispatcher does not act on
+it.
+
 A label renamed into a granting name, for example a person's `bug` renamed to
 `tehas:ready`, therefore grants nothing: its old applications carry the id of
 the old label.

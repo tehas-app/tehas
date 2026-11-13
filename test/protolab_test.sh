@@ -30,6 +30,9 @@ case "$1 $2" in
   "api user")
     [ ! -e "$T/fx/user-fails" ] || exit 1
     cat "$T/fx/user.json" 2>/dev/null || echo "{\"login\":\"tehas-bot\"}" ;;
+  "api repos/acme/widget/labels/tehas:prototype")
+    [ ! -e "$T/fx/label-fails" ] || exit 1
+    cat "$T/fx/label.json" 2>/dev/null || echo "{\"name\":\"tehas:prototype\",\"node_id\":\"LA_proto\"}" ;;
   "api repos/acme/widget/issues?"*) echo "$2" >>"$T/calls/lists"; cat "$T/fx/issues.json" 2>/dev/null || exit 1 ;;
   "api graphql")
     case "$*" in
@@ -104,8 +107,16 @@ reset() {
   # A zip is unpacked by the real attachment checker.
   t_attach_home "$T/home/tehas"
   t_ids "$T/home/tehas"
+  # tehas labels pinned the label.
+  printf 'tehas:prototype\tLA_proto\n' >"$T/home/tehas/state/labels"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+}
+# renamed <number> <account> <time> <from> <to>: a rename after the label.
+renamed() {
+  jq -c --arg who "$2" --arg at "$3" --arg from "$4" --arg to "$5" \
+    '. + [{event: "renamed", rename: {from: $from, to: $to}, created_at: $at, actor: {login: $who}}]' \
+    "$fx/events-$1.json" >"$fx/events-$1.json.new" && mv "$fx/events-$1.json.new" "$fx/events-$1.json"
 }
 files_of() { (cd "$site/$1/files" 2>/dev/null && find . -type f | LC_ALL=C sort | tr '\n' ' '); }
 
@@ -283,6 +294,67 @@ t_contains "$t_out" "#28: its label events could not be read, nothing built or r
 t_eq "$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 t_eq "$([ -e "$site/28" ] && echo there)" ""
 t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[27]"
+
+t_case "the label under the name is not the pinned one: nothing is at the stage"
+reset
+issues "$(issue 29 'Kept then refused' 'no files')"
+t_protolab
+t_contains "$t_out" "#29: 0 files"
+rm -f "$T"/calls/*
+echo '{"name":"tehas:prototype","node_id":"LA_bug"}' >"$fx/label.json"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "refused: the label tehas:prototype is not the one pinned in state/labels (pinned LA_proto, now LA_bug): no ticket is at the prototype stage"
+t_contains "$t_out" "#29: no longer at the prototype stage, removed"
+t_lacks "$(t_calls gh)" "issues/29/events"
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[]"
+
+t_case "with no pin for the label nothing is at the stage"
+reset
+rm "$T/home/tehas/state/labels"
+issues "$(issue 29 'No pin' 'no files')"
+t_protolab
+t_contains "$t_out" "refused: the label tehas:prototype (LA_proto) has no pin in state/labels"
+t_eq "$([ -e "$site/29" ] && echo there)" ""
+
+t_case "a label that cannot be read leaves everything as it was"
+reset
+issues "$(issue 29 'Held' 'no files')"
+t_protolab
+before=$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)
+issues "$(issue 29 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+touch "$fx/label-fails"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "the label tehas:prototype could not be read, nothing built or removed"
+t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
+
+t_case "a title changed by an account outside the list after the label is not published"
+reset
+issues "$(issue 50 'First title' 'no files')"
+t_protolab
+t_contains "$t_out" "#50: 0 files"
+issues "$(issue 50 'Their title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+renamed 50 mallory 2026-10-09T09:00:00Z 'First title' 'Their title'
+t_protolab
+t_contains "$t_out" "#50: its title was changed by 'mallory' since alice approved it, left as it was"
+t_contains "$(cat "$site/50/index.html")" "First title"
+t_lacks "$(cat "$site/50/index.html")" "Their title"
+t_lacks "$(cat "$site/index.html")" "Their title"
+# The label given again approves the title as it now is.
+labeled 50 alice tehas:prototype 2026-10-09T10:00:00Z
+renamed 50 mallory 2026-10-09T09:00:00Z 'First title' 'Their title'
+t_protolab
+t_contains "$t_out" "#50: 0 files"
+t_contains "$(cat "$site/50/index.html")" "Their title"
+
+t_case "a title changed by an allowed account after the label is published"
+reset
+issues "$(issue 51 'Better title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+renamed 51 alice 2026-10-09T09:00:00Z 'Old title' 'Better title'
+t_protolab
+t_contains "$t_out" "#51: 0 files"
+t_contains "$(cat "$site/51/index.html")" "Better title"
 
 t_case "an instance that lists the bot's own login publishes nothing"
 reset
@@ -794,6 +866,26 @@ t_eq "$(cat "$T/calls/lists")" "repos/acme/widget/issues?state=open&type=Prototy
 t_contains "$t_out" "#40: 0 files, 0 bytes, 0 left out"
 t_contains "$t_out" "#41: the issue type Prototype was set by 'mallory', not an allowed account"
 t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[40]"
+
+t_case "with the type mapped, a login set with another user id than the recorded one counts for nothing"
+with_types
+issues "$(issue 44 'Typed by a new alice' 'no files')"
+typed 44 alice
+jq -c '.data.repository.issue.timelineItems.nodes[0].actor.databaseId = 1' "$fx/typed-44.json" >"$fx/typed-44.new"
+mv "$fx/typed-44.new" "$fx/typed-44.json"
+t_protolab
+t_contains "$t_out" "#44: the issue type Prototype was set by 'alice#1', not an allowed account"
+t_eq "$([ -e "$site/44" ] && echo there)" ""
+
+t_case "with the type mapped, a title changed by an account outside the list is not published"
+with_types
+issues "$(issue 45 'Their title' 'no files')"
+typed 45 alice
+renamed 45 mallory 2026-10-09T09:00:00Z 'First title' 'Their title'
+t_protolab
+t_contains "$t_out" "#45: its title was changed by 'mallory' since alice approved it, left as it was"
+t_eq "$([ -e "$site/45" ] && echo there)" ""
+t_lacks "$(t_calls gh)" "labels/tehas:prototype"
 
 t_case "with the type mapped, the label counts for nothing: alice's tehas:prototype is no type"
 with_types
