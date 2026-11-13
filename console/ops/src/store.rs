@@ -8,7 +8,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::thread::sleep;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{self, sleep};
 use std::time::Duration;
 
 /// What a call that did not answer said: the status
@@ -69,8 +70,15 @@ fn code(status: ExitStatus) -> i32 {
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
+/// How long the output of a command that exited is read after it: what a
+/// child it left behind still holds open is not waited on beyond this.
+const MERGED_GRACE: Duration = Duration::from_secs(5);
+
 /// Standard output and standard error as one text, and the exit status: 127
-/// for a command that could not be started.
+/// for a command that could not be started. The command's own exit ends the
+/// wait: a child of it that outlived it, as one that ignored the TERM of a
+/// `timeout` may, keeps the pipe open, and the read would otherwise last as
+/// long as that child does.
 pub fn merged(cmd: &mut Command) -> (i32, String) {
     let Ok((mut reader, writer)) = io::pipe() else {
         return (127, String::new());
@@ -85,9 +93,27 @@ pub fn merged(cmd: &mut Command) -> (i32, String) {
     let Ok(mut child) = child else {
         return (127, String::new());
     };
-    let mut said = Vec::new();
-    let _ = reader.read_to_end(&mut said);
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let (done, ended) = mpsc::channel();
+    let into = Arc::clone(&said);
+    thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => into
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let _ = done.send(());
+    });
     let rc = child.wait().map(code).unwrap_or(127);
+    let _ = ended.recv_timeout(MERGED_GRACE);
+    let said = said.lock().unwrap_or_else(|e| e.into_inner());
     (rc, String::from_utf8_lossy(&said).into_owned())
 }
 
@@ -330,5 +356,25 @@ mod tests {
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
         let no = call(&home, &["backup"]).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
+    }
+
+    #[test]
+    fn merged_keeps_both_streams_and_the_status() {
+        let (rc, said) = merged(Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]));
+        assert_eq!(rc, 3);
+        assert_eq!(said, "out\nerr\n");
+    }
+
+    #[test]
+    fn merged_answers_when_the_command_exits_whatever_it_left_running() {
+        // The child of the command keeps the write end open for a minute.
+        let started = std::time::Instant::now();
+        let (rc, said) = merged(Command::new("sh").args(["-c", "sleep 60 & echo said; exit 2"]));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!((rc, said.as_str()), (2, "said\n"));
     }
 }

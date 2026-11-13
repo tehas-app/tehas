@@ -138,6 +138,19 @@ CREATE TABLE approvals (
   used_by      INTEGER,
   input_json   TEXT,
   easy         INTEGER NOT NULL DEFAULT 0 CHECK (easy IN (0, 1)),
+  -- started_by, started_how and started_easy (v13) are what the start this approval
+  -- ran wrote on its own row: the attempt of the start, the word it ran under, and
+  -- whether it ran as an easy merge. The keeping after a start deletes the approvals
+  -- of the starts the base no longer rests on, and a record left with only its live
+  -- rows answered no refreshes, no easy merge, and no mark for the row of a cycle
+  -- whose approval had gone: the poll then took every refresh after the first easy
+  -- merge for the full one, and could drop the refresh it owed for want of a count.
+  -- These are the words of a start kept where the answers can still reach them. A
+  -- row that ran no start has 0, the empty word and 0, which counts it nowhere; the
+  -- backfill in `db.rs` writes them for the rows of a store that predates this step.
+  started_by   INTEGER NOT NULL DEFAULT 0,
+  started_how  TEXT NOT NULL DEFAULT '',
+  started_easy INTEGER NOT NULL DEFAULT 0 CHECK (started_easy IN (0, 1)),
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);

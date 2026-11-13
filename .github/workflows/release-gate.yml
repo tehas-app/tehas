@@ -67,6 +67,19 @@ jobs:
           chmod 755 "$RUNNER_TEMP/jq/jq"
           echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
           test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
+      - name: node at the pinned version
+        run: |
+          # The node the host runs. Without node on the PATH the gate prints a
+          # "skip" line for the front page's tests and runs none of them.
+          . host/versions.env
+          rm -rf "$RUNNER_TEMP/node"
+          mkdir -p "$RUNNER_TEMP/node"
+          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" \
+            "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"
+          echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/node.tar.xz" -C "$RUNNER_TEMP/node" --strip-components=1
+          echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/node/bin/node" --version)" = "v$NODE_VERSION"
       - name: the cargo build kept between runs
         run: |
           dir=$HOME/.cache/tehas-target/$RUNNER_NAME
