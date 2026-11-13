@@ -947,6 +947,415 @@ fn check_can_leave_the_wal_and_shm_beside_the_file_at_its_mode() {
     }
 }
 
+// The statements an open of `file` for `purpose` ran, read out of SQLite by SQLite's
+// own trace hook. The question of #1769 is about the statements the store's `prepare`
+// says, so it is answered from the statements themselves and not from a timing or a
+// count of pages read: a check that was not run left no statement behind it, and a
+// check that was run cannot hide from the thing SQLite calls when it finishes one.
+//
+// rusqlite keeps its wrapper of the hook behind its `trace` feature, and that feature
+// is not resolved for this workspace, so `Connection::trace_v2` is not in this build.
+// The hook is reached through rusqlite's own `ffi`, which the crate re-exports and
+// which carries the SQLite C API. `SQLITE_TRACE_PROFILE` is the event that reports a
+// statement SQLite has finished - which is the whole of the question, since a statement
+// merely prepared is not one that was run - and `sqlite3_sql` gives the text of it as it
+// was written, the text the caller handed SQLite, which is what the question is about
+// (`sqlite3_expanded_sql` would substitute bound values, and these pragmas have none).
+// rusqlite's own `trace` feature, were it enabled, would only wrap this same call, so
+// nothing is reached that the crate does not itself provide.
+//
+// A plain comment, not a doc comment: rustdoc drops a doc comment on a `thread_local!`
+// because the macro does not carry documentation into what it makes.
+#[cfg(test)]
+thread_local! {
+    /// What the trace hook reported for this thread since it was last emptied.
+    static SEEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// SQLite's own trace callback: it takes the event, the context the hook was installed
+/// with and two pointers whose meaning the event decides. For `SQLITE_TRACE_PROFILE` the
+/// third is the statement that finished and the fourth the nanoseconds it took, which
+/// this callback does not read.
+#[cfg(test)]
+unsafe extern "C" fn traced(
+    evt: std::ffi::c_uint,
+    _ctx: *mut std::ffi::c_void,
+    stmt: *mut std::ffi::c_void,
+    _extra: *mut std::ffi::c_void,
+) -> std::ffi::c_int {
+    // 2 is SQLITE_TRACE_PROFILE, from rusqlite's own bindings.
+    if evt == 2 && !stmt.is_null() {
+        let sql = std::ffi::CStr::from_ptr(rusqlite::ffi::sqlite3_sql(stmt.cast()));
+        let sql = sql.to_string_lossy().into_owned();
+        // The callback runs inside SQLite, so it must not be the thing that panics: a
+        // thread that unwound through C is undefined behaviour, and nothing here is worth
+        // failing a test for. A cell already borrowed by an outer ask is left alone
+        // rather than borrowed twice.
+        SEEN.with(|v| {
+            if let Ok(mut seen) = v.try_borrow_mut() {
+                seen.push(sql);
+            }
+        });
+    }
+    0
+}
+
+/// The probe: the statement that makes SQLite report the statements of an open, and the text
+/// the answer drops. It is this test's own and no part of the store.
+#[cfg(test)]
+const PROBE: &str = "PRAGMA cache_size";
+
+/// Opens `file` for `purpose` with SQLite's trace hook on the connection from the moment it
+/// exists, and answers with what SQLite finished running on it while `prepare` worked: the
+/// statements of the open, in the order SQLite ran them, without the probe.
+///
+/// The hook has to go on the connection before `prepare` runs, and there is no moment between
+/// the call that makes a connection and the call that prepares it for a thread outside SQLite to
+/// install one. rusqlite keeps its wrapper of the hook behind its `trace` feature, which is not
+/// resolved for this workspace, so `Connection::trace_v2` is not in this build; the hook is
+/// reached through rusqlite's own `ffi`, which re-exports the SQLite C API, with the same call
+/// and the same flags rusqlite's own `open_with_flags` gives `sqlite3_open_v2` for these two
+/// opens. `sqlite3_open_v2` says no pragmas of its own, so everything SQLite reports afterwards
+/// is what the store's `prepare` said, and nothing of `prepare` is redone here.
+///
+/// SQLite reports a prepared statement only while the statement lives, and rusqlite's statement
+/// cache ends a statement when the read of it ends, so what `prepare` left prepared is reported
+/// by the statement that comes after it on the same connection: the probe, asked through
+/// `execute_batch`, which steps it to SQLITE_DONE - the moment SQLite gives
+/// `SQLITE_TRACE_PROFILE` and with it every statement still prepared, in the order SQLite
+/// prepared them. `query_row` reads the first row and stops, so SQLite never gives a statement
+/// its end, and `execute` refuses a statement that answers rows at all, which a pragma does.
+#[cfg(test)]
+fn open_listening_to_sqlite(file: &Path, purpose: db::Purpose) -> Vec<String> {
+    use std::ffi::CString;
+    SEEN.with(|v| v.borrow_mut().clear());
+    let path = CString::new(file.as_os_str().to_string_lossy().as_bytes())
+        .expect("the path of the store has no NUL in it");
+    // The flags rusqlite gives `sqlite3_open_v2` for the two opens of a file that is already
+    // there: READ_WRITE|CREATE|NO_MUTEX for the verb that writes, READ_ONLY|NO_MUTEX for the
+    // verb that only reads. Both are from rusqlite's own `OpenFlags`, so the words come from the
+    // crate that makes the call.
+    let mut flags = rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    flags |= if purpose == db::Purpose::Write {
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+    } else {
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+    };
+    let mut db = std::ptr::null_mut();
+    // No URI, no named VFS, both as rusqlite passes them.
+    let rc = unsafe {
+        rusqlite::ffi::sqlite3_open_v2(path.as_ptr(), &mut db, flags.bits(), std::ptr::null())
+    };
+    assert_eq!(rc, 0, "SQLite refused the store's own file: {rc}");
+    // SQLite is quiet at this moment: the connection exists and nothing has been run on it,
+    // which is the only moment its hook may be installed.
+    let rc = unsafe { rusqlite::ffi::sqlite3_trace_v2(db, 2, Some(traced), std::ptr::null_mut()) };
+    assert_eq!(rc, 0, "SQLite refused the trace hook: {rc}");
+    // The store's own `prepare`, over the connection the store's own open would have been
+    // handed. rusqlite's `from_handle` is how the crate takes a connection made outside it, and
+    // with it the busy handler, the pragmas and the version of the store are its own to run.
+    // rusqlite's `from_handle` is how the crate takes a connection made outside it, and it is
+    // unsafe because the caller promises the handle is a connection no one else holds.
+    let conn = unsafe { rusqlite::Connection::from_handle(db) }
+        .expect("the connection of the store's file");
+    crate::db::prepare_of_the_store(&conn, purpose).expect("the store prepares its connection");
+    conn.execute_batch(PROBE)
+        .expect("the connection answers its own probe");
+    let ran = SEEN.with(|v| {
+        v.borrow()
+            .iter()
+            .filter(|sql| sql.as_str() != PROBE)
+            .cloned()
+            .collect::<Vec<_>>()
+    });
+    // The statements SQLite reported are dropped with the connection: the probe read them out,
+    // and nothing of the open is left behind in the file to change what the next open sees.
+    drop(conn);
+    ran
+}
+
+/// The statements an open of `file` for `purpose` ran, in the words SQLite reported, after
+/// insisting that the open ran the statements it always says. The two are read together so that
+/// the answer about the check means something: an open that reported nothing at all - because
+/// the hook was refused, or because nothing was run on it at all - fails on the statements it
+/// always says rather than answering "no check" for the wrong reason.
+#[cfg(test)]
+fn open_ran_statements(file: &Path, purpose: db::Purpose) -> Vec<String> {
+    let ran = open_listening_to_sqlite(file, purpose);
+    let statements = prepare_statements(purpose);
+    assert!(!statements.is_empty(), "prepare says no statements at all");
+    for statement in statements
+        .iter()
+        .filter(|statement| !statement.to_ascii_uppercase().contains("QUICK_CHECK"))
+    {
+        assert!(
+            ran.iter().any(|sql| same_statement(sql, statement)),
+            "the open of {} never reported {statement}, so its answer about the check means \
+             nothing: {ran:?}",
+            if purpose == db::Purpose::Read {
+                "read"
+            } else {
+                "write"
+            },
+        );
+    }
+    ran
+}
+
+/// Whether SQLite reported `sql` as the statement `wanted`. rusqlite's `pragma_update` puts
+/// the value it is given after the name, so the text SQLite reports for one of those pragmas
+/// is the name and the value, and the name is what the open is asked for: `PRAGMA
+/// synchronous` and `PRAGMA synchronous='FULL'` are the same statement of the open, and the
+/// text the store hands SQLite for a `PRAGMA ` literal is reported unchanged.
+#[cfg(test)]
+fn same_statement(sql: &str, wanted: &str) -> bool {
+    let sql = sql.split('=').next().unwrap_or(sql);
+    sql.trim().eq_ignore_ascii_case(wanted.trim())
+}
+
+/// Whether the statements an open ran include SQLite's quick_check.
+#[cfg(test)]
+fn ran_quick_check(ran: &[String]) -> bool {
+    ran.iter()
+        .any(|sql| sql.to_ascii_uppercase().contains("QUICK_CHECK"))
+}
+
+/// The statements `prepare` runs for `purpose`: the `PRAGMA ` literals of its source and
+/// the names of the pragmas it hands to rusqlite's `pragma_update`, which the crate puts
+/// `PRAGMA ` before, each in the words SQLite reports for it. `prepare` is one function for
+/// both purposes and the check sits inside the `if` of the writer's purpose, so the block of
+/// that `if` is read as the statements a connection that only reads does not say, and is
+/// taken out of the list a reading open is insisted upon. The reading open is not asked to
+/// run them: SQLite answers a read-only connection with an error and reports nothing at all,
+/// and an answer of nothing would be an answer about the flags and not about the check.
+///
+/// The list is read from the source and not kept here because the test is about what the open
+/// says, and a list copied into the test could name statements the open does not say - or
+/// leave out the one it does - and every answer below would then be an answer about the copy.
+/// `include_str!` puts the crate's own source into the test byte for byte as the compiler read
+/// it, so the reading costs no path, no file and no working directory. `prepare` is cut out at
+/// the only line that can begin it, `fn prepare(`, and stopped at the first `}` in the first
+/// column, which is the line that ends it and not a line of its body, since its body is
+/// indented.
+#[cfg(test)]
+fn prepare_statements(purpose: db::Purpose) -> Vec<&'static str> {
+    const SOURCE: &str = include_str!("db.rs");
+    let start = SOURCE
+        .find("\nfn prepare(")
+        .expect("the store has a prepare to read");
+    let body = &SOURCE[start..]
+        .split_once("\n}")
+        .expect("prepare has an end")
+        .0;
+    // The block of the writer's `if`, found by the condition that opens it: what SQLite runs
+    // for a connection that writes and not for one that only reads.
+    let guard = body
+        .find("if purpose == Purpose::Write")
+        .expect("prepare gates its check on the purpose");
+    let block = &body[guard..][body[guard..].find('{').expect("the gate has a block")..];
+    let writer_only = block[..block.rfind('}').expect("the block has an end")]
+        .lines()
+        .filter_map(|line| line.split('"').nth(1))
+        .filter(|text| text.to_ascii_uppercase().starts_with("PRAGMA "))
+        .collect::<Vec<_>>();
+    let mut said = Vec::new();
+    let mut checked = Vec::new();
+    for text in body
+        .lines()
+        .filter_map(|line| line.split('"').nth(1))
+        .filter(|text| {
+            text.to_ascii_uppercase().starts_with("PRAGMA ")
+                || body.lines().any(|line| {
+                    line.contains("pragma_update") && line.contains(&format!("\"{text}\""))
+                })
+        })
+    {
+        // Either the whole text of a `PRAGMA ` literal, or a pragma name handed to
+        // `pragma_update`: the crate writes `PRAGMA ` before the name, and the value after it
+        // is no part of what SQLite reports as the text of the statement. The words are made
+        // to live as long as the test, since they come from a line here and not from the
+        // source.
+        let statement: &'static str = if text.to_ascii_uppercase().starts_with("PRAGMA ") {
+            text
+        } else {
+            let mut prefixed = String::from("PRAGMA ");
+            prefixed.push_str(text);
+            Box::leak(prefixed.into_boxed_str())
+        };
+        if writer_only.contains(&text) {
+            checked.push(statement);
+        } else if !said.contains(&statement) {
+            said.push(statement);
+        }
+    }
+    // The check this issue moved is what the reading is for, and the pragma every open says
+    // beside it is what the answers below are measured against.
+    assert!(
+        checked
+            .iter()
+            .any(|t| t.to_ascii_uppercase().contains("QUICK_CHECK")),
+        "prepare runs no quick_check for a writer at all: {said:?} {checked:?}"
+    );
+    assert!(
+        said.iter()
+            .any(|t| t.eq_ignore_ascii_case("PRAGMA foreign_keys")),
+        "prepare says no pragma this test can read: {said:?} {checked:?}"
+    );
+    match purpose {
+        db::Purpose::Write => said.into_iter().chain(checked).collect(),
+        db::Purpose::Read => said,
+    }
+}
+
+#[test]
+fn a_read_open_runs_no_quick_check_and_a_write_open_still_does() {
+    // The cost the poll paid for: the store is a separate program, so every verb of every
+    // poll opened its own connection, and an open that checked the whole file made the poll
+    // read every page of it about ten times in two minutes. The check belongs to the writer,
+    // which is the only open after which the store's own rows are at risk.
+    crate::verbs_tests::short_bounds();
+    let home = scratch("trace");
+    init(&home, false).unwrap();
+    drop(seed(&home));
+    let file = db::path(&home);
+    checkpoint(&file);
+
+    // A read open pays nothing for a file it cannot change, and still says every other
+    // statement of the open.
+    assert!(
+        !ran_quick_check(&open_ran_statements(&file, db::Purpose::Read)),
+        "the open that reads ran the quick_check"
+    );
+    // The open of a verb that writes keeps it: it is the open after which the store's own
+    // rows are at risk, and refusing a damaged file there is what keeps a verb from writing
+    // into one.
+    assert!(
+        ran_quick_check(&open_ran_statements(&file, db::Purpose::Write)),
+        "the open that writes no longer runs its quick_check"
+    );
+}
+
+#[test]
+fn check_refuses_a_damaged_file_a_write_refuses_the_damage_its_own_check_cannot_see() {
+    // A store damaged in one place, read the three ways the store reads it. The
+    // spec's promise after #1769 is that a damaged file is still refused: `check`
+    // refuses it with 78 `corrupt`, and a verb that writes is refused before it
+    // changes a byte. The two are not the same question, and the file this test
+    // leaves behind is the one that keeps them apart: a row whose pointer is aimed
+    // past its page is gone from its table with its entries in issues_checked left
+    // behind, which is the disagreement SQLite's own documentation says
+    // `PRAGMA quick_check` omits and `PRAGMA integrity_check` does not. The open of
+    // a verb that writes keeps its quick check (#1769) and cannot see it; the read
+    // open runs no check at all and cannot see it either. `check` is what stands
+    // between a damaged store and nobody noticing, which is what this file proves.
+    crate::verbs_tests::short_bounds();
+    let home = scratch("corrupt-refuses");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    // The rows of the seed, at the seed's own width: 1000 of them fill the leaf
+    // pages so that the cell pointer array at the end of a leaf is a row's and not
+    // the few cells of a nearly empty page, and so that the index named by the
+    // finding below has rows of its own to disagree with.
+    drop(seed(&home));
+    checkpoint(&file);
+    // Which check each open says, in SQLite's own words. The walk below reads the
+    // answer of a file neither of them can see, so it stands or falls on this pair:
+    // the read says no check and the write says the quick one, which is the reader
+    // that omits the entries of the indexes. The test of the two answers themselves
+    // is the one above, on a file with nothing wrong with it; asked again here they
+    // are the ground the walk stands on, and a store that went back to checking on
+    // every open would fail here and not quietly pass the walk.
+    let read_ran = open_ran_statements(&file, db::Purpose::Read);
+    let write_ran = open_ran_statements(&file, db::Purpose::Write);
+    assert!(
+        !ran_quick_check(&read_ran),
+        "the read of the walk opens a file whose read runs a check: {read_ran:?}"
+    );
+    assert!(
+        ran_quick_check(&write_ran),
+        "the write of the walk opens a file that runs no check at all: {write_ran:?}"
+    );
+    let page_len =
+        usize::try_from(db::pages::file_page_size(&file).expect("the file states its page size"))
+            .unwrap();
+    let base = fs::read(&file).unwrap();
+    let mut bytes = base.clone();
+    let mut damaged = None;
+    for page in 1.. {
+        let offset = match db::pages::page_offset(&file, page) {
+            Some(o) => usize::try_from(o).unwrap(),
+            None => break,
+        };
+        if base[offset] != 0x0d || db::pages::cell_count(&file, page).unwrap_or(0) <= 3 {
+            continue;
+        }
+        let entry = offset + page_len - 2;
+        let mut tried = base.clone();
+        tried[entry] = 0x01;
+        tried[entry + 1] = 0x01;
+        fs::write(&file, &tried).unwrap();
+        // The check of `check` is asked for its own words: 78, `corrupt`, and the
+        // finding of the integrity check, which is the one thing in the store that
+        // reads the whole file. The two opens are asked to say nothing of it - not
+        // `corrupt` and not anything else, because `busy`, `unreadable` or a version
+        // of the future would be an answer about something else entirely. A leaf
+        // whose damage lands in the schema is passed over by both: SQLite raises
+        // such a page as malformed, no open survives it, and that shape is the one
+        // of the test above. The file kept is the first leaf where the reader that
+        // looks at everything is the only one that notices.
+        let refused_by_check =
+            matches!(check(&home), Err((78, err)) if err.contains(INTEGRITY_FAILED));
+        let the_write_opens = db::open(&file, db::Purpose::Write).is_ok();
+        let the_read_opens = db::open_read_only(&file).is_ok();
+        if refused_by_check && the_write_opens && the_read_opens {
+            bytes = tried;
+            damaged = Some(page);
+            break;
+        }
+        fs::write(&file, &base).unwrap();
+    }
+    assert!(
+        damaged.is_some(),
+        "no leaf of the file holds a row whose loss only the integrity check of `check' \
+         reports, with both opens blind to it"
+    );
+    fs::write(&file, &bytes).unwrap();
+
+    // `check` of the damaged file: 78, the word `corrupt`, the file where it was
+    // (ADR 0003), and the finding of the integrity check named in the line - which
+    // is the point of the test, since neither open of this file sees the damage. The
+    // words of the finding itself are SQLite's and are pinned by the test above.
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("corrupt "), "{err}");
+    assert!(err.contains(INTEGRITY_FAILED), "{err}");
+    assert!(err.contains(&file.display().to_string()), "{err}");
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        bytes,
+        "the file was not left alone"
+    );
+
+    // The two opens of the same bytes, asked once more now that the walk has ended
+    // and the file is the one it left: the writer's quick check and the reader's
+    // nothing both answer for a file whose rows still read. What a verb that writes
+    // pays for damage neither check can see is its own doing - SQLite refuses the
+    // statement that meets the bad page, and `classify` still turns that into 78
+    // `corrupt` - and it is the reason `check` exists as the verb that answers for
+    // the file. The damage is asked of the tables the walk can reach, and a row of
+    // issues is read: the seed's rows are there to read, and the read verb is not
+    // the one that names the damage.
+    let read = db::open_read_only(&file).unwrap();
+    let rows: i64 = read
+        .query_row("SELECT count(*) FROM issues", [], |r| r.get(0))
+        .unwrap();
+    assert!(rows > 0, "the seed's rows are not there to read");
+    drop(read);
+    let write = db::open(&file, db::Purpose::Write)
+        .expect("the writer's quick_check sees the damage the check of `check' names");
+    drop(write);
+}
+
 #[test]
 fn migrate_writes_its_backup_before_it_changes_anything() {
     // The order is the deliverable, seen from the one thing that can stop it:
