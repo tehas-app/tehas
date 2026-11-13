@@ -572,6 +572,13 @@
       "reason": "expected the ID GitHub shows, a whole number"
     },
     {
+      "name": "TEHAS_MILLWRIGHT_APP",
+      "rule": "app-login",
+      "when": "given",
+      "default": null,
+      "reason": "expected the login of a GitHub App, <slug>[bot]"
+    },
+    {
       "name": "TEHAS_OWNER",
       "rule": "person",
       "when": "given",

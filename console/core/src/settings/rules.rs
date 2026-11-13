@@ -59,6 +59,9 @@ pub enum Rule {
     /// A person's login, never a bot's: GitHub assigns no app's bot.
     Person(&'static str),
     AppId,
+    /// A GitHub App's login as REST gives it, `<slug>[bot]`: a person's
+    /// login, or a slug without `[bot]`, is no app's.
+    AppLogin,
     OneOf(&'static [&'static str], &'static str),
     /// Both analytics settings end up in an HTML attribute of every page, so
     /// no quote, space or angle bracket may get through.
@@ -118,6 +121,7 @@ impl Rule {
             Rule::Logins => "logins",
             Rule::Person(_) => "person",
             Rule::AppId => "app-id",
+            Rule::AppLogin => "app-login",
             Rule::OneOf(_, _) => "one-of",
             Rule::ScriptAddress => "script-address",
             Rule::SiteAddress => "site-address",
@@ -156,6 +160,7 @@ impl Rule {
             Rule::Logins => "alice  bob",
             Rule::Person(_) => "acme-app[bot]",
             Rule::AppId => "1234567890123",
+            Rule::AppLogin => "acme-app",
             // No list of words holds a space.
             Rule::OneOf(_, _) => "no such word",
             Rule::ScriptAddress => "http://a.example/x.js",
@@ -323,6 +328,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
     given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
+    given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
@@ -391,6 +397,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         ),
         Rule::Person(why) => refuse(is_login(v), why),
         Rule::AppId => refuse(leading(v, 12), "expected the ID GitHub shows, a whole number"),
+        Rule::AppLogin => refuse(
+            v.strip_suffix("[bot]").is_some_and(|slug| !slug.is_empty() && is_login(slug)),
+            "expected the login of a GitHub App, <slug>[bot]",
+        ),
         Rule::OneOf(words, why) => refuse(words.contains(&v), why),
         Rule::ScriptAddress => {
             let path = v
@@ -757,6 +767,22 @@ mod tests {
         takes("TEHAS_GITHUB_APP_ID", "123456789012");
         let why = "expected the ID GitHub shows, a whole number";
         refuses("TEHAS_GITHUB_APP_ID", "1234567890123", why);
+    }
+
+    #[test]
+    fn the_millwright_app_is_an_apps_login() {
+        takes("TEHAS_MILLWRIGHT_APP", "acme-mill[bot]");
+        let why = "expected the login of a GitHub App, <slug>[bot]";
+        for bad in [
+            "acme-mill",
+            "[bot]",
+            "-a[bot]",
+            "a b[bot]",
+            "a[bot][bot]",
+            "alice bob[bot]",
+        ] {
+            refuses("TEHAS_MILLWRIGHT_APP", bad, why);
+        }
     }
 
     #[test]
