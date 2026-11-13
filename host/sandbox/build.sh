@@ -163,6 +163,7 @@ fi
 # clone that lacks the commit fetches once. The arguments are written with their
 # values in front of them, like the instance layer's below, so they join neither
 # count of test/build_test.sh: test/sandbox_build_test.sh checks this recipe's.
+# The npm trees pinned beside versions.env are a second context, named npm.
 clone=${TEHAS_HOME:-$HOME/tehas}/repos/pi-rukas
 base=$base_repo:sha-${head:0:12}-uid$uid
 if ! git -C "$clone" cat-file -e "$head^{commit}" 2>/dev/null; then
@@ -177,7 +178,23 @@ if ! git -C "$clone" archive --add-file="$base_recipe" "$head" |
     "--build-arg=TEHAS_UID=$uid" \
     "--build-arg=GITHUB_SHA=$head" \
     "--build-arg=VIPUNE_VERSION=$VIPUNE_VERSION" \
-    "--build-arg=OO_VERSION=$OO_VERSION" -; then
+    "--build-arg=OO_VERSION=$OO_VERSION" \
+    "--build-arg=RUST_VERSION=$RUST_VERSION" \
+    "--build-arg=RUSTUP_VERSION=$RUSTUP_VERSION" \
+    "--build-arg=RUSTUP_SHA256=$RUSTUP_SHA256" \
+    "--build-arg=NODE_VERSION=$NODE_VERSION" \
+    "--build-arg=NODE_SHA256=$NODE_SHA256" \
+    "--build-arg=GH_VERSION=$GH_VERSION" \
+    "--build-arg=GH_SHA256=$GH_SHA256" \
+    "--build-arg=BUN_VERSION=$BUN_VERSION" \
+    "--build-arg=BUN_SHA256=$BUN_SHA256" \
+    "--build-arg=PI_VERSION=$PI_VERSION" \
+    "--build-arg=PI_LOCK_SHA256=$PI_LOCK_SHA256" \
+    "--build-arg=CTX7_VERSION=$CTX7_VERSION" \
+    "--build-arg=CTX7_LOCK_SHA256=$CTX7_LOCK_SHA256" \
+    "--build-arg=PARALLEL_CLI_VERSION=$PARALLEL_CLI_VERSION" \
+    "--build-arg=PARALLEL_CLI_LOCK_SHA256=$PARALLEL_CLI_LOCK_SHA256" \
+    "--build-context=npm=$here/../npm" -; then
   echo "build: the base $base did not build from $clone at $head" >&2
   exit 1
 fi

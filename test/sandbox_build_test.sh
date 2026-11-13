@@ -195,11 +195,30 @@ base_args=$(sed -n 's/^ARG \([A-Z0-9_]*\).*/\1/p' "$T_ROOT/host/sandbox/base.Doc
 passed=$(grep -oE -- '--build-arg=[A-Z0-9_]+=' "$T_ROOT/host/sandbox/build.sh" | sed 's/^--build-arg=//; s/=$//' |
   grep -vx TEHAS_BASE | LC_ALL=C sort -u)
 t_eq "$passed" "$base_args"
-for arg in VIPUNE_VERSION OO_VERSION; do
-  grep -q "^$arg=" "$T_ROOT/host/versions.env" || t_bad "$arg is not in versions.env"
+for arg in $base_args; do
+  [ "$arg" = TEHAS_UID ] || [ "$arg" = GITHUB_SHA ] || grep -q "^$arg=" "$T_ROOT/host/versions.env" ||
+    t_bad "$arg is not in versions.env"
 done
-# The pi version is read from pi-rukas's own recipe in the tree, not pinned here.
+# pi-rukas's own recipe is read for the floor of the pi version.
 t_contains "$(cat "$T_ROOT/host/sandbox/base.Dockerfile")" "source=.devcontainer/Dockerfile"
+
+t_case "the base is built from pinned inputs: images by digest, downloads checked before they run"
+recipe=$T_ROOT/host/sandbox/base.Dockerfile
+froms=$(grep -E '^FROM ' "$recipe")
+t_eq "$(printf '%s\n' "$froms" | grep -cvE '^FROM [^ ]+@sha256:[0-9a-f]{64}( AS [a-z-]+)?$')" 0
+t_eq "$(printf '%s\n' "$froms" | wc -l)" 2
+# No download goes straight into a shell, and no tool is taken at its newest.
+t_eq "$(grep -cE '\| *(ba)?sh\b|@latest|sh\.rustup\.rs|deb\.nodesource|bun\.sh/install' "$recipe")" 0
+# Every file it fetches is checked against a pinned sum.
+t_eq "$(grep -c -- ' -o /tmp/' "$recipe")" "$(grep -c '_SHA256}  /tmp/' "$recipe")"
+for tree in pi ctx7 parallel-web-cli; do
+  t_contains "$(cat "$recipe")" "COPY --from=npm $tree/package.json $tree/package-lock.json /opt/npm/$tree/"
+done
+t_contains "$(cat "$recipe")" 'pin pi @earendil-works/pi-coding-agent "$PI_VERSION" "$PI_LOCK_SHA256" --ignore-scripts'
+reset
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "--build-context=npm=$home/sandbox/../npm -"
 
 t_case "a clone without the commit fetches once, and one a fetch does not bring it to builds nothing"
 reset
