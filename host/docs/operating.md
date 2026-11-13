@@ -2234,9 +2234,13 @@ An operator or a script can ask for one pull request at once with
 `tehasbot refresh --pr N`, while the timed run is off or not due (see
 [tehasbot refresh](/tools-github#tehasbot-refresh)). It writes the same request
 with `"asked": "pr"`, and the dispatcher still checks it at the start as below.
-With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher starts no refresh:
-the request waits and the dispatcher's log says `hold refreshes:
-TEHAS_REFRESH_CONFLICTS is not 1`.
+With `TEHAS_REFRESH_CONFLICTS` other than 1 the dispatcher still starts such a
+request, and it counts in the demand of `tehas status`. It takes a cycle slot,
+as no lane is kept for refreshes while the setting is off. A request without
+`"asked"`, as the timed run writes, waits while the setting is off, even one
+written before it was turned off: the dispatcher's log says `hold refreshes:
+TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
+the demand's `refreshHold` names the setting only while such a request waits.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
@@ -2368,8 +2372,9 @@ The first run is at once. `~/tehas/logs/refresh.log` says what it found.
 
 **To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
 `instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
-no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
-hourly run as well.
+no refresh the scan found. It still starts one written by `tehasbot refresh
+--pr N`. `systemctl --user disable --now tehas-refresh.timer` stops the hourly
+run as well.
 
 ## Updating tehas
 
