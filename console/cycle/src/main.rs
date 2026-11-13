@@ -744,6 +744,12 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         _ => fail("TEHAS_WORK_DIR is not set".to_string()),
     };
     let setting = |k: &str| std::env::var(k).unwrap_or_default();
+    // A finish run by hand has no poll environment: the bot is the login the
+    // App's mint kept, as the poll reads it.
+    let bot = match setting("TEHAS_BOT_LOGIN") {
+        b if b.is_empty() => tehas_core::settings::bot_login(&home).unwrap_or_default(),
+        b => b,
+    };
     let plan = finish::Plan {
         issue: n,
         repo,
@@ -752,7 +758,7 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
         default,
         reason,
         remote: None,
-        bot: setting("TEHAS_BOT_LOGIN"),
+        bot,
         allowed: setting("TEHAS_ALLOWED_LABELERS")
             .split_whitespace()
             .map(str::to_string)
