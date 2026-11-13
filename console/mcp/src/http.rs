@@ -4,7 +4,9 @@
 //! client for long or reads more than it must: the head is at most 8 KB, the
 //! whole request must arrive within 10 seconds however it trickles in, the key
 //! is checked before any byte of the body is read, the body needs a
-//! Content-Length of at most 64 KB, and every answer closes the connection.
+//! Content-Length of at most 64 KB, the answer must be read within 10 seconds
+//! and one more for each 128 KiB of it, and every answer closes the
+//! connection.
 
 use crate::keys::Keys;
 use crate::rpc::{self, Request, Response, MAX_BODY};
@@ -15,7 +17,15 @@ use std::time::{Duration, Instant};
 
 pub const MAX_HEAD: usize = 8192;
 pub const IO_TIMEOUT: Duration = Duration::from_secs(10);
+/// The slowest a client may read an answer: past `--io-timeout`, one more
+/// second for each this many bytes.
+pub const WRITE_RATE: usize = 128 * 1024;
 const ENDPOINT: &str = "/mcp";
+
+/// How long an answer of `len` bytes may take to be read.
+pub fn write_time(io_timeout: Duration, len: usize) -> Duration {
+    io_timeout + Duration::from_secs((len / WRITE_RATE) as u64)
+}
 
 /// Serves the one request on `stream` within `io_timeout` and returns its
 /// access-log line. The binary passes the deadline of its `--io-timeout`,
@@ -28,10 +38,15 @@ pub fn serve(
     io_timeout: Duration,
 ) -> String {
     let started = Instant::now();
-    let _ = stream.set_write_timeout(Some(io_timeout));
     let deadline = started + io_timeout;
     let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
-    write(&mut stream, &r);
+    // The answer has a deadline of its own, however slowly it is read: a log
+    // being sent holds one of the few places for logs until it is written.
+    write(
+        &mut stream,
+        &r,
+        Instant::now() + write_time(io_timeout, r.body.len()),
+    );
     // The line's fields are named, in the order the manual shows them. Only
     // bytes of the server's own go into it: `method` comes from `parse_head`,
     // which keeps capitals; `scope` is the word of the server's own `Scope`,
@@ -60,8 +75,8 @@ pub fn serve(
 /// Sends a short answer on a connection that is not served, such as one over
 /// the limit of connections.
 pub fn refuse(mut stream: TcpStream, status: u16) {
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-    write(&mut stream, &Response::empty(status));
+    let deadline = Instant::now() + Duration::from_secs(1);
+    write(&mut stream, &Response::empty(status), deadline);
 }
 
 fn exchange(
@@ -198,7 +213,30 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
-fn write(stream: &mut TcpStream, r: &Response) {
+/// Writes `bytes` by `deadline`; false when the deadline or an error came
+/// first.
+fn send(stream: &mut TcpStream, mut bytes: &[u8], deadline: Instant) -> bool {
+    while !bytes.is_empty() {
+        let Some(left) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+        else {
+            return false;
+        };
+        if stream.set_write_timeout(Some(left)).is_err() {
+            return false;
+        }
+        match stream.write(bytes) {
+            Ok(0) => return false,
+            Ok(n) => bytes = &bytes[n..],
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+fn write(stream: &mut TcpStream, r: &Response, deadline: Instant) {
     let mut head = format!(
         "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         r.status,
@@ -209,8 +247,55 @@ fn write(stream: &mut TcpStream, r: &Response) {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
     head.push_str("\r\n");
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(&r.body);
-    let _ = stream.flush();
-    let _ = stream.shutdown(std::net::Shutdown::Write);
+    if send(stream, head.as_bytes(), deadline) && send(stream, &r.body, deadline) {
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+    } else {
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    // A client that never reads does not hold the connection past the
+    // deadline, however many writes each move a little.
+    #[test]
+    fn an_answer_is_written_by_its_deadline_or_dropped() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let mut r = Response::empty(200);
+        r.body = vec![b'x'; 64 << 20];
+        let started = Instant::now();
+        write(&mut server, &r, started + Duration::from_millis(300));
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(250), "{took:?}");
+        assert!(took < Duration::from_secs(3), "{took:?}");
+        drop(client);
+    }
+
+    #[test]
+    fn a_long_answer_gets_a_second_more_per_128_kib() {
+        let t = Duration::from_secs(10);
+        assert_eq!(write_time(t, 0), t);
+        assert_eq!(write_time(t, WRITE_RATE - 1), t);
+        assert_eq!(write_time(t, 16 << 20), Duration::from_secs(10 + 128));
+    }
+
+    #[test]
+    fn a_short_answer_is_written_whole() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let mut r = Response::empty(200);
+        r.body = b"ok".to_vec();
+        write(&mut server, &r, Instant::now() + Duration::from_secs(5));
+        let mut got = String::new();
+        client.read_to_string(&mut got).unwrap();
+        assert!(got.starts_with("HTTP/1.1 200 OK\r\n"), "{got}");
+        assert!(got.ends_with("\r\n\r\nok"), "{got}");
+    }
 }

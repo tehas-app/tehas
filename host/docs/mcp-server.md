@@ -221,7 +221,9 @@ and nothing else about the request. A request with an `Origin` header gets
 403: no browser is a client of this server. A body needs a `Content-Length`
 (411 without one, or when chunked), and over 64 KB gets 413. A head over 8 KB
 gets 431. A request must arrive whole within 10 seconds, however slowly it
-trickles in, every answer closes the connection, and past 32 connections at
+trickles in, and an answer must be read within 10 seconds and one more for
+each 128 KiB of it, or the connection is closed. Every answer closes the
+connection, and past 32 connections at
 once the next one gets 503. A method that is not a word of capitals gets 400,
 so nothing a client sends there reaches the log as a line of its own. No
 session is kept.
@@ -471,8 +473,8 @@ keeps one `.1`, so these four names are the ones it rotates. A link, or anything
 that is not a plain file, is a tool error that names it.
 
 The cursor is opaque. It holds, for each log, the file it was read from, how far
-and a hash of the file's first 128 bytes up to there, and it is checked when it
-comes back: one of another shape is a tool error. A cursor names a line's start,
+and a hash of the file's first 128 bytes up to there, masked as the events are,
+and it is checked when it comes back: one of another shape is a tool error. A cursor names a line's start,
 or a place inside a line longer than a read, from where the tool reads on at the
 next line. One that names any other place in a line is taken as a file it did
 not read, so no part of a line is ever answered without the rest of it to mask.

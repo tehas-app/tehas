@@ -20,12 +20,14 @@ pub const BREAK: char = '\u{2010}';
 /// after it for which Unicode says white space are skipped, and the next six
 /// are compared with `tehas:` without regard to ASCII case. The colon of such
 /// a `tehas:` becomes U+2010, so `<!-- tehas:question` reads
-/// `<!-- tehas‐question`. The rest of the text, the case of the word and the
-/// white space included, is kept. Borrowed when there is nothing to break.
+/// `<!-- tehas‐question`. The characters [`hidden`] names are dropped first.
+/// The rest of the text, the case of the word and the white space included,
+/// is kept. Borrowed when there is nothing to drop or break.
 pub fn disarm(text: &str) -> Cow<'_, str> {
-    let colons: Vec<usize> = colons(text).collect();
+    let text = shown(text);
+    let colons: Vec<usize> = colons(&text).collect();
     if colons.is_empty() {
-        return Cow::Borrowed(text);
+        return text;
     }
     let mut out = String::with_capacity(text.len() + colons.len() * 2);
     let mut from = 0;
@@ -36,6 +38,25 @@ pub fn disarm(text: &str) -> Cow<'_, str> {
     }
     out.push_str(&text[from..]);
     Cow::Owned(out)
+}
+
+/// A character a reader does not see: a control character other than a tab
+/// or a line end, a line or paragraph separator, or a format character. The
+/// zero width space and the two joiners are kept: the host puts the space
+/// after an `@` itself, and the joiners are part of emoji.
+pub fn hidden(c: char) -> bool {
+    (c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
+        || matches!(c, '\u{2028}' | '\u{2029}')
+        || (crate::textcheck::invisible(c) && !matches!(c, '\u{200b}'..='\u{200d}'))
+}
+
+/// `text` without the characters [`hidden`] names. Borrowed when it has none.
+pub fn shown(text: &str) -> Cow<'_, str> {
+    if text.chars().any(hidden) {
+        Cow::Owned(text.chars().filter(|c| !hidden(*c)).collect())
+    } else {
+        Cow::Borrowed(text)
+    }
 }
 
 /// Whether `text` has a marker, found as [`disarm`] and the relay find one.
@@ -153,6 +174,21 @@ mod tests {
             assert!(matches!(disarm(t), Cow::Borrowed(_)), "{t:?}");
             assert_eq!(disarm(t), t);
         }
+    }
+
+    #[test]
+    fn disarm_drops_what_a_reader_does_not_see() {
+        assert_eq!(
+            disarm("a\u{202e}b\u{1b}[2Jc\u{7}\u{feff}d\u{2066}e\u{2028}f"),
+            "ab[2Jcdef"
+        );
+        assert_eq!(
+            disarm("<!--\u{200e}tehas:park -->"),
+            "<!--tehas\u{2010}park -->"
+        );
+        // Tabs, line ends, the space after a host's `@` and an emoji's joiner stay.
+        let kept = "a\tb\r\nc @\u{200b}d \u{1f469}\u{200d}\u{1f4bb}";
+        assert!(matches!(disarm(kept), Cow::Borrowed(_)));
     }
 
     #[test]
