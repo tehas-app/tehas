@@ -127,21 +127,21 @@ t_eq "$(count "$fx/docker" image-44)" 0
 
 t_case "sweep: a container of another repository, and one with no number, are removed by id"
 reset
-printf '%s\n' "c0de01 7 other/thing foreign" "c0de02 x acme/widget broken" >"$fx/extra-containers"
+printf '%s\n' "$(cid c0de01) 7 other/thing foreign" "$(cid c0de02) x acme/widget broken" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f -v c0de01"
-t_contains "$(t_calls docker)" "rm -f -v c0de02"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de01)"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de02)"
 t_eq "$(t_calls gh | grep -c 'pulls/7')" 0
 
 t_case "sweep: a label whose number is not one to nine digits belongs to no pull request"
 reset
-printf '%s\n' "c0de0b 1234567890 acme/widget big" "c0de0c 012 acme/widget zero" "c0de0d 999999999 acme/widget fine" >"$fx/extra-containers"
+printf '%s\n' "$(cid c0de0b) 1234567890 acme/widget big" "$(cid c0de0c) 012 acme/widget zero" "$(cid c0de0d) 999999999 acme/widget fine" >"$fx/extra-containers"
 mkdir -p "$fx/docker"
 echo "sha256:big tehas-preview:1234567890" >"$fx/extra-images"
 t_run "$preview --sweep"
 t_eq "$t_rc" 0
-t_contains "$t_out" "container c0de0b: swept, it belongs to no pull request of acme/widget"
-t_contains "$t_out" "container c0de0c: swept, it belongs to no pull request of acme/widget"
+t_contains "$t_out" "container $(cid c0de0b): swept, it belongs to no pull request of acme/widget"
+t_contains "$t_out" "container $(cid c0de0c): swept, it belongs to no pull request of acme/widget"
 t_contains "$t_out" "image sha256:big: swept, it belongs to no preview"
 t_eq "$(t_calls gh | grep -c -e 'pulls/1234567890' -e 'pulls/012' -e 'pulls/12$')" 0
 # Nine digits is a number: GitHub is asked, and it knows no such pull request.
@@ -156,13 +156,15 @@ t_run "$preview"
 left 65 0000000000000000000000000000000000000065
 pull 65 0000000000000000000000000000000000000065 >/dev/null 2>&1
 jq '.state = "closed"' "$fx/pull-65.json" >"$fx/x" && mv "$fx/x" "$fx/pull-65.json"
+# A short hex word is no whole id: Docker would take it as a prefix of one.
 printf '%s\n' "--volumes 7 other/thing foreign" "tehas-preview-64 64 acme/widget extra" "C0DE05 65 acme/widget other" \
-  >"$fx/extra-containers"
+  "c0de05 65 acme/widget short" "0 7 other/thing one" >"$fx/extra-containers"
 rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
 t_eq "$t_rc" 0
-t_eq "$(printf '%s\n' "$t_out" | grep -c -x 'an id that is not one, skipped')" 3
-t_eq "$(t_calls docker | grep -c -e '^rm -f -v --volumes' -e '^rm -f -v tehas-preview-64' -e '^rm -f -v C0DE05')" 0
+t_eq "$(printf '%s\n' "$t_out" | grep -c -x 'an id that is not one, skipped')" 5
+t_eq "$(t_calls docker | grep -c -e '^rm -f -v --volumes' -e '^rm -f -v tehas-preview-64' -e '^rm -f -v C0DE05' \
+  -e '^rm -f -v c0de05$' -e '^rm -f -v 0$')" 0
 t_eq "$(cat "$fx/docker/container-64")" "$a"
 # What is left of #65 is said, and it is not counted as swept.
 t_contains "$t_out" "#65: a container could not be removed, tried again at the next sweep"
