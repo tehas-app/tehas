@@ -313,8 +313,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cycle, `tehas work`, `tehas stop`, `tehas history` and `tehas export` need
   `~/tehas/libexec/store` and `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
   anything. Run `install.sh`, which builds the store and makes the database.
-- `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
-  on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
+- `ERROR: the cycle for #N did not start: <why>`: the unit did not put a new
+  attempt on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The
+  reason says which: `its start exited <code>` or `its start did not end
+  within 300s or could not be run` is the `systemctl --user start` itself;
+  `the store was still busy at the end of the <n>s wait` or `the store could
+  not say whether it started (<word>)` is the state store, not the unit; `it
+  put no new attempt on record` is a unit that started and did not record its
+  start. The same reason is in the comment on the issue. The approval is
   taken off the record, or the unit is stopped when the store keeps it, and
   the issue gets `needs-human-attention`. Read
   `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state

@@ -760,10 +760,13 @@ impl Writer {
             };
             self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
         }
-        if self.unit_start(n, before, log) {
-            self.analytics(&["event".into(), n.to_string(), "started".into()], log);
-            return Then::Started;
-        }
+        let why = match self.unit_start(n, before, log) {
+            Ok(()) => {
+                self.analytics(&["event".into(), n.to_string(), "started".into()], log);
+                return Then::Started;
+            }
+            Err(why) => why,
+        };
         // A unit that comes up after this finds its approval gone and runs
         // nothing; when the approval stays on record, the unit is stopped.
         if !self.restore(n, recorded, log) && !self.unit_stop(n) {
@@ -771,7 +774,7 @@ impl Writer {
                 "WARN: could not stop tehas-cycle@{n}.service: a late start may still use its approval"
             ));
         }
-        log.push(format!("ERROR: the cycle for #{n} did not start"));
+        log.push(format!("ERROR: the cycle for #{n} did not start: {why}"));
         let args = vec![
             "issue".into(),
             "edit".into(),
@@ -786,7 +789,7 @@ impl Writer {
         if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
             log.push(format!("WARN: label change on #{n} failed"));
         }
-        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
+        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
         Then::Failed
     }
 
@@ -1294,12 +1297,14 @@ impl Writer {
     }
 
     /// start_cycle: the unit started, and its start on record as an attempt
-    /// later than `before`, within the wait.
-    fn unit_start(&mut self, n: u64, before: u64, log: &mut Vec<String>) -> bool {
+    /// later than `before`, within the wait. Otherwise why it is not taken as
+    /// started: the start's exit, or what the store said while it waited.
+    fn unit_start(&mut self, n: u64, before: u64, log: &mut Vec<String>) -> Result<(), String> {
         // systemctl start waits for the unit. The bound is the poll's: a start
         // past it gave up, and its late unit finds no approval on record.
+        let bound = Duration::from_secs(300);
         let rc = match &self.host.start_cmd {
-            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(300)),
+            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, bound),
             None => run_quiet(
                 &self.host.systemctl,
                 &[
@@ -1308,36 +1313,56 @@ impl Writer {
                     format!("tehas-cycle@{n}.service"),
                 ],
                 None,
-                Duration::from_secs(300),
+                bound,
             ),
         };
-        if rc != Some(0) {
-            return false;
+        match rc {
+            Some(0) => {}
+            Some(c) => return Err(format!("its start exited {c}")),
+            None => {
+                return Err(format!(
+                    "its start did not end within {}s or could not be run",
+                    bound.as_secs()
+                ))
+            }
         }
+        let wait = self.host.start_wait.as_secs();
+        // The store's word when its last answer was no answer.
+        let mut unanswered: Option<String> = None;
+        let mut unusable: Option<String> = None;
         let began = Instant::now();
         while began.elapsed() < self.host.start_wait {
             match self.calls.store(&["cycle-show", &n.to_string()]) {
                 Ok(v) => {
+                    unanswered = None;
                     if v.pointer("/cycle/attempt")
                         .and_then(Value::as_u64)
                         .is_some_and(|a| a > before)
                     {
-                        return true;
+                        return Ok(());
                     }
                 }
-                Err(f) if matches!(word(&f).as_str(), "busy" | "timeout") => {}
-                Err(_) => break,
+                Err(f) if matches!(word(&f).as_str(), "busy" | "timeout") => {
+                    unanswered = Some(word(&f));
+                }
+                Err(f) => {
+                    unusable = Some(word(&f));
+                    break;
+                }
             }
             std::thread::sleep(Duration::from_millis(500));
         }
         if held(&self.home.join(format!("state/cycles/{n}.lock"))) {
             log.push(format!(
-                "WARN: the cycle for #{n} holds its lock but did not say so in {}s; taking it as started",
-                self.host.start_wait.as_secs()
+                "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));
-            return true;
+            return Ok(());
         }
-        false
+        Err(match (unusable, unanswered) {
+            (Some(w), _) => format!("the store could not say whether it started ({w})"),
+            (None, Some(w)) => format!("the store was still {w} at the end of the {wait}s wait"),
+            (None, None) => format!("it put no new attempt on record within {wait}s"),
+        })
     }
 
     /// stop_unit: the issue's unit stopped and waited for.
