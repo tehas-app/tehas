@@ -657,9 +657,15 @@ fn factory_disk_is_listed_and_answers() {
     // name the same fields, as every tool of this file's five does.
     let mut want = BTreeSet::new();
     schema_paths(&schema_of("factory_disk"), "", &mut want);
+    // `stale` is computed by the call, not copied, so it is in the schema only.
+    assert!(want.remove("stale"), "stale has no schema");
     assert_eq!(want, spec_paths_of("factory_disk"), "schema and spec");
+    assert_eq!(out["stale"], true);
     for p in key_paths(&out) {
-        assert!(p == "api" || want.contains(&p), "{p} is not in its schema");
+        assert!(
+            p == "api" || p == "stale" || want.contains(&p),
+            "{p} is not in its schema"
+        );
     }
 
     // No file is the tool error that says so, not an empty answer.
