@@ -1349,7 +1349,10 @@ slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
 The same is in the [status object](/api#tehas-status--json) as `room.slots`.
 A host whose reading answers nothing (no `nproc`, a slice with no limit) would
 be held to one cycle and two containers rather than given the ceiling: the poll
-starts one cycle rather than what it cannot show room for. Set a number, which
+starts one cycle rather than what it cannot show room for, and the line says
+`host-bound, no reading`. A host that answered too little for one cycle, such
+as 4 CPUs at `TEHAS_CYCLE_CPUS=7`, is held the same way, and the line names the
+reading that held it: `cpu-bound, at the floor`. Set a number, which
 is also what an instance needs when it wants workstreams (see the axis below).
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
