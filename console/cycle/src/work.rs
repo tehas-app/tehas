@@ -99,9 +99,11 @@
 //!                installed, tehas.slice is not usable on this host, the
 //!                approval names a driver this tehas does not know, the image
 //!                does not support what the cycle is given (on driver lean
-//!                state/cycles/<issue>.lean-refused says so), or the
-//!                product names no gate in
-//!                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+//!                state/cycles/<issue>.lean-refused says so), the image gave
+//!                no capabilities answer or the workspaces' directory was not
+//!                made by tehas (these three say why in
+//!                state/cycles/<issue>.refused), or the product names no gate
+//!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
 //!                cycle is left where it is.
@@ -362,7 +364,7 @@
 //! dispatch-completed lines and a reason read from lines the runner marks
 //! unstable, which may be empty.
 
-use crate::gives::{self, Gap};
+use crate::gives::{self, Gap, NoAnswer};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
 use crate::renew;
@@ -377,6 +379,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
 
@@ -457,43 +460,17 @@ fn branch() -> Option<String> {
 }
 
 /// Why the limits and security options a slice gave are not the documented
-/// ones: fourteen words of limits in tehas.slice, and the ten of "What a
-/// container may not do". A list that drifted starts nothing.
+/// ones. A list that drifted starts nothing.
 fn misshaped(limits: &[String], security: &[String]) -> Option<String> {
-    let (who, what) = ("tehas work", "a cycle");
-    let l = limits;
-    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
-        return Some(format!(
-            "{who}: the container limits could not be made, not starting"
-        ));
+    match sandbox::shape(limits, security).err()? {
+        Misshaped::Limits => {
+            Some("tehas work: the container limits could not be made, not starting".into())
+        }
+        Misshaped::Security => Some(format!(
+            "tehas work: tehas_sandbox_security gave {} words, wants 10: not starting a cycle",
+            security.len()
+        )),
     }
-    let s = security;
-    let tmpfs = s.get(9).and_then(|w| {
-        w.strip_prefix("/tmp:rw,exec,nosuid,nodev,size=")?
-            .strip_suffix("m,mode=1777")
-    });
-    let fixed = [
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--cap-add",
-        "FOWNER",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--tmpfs",
-    ];
-    let shaped = s.len() == 10
-        && s[..9] == fixed
-        && tmpfs.is_some_and(|m| {
-            !m.is_empty() && m.bytes().all(|b| b.is_ascii_digit()) && !m.starts_with('0')
-        });
-    (!shaped).then(|| {
-        format!(
-            "{who}: tehas_sandbox_security gave {} words, wants 10: not starting {what}",
-            s.len()
-        )
-    })
 }
 
 /// The container's limits and security options, as the slice gives them.
@@ -549,8 +526,9 @@ fn github_token(console: &str) -> i32 {
 }
 
 /// The renewer of the cycle's token while the container reads it. The watch
-/// ends it with a TERM.
-fn renewer(home: &Path) -> Option<Child> {
+/// ends it with a TERM. A renewer that cannot start is the line the cycle is
+/// refused with: without it the app's token ages out during a long run.
+fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
     let child = Command::new(home.join("libexec/tehas-cycle"))
@@ -562,7 +540,9 @@ fn renewer(home: &Path) -> Option<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
-    child.ok()
+    child.map_err(|e| {
+        format!("tehas work: the token renewer could not start ({e}), not starting a cycle")
+    })
 }
 
 /// The cycle's issue relay (src/relay.rs): a thread beside the renewer that
@@ -871,7 +851,8 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
 fn gap(home: &Path, issue: u64, kept: &Path, record: &str, log: &Path) -> String {
     let said = match gives::left_out(home, issue, kept, record) {
         Gap::Said(gap) => format!("tehas work: {gap}"),
-        Gap::Unread => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"),
+        Gap::Unread(no @ NoAnswer::Exited(_)) => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read ({}): nothing is said about what this cycle was not given", no.says("left-out")),
+        Gap::Unread(no) => format!("tehas work: what the cycle of issue {issue} was not given could not be asked ({}): nothing is said about what this cycle was not given", no.says("left-out")),
         Gap::Nothing => return String::new(),
     };
     eprintln!("{said}");
@@ -1033,6 +1014,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         restart: g.restart,
         driver: recorded.driver,
         lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
+        refused_note: home.join(format!("state/cycles/{n}.refused")),
         caps_wait,
         console: console.clone(),
         words,
@@ -1137,6 +1119,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &mut set,
     );
     if rc != 0 {
+        // A sandbox that cannot push is the factory's fault: the start says so
+        // on the host and on the issue, ends its own record as push-fault, and
+        // leaves the issue's labels alone. The park of a cycle that ran is the
+        // report's, and this arm never reaches it.
+        if rc == 3 {
+            prepare::push_fault(
+                home,
+                n,
+                &prepare::preflight_line(&prepare::preflight_of(&log)),
+            );
+        }
         return rc;
     }
     let gap = if give {
@@ -1169,14 +1162,20 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     if stop.came() {
         return STOPPED;
     }
+    // The container is given the cycle token; the app's token, which the host
+    // side acts with after the run, is kept fresh by the renewer, which ends
+    // with the container, or with the watch.
+    let renew = match renewer(home) {
+        Ok(child) => child,
+        Err(line) => {
+            eprintln!("{line}");
+            return 1;
+        }
+    };
     set.started();
 
     // The runner is the container's command, so a docker stop reaches it: it
-    // ends the cycle as interrupted and still writes its result. The container
-    // is given the cycle token; the app's token, which the host side acts with
-    // after the run, is kept fresh by the renewer, which ends with the
-    // container, or with the watch.
-    let renew = renewer(home);
+    // ends the cycle as interrupted and still writes its result.
     let relay_dir = PathBuf::from(format!("{work_dir}-{n}.state/relay"));
     let models = format!("{}/.pi/agent/models.json", env("HOME"));
     let email = git_email();
@@ -1203,16 +1202,14 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         console: PathBuf::from(&g.console),
         models,
         email,
-        renewer: renew.as_ref().map_or(String::new(), |c| c.id().to_string()),
+        renewer: renew.id().to_string(),
         docker,
         signal: stop.which(),
         scratch: crate::scratch::Bounds::from_env(n),
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
-    if let Some(c) = renew {
-        reap(c);
-    }
+    reap(renew);
     rc
 }
 
@@ -1311,6 +1308,27 @@ mod tests {
                 "{opts}"
             );
         }
+    }
+
+    #[test]
+    fn a_renewer_that_cannot_start_says_why_and_refuses_the_cycle() {
+        let d = tehas_core::testdir::TestDir::new("work-renewer");
+        // A half-run install: libexec/tehas-cycle is not there.
+        let why = renewer(d.path()).unwrap_err();
+        assert!(
+            why.starts_with("tehas work: the token renewer could not start ("),
+            "{why}"
+        );
+        assert!(why.ends_with("), not starting a cycle"), "{why}");
+        // There but not a program: the same line.
+        fs::create_dir(d.join("libexec")).unwrap();
+        fs::write(d.join("libexec/tehas-cycle"), "").unwrap();
+        let why = renewer(d.path()).unwrap_err();
+        assert!(why.contains("could not start"), "{why}");
+        // A program: the child, which the cycle reaps.
+        tehas_core::testing::write_exe(d.join("libexec/tehas-cycle"), "#!/bin/sh\nexit 0\n")
+            .unwrap();
+        reap(renewer(d.path()).unwrap());
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
+use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
 use crate::slots::{self, Probe, Slots};
@@ -19,7 +20,7 @@ mod epic;
 mod plan;
 mod retry;
 
-pub(crate) use clean::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
+pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use plan::shape;
 pub(crate) use retry::{hex40, refresh_why};
 
@@ -215,6 +216,10 @@ struct Poll<'a> {
     slots: Slots,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
+    /// The hold of a host whose sandbox cannot push, empty when it can. Said
+    /// as the hold of the poll while the fault is younger than the wait of
+    /// `host::PUSH_FAULT_HOLD`.
+    push_hold: String,
     /// Parked issues with a box ticked: rule 5a leaves them.
     park_ticked: Vec<u64>,
     /// The issue whose planning turn is still running, and the sessions
@@ -248,6 +253,7 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
             container: None,
         },
         refresh_said: false,
+        push_hold: String::new(),
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
@@ -282,6 +288,30 @@ impl<'a> Poll<'a> {
     fn fail(&mut self, line: impl Into<String>, rc: i32) -> End {
         self.log(line);
         End(rc)
+    }
+
+    /// The end of a poll on a read the rules cannot use. The line names the
+    /// read, and the line of the gh call it failed on when one failed: a read
+    /// that is missing or that no gh call failed for blames no call.
+    fn unreadable(&mut self, what: &str, call: Option<&str>) -> End {
+        let line = match call {
+            Some(l) => format!(
+                "ERROR: unreadable {what}: {}",
+                l.strip_prefix("ERROR: ").unwrap_or(l)
+            ),
+            None => format!("ERROR: unreadable {what}"),
+        };
+        self.fail(tehas_core::call::trim(&line), 1)
+    }
+
+    /// The end of a poll on comments of `n` that were not read.
+    fn comments_unread(&mut self, n: u64) -> End {
+        let call = self
+            .s
+            .issues
+            .get(&n)
+            .and_then(|i| i.comments_failed.clone());
+        self.unreadable(&format!("comments of #{n}"), call.as_deref())
     }
 
     /// An action, with its place among the poll's lines: the lines before it
@@ -398,8 +428,7 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if !c.improvement_type.is_empty() {
-            let t = &c.improvement_type;
+        if let Some(t) = &c.improvement_type {
             match &s.issue_types {
                 None => {
                     return Err(self.fail(
@@ -1028,6 +1057,24 @@ impl<'a> Poll<'a> {
                 if count == 1 { "is" } else { "are" },
                 with_reason(&limit_reason)
             );
+        } else if self.push_fault() {
+            // A sandbox that cannot push starts no cycle. The word is `lane`,
+            // the one of the thirteen a reader outside the dispatcher already
+            // uses for the host that keeps what it has while nothing new
+            // starts: the cycles that run, the planning turns and the
+            // refreshes of a pull request that already stands on the remote
+            // are untouched by it. Part 3 gives the fault a word of its own.
+            why = Some(Why::Lane);
+            hold = self.push_hold.clone();
+            // Cycles start none; the refreshes keep what they would have been
+            // given without the fault: the lane when the setting keeps one,
+            // else the slots of the cycle ceiling, which is `None` at rule 6.
+            want_all = free + lane.unwrap_or(0);
+            if let Some(l) = limit_room {
+                want_all = want_all.min(l);
+            }
+            want_all = want_all.min(room_mem_i);
+            want_refresh = lane.map(|l| l.min(want_all));
         } else if let Some(word) = self.branch_check() {
             why = Some(word.0);
             hold = word.1;
@@ -1210,6 +1257,44 @@ impl<'a> Poll<'a> {
             .count() as i64)
     }
 
+    /// The hold of the host's own push fault, and whether it holds the poll:
+    /// while a sandbox that cannot push is on record the poll starts no cycle,
+    /// so every ready issue does not fail the same check in turn. The one line
+    /// of the hold is left on `push_hold`, empty for no fault: a fault older
+    /// than `host::PUSH_FAULT_HOLD` is no fault to the poll, and Part 3
+    /// replaces that wait with a re-probe of the push check.
+    ///
+    /// The report's word for it is `lane`, not a word of its own: the readers
+    /// outside the dispatcher (`console/ops/src/health.rs`, `console/mcp/`)
+    /// know the thirteen words of `tehas_core::hold::Why`, and `lane` is the
+    /// one of them already used for the host that keeps running while nothing
+    /// new starts. Part 3 gives the fault its own word with the re-probe and
+    /// the health line.
+    fn push_fault(&mut self) -> bool {
+        let Some(fault) = self.s.push_fault.as_ref() else {
+            self.push_hold.clear();
+            return false;
+        };
+        let now = self.s.now.unwrap_or(0) as i64;
+        if !host::push_fault_holds(fault, now) {
+            self.push_hold.clear();
+            return false;
+        }
+        let line = host::push_fault_line(fault);
+        let login = fault
+            .get("login")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let who = if login.is_empty() {
+            String::new()
+        } else {
+            format!(" ({login})")
+        };
+        self.push_hold = format!("holding: the sandbox cannot push: {line}{who}");
+        true
+    }
+
     /// The hold of the branch's check, with the one word for its reason:
     /// `red` when TEHAS_BRANCH_CHECK names a check that failed on the
     /// branch's head commit, and `unknown-gate` when its runs finished and
@@ -1383,7 +1468,7 @@ impl<'a> Poll<'a> {
     }
 
     /// Whether an order label's last event, as `order_label` reads it, lets
-    /// the label stand: an application by an allowed account or the fixer.
+    /// the label stand: an application by an allowed account or the millwright.
     fn order_stands(&self, state: &LabelState) -> bool {
         state.event() == "labeled"
             && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
@@ -1613,7 +1698,7 @@ impl<'a> Poll<'a> {
             Some(who) => Some(who),
             None => {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
-                    return Err(self.fail("ERROR: gh api graphql failed", 1));
+                    return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
                 let at = edit
                     .get("lastEditedAt")
@@ -1790,7 +1875,7 @@ impl<'a> Poll<'a> {
             return Ok(true);
         }
         let Some(answer) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            return Err(self.comments_unread(n));
         };
         let Some(nodes) = answer
             .pointer("/data/repository/issue/comments/nodes")
@@ -1905,10 +1990,7 @@ impl<'a> Poll<'a> {
             return Ok(None);
         };
         let Some(prs) = prs else {
-            if self.s.issues[&n].prs_unreadable {
-                return Err(self.fail(format!("ERROR: unreadable pull requests of #{n}"), 1));
-            }
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            return Err(self.unreadable(&format!("pull requests of #{n}"), None));
         };
         Ok(prs
             .iter()
@@ -3092,10 +3174,10 @@ const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
 /// The wait line of a `tehas:blocked` that counts while no comment names its
 /// blockers. The dispatcher reads blockers only from comments, so it says
 /// what a person must do; a marker in the issue's body is not read.
-pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the fixer names its blockers: it is held by the label alone, names no blockers and never starts until an allowed account comments a `<!-- tehas:blocked by=N -->` marker or a person takes tehas:blocked off. A marker in the issue's body is not read";
+pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the millwright names its blockers: it is held by the label alone, names no blockers and never starts until an allowed account or the millwright comments a `<!-- tehas:blocked by=N -->` marker or a person takes tehas:blocked off. A marker in the issue's body is not read";
 
 /// The newest comment that holds a `tehas:blocked` marker and was written by
-/// an allowed account or the fixer: the one rule 6 reads its blockers from.
+/// an allowed account or the millwright: the one rule 6 reads its blockers from.
 fn newest_marker<'v>(nodes: &'v [Value], c: &Settings) -> Option<&'v Value> {
     let mut marked: Vec<&Value> = nodes
         .iter()

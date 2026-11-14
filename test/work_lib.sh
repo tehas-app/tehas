@@ -116,6 +116,8 @@ t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
 # tehas work as bin/tehas runs it: the console loads the settings and execs
 # the tehas-cycle beside it.
+# The renewer of the cycle's token, which tehas work starts from its home.
+t_renewer "$T/home/tehas"
 work="$tree/libexec/work"
 t_verb "$work" tehas work
 checkout=$T/home/tehas/repos/widget
@@ -127,6 +129,10 @@ runs=$T/home/.pi/agent/ensemble-runs/issue-7
 # The cycle's own state on the host, and the host's directory of the code index.
 state=$ws.state
 hostindex=$T/home/tehas/state/index
+# A fault of the host outlives no case: it is one fact of the machine, not a
+# file of the cycle, so a case that means a host that cannot push says so. The
+# two suites that reset the host their own way take it away with the rest.
+rm -f "$T/home/tehas/state/push-fault.json"
 # The product repository, and the host's checkout of it.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -234,7 +240,7 @@ caps_good() {
     contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {version: 1, stable: {version: 1}}},
     verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
     inputs: ([("SANDBOX_MODE", "WORKSPACE_ROOT") | {name: "PI_ENSEMBLE_\(.)", scope: "sandbox"}]
-      + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "SUBAGENT_MODEL",
+      + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "VERIFY_SUITE_TIMEOUT_MS", "SUBAGENT_MODEL",
           "SUBAGENT_PROVIDER", "MODEL_<ROLE>", "PROVIDER_<ROLE>", "EXTRA_IMAGE_DIRS", "COMMENT_RETENTION",
           "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY",
           "SPAWN_TIMEOUT_MS")
@@ -279,6 +285,57 @@ cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.
 install_args() { grep -l -x -e 'set -e' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# push_fault_file: the fault of a sandbox that cannot push, one host file with
+# no issue in its name (console/cycle/src/prepare.rs). A run that left none
+# reads as "", which no fault can be: a fault is one JSON object.
+push_fault_file() { jq -c . "$T/home/tehas/state/push-fault.json" 2>/dev/null; }
+# The three fields of that file as three lines - whether `at` is the form a host
+# writes, the account, and git's own line - or nothing when the file is not
+# there. A case names what it expects instead of reading the clock of the host.
+push_fault_parts() {
+  jq -r '[(.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")),
+    .login, .line] | .[]' "$T/home/tehas/state/push-fault.json" 2>/dev/null
+}
+# The words the docker stub says for a push check the sandbox refused, on its
+# error stream, which is what the check's log holds: the one line a fault names.
+PUSH_SAYS='docker: could not read from remote repository'
+# The account the factory acts as, which the host records beside its token: what
+# a fault names as its login.
+cycle_account() { cat "$T/home/tehas/state/github/login"; }
+# push_fault_store [rc] [line]: the store of this run records each call it is
+# asked to make in $T/calls/store and answers as the real store does, except that
+# it refuses the end of a push fault with <rc> and <line> (1 and the store's own
+# busy line by default), or takes it when <rc> is 0. A case asks whether the
+# start's own record was ended, and what became of it, without a word of the
+# store's grammar in the test (console/cycle/src/prepare.rs).
+push_fault_store() {
+  local bin=$T/home/tehas/libexec/store rc=${1-1} line=${2-}
+  [ -n "$line" ] || line='store: busy #7: the database is locked'
+  rm -f "$bin" "$T/calls/store"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    'case " $* " in *" --status push-fault "*)' \
+    "  [ ${rc} = 0 ] || { printf '%s\\n' $(t_q "$line") >&2; exit $rc; }" \
+    'esac' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
+# Whether the word of the end is on the record of the issue, read straight from
+# the database of <home> and read-only. The store is not changed by this
+# behaviour, so `cycles.end_reason` keeps a word it does not name as `unknown`
+# while `endings.status` holds the word itself, which is what an_end admits and
+# what the readers of part 3 will name. No read verb gives the word: `cycle-show`
+# shows only the row's own column, and the row that holds it is what publish
+# renders; a write verb cannot be asked of a cycle that has ended. The case reads
+# the host's own file, as state_test.sh does of its database (the store keeps no
+# verb for it, so there is nothing else to ask).
+push_fault_ended() { # <home> <issue>
+  command -v sqlite3 >/dev/null 2>&1 || { echo skipped; return; }
+  sqlite3 -cmd '.mode list' "$1/state/tehas.db" \
+    "select status from endings where issue=$2;" 2>/dev/null
+}
+# What the store of the run was asked, one call per line.
+t_store_lines() { cat "$T/calls/store" 2>/dev/null; }
 # The security options and the readers of a docker line come from
 # test/docker_args.sh, which holds the list as a literal, so the cycle, the
 # turn, the session and the push check are all pinned against one list, and not
@@ -318,6 +375,7 @@ PI_ENSEMBLE_SPAWN_TIMEOUT_MS
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_CONCURRENCY
+PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 mounts_off="$ws:$inside
@@ -369,7 +427,10 @@ gone='wait; exit 137'
 # container-default, holds that default for every case that names none).
 fresh() {
   local e t_keep=()
-  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T/client-hangs" "$T"/home/tehas/logs/work-7-*
+  # A fault of the host outlives no case: it is one fact of the machine, not a
+  # file of the cycle, so a case that means a host that cannot push says so.
+  # The two helpers that reset the host their own way take it away too.
+  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T/now.wait" "$T/client-hangs" "$T"/home/tehas/logs/work-7-* "$T/home/tehas/state/push-fault.json"
   t_store_home "$T/home/tehas"
   # A fresh store has no start, so no attempt of one (under_cycle).
   for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
@@ -443,7 +504,8 @@ issue_is() {
     author_association: $who} + (if $title == "" then {} else {title: $title} end)' >"$fx/issue.json"
 }
 images_on() {
-  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json"
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" \
+    "$T/home/tehas/state/push-fault.json"
   # The body of the container of the case before, if it named one: fresh clears
   # it too, and the two helpers clear the rest of the host in their own way.
   rm -f "$T/container.sh"
@@ -458,7 +520,7 @@ images_on() {
 # a start asks GitHub for, with attachments or without them, starts here.
 images_off() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
-    "$T/home/tehas/state/cycles/7.manifest.json"
+    "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/push-fault.json"
   # What the container of this cycle does is a file a case writes; it goes with
   # the rest of the host here, as fresh does for the cases that use it.
   rm -f "$T/container.sh"

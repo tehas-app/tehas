@@ -74,6 +74,38 @@ pub fn cut_reason(s: &str) -> String {
     cut(s, REASON_MOST - REASON_CUT.len()) + REASON_CUT
 }
 
+/// What a cycle's record says of a cap the driver gave no words for.
+pub const NO_EVIDENCE: &str = "no evidence from the driver";
+
+/// The reason a record gives for its cap. A reason that is empty or only
+/// repeats the cap word is no evidence, and says so. Memory kills in the
+/// container are said, with the killed processes' names where they are known,
+/// so a memory plan that is too tight is not read as a failed change.
+pub fn cap_reason(cap: &str, reason: &str, kills: u64, names: &[String]) -> String {
+    if cap.is_empty() {
+        return reason.to_string();
+    }
+    let said = reason.trim();
+    let word = cap.split(':').next().unwrap_or(cap);
+    let echo = said.is_empty() || said.eq_ignore_ascii_case(cap) || said.eq_ignore_ascii_case(word);
+    let mut out = if echo {
+        NO_EVIDENCE.to_string()
+    } else {
+        said.to_string()
+    };
+    if kills > 0 && !out.contains("killed for memory") {
+        out += &if kills == 1 {
+            "; 1 process in its container was killed for memory".to_string()
+        } else {
+            format!("; {kills} processes in its container were killed for memory")
+        };
+        if !names.is_empty() {
+            out += &format!(" ({})", names.join(", "));
+        }
+    }
+    cut_reason(&out)
+}
+
 fn plain(v: Option<&Value>) -> String {
     match v {
         Some(Value::String(s)) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:/-".contains(c)),
@@ -283,11 +315,47 @@ pub fn run(text: &str, issue: u64) -> Run {
     if branch == "commit-pr" || !branch_of(issue, &branch) {
         branch.clear();
     }
+    if branch.is_empty() && at.is_some() {
+        branch = branch_said_after_push(text, issue);
+    }
     Run {
         step: steps.last().cloned().unwrap_or_default(),
         branch,
         ..Run::default()
     }
+}
+
+/// The last branch of this issue an event after the last commit-pr names in its
+/// `branch` field, unstable events too. A driver that names no branch as the
+/// step after commit-pr names it there. It only says which branch to ask GitHub
+/// about: the pull request is still GitHub's answer.
+fn branch_said_after_push(text: &str, issue: u64) -> String {
+    let mut pushed = false;
+    let mut branch = String::new();
+    for l in text.split('\n') {
+        let Ok(v) = serde_json::from_str::<Value>(l) else {
+            continue;
+        };
+        if v.get("v").and_then(Value::as_f64) != Some(1.0) {
+            continue;
+        }
+        let Some(e) = v.get("event").filter(|e| e.is_object()) else {
+            continue;
+        };
+        if v.get("kind").and_then(Value::as_str) == Some("step-started") {
+            if e.get("step").and_then(Value::as_str) == Some("commit-pr") {
+                pushed = true;
+                branch.clear();
+            }
+            continue;
+        }
+        if let Some(b) = e.get("branch").and_then(Value::as_str) {
+            if pushed && branch_of(issue, b) {
+                branch = b.to_string();
+            }
+        }
+    }
+    branch
 }
 
 /// The fields tehas-cycle reads of the progress summary, in its order:
@@ -530,6 +598,48 @@ mod tests {
     }
 
     #[test]
+    fn a_cap_reason_is_never_the_bare_cap_word_and_says_memory_kills() {
+        let none: &[String] = &[];
+        for echo in [
+            "",
+            "  ",
+            "verify-failed:develop",
+            "verify-failed",
+            "VERIFY-FAILED:develop",
+        ] {
+            assert_eq!(
+                cap_reason("verify-failed:develop", echo, 0, none),
+                NO_EVIDENCE,
+                "{echo:?}"
+            );
+        }
+        assert_eq!(cap_reason("round-cap", "round-cap", 0, none), NO_EVIDENCE);
+        assert_eq!(cap_reason("turns", "out of turns", 0, none), "out of turns");
+        assert_eq!(cap_reason("", "", 3, none), "", "no cap, no reason to give");
+        assert_eq!(
+            cap_reason(
+                "verify-failed:develop",
+                "verify-failed:develop",
+                1,
+                &["node".to_string()]
+            ),
+            "no evidence from the driver; 1 process in its container was killed for memory (node)"
+        );
+        assert_eq!(
+            cap_reason("round-cap", "3 rounds", 2, none),
+            "3 rounds; 2 processes in its container were killed for memory"
+        );
+        let said = "the container was killed; 4 processes in it were killed for memory";
+        assert_eq!(
+            cap_reason("container-killed", said, 4, none),
+            said,
+            "said once"
+        );
+        let long = "r".repeat(REASON_MOST + 10);
+        assert!(cap_reason("turns", &long, 1, none).ends_with(REASON_CUT));
+    }
+
+    #[test]
     fn an_outcome_is_the_issues_entry() {
         let r = r#"{"schemaVersion":5,"buildCommit":"abc","issues":[{"issue":8},{"issue":7,"status":"handoff","steps":[{"step":"a"},{"step":"b x"}],"usage":{"input":3}}]}"#;
         let o = outcome(r, 7).unwrap();
@@ -642,6 +752,31 @@ mod tests {
         assert_eq!(run(&l("commit-pr"), 7).branch, "");
         let bad = l("plan") + "{\"v\":1,\"kind\":\"step-started\",\"event\":\"x\"}\n";
         assert_eq!(run(&bad, 7).step, "");
+    }
+
+    #[test]
+    fn a_log_with_no_branch_step_after_commit_pr_names_the_branch_a_later_event_carries() {
+        let l = started;
+        let said = |b: &str| {
+            format!("{{\"v\":1,\"kind\":\"lens-residuals-posted\",\"unstable\":true,\"event\":{{\"prNumber\":9,\"branch\":\"{b}\"}}}}\n")
+        };
+        let log = [
+            l("commit-pr"),
+            l("lens-review"),
+            said("feature/issue-7-a"),
+            l("lens-fix"),
+        ]
+        .concat();
+        assert_eq!(run(&log, 7).branch, "feature/issue-7-a");
+        assert_eq!(run(&log, 7).step, "lens-fix");
+        // Only a branch of this issue, only after a push, and the branch step
+        // after commit-pr comes first.
+        let other = l("commit-pr") + &said("feature/issue-8-a");
+        assert_eq!(run(&other, 7).branch, "");
+        let before = said("feature/issue-7-a") + &l("commit-pr") + &l("lens-review");
+        assert_eq!(run(&before, 7).branch, "");
+        let both = l("commit-pr") + &l("feature/issue-7-b") + &said("feature/issue-7-a");
+        assert_eq!(run(&both, 7).branch, "feature/issue-7-b");
     }
 
     #[test]

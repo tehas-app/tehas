@@ -1239,7 +1239,10 @@ says the count, and the dispatcher's `done` line has it as `forks_refused`.
 When the run named no cap of its own and no person stopped it, the cycle goes
 on record with the cap `process-limit:<step>` (`process-limit` when no step
 is known) and a reason that carries the count, so `tehas history`, the park
-comment and the analytics row name it. A cap the run named stays.
+comment and the analytics row name it. A cap the run named stays. The comment
+and the reason also say the limit the container had, from its `pids.max`, and
+name the settings it follows, `TEHAS_TICKET_CONCURRENCY` and
+`TEHAS_SLICE_CONTAINERS`; both are among the settings on the cycle's record.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
@@ -1291,7 +1294,7 @@ hold a slot for ever:
 | A call of `~/tehas/libexec/analytics` from a cycle or a poll | 5 s, then a kill 1 s later | `WARN analytics <subcommand>: exit N`, and the cycle or the poll goes on as without it |
 | The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 277 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
-| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written` |
+| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written: <command> ...`. A status that did not end 0 leaves its files as they were, and the poll says `WARN: the status command <command> exited <n>: the status files may be stale` (or `was killed at its bound or did not start`) |
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
 | One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |

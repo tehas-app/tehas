@@ -44,8 +44,9 @@ pub struct Settings {
     pub branch_check: String,
     pub branch: String,
     /// The issue type TEHAS_ISSUE_TYPES maps improvement to: an issue of it
-    /// holds as `tehas:improvement` does. Empty: the label alone.
-    pub improvement_type: String,
+    /// holds as `tehas:improvement` does. None: the label alone. A malformed
+    /// setting is no None: [`Settings::refused`] stops the poll first.
+    pub improvement_type: Option<String>,
     pub fixer_max_retries: i64,
     /// TEHAS_SIZE_MAX_FILES, None when unset, and the measure's bounds.
     pub size_max_files: Option<u64>,
@@ -131,8 +132,7 @@ impl Settings {
             improvement_type: tehas_core::kinds::type_of(
                 &s(tehas_core::kinds::SETTING, ""),
                 tehas_core::kinds::Kind::Improvement,
-            )
-            .unwrap_or_default(),
+            ),
             fixer_max_retries: n("TEHAS_MILLWRIGHT_MAX_RETRIES", 2),
             size_max_files: v
                 .get("TEHAS_SIZE_MAX_FILES")
@@ -151,6 +151,17 @@ impl Settings {
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
         }
+    }
+
+    /// Why a setting the load validates, and that changes what a poll asks
+    /// GitHub, is no value to act by. The load refuses it too; a run with no
+    /// load before it must not read it as the setting left unset.
+    pub fn refused(v: &Value) -> Option<String> {
+        let k = tehas_core::kinds::SETTING;
+        let value = v.get(k).and_then(Value::as_str).unwrap_or("");
+        tehas_core::kinds::parse(value)
+            .err()
+            .map(|why| format!("{k} is not valid: {why}"))
     }
 
     /// tehas_allowed_labeler: an empty name is nobody.
@@ -174,6 +185,30 @@ pub fn account(login: &str) -> &str {
 mod tests {
     use super::Settings;
     use serde_json::json;
+
+    #[test]
+    fn the_improvement_type_is_a_type_none_or_a_refusal() {
+        let k = tehas_core::kinds::SETTING;
+        let unset = json!({});
+        assert_eq!(Settings::parse(&unset).improvement_type, None);
+        assert_eq!(Settings::refused(&unset), None);
+        let other = json!({k: "prototype=Prototype"});
+        assert_eq!(Settings::parse(&other).improvement_type, None);
+        assert_eq!(Settings::refused(&other), None);
+        let typed = json!({k: "improvement=Improvement"});
+        assert_eq!(
+            Settings::parse(&typed).improvement_type.as_deref(),
+            Some("Improvement")
+        );
+        assert_eq!(Settings::refused(&typed), None);
+        let bad = json!({k: "bug=Bug"});
+        assert_eq!(
+            Settings::refused(&bad).as_deref(),
+            Some(
+                "TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement or prototype"
+            )
+        );
+    }
 
     #[test]
     fn the_millwrights_settings_take_only_the_new_names() {
@@ -276,5 +311,24 @@ mod tests {
         }
         let none = Settings::parse(&json!({}));
         assert!(!none.is_millwright("") && !none.is_millwright("[bot]"));
+    }
+
+    #[test]
+    fn the_millwright_counts_without_the_allow_list_and_a_listed_person_is_no_app() {
+        let c = Settings::parse(&json!({
+            "TEHAS_ALLOWED_LABELERS": "alice",
+            "TEHAS_MILLWRIGHT_LOGIN": "acme-millwright[bot]",
+        }));
+        // The millwright is judged by its own setting, in both spellings,
+        // whatever the allow-list holds.
+        for who in ["acme-millwright", "acme-millwright[bot]"] {
+            assert!(!c.allowed(who) && c.is_millwright(who), "{who}");
+        }
+        // The allow-list holds people, matched exactly: an App whose slug
+        // equals a listed login is another account.
+        assert!(c.allowed("alice"));
+        for who in ["alice[bot]", "Alice", "alice2", "", "[bot]"] {
+            assert!(!c.allowed(who), "{who}");
+        }
     }
 }

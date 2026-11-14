@@ -173,4 +173,50 @@ for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_TOP TEHAS_UPDATE_FROM TEHA
   has "$name" "$manual" || t_bad "no row for $name"
 done
 
+# The example instance's optional.env is the reference for the optional
+# settings: the Commands page sends an operator to it, so a setting of TABLE
+# that an operator may set and that holds no line there is one they cannot look
+# up where the other optional settings are looked up (#1768).
+optional=$T_ROOT/instances/example/optional.env
+instance=$T_ROOT/instances/example/instance.env
+
+# The names optional.env gives a line of, commented out or not: the head of a
+# line up to the `=`. The lines of comments that name a setting in their prose
+# do not reach this parse, because such a line holds no `=` after the name.
+optional_names() {
+  sed -nE 's/^#([A-Z][A-Z0-9_]*)=.*/\1/p' "$optional"
+}
+
+# The names instance.env sets: the required ones belong there, and one of them
+# listed in optional.env as well would tell an operator to copy a line that
+# `tehas setup` already writes.
+instance_names() {
+  sed -nE 's/^([A-Z][A-Z0-9_]*)=.*/\1/p' "$instance"
+}
+
+t_case "every setting of TABLE that is not required has a line in optional.env"
+# The `when` of each row comes from `console settings rules --json`, the file a
+# release carries, so the case reads the loader's own answer rather than a copy
+# of it. The required settings are the ones instance.env holds, retired names
+# (RETIRED in load.rs) are lines a host must take out and not ones to copy, and
+# the PI_ENSEMBLE_* family belongs to pi-rukas, which reads them itself.
+if ! t_console; then
+  t_skip "no console: $t_console_why"
+else
+  when=$("$T_CONSOLE" settings rules --json |
+    jq -r '.settings[] | select(.when != "required") | .name')
+  retired=$(sed -n '/^const RETIRED: \[&str; [0-9]*\] = \[$/,/^\];$/p' "$load" |
+    sed -n 's/^ *"\([A-Z][A-Z0-9_]*\)".*/\1/p')
+  instance_set=$(instance_names)
+  optional_lines=$(optional_names)
+  missing=
+  for name in $when; do
+    has "$name" "$retired" && continue
+    has "$name" "$instance_set" && continue
+    case $name in PI_ENSEMBLE_*) continue ;; esac
+    has "$name" "$optional_lines" || missing="$missing $name"
+  done
+  [ -z "$missing" ] || t_bad "no line in instances/example/optional.env for:$missing"
+fi
+
 t_done

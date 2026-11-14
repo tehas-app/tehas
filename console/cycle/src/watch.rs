@@ -138,6 +138,23 @@ fn say(line: &str) {
     let _ = out.flush();
 }
 
+/// The failure to say for a call made every tick: a new one, or one that
+/// differs from the last said. A success ends the run of failures, so the next
+/// one is said again. A store that fails every tick the same way is said once.
+fn say_again(last: &mut Option<String>, now: Result<(), String>) -> Option<String> {
+    match now {
+        Ok(()) => {
+            *last = None;
+            None
+        }
+        Err(e) if last.as_deref() == Some(e.as_str()) => None,
+        Err(e) => {
+            *last = Some(e.clone());
+            Some(e)
+        }
+    }
+}
+
 fn append(file: &Path, line: &[u8]) -> bool {
     let done = OpenOptions::new()
         .create(true)
@@ -291,6 +308,15 @@ pub fn event(text: &str, key: &str) -> Option<u32> {
     found.next_back()
 }
 
+/// The number of a cgroup's pids.max. None for `max`, no limit.
+pub fn pids_max(text: &str) -> Option<u32> {
+    let v = text.trim();
+    (!v.is_empty() && v.len() < 10 && v.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| v.parse().ok())
+        .flatten()
+        .filter(|n| *n > 0)
+}
+
 /// The kills of the kernel log named for this container.
 pub fn kills_in(log: &str, id: &str) -> u32 {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
@@ -298,6 +324,27 @@ pub fn kills_in(log: &str, id: &str) -> u32 {
     lines
         .filter(|l| l.starts_with("oom-kill:") && l.contains(&scope))
         .count() as u32
+}
+
+/// The names of the processes the kernel log says were killed for memory in
+/// this container, each once, in the order they were killed.
+pub fn killed_names(log: &str, id: &str) -> Vec<String> {
+    let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
+    let mut names: Vec<String> = vec![];
+    for l in log.lines() {
+        if !(l.starts_with("oom-kill:") && l.contains(&scope)) {
+            continue;
+        }
+        let Some(task) = l.split(',').find_map(|f| f.strip_prefix("task=")) else {
+            continue;
+        };
+        let task = runner::kept(task, |c| c.is_ascii_alphanumeric() || "._-".contains(c));
+        let task = runner::cut(&task, 40);
+        if !task.is_empty() && !names.contains(&task) && names.len() < 5 {
+            names.push(task);
+        }
+    }
+    names
 }
 
 /// The driver's own words for a refusal, as they stand in the cycle's stream:
@@ -624,10 +671,15 @@ struct Watch<'a> {
     sig: &'static str,
     console: Option<Child>,
     live_on: bool,
-    beat_said: bool,
-    publish_said: bool,
+    /// The last failure of the heartbeat and of the publish that was said.
+    beat_said: Option<String>,
+    publish_said: Option<String>,
     ooms: u32,
+    /// The processes the kernel log names as killed for memory here.
+    oom_names: Vec<String>,
     forks: u32,
+    /// The container's pids.max, when it is a number.
+    pids_max: Option<u32>,
     oom_id: String,
     /// The container is paused by a freeze, and the cycle clock read when it
     /// was paused, if it could be read.
@@ -779,24 +831,21 @@ impl Watch<'_> {
         args.extend(["--status", status, "--step", &step, "--text", &note]);
         let progress = progress_flags(&progress);
         args.extend(progress.iter().map(String::as_str));
-        if let Err(r) = host::store_said(self.home, &args) {
-            if !self.beat_said {
-                eprintln!(
-                    "tehas work: the heartbeat of #{n} is not on record ({}): {}",
-                    r.word, r.line
-                );
-                self.beat_said = true;
-            }
+        let beat = host::store_said(self.home, &args).map(drop).map_err(|r| {
+            format!(
+                "the heartbeat of #{n} is not on record ({}): {}",
+                r.word, r.line
+            )
+        });
+        if let Some(said) = say_again(&mut self.beat_said, beat) {
+            eprintln!("tehas work: {said}");
         }
         // One try: the next tick publishes again, and a stop must not wait on it.
-        if let Err(r) = host::store_said(self.home, &["publish"]) {
-            if !self.publish_said {
-                eprintln!(
-                    "tehas work: the live view is not published ({}): {}",
-                    r.word, r.line
-                );
-                self.publish_said = true;
-            }
+        let publish = host::store_said(self.home, &["publish"])
+            .map(drop)
+            .map_err(|r| format!("the live view is not published ({}): {}", r.word, r.line));
+        if let Some(said) = say_again(&mut self.publish_said, publish) {
+            eprintln!("tehas work: {said}");
         }
     }
 
@@ -819,6 +868,9 @@ impl Watch<'_> {
         if let Some(n) = event(&read("pids.events"), "max") {
             self.forks = n;
         }
+        if let Some(n) = pids_max(&read("pids.max")) {
+            self.pids_max = Some(n);
+        }
     }
 
     /// The kills since the last look went with the cgroup. The kernel log names
@@ -836,9 +888,13 @@ impl Watch<'_> {
             .stderr(Stdio::null())
             .output();
         if let Ok(o) = out {
-            let n = kills_in(&String::from_utf8_lossy(&o.stdout), &self.oom_id);
+            let log = String::from_utf8_lossy(&o.stdout);
+            let n = kills_in(&log, &self.oom_id);
             if o.status.success() && n > self.ooms {
                 self.ooms = n;
+            }
+            if o.status.success() {
+                self.oom_names = killed_names(&log, &self.oom_id);
             }
         }
     }
@@ -1010,10 +1066,12 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         sig: "-",
         console: None,
         live_on: false,
-        beat_said: false,
-        publish_said: false,
+        beat_said: None,
+        publish_said: None,
         ooms: 0,
+        oom_names: vec![],
         forks: 0,
+        pids_max: None,
         oom_id: String::new(),
         paused: false,
         frozen_at: None,
@@ -1234,11 +1292,9 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             w.append_or_say(line.as_bytes());
         }
     }
-    if w.ooms > 0 {
-        say(&format!(
-            "tehas work: {} processes in this cycle's container were killed for memory",
-            w.ooms
-        ));
+    let oom_line = (w.ooms > 0).then(|| memory_line(w.ooms, &w.oom_names));
+    if let Some(line) = &oom_line {
+        say(line.trim_end());
         w.write_or_say(&w.files.oom, &format!("{}\n", w.ooms));
     }
     if w.forks > 0 {
@@ -1246,17 +1302,30 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             "tehas work: this cycle's container reached its limit of processes, {} starts were refused",
             w.forks
         ));
-        w.write_or_say(&w.files.forks, &format!("{}\n", w.forks));
+        // The limit on a second line, so the report can name it.
+        let max = w.pids_max.map(|m| format!("{m}\n")).unwrap_or_default();
+        w.write_or_say(&w.files.forks, &format!("{}\n{max}", w.forks));
     }
     // Let the console catch the last transcript lines.
     std::thread::sleep(settle);
     w.end_console();
+    let mut tail = oom_line.unwrap_or_default();
     if w.interrupted {
-        let line = signal_line(w.sig, &step_in_flight, &cut_gates);
+        tail += &signal_line(w.sig, &step_in_flight, &cut_gates);
+    }
+    if !tail.is_empty() {
+        let out = live.join(format!("console-{}.txt", g.issue));
+        if !append(&out, tail.as_bytes()) {
+            eprintln!("tehas work: could not write {}", out.display());
+        }
+    }
+    if decided.killed {
+        let line = killed_line(&step_in_flight, w.ooms);
         let out = live.join(format!("console-{}.txt", g.issue));
         if !append(&out, line.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
+        w.append_or_say(line.as_bytes());
     }
 
     let mut step = result_step(outcome.as_ref());
@@ -1301,6 +1370,21 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     code
 }
 
+/// The line of a cycle with processes killed for memory in its container.
+fn memory_line(n: u32, names: &[String]) -> String {
+    let named = if names.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", names.join(", "))
+    };
+    let who = if n == 1 {
+        "1 process in this cycle's container was".to_string()
+    } else {
+        format!("{n} processes in this cycle's container were")
+    };
+    format!("tehas work: {who} killed for memory{named}\n")
+}
+
 /// The console's last line of a cycle a signal stopped.
 fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
     let what = if sig == "-" {
@@ -1315,6 +1399,15 @@ fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
         line += &format!("; the gate of step {s} was left open and is closed as aborted");
     }
     line + "\n"
+}
+
+/// The console's and err's last line of a container killed from outside.
+fn killed_line(step: &str, ooms: u32) -> String {
+    let memory = match ooms {
+        0 => "no process in it was counted as killed for memory".to_string(),
+        n => format!("{n} processes in it were killed for memory"),
+    };
+    format!("tehas work: the container was killed (137) at step {step} and tehas did not stop it; {memory}\n")
 }
 
 /// The reason the runner's progress gives: empty when there is no file,
@@ -1347,8 +1440,10 @@ fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {
         (false, Err(how)) => format!(
             "tehas work: issue {n} ended at the cap {cap}; the progress file could not be {how}, so its reason is not in this line\n"
         ),
-        (false, Ok(r)) if r.is_empty() => format!("tehas work: issue {n} ended at the cap {cap}\n"),
-        (false, Ok(r)) => format!("tehas work: issue {n} ended at the cap {cap}: {r}\n"),
+        (false, Ok(r)) => format!(
+            "tehas work: issue {n} ended at the cap {cap}: {}\n",
+            runner::cap_reason(cap, &r, w.ooms.into(), &w.oom_names)
+        ),
     };
     w.append_or_say(line.as_bytes());
     let name = w.g.log.file_name().unwrap_or_default().to_string_lossy();
@@ -1370,6 +1465,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn a_failure_of_every_tick_is_said_again_when_it_changes_or_comes_back() {
+        let mut last = None;
+        let busy = || Err("busy".to_string());
+        assert_eq!(say_again(&mut last, busy()), Some("busy".to_string()));
+        assert_eq!(say_again(&mut last, busy()), None, "the same failure again");
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a different failure"
+        );
+        assert_eq!(say_again(&mut last, Ok(())), None);
+        assert_eq!(last, None);
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a failure after a success"
+        );
+    }
 
     fn seen(rc: i32) -> Seen<'static> {
         Seen {
@@ -1427,6 +1542,47 @@ mod tests {
     }
 
     #[test]
+    fn the_end_line_of_a_cap_the_driver_only_named_says_no_evidence_and_the_memory_kills() {
+        let d = dir("end-echo");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let mut w = a_watch(&d, &home, &g);
+        fs::write(&g.log, "").unwrap();
+        fs::write(&w.files.progress, r#"{"reason":"verify-failed:develop"}"#).unwrap();
+        w.ooms = 1;
+        w.oom_names = vec!["node".into()];
+        tell_the_end(&w, "verify-failed:develop", true);
+        let got = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap verify-failed:develop: no evidence from the driver; 1 process in its container was killed for memory (node)\n"),
+            "{got}"
+        );
+    }
+
+    #[test]
+    fn the_kernel_log_names_this_containers_killed_processes_once() {
+        let (a, b) = ("a".repeat(64), "b".repeat(64));
+        let log = format!(
+            "oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=node,pid=1\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{b}.scope,task=rustc,pid=2\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=node,pid=3\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=ca$rgo;x,pid=4\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,pid=5\n"
+        );
+        assert_eq!(killed_names(&log, &a), ["node", "cargox"]);
+        assert!(killed_names(&log, &"c".repeat(64)).is_empty());
+        assert_eq!(
+            memory_line(2, &killed_names(&log, &a)),
+            "tehas work: 2 processes in this cycle's container were killed for memory (node, cargox)\n"
+        );
+        assert_eq!(
+            memory_line(1, &[]),
+            "tehas work: 1 process in this cycle's container was killed for memory\n"
+        );
+    }
+
+    #[test]
     fn the_end_line_says_when_its_reason_or_diagnostics_could_not_be_carried() {
         let d = dir("end-line");
         let home = d.join("home");
@@ -1439,11 +1595,11 @@ mod tests {
         };
         fs::write(&g.log, "[pi-rukas] WARN 1\nother\n").unwrap();
 
-        // Absent progress: a bare cap, as before.
+        // Absent progress: the cap with no evidence, said as such.
         tell_the_end(&w, "turns", true);
         assert_eq!(
             err(),
-            "tehas work: issue 7 ended at the cap turns\n[pi-rukas] WARN 1\ntehas work: the driver's diagnostics are in log\n"
+            "tehas work: issue 7 ended at the cap turns: no evidence from the driver\n[pi-rukas] WARN 1\ntehas work: the driver's diagnostics are in log\n"
         );
         reset();
 
@@ -1878,6 +2034,17 @@ mod tests {
     }
 
     #[test]
+    fn the_line_of_a_killed_container_says_the_step_and_the_memory_kills() {
+        assert_eq!(
+            killed_line("lens-fix", 4),
+            "tehas work: the container was killed (137) at step lens-fix and tehas did not stop it; 4 processes in it were killed for memory\n"
+        );
+        assert!(
+            killed_line("-", 0).ends_with("no process in it was counted as killed for memory\n")
+        );
+    }
+
+    #[test]
     fn the_two_lines_of_the_console() {
         let d = dir("now");
         let now = d.join("now");
@@ -1960,6 +2127,14 @@ mod tests {
     }
 
     #[test]
+    fn a_pids_limit_is_a_number_and_max_is_none() {
+        assert_eq!(pids_max("4096\n"), Some(4096));
+        for none in ["max\n", "", "0\n", "-1", "40 96", "1234567890"] {
+            assert_eq!(pids_max(none), None, "{none:?}");
+        }
+    }
+
+    #[test]
     fn the_cgroup_of_a_container_is_read_from_its_cid() {
         let d = dir("cgroup");
         let id = "a".repeat(64);
@@ -2035,10 +2210,12 @@ mod tests {
             sig: "-",
             console: None,
             live_on: false,
-            beat_said: false,
-            publish_said: false,
+            beat_said: None,
+            publish_said: None,
             ooms: 0,
+            oom_names: vec![],
             forks: 0,
+            pids_max: None,
             oom_id: String::new(),
             paused: false,
             frozen_at: None,

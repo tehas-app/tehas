@@ -14,9 +14,9 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tehas_core::models;
-use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
-use tehas_core::{settings, time};
+use tehas_core::{settings, slice, time};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 const USAGE: &str = "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>]) [--kind refine]";
@@ -293,45 +293,24 @@ fn status(rc: u8) -> Result<(), u8> {
     }
 }
 
-/// The words of the security options of "What a container may not do", the
-/// size of /tmp aside.
-const SECURITY: [&str; 9] = [
-    "--cap-drop",
-    "ALL",
-    "--cap-add",
-    "CHOWN",
-    "--cap-add",
-    "FOWNER",
-    "--security-opt",
-    "no-new-privileges:true",
-    "--tmpfs",
-];
-
-/// The tmpfs of /tmp, of a size in megabytes that is no zero.
-fn tmp_ok(word: &str) -> bool {
-    word.strip_prefix("/tmp:rw,exec,nosuid,nodev,size=")
-        .and_then(|rest| rest.strip_suffix(",mode=1777"))
-        .and_then(|size| size.strip_suffix('m'))
-        .is_some_and(|n| n.starts_with(|c: char| ('1'..='9').contains(&c)))
-}
-
 /// What `tehas-cycle sandbox limits` handed out, held to its shape: fourteen
 /// words of limits under tehas.slice, then the ten security options. A list
-/// that drifted starts nothing (AGENTS.md rule 4). Err is the line to say.
+/// that drifted starts nothing. Err is the line to say.
 fn held(rc: i32, words: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
-    let limits: Vec<String> = words.iter().take(14).cloned().collect();
-    let security: Vec<String> = words.iter().skip(14).take(10).cloned().collect();
-    if rc != 0 || limits.len() != 14 || limits[1] != "tehas.slice" || limits[12] != "--cpu-shares" {
+    let Some((limits, rest)) = slice::split(words).filter(|_| rc == 0) else {
         return Err("tehas plan: the container limits could not be made, not starting".into());
-    }
-    let shaped = security.len() == 10 && security[..9] == SECURITY && tmp_ok(&security[9]);
-    if !shaped {
-        return Err(format!(
+    };
+    let (limits, security) = (limits.to_vec(), rest[..rest.len().min(10)].to_vec());
+    match sandbox::shape(&limits, &security) {
+        Ok(()) => Ok((limits, security)),
+        Err(Misshaped::Limits) => {
+            Err("tehas plan: the container limits could not be made, not starting".into())
+        }
+        Err(Misshaped::Security) => Err(format!(
             "tehas plan: tehas_sandbox_security gave {} words, wants 10: not starting a turn",
             security.len()
-        ));
+        )),
     }
-    Ok((limits, security))
 }
 
 /// The container's limits and security options, from the tehas-cycle beside
@@ -697,6 +676,7 @@ mod tests {
             (10, "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw --tmpfs /var/tmp:rw"),
             (10, "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"),
             (10, "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=0m,mode=1777"),
+            (10, "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=12xm,mode=1777"),
         ] {
             assert_eq!(
                 held(0, &w(&format!("{fourteen} {bad}"))),
