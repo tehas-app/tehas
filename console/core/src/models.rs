@@ -50,19 +50,24 @@ pub fn used_from(env: impl Fn(&str) -> String) -> Vec<(String, String)> {
     used
 }
 
+/// curl with these arguments and the text on its standard input, as a caller
+/// runs it: what it printed, or how it failed.
+pub type Curl<'a> = &'a dyn Fn(&[String], &str) -> Result<String, NoAnswer>;
+
+/// How a curl failed.
+#[derive(Debug)]
+pub enum NoAnswer {
+    /// It could not be started.
+    NotRun,
+    /// Its exit status, None when it was killed, and what it said on stderr.
+    Failed(Option<i32>, String),
+}
+
 /// Ok when the endpoint answers and offers every model, else the words the
-/// hold says. `curl` runs curl with these arguments and the
-/// text on its standard input, and gives what it printed when it succeeded.
-pub fn ask(
-    url: &str,
-    key: &str,
-    models: &[String],
-    curl: &dyn Fn(&[String], &str) -> Option<String>,
-) -> Result<(), String> {
+/// hold says.
+pub fn ask(url: &str, key: &str, models: &[String], curl: Curl) -> Result<(), String> {
     let args = ["-fsS", "-K", "-", "-m", "10", &format!("{url}/models")].map(String::from);
-    let Some(out) = curl(&args, &auth(key)) else {
-        return Err("does not answer".into());
-    };
+    let out = curl(&args, &auth(key)).map_err(|e| why(&e))?;
     let list: Value = serde_json::from_str(&out).unwrap_or(Value::Null);
     let Some(data) = list
         .get("data")
@@ -82,13 +87,44 @@ pub fn ask(
     Ok(())
 }
 
+/// A run of curl as [`Curl`] gives it, from its exit status (None when it was
+/// killed or could not be started) and what it printed. A curl that could not
+/// be started says so on stderr, as `call` words it.
+pub fn answered(status: Option<i32>, out: String, err: String) -> Result<String, NoAnswer> {
+    match status {
+        Some(0) => Ok(out),
+        None if err == "curl could not be run" => Err(NoAnswer::NotRun),
+        _ => Err(NoAnswer::Failed(status, err)),
+    }
+}
+
+/// The hold's words for a failed ask: a curl that could not be started, an
+/// HTTP error (curl's exit 22 under -f) with its code, or no answer in time
+/// or at all. Only the code is taken from curl's words.
+fn why(e: &NoAnswer) -> String {
+    match e {
+        NoAnswer::NotRun => "could not be asked: curl could not be run".into(),
+        NoAnswer::Failed(Some(22), err) => {
+            let code: String = err
+                .split_once("returned error: ")
+                .map(|(_, rest)| rest.chars().take_while(char::is_ascii_digit).collect())
+                .unwrap_or_default();
+            match code.len() {
+                3 => format!("refused the request with HTTP {code}"),
+                _ => "refused the request".into(),
+            }
+        }
+        NoAnswer::Failed(..) => "does not answer".into(),
+    }
+}
+
 /// "main" when it offers the provider's models, else
 /// "backup" when that does, else "main". No call without a backupBaseUrl.
 pub fn pick(
     file: &ModelFile,
     provider: &str,
     used: &[(String, String)],
-    curl: &dyn Fn(&[String], &str) -> Option<String>,
+    curl: Curl,
 ) -> &'static str {
     let backup = file.url(provider, "backup");
     if backup.is_empty() {
@@ -202,23 +238,28 @@ pub fn host_keys_ok() -> Result<(), String> {
     keys_ok(&ModelFile::read(&file).json, &file, set)
 }
 
-/// curl with these arguments and the text on its standard input: what it
-/// printed, when it succeeded.
-pub fn curl(args: &[String], input: &str) -> Option<String> {
-    let mut child = Command::new("curl")
+/// curl with these arguments and the text on its standard input.
+pub fn curl(args: &[String], input: &str) -> Result<String, NoAnswer> {
+    let Ok(mut child) = Command::new("curl")
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
-        .ok()?;
+    else {
+        return Err(NoAnswer::NotRun);
+    };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(input.as_bytes());
     }
-    let out = child.wait_with_output().ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = child
+        .wait_with_output()
+        .map_err(|e| NoAnswer::Failed(None, e.to_string()))?;
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    match out.status.code() {
+        Some(0) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        code => Err(NoAnswer::Failed(code, err)),
+    }
 }
 
 fn set(obj: &mut J, key: &str, value: J) {
@@ -244,11 +285,7 @@ fn strip(provider: &mut J) -> Option<()> {
 /// and without the backup keys, and the providers moved to their backup, in
 /// the file's order. Key order and number text stay as the file has them.
 /// None for what no provider list can be read in.
-pub fn resolved(
-    text: &str,
-    used: &[(String, String)],
-    curl: &dyn Fn(&[String], &str) -> Option<String>,
-) -> Option<(J, Vec<String>)> {
+pub fn resolved(text: &str, used: &[(String, String)], curl: Curl) -> Option<(J, Vec<String>)> {
     let mut doc = J::parse(text)?;
     if !matches!(doc, J::Obj(_) | J::Null) {
         return None;
@@ -393,12 +430,24 @@ mod tests {
         ModelFile { json }
     }
 
+    fn printed(out: &str) -> Result<String, NoAnswer> {
+        Ok(out.into())
+    }
+
+    fn failed(status: Option<i32>, err: &str) -> Result<String, NoAnswer> {
+        Err(NoAnswer::Failed(status, err.into()))
+    }
+
+    fn down() -> Result<String, NoAnswer> {
+        failed(Some(7), "curl: (7) Failed to connect to u port 80")
+    }
+
     #[test]
     fn an_endpoint_is_asked_for_every_model() {
-        let offers = |out: &'static str| move |_: &[String], _: &str| Some(out.to_string());
+        let offers = |out: &'static str| move |_: &[String], _: &str| printed(out);
         let m = ["a".to_string()];
         assert_eq!(
-            ask("u", "w", &m, &|_, _| None).unwrap_err(),
+            ask("u", "w", &m, &|_, _| down()).unwrap_err(),
             "does not answer"
         );
         assert_eq!(
@@ -413,6 +462,45 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_ask_says_which_way_it_failed() {
+        let m = ["a".to_string()];
+        let said = |status: Option<i32>, err: &'static str| {
+            ask("u", "w", &m, &move |_, _| failed(status, err)).unwrap_err()
+        };
+        let refused = "curl: (22) The requested URL returned error: 401\n";
+        assert_eq!(said(Some(22), refused), "refused the request with HTTP 401");
+        let busy = "curl: (22) The requested URL returned error: 429 Too Many Requests";
+        assert_eq!(said(Some(22), busy), "refused the request with HTTP 429");
+        assert_eq!(said(Some(22), ""), "refused the request");
+        assert_eq!(
+            ask("u", "w", &m, &|_, _| Err(NoAnswer::NotRun)).unwrap_err(),
+            "could not be asked: curl could not be run"
+        );
+        // Killed at the bound, or out of time under -m.
+        assert_eq!(said(None, ""), "does not answer");
+        assert_eq!(said(Some(28), "curl: (28) timed out"), "does not answer");
+        assert_eq!(
+            said(Some(7), "curl: (7) Failed to connect"),
+            "does not answer"
+        );
+    }
+
+    #[test]
+    fn a_run_of_curl_is_an_answer_or_how_it_failed() {
+        let a = |status, err: &str| answered(status, "out".into(), err.into());
+        assert_eq!(a(Some(0), "").unwrap(), "out");
+        assert!(matches!(
+            a(None, "curl could not be run"),
+            Err(NoAnswer::NotRun)
+        ));
+        assert!(matches!(a(None, ""), Err(NoAnswer::Failed(None, _))));
+        assert!(matches!(
+            a(Some(22), "e"),
+            Err(NoAnswer::Failed(Some(22), e)) if e == "e"
+        ));
+    }
+
+    #[test]
     fn the_backup_is_picked_only_when_it_offers_what_the_main_does_not() {
         let f = of(serde_json::json!({"providers": {"p": {"baseUrl": "m", "backupBaseUrl": "b"}}}));
         let used = [
@@ -422,7 +510,10 @@ mod tests {
         let good = r#"{"data":[{"id":"a"}]}"#.to_string();
         let up = |host: &'static str| {
             let good = good.clone();
-            move |args: &[String], _: &str| args[5].starts_with(host).then(|| good.clone())
+            move |args: &[String], _: &str| match args[5].starts_with(host) {
+                true => printed(&good),
+                false => down(),
+            }
         };
         assert_eq!(pick(&f, "p", &used, &up("m/")), "main");
         assert_eq!(pick(&f, "p", &used, &up("b/")), "backup");
@@ -478,11 +569,10 @@ mod tests {
     }
 
     // An endpoint that offers the model when its url starts `host`.
-    fn only(host: &'static str) -> impl Fn(&[String], &str) -> Option<String> {
-        move |args, _| {
-            args[5]
-                .starts_with(host)
-                .then(|| r#"{"data":[{"id":"big"}]}"#.to_string())
+    fn only(host: &'static str) -> impl Fn(&[String], &str) -> Result<String, NoAnswer> {
+        move |args, _| match args[5].starts_with(host) {
+            true => printed(r#"{"data":[{"id":"big"}]}"#),
+            false => down(),
         }
     }
 
@@ -586,7 +676,7 @@ mod tests {
 
     #[test]
     fn what_no_provider_list_can_be_read_in_is_refused() {
-        let no = |_: &[String], _: &str| None;
+        let no = |_: &[String], _: &str| down();
         assert!(resolved("[]", &[], &no).is_none());
         assert!(resolved(r#"{"providers":{"a":7}}"#, &[], &no).is_none());
         assert!(resolved(r#"{"providers":[7]}"#, &[], &no).is_none());

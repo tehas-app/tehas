@@ -224,7 +224,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
-  answer, offers no models, or does not offer the configured model, and
+  answer, refused the request with an HTTP code (401 for a wrong or missing
+  token, 429 for a rate limit), could not be asked because curl could not be
+  run, offers no models, or does not offer the configured model, and
   neither does its backup where `models.json` names one. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
@@ -993,6 +995,15 @@ the dashboard says `no resources`, and the dispatcher's log has one line that
 starts with `holding: no resources:`. It logs `released` at the first poll
 that finds the model again. A cycle that was already running when the endpoint
 went away is not stopped: it stalls and times out.
+
+The hold says which way the call failed:
+
+- `does not answer`: no answer within 10 seconds, or no connection at all.
+- `refused the request with HTTP <code>`: the endpoint answered with an error.
+  401 or 403 is the token: check the `apiKey` in `models.json` and the
+  variable it names in `~/.config/tehas/env`. 429 is a rate limit.
+- `could not be asked: curl could not be run`: curl is not on the dispatcher's
+  PATH. Install it; the endpoint itself may be fine.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.
