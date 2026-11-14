@@ -12,7 +12,8 @@
 //!   GET http://host/... a plain request, for a model endpoint on http
 //!
 //! Anything else, and any pair not allowed, is answered 403 and closed, with
-//! one line on stderr naming the pair. A name is matched in any case and
+//! one line on stderr naming the pair. A connection the proxy drops on its
+//! own, a head that never came whole or a write that failed, gets a line too. A name is matched in any case and
 //! without a trailing dot. An address is never looked up to decide: the list
 //! names hosts, and the name is what is compared.
 
@@ -28,6 +29,8 @@ const HEAD_MAX: usize = 16 * 1024;
 /// How long a client has to send its head, and the proxy to reach the host.
 const HEAD_WAIT: Duration = Duration::from_secs(30);
 const CONNECT_WAIT: Duration = Duration::from_secs(15);
+/// The wait after an accept that failed.
+const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
 /// Connections at once. Each holds two threads, and the container allows 512
 /// processes.
 pub const MAX_CONNECTIONS: usize = 200;
@@ -163,22 +166,29 @@ fn refuse(mut client: TcpStream, what: &str) {
     let _ = client.shutdown(Shutdown::Both);
 }
 
-fn reach(host: &str, port: u16) -> io::Result<TcpStream> {
-    let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
-    for addr in (host, port).to_socket_addrs()? {
+/// A stream to <host>:<port>, or why not: a name that does not resolve and
+/// one that resolves to no address are told apart, as their remedies differ.
+fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
+    let addrs: Vec<_> = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("could not be resolved: {e}"))?
+        .collect();
+    let mut last = "resolved to no address".to_string();
+    for addr in addrs {
         match TcpStream::connect_timeout(&addr, CONNECT_WAIT) {
             Ok(s) => return Ok(s),
-            Err(e) => last = e,
+            Err(e) => last = format!("could not be reached: {e}"),
         }
     }
     Err(last)
 }
 
 /// Bytes both ways until either side ends.
-fn pipe(a: TcpStream, b: TcpStream) {
-    let (Ok(mut a2), Ok(mut b2)) = (a.try_clone(), b.try_clone()) else {
-        return;
-    };
+fn pipe(a: TcpStream, b: TcpStream) -> Result<(), String> {
+    let (mut a2, mut b2) = a
+        .try_clone()
+        .and_then(|a2| Ok((a2, b.try_clone()?)))
+        .map_err(|e| format!("the tunnel could not be opened after its 200: {e}"))?;
     let up = thread::spawn(move || {
         let (mut a, mut b) = (a, b);
         let _ = io::copy(&mut a, &mut b);
@@ -187,10 +197,12 @@ fn pipe(a: TcpStream, b: TcpStream) {
     let _ = io::copy(&mut b2, &mut a2);
     let _ = a2.shutdown(Shutdown::Write);
     let _ = up.join();
+    Ok(())
 }
 
-/// One client: its head, the decision, and then the bytes.
-pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
+/// One client: its head, the decision, and then the bytes. Err is what to log
+/// of a connection dropped on the proxy's side; a refusal logs itself.
+pub fn serve_one(mut client: TcpStream, allowed: &Allowed) -> Result<(), String> {
     let _ = client.set_read_timeout(Some(HEAD_WAIT));
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -199,41 +211,68 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
             break end;
         }
         if buf.len() > HEAD_MAX {
-            return refuse(client, "a request head over 16 KiB");
+            refuse(client, "a request head over 16 KiB");
+            return Ok(());
         }
         match client.read(&mut chunk) {
-            Ok(0) | Err(_) => return,
+            // A connection closed before it sent anything asked for nothing.
+            Ok(0) if buf.is_empty() => return Ok(()),
+            Ok(0) => {
+                return Err(format!(
+                    "a client closed after {} bytes of a request head",
+                    buf.len()
+                ))
+            }
+            Err(e) => {
+                return Err(format!(
+                    "no whole request head within {} s: {e}",
+                    HEAD_WAIT.as_secs()
+                ))
+            }
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
         }
     };
     let (host, port, first) = match ask(&buf[..end]) {
         Ask::Tunnel(h, p) => (h, p, None),
         Ask::Plain(h, p, head) => (h, p, Some(head)),
-        Ask::Other(what) => return refuse(client, &what),
+        Ask::Other(what) => {
+            refuse(client, &what);
+            return Ok(());
+        }
     };
     if !allowed.allows(&host, port) {
-        return refuse(client, &format!("{host}:{port}"));
+        refuse(client, &format!("{host}:{port}"));
+        return Ok(());
     }
     let mut upstream = match reach(&host, port) {
         Ok(s) => s,
-        Err(e) => {
-            eprintln!("tehas-mcp egress: {host}:{port} could not be reached: {e}");
-            let _ = client.write_all(
+        Err(why) => {
+            let told = client.write_all(
                 b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             );
-            return;
+            let gone = match told {
+                Ok(()) => String::new(),
+                Err(e) => format!(", and the client was not told: {e}"),
+            };
+            return Err(format!("{host}:{port} {why}{gone}"));
         }
     };
     let _ = client.set_read_timeout(None);
     let sent = match &first {
-        None => client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n"),
-        Some(head) => upstream.write_all(head),
+        None => client
+            .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            .map_err(|e| format!("{host}:{port}: the client was not told of its tunnel: {e}")),
+        Some(head) => upstream
+            .write_all(head)
+            .map_err(|e| format!("{host}:{port}: the request could not be sent on: {e}")),
     };
     // What the client sent after its head is the start of the tunnel's bytes
     // or of the request's body.
-    if sent.and_then(|_| upstream.write_all(&buf[end..])).is_ok() {
-        pipe(client, upstream);
-    }
+    sent?;
+    upstream
+        .write_all(&buf[end..])
+        .map_err(|e| format!("{host}:{port}: what followed the head could not be sent on: {e}"))?;
+    pipe(client, upstream).map_err(|why| format!("{host}:{port}: {why}"))
 }
 
 struct Slot(Arc<AtomicUsize>);
@@ -248,8 +287,25 @@ impl Drop for Slot {
 pub fn serve(listener: TcpListener, allowed: Allowed) {
     let allowed = Arc::new(allowed);
     let active = Arc::new(AtomicUsize::new(0));
+    // A failing accept repeats, as when the process is out of descriptors: it
+    // is said once per kind until one succeeds, and waited on so it does not
+    // spin.
+    let mut said: Option<io::ErrorKind> = None;
     for stream in listener.incoming() {
-        let Ok(mut stream) = stream else { continue };
+        let mut stream = match stream {
+            Ok(s) => {
+                said = None;
+                s
+            }
+            Err(e) => {
+                if said != Some(e.kind()) {
+                    eprintln!("tehas-mcp egress: accept failed: {e}");
+                    said = Some(e.kind());
+                }
+                thread::sleep(ACCEPT_PAUSE);
+                continue;
+            }
+        };
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
             let _ = stream.write_all(
@@ -261,7 +317,9 @@ pub fn serve(listener: TcpListener, allowed: Allowed) {
         let allowed = Arc::clone(&allowed);
         thread::spawn(move || {
             let _slot = slot;
-            serve_one(stream, &allowed);
+            if let Err(why) = serve_one(stream, &allowed) {
+                eprintln!("tehas-mcp egress: {why}");
+            }
         });
     }
 }
@@ -411,6 +469,55 @@ mod tests {
         assert!(
             other.accept().is_err(),
             "the proxy reached a pair it was not given"
+        );
+    }
+
+    /// serve_one on the one connection <send> makes, and what it said.
+    fn served(allowed: Allowed, send: impl FnOnce(TcpStream)) -> Result<(), String> {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let (s, _) = l.accept().unwrap();
+        let run = thread::spawn(move || serve_one(s, &allowed));
+        send(c);
+        run.join().unwrap()
+    }
+
+    #[test]
+    fn a_connection_dropped_by_the_proxy_says_why() {
+        // Closed with nothing sent: nothing to say.
+        assert_eq!(served(allowed(&[]), drop), Ok(()));
+        // Half a head, then gone.
+        let why = served(allowed(&[]), |mut c| {
+            c.write_all(b"CONNECT localhost:1 HT").unwrap();
+        })
+        .unwrap_err();
+        assert!(why.contains("closed after 22 bytes"), "{why}");
+        // An allowed pair that does not answer: the client is told 502, and
+        // the log names the pair and why.
+        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let why = served(allowed(&[&format!("localhost:{port}")]), move |mut c| {
+            c.write_all(format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes())
+                .unwrap();
+            let mut got = String::new();
+            let _ = c.read_to_string(&mut got);
+            tx.send(got).unwrap();
+        })
+        .unwrap_err();
+        assert!(
+            why.starts_with(&format!("localhost:{port} could not be reached")),
+            "{why}"
+        );
+        assert!(rx.recv().unwrap().starts_with("HTTP/1.1 502 "));
+        // A refusal logs itself and is no error of the proxy's.
+        assert_eq!(
+            served(allowed(&[]), |mut c| {
+                c.write_all(b"CONNECT localhost:1 HTTP/1.1\r\n\r\n")
+                    .unwrap();
+            }),
+            Ok(())
         );
     }
 
