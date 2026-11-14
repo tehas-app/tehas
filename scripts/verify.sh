@@ -171,7 +171,10 @@ step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-li
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
 elif [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
-  step "shellcheck and the shell tests of the change" scripts/test.sh "${tests[@]}" "${paths[@]}"
+  # 3: none of the paths is a test file or a script the lint reads.
+  rc=0 && scripts/test.sh "${tests[@]}" "${paths[@]}" >"$tmp/out" 2>&1 || rc=$?
+  [ "$rc" != 3 ] || echo "skip  the shell tests of the change (no test file and no linted script among its paths)"
+  [ "$rc" = 3 ] || report "shellcheck and the shell tests of the change" "$rc" "$tmp/out"
 fi
 if [ "$cargo_wanted" = 0 ]; then
   echo "skip  the workspace's tests (the change touches nothing under console/)"
