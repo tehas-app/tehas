@@ -612,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
