@@ -185,6 +185,16 @@ t_contains "$t_out" "skip  shellcheck and the shell tests"
 t_lacks "$t_out" "ok    shellcheck"
 [ ! -e "$T/ran-a_test.sh" ] || t_bad "a_test.sh ran"
 
+t_case "verify.sh --changed names a change with no test file and no linted script as a skip, not ok"
+gitrepo
+printf '# notes\n' >"$repo/docs/notes.md"
+t_run "cd '$repo' && bash scripts/verify.sh --changed"
+t_eq "$t_rc" 0
+t_contains "$t_out" "0 test files"
+t_contains "$t_out" "skip  shellcheck and the shell tests (no test file or shell script among the change)"
+t_lacks "$t_out" "ok    shellcheck and the shell tests"
+[ ! -e "$T/ran-a_test.sh" ] || t_bad "a_test.sh ran"
+
 t_case "verify.sh --changed fails when a selected test file fails"
 gitrepo
 printf '#!/usr/bin/env bash\necho "FAIL: broke"\nexit 1\n' >"$repo/test/a_test.sh"
