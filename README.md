@@ -150,7 +150,8 @@ node. It uses no network and no sandbox image, except that cargo fetches the
 workspace's crates the first time. A Rust test makes its scratch
 directories with `tehas_core::testdir::TestDir`, which removes them when the
 test ends; the gate fails when the workspace's tests leave anything in their
-TMPDIR. The rules for changes are in [`AGENTS.md`](AGENTS.md).
+TMPDIR. Their line counts the tests that passed, and the gate fails when
+`cargo test` printed no `test result:` line. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
 and on every push to main: the `verify` check, from
