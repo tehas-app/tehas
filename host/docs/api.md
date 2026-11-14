@@ -241,20 +241,20 @@ tehas status --json
 | `room.slots.containersHow` | The same for the containers |
 | `room.slots.cycle` | How the cycles were derived; left out when `cyclesHow` is not `auto` |
 | `room.slots.container` | How the containers were derived; left out when `containersHow` is not `auto` |
-| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`. Treat it as an open list |
-| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered |
+| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`, which is for a host whose readings answered nothing. Treat it as an open list |
+| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered, or when the CPUs hold less than one cycle |
 | `room.slots.cycle.cpus` | The host's CPUs as `nproc` answered, `null` when it answered nothing |
 | `room.slots.cycle.cycleCpus` | `TEHAS_CYCLE_CPUS` as written: the CPUs one cycle is given |
 | `room.slots.cycle.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written: the memory one container is given |
 | `room.slots.cycle.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default: the most cycles the endpoint may serve |
-| `room.slots.cycle.floored` | `true` when no reading answered and the count is the floor of its setting: 1 cycle, 2 containers |
+| `room.slots.cycle.floored` | `true` when the count is the floor of its setting, 1 cycle: with `bound` `host` because no reading answered, with `cpu` because the CPUs hold less than one cycle |
 | `room.slots.container.bound` | The same for the containers: `memory`, `ceiling` or `host` |
 | `room.slots.container.slots` | The containers the slice's `MemoryMax` holds at `TEHAS_CONTAINER_MEMORY`, before the bounds |
 | `room.slots.container.cpus` | The host's CPUs, read for the line the two counts are shown in; `null` when `nproc` answered nothing |
 | `room.slots.container.cycleCpus` | `TEHAS_CYCLE_CPUS` as written, named beside the pair so a person reads both numbers of one derivation together |
 | `room.slots.container.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written |
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
-| `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
+| `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
 | `versions.platform` | The tehas release: `release`, `latest` and `behind` |
@@ -1289,7 +1289,7 @@ written, and still: treat all of it as public.
 | `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
 | `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
-| `health.down` | the store's `publish`, which makes it before a `fail` health report and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
+| `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |

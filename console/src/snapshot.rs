@@ -14,6 +14,7 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::queue_lists::{AWAITING, QUEUED, RUNNING, STOPPED};
 use tehas_core::time;
 
 // Where the two raw parts go, for the text to fill in.
@@ -131,10 +132,10 @@ fn queue(path: &Path, counts: Value) -> Value {
     };
     let mut issues = Vec::new();
     for (key, state) in [
-        ("running", "running"),
-        ("queued", "in line"),
-        ("awaiting", "in review"),
-        ("stopped", "stopped"),
+        (RUNNING, "running"),
+        (QUEUED, "in line"),
+        (AWAITING, "in review"),
+        (STOPPED, "stopped"),
     ] {
         for i in s.get(key).and_then(Value::as_array).into_iter().flatten() {
             issues.push(
@@ -373,6 +374,31 @@ fn clock_in(v: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The queue reads the lists under the core's names, the names the writer
+    // puts them under.
+    #[test]
+    fn the_queue_reads_each_list_under_the_core_name() {
+        let d = tehas_core::testdir::TestDir::new("snapshot-queue");
+        let p = d.join("status.json");
+        let one = |n: u64| json!([{"number": n, "title": format!("t{n}")}]);
+        let status = json!({
+            "generatedAt": "2026-11-14T00:00:00Z",
+            RUNNING: one(1),
+            QUEUED: one(2),
+            AWAITING: one(3),
+            STOPPED: one(4),
+        });
+        fs::write(&p, status.to_string()).expect("write status.json");
+        let q = queue(&p, Value::Null);
+        let states: Vec<&str> = q["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .map(|i| i["state"].as_str().expect("a state"))
+            .collect();
+        assert_eq!(states, ["running", "in line", "in review", "stopped"]);
+    }
 
     #[test]
     fn control_bytes_go_and_text_in_any_language_stays() {
