@@ -23,7 +23,7 @@ pub const UNCOUNTED: u64 = u64::MAX;
 /// What the watch is given of the scratch.
 #[derive(Clone, Debug, Default)]
 pub struct Bounds {
-    /// <TEHAS_SCRATCH_DIR>/<name>-<issue>, or None when /tmp is a tmpfs.
+    /// [`dir`], or None when /tmp is a tmpfs.
     pub dir: Option<PathBuf>,
     /// TEHAS_SCRATCH_MAX in bytes; 0 is no cap.
     pub max: u64,
@@ -36,16 +36,25 @@ impl Bounds {
     pub fn from_env(issue: u64) -> Bounds {
         let var = |n: &str| std::env::var(n).unwrap_or_default();
         let mib = |n: &str| var(n).parse::<u64>().unwrap_or(0).saturating_mul(1 << 20);
-        let root = var("TEHAS_SCRATCH_DIR");
-        let work = var("TEHAS_WORK_DIR");
-        let name = work.rsplit('/').next().unwrap_or("");
-        let dir = (!root.is_empty()).then(|| Path::new(&root).join(format!("{name}-{issue}")));
         Bounds {
-            dir,
+            dir: dir(&var("TEHAS_SCRATCH_DIR"), &var("TEHAS_WORK_DIR"), issue),
             max: mib("TEHAS_SCRATCH_MAX_MB"),
             floor: mib("TEHAS_CYCLE_STOP_FREE_MB"),
         }
     }
+}
+
+/// The name of a cycle's scratch under TEHAS_SCRATCH_DIR: that of its
+/// workspace, the last part of TEHAS_WORK_DIR with the issue on the end. The
+/// mount, the watch and the cleanup all take it from here.
+pub fn name(work: &str, issue: u64) -> String {
+    let base = work.rsplit('/').next().unwrap_or("");
+    format!("{base}-{issue}")
+}
+
+/// `<root>/<name>`, or None when no TEHAS_SCRATCH_DIR is set.
+pub fn dir(root: &str, work: &str, issue: u64) -> Option<PathBuf> {
+    (!root.is_empty()).then(|| Path::new(root).join(name(work, issue)))
 }
 
 /// Why a cycle is stopped for disk.
@@ -200,6 +209,16 @@ mod tests {
             max,
             floor,
         }
+    }
+
+    #[test]
+    fn the_scratch_is_named_after_the_workspace() {
+        assert_eq!(name("/home/t/work/tehas", 7), "tehas-7");
+        assert_eq!(
+            dir("/s", "/home/t/work/tehas", 7),
+            Some(PathBuf::from("/s/tehas-7"))
+        );
+        assert_eq!(dir("", "/home/t/work/tehas", 7), None);
     }
 
     #[test]

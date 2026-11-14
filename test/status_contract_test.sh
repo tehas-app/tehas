@@ -118,12 +118,4 @@ jq '.properties.age.multipleOf = 10' "$schema" >"$T/schema.json"
 t_contains "$(jq -r --slurpfile schema "$T/schema.json" -f "$T_ROOT/test/schema.jq" "$api/status.busy.json")" \
   ".age: the schema uses multipleOf, which this check does not know"
 
-t_case "api/industry-alerts.sample.json fits its schema, which the console reads (console/ops/src/health.rs)"
-t_eq "$(jq -r --slurpfile schema "$api/industry-alerts.schema.json" -f "$T_ROOT/test/schema.jq" \
-  "$api/industry-alerts.sample.json")" ""
-jq '.alerts[0].since = "yesterday" | del(.time)' "$api/industry-alerts.sample.json" >"$T/bad.json"
-out=$(jq -r --slurpfile schema "$api/industry-alerts.schema.json" -f "$T_ROOT/test/schema.jq" "$T/bad.json")
-t_contains "$out" ".: time is missing"
-t_contains "$out" '.alerts[0].since: "yesterday" is not a date-time'
-
 t_done

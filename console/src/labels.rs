@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn the_table_of_the_repository_is_read_whole() {
         let labels = table(THE_TABLE).unwrap();
-        assert_eq!(labels.len(), 20);
+        assert_eq!(labels.len(), 22);
         assert_eq!(labels[0].name, "tehas:ready");
         assert_eq!(labels[0].color, "0e8a16");
         assert_eq!(
@@ -192,7 +192,69 @@ mod tests {
         let mut names: Vec<&str> = labels.iter().map(|l| l.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 20, "a name twice");
+        assert_eq!(names.len(), 22, "a name twice");
+    }
+
+    /// The labels a program names without the `tehas:` prefix.
+    const UNPREFIXED: [&str; 3] = ["needs-human-attention", "cross-project", "epic"];
+
+    /// Each label name quoted in the code of `file` before its tests.
+    fn named_in(file: &str, out: &mut Vec<String>) {
+        let code = file.split("#[cfg(test)]").next().unwrap_or_default();
+        for (at, _) in code.match_indices("\"tehas:") {
+            let rest = &code[at + 1..];
+            let len = "tehas:".len()
+                + rest["tehas:".len()..]
+                    .find(|c: char| !(c.is_ascii_lowercase() || c == '-'))
+                    .unwrap_or(0);
+            if len > "tehas:".len() && rest[len..].starts_with('"') {
+                out.push(rest[..len].to_string());
+            }
+        }
+        for name in UNPREFIXED {
+            if code.contains(&format!("\"{name}\"")) {
+                out.push(name.to_string());
+            }
+        }
+    }
+
+    fn walk(dir: &Path, out: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path.is_dir() {
+                if name != "target" && name != "tests" {
+                    walk(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") && name != "tests.rs" {
+                named_in(&fs::read_to_string(&path).unwrap(), out);
+            }
+        }
+    }
+
+    #[test]
+    fn every_label_a_program_names_is_in_the_table() {
+        let table: Vec<&str> = table(THE_TABLE).unwrap().iter().map(|l| l.name).collect();
+        let mut named = Vec::new();
+        walk(Path::new(env!("CARGO_MANIFEST_DIR")), &mut named);
+        named.sort_unstable();
+        named.dedup();
+        assert!(named.len() > 10, "{named:?}");
+        let missing: Vec<&String> = named
+            .iter()
+            .filter(|n| !table.contains(&n.as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not in host/labels.tsv: {missing:?}");
+    }
+
+    #[test]
+    fn a_name_in_the_code_is_found_and_one_in_its_tests_is_not() {
+        let mut out = Vec::new();
+        named_in(
+            "const A: &str = \"tehas:ready\";\nsay(\"tehas: no\");\nlet b = [\"cross-project\", \"tehas:{x}\"];\n#[cfg(test)]\nmod tests { \"tehas:x\" }\n",
+            &mut out,
+        );
+        assert_eq!(out, ["tehas:ready", "cross-project"]);
     }
 
     #[test]

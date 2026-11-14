@@ -10,20 +10,6 @@
     "host": {"type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[^\u0000-\u001f\u007f-\u009f\u2028\u2029]*$"},
     "time": {"type": "string", "format": "date-time"},
     "ticketLink": {"type": "string", "maxLength": 200, "pattern": "^/host/(?:(?!\\{n\\})\\S)*\\{n\\}(?:(?!\\{n\\})\\S)*$"},
-    "notices": {
-      "type": "array",
-      "maxItems": 5,
-      "items": {
-        "type": "object",
-        "required": ["id", "level", "text"],
-        "properties": {
-          "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
-          "level": {"enum": ["info", "warn", "alert"]},
-          "text": {"type": "string", "minLength": 1, "maxLength": 200},
-          "link": {"type": "string", "maxLength": 512, "pattern": "^(/host/|https://)\\S*$"}
-        }
-      }
-    },
     "ticketNotes": {
       "type": "array",
       "maxItems": 200,

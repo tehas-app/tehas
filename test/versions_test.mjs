@@ -1,4 +1,4 @@
-// Tests line() of the footers' versions and the industry's alerts banner: the
+// Tests line() of the footers' versions and the host messages banner: the
 // pure steps from live/health.json to what the two front pages show, and the
 // banner drawn into a stub document.
 //
@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import "../host/fun/versions.js";
 
-const { line, alerts, messages, draw } = globalThis.TEHAS_VERSIONS;
+const { line, messages, draw } = globalThis.TEHAS_VERSIONS;
 const a = "a".repeat(40);
 const health = (checks) => ({ status: "pass", checks });
 
@@ -47,37 +47,6 @@ test("values of another shape are left out, and no version at all is null", () =
 });
 
 const NOW = Date.parse("2026-10-17T14:00:20Z");
-const industry = (over) => health({ industry: { version: "v0.9.0", alertsTime: "2026-10-17T14:00:00Z", alertsStale: false, ...over } });
-const alert = (kind, over = {}) => ({ kind, since: "2026-10-17T10:00:00Z", text: `${kind} text`, link: "https://industry.example/f/1", ...over });
-
-test("each kind of alert is named by its word, its text, its age and its link", () => {
-  const h = industry({ alerts: [alert("paused"), alert("frozen", { since: "2026-10-17T13:30:00Z" }), alert("held-by-one", { since: "2026-10-17T14:00:00Z" })] });
-  assert.deepEqual(alerts(h, NOW), [
-    { word: "Paused", text: "paused text", ago: "4 h ago", link: "https://industry.example/f/1" },
-    { word: "Frozen", text: "frozen text", ago: "30 min ago", link: "https://industry.example/f/1" },
-    { word: "Held by one ticket", text: "held-by-one text", ago: "just now", link: "https://industry.example/f/1" },
-  ]);
-});
-
-test("a kind the page does not know is named by its own word, and a bad link or time is left out", () => {
-  const h = industry({ alerts: [alert("flooded", { link: "javascript:alert(1)", since: "soon" }), alert("constructor"), { text: "no kind" }, null] });
-  assert.deepEqual(alerts(h, NOW), [
-    { word: "flooded", text: "flooded text", ago: "", link: null },
-    { word: "constructor", text: "constructor text", ago: "4 h ago", link: "https://industry.example/f/1" },
-  ]);
-});
-
-test("no industry, no file, an empty list, a stale file or an unreadable one is no alert", () => {
-  for (const h of [
-    health({}),
-    health({ industry: { version: "v0.9.0", alerts: null } }),
-    industry({ alerts: [] }),
-    industry({ alerts: [alert("paused")], alertsStale: true }),
-    health({ industry: { version: "v0.9.0", alerts: null, alertsUnreadable: true } }),
-    industry({ alerts: { kind: "paused" } }),
-    null,
-  ]) assert.deepEqual(alerts(h, NOW), [], JSON.stringify(h));
-});
 
 // The least of a document: the elements the banner makes, as plain objects.
 function stubDocument() {
@@ -90,24 +59,6 @@ function stubDocument() {
   return { createElement: make, banner: make("section") };
 }
 
-test("the banner shows an alert and is hidden for an empty list", () => {
-  const doc = stubDocument();
-  const el = doc.banner;
-  el.hidden = true;
-  draw(el, alerts(industry({ alerts: [alert("paused", { text: "<b>Paused</b> for 4 h." })] }), NOW), doc);
-  assert.equal(el.hidden, false);
-  const [p] = el.kids;
-  assert.equal(p.className, "industry-alert");
-  assert.deepEqual(p.kids.map((k) => [k.name, k.textContent]), [
-    ["b", "Paused"], ["span", "<b>Paused</b> for 4 h."], ["small", "started 4 h ago"], ["a", "Open"],
-  ]);
-  assert.equal(p.kids[3].href, "https://industry.example/f/1");
-  assert.equal(p.kids[3].attrs.rel, "noopener noreferrer");
-  draw(el, alerts(industry({ alerts: [] }), NOW), doc);
-  assert.equal(el.hidden, true);
-  assert.deepEqual(el.kids, []);
-});
-
 const message = (id, level, over = {}) => ({ id, level, text: `${id} text`, link: null, at: "2026-10-17T13:00:00Z", ...over });
 
 test("a health with only host messages draws one line for each and shows the banner", () => {
@@ -118,20 +69,22 @@ test("a health with only host messages draws one line for each and shows the ban
     message("odd", "loud"),
   ] } });
   assert.deepEqual(messages(h, NOW), [
-    { word: "Alert", text: "move text", ago: "60 min ago", link: "https://example.com/move", set: true },
-    { word: "Warning", text: "disk text", ago: "", link: null, set: true },
-    { word: "Notice", text: "<b>Read</b> the notes.", ago: "60 min ago", link: null, set: true },
+    { word: "Alert", text: "move text", ago: "60 min ago", link: "https://example.com/move" },
+    { word: "Warning", text: "disk text", ago: "", link: null },
+    { word: "Notice", text: "<b>Read</b> the notes.", ago: "60 min ago", link: null },
   ]);
   const doc = stubDocument();
   const el = doc.banner;
   el.hidden = true;
-  draw(el, [...alerts(h, NOW), ...messages(h, NOW)], doc);
+  draw(el, messages(h, NOW), doc);
   assert.equal(el.hidden, false);
   assert.equal(el.kids.length, 3);
+  assert.equal(el.kids[0].className, "host-message");
   assert.deepEqual(el.kids[0].kids.map((k) => [k.name, k.textContent]), [
     ["b", "Alert"], ["span", "move text"], ["small", "set 60 min ago"], ["a", "Open"],
   ]);
   assert.equal(el.kids[0].kids[3].href, "https://example.com/move");
+  assert.equal(el.kids[0].kids[3].attrs.rel, "noopener noreferrer");
   assert.deepEqual(el.kids[1].kids.map((k) => [k.name, k.textContent]), [["b", "Warning"], ["span", "disk text"]]);
   assert.deepEqual(el.kids[2].kids[1].textContent, "<b>Read</b> the notes.");
 });
@@ -146,19 +99,20 @@ test("an empty list, no list or an unreadable file is no message, and the banner
   const doc = stubDocument();
   const el = doc.banner;
   const h = health({ hostMessages: { list: [] } });
-  draw(el, [...alerts(h, NOW), ...messages(h, NOW)], doc);
+  draw(el, messages(h, NOW), doc);
   assert.equal(el.hidden, true);
   assert.deepEqual(el.kids, []);
 });
 
-test("both front pages have the banner at the top, hidden until there is an alert, and load this module", () => {
+test("both front pages have the banner at the top, hidden until there is a message, and load this module", () => {
   for (const page of ["index.html", "business.html"]) {
     const html = readFileSync(new URL(`../host/fun/${page}`, import.meta.url), "utf8");
-    const banner = html.match(/<section class="industry-alerts[^"]*" id="industry-alerts"[^>]*>/);
+    const banner = html.match(/<section class="host-messages[^"]*" id="host-messages"[^>]*>/);
     assert.ok(banner, page);
     assert.match(banner[0], / hidden>$/, page);
     assert.ok(html.indexOf(banner[0]) > html.indexOf("</header>"), page);
     assert.ok(html.indexOf(banner[0]) < html.indexOf("<main"), page);
     assert.ok(html.includes('<script src="/fun/versions.js"></script>'), page);
+    assert.ok(!html.includes("industry-alerts"), page);
   }
 });
