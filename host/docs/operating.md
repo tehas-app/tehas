@@ -1594,6 +1594,15 @@ recording, and both commands then say so and exit 69.
   nor does its backup where there is one. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back.
+- No new cycle while the sandbox cannot push. A start whose push check is
+  refused leaves `~/tehas/state/push-fault.json` (see
+  [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
+  while that file is younger than ten minutes the poll starts no cycle and
+  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
+  every ready issue does not fail the same check in turn. Past ten minutes the
+  poll starts as it does today, and the start whose check passes takes the
+  file off again. Running cycles, planning turns and refreshes are not held by
+  it: what a refresh pushes already stands on the remote.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
@@ -1669,7 +1678,8 @@ recording, and both commands then say so and exit 69.
   start as before, so an outage at GitHub does not stop the factory; the log
   says why it could not tell, once each time that changes.
 
-The review cap, the new pi-rukas, the room, the pressure and a red branch hold back cycles
+The review cap, the new pi-rukas, the room, the pressure, a red branch and a
+sandbox that cannot push hold back cycles
 only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
