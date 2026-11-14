@@ -196,6 +196,10 @@ A planning turn waits for neither. It runs as its own unit,
 the code as a cycle runs (`tehas-cycle pin plan`, see
 [tehasbot cycle](/tools-tehasbot#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+A unit whose turn neither takes `~/tehas/state/plan-<issue>.json.lock` nor
+ends within about five seconds of `systemd-run` did not start the turn: the
+poll logs `ERROR: could not start the planning turn of #<issue>` and ends the
+session as not started.
 Only the questions need the list of issues that carry `tehas:question`. When
 that list cannot be read, the poll logs `WARN: the issues with a question could
 not be read, so no question is answered this poll`, answers no question and
