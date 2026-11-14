@@ -477,16 +477,18 @@ impl Writer {
         // The file is the fact: `push_holds` is what it says when the asking is
         // over, and the caller reads the file itself for the hold's line.
         self.push_holds = false;
-        let words = self.push_probe_words();
-        if words.is_empty() {
-            // The host cannot say what container to ask: no image, or settings
-            // too broken to build one. That is no refusal of a push, so nothing
-            // is recorded and the next poll owes the asking again.
-            return vec![
-                "WARN: the sandbox could not be asked whether it can push: no sandbox image to ask: no fault recorded"
-                    .into(),
-            ];
+        // The reason the host cannot say what container to ask, said as it is:
+        // an instance with no image named and an instance whose memory ceiling
+        // is too small to build a container are different faults of the
+        // settings, and the one who reads the log has to know which to fix.
+        if let Some(why) = self.push_probe_block() {
+            // None of them is a refusal of a push, so nothing is recorded and
+            // the next poll owes the asking again.
+            return vec![format!(
+                "WARN: the sandbox could not be asked whether it can push: {why}: no fault recorded"
+            )];
         }
+        let words = self.push_probe_words();
         // The check's log beside the poll's own, named as the poll's other
         // check's log is (`logs/dispatch-index.log`): one place for the log of
         // one check of the poll, and a host that cannot write its logs is a
@@ -557,10 +559,32 @@ impl Writer {
     /// of the host's own is made from. The command leads the list,
     /// `tehas_core::sandbox::probe_push` hands the whole list to `timeout`.
     ///
-    /// Empty when the host names no sandbox image: the words would ask docker to
-    /// run a container of no image, which is a fault of the host's settings and
-    /// not an answer of the sandbox, so the probe is not asked and the fault of
-    /// the sandbox is neither renewed nor cleared.
+    /// Why the host cannot say what container to ask, None when it can. A test's
+    /// stand-in needs no image: it runs no container. Otherwise the words would
+    /// ask docker to run a container of no image, or with a ceiling `security`
+    /// will not take, and either is a fault of the host's settings and not an
+    /// answer of the sandbox, so the probe is not asked and the fault of the
+    /// sandbox is neither renewed nor cleared. Each cause is named by itself.
+    fn push_probe_block(&self) -> Option<&'static str> {
+        if self.host.push_probe_cmd.is_some() {
+            return None;
+        }
+        if self.host.image.is_empty() {
+            return Some("no sandbox image to ask");
+        }
+        // A ceiling of at least 10 MiB is what `security` will build options
+        // for; `TEHAS_CONTAINER_MEMORY` admits 6m, so the two bounds differ and
+        // a small one is the settings' own fault, said as such.
+        let ceiling = tehas_core::slice::bytes(&self.host.container_memory)
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(8 * 1024);
+        tehas_core::sandbox::security(ceiling).is_none().then_some(
+            "TEHAS_CONTAINER_MEMORY is under the 10m a container needs: no container to ask",
+        )
+    }
+
+    /// The whole command of the poll's probe. Empty when [`Self::push_probe_block`]
+    /// names a reason the host cannot ask; the caller asks nothing then.
     fn push_probe_words(&self) -> Vec<String> {
         if let Some(cmd) = &self.host.push_probe_cmd {
             return vec![cmd.clone()];
