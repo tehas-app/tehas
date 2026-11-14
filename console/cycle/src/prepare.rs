@@ -203,10 +203,9 @@ fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
     if dir.is_empty() {
         return Some(());
     }
-    let work = env("TEHAS_WORK_DIR");
-    let name = work.rsplit('/').next().unwrap_or("");
+    let name = crate::scratch::name(&env("TEHAS_WORK_DIR"), c.issue);
     let out = Command::new(&c.console)
-        .args(["clean", "scratch", &dir, &format!("{name}-{}", c.issue)])
+        .args(["clean", "scratch", &dir, &name])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
