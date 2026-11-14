@@ -42,8 +42,9 @@ use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
 
 /// The state labels that say work is in progress or waiting: all that is ever
-/// taken off, whatever the search sent back. A new one is added here on purpose,
-/// and a test below pins the list.
+/// taken off, whatever the search sent back. A new one is added here on purpose:
+/// a test below reads `host/labels.tsv` and refuses a label of the table that is
+/// neither here nor in its list of the labels a closed issue keeps.
 const STATES: [&str; 9] = [
     "tehas:running",
     "tehas:awaiting-merge",
@@ -534,23 +535,114 @@ mod tests {
         rows.iter().map(|row| row.number).collect()
     }
 
+    /// The table every label of tehas is created from.
+    const THE_TABLE: &str = include_str!("../../../host/labels.tsv");
+
+    /// The labels of the table a closed issue keeps, each with why. Together
+    /// with `STATES` they are the whole table, and no name is in both.
+    const KEPT: [(&str, &str); 11] = [
+        (SHIPPED, "the mark of a merge, given by tidy itself"),
+        ("tehas:pause", "a setting of the control issue, not of work"),
+        (
+            "needs-human-attention",
+            "a person's to take off once they have read the handoff",
+        ),
+        (
+            "tehas:replaced",
+            "a record: the issue a refine filed in its place",
+        ),
+        ("tehas:refined", "a record: later parts are planned by hand"),
+        (
+            "tehas:millwright-escalated",
+            "a record: the millwright left it to a person",
+        ),
+        ("tehas:lean", "a choice of driver, not a state of work"),
+        (
+            "tehas:all-hands",
+            "a setting of the control issue, not of work",
+        ),
+        ("epic", "a kind of issue, not a state of work"),
+        (
+            "tehas:finish",
+            "a request a person applies; the finish reads it, not tidy",
+        ),
+        (
+            "tehas:prototype",
+            "a stage of the product, not a state of work",
+        ),
+    ];
+
+    /// The names of a table of labels: the first column of every line that is
+    /// not blank.
+    fn names_of(table: &str) -> Vec<&str> {
+        table
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.split('\t').next().unwrap_or(""))
+            .collect()
+    }
+
+    /// What is wrong with the split of `table` into `states` and `kept`: a name
+    /// of the table in neither, a name in both, or a name in either that the
+    /// table does not have. Empty when the split holds.
+    fn split_faults(table: &str, states: &[&str], kept: &[&str]) -> Vec<String> {
+        let names = names_of(table);
+        let mut faults = Vec::new();
+        for name in &names {
+            match (states.contains(name), kept.contains(name)) {
+                (false, false) => faults.push(format!("{name}: neither a state nor kept")),
+                (true, true) => faults.push(format!("{name}: both a state and kept")),
+                _ => {}
+            }
+        }
+        for name in states.iter().chain(kept) {
+            if !names.contains(name) {
+                faults.push(format!("{name}: not in the table"));
+            }
+        }
+        faults
+    }
+
+    fn kept() -> Vec<&'static str> {
+        KEPT.iter().map(|(name, _)| *name).collect()
+    }
+
     #[test]
-    fn the_states_are_the_nine_names_that_say_work_is_waiting() {
+    fn every_label_of_the_table_is_a_state_or_kept_and_never_both() {
         assert_eq!(
-            STATES,
-            [
-                "tehas:running",
-                "tehas:awaiting-merge",
-                "tehas:question",
-                "tehas:planning",
-                "tehas:refreshing",
-                "tehas:blocked",
-                "tehas:ready",
-                "tehas:plan",
-                "tehas:refine",
-            ]
+            split_faults(THE_TABLE, &STATES, &kept()),
+            Vec::<String>::new()
         );
         assert!(!STATES.contains(&"needs-human-attention"));
+        assert!(KEPT.iter().all(|(_, why)| !why.is_empty()));
+    }
+
+    #[test]
+    fn a_new_label_in_the_table_with_no_side_is_refused() {
+        let table = format!("{THE_TABLE}tehas:waiting\tffffff\tTehas: a new state\n");
+        assert_eq!(
+            split_faults(&table, &STATES, &kept()),
+            ["tehas:waiting: neither a state nor kept"]
+        );
+    }
+
+    #[test]
+    fn a_state_the_table_lost_or_a_name_on_both_sides_is_refused() {
+        let table: String = THE_TABLE
+            .lines()
+            .filter(|line| !line.starts_with("tehas:refine\t"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        assert_eq!(
+            split_faults(&table, &STATES, &kept()),
+            ["tehas:refine: not in the table"]
+        );
+        let mut both = kept();
+        both.push("tehas:ready");
+        assert_eq!(
+            split_faults(THE_TABLE, &STATES, &both),
+            ["tehas:ready: both a state and kept"]
+        );
     }
 
     #[test]
