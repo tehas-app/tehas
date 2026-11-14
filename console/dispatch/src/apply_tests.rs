@@ -923,7 +923,7 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         a.log.last().unwrap(),
-        "ERROR: the cycle for #7 did not start"
+        "ERROR: the cycle for #7 did not start: its start exited 1"
     );
     let w = t.writes();
     assert!(w
@@ -933,7 +933,50 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert!(w.last().unwrap().starts_with("status"));
     assert!(w
         .iter()
-        .any(|c| c.contains("`tehas-cycle@7.service` did not come up")));
+        .any(|c| c.contains("`tehas-cycle@7.service` did not come up: its start exited 1.")));
+}
+
+/// A start command that comes up and puts nothing on record, after which the
+/// store answers `cycle-show` with `word`, or with no failure when empty.
+fn start_then_store(t: &mut World, word: &str) {
+    let p = t.dir.join("start-then");
+    let line = if word.is_empty() {
+        String::new()
+    } else {
+        format!("printf 'cycle-show|{word}\\n' >>\"$(dirname \"$0\")/fail-store\"\n")
+    };
+    tehas_core::testing::write_exe(&p, format!("#!/bin/bash\n{line}")).unwrap();
+    t.w.host.start_cmd = Some(p.to_string_lossy().into_owned());
+    t.w.host.start_wait = Duration::from_millis(600);
+}
+
+#[test]
+fn a_start_not_taken_says_what_the_store_said_while_it_waited() {
+    for (word, why) in [
+        ("", "it put no new attempt on record within 0s"),
+        ("busy", "the store was still busy at the end of the 0s wait"),
+        (
+            "unreadable",
+            "the store could not say whether it started (unreadable)",
+        ),
+    ] {
+        let mut t = world();
+        start_then_store(&mut t, word);
+        let a = t.apply(json!([start_of(7, "label")]));
+        assert_eq!(a.exit, Some(1), "{word}");
+        assert!(
+            a.log
+                .contains(&format!("ERROR: the cycle for #7 did not start: {why}")),
+            "{word}: {:?}",
+            a.log
+        );
+        assert!(
+            t.writes()
+                .iter()
+                .any(|c| c.contains(&format!("did not come up: {why}."))),
+            "{word}"
+        );
+    }
 }
 
 #[test]
