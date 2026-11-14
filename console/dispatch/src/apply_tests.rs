@@ -1072,6 +1072,20 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
 }
 
 #[test]
+fn a_refused_refresh_mark_logs_gh_reason() {
+    let mut t = world();
+    t.fail("gh", "POST|HTTP 404");
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    let r = t.apply(json!([a]));
+    assert_eq!(
+        r.log[1],
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: HTTP 404"
+    );
+}
+
+#[test]
 fn an_easy_start_logs_the_easy_merge_and_marks_its_approval() {
     let mut t = world();
     let h = t.w.home.clone();
