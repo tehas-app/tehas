@@ -340,6 +340,17 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
         ));
     }
     lines.extend(pause_lines(checks.get("pause"), now));
+    let push = checks.get("pushFault");
+    if !push.is_null() {
+        // The host's own record of a sandbox that cannot push: the poll holds
+        // every start while it stands, so the person reading this knows why
+        // nothing moves. Its words came from a container's output, so they go
+        // through `shown` as every other value this page prints does.
+        lines.push(format!(
+            "push      the sandbox cannot push: {}",
+            shown(&J::Str(tehas_ops::health::push_fault_line(push)))
+        ));
+    }
     let limit = checks.get("limit");
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
         lines.push(limit_line(limit));
@@ -922,6 +933,9 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
             ]),
         ),
         ("allHands", checks.get("allHands").clone()),
+        // The fault of a sandbox that cannot push, as health read it off the
+        // host's file: the panel asks the same question of it as of `limit`.
+        ("pushFault", checks.get("pushFault").clone()),
         ("limit", limit),
         ("order", checks.get("order").or(&J::Null).clone()),
         ("running", J::Arr(running)),
@@ -932,7 +946,9 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ("room", room),
         ("versions", versions(checks)),
     ];
-    fields.retain(|(k, v)| !matches!(*k, "allHands" | "limit" | "order") || !v.is_null());
+    fields.retain(|(k, v)| {
+        !matches!(*k, "allHands" | "limit" | "order" | "pushFault") || !v.is_null()
+    });
     // A read-only instance (#608) says so; any other leaves the key out.
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
@@ -1070,6 +1086,23 @@ mod tests {
     #[test]
     fn a_reason_is_one_line() {
         assert_eq!(oneline("  a\n\n\tb\u{2028}c  "), "a b c");
+    }
+
+    /// The fault's line comes from a file the host wrote from what a container
+    /// printed, so the status page does not print it raw: the one helper that
+    /// cleans a person's own text for the terminal cleans it too. An escape of
+    /// an ANSI sequence or an invisible override cannot repaint what a person
+    /// is reading.
+    #[test]
+    fn the_push_line_reaches_the_terminal_as_it_was_written() {
+        let health = h(
+            r##"{"status":"fail","output":"The sandbox cannot push.","time":"2026-10-17T14:00:00Z","checks":{"pushFault":{"at":"2026-10-17T14:00:00Z","login":"teh\u202eas-bot","line":"denied\u001b[31mred\u202e"}}}"##,
+        );
+        let lines = state_lines(&health, NOW, false, "");
+        assert_eq!(
+            lines.last().unwrap(),
+            "push      the sandbox cannot push: denied [31mred (tehas-bot)"
+        );
     }
 
     #[test]

@@ -442,9 +442,13 @@ push_fault_now() {
     '{at: $at, login: "tehas-bot", line: "remote: Permission to acme/widget denied to tehas-bot"}')"
 }
 
-# The fault of an hour ago: past the wait, so the poll starts as it does today.
+# The fault of an hour ago: past the wait, so the poll asks the sandbox again.
+# `push_fault_at` is the time the case wrote, so a case can tell the record of
+# the start from one the poll's probe left in its place.
+push_fault_at=""
 push_fault_old() {
-  push_fault "$(jq -nc --arg at "$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)" \
+  push_fault_at=$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)
+  push_fault "$(jq -nc --arg at "$push_fault_at" \
     '{at: $at, login: "tehas-bot", line: "remote: Permission to acme/widget denied to tehas-bot"}')"
 }
 
@@ -460,16 +464,93 @@ t_contains "$t_out" "holding: the sandbox cannot push: remote: Permission to acm
 t_eq "$(grep -c 'the sandbox cannot push' <<<"$t_out")" 1
 t_eq "$(jq -r .why "$dispatch_json")" lane
 
-t_case "a push fault older than ten minutes starts the queue as it does today"
+t_case "a push fault older than ten minutes is the poll's to end: it asks the sandbox and starts"
 reset
 slots 3
 ready 7 8
 push_fault_old
+# The probe of this case: the same dry-run push a start runs, stood in for by
+# TEHAS_PUSH_PROBE_CMD. It passes, so the poll takes the fault off and starts.
+T_ENV+=(TEHAS_PUSH_PROBE_CMD="$T/bin/probe-ok")
+t_stub probe-ok 'exit 0'
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
-t_lacks "$t_out" "the sandbox cannot push"
+t_contains "$t_out" "push probe: the sandbox can push: the fault is off"
+t_eq "$(t_calls probe-ok | wc -l)" 1
+t_lacks "$t_out" "holding: the sandbox cannot push"
 t_eq "$(jq -r .why "$dispatch_json")" ""
+[ ! -e "$T/home/tehas/state/push-fault.json" ] ||
+  t_bad "a passing probe left the fault on record"
+
+t_case "a push fault older than ten minutes and a probe that is refused holds and renews the fault"
+reset
+slots 3
+ready 7 8
+# The snapshot of this poll is read before the probe, so the line of the hold
+# it decided on is git's own word of the start an hour ago; the login of the
+# renewed fault is the settings' answer of `state/github/login` (`t_app_world`),
+# which is the bot's name with [bot] on the end as the settings write it.
+push_fault \
+  "$(jq -nc --arg at "$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)" \
+     '{at: $at, login: "tehas-bot", line: "remote: Permission to acme/widget denied to tehas-bot"}')"
+T_ENV+=(TEHAS_PUSH_PROBE_CMD="$T/bin/probe-bad")
+t_stub probe-bad '
+  printf "%s\n" "remote: Permission to acme/widget denied to tehas-bot" >&2
+  exit 1'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "push probe: the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot"
+t_eq "$(jq -r '.login + " " + .line' "$T/home/tehas/state/push-fault.json")" \
+  "tehas-bot[bot] remote: Permission to acme/widget denied to tehas-bot"
+# The renewed fault holds the next poll the same way: the poll of this case ends
+# on the hold of the record it just wrote, in git's words and the bot's name.
+t_contains "$t_out" "holding: the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot (tehas-bot[bot])"
+t_eq "$(jq -r .why "$dispatch_json")" lane
+t_eq "$(t_calls probe-bad | wc -l)" 1
+# The fault stands with a time of the probe's own, so the next poll waits
+# instead of asking again at once.
+t_eq "$(jq -r .line "$T/home/tehas/state/push-fault.json")" \
+  "remote: Permission to acme/widget denied to tehas-bot"
+# The time is the probe's own: the next poll waits the wait out rather than
+# asking again at once.
+t_eq "$(jq -r '(.at | fromdateiso8601) - '"$(date -u +%s)"' | if . >= -2 and . <= 2 then "fresh" else "stale:" + tostring end' "$T/home/tehas/state/push-fault.json")" "fresh"
+
+t_case "a push fault younger than ten minutes asks no probe and starts nothing"
+reset
+slots 3
+ready 7 8
+push_fault_now
+T_ENV+=(TEHAS_PUSH_PROBE_CMD="$T/bin/probe-ok")
+t_stub probe-ok 'exit 0'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_calls probe-ok)" "" "the wait holds, so the poll asks nothing"
+t_eq "$(jq -r .why "$dispatch_json")" lane
+
+t_case "a probe the host could not run records no fault and renews no hold"
+reset
+slots 3
+ready 7 8
+push_fault_old
+T_ENV+=(TEHAS_PUSH_PROBE_CMD="$T/bin/probe-down")
+t_stub probe-down 'exit 0'
+# No place for the check's log: the poll cannot take what git of a refused
+# probe says, so it asks nothing and records nothing of its own.
+rm -rf "$T/home/tehas/logs"
+mkdir -p "$T/home/tehas/logs"
+chmod 500 "$T/home/tehas/logs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+chmod 700 "$T/home/tehas/logs"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "no fault recorded"
+# The poll asked nothing, so the fault is the one the start wrote, with the
+# time of an hour ago: the same debt again, and the queue still held.
+t_eq "$(jq -r .at "$T/home/tehas/state/push-fault.json")" \
+  "$push_fault_at" "the fault keeps the time the start wrote"
 
 t_case "with no fault on record the queue starts, and nothing is said of it"
 reset

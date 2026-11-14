@@ -649,7 +649,10 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
 /// fact with no issue in its name, so every start of the issue reads the same
 /// answer while the host stays unable to push. Part 2 holds starts on it and
 /// part 3 puts it in status and health; both read this file.
-pub const PUSH_FAULT: &str = "state/push-fault.json";
+/// The name of the fault's file, kept from the cycle's own start so that the
+/// cases below name it too. `tehas_core::sandbox::PUSH_FAULT` is the one name
+/// every reader and writer uses.
+pub const PUSH_FAULT: &str = tehas_core::sandbox::PUSH_FAULT;
 
 /// Why the sandbox cannot push, as `git` said it: the first line of its log,
 /// with what the mask of the host hides replaced. An empty log says nothing.
@@ -664,19 +667,21 @@ fn fault_line(text: &[u8]) -> String {
 /// The record put on `file`, or taken off it. A check that passed removes the
 /// fault: the next start is judged on its own check, not on this one's. A line
 /// of its own always makes a fault, whatever the time it carries: only a fault
-/// that says nothing is refused, and a caller always gives one.
+/// that says nothing is refused, and a caller always gives one. The push
+/// fault's own record is `tehas_core::sandbox`'s, shared with the poll that
+/// re-probes it; `file` stands for it here so a case can watch a fault of its
+/// own name.
 fn record_fault(home: &Path, file: &str, line: &str, at: i64) {
     let path = home.join(file);
     if line.is_empty() {
         let _ = fs::remove_file(&path);
         return;
     }
-    let doc = json!({
-        "at": time::iso(at),
-        "login": tehas_core::settings::bot_login(home).unwrap_or_default(),
-        "line": line,
-    })
-    .to_string();
+    let doc = tehas_core::sandbox::push_fault_record(
+        line,
+        at,
+        &tehas_core::settings::bot_login(home).unwrap_or_default(),
+    );
     let dir = path.parent().unwrap_or(home);
     if fs::create_dir_all(dir).is_err() {
         return;

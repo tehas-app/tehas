@@ -70,6 +70,9 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_CONTAINER_MEMORY, what one container is given: the probe's own
+    /// container is held to it, as a cycle's is.
+    pub container_memory: String,
     /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
     pub checkout: String,
     pub branch: String,
@@ -81,6 +84,13 @@ pub struct Host {
     pub index_start_cmd: Option<String>,
     /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
     pub fetch_wait: Duration,
+    /// TEHAS_PUSH_PROBE_CMD, a test's stand-in for the container that asks
+    /// whether the sandbox can push; none on a host, which runs the words
+    /// `tehas_core::sandbox::push_check` makes. Run when a push fault has aged
+    /// out, before any start.
+    pub push_probe_cmd: Option<String>,
+    /// TEHAS_PUSH_PROBE_WAIT: how long that probe may take [300].
+    pub push_probe_wait: Duration,
     /// TEHAS_PLAN_CMD, or `bin/tehas plan`: what a turn's unit runs.
     pub plan_cmd: Vec<String>,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
@@ -103,6 +113,13 @@ pub struct Host {
     /// state/read-only, the queue state the labels it did not write would
     /// have held (#608).
     pub read_only: bool,
+    /// Set by `push_probe` to what the asking came to: true when the sandbox
+    /// refused and a fault of its own stands on record, false when the check
+    /// passed or the host could not run it at all. No rule reads it: the poll
+    /// reads `state/push-fault.json` back (`read::host::push_fault`) and the
+    /// holds decide on the file, not on what this function remembers. It is
+    /// what the probe has to say about itself for a case to look at.
+    pub push_holds: bool,
 }
 
 /// The two time limits of a run of a host command, as `timeout -k` gives
@@ -432,6 +449,147 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option
 }
 
 impl Writer {
+    /// Ask the sandbox whether it can push, when a fault of
+    /// `state/push-fault.json` has aged out: the same dry-run container a cycle's
+    /// start runs (`tehas_core::sandbox::push_check`, given the cycle's token),
+    /// against the host's product checkout, so the host's wait ends on its own
+    /// and no cycle is spent finding out. `TEHAS_PUSH_PROBE_CMD` stands in for
+    /// the container in a test and takes no arguments; on a host the words come
+    /// from the sandbox module, with the container's own bound of
+    /// `TEHAS_PUSH_PROBE_WAIT`.
+    ///
+    /// A check that passes takes the file off and the queue starts; a refusal
+    /// writes the fault fresh with git's line and the login of the settings, and
+    /// the hold begins again from this moment. Either way the caller reads the
+    /// record back (`read::host::push_fault`) and the rules decide on the file,
+    /// not on what this function remembers. A probe the host could not run at
+    /// all records no fault, as Part 1's rule says, so the hold is not renewed
+    /// and the next poll owes the probe again. Its lines are the poll's log:
+    /// what the container printed goes to one file off the way, read for the
+    /// fault's line alone.
+    ///
+    /// A dry run asks nothing and changes nothing: it writes no state, and the
+    /// next real poll pays the debt. The lines it says, empty when it asked.
+    pub fn push_probe(&mut self, dry: bool) -> Vec<String> {
+        if dry {
+            return Vec::new();
+        }
+        // The file is the fact: `push_holds` is what it says when the asking is
+        // over, and the caller reads the file itself for the hold's line.
+        self.push_holds = false;
+        let words = self.push_probe_words();
+        if words.is_empty() {
+            // The host cannot say what container to ask: no image, or settings
+            // too broken to build one. That is no refusal of a push, so nothing
+            // is recorded and the next poll owes the asking again.
+            return vec![
+                "WARN: the sandbox could not be asked whether it can push: no sandbox image to ask: no fault recorded"
+                    .into(),
+            ];
+        }
+        // The check's log beside the poll's own, named as the poll's other
+        // check's log is (`logs/dispatch-index.log`): one place for the log of
+        // one check of the poll, and a host that cannot write its logs is a
+        // host that cannot run a poll of its own.
+        let log = match self.push_probe_log() {
+            Some(p) => p,
+            None => {
+                return vec![
+                    "WARN: the sandbox could not be asked whether it can push: no place to write the check's log: no fault recorded"
+                        .into(),
+                ];
+            }
+        };
+        let said = tehas_core::sandbox::probe_push(&words, self.host.push_probe_wait, &log);
+        let _ = std::fs::remove_file(&log);
+        let login = tehas_core::settings::bot_login(&self.home).unwrap_or_default();
+        if !said.ran {
+            // Part 1's rule: a check the host could not run is no fault of the
+            // sandbox, so nothing is recorded and the hold is not renewed.
+            return vec![format!(
+                "WARN: the sandbox could not be asked whether it can push ({}): no fault recorded",
+                words.join(" ")
+            )];
+        }
+        if said.ok {
+            tehas_core::sandbox::write_push_fault(&self.home, "", 0, &login);
+            // Off the record, so nothing holds the starts of this poll.
+            self.push_holds = false;
+            return vec!["push probe: the sandbox can push: the fault is off".into()];
+        }
+        tehas_core::sandbox::write_push_fault(
+            &self.home,
+            &said.line,
+            tehas_core::time::now(),
+            &login,
+        );
+        self.push_holds = true;
+        vec![format!(
+            "push probe: the sandbox cannot push: {}",
+            said.line
+        )]
+    }
+
+    /// The log of the poll's probe: `logs/dispatch-preflight.log`. Not
+    /// `<log>.preflight`: that suffix belongs to a session's transcript, which
+    /// the analytics reader, the export and the MCP log reader look up by it
+    /// (`work-<n>-<stamp>.jsonl.preflight`), and the poll's probe is no session.
+    /// The name follows the other check of the poll, `logs/dispatch-index.log`.
+    /// None when the directory or the file cannot be made: the poll has no place
+    /// to write what git says, so it asks nothing. The file is removed when the
+    /// probe has answered; only the directory stands in its way. `logs` is made
+    /// as the poll's own does (`run_poll`), which owns the directory of the
+    /// poll's log and every check's log beside it.
+    fn push_probe_log(&self) -> Option<PathBuf> {
+        let log = self.home.join("logs/dispatch-preflight.log");
+        let _ = std::fs::create_dir_all(self.home.join("logs"));
+        match std::fs::File::create(&log) {
+            Ok(_) => Some(log),
+            Err(_) => None,
+        }
+    }
+
+    /// The whole command of the poll's probe. `TEHAS_PUSH_PROBE_CMD` names a
+    /// test's stand-in and takes no arguments, as every other hook of the poll
+    /// does. On a host the words are the cycle's own dry-run push, with the
+    /// container limits of `TEHAS_CONTAINER_MEMORY` and none of the cycle's
+    /// variables or mounts, against the product's checkout: the one tree a push
+    /// of the host's own is made from. The command leads the list,
+    /// `tehas_core::sandbox::probe_push` hands the whole list to `timeout`.
+    ///
+    /// Empty when the host names no sandbox image: the words would ask docker to
+    /// run a container of no image, which is a fault of the host's settings and
+    /// not an answer of the sandbox, so the probe is not asked and the fault of
+    /// the sandbox is neither renewed nor cleared.
+    fn push_probe_words(&self) -> Vec<String> {
+        if let Some(cmd) = &self.host.push_probe_cmd {
+            return vec![cmd.clone()];
+        }
+        if self.host.image.is_empty() {
+            return Vec::new();
+        }
+        let none: Vec<String> = Vec::new();
+        let ceiling = tehas_core::slice::bytes(&self.host.container_memory)
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(8 * 1024);
+        // None of the settings is usable for a container: again the host's own
+        // fault, and the poll asks nothing with it.
+        let Some(security) = tehas_core::sandbox::security(ceiling) else {
+            return Vec::new();
+        };
+        let mut words = vec![self.docker.clone()];
+        words.extend(tehas_core::sandbox::push_check(
+            &security,
+            &tehas_core::sandbox::user(),
+            &none,
+            &none,
+            &self.host.checkout,
+            &self.host.checkout,
+            &self.host.image,
+        ));
+        words
+    }
+
     /// start_cycles: a run of start actions. The poll's exit status when it
     /// ends there, None when every start was done or skipped.
     pub(super) fn starts(
