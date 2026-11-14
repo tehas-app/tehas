@@ -1382,7 +1382,7 @@ impl<'a> Poll<'a> {
     }
 
     /// Whether an order label's last event, as `order_label` reads it, lets
-    /// the label stand: an application by an allowed account or the fixer.
+    /// the label stand: an application by an allowed account or the millwright.
     fn order_stands(&self, state: &LabelState) -> bool {
         state.event() == "labeled"
             && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
@@ -3091,10 +3091,10 @@ const HOLD_CLEARED: &str = "<!-- tehas:hold-cleared -->";
 /// The wait line of a `tehas:blocked` that counts while no comment names its
 /// blockers. The dispatcher reads blockers only from comments, so it says
 /// what a person must do; a marker in the issue's body is not read.
-pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the fixer names its blockers: it is held by the label alone, names no blockers and never starts until an allowed account comments a `<!-- tehas:blocked by=N -->` marker or a person takes tehas:blocked off. A marker in the issue's body is not read";
+pub(crate) const LABEL_ALONE: &str = "no comment of an allowed account or the millwright names its blockers: it is held by the label alone, names no blockers and never starts until an allowed account or the millwright comments a `<!-- tehas:blocked by=N -->` marker or a person takes tehas:blocked off. A marker in the issue's body is not read";
 
 /// The newest comment that holds a `tehas:blocked` marker and was written by
-/// an allowed account or the fixer: the one rule 6 reads its blockers from.
+/// an allowed account or the millwright: the one rule 6 reads its blockers from.
 fn newest_marker<'v>(nodes: &'v [Value], c: &Settings) -> Option<&'v Value> {
     let mut marked: Vec<&Value> = nodes
         .iter()
