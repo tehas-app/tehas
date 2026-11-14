@@ -313,8 +313,9 @@ kill_line() { echo "oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),oom_mem
 container "\"\$nap\" 1; { for i in 1 2 3 4; do echo 'oom-kill:constraint=CONSTRAINT_MEMCG,task_memcg=/tehas.slice/docker-$cid.scope,task=pi'; done; } >>'$T/kernel.log'; rm -rf '$T_CGROUP/tehas.slice/docker-$cid.scope'; exit 137"
 t_run "$work 7"
 t_eq "$t_rc" 137
-t_contains "$t_out" "tehas work: 5 processes in this cycle's container were killed for memory"
+t_contains "$t_out" "tehas work: 5 processes in this cycle's container were killed for memory (pi)"
 t_eq "$(cat "$oom_file")" 5
+t_contains "$(cat "$live/console-7.txt")" "tehas work: 5 processes in this cycle's container were killed for memory (pi)"
 t_contains "$(t_calls journalctl)" "-k"
 t_contains "$(t_calls journalctl)" "--since @"
 
