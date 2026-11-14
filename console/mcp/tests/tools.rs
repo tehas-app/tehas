@@ -646,6 +646,7 @@ fn factory_disk_is_listed_and_answers() {
     let out = call(&c, "factory_disk", &json!({})).unwrap();
     assert_eq!(out["api"], 1);
     assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
+    assert_eq!(out["stale"], true);
     assert_eq!(out["dockerRoot"], "/var/lib/docker");
     assert_eq!(out["filesystems"][0]["freeBytes"], 223);
     assert_eq!(out["full"]["stoppedContainers"], 2);
