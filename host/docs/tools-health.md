@@ -179,9 +179,10 @@ the views of the cycles it did not keep before it writes anything, so a
 publish that fails on a write leaves no cycle that has ended shown as
 running.
 `tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
-poll call it. A running cycle not heard from for two minutes whose lock is
-free is shown as `lost`, and its end is kept as lost when the issue starts
-again.
+poll call it. A running cycle not heard from for two minutes whose lock file
+is found free is shown as `lost`, and its end is kept as lost when the issue
+starts again. A missing lock file, or a missing `state/cycles`, does not make
+a cycle lost: the cycle may still hold its lock on a file that was removed.
 
 The console, the now file of the status line, and the mask of a log, also mask in any case the names
 the host knows that an agent can print: each name and address in
