@@ -382,8 +382,9 @@ store itself, into the same directory.
 With paths, relative to the root of the checkout, only those run: the test
 files among them and the lint of those of them it lints anyway. A test file
 named that does not exist stops it with 2; paths with nothing to test or lint
-among them pass with a line that says so. `scripts/verify.sh --changed` calls
-it this way.
+among them end it with 3 and a line that says so, not with a pass.
+`scripts/verify.sh --changed` calls it this way, and prints that 3 as a `skip`
+line for the shell tests instead of `ok`.
 
 The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
 it builds first, offline, into the same target directory, fetching the locked
@@ -501,7 +502,7 @@ counts the rest, as in `and 7 more, in the full log`, and it still names the
 lint when the lint failed. A log cut short therefore still says how many checks
 failed and whether the shell scripts were among them. Exit 0 when every check
 passed, 1 when one failed, 2 when nothing could
-be checked. `scripts/verify.sh` prints what a step wrote only for a step that
+be checked, 3 when the paths given held nothing to check. `scripts/verify.sh` prints what a step wrote only for a step that
 failed, so a run that ends with checks not run shows them in the gate only when
 something else failed too.
 

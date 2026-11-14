@@ -991,9 +991,12 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         }
     }
 
+    // Paths given with nothing among them to run is its own status, not a
+    // pass: a caller that expects it (scripts/verify.sh --changed) names it as
+    // a skip, and any other caller sees that nothing was checked.
     if !ran && given.any() && skipped.is_empty() {
         putln("test.sh: no test file and no linted script among the paths given");
-        return 0;
+        return 3;
     }
     if !ran {
         eprintln!("test.sh: nothing could be checked");
