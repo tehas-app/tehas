@@ -364,6 +364,19 @@ fn re(pattern: &str, s: &str) -> bool {
     regex::Regex::new(pattern).unwrap().is_match(s)
 }
 
+/// The number of pull request `url` of `repo`, for the store's `--pr`.
+/// GitHub matches the owner and the name in any case, and an address may
+/// end in a slash.
+fn pr_number(repo: &str, url: &str) -> Option<String> {
+    let url = url.trim_end_matches('/');
+    let head = format!("https://github.com/{repo}/pull/");
+    let n = url
+        .get(..head.len())
+        .filter(|h| h.eq_ignore_ascii_case(&head))
+        .and(url.get(head.len()..))?;
+    re(r"^[1-9][0-9]{0,9}$", n).then(|| n.to_string())
+}
+
 /// `tr -cd 'A-Za-z0-9_./-'`, how a branch is said.
 fn said_branch(b: &str) -> String {
     kept(b, |c| c.is_ascii_alphanumeric() || "_./-".contains(c))
@@ -1347,10 +1360,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if !step.is_empty() {
             args.extend(["--step".into(), step.to_string()]);
         }
-        if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-            if re(r"^[1-9][0-9]{0,9}$", n) {
-                args.extend(["--pr".into(), n.to_string()]);
-            }
+        if let Some(n) = pr_number(&f.repo, pr) {
+            args.extend(["--pr".into(), n]);
         }
         args
     };
@@ -1719,10 +1730,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !branch.is_empty() {
         end.extend(["--branch".into(), branch.clone()]);
     }
-    if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-        if re(r"^[1-9][0-9]{0,9}$", n) {
-            end.extend(["--pr".into(), n.to_string()]);
-        }
+    if let Some(n) = pr_number(&f.repo, &pr) {
+        end.extend(["--pr".into(), n]);
     }
     r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
@@ -1919,6 +1928,29 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {
+        let n = |url| pr_number("acme/widget", url);
+        for url in [
+            "https://github.com/acme/widget/pull/21",
+            "https://github.com/Acme/Widget/pull/21",
+            "https://github.com/acme/widget/pull/21/",
+        ] {
+            assert_eq!(n(url).as_deref(), Some("21"), "{url}");
+        }
+        for url in [
+            "",
+            "https://github.com/acme/other/pull/21",
+            "https://github.com/acme/widget/pull/",
+            "https://github.com/acme/widget/pull/021",
+            "https://github.com/acme/widget/pull/21#top",
+            "https://github.com/acme/widget/pull/12345678901",
+            "https://github.com/acme/widget/issues/21",
+        ] {
+            assert_eq!(n(url), None, "{url}");
+        }
+    }
 
     #[test]
     fn the_report_comment_disarms_agent_text() {

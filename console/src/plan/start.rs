@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
-use tehas_core::{settings, time};
+use tehas_core::{settings, slice, time};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 const USAGE: &str = "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>]) [--kind refine]";
@@ -297,11 +297,10 @@ fn status(rc: u8) -> Result<(), u8> {
 /// words of limits under tehas.slice, then the ten security options. A list
 /// that drifted starts nothing. Err is the line to say.
 fn held(rc: i32, words: &[String]) -> Result<(Vec<String>, Vec<String>), String> {
-    let limits: Vec<String> = words.iter().take(14).cloned().collect();
-    let security: Vec<String> = words.iter().skip(14).take(10).cloned().collect();
-    if rc != 0 {
+    let Some((limits, rest)) = slice::split(words).filter(|_| rc == 0) else {
         return Err("tehas plan: the container limits could not be made, not starting".into());
-    }
+    };
+    let (limits, security) = (limits.to_vec(), rest[..rest.len().min(10)].to_vec());
     match sandbox::shape(&limits, &security) {
         Ok(()) => Ok((limits, security)),
         Err(Misshaped::Limits) => {
