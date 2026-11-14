@@ -337,6 +337,88 @@ fn a_refresh_that_conflicts_is_parked_naming_its_files() {
     }
 }
 
+/// The park of the classic 78 of tests/fixtures/park.json, with the note of
+/// why tehas work's check refused the start, if any, and the driver lean on its
+/// approval with the note of a refused lean start, or not.
+fn check_refused(note: Option<&str>, lean: bool) -> (Vec<String>, String) {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = if lean {
+        let mut c = cases.into_iter().find(|c| c["facts"]["rc"] == 4).unwrap();
+        c["facts"]["rc"] = 78.into();
+        c["facts"]["approval"]["current"]["input"] = serde_json::json!({"driver": "lean"});
+        c["facts"]["files"]["lean-refused"] = "".into();
+        c
+    } else {
+        cases
+            .into_iter()
+            .find(|c| {
+                c["case"]
+                    == "a 78 on a classic start stays a stopped cycle, with its approval on record"
+            })
+            .unwrap()
+    };
+    if let Some(n) = note {
+        c["facts"]["files"]["refused"] = n.into();
+    }
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    let p = r
+        .actions
+        .into_iter()
+        .find_map(|a| match a {
+            Action::Park(p) => Some(*p),
+            _ => None,
+        })
+        .unwrap();
+    (p.args.clone(), p.question(7, false).1)
+}
+
+/// A start the check refused says why in its park, which the run log on the
+/// host alone said before: each of its three causes, on classic and on lean.
+#[test]
+fn a_start_the_check_refused_names_its_cause_in_its_park() {
+    let (args, none) = check_refused(None, false);
+    assert!(!none.contains("refused this start"), "{none}");
+    for (note, words) in [
+        (
+            "caps-unreadable 127\n",
+            "gave no `--capabilities` answer that tehas could read (exit 127).",
+        ),
+        (
+            "caps-lacking\nthe input PI_ENSEMBLE_SUBAGENT_MODEL\n",
+            "does not support what this cycle is given: `the input PI_ENSEMBLE_SUBAGENT_MODEL`.",
+        ),
+        ("tree-not-ours\n", "exists and was not made by tehas"),
+    ] {
+        let (a, body) = check_refused(Some(note), false);
+        assert_eq!(a, args, "the park's reasons stay as they were");
+        assert!(body.contains("stopped without a pull request"), "{body}");
+        assert!(
+            body.contains("Tehas work refused this start before anything ran."),
+            "{body}"
+        );
+        assert!(body.contains(words), "{note:?}: {body}");
+    }
+    // A note that is not one says nothing.
+    let (_, body) = check_refused(Some("caps-unreadable x\n"), false);
+    assert!(!body.contains("refused this start"), "{body}");
+
+    let (_, lean) = check_refused(None, true);
+    assert!(
+        lean.contains("The log names what the image lacks."),
+        "{lean}"
+    );
+    let (args, lean) = check_refused(Some("caps-lacking\nthe feature leanHandoffHost\n"), true);
+    let reason = args.iter().position(|a| a == "--reason").unwrap();
+    assert_eq!(args[reason + 1], "lean-refused", "{args:?}");
+    assert!(
+        lean.contains("does not support what this cycle is given: `the feature leanHandoffHost`. To run it on classic"),
+        "{lean}"
+    );
+    assert!(!lean.contains("The log names"), "{lean}");
+}
+
 /// All cases of a suite whose question or comment says these words.
 fn said(suite: &str, words: &str) -> Vec<Value> {
     let path = format!("{}/tests/fixtures/{suite}.json", env!("CARGO_MANIFEST_DIR"));
