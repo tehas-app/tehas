@@ -31,11 +31,12 @@ pub struct Issue {
     /// The pull requests that close it, {url, state}; None when the call
     /// failed or the answer cannot be read.
     pub prs: Option<Vec<Value>>,
-    /// The call worked but its answer is no list of pull requests.
-    pub prs_unreadable: bool,
     /// The issue's last 100 comments, for tehas:blocked and a park's lift; None
     /// when the call failed or was not asked.
     pub comments: Option<Value>,
+    /// The line of the gh call the comments read failed on; None when no gh
+    /// call failed, or none was asked.
+    pub comments_failed: Option<String>,
     /// The states of the issues its blocker comment names, by number: OPEN,
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
     pub blockers: BTreeMap<u64, String>,
@@ -252,6 +253,15 @@ fn failed(v: &Value) -> bool {
     v.get("failed").and_then(Value::as_bool) == Some(true)
 }
 
+/// The line a failed read's marker holds of its gh call, as
+/// `read::github::failed_read` writes it.
+pub fn failed_line(v: Option<&Value>) -> Option<String> {
+    v.filter(|v| failed(v))
+        .and_then(|v| v.get("line"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 fn names(v: Option<&Value>) -> Vec<String> {
     v.and_then(Value::as_array)
         .map(|a| {
@@ -348,8 +358,8 @@ fn issue(v: &Value) -> Issue {
             .filter(|p| !failed(p))
             .and_then(Value::as_array)
             .cloned(),
-        prs_unreadable: v.get("prs").is_some_and(|p| !failed(p) && !p.is_array()),
         comments: v.get("comments").and_then(opt),
+        comments_failed: failed_line(v.get("comments")),
         blockers: v
             .get("blockers")
             .and_then(Value::as_object)

@@ -438,7 +438,7 @@ impl Poll<'_> {
                 qkind.clear();
             }
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
-                return Err(self.fail("ERROR: gh api graphql failed", 1));
+                return Err(self.comments_unread(n));
             };
             let Some(mut ans) = questions::answer(
                 &comments,
@@ -1031,7 +1031,8 @@ impl Poll<'_> {
             return Ok(None);
         };
         if node.get("failed") == Some(&json!(true)) {
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            let call = crate::snapshot::failed_line(Some(&node));
+            return Err(self.unreadable(&format!("pull request #{pr}"), call.as_deref()));
         }
         if !node.is_object() {
             return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));
