@@ -331,7 +331,7 @@ fn a_removal_of_what_is_not_there_is_the_state_wanted() {
 }
 
 #[test]
-fn only_the_words_not_found_or_a_status_of_404_call_a_removal_done() {
+fn only_a_reason_of_not_found_or_a_status_of_404_calls_a_removal_done() {
     // The words the bash matches, and the status read whole: a gateway error
     // whose body happens to carry the digits 404 is no removal, and a caller
     // that believed it would leave a label on the issue that still carries it.
@@ -342,6 +342,12 @@ fn only_the_words_not_found_or_a_status_of_404_call_a_removal_done() {
         (reason(": HTTP 502 upstream said 404 earlier"), false),
         (reason(": HTTP 403"), false),
         (reason(": gh ran out of its 30s bound"), false),
+        // The words inside a reason that says something else are no 404: a
+        // gh that could not start, or a proxy whose host was not found, left
+        // the label where it was.
+        (reason(": /not found/gh could not be run"), false),
+        (reason(": proxy says upstream not found"), false),
+        (reason(": Not Found but connection reset"), false),
     ];
     for (why, gone) in cases {
         assert_eq!(gh::says_not_found(&why), gone, "says_not_found({why:?})");
