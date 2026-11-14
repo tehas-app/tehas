@@ -1349,7 +1349,10 @@ slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
 The same is in the [status object](/api#tehas-status--json) as `room.slots`.
 A host whose reading answers nothing (no `nproc`, a slice with no limit) would
 be held to one cycle and two containers rather than given the ceiling: the poll
-starts one cycle rather than what it cannot show room for. Set a number, which
+starts one cycle rather than what it cannot show room for, and the line says
+`host-bound, no reading`. A host that answered too little for one cycle, such
+as 4 CPUs at `TEHAS_CYCLE_CPUS=7`, is held the same way, and the line names the
+reading that held it: `cpu-bound, at the floor`. Set a number, which
 is also what an instance needs when it wants workstreams (see the axis below).
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
@@ -1449,13 +1452,8 @@ capability dropped, 128m of memory and 512 processes. It connects only to:
 - the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
 
 Anything else is answered `403` and the proxy logs one line naming it:
-`docker logs tehas-egress`. A connection it gives up on logs a line too: a
-request head that never ended, an allowed host that could not be reached (a
-name that did not resolve, one that resolved to no address, or an address that
-would not answer, and whether the `502` reached the client), a tunnel or
-request that could not be started, and a run of failed accepts, once at its
-start and once with its count at its end. A tool that ignores the proxy
-variables reaches nothing, so a failure is closed, not open. Names are compared, not addresses:
+`docker logs tehas-egress`. A tool that ignores the proxy variables reaches
+nothing, so a failure is closed, not open. Names are compared, not addresses:
 the proxy resolves a name itself, through the names of
 `PI_ENSEMBLE_HOST_ALIASES` first, which it is given too. A plain `http://`
 request goes on with the `Host` of its allowed target, never the one the
