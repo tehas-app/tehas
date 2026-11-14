@@ -3,13 +3,18 @@
 //! allowlist, so the server asks the host's disk nothing: no `df`, no
 //! `docker`, no walk of a tree. The file is there when a person or a program
 //! ran the command with `--publish` and says when it was written; it is
-//! nothing's job to keep it fresh, and an old answer is read as one.
+//! nothing's job to keep it fresh, so the answer says itself when it is old:
+//! `stale` compares `generatedAt` with now, as the other tools' answers do.
 
 use crate::tools::{self, Dirs, ToolError};
 use serde_json::{json, Map, Value};
 
 /// The name of the published file, under the live directory.
 pub const FILE: &str = "disk.json";
+
+/// An answer older than this is stale. The cleaner publishes one every hour,
+/// so three hours without one is a host whose timer has stopped or never ran.
+pub const STALE_SECS: i64 = 3 * 3600;
 
 pub fn tool() -> Value {
     let int = |d: &str| json!({"type": "integer", "description": d});
@@ -21,11 +26,12 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is; no file is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is and stale is true when it is more than three hours old; no file, or a file that is not a whole answer of API 1 with its file systems, is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
             "generatedAt": text("When the answer was made, UTC, as the run that wrote it kept it."),
+            "stale": {"type": "boolean", "description": "True when generatedAt is more than three hours old, or is no time: the figures are of a host as it was then, not now."},
             "dockerRoot": int_("The directory Docker keeps its images in, as Docker named it; left out when it did not say."),
             "filesystems": {
                 "type": "array",
@@ -56,7 +62,7 @@ pub fn tool() -> Value {
                     "stoppedContainers": int_("Containers the daemon still holds back. Left out when it did not answer."),
                 },
             },
-        }, "required": ["api"]},
+        }, "required": ["api", "generatedAt", "stale", "filesystems"]},
     })
 }
 
@@ -64,15 +70,42 @@ pub fn tool() -> Value {
 /// host's own reaches the answer. A file that is not there is the tool error
 /// the read says, which is the shape of a host where nobody has asked yet.
 pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
+    call_at(dirs, tools::now())
+}
+
+fn refused(why: &str) -> ToolError {
+    ToolError::File {
+        file: FILE.to_string(),
+        why: why.to_string(),
+    }
+}
+
+/// The answer as of <now>. A file the writer could not have written whole is
+/// refused rather than answered: an object of another API, or one with no
+/// file system in it - half a write, or a file somebody else left under this
+/// name - would otherwise read as a healthy host with nothing on it, and the
+/// writer always names at least the instance's home.
+pub(crate) fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     let answer = tools::read(&dirs.live, FILE)?;
     if !answer.is_object() {
-        return Err(ToolError::File {
-            file: FILE.to_string(),
-            why: "is not one object".to_string(),
-        });
+        return Err(refused("is not one object"));
     }
+    if answer["api"] != 1 {
+        return Err(refused("is not of API 1"));
+    }
+    if !answer["filesystems"]
+        .as_array()
+        .is_some_and(|fs| !fs.is_empty())
+    {
+        return Err(refused("names no file system"));
+    }
+    let generated = answer["generatedAt"]
+        .as_str()
+        .ok_or_else(|| refused("says not when it was written"))?;
+    let stale = tools::epoch(generated).is_none_or(|t| now - t > STALE_SECS);
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
+    out.insert("stale".into(), json!(stale));
     Ok(out)
 }
 
@@ -86,6 +119,7 @@ pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
 pub(crate) fn spec() -> Value {
     json!({
         "generatedAt": true,
+        "stale": true,
         "dockerRoot": true,
         "filesystems": [{"paths": [], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
         "full": {
@@ -197,6 +231,67 @@ mod tests {
         }
     }
 
+    // An object is not yet an answer: a truncated write that kept only its
+    // first field, an answer of no file system, one of another API, and one
+    // that says not when it was written would each read as a healthy host
+    // with nothing on it, so each is refused with what it lacks.
+    #[test]
+    fn an_object_that_is_not_a_whole_answer_is_refused() {
+        for (text, want) in [
+            (r#"{"api":1}"#, "names no file system"),
+            (
+                r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","filesystems":[]}"#,
+                "names no file system",
+            ),
+            (
+                r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","filesystems":{}}"#,
+                "names no file system",
+            ),
+            (r#"{"filesystems":[{"paths":["/"]}]}"#, "is not of API 1"),
+            (
+                r#"{"api":2,"generatedAt":"2026-10-31T23:09:32Z","filesystems":[{"paths":["/"]}]}"#,
+                "is not of API 1",
+            ),
+            (
+                r#"{"api":1,"filesystems":[{"paths":["/"]}]}"#,
+                "says not when it was written",
+            ),
+        ] {
+            let dir = published(text);
+            match call(&dirs(&dir)) {
+                Err(ToolError::File { why, .. }) => assert_eq!(why, want, "{text}"),
+                other => panic!("{text} is no answer: {other:?}"),
+            }
+        }
+    }
+
+    // The answer says itself when it is old: the hourly publish keeps it under
+    // an hour old, and one three hours old is a host whose publish stopped.
+    #[test]
+    fn an_old_answer_says_it_is_stale() {
+        let dir = published(ANSWER);
+        let written = tools::epoch("2026-10-31T23:09:32Z").unwrap();
+        for (age, stale) in [
+            (0, false),
+            (3600, false),
+            (STALE_SECS, false),
+            (STALE_SECS + 1, true),
+        ] {
+            let out = call_at(&dirs(&dir), written + age).unwrap();
+            assert_eq!(out["stale"], stale, "{age} s old");
+        }
+        // A time the answer cannot be read by is no fresh answer.
+        let dir =
+            published(r#"{"api":1,"generatedAt":"yesterday","filesystems":[{"paths":["/"]}]}"#);
+        assert_eq!(call_at(&dirs(&dir), written).unwrap()["stale"], true);
+        // The file cannot say it is fresh: the flag is the server's own.
+        let dir = published(
+            r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","stale":false,"filesystems":[{"paths":["/"]}]}"#,
+        );
+        let late = written + STALE_SECS + 1;
+        assert_eq!(call_at(&dirs(&dir), late).unwrap()["stale"], true);
+    }
+
     // The answer names no field the tool's own schema does not describe, and
     // the schema names none the allowlist would not copy: the two are read
     // side by side here because they are written twice on purpose, the second
@@ -209,7 +304,7 @@ mod tests {
             .unwrap();
         let allowed = spec();
         let allow = allowed.as_object().unwrap();
-        for named in ["generatedAt", "dockerRoot", "filesystems", "full"] {
+        for named in ["generatedAt", "stale", "dockerRoot", "filesystems", "full"] {
             assert!(schema.contains_key(named), "{named} has no schema");
             assert!(allow.contains_key(named), "{named} is not allowed through");
         }
