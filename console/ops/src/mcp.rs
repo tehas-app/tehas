@@ -76,28 +76,11 @@ fn base64url(bytes: &[u8]) -> String {
     out
 }
 
-/// Whether the setting holds a key. It stops at a bad one, naming the setting
-/// and the key's place, never the key. The shape is the server's rule, the
-/// byte check of `listed` in console/mcp/src/keys.rs, read here before docker
-/// is asked for a container.
+/// Whether the setting holds a key, by the rule the server reads its lists
+/// with. It stops at a bad one, naming the setting and the key's place, never
+/// the key.
 fn holds_key(name: &str, value: &str) -> Result<bool, String> {
-    let line = value.split('\n').next().unwrap_or_default();
-    let keys = line.split([' ', '\t']).filter(|k| !k.is_empty());
-    let mut any = false;
-    for (i, key) in keys.enumerate() {
-        let good = key.len() >= 32
-            && key
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-        if !good {
-            return Err(format!(
-                "{name}: key {} is not at least 32 characters of A-Za-z0-9_-",
-                i + 1
-            ));
-        }
-        any = true;
-    }
-    Ok(any)
+    tehas_core::grammar::mcp_keys(value, name).map(|keys| !keys.is_empty())
 }
 
 /// Each list is checked where it is written, so a bad key is named by its own
@@ -458,12 +441,22 @@ mod tests {
     }
 
     #[test]
-    fn keys_are_read_in_words_of_the_first_line() {
+    fn keys_are_read_in_words_as_the_server_reads_them() {
         assert_eq!(holds_key("X", ""), Ok(false));
         assert_eq!(holds_key("X", " \t "), Ok(false));
         assert_eq!(holds_key("X", KEY), Ok(true));
         assert_eq!(holds_key("X", &format!("{KEY}\t {KEY}")), Ok(true));
-        assert_eq!(holds_key("X", &format!("\n{KEY}")), Ok(false));
+        // Every line is read, and any whitespace parts two keys.
+        assert_eq!(holds_key("X", &format!("\n{KEY}")), Ok(true));
+        assert_eq!(holds_key("X", &format!("{KEY}\x0b{KEY}")), Ok(true));
+        assert!(holds_key("X", &format!("{KEY}\nshort")).is_err());
+    }
+
+    #[test]
+    fn a_made_key_is_one_the_server_takes() {
+        let made = base64url(&[0xff; 32]);
+        assert_eq!(holds_key("X", &made), Ok(true));
+        assert_eq!(holds_key("X", &base64url(&[0; 32])), Ok(true));
     }
 
     #[test]
