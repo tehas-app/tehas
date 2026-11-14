@@ -144,8 +144,8 @@ that failed for any reason but there being no such container.
 The workspace a stopped cycle left is moved to `<name>-<issue>.before-retry`.
 When one is already there, from the cycle before that, it is first renamed to
 `.before-retry.old` and removed only once the newer tree is in its place, and
-the command says that it replaced it. When the move fails, the older tree is
-put back and the start stops.
+the command says that it replaced it. When the move fails, or the older tree
+cannot be removed, both trees are put back and the start stops.
 
 What is bound here is the body and the title: the record carries the hash of
 each, and a start is refused when either is not the approved one. The

@@ -477,12 +477,21 @@ fn swap_aside(tree: &str) -> Result<Vec<String>, Vec<String>> {
         }
         return Err(lines);
     }
+    if !ran(Command::new("rm").args(["-rf", &old])) {
+        // Both trees go back where they were and the start stops: a tree
+        // under a name no clean knows would be kept for good.
+        lines.push(format!("tehas work: could not remove {old}"));
+        let back = fs::rename(&kept, tree).and_then(|()| fs::rename(&old, &kept));
+        if let Err(e) = back {
+            lines.push(format!(
+                "tehas work: could not put the workspaces back at {tree} and {kept}: {e}"
+            ));
+        }
+        return Err(lines);
+    }
     lines.push(format!(
         "tehas work: replaced what the cycle before last left at {kept} with what the last cycle left"
     ));
-    if !ran(Command::new("rm").args(["-rf", &old])) {
-        lines.push(format!("tehas work: could not remove {old}"));
-    }
     Ok(lines)
 }
 
@@ -1206,6 +1215,7 @@ fn run_words(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn a_failed_move_aside_keeps_the_tree_already_there() {
@@ -1217,6 +1227,30 @@ mod tests {
         assert!(d.join("w.before-retry/old").exists());
         assert!(!d.join("w.before-retry.old").exists());
         assert!(lines[0].contains("could not move"), "{lines:?}");
+    }
+
+    #[test]
+    fn an_aside_that_cannot_be_removed_is_put_back_and_the_start_stops() {
+        let d = tehas_core::testdir::TestDir::new("prepare-swap-held");
+        fs::create_dir_all(d.join("w")).unwrap();
+        fs::write(d.join("w/new"), "x").unwrap();
+        fs::create_dir_all(d.join("w.before-retry/held")).unwrap();
+        let ro = |mode| {
+            fs::set_permissions(d.join("w.before-retry"), fs::Permissions::from_mode(mode)).unwrap()
+        };
+        ro(0o555);
+        let held = d.join("w.before-retry/probe");
+        if fs::write(&held, "").is_ok() {
+            // Root writes anyway: nothing to see.
+            ro(0o755);
+            return;
+        }
+        let lines = swap_aside(d.join("w").to_str().unwrap()).unwrap_err();
+        ro(0o755);
+        assert!(d.join("w/new").exists(), "{lines:?}");
+        assert!(d.join("w.before-retry/held").is_dir(), "{lines:?}");
+        assert!(!d.join("w.before-retry.old").exists(), "{lines:?}");
+        assert!(lines[0].contains("could not remove"), "{lines:?}");
     }
 
     #[test]
