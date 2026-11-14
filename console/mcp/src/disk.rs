@@ -3,13 +3,17 @@
 //! allowlist, so the server asks the host's disk nothing: no `df`, no
 //! `docker`, no walk of a tree. The file is there when a person or a program
 //! ran the command with `--publish` and says when it was written; it is
-//! nothing's job to keep it fresh, and an old answer is read as one.
+//! nothing's job to keep it fresh, and an old answer is served with `stale`.
 
 use crate::tools::{self, Dirs, ToolError};
 use serde_json::{json, Map, Value};
 
 /// The name of the published file, under the live directory.
 pub const FILE: &str = "disk.json";
+
+/// A reading older than this is stale: the cleaner publishes one every hour,
+/// and its run may take up to half an hour of walking.
+const STALE_SECS: i64 = 3 * 3600;
 
 pub fn tool() -> Value {
     let int = |d: &str| json!({"type": "integer", "description": d});
@@ -21,11 +25,12 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is; no file is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is and stale is true when it is more than three hours old or has no time that can be read; no file, or one that is not a whole reading, is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
             "generatedAt": text("When the answer was made, UTC, as the run that wrote it kept it."),
+            "stale": {"type": "boolean", "description": "The reading is more than three hours old, or its time cannot be read: the hourly publish has not run, and the figures may no longer be true."},
             "dockerRoot": int_("The directory Docker keeps its images in, as Docker named it; left out when it did not say."),
             "filesystems": {
                 "type": "array",
@@ -64,15 +69,36 @@ pub fn tool() -> Value {
 /// host's own reaches the answer. A file that is not there is the tool error
 /// the read says, which is the shape of a host where nobody has asked yet.
 pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
+    call_at(dirs, tools::now())
+}
+
+fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     let answer = tools::read(&dirs.live, FILE)?;
+    let refuse = |why: &str| ToolError::File {
+        file: FILE.to_string(),
+        why: why.to_string(),
+    };
     if !answer.is_object() {
-        return Err(ToolError::File {
-            file: FILE.to_string(),
-            why: "is not one object".to_string(),
-        });
+        return Err(refuse("is not one object"));
+    }
+    if answer["api"] != 1 {
+        return Err(refuse("is of another api"));
+    }
+    // The writer names at least the instance's home, so a reading without a
+    // file system is half a write, not a host with nothing on it.
+    if answer["filesystems"]
+        .as_array()
+        .is_none_or(|a| a.is_empty())
+    {
+        return Err(refuse("names no file system"));
     }
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
+    let stale = answer["generatedAt"]
+        .as_str()
+        .and_then(tools::epoch)
+        .is_none_or(|t| now - t > STALE_SECS);
+    out.insert("stale".into(), json!(stale));
     Ok(out)
 }
 
@@ -83,9 +109,12 @@ pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
 /// as 0. The containers' own ids and commands are not here: what the daemon
 /// holds back is a count, and naming a container is not what a disk question
 /// asks.
+///
+/// `stale` is computed by `call`, which writes over any the file has.
 pub(crate) fn spec() -> Value {
     json!({
         "generatedAt": true,
+        "stale": true,
         "dockerRoot": true,
         "filesystems": [{"paths": [], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
         "full": {
@@ -194,6 +223,53 @@ mod tests {
                 said == "is not complete JSON" || said == "is not one object",
                 "{text:?} refused with {said:?}"
             );
+        }
+    }
+
+    // An object that is not a whole reading is refused too: a write cut
+    // after its first field, a file of another api, and one that names no
+    // file system would each answer as a healthy host with nothing on it.
+    #[test]
+    fn an_object_that_is_not_a_whole_reading_is_refused() {
+        let fs = r#""filesystems":[{"paths":["/h"],"freeBytes":1,"totalBytes":2}]"#;
+        for (text, want) in [
+            (r#"{"api":1}"#.to_string(), "names no file system"),
+            (
+                r#"{"api":1,"filesystems":[]}"#.to_string(),
+                "names no file system",
+            ),
+            (
+                r#"{"api":1,"filesystems":{}}"#.to_string(),
+                "names no file system",
+            ),
+            (format!(r#"{{"api":2,{fs}}}"#), "is of another api"),
+            (format!(r#"{{{fs}}}"#), "is of another api"),
+        ] {
+            let dir = published(&text);
+            match call(&dirs(&dir)) {
+                Err(ToolError::File { why, .. }) => assert_eq!(why, want, "{text}"),
+                other => panic!("{text} is no answer: {other:?}"),
+            }
+        }
+    }
+
+    // generatedAt alone leaves the caller to compare it with the clock, so
+    // the answer says itself when the reading is too old to trust.
+    #[test]
+    fn an_old_reading_or_one_without_a_time_is_stale() {
+        let at = tools::epoch("2026-10-31T23:09:32Z").unwrap();
+        let dir = published(ANSWER);
+        let stale = |now| call_at(&dirs(&dir), now).unwrap()["stale"].clone();
+        assert_eq!(stale(at + 60), false);
+        assert_eq!(stale(at + STALE_SECS), false);
+        assert_eq!(stale(at + STALE_SECS + 1), true);
+        for text in [
+            r#"{"api":1,"stale":false,"filesystems":[{"paths":["/h"]}]}"#,
+            r#"{"api":1,"generatedAt":"yesterday","stale":false,"filesystems":[{"paths":["/h"]}]}"#,
+        ] {
+            let dir = published(text);
+            let out = call_at(&dirs(&dir), at).unwrap();
+            assert_eq!(out["stale"], true, "{text}");
         }
     }
 
