@@ -32,6 +32,8 @@
 # below. Prints one line per step. The workspace's tests get an empty TMPDIR
 # of their own, and anything they leave in it fails the gate: a test makes
 # its directories with tehas_core::testdir::TestDir, which removes them.
+# Their line counts the tests that passed, and a run of them that printed no
+# "test result:" line fails.
 #
 # Every run keeps the whole output of its steps in a log of its own,
 # $TEHAS_VERIFY_LOGS/<mode>-<UTC time>-<pid>.log (default
@@ -178,7 +180,14 @@ if [ "$cargo_wanted" = 0 ]; then
 elif [ -n "$cargo_pid" ]; then
   rc=0
   wait "$cargo_pid" || rc=$?
-  report "$cargo_step" "$rc" "$tmp/cargo"
+  # cargo test prints a "test result:" line per test binary. A pass that
+  # printed none ran no test, so it fails; a pass says how many ran.
+  tally=$(awk '/^test result: /{n++; p+=$4; i+=$8} END{if(n) printf "%d passed, %d ignored, %d test binaries", p, i, n}' "$tmp/cargo")
+  if [ "$rc" = 0 ] && [ -z "$tally" ]; then
+    echo 'cargo test exited 0 and printed no "test result:" line: no test ran' >>"$tmp/cargo"
+    rc=1
+  fi
+  report "$cargo_step${tally:+ ($tally)}" "$rc" "$tmp/cargo"
   find "$cargo_tmp" -mindepth 1 -maxdepth 1 >"$tmp/left" 2>&1
   rc=0
   [ ! -s "$tmp/left" ] || rc=1
