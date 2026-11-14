@@ -612,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
@@ -658,26 +660,28 @@ Each finding of the six-pass review has a severity: CRITICAL, HIGH, MEDIUM or
 LOW. Which severity stops a cycle is the product's decision, not the reviewer's
 and not pi-rukas's. pi-rukas reads it from the product repository's doctrine
 (`AGENTS.md`, or `CLAUDE.md` when the product has one), at the commit the cycle
-started from, so a cycle cannot lower its own bar mid-run. For this repository
-the bar is MEDIUM and above, decided in the platform repository's
-`docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
-file on a host. A finding at the bar or above sends the change back to a fix
-step and the review runs again, up to two rounds from pi-rukas v0.14.49 (three
-before it). Only LOW findings may be
+started from, so a cycle cannot lower its own bar mid-run. Where the doctrine
+states none, pi-rukas takes its own default, which is HIGH from v0.14.50 and was
+MEDIUM up to v0.14.49. This repository's `AGENTS.md` states no bar, because rule
+7 gives that file to a person, so a cycle here blocks at HIGH: pi-rukas's
+default is what applies today. The bar the platform repository decided is
+recorded in `docs/adr/0002-review-severity-policy.md`, a record in the source
+rather than a file on a host; the ADR still names MEDIUM, the bar of the
+pi-rukas release that defaulted to it, so a person updating it to HIGH and
+adding the sentence below to `AGENTS.md` is what makes the decided bar the one a
+cycle reads. A finding at the bar or above sends the change
+back to a fix step and the review runs again, up to two rounds from pi-rukas
+v0.14.49 (three before it). Only LOW findings may be
 deferred: they are notes on the pull request and start no fix round. A CRITICAL
 finding blocks whatever the bar says.
 
-`AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
-that file to a person, so a cycle's log still records the verdict as `unstated`
-and takes pi-rukas's default. That default is MEDIUM up to pi-rukas v0.14.49 and
-HIGH from v0.14.50, so on v0.14.50 a cycle here blocks at HIGH, not at the
-MEDIUM the record decided, until a person adds the sentence. Once the sentence
-is there the log names the bar it quoted, whatever the release's default. The
-sentence has to be one pi-rukas can read: one sentence that names the bar with a
-relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
+The sentence `AGENTS.md` has to carry is one pi-rukas can read: one sentence
+that names the bar with a relation, `This repository blocks at HIGH severity and
+above.` pi-rukas takes
 the severity out of the sentence the judge quotes and checks that sentence
 against the file word for word, so a paraphrase that names the severities
 without the relation is a silent no-op and the cycle takes the default again.
+While the sentence is missing a cycle's log records the verdict as `unstated`.
 
 An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
 wins over what the product says (see [Commands](/tools#instance-settings)).
@@ -1305,7 +1309,10 @@ block.
 the issue's text and the issue brief, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
 one issue that a single `/work` cycle finishes: one behaviour change, about one
-or two code files and one test file. A session files one issue, so for a larger request the planner files
+or two code files and one test file. When the refine brief is missing or
+cannot be read, no session starts and the dispatcher logs an ERROR line that
+names it; the next poll tries again. A session files one issue, so for a
+larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
@@ -1587,6 +1594,15 @@ recording, and both commands then say so and exit 69.
   nor does its backup where there is one. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back.
+- No new cycle while the sandbox cannot push. A start whose push check is
+  refused leaves `~/tehas/state/push-fault.json` (see
+  [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
+  while that file is younger than ten minutes the poll starts no cycle and
+  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
+  every ready issue does not fail the same check in turn. Past ten minutes the
+  poll starts as it does today, and the start whose check passes takes the
+  file off again. Running cycles, planning turns and refreshes are not held by
+  it: what a refresh pushes already stands on the remote.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
@@ -1662,7 +1678,8 @@ recording, and both commands then say so and exit 69.
   start as before, so an outage at GitHub does not stop the factory; the log
   says why it could not tell, once each time that changes.
 
-The review cap, the new pi-rukas, the room, the pressure and a red branch hold back cycles
+The review cap, the new pi-rukas, the room, the pressure, a red branch and a
+sandbox that cannot push hold back cycles
 only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
@@ -1671,8 +1688,10 @@ changes, and `released: cycles may start again` once when it ends.
 
 ### The gate's bound and the cycles at once
 
-`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, and how long a
-run takes depends on how many cycles share the host. Each container's quota
+`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, the whole gate
+on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
+which tehas sets from it). How long a run takes depends on how many cycles
+share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
 with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:

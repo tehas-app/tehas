@@ -364,6 +364,19 @@ fn re(pattern: &str, s: &str) -> bool {
     regex::Regex::new(pattern).unwrap().is_match(s)
 }
 
+/// The number of pull request `url` of `repo`, for the store's `--pr`.
+/// GitHub matches the owner and the name in any case, and an address may
+/// end in a slash.
+fn pr_number(repo: &str, url: &str) -> Option<String> {
+    let url = url.trim_end_matches('/');
+    let head = format!("https://github.com/{repo}/pull/");
+    let n = url
+        .get(..head.len())
+        .filter(|h| h.eq_ignore_ascii_case(&head))
+        .and(url.get(head.len()..))?;
+    re(r"^[1-9][0-9]{0,9}$", n).then(|| n.to_string())
+}
+
 /// `tr -cd 'A-Za-z0-9_./-'`, how a branch is said.
 fn said_branch(b: &str) -> String {
     kept(b, |c| c.is_ascii_alphanumeric() || "_./-".contains(c))
@@ -642,15 +655,41 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         }
     }
     let watched = f.file("runner_exit").text().is_some();
-    // The note of a container that never started.
+    // The note of a container that never started. A regular file that could
+    // not be read is still the note, with its status not known. A link or a
+    // text out of shape is no note, and is said.
     let mut nostart_rc = String::new();
-    if let Some(t) = f.file("nostart").text() {
-        nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
-        if !re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
-            nostart_rc.clear();
+    let mut nostart_seen = false;
+    match f.file("nostart") {
+        File::Text(t) => {
+            nostart_rc = words(t, Some(100)).first().cloned().unwrap_or_default();
+            if re(r"^[1-9][0-9]{0,2}$", &nostart_rc) {
+                nostart_seen = true;
+            } else {
+                nostart_rc.clear();
+                if no_result {
+                    warn(
+                        &mut r,
+                        format!("the note of #{issue} that its container never started holds no exit status of 1 to 999, so it is not read"),
+                    );
+                }
+            }
         }
+        File::Link if no_result => warn(
+            &mut r,
+            format!(
+                "the note of #{issue} that its container never started is a link, it is not read"
+            ),
+        ),
+        File::Unreadable if no_result => {
+            nostart_seen = true;
+            warn(
+                &mut r,
+                format!("the note of #{issue} that its container never started could not be read, so its exit status is not known"),
+            );
+        }
+        _ => {}
     }
-    let nostart_seen = !nostart_rc.is_empty();
     let read_log_steps = no_result && watched && progress_seen;
     // The two stop files of tehas work, each read ONCE: its seconds go with
     // its step, so the step below and the stop below cannot disagree. A first
@@ -757,7 +796,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !disk_step.is_empty() {
         step_wanted = false;
     }
-    if !nostart_rc.is_empty() {
+    if nostart_seen {
         step_wanted = false;
     }
     if !stalled_step.is_empty() || !timed_step.is_empty() {
@@ -812,7 +851,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if step == "-" {
         step_from = "result";
     }
-    if !nostart_rc.is_empty() && no_result {
+    if nostart_seen && no_result {
         step = "no-step".into();
         step_from = "nostart";
     }
@@ -848,6 +887,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     killed += &comments_said(f);
     let forks = count("forks");
+    let pids = pids_limit(f.file("forks").text().unwrap_or(""));
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
         Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
@@ -937,7 +977,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its limit of processes and {forks} starts of a process were refused: what the cycle ran after that may not have run."
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            limit_of(&pids)
         );
     }
     let mut branch = result_branch;
@@ -964,7 +1005,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut stop_why = String::new();
     if nostart_seen && no_result {
         own = "runner-never-started";
-        stop_why = format!("the container ended with the exit status {nostart_rc} and wrote no line of its stream, so the driver wrote no event and no step started");
+        let ended = if nostart_rc.is_empty() {
+            "with an exit status that could not be read".to_string()
+        } else {
+            format!("with the exit status {nostart_rc}")
+        };
+        stop_why = format!("the container ended {ended} and wrote no line of its stream, so the driver wrote no event and no step started");
     } else if timed_secs != "0" && (cap.is_empty() || status == "timeout") {
         own = "wall-clock";
         stop_why = if timed_by == "runner" {
@@ -1037,8 +1083,36 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!(", step {step} in flight")
         };
         reason = runner::cut_reason(
-            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            &format!(
+                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                limit_of(&pids)
+            ),
         );
+    }
+    // A container killed from outside the cycle, out of memory or by a kill
+    // nobody here sent, with no cap of its own: the kill is its end.
+    let container_killed =
+        cap.is_empty() && status == "killed" && !stopped_by_person && !process_limit;
+    if container_killed {
+        cap = "container-killed".into();
+        let in_flight = if step == "-" {
+            String::new()
+        } else {
+            format!(", step {step} in flight")
+        };
+        let memory = if kills == "0" {
+            "no process in it was counted as killed for memory".to_string()
+        } else {
+            format!("{kills} processes in it were killed for memory")
+        };
+        let tail = if reason.is_empty() {
+            String::new()
+        } else {
+            format!("; {reason}")
+        };
+        reason = runner::cut_reason(&format!(
+            "the container was killed with the exit status 137 and tehas did not stop it{in_flight}; {memory}{tail}"
+        ));
     }
     if let Some((bad, of)) = unparsed(progress) {
         warn(
@@ -1143,7 +1217,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut why = String::new();
     if OWN_CAPS.contains(&cap.as_str()) {
         why = format!(" tehas stopped the cycle: the cap `{cap}`.");
-    } else if process_limit {
+    } else if process_limit || container_killed {
         why = format!(" Its cause is recorded as the cap `{cap}`.");
     } else if !cap.is_empty() {
         let pr_why = if park_reason.is_empty() {
@@ -1286,10 +1360,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if !step.is_empty() {
             args.extend(["--step".into(), step.to_string()]);
         }
-        if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-            if re(r"^[1-9][0-9]{0,9}$", n) {
-                args.extend(["--pr".into(), n.to_string()]);
-            }
+        if let Some(n) = pr_number(&f.repo, pr) {
+            args.extend(["--pr".into(), n]);
         }
         args
     };
@@ -1358,6 +1430,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     // tehas work's 78 for a refresh whose pull request conflicts.
     let conflicted = match f.file(crate::conflict::NOTE) {
         File::Text(t) if rc == 78 && !never_started => crate::conflict::said(t),
+        _ => None,
+    };
+    // Why tehas work's check refused the start, which its run log alone holds
+    // otherwise.
+    let refused = match f.file("refused") {
+        File::Text(t) if rc == 78 && conflicted.is_none() => crate::prepare::refused_said(t),
         _ => None,
     };
     let handoff_part = if handoff.is_empty() {
@@ -1538,8 +1616,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 None => format!("with its pull request open{draft}"),
             }
         };
+        let refused_said = match &refused {
+            Some(said) if !never_started => {
+                format!(" Tehas work refused this start before anything ran. {said}")
+            }
+            _ => String::new(),
+        };
         let mut parked = format!(
-            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut lead = String::new();
@@ -1569,7 +1653,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                let lacks = refused
+                    .as_deref()
+                    .unwrap_or("The log names what the image lacks.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
@@ -1643,10 +1730,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !branch.is_empty() {
         end.extend(["--branch".into(), branch.clone()]);
     }
-    if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-        if re(r"^[1-9][0-9]{0,9}$", n) {
-            end.extend(["--pr".into(), n.to_string()]);
-        }
+    if let Some(n) = pr_number(&f.repo, &pr) {
+        end.extend(["--pr".into(), n]);
     }
     r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
@@ -1771,6 +1856,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
 /// that worked (`ok`) and one that did not (`stuck`).
 /// The lines of the stream the progress says could not be parsed, and of how
 /// many, when there were any.
+/// The container's pids limit, the second line of its `.forks` file.
+fn pids_limit(text: &str) -> Option<String> {
+    let n = text.split('\n').nth(1)?;
+    re(r"^[1-9][0-9]{0,8}$", n).then(|| n.to_string())
+}
+
+fn limit_of(pids: &Option<String>) -> String {
+    match pids {
+        Some(n) => format!("limit of {n} processes"),
+        None => "limit of processes".to_string(),
+    }
+}
+
 fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
     let v: Value = serde_json::from_str(progress?.trim()).ok()?;
     let count = |k: &str| v.get("unparsed")?.get(k)?.as_u64();
@@ -1830,6 +1928,29 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {
+        let n = |url| pr_number("acme/widget", url);
+        for url in [
+            "https://github.com/acme/widget/pull/21",
+            "https://github.com/Acme/Widget/pull/21",
+            "https://github.com/acme/widget/pull/21/",
+        ] {
+            assert_eq!(n(url).as_deref(), Some("21"), "{url}");
+        }
+        for url in [
+            "",
+            "https://github.com/acme/other/pull/21",
+            "https://github.com/acme/widget/pull/",
+            "https://github.com/acme/widget/pull/021",
+            "https://github.com/acme/widget/pull/21#top",
+            "https://github.com/acme/widget/pull/12345678901",
+            "https://github.com/acme/widget/issues/21",
+        ] {
+            assert_eq!(n(url), None, "{url}");
+        }
+    }
 
     #[test]
     fn the_report_comment_disarms_agent_text() {
@@ -2027,6 +2148,45 @@ mod tests {
             "{:?}",
             comments(&r)
         );
+    }
+
+    #[test]
+    fn a_container_killed_from_outside_is_the_cap_container_killed_with_its_memory_kills() {
+        let r = notes(vec![("status", "killed\n"), ("oom", "4\n")]);
+        assert!(r.done.contains("status=killed"), "{}", r.done);
+        assert_eq!(end_cap(&r), Some("container-killed"), "{:?}", r.end);
+        assert_eq!(r.after.ended.cap, "container-killed");
+        assert_eq!(
+            r.after.ended.reason,
+            "the container was killed with the exit status 137 and tehas did not stop it; 4 processes in it were killed for memory"
+        );
+        assert!(
+            comments(&r)
+                .iter()
+                .any(|c| c.contains("Its cause is recorded as the cap `container-killed`.")),
+            "{:?}",
+            comments(&r)
+        );
+        let r = notes(vec![("status", "killed\n")]);
+        assert!(
+            r.after
+                .ended
+                .reason
+                .ends_with("no process in it was counted as killed for memory"),
+            "{}",
+            r.after.ended.reason
+        );
+    }
+
+    #[test]
+    fn a_killed_container_keeps_a_cap_it_had_and_a_persons_stop() {
+        let r = notes(vec![
+            ("status", "killed\n"),
+            ("stopped", "1792000000 alice\n"),
+        ]);
+        assert_eq!(r.after.ended.cap, "");
+        let r = notes(vec![("status", "killed\n"), ("forks", "3\n")]);
+        assert_eq!(r.after.ended.cap, "process-limit");
     }
 
     #[test]
@@ -2256,7 +2416,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2286,6 +2446,41 @@ mod tests {
             "{}",
             park.text
         );
+    }
+
+    #[test]
+    fn the_limit_the_container_reached_is_named_with_its_settings() {
+        let r = refused("21\n2048\n", None);
+        assert!(r.done.contains("forks_refused=21"), "{}", r.done);
+        assert!(
+            r.after.ended.reason.contains(
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+            ),
+            "{}",
+            r.after.ended.reason
+        );
+        let said = comments(&r).join("\n");
+        assert!(
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            "{said}"
+        );
+        for bad in [
+            "21\nmax\n",
+            "21\n0\n",
+            "21\n-4\n",
+            "21\n1234567890\n",
+            "21\n4096; x\n",
+        ] {
+            let r = refused(bad, None);
+            assert!(
+                r.after
+                    .ended
+                    .reason
+                    .contains("its container reached its limit of processes ("),
+                "{bad:?}: {}",
+                r.after.ended.reason
+            );
+        }
     }
 
     #[test]

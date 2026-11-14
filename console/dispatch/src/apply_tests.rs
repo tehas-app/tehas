@@ -82,6 +82,7 @@ case "$name $1" in
       repos/*/issues/[0-9]*) case "$2" in
           */comments*) ;;
           */events*) f=${2#*/issues/}; cat "$d/events-${f%%/*}" 2>/dev/null || echo '{}' ;;
+          */sub_issues*) f=${2#*/issues/}; cat "$d/sub-issues-${f%%/*}" 2>/dev/null || echo '[]' ;;
           *) f=${2#*/issues/}; if [ -f "$d/issue-$f" ]; then cat "$d/issue-$f"; else echo '{"id":555}'; fi ;;
         esac ;;
     esac
@@ -441,6 +442,61 @@ fn the_status_is_told_the_poll_ran_it_and_the_others_are_not() {
     assert_eq!(
         printed,
         vec!["the tidy line", "the status line", "the health line"]
+    );
+}
+
+#[test]
+fn a_status_that_did_not_end_0_says_so() {
+    // The status files keep what the last good run wrote, so a run that failed
+    // is named in the log, as a health run that failed is.
+    let mut t = world();
+    let mut printed = Vec::new();
+    let mut log = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert_eq!(printed, vec!["the status line"]);
+    assert!(log.is_empty());
+
+    t.fail("status", "");
+    let mut printed = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert!(printed.is_empty());
+    let cmd = t.w.host.status_cmd.clone();
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {cmd} exited 1: the status files may be stale"
+        )]
+    );
+
+    // No exit status at all: the command never began, as one killed at its
+    // bound has none either.
+    t.w.host.status_cmd = t.dir.join("no-such-status").to_string_lossy().into_owned();
+    t.w.host.status_args = vec!["status".into()];
+    let mut log = Vec::new();
+    t.w.status(&mut Vec::new(), &mut log);
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {} status was killed at its bound or did not start: the status files may be stale",
+            t.w.host.status_cmd
+        )]
+    );
+}
+
+#[test]
+fn a_start_whose_status_failed_logs_it() {
+    let mut t = world();
+    t.fail("status", "");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(
+        a.log.last().map(String::as_str),
+        Some(
+            format!(
+                "WARN: the status command {} exited 1: the status files may be stale",
+                t.w.host.status_cmd
+            )
+            .as_str()
+        )
     );
 }
 
@@ -922,7 +978,7 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         a.log.last().unwrap(),
-        "ERROR: the cycle for #7 did not start"
+        "ERROR: the cycle for #7 did not start: its start exited 1"
     );
     let w = t.writes();
     assert!(w
@@ -932,7 +988,50 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert!(w.last().unwrap().starts_with("status"));
     assert!(w
         .iter()
-        .any(|c| c.contains("`tehas-cycle@7.service` did not come up")));
+        .any(|c| c.contains("`tehas-cycle@7.service` did not come up: its start exited 1.")));
+}
+
+/// A start command that comes up and puts nothing on record, after which the
+/// store answers `cycle-show` with `word`, or with no failure when empty.
+fn start_then_store(t: &mut World, word: &str) {
+    let p = t.dir.join("start-then");
+    let line = if word.is_empty() {
+        String::new()
+    } else {
+        format!("printf 'cycle-show|{word}\\n' >>\"$(dirname \"$0\")/fail-store\"\n")
+    };
+    tehas_core::testing::write_exe(&p, format!("#!/bin/bash\n{line}")).unwrap();
+    t.w.host.start_cmd = Some(p.to_string_lossy().into_owned());
+    t.w.host.start_wait = Duration::from_millis(600);
+}
+
+#[test]
+fn a_start_not_taken_says_what_the_store_said_while_it_waited() {
+    for (word, why) in [
+        ("", "it put no new attempt on record within 0s"),
+        ("busy", "the store was still busy at the end of the 0s wait"),
+        (
+            "unreadable",
+            "the store could not say whether it started (unreadable)",
+        ),
+    ] {
+        let mut t = world();
+        start_then_store(&mut t, word);
+        let a = t.apply(json!([start_of(7, "label")]));
+        assert_eq!(a.exit, Some(1), "{word}");
+        assert!(
+            a.log
+                .contains(&format!("ERROR: the cycle for #7 did not start: {why}")),
+            "{word}: {:?}",
+            a.log
+        );
+        assert!(
+            t.writes()
+                .iter()
+                .any(|c| c.contains(&format!("did not come up: {why}."))),
+            "{word}"
+        );
+    }
 }
 
 #[test]
@@ -1069,6 +1168,20 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn a_refused_refresh_mark_logs_gh_reason() {
+    let mut t = world();
+    t.fail("gh", "POST|HTTP 404");
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    let r = t.apply(json!([a]));
+    assert_eq!(
+        r.log[1],
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: HTTP 404"
+    );
 }
 
 #[test]
@@ -1772,6 +1885,24 @@ fn a_quiet_cycle_whose_record_says_wait_is_left_and_one_asked_six_times_is_a_per
 }
 
 #[test]
+fn a_quiet_cycle_is_judged_on_the_polls_clock_not_a_later_read() {
+    // Asked twice, last at the poll's own instant: by the poll's clock the
+    // wait has not passed, though by the wall clock it long has.
+    let mut t = world();
+    fs::write(
+        t.dir.join("note"),
+        r#"{"api":1,"verb":"cycle-note","ok":true,"times":2,"stop_asked_at":1793404795}"#,
+    )
+    .unwrap();
+    let mut a = quiet_of(7);
+    a["now"] = json!(1793404795);
+    let out = t.apply(json!([a]));
+    assert!(out.log.is_empty(), "{:?}", out.log);
+    assert_eq!(t.writes().len(), 1);
+    assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+}
+
+#[test]
 fn a_quiet_cycle_the_store_cannot_note() {
     let mut t = world();
     t.fail("store", "cycle-note|nocycle");
@@ -1851,6 +1982,34 @@ fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
     assert_eq!(
         a.log,
         vec!["WARN: could not remove live/console-5.txt of #5"]
+    );
+    assert!(!works.join("tehas-work-5").exists());
+    assert!(live.join("console-5.txt").exists());
+}
+
+#[test]
+fn a_sweep_that_cannot_look_at_a_name_says_so_and_not_that_the_issue_is_gone() {
+    let mut t = world();
+    let works = t.dir.join("works");
+    fs::create_dir_all(works.join("tehas-work-5")).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let live = t.w.home.join("live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("console-5.txt"), "x").unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o000)).unwrap();
+    // Root is not kept out of a directory by its mode.
+    if fs::symlink_metadata(live.join("console-5.txt")).is_ok() {
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
+        return;
+    }
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
+    assert_eq!(a.log.len(), 1, "{:?}", a.log);
+    assert!(
+        a.log[0].starts_with("WARN: could not look at live/console-5.txt of #5 ("),
+        "{:?}",
+        a.log
     );
     assert!(!works.join("tehas-work-5").exists());
     assert!(live.join("console-5.txt").exists());
@@ -3828,6 +3987,30 @@ fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
 }
 
 #[test]
+fn a_refine_whose_brief_cannot_be_read_starts_no_turn_and_spends_nothing() {
+    let mut t = world();
+    let extra = t.dir.join("refine-brief.md");
+    let mut turn = first_turn(7);
+    turn["label"] = json!("tehas:refine");
+    turn["auto"] = json!("too-big");
+    turn["brief_extra"] = json!(extra.to_string_lossy());
+    let a = t.apply(json!([{"park_retry": 7, "how": "refine"}, turn]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(a.log.len(), 1, "{:?}", a.log);
+    let head = format!(
+        "ERROR: could not read the refine brief {} (",
+        extra.display()
+    );
+    assert!(
+        a.log[0].starts_with(&head) && a.log[0].ends_with("), not starting a turn of #7"),
+        "{:?}",
+        a.log
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
+    assert!(!t.dir.join("brief").exists());
+}
+
+#[test]
 fn a_refine_spends_its_park_once_its_brief_is_written_and_says_why() {
     let mut t = world();
     let extra = t.dir.join("refine-brief.md");
@@ -4042,13 +4225,25 @@ fn a_session_at_its_limit_of_turns_is_ended() {
     assert!(!t.calls().iter().any(|c| c.starts_with("store plan-answer")));
 }
 
+/// The turn's lock of issue `n`, held as a unit's turn holds it while it runs.
+fn turn_holds_its_lock(t: &World, n: u64) -> fs::File {
+    let f = fs::File::create(t.w.home.join(format!("state/plan-{n}.json.lock"))).unwrap();
+    f.lock().unwrap();
+    f
+}
+
 #[test]
 fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
     let mut t = world();
     // The wait for the unit's lock is the thing under test, not its length.
     t.w.host.launch_poll = Duration::from_millis(200);
     t.w.host.plan_start_cmd = None;
-    t.apply(json!([first_turn(7)]));
+    let _lock = turn_holds_its_lock(&t, 7);
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "planning #7: turn 1 runs as tehas-plan-7.service"
+    );
     assert_eq!(
         fs::read_to_string(t.dir.join("brief.mode")).unwrap().trim(),
         "600"
@@ -4058,11 +4253,30 @@ fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
 }
 
 #[test]
+fn a_unit_whose_turn_never_begins_is_finished_as_not_started() {
+    let mut t = world();
+    t.w.host.launch_poll = Duration::from_millis(1);
+    t.w.host.plan_start_cmd = None;
+    plan_row(&t, json!({"turns": 0, "label": "tehas:plan"}));
+    // systemd-run takes the unit, but its turn neither locks nor ends.
+    let a = t.apply(json!([first_turn(7)]));
+    assert!(a
+        .log
+        .contains(&"ERROR: could not start the planning turn of #7".to_string()));
+    assert!(!a.log.iter().any(|l| l.contains("runs as tehas-plan-7")));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 1 --outcome not-started")));
+}
+
+#[test]
 fn a_turn_runs_from_its_own_copy_of_the_code_when_the_host_has_one() {
     let mut t = world();
     t.w.host.launch_poll = Duration::from_millis(1);
     t.w.host.plan_start_cmd = None;
     t.w.host.pin_cmd = Some("/opt/tehas-cycle".into());
+    let _lock = turn_holds_its_lock(&t, 7);
     t.apply(json!([first_turn(7)]));
     let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(
@@ -4107,6 +4321,55 @@ fn a_next_turn_from_a_person_and_one_the_store_refuses() {
 }
 
 #[test]
+fn a_next_turn_names_the_path_it_could_not_make_or_write() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let works = t.dir.join("works");
+    fs::create_dir_all(&works).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let keep = works.join("tehas-work-plan-7.keep");
+    fs::write(&keep, "a file").unwrap();
+    let a = t
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, Some(1));
+    let made = format!("ERROR: could not make {} (", keep.display());
+    assert!(a.log.iter().any(|l| l.starts_with(&made)), "{:?}", a.log);
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: could not make the keep directory of #7, not starting a turn"
+    );
+    // The keep directory made, but the answer cannot be written in it.
+    let mut t2 = world();
+    plan_row(
+        &t2,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let works2 = t2.dir.join("works");
+    fs::create_dir_all(works2.join("tehas-work-plan-7.keep/answer.md")).unwrap();
+    fs::write(works2.join(".tehas-workspaces"), "").unwrap();
+    let a = t2
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, Some(1));
+    let wrote = format!(
+        "ERROR: could not write the answer for #7 to {} (",
+        works2.join("tehas-work-plan-7.keep/answer.md").display()
+    );
+    let last = a.log.last().unwrap();
+    assert!(
+        last.starts_with(&wrote) && last.ends_with("), not starting a turn"),
+        "{last}"
+    );
+    assert!(!a.log.iter().any(|l| l.starts_with("ERROR: could not make")));
+    assert!(!t2
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:planning")));
+}
+
+#[test]
 fn a_next_turn_in_a_directory_tehas_did_not_make_starts_nothing() {
     let mut t = world();
     plan_row(
@@ -4123,7 +4386,7 @@ fn a_next_turn_in_a_directory_tehas_did_not_make_starts_nothing() {
         .any(|l| l.ends_with("works exists and was not made by tehas, not touching it")));
     assert_eq!(
         a.log.last().unwrap(),
-        "ERROR: could not write the answer for #7, not starting a turn"
+        "ERROR: could not make the keep directory of #7, not starting a turn"
     );
     assert!(t
         .writes()
@@ -4203,6 +4466,22 @@ fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout()
             format!("git -C {co} merge -q --ff-only origin/main"),
         ]
     );
+}
+
+#[test]
+fn cycles_that_cannot_be_listed_leave_the_index_alone() {
+    let mut t = world();
+    // A file where the directory should be: the listing fails, and a cycle
+    // may be running.
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(t.w.home.join("state/cycles"), "").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[0],
+        "the code index stays as it is: state/cycles cannot be listed, so a cycle may be running"
+    );
+    assert!(!t.calls().iter().any(|c| c.contains("tehas-index")));
 }
 
 #[test]
@@ -4835,6 +5114,72 @@ fn an_action_a_read_cannot_settle_stays_open() {
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec!["WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: gh api repos/example-owner/example-product/issues/7 failed; the next poll tries again"]);
     assert!(settled(&t).is_empty());
+}
+
+/// An attempted sub-issue-add on #7, its `-F` field as given.
+fn open_sub_issue_add(id: u64, field: &str) -> Value {
+    json!({"id": id, "kind": "sub-issue-add", "issue": 7, "state": "attempted", "intended_at": 990,
+    "attempted_at": 991, "args": {"gh": ["api", "-X", "POST", "repos/r/issues/7/sub_issues", "-F", field]}})
+}
+
+#[test]
+fn a_sub_issue_add_is_done_only_when_its_own_id_is_linked() {
+    let mut t = world();
+    left_open(
+        &t,
+        json!([
+            open_sub_issue_add(3, "sub_issue_id=555"),
+            open_sub_issue_add(4, "sub_issue_id=556")
+        ]),
+    );
+    fs::write(
+        t.dir.join("sub-issues-7"),
+        r#"[{"number": 9}, {"id": 555}]"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (sub-issue-add on #7, 10s old) was done",
+        "journal: action 4 (sub-issue-add on #7, 10s old) did not happen (the sub-issue is not linked); this poll decides it again",
+    ]);
+    let s = settled(&t);
+    assert!(s[0].starts_with("store journal-settle --action 3 --result ok --evidence "));
+    assert!(s[0].contains(r#""sub_issue":555"#), "{}", s[0]);
+    assert_eq!(s[1], "store journal-settle --action 4 --abandoned");
+}
+
+#[test]
+fn a_sub_issue_add_without_a_readable_id_stays_open() {
+    // A linked row with no id must not stand in for the id the record lacks.
+    for field in ["sub_issue_id=x555", "sub_issue_id=", "issue_id=555"] {
+        let mut t = world();
+        left_open(&t, json!([open_sub_issue_add(3, field)]));
+        fs::write(
+            t.dir.join("sub-issues-7"),
+            r#"[{"number": 9}, {"id": null}]"#,
+        )
+        .unwrap();
+        let mut log = Vec::new();
+        t.w.settle(1000, &mut log);
+        assert_eq!(log, vec![
+            "WARN: the journal's action 3 (sub-issue-add on #7, 10s old) could not be settled: it names no sub-issue id; the next poll tries again",
+        ], "{field}");
+        assert!(settled(&t).is_empty(), "{field}");
+    }
+}
+
+#[test]
+fn an_action_without_its_intended_time_is_not_said_to_be_new() {
+    let mut t = world();
+    let mut row = open_label_add(3, 7, "intended");
+    row.as_object_mut().unwrap().remove("intended_at");
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, of unknown age) did not happen (it was never attempted); this poll decides it again",
+    ]);
 }
 
 #[test]

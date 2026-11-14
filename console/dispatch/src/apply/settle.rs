@@ -173,8 +173,11 @@ impl Writer {
             }
             let id = row.id.to_string();
             let n = row.issue;
-            let age = now - a.get("intended_at").and_then(Value::as_i64).unwrap_or(now);
-            let what = format!("action {id} ({kind} on #{n}, {age}s old)");
+            let age = match a.get("intended_at").and_then(Value::as_i64) {
+                Some(t) => format!("{}s old", now - t),
+                None => "of unknown age".into(),
+            };
+            let what = format!("action {id} ({kind} on #{n}, {age})");
             let found = if intended(&a) {
                 Found::Abandoned("it was never attempted")
             } else {
@@ -355,10 +358,14 @@ impl Writer {
                 }
             }
             "sub-issue-add" => {
-                let want: Option<u64> = after(&gh, "-F")
+                // Without its id, a linked row with none would match it.
+                let Some(want) = after(&gh, "-F")
                     .iter()
                     .find_map(|f| f.strip_prefix("sub_issue_id="))
-                    .and_then(|x| x.parse().ok());
+                    .and_then(|x| x.parse::<u64>().ok())
+                else {
+                    return Found::Unread("it names no sub-issue id".into());
+                };
                 let v = match read(
                     self,
                     format!("repos/{repo}/issues/{n}/sub_issues?per_page=100"),
@@ -371,7 +378,7 @@ impl Writer {
                     .as_array()
                     .into_iter()
                     .flatten()
-                    .any(|s| s.get("id").and_then(Value::as_u64) == want);
+                    .any(|s| s.get("id").and_then(Value::as_u64) == Some(want));
                 if there {
                     Found::Done(json!({"sub_issue": want}))
                 } else {

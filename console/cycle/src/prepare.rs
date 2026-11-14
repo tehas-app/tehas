@@ -38,9 +38,6 @@ use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
 use tehas_core::{lock, time};
 
-/// The words of the limits, then of the security options, as the slice gave them.
-const LIMIT_WORDS: usize = 14;
-
 const PROTOCOL: [&str; 15] = [
     "cid",
     "oom",
@@ -191,6 +188,9 @@ pub struct Check {
     pub driver: Driver,
     /// state/cycles/<issue>.lean-refused: left when the image cannot run lean.
     pub lean_note: PathBuf,
+    /// state/cycles/<issue>.refused: why the check refused the start, for the
+    /// park (src/host.rs says its lines).
+    pub refused_note: PathBuf,
     pub caps_wait: u64,
     pub console: String,
     /// The limits and the security options of the slice.
@@ -223,6 +223,49 @@ fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
     Some(())
 }
 
+/// A 78 of the check, with its cause left for the report: standard error goes
+/// to the run log only.
+fn refuse(c: &Check, cause: &str) -> i32 {
+    let _ = fs::write(&c.refused_note, cause);
+    78
+}
+
+/// The words a park says of the note [`refuse`] left, or None when the text is
+/// not one. Only words the check wrote are said, each line checked again.
+pub fn refused_said(text: &str) -> Option<String> {
+    let mut lines = text.lines();
+    let first = lines.next()?;
+    if first == "tree-not-ours" {
+        return Some("The directory that holds the workspaces exists and was not made by tehas, so tehas work did not touch it.".into());
+    }
+    if let Some(rc) = first.strip_prefix("caps-unreadable ") {
+        let ok = !rc.is_empty() && rc.len() <= 3 && rc.bytes().all(|b| b.is_ascii_digit());
+        return ok.then(|| {
+            format!("The sandbox image gave no `--capabilities` answer that tehas could read (exit {rc}).")
+        });
+    }
+    if first != "caps-lacking" {
+        return None;
+    }
+    let lacks: Vec<String> = lines
+        .filter(|l| {
+            !l.is_empty()
+                && l.len() <= 200
+                && l.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b" ._,-".contains(&b))
+        })
+        .take(20)
+        .map(|l| format!("`{l}`"))
+        .collect();
+    if lacks.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "The sandbox image does not support what this cycle is given: {}.",
+        lacks.join(", ")
+    ))
+}
+
 /// The first step. Its exit status.
 pub fn check(c: &Check) -> i32 {
     let (name, email) = (git_identity("user.name"), git_identity("user.email"));
@@ -235,7 +278,10 @@ pub fn check(c: &Check) -> i32 {
         );
         return 64;
     }
-    let (limits, security) = c.words.split_at(c.words.len().min(LIMIT_WORDS));
+    let Some((limits, security)) = slice::split(&c.words) else {
+        eprintln!("tehas work: the container limits could not be made, not starting");
+        return 78;
+    };
     let mut security = security.to_vec();
     let work = env("TEHAS_WORK_DIR");
     let who = Identity {
@@ -308,7 +354,7 @@ pub fn check(c: &Check) -> i32 {
             "tehas work: {} exists and was not made by tehas, not touching it",
             works.display()
         );
-        return 78;
+        return refuse(c, "tree-not-ours\n");
     }
     let rec = is_record(&c.record)
         .then(|| record_value(Path::new(&c.record)))
@@ -349,7 +395,7 @@ pub fn check(c: &Check) -> i32 {
         eprintln!(
             "tehas work: {image} gave no --capabilities answer (exit {caps_rc}), not starting a cycle"
         );
-        return 78;
+        return refuse(c, &format!("caps-unreadable {caps_rc}\n"));
     };
     if !lacking.trim_end_matches('\n').is_empty() {
         eprintln!(
@@ -364,7 +410,7 @@ pub fn check(c: &Check) -> i32 {
         for line in lacking.trim_end_matches('\n').lines() {
             eprintln!("    {line}");
         }
-        return 78;
+        return refuse(c, &format!("caps-lacking\n{lacking}"));
     }
     // A workaround the instance carries for a pi-rukas defect ends with the
     // release that fixes it.
@@ -415,6 +461,12 @@ fn on(path: &Path, end: &str) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(end);
     PathBuf::from(s)
+}
+
+/// The log of the push check, beside the cycle's own log. `work` names it the
+/// same way when it reads it for the improvement record.
+pub fn preflight_of(log: &Path) -> PathBuf {
+    on(log, ".preflight")
 }
 
 /// Replaces what a stopped cycle left beside the workspace with what is in it.
@@ -593,9 +645,56 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
     Some(78)
 }
 
+/// The fault of a sandbox that cannot push: `state/push-fault.json`, one host
+/// fact with no issue in its name, so every start of the issue reads the same
+/// answer while the host stays unable to push. Part 2 holds starts on it and
+/// part 3 puts it in status and health; both read this file.
+pub const PUSH_FAULT: &str = "state/push-fault.json";
+
+/// Why the sandbox cannot push, as `git` said it: the first line of its log,
+/// with what the mask of the host hides replaced. An empty log says nothing.
+fn fault_line(text: &[u8]) -> String {
+    let text = String::from_utf8_lossy(text);
+    text.lines()
+        .find(|l| !l.trim().is_empty())
+        .map(tehas_core::mask::mask)
+        .unwrap_or_default()
+}
+
+/// The record put on `file`, or taken off it. A check that passed removes the
+/// fault: the next start is judged on its own check, not on this one's. A line
+/// of its own always makes a fault, whatever the time it carries: only a fault
+/// that says nothing is refused, and a caller always gives one.
+fn record_fault(home: &Path, file: &str, line: &str, at: i64) {
+    let path = home.join(file);
+    if line.is_empty() {
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    let doc = json!({
+        "at": time::iso(at),
+        "login": tehas_core::settings::bot_login(home).unwrap_or_default(),
+        "line": line,
+    })
+    .to_string();
+    let dir = path.parent().unwrap_or(home);
+    if fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    // The one name, so a leftover of a run killed mid-write cannot block the
+    // next, and a reader never sees half of the record.
+    let _ = tehas_core::file::write_atomic(
+        &path,
+        format!("{doc}\n").as_bytes(),
+        0o600,
+        &tehas_core::file::Temp::Predictable,
+    );
+}
+
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
 /// in the container. None only when the check ran and passed; else the status
-/// to exit with.
+/// to exit with. A check the host could not run is not a fault of the sandbox:
+/// it records none.
 fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i32> {
     let image = env("PI_ENSEMBLE_IMAGE");
     let words = sandbox::push_check(
@@ -637,6 +736,61 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         say(&format!("    {line}"));
     }
     Some(3)
+}
+
+/// The first line of that log, which is what a fault names: git's own words,
+/// masked. Empty when the log wrote nothing, which is the caller's word that no
+/// check of the sandbox ran, as opposed to one that was refused.
+pub fn preflight_line(preflight: &Path) -> String {
+    fault_line(&fs::read(preflight).unwrap_or_default())
+}
+
+/// A sandbox that cannot push is the factory's fault, not the issue's: the host
+/// says so in one file, and the start that found it ends its own record as
+/// `push-fault` and gets the short comment, never a park with retry boxes. The
+/// store keeps the word as it was given (`an_end` accepts it); its readers name
+/// it in part 3. The issue keeps `tehas:ready`: nothing here changes a label.
+/// A check the host could not run at all records no fault: that is no refusal
+/// of a push, and its own words say what stopped it. The check itself cannot
+/// tell the two apart, so its caller asks for the log with `preflight_line`.
+pub fn push_fault(home: &Path, issue: u64, line: &str) {
+    if line.is_empty() {
+        return;
+    }
+    record_fault(home, PUSH_FAULT, line, time::now());
+    let attempt = env("TEHAS_CYCLE_ATTEMPT");
+    let n = issue.to_string();
+    if is_attempt(&attempt) {
+        let end = [
+            "cycle-end",
+            &n,
+            "--attempt",
+            &attempt,
+            "--status",
+            "push-fault",
+        ];
+        if let Err(refused) = host::store_said(home, &end) {
+            eprintln!(
+                "tehas work: the push fault of #{issue} is not on its record ({}): cycle-end {n} --attempt {attempt} --status push-fault",
+                refused.line
+            );
+        }
+    }
+    start::tell(
+        issue,
+        &env("TEHAS_REPO"),
+        // The wait of every comment a start posts, not the shorter one of the
+        // report: the host is what is broken, so GitHub is worth asking again.
+        60,
+        "the sandbox cannot push to the repository, which is a fault of this host",
+    );
+}
+
+/// The attempt of a start made by the supervisor: digits, no sign, no leading
+/// zero, at most nine of them. Nothing else names a record this start owns, so
+/// a start run by hand ends none.
+fn is_attempt(s: &str) -> bool {
+    tehas_core::grammar::count(s).is_some_and(|n| n > 0)
 }
 
 fn append(file: &Path, line: &str) -> bool {
@@ -747,8 +901,16 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         return 78;
     };
     if let Some(rc) = push_check(t, &state, &tree, &preflight) {
+        // A check the sandbox refused is the host's fault, not the issue's. One
+        // that could not be run at all is not: it wrote no words of its own, and
+        // the filesystem fault that stopped it is no refusal of a push.
+        if rc == 3 {
+            push_fault(home, t.issue, &preflight_line(&preflight));
+        }
         return rc;
     }
+    // The host can push: whatever an earlier start recorded of it is gone.
+    record_fault(home, PUSH_FAULT, "", 0);
     if !steps.is_empty() {
         if t.stop.came() {
             return STOPPED;
@@ -1029,6 +1191,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_refusal_note_is_said_only_in_the_words_the_check_wrote() {
+        assert_eq!(
+            refused_said("caps-unreadable 127\n").unwrap(),
+            "The sandbox image gave no `--capabilities` answer that tehas could read (exit 127)."
+        );
+        assert!(refused_said("tree-not-ours\n")
+            .unwrap()
+            .contains("was not made by tehas"));
+        assert_eq!(
+            refused_said("caps-lacking\nthe flag --restart\nthe feature leanHandoffHost\n")
+                .unwrap(),
+            "The sandbox image does not support what this cycle is given: `the flag --restart`, `the feature leanHandoffHost`."
+        );
+        // A line the check did not write is left out, and a note with none
+        // of its lines, or another first line, is no note.
+        assert_eq!(
+            refused_said("caps-lacking\nthe input A\n`@x` <b>\n").unwrap(),
+            "The sandbox image does not support what this cycle is given: `the input A`."
+        );
+        for t in [
+            "",
+            "caps-lacking\n",
+            "caps-lacking\n@x\n",
+            "caps-unreadable\n",
+            "caps-unreadable 12a\n",
+            "caps-unreadable 1000\n",
+            "something else\n",
+        ] {
+            assert_eq!(refused_said(t), None, "{t:?}");
+        }
+    }
+
+    #[test]
     fn each_name_of_protocol_is_a_cycle_note() {
         for name in PROTOCOL {
             assert!(tehas_core::cycle_notes::is_note(name), "{name}");
@@ -1111,6 +1306,49 @@ mod tests {
         assert_eq!(gate_line(""), None);
     }
 
+    /// The store refused a call whose arguments are these: a start of the
+    /// supervisor ends its own record as `push-fault`. The word itself is kept
+    /// by the store because `an_end` counts it an end; `console/store` has its
+    /// own test of a word it does not name. With no attempt of a dispatch, no
+    /// record is ended: a run by hand owns none.
+    #[test]
+    fn a_push_fault_ends_the_start_of_the_supervisor() {
+        let d = tehas_core::testdir::TestDir::new("push-fault-store");
+        fs::create_dir_all(d.join("libexec")).unwrap();
+        tehas_core::testing::write_exe(
+            d.join("libexec/store"),
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$TEHAS_FAULT_CALLS\"\n".to_string()
+                + "echo '{\"api\":1,\"verb\":\"cycle-end\",\"ok\":true}'\n",
+        )
+        .unwrap();
+        let calls = d.join("calls");
+        fs::write(&calls, "").unwrap();
+        let git = "error: failed to push some refs\n";
+        std::env::set_var("TEHAS_FAULT_CALLS", &calls);
+        for attempt in ["", "3", "x"] {
+            if attempt.is_empty() {
+                std::env::remove_var("TEHAS_CYCLE_ATTEMPT");
+            } else {
+                std::env::set_var("TEHAS_CYCLE_ATTEMPT", attempt);
+            }
+            push_fault(d.path(), 7, git.trim_end());
+        }
+        std::env::remove_var("TEHAS_CYCLE_ATTEMPT");
+        std::env::remove_var("TEHAS_FAULT_CALLS");
+        // Only the attempt of a dispatch reached the store, and once.
+        assert_eq!(
+            fs::read_to_string(&calls).unwrap().trim_end(),
+            "cycle-end 7 --attempt 3 --status push-fault"
+        );
+        let v: Value =
+            serde_json::from_str(fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end())
+                .unwrap();
+        assert_eq!(v["line"], "error: failed to push some refs");
+        assert_eq!(v["login"], "");
+        assert_eq!(v.as_object().unwrap().len(), 3);
+        assert!(tehas_core::time::from_iso(v["at"].as_str().unwrap()).is_some());
+    }
+
     #[test]
     fn a_push_log_that_cannot_be_made_is_no_pass() {
         let t = Tree {
@@ -1124,6 +1362,96 @@ mod tests {
         };
         let nowhere = Path::new("/nonexistent/tehas/work.jsonl.preflight");
         assert_eq!(push_check(&t, &json!({}), "/nonexistent", nowhere), Some(3));
+        // The log of a check the host could not run wrote no words of its own,
+        // so it names no fault: a filesystem fault is no refusal of a push, and
+        // no file is left to make the host look unable to push.
+        assert_eq!(preflight_line(nowhere), "");
+        let d = tehas_core::testdir::TestDir::new("push-fault-unmade");
+        fs::create_dir_all(d.join("state")).unwrap();
+        fs::write(d.join(PUSH_FAULT), "a fault of an earlier start\n").unwrap();
+        push_fault(d.path(), 7, &preflight_line(nowhere));
+        assert_eq!(
+            fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end(),
+            "a fault of an earlier start"
+        );
+    }
+
+    /// The three fields of the fault, its mode, and the word that ends the
+    /// start that found it: the store keeps `push-fault` because
+    /// `tehas_core::grammar::an_end` counts it an end.
+    #[test]
+    fn a_failed_push_check_records_the_fault_and_a_passing_one_removes_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tehas_core::testdir::TestDir::new("push-fault");
+        let preflight = d.join("logs/work-7.preflight");
+        fs::create_dir_all(d.join("logs")).unwrap();
+        fs::create_dir_all(d.join("state/github")).unwrap();
+        fs::write(d.join("state/github/login"), "acme-app[bot]\n").unwrap();
+        fs::write(
+            &preflight,
+            "\nremote: Permission to acme/widget denied to acme-app[bot].\n",
+        )
+        .unwrap();
+        push_fault(d.path(), 7, &preflight_line(&preflight));
+        let file = d.join(PUSH_FAULT);
+        let v: Value = serde_json::from_str(fs::read_to_string(&file).unwrap().trim_end()).unwrap();
+        assert_eq!(v["login"], "acme-app[bot]");
+        assert_eq!(
+            v["line"],
+            "remote: Permission to acme/widget denied to acme-app[bot]."
+        );
+        let at = v["at"].as_str().unwrap();
+        assert!(tehas_core::time::from_iso(at).is_some(), "{at}");
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(tehas_core::grammar::an_end("push-fault"));
+        // A check that passed takes the fault away, so the next start is
+        // judged on its own check and not on this one's.
+        record_fault(d.path(), PUSH_FAULT, "", 0);
+        assert!(!file.exists());
+    }
+
+    /// The fault is one fact of the host: its name holds no issue, and a start
+    /// run by hand records it as much as a start of the dispatch does.
+    #[test]
+    fn the_fault_of_a_run_by_hand_names_the_host_and_no_attempt() {
+        std::env::set_var("TEHAS_REPO", "acme/widget");
+        std::env::remove_var("TEHAS_CYCLE_ATTEMPT");
+        let d = tehas_core::testdir::TestDir::new("push-fault-no-attempt");
+        let preflight = d.join("work-7.preflight");
+        fs::write(&preflight, "fatal: could not read from remote repository\n").unwrap();
+        push_fault(d.path(), 7, &preflight_line(&preflight));
+        let v: Value =
+            serde_json::from_str(fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end())
+                .unwrap();
+        assert_eq!(v["line"], "fatal: could not read from remote repository");
+        assert!(!d.join("state/cycles").exists());
+        std::env::remove_var("TEHAS_REPO");
+    }
+
+    #[test]
+    fn the_fault_line_is_the_first_that_says_something_and_is_masked() {
+        assert_eq!(fault_line(b"\n\n  \n"), "");
+        assert_eq!(fault_line(b""), "");
+        assert_eq!(fault_line(b"one\ntwo\n"), "one");
+        // A token in git's words never reaches the host's file: its shape is
+        // hidden, as the mask of the host hides it.
+        assert_eq!(
+            fault_line(b"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
+            "ghp_***"
+        );
+    }
+
+    #[test]
+    fn only_a_start_of_the_supervisor_has_an_attempt_to_end() {
+        for yes in ["1", "2", "999999999"] {
+            assert!(is_attempt(yes), "{yes}");
+        }
+        for no in ["", "0", "01", "-1", "1 ", "x", "1.0", "10000000000"] {
+            assert!(!is_attempt(no), "{no}");
+        }
     }
 
     #[test]

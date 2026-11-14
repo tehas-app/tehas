@@ -110,6 +110,21 @@ jobs:
           dir=$HOME/.cache/tehas-target/$RUNNER_NAME
           mkdir -p "$dir"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+      - name: the toolchain the gate builds with
+        run: |
+          # Without cargo every Rust test fails on its own line and the red
+          # reads as the change's. The job stops here with that one cause.
+          missing=()
+          command -v cargo >/dev/null 2>&1 || missing+=(cargo)
+          command -v rustc >/dev/null 2>&1 || missing+=(rustc)
+          cargo fmt --version >/dev/null 2>&1 || missing+=(rustfmt)
+          cargo clippy --version >/dev/null 2>&1 || missing+=(clippy)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=the runner cannot build::runner $RUNNER_NAME has no ${missing[*]} on the job's PATH. No test ran: this failure is the runner's, not the change's."
+            exit 1
+          fi
+          cargo --version
+          rustc --version
       - name: scripts/verify.sh
         run: scripts/verify.sh
   names:
