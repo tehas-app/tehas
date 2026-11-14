@@ -153,7 +153,7 @@ fn host_shape(given: &[(String, String)]) -> Vec<(String, J)> {
     static HOST: OnceLock<Regex> = OnceLock::new();
     let host = HOST.get_or_init(|| {
         Regex::new(
-            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
+            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|SLICE_CONTAINERS|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
         )
         .unwrap()
     });
@@ -562,6 +562,7 @@ mod tests {
         let host = [
             ("TEHAS_WORK_TIMEOUT".to_string(), "600".to_string()),
             ("TEHAS_WORK_STALL".to_string(), "0".to_string()),
+            ("TEHAS_SLICE_CONTAINERS".to_string(), "4".to_string()),
             ("TEHAS_GITHUB_TOKEN".to_string(), "gh_secret".to_string()),
             ("PATH".to_string(), "/bin".to_string()),
         ];
@@ -575,6 +576,7 @@ mod tests {
                 "    \"PI_ENSEMBLE_NOT_A_SETTING\": \"x\"\n",
                 "  },\n",
                 "  \"host\": {\n",
+                "    \"TEHAS_SLICE_CONTAINERS\": \"4\",\n",
                 "    \"TEHAS_WORK_STALL\": \"0\",\n",
                 "    \"TEHAS_WORK_TIMEOUT\": \"600\"\n",
                 "  },\n",
