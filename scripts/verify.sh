@@ -172,8 +172,19 @@ step "no product or host names in platform files" scripts/check-generic.sh
 step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-lines.sh
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
-elif [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
-  step "shellcheck and the shell tests of the change" scripts/test.sh "${tests[@]}" "${paths[@]}"
+else
+  # test.sh exits 3 when the paths hold no test file and nothing to lint:
+  # nothing ran, which is a skip and not an "ok".
+  rc=3
+  if [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
+    rc=0
+    scripts/test.sh "${tests[@]}" "${paths[@]}" >"$tmp/out" 2>&1 || rc=$?
+  fi
+  if [ "$rc" = 3 ]; then
+    echo "skip  shellcheck and the shell tests (no test file or shell script among the change)"
+  else
+    report "shellcheck and the shell tests of the change" "$rc" "$tmp/out"
+  fi
 fi
 if [ "$cargo_wanted" = 0 ]; then
   echo "skip  the workspace's tests (the change touches nothing under console/)"

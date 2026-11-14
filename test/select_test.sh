@@ -181,7 +181,8 @@ gitrepo
 t_run "cd '$repo' && bash scripts/verify.sh --changed"
 t_eq "$t_rc" 0
 t_contains "$t_out" "note  0 changed paths"
-t_lacks "$t_out" "shell tests"
+t_contains "$t_out" "skip  shellcheck and the shell tests"
+t_lacks "$t_out" "ok    shellcheck"
 [ ! -e "$T/ran-a_test.sh" ] || t_bad "a_test.sh ran"
 
 t_case "verify.sh --changed fails when a selected test file fails"
