@@ -9,17 +9,15 @@
 //! [`crate::tools::DASHBOARD`], beside the catalog of the tools. A key in both
 //! lists is refused, so no key's scope is a guess.
 //!
-//! The shape a key must have is the rule of [`listed`] alone; the check in
-//! `console/ops/src/mcp.rs` of the same two settings is a fast reading of it before the
-//! container is started, and says nothing the server does not enforce.
+//! The shape a key must have is `tehas_core::grammar::mcp_keys`; the check in
+//! `console/ops/src/mcp.rs` of the same two settings calls it too, before the
+//! container is started, so it says nothing the server does not enforce.
 //!
 //! The server is still given `~/tehas/mcp` and `~/tehas/logs`: the scope
 //! lives in the program, not in the mounts.
 
 use crate::tools::{self, Entry, Scope};
 use sha2::{Digest, Sha256};
-
-const MIN_LEN: usize = 32;
 
 /// One of the two settings that hold keys: its name in the environment, the
 /// word of an error, and the scope a key of it is given. A third list would
@@ -140,25 +138,11 @@ pub fn parse_keys(of: [(&'static Setting, &str); 2]) -> Result<Keys, String> {
     Ok(Keys(keys))
 }
 
-/// One list of keys, each checked: at least [`MIN_LEN`] characters of
-/// `A-Za-z0-9_-`. `console/ops/src/mcp.rs` reads the same rule for the same two
-/// settings before it starts the container; this is the rule that stands. The error
-/// names the setting and the key's place in it, never the key.
+/// One list of keys, by the rule of `tehas_core::grammar::mcp_keys`, which
+/// `console/ops/src/mcp.rs` also reads before it starts the container.
 fn listed(raw: &str, of: Setting) -> Result<Vec<String>, String> {
-    let keys: Vec<String> = raw.split_whitespace().map(str::to_string).collect();
-    for (i, k) in keys.iter().enumerate() {
-        let ok = k.len() >= MIN_LEN
-            && k.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-        if !ok {
-            return Err(format!(
-                "{}: key {} is not at least {MIN_LEN} characters of A-Za-z0-9_-",
-                of.name(),
-                i + 1,
-            ));
-        }
-    }
-    Ok(keys)
+    let keys = tehas_core::grammar::mcp_keys(raw, of.name())?;
+    Ok(keys.into_iter().map(str::to_string).collect())
 }
 
 impl Keys {
