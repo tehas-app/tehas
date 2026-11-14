@@ -1079,6 +1079,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &mut set,
     );
     if rc != 0 {
+        // A sandbox that cannot push is the factory's fault: the start says so
+        // on the host and on the issue, ends its own record as push-fault, and
+        // leaves the issue's labels alone. The park of a cycle that ran is the
+        // report's, and this arm never reaches it.
+        if rc == 3 {
+            prepare::push_fault(
+                home,
+                n,
+                &prepare::preflight_line(&prepare::preflight_of(&log)),
+            );
+        }
         return rc;
     }
     let gap = if give {
