@@ -367,12 +367,13 @@ pub fn write(
         .filter(|c| c.is_ascii_alphanumeric() || "_.:-".contains(*c))
         .take(80)
         .collect();
-    let reason = crate::runner::cut_reason(&prose(&e.reason));
     let kills = if re(r"^(0|[1-9][0-9]{0,8})$", &e.kills) {
         e.kills.as_str()
     } else {
         "0"
     };
+    let reason =
+        crate::runner::cap_reason(&cap, &prose(&e.reason), kills.parse().unwrap_or(0), &[]);
     let image = if re(r"^sha256:[0-9a-f]{64}$", &e.image) {
         e.image.as_str()
     } else {

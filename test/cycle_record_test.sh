@@ -114,6 +114,28 @@ t_contains "$t_out" "oom_kills=3"
 t_eq "$(jq -c '[.status, .rc, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,3]'
 t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
 
+# A reason that only repeats the cap word is no evidence: the record says so,
+# and says the memory kill beside it, so a memory plan that is too tight is not
+# read as a change that failed its gate.
+t_case "a cap the driver only named is on record as no evidence, with its memory kill"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff develop feature/x verify-failed:develop
+echo '{"roles":[],"reason":"verify-failed:develop"}' >"$fx/progress.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 1 >"$TEHAS_HOME/state/cycles/7.oom"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.cap, .capReason, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["verify-failed:develop","no evidence from the driver; 1 process in its container was killed for memory",1]'
+
+t_case "a cap with no reason at all is on record as no evidence, never as the bare cap"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff develop feature/x round-cap
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.cap, .capReason, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["round-cap","no evidence from the driver",0]'
+
 t_case "a stalled cycle is reported as stalled with how long nothing moved, parked, and the file removed"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
@@ -194,7 +216,7 @@ nostart 1
 echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -r '.capReason' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  "the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"
+  "the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started; 3 processes in its container were killed for memory"
 t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
 t_lacks "$(t_calls gh)" "processes in its container were killed for memory"
 t_eq "$(find "$state/7.nostart" "$state/7.oom" 2>/dev/null | wc -l)" 0
