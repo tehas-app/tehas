@@ -90,22 +90,11 @@ pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
     (active, false)
 }
 
-/// tehas_pause_read: the flag, "unreadable" for one that is no flag, null for
-/// none.
+/// The pause flag, as `tehas pause` and the health page read it: the one
+/// reader in tehas_core. Null for none, "unreadable" for something at the name
+/// that is no flag.
 pub fn pause(home: &Path) -> Value {
-    let p = home.join("state/pause.json");
-    if !p.exists() {
-        return Value::Null;
-    }
-    let v: Value = fs::read_to_string(&p)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(Value::Null);
-    if v.get("at").is_some_and(Value::is_string) && v.get("reason").is_some_and(Value::is_string) {
-        v
-    } else {
-        json!("unreadable")
-    }
+    tehas_core::pause::read(&home.join("state/pause.json")).value()
 }
 
 /// How long the poll holds starts on a push fault before it tries again. Part
@@ -479,6 +468,28 @@ mod tests {
         let d = TestDir::new(&format!("dispatch-host-{name}"));
         fs::create_dir_all(d.join("state")).unwrap();
         d
+    }
+
+    #[test]
+    fn a_pause_flag_is_read_as_the_console_reads_it() {
+        let h = home("pause");
+        let file = h.join("state/pause.json");
+        assert_eq!(pause(&h), Value::Null, "no file");
+        fs::write(
+            &file,
+            r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"r"}"#,
+        )
+        .unwrap();
+        assert_eq!(pause(&h)["at"], json!("2026-10-15T10:00:00Z"));
+        // A link whose target is gone is something at the name, so it holds.
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(h.join("gone.json"), &file).unwrap();
+        assert_eq!(pause(&h), json!("unreadable"));
+        assert_eq!(
+            tehas_core::pause::read(&file).state,
+            "unreadable",
+            "the console's reading"
+        );
     }
 
     #[test]
