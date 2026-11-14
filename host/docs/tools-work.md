@@ -125,11 +125,27 @@ state store is not installed (run install.sh)`.
 Under `tehasbot cycle`, as the container starts, the image's id, the pi-rukas
 commit of its label `tehas.rukas` and the settings the cycle is given go on the
 cycle's record in the state store (`cycle-image`), for its report. A store that
-is busy or does not answer in time only costs the record: the command says so
-on its error stream and the cycle runs. Any other refusal stops the start with
+is busy or does not answer in time is asked once more a second later. One that
+is still busy only costs the record: the command says so on its error stream,
+with the image id the container runs, and the cycle runs. Any other refusal stops the start with
 exit 4, and the issue is told `Tehas started no cycle: its record on this host
 could not be updated as it started`. A run on its own has no attempt and
 records no image.
+
+Before the container starts, the command clears what a cycle of the issue left
+under `state/cycles/<issue>.*`. A cycle's end clears these notes itself, so
+what is still there comes from a cycle that was killed before its end: the
+command names it on its error stream with the first line of each (the
+container id, the counts of out-of-memory kills and refused forks, the signal)
+before it removes it. A container under the cycle's name that outlived its
+client is removed with `docker rm -f`, and that is said too, as is a removal
+that failed for any reason but there being no such container.
+
+The workspace a stopped cycle left is moved to `<name>-<issue>.before-retry`.
+When one is already there, from the cycle before that, it is first renamed to
+`.before-retry.old` and removed only once the newer tree is in its place, and
+the command says that it replaced it. When the move fails, or the older tree
+cannot be removed, both trees are put back and the start stops.
 
 What is bound here is the body and the title: the record carries the hash of
 each, and a start is refused when either is not the approved one. The

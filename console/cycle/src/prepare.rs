@@ -41,6 +41,9 @@ use tehas_core::{lock, time};
 /// The words of the limits, then of the security options, as the slice gave them.
 const LIMIT_WORDS: usize = 14;
 
+/// What of the protocol a killed cycle leaves as its evidence.
+const EVIDENCE: [&str; 7] = ["cid", "oom", "forks", "stalled", "timed", "signal", "disk"];
+
 const PROTOCOL: [&str; 15] = [
     "cid",
     "oom",
@@ -423,8 +426,73 @@ fn aside(tree: &str) -> bool {
     if !Path::new(tree).exists() {
         return true;
     }
+    let (moved, lines) = match swap_aside(tree) {
+        Ok(lines) => (true, lines),
+        Err(lines) => (false, lines),
+    };
+    lines.iter().for_each(|l| say(l));
+    moved
+}
+
+/// Moves `tree` to `<tree>.before-retry`. The tree already there is first
+/// renamed out of the way and removed only once `tree` is in its place; when
+/// that move fails it is put back. The lines say what was replaced or kept.
+fn swap_aside(tree: &str) -> Result<Vec<String>, Vec<String>> {
     let kept = format!("{tree}.before-retry");
-    ran(Command::new("rm").args(["-rf", &kept])) && ran(Command::new("mv").args([tree, &kept]))
+    let old = format!("{kept}.old");
+    if !Path::new(&kept).exists() {
+        return fs::rename(tree, &kept).map(|()| Vec::new()).map_err(|e| {
+            vec![format!(
+                "tehas work: could not move {tree} aside to {kept}: {e}"
+            )]
+        });
+    }
+    let mut lines = Vec::new();
+    // Left only by a start killed between the two renames below.
+    if Path::new(&old).exists() {
+        if !ran(Command::new("rm").args(["-rf", &old])) {
+            lines.push(format!(
+                "tehas work: could not remove {old}, left by an earlier start"
+            ));
+            return Err(lines);
+        }
+        lines.push(format!(
+            "tehas work: removed {old}, left by an earlier start"
+        ));
+    }
+    if let Err(e) = fs::rename(&kept, &old) {
+        lines.push(format!(
+            "tehas work: could not move {kept} out of the way: {e}"
+        ));
+        return Err(lines);
+    }
+    if let Err(e) = fs::rename(tree, &kept) {
+        lines.push(format!(
+            "tehas work: could not move {tree} aside to {kept}: {e}"
+        ));
+        if let Err(e) = fs::rename(&old, &kept) {
+            lines.push(format!(
+                "tehas work: could not put {old} back at {kept}: {e}"
+            ));
+        }
+        return Err(lines);
+    }
+    if !ran(Command::new("rm").args(["-rf", &old])) {
+        // Both trees go back where they were and the start stops: a tree
+        // under a name no clean knows would be kept for good.
+        lines.push(format!("tehas work: could not remove {old}"));
+        let back = fs::rename(&kept, tree).and_then(|()| fs::rename(&old, &kept));
+        if let Err(e) = back {
+            lines.push(format!(
+                "tehas work: could not put the workspaces back at {tree} and {kept}: {e}"
+            ));
+        }
+        return Err(lines);
+    }
+    lines.push(format!(
+        "tehas work: replaced what the cycle before last left at {kept} with what the last cycle left"
+    ));
+    Ok(lines)
 }
 
 /// The workspace of the cycle before, moved aside by this start. A start that
@@ -581,7 +649,7 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
     }
     if matches!(rc, 124 | 137) {
         let line = format!("the install did not end within {}s", install::WAIT);
-        let _ = append(preflight, &line);
+        to_preflight(preflight, &line);
     }
     say(&format!(
         "tehas work: the product's install failed (exit {rc}), not starting a cycle:"
@@ -627,16 +695,38 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
     }
     if matches!(rc, 124 | 137) {
         let line = format!("the push check did not end within {}s", t.push_wait);
-        let _ = append(preflight, &line);
+        to_preflight(preflight, &line);
     }
     say("tehas work: the sandbox cannot push to origin, not starting a cycle:");
-    let text = fs::read(preflight).unwrap_or_default();
-    let text = String::from_utf8_lossy(&text);
-    let lines: Vec<&str> = text.lines().collect();
-    for line in &lines[lines.len().saturating_sub(3)..] {
+    for line in last_lines(preflight, 3, &format!("the push check (exit {rc})")) {
         say(&format!("    {line}"));
     }
     Some(3)
+}
+
+/// The last `n` lines of the log, or a line that says it could not be read or
+/// that `what` wrote nothing into it.
+fn last_lines(log: &Path, n: usize, what: &str) -> Vec<String> {
+    let text = match fs::read(log) {
+        Ok(t) => t,
+        Err(e) => return vec![format!("its log {} could not be read: {e}", log.display())],
+    };
+    let text = String::from_utf8_lossy(&text);
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    if lines.is_empty() {
+        return vec![format!("{what} wrote nothing into {}", log.display())];
+    }
+    lines[lines.len().saturating_sub(n)..].to_vec()
+}
+
+/// A line of the preflight log; a line that cannot be written there is said.
+fn to_preflight(preflight: &Path, line: &str) {
+    if !append(preflight, line) {
+        eprintln!(
+            "tehas work: could not write to {}: {line}",
+            preflight.display()
+        );
+    }
 }
 
 fn append(file: &Path, line: &str) -> bool {
@@ -755,7 +845,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         }
         for step in &steps {
             let line = format!("install {}", step.line());
-            let _ = append(&preflight, &line);
+            to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
         if let Some(rc) = install(&state, &tree, &steps, &preflight) {
@@ -766,7 +856,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         return STOPPED;
     }
     let retry = sandbox::retry_line(&tree);
-    let _ = append(&preflight, &retry);
+    to_preflight(&preflight, &retry);
     say(&format!("tehas work: {retry}"));
     // Asked for only once this cycle can start: a cycle that never began leaves
     // no copy behind. A copy that fails is not worth stopping a cycle for.
@@ -791,7 +881,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         .filter_map(|l| l.split_whitespace().next())
     {
         let line = format!("model endpoint: provider {provider} is on its backup");
-        let _ = append(&preflight, &line);
+        to_preflight(&preflight, &line);
         say(&format!("tehas work: {line}"));
     }
     if t.stop.came() {
@@ -867,8 +957,9 @@ fn image_of(text: &str) -> Option<(String, Option<String>)> {
 /// The image the cycle runs, as the container starts: a rebuild or a new pin
 /// while the cycle runs does not change what it ran. On the cycle's record with
 /// what the container is given of the settings, and how many cycles run now. A
-/// record that is not this start's, or has ended, is no start to run; a store
-/// that is only busy costs the record, not the cycle. False stops the start.
+/// record that is not this start's, or has ended, is no start to run. A busy
+/// store is asked once more a second later; one still busy costs the record,
+/// not the cycle. False stops the start.
 fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     let Some((id, commit)) = seen else {
         return true;
@@ -889,7 +980,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
             eprintln!("tehas work: the settings of this cycle could not be written for its record")
         }
     }
-    let done = host::store_said(home, &args);
+    let done = host::store_try(home, 2, &args);
     if let Some(p) = &settings {
         let _ = fs::remove_file(p);
     }
@@ -902,7 +993,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     }
     if matches!(refused.word.as_str(), "busy" | "timeout") {
         eprintln!(
-            "tehas work: the image of #{n} is not on its record: the state store did not answer ({})",
+            "tehas work: the image of #{n} is not on its record: the state store did not answer twice ({}), the container runs {id} all the same",
             refused.word
         );
         return true;
@@ -945,18 +1036,19 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         return Err(STOPPED);
     }
     // Docker refuses a cid file that is already there. One is left only by a
-    // cycle that was killed outright, and so is a count of kills.
-    for name in PROTOCOL {
-        let _ = fs::remove_file(file(name));
+    // cycle that was killed outright, and so is a count of kills: said before
+    // it goes.
+    for line in wipe_protocol(&file, r.issue) {
+        eprintln!("{line}");
     }
     // A container under this name outlived the client that started it: this
     // command holds the issue's lock, so no cycle owns it. It would work on with
     // the bot's token, and Docker would refuse the name.
     let words = ["docker", "rm", "-f", &r.name].map(String::from);
-    let _ = bounded(10, r.stop_wait, &words)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let out = bounded(10, r.stop_wait, &words).output();
+    if let Some(line) = removed_said(&r.name, &out) {
+        eprintln!("{line}");
+    }
     if r.stop.came() {
         return Err(STOPPED);
     }
@@ -975,6 +1067,8 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         "off"
     };
     if fs::write(file("comments"), format!("{mode}\n")).is_err() {
+        // What is left there is the word of a cycle before.
+        let _ = fs::remove_file(file("comments"));
         eprintln!("tehas work: could not write the image's word on comments, a park of this cycle offers no comments retry");
     }
     if mode == "polyfill" && state.pointer("/comments/unguard") == Some(&Value::Bool(true)) {
@@ -984,9 +1078,11 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     // name one before it used: what err.txt of the record copies is only what
     // this cycle writes into it. The line of the attachments' gap is one of them.
     let err = on(&r.log, ".err");
-    let _ = fs::remove_file(&err);
-    if !r.gap.is_empty() && !append(&err, &r.gap) {
-        eprintln!("tehas work: could not write {}", err.display());
+    if let Err(e) = start_err(&err, &r.gap) {
+        eprintln!(
+            "tehas work: could not start {} afresh ({e}), what it holds may be a cycle's before",
+            err.display()
+        );
     }
     let cid = file("cid").to_string_lossy().into_owned();
     let Some(verb) = state.get("verb").and_then(Value::as_str) else {
@@ -994,6 +1090,98 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
         return Err(78);
     };
     Ok(run_words(r, &state, &env_words, &cid, &image, verb))
+}
+
+/// The stderr file of the cycle's log, holding `gap` alone. What was there
+/// stays until the new text is written in full.
+fn start_err(err: &Path, gap: &str) -> std::io::Result<()> {
+    if gap.is_empty() {
+        return match fs::remove_file(err) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let new = on(err, ".new");
+    fs::write(&new, format!("{gap}\n"))
+        .and_then(|()| fs::rename(&new, err))
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&new);
+        })
+}
+
+/// Removes what a cycle before left of the protocol. The lines name what a
+/// killed cycle left, the counts in it, and what could not be removed.
+fn wipe_protocol(file: &dyn Fn(&str) -> PathBuf, issue: u64) -> Vec<String> {
+    let mut left = Vec::new();
+    let mut lines = Vec::new();
+    for name in PROTOCOL {
+        let path = file(name);
+        if fs::symlink_metadata(&path).is_err() {
+            continue;
+        }
+        if EVIDENCE.contains(&name) {
+            let text = fs::read_to_string(&path).unwrap_or_default();
+            let first: String = text
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .take(80)
+                .collect();
+            left.push(if first.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name} ({first})")
+            });
+        }
+        if let Err(e) = fs::remove_file(&path) {
+            lines.push(format!(
+                "tehas work: could not remove {}: {e}",
+                path.display()
+            ));
+        }
+    }
+    if !left.is_empty() {
+        lines.insert(
+            0,
+            format!(
+                "tehas work: the last cycle of #{issue} ended without reading what it left, removed now: {}",
+                left.join(", ")
+            ),
+        );
+    }
+    lines
+}
+
+/// The line on `docker rm -f` of the cycle's name: a container that outlived
+/// its cycle, or why it could not be removed. None when there was none.
+fn removed_said(name: &str, out: &std::io::Result<std::process::Output>) -> Option<String> {
+    let out = match out {
+        Ok(o) => o,
+        Err(e) => {
+            return Some(format!(
+                "tehas work: could not run docker rm -f {name}: {e}"
+            ))
+        }
+    };
+    let err = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() {
+        return Some(format!(
+            "tehas work: removed the container {name}, which outlived the cycle that started it"
+        ));
+    }
+    if err.contains("No such container") {
+        return None;
+    }
+    let why = err.lines().next().unwrap_or("").trim();
+    let rc = out
+        .status
+        .code()
+        .map_or("a signal".to_string(), |c| format!("exit {c}"));
+    Some(format!(
+        "tehas work: could not remove the container {name} ({rc}): {why}"
+    ))
 }
 
 /// The words of the cycle's docker run of `verb`, of `image`, with the
@@ -1027,9 +1215,140 @@ fn run_words(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_failed_move_aside_keeps_the_tree_already_there() {
+        let d = tehas_core::testdir::TestDir::new("prepare-swap-fail");
+        fs::create_dir_all(d.join("w.before-retry")).unwrap();
+        fs::write(d.join("w.before-retry/old"), "x").unwrap();
+        let tree = d.join("w");
+        let lines = swap_aside(tree.to_str().unwrap()).unwrap_err();
+        assert!(d.join("w.before-retry/old").exists());
+        assert!(!d.join("w.before-retry.old").exists());
+        assert!(lines[0].contains("could not move"), "{lines:?}");
+    }
+
+    #[test]
+    fn an_aside_that_cannot_be_removed_is_put_back_and_the_start_stops() {
+        let d = tehas_core::testdir::TestDir::new("prepare-swap-held");
+        fs::create_dir_all(d.join("w")).unwrap();
+        fs::write(d.join("w/new"), "x").unwrap();
+        fs::create_dir_all(d.join("w.before-retry/held")).unwrap();
+        let ro = |mode| {
+            fs::set_permissions(d.join("w.before-retry"), fs::Permissions::from_mode(mode)).unwrap()
+        };
+        ro(0o555);
+        let held = d.join("w.before-retry/probe");
+        if fs::write(&held, "").is_ok() {
+            // Root writes anyway: nothing to see.
+            ro(0o755);
+            return;
+        }
+        let lines = swap_aside(d.join("w").to_str().unwrap()).unwrap_err();
+        ro(0o755);
+        assert!(d.join("w/new").exists(), "{lines:?}");
+        assert!(d.join("w.before-retry/held").is_dir(), "{lines:?}");
+        assert!(!d.join("w.before-retry.old").exists(), "{lines:?}");
+        assert!(lines[0].contains("could not remove"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_replaced_aside_is_said_and_a_stale_one_removed() {
+        let d = tehas_core::testdir::TestDir::new("prepare-swap-said");
+        fs::create_dir_all(d.join("w")).unwrap();
+        fs::write(d.join("w/new"), "x").unwrap();
+        fs::create_dir_all(d.join("w.before-retry")).unwrap();
+        fs::create_dir_all(d.join("w.before-retry.old")).unwrap();
+        let lines = swap_aside(d.join("w").to_str().unwrap()).unwrap();
+        assert!(d.join("w.before-retry/new").exists());
+        assert!(!d.join("w.before-retry.old").exists());
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].contains("removed") && lines[0].contains(".old"));
+        assert!(lines[1].contains("replaced what the cycle before last left"));
+        // Nothing beside: a plain move, nothing to say.
+        fs::create_dir_all(d.join("v")).unwrap();
+        assert!(swap_aside(d.join("v").to_str().unwrap())
+            .unwrap()
+            .is_empty());
+        assert!(d.join("v.before-retry").is_dir());
+    }
+
+    #[test]
+    fn what_a_killed_cycle_left_is_said_before_it_is_removed() {
+        let d = tehas_core::testdir::TestDir::new("prepare-wipe");
+        let file = |name: &str| d.join(format!("7.{name}"));
+        assert!(wipe_protocol(&file, 7).is_empty());
+        fs::write(file("cid"), "abc123\n").unwrap();
+        fs::write(file("oom"), "2\n").unwrap();
+        fs::write(file("signal"), "").unwrap();
+        fs::write(file("status"), "running\n").unwrap();
+        let lines = wipe_protocol(&file, 7);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("#7"), "{lines:?}");
+        assert!(
+            lines[0].ends_with("cid (abc123), oom (2), signal"),
+            "{lines:?}"
+        );
+        for name in PROTOCOL {
+            assert!(!file(name).exists(), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_err_file_keeps_its_text_until_the_new_is_written() {
+        let d = tehas_core::testdir::TestDir::new("prepare-err");
+        let err = d.join("log.err");
+        fs::write(&err, "old\n").unwrap();
+        start_err(&err, "gap").unwrap();
+        assert_eq!(fs::read_to_string(&err).unwrap(), "gap\n");
+        start_err(&err, "").unwrap();
+        assert!(!err.exists());
+        start_err(&err, "").unwrap();
+        // A directory in the way: the write fails and says so.
+        fs::create_dir_all(&err).unwrap();
+        fs::write(err.join("kept"), "x").unwrap();
+        assert!(start_err(&err, "gap").is_err());
+        assert!(err.join("kept").exists());
+        assert!(!on(&err, ".new").exists());
+    }
+
+    #[test]
+    fn docker_rm_of_the_cycle_name_is_said_unless_there_was_none() {
+        let sh = |script: &str| Command::new("sh").args(["-c", script]).output();
+        assert!(removed_said("c", &sh("echo c"))
+            .unwrap()
+            .contains("removed the container c"));
+        let none = sh("echo 'Error response from daemon: No such container: c' >&2; exit 1");
+        assert_eq!(removed_said("c", &none), None);
+        let refused = removed_said("c", &sh("echo 'daemon not running' >&2; exit 1")).unwrap();
+        assert!(
+            refused.ends_with("(exit 1): daemon not running"),
+            "{refused}"
+        );
+        let gone = Err(std::io::Error::other("no timeout"));
+        assert!(removed_said("c", &gone).unwrap().contains("could not run"));
+    }
+
+    #[test]
+    fn the_last_lines_of_a_log_say_when_it_is_empty_or_unreadable() {
+        let d = tehas_core::testdir::TestDir::new("prepare-last");
+        let log = d.join("p");
+        assert!(last_lines(&log, 3, "it")[0].contains("could not be read"));
+        fs::write(&log, "").unwrap();
+        assert_eq!(
+            last_lines(&log, 3, "it")[0],
+            format!("it wrote nothing into {}", log.display())
+        );
+        fs::write(&log, "a\nb\nc\nd\n").unwrap();
+        assert_eq!(last_lines(&log, 3, "it"), ["b", "c", "d"]);
+    }
 
     #[test]
     fn each_name_of_protocol_is_a_cycle_note() {
+        for name in EVIDENCE {
+            assert!(PROTOCOL.contains(&name), "{name}");
+        }
         for name in PROTOCOL {
             assert!(tehas_core::cycle_notes::is_note(name), "{name}");
         }
@@ -1071,6 +1390,48 @@ mod tests {
             assert_eq!(image(&image_of(text)).0, tag, "{text}");
         }
         assert_eq!(image(&None).0, tag);
+    }
+
+    /// A store that answers busy to the first `busy` calls of cycle-image, and
+    /// writes the verb of every call to `calls`.
+    fn busy_store(name: &str, busy: u32) -> tehas_core::testdir::TestDir {
+        let h = tehas_core::testdir::TestDir::new(name);
+        fs::create_dir_all(h.join("libexec")).unwrap();
+        let script = format!(
+            "#!/bin/sh\necho \"$1\" >> \"$TEHAS_HOME/calls\"\n\
+             [ \"$1\" = cycle-image ] || exit 78\n\
+             n=$(grep -c '^cycle-image$' \"$TEHAS_HOME/calls\")\n\
+             if [ \"$n\" -le {busy} ]; then echo 'store: busy: the database is locked' >&2; exit 1; fi\n\
+             printf '%s\\n' '{{\"api\":1,\"ok\":true,\"verb\":\"cycle-image\"}}'\n"
+        );
+        tehas_core::testing::write_exe(h.join("libexec/store"), script).unwrap();
+        h
+    }
+
+    #[test]
+    fn a_busy_store_is_asked_once_more_for_the_image_and_the_cycle_starts() {
+        let r = Record {
+            issue: 7,
+            file: PathBuf::new(),
+            attempt: "1".into(),
+            log: PathBuf::new(),
+            name: "tehas-7".into(),
+            stop_wait: 1,
+            text_wait: 1,
+            gap: String::new(),
+            images: Vec::new(),
+            stop: Stop::default(),
+        };
+        let seen: Seen = Some((format!("sha256:{}", "e".repeat(64)), None));
+        // Busy once: the second ask puts the image on the record. Busy twice:
+        // the record goes without it, and only the record pays.
+        for busy in [1, 2] {
+            let h = busy_store(&format!("prepare-busy-{busy}"), busy);
+            assert!(on_record(h.path(), &r, &json!({}), &seen), "{busy}");
+            let calls = fs::read_to_string(h.join("calls")).unwrap();
+            let asked = calls.lines().filter(|l| *l == "cycle-image").count();
+            assert_eq!(asked, 2, "{busy}: {calls}");
+        }
     }
 
     #[test]

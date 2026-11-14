@@ -802,7 +802,8 @@ unit_start alice
 t_store_answers cycle-image 1 'store: busy #7: the database is locked'
 t_run "$work 7"
 t_eq "$t_rc" 2
-t_contains "$t_out" "the image of #7 is not on its record: the state store did not answer (busy)"
+t_contains "$t_out" "the image of #7 is not on its record: the state store did not answer twice (busy)"
+t_eq "$(t_store_answered)" 2
 rm -f "$T/image.inspect"
 T_ENV=("${env_ok[@]}")
 

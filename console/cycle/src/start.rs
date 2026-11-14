@@ -225,12 +225,17 @@ pub struct Text {
 
 /// The answer read for the issue, or why a start stops for it.
 fn read_issue(t: &Text) -> Result<Vec<u8>, String> {
-    let err = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(side(&t.log, ".err"))
-        .map(Stdio::from)
-        .unwrap_or_else(|_| Stdio::null());
+    let to = side(&t.log, ".err");
+    let err = match OpenOptions::new().create(true).append(true).open(&to) {
+        Ok(f) => Stdio::from(f),
+        Err(e) => {
+            eprintln!(
+                "tehas work: could not open {} ({e}), what GitHub says on reading the issue is not kept",
+                to.display()
+            );
+            Stdio::null()
+        }
+    };
     let out = Command::new("timeout")
         .args(["-k", "10", &t.wait.to_string(), "gh", "api"])
         .arg(format!("repos/{}/issues/{}", t.repo, t.issue))
