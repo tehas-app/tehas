@@ -1772,6 +1772,24 @@ fn a_quiet_cycle_whose_record_says_wait_is_left_and_one_asked_six_times_is_a_per
 }
 
 #[test]
+fn a_quiet_cycle_is_judged_on_the_polls_clock_not_a_later_read() {
+    // Asked twice, last at the poll's own instant: by the poll's clock the
+    // wait has not passed, though by the wall clock it long has.
+    let mut t = world();
+    fs::write(
+        t.dir.join("note"),
+        r#"{"api":1,"verb":"cycle-note","ok":true,"times":2,"stop_asked_at":1793404795}"#,
+    )
+    .unwrap();
+    let mut a = quiet_of(7);
+    a["now"] = json!(1793404795);
+    let out = t.apply(json!([a]));
+    assert!(out.log.is_empty(), "{:?}", out.log);
+    assert_eq!(t.writes().len(), 1);
+    assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+}
+
+#[test]
 fn a_quiet_cycle_the_store_cannot_note() {
     let mut t = world();
     t.fail("store", "cycle-note|nocycle");

@@ -874,6 +874,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     killed += &comments_said(f);
     let forks = count("forks");
+    let pids = pids_limit(f.file("forks").text().unwrap_or(""));
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
         Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
@@ -963,7 +964,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its limit of processes and {forks} starts of a process were refused: what the cycle ran after that may not have run."
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            limit_of(&pids)
         );
     }
     let mut branch = result_branch;
@@ -1068,7 +1070,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!(", step {step} in flight")
         };
         reason = runner::cut_reason(
-            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            &format!(
+                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                limit_of(&pids)
+            ),
         );
     }
     // A container killed from outside the cycle, out of memory or by a kill
@@ -1416,6 +1421,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         File::Text(t) if rc == 78 && !never_started => crate::conflict::said(t),
         _ => None,
     };
+    // Why tehas work's check refused the start, which its run log alone holds
+    // otherwise.
+    let refused = match f.file("refused") {
+        File::Text(t) if rc == 78 && conflicted.is_none() => crate::prepare::refused_said(t),
+        _ => None,
+    };
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {
@@ -1594,8 +1605,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 None => format!("with its pull request open{draft}"),
             }
         };
+        let refused_said = match &refused {
+            Some(said) if !never_started => {
+                format!(" Tehas work refused this start before anything ran. {said}")
+            }
+            _ => String::new(),
+        };
         let mut parked = format!(
-            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut lead = String::new();
@@ -1625,7 +1642,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                let lacks = refused
+                    .as_deref()
+                    .unwrap_or("The log names what the image lacks.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
@@ -1827,6 +1847,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
 /// that worked (`ok`) and one that did not (`stuck`).
 /// The lines of the stream the progress says could not be parsed, and of how
 /// many, when there were any.
+/// The container's pids limit, the second line of its `.forks` file.
+fn pids_limit(text: &str) -> Option<String> {
+    let n = text.split('\n').nth(1)?;
+    re(r"^[1-9][0-9]{0,8}$", n).then(|| n.to_string())
+}
+
+fn limit_of(pids: &Option<String>) -> String {
+    match pids {
+        Some(n) => format!("limit of {n} processes"),
+        None => "limit of processes".to_string(),
+    }
+}
+
 fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
     let v: Value = serde_json::from_str(progress?.trim()).ok()?;
     let count = |k: &str| v.get("unparsed")?.get(k)?.as_u64();
@@ -2351,7 +2384,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2381,6 +2414,41 @@ mod tests {
             "{}",
             park.text
         );
+    }
+
+    #[test]
+    fn the_limit_the_container_reached_is_named_with_its_settings() {
+        let r = refused("21\n2048\n", None);
+        assert!(r.done.contains("forks_refused=21"), "{}", r.done);
+        assert!(
+            r.after.ended.reason.contains(
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+            ),
+            "{}",
+            r.after.ended.reason
+        );
+        let said = comments(&r).join("\n");
+        assert!(
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            "{said}"
+        );
+        for bad in [
+            "21\nmax\n",
+            "21\n0\n",
+            "21\n-4\n",
+            "21\n1234567890\n",
+            "21\n4096; x\n",
+        ] {
+            let r = refused(bad, None);
+            assert!(
+                r.after
+                    .ended
+                    .reason
+                    .contains("its container reached its limit of processes ("),
+                "{bad:?}: {}",
+                r.after.ended.reason
+            );
+        }
     }
 
     #[test]

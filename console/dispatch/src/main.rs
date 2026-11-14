@@ -104,6 +104,10 @@ fn main() {
         }
     }
     let mut env = Value::Object(env);
+    if let Some(why) = Settings::refused(&env) {
+        eprintln!("tehas-dispatch: {why}");
+        std::process::exit(78);
+    }
     // tehas_branch: the setting, or the checkout's origin/HEAD. tehas_core
     // holds the rule, with the bound on the git read and the line lib/config.sh
     // and tehas work give.

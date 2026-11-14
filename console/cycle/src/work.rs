@@ -99,9 +99,11 @@
 //!                installed, tehas.slice is not usable on this host, the
 //!                approval names a driver this tehas does not know, the image
 //!                does not support what the cycle is given (on driver lean
-//!                state/cycles/<issue>.lean-refused says so), or the
-//!                product names no gate in
-//!                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+//!                state/cycles/<issue>.lean-refused says so), the image gave
+//!                no capabilities answer or the workspaces' directory was not
+//!                made by tehas (these three say why in
+//!                state/cycles/<issue>.refused), or the product names no gate
+//!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
 //!                cycle is left where it is.
@@ -997,6 +999,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         restart: g.restart,
         driver: recorded.driver,
         lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
+        refused_note: home.join(format!("state/cycles/{n}.refused")),
         caps_wait,
         console: console.clone(),
         words,

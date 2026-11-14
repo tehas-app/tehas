@@ -191,6 +191,9 @@ pub struct Check {
     pub driver: Driver,
     /// state/cycles/<issue>.lean-refused: left when the image cannot run lean.
     pub lean_note: PathBuf,
+    /// state/cycles/<issue>.refused: why the check refused the start, for the
+    /// park (src/host.rs says its lines).
+    pub refused_note: PathBuf,
     pub caps_wait: u64,
     pub console: String,
     /// The limits and the security options of the slice.
@@ -221,6 +224,49 @@ fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
         format!("{}:/tmp", path.trim_end_matches('\n')),
     ]);
     Some(())
+}
+
+/// A 78 of the check, with its cause left for the report: standard error goes
+/// to the run log only.
+fn refuse(c: &Check, cause: &str) -> i32 {
+    let _ = fs::write(&c.refused_note, cause);
+    78
+}
+
+/// The words a park says of the note [`refuse`] left, or None when the text is
+/// not one. Only words the check wrote are said, each line checked again.
+pub fn refused_said(text: &str) -> Option<String> {
+    let mut lines = text.lines();
+    let first = lines.next()?;
+    if first == "tree-not-ours" {
+        return Some("The directory that holds the workspaces exists and was not made by tehas, so tehas work did not touch it.".into());
+    }
+    if let Some(rc) = first.strip_prefix("caps-unreadable ") {
+        let ok = !rc.is_empty() && rc.len() <= 3 && rc.bytes().all(|b| b.is_ascii_digit());
+        return ok.then(|| {
+            format!("The sandbox image gave no `--capabilities` answer that tehas could read (exit {rc}).")
+        });
+    }
+    if first != "caps-lacking" {
+        return None;
+    }
+    let lacks: Vec<String> = lines
+        .filter(|l| {
+            !l.is_empty()
+                && l.len() <= 200
+                && l.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b" ._,-".contains(&b))
+        })
+        .take(20)
+        .map(|l| format!("`{l}`"))
+        .collect();
+    if lacks.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "The sandbox image does not support what this cycle is given: {}.",
+        lacks.join(", ")
+    ))
 }
 
 /// The first step. Its exit status.
@@ -308,7 +354,7 @@ pub fn check(c: &Check) -> i32 {
             "tehas work: {} exists and was not made by tehas, not touching it",
             works.display()
         );
-        return 78;
+        return refuse(c, "tree-not-ours\n");
     }
     let rec = is_record(&c.record)
         .then(|| record_value(Path::new(&c.record)))
@@ -349,7 +395,7 @@ pub fn check(c: &Check) -> i32 {
         eprintln!(
             "tehas work: {image} gave no --capabilities answer (exit {caps_rc}), not starting a cycle"
         );
-        return 78;
+        return refuse(c, &format!("caps-unreadable {caps_rc}\n"));
     };
     if !lacking.trim_end_matches('\n').is_empty() {
         eprintln!(
@@ -364,7 +410,7 @@ pub fn check(c: &Check) -> i32 {
         for line in lacking.trim_end_matches('\n').lines() {
             eprintln!("    {line}");
         }
-        return 78;
+        return refuse(c, &format!("caps-lacking\n{lacking}"));
     }
     // A workaround the instance carries for a pi-rukas defect ends with the
     // release that fixes it.
@@ -1027,6 +1073,39 @@ fn run_words(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_note_is_said_only_in_the_words_the_check_wrote() {
+        assert_eq!(
+            refused_said("caps-unreadable 127\n").unwrap(),
+            "The sandbox image gave no `--capabilities` answer that tehas could read (exit 127)."
+        );
+        assert!(refused_said("tree-not-ours\n")
+            .unwrap()
+            .contains("was not made by tehas"));
+        assert_eq!(
+            refused_said("caps-lacking\nthe flag --restart\nthe feature leanHandoffHost\n")
+                .unwrap(),
+            "The sandbox image does not support what this cycle is given: `the flag --restart`, `the feature leanHandoffHost`."
+        );
+        // A line the check did not write is left out, and a note with none
+        // of its lines, or another first line, is no note.
+        assert_eq!(
+            refused_said("caps-lacking\nthe input A\n`@x` <b>\n").unwrap(),
+            "The sandbox image does not support what this cycle is given: `the input A`."
+        );
+        for t in [
+            "",
+            "caps-lacking\n",
+            "caps-lacking\n@x\n",
+            "caps-unreadable\n",
+            "caps-unreadable 12a\n",
+            "caps-unreadable 1000\n",
+            "something else\n",
+        ] {
+            assert_eq!(refused_said(t), None, "{t:?}");
+        }
+    }
 
     #[test]
     fn each_name_of_protocol_is_a_cycle_note() {
