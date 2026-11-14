@@ -4206,6 +4206,22 @@ fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout()
 }
 
 #[test]
+fn cycles_that_cannot_be_listed_leave_the_index_alone() {
+    let mut t = world();
+    // A file where the directory should be: the listing fails, and a cycle
+    // may be running.
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(t.w.home.join("state/cycles"), "").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[0],
+        "the code index stays as it is: state/cycles cannot be listed, so a cycle may be running"
+    );
+    assert!(!t.calls().iter().any(|c| c.contains("tehas-index")));
+}
+
+#[test]
 fn a_dirty_checkout_keeps_its_branch_and_a_failed_fetch_is_said() {
     let mut t = world();
     fs::write(t.dir.join("dirty"), " M src/x\n").unwrap();
