@@ -3,6 +3,7 @@
 //! runs the script on the real checkout.
 
 use super::*;
+use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use tehas_core::testdir::TestDir;
 
@@ -527,4 +528,108 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
         t.dir.path(),
     ));
     assert_eq!((c, msg), (64, format!("cannot make {out}")));
+}
+
+/// The packages of the workspace that build a program and that no host is given,
+/// each with why. Every other program is in each list below.
+const NOT_INSTALLED: &[(&str, &str)] = &[
+    ("tehas-xtask", "the development tasks of scripts/"),
+    (
+        "tehas-merge",
+        "built and tested, but no installed command starts it yet",
+    ),
+];
+
+/// The name of `[package]` in a manifest.
+fn package_name(manifest: &str) -> String {
+    let mut in_package = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_package = line == "[package]";
+        } else if let Some(v) = line.strip_prefix("name = ").filter(|_| in_package) {
+            return v.trim_matches('"').to_string();
+        }
+    }
+    panic!("no package name in\n{manifest}");
+}
+
+/// Each word of `text` that follows `marker` up to the first of `ends`.
+fn names_after(text: &str, marker: &str, ends: &[char]) -> BTreeSet<String> {
+    text.split(marker)
+        .skip(1)
+        .map(|rest| rest.split(ends).next().unwrap().to_string())
+        .collect()
+}
+
+fn set(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
+}
+
+#[test]
+fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |p: &str| fs::read_to_string(repo.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+    let root = read("console/Cargo.toml");
+    let members = root
+        .lines()
+        .find_map(|l| l.strip_prefix("members = ["))
+        .expect("console/Cargo.toml: members");
+    let mut dirs = vec![String::new()];
+    dirs.extend(
+        members
+            .trim_end_matches(']')
+            .split(',')
+            .map(|m| format!("{}/", m.trim().trim_matches('"'))),
+    );
+    let mut programs = BTreeSet::new();
+    for dir in &dirs {
+        if repo.join(format!("console/{dir}src/main.rs")).is_file() {
+            programs.insert(package_name(&read(&format!("console/{dir}Cargo.toml"))));
+        }
+    }
+    for (name, why) in NOT_INSTALLED {
+        assert!(
+            programs.remove(*name),
+            "{name} ({why}) is no program of the workspace"
+        );
+    }
+
+    let install = read("install.sh");
+    let compiled = install
+        .lines()
+        .find_map(|l| l.strip_prefix("compiled=("))
+        .expect("install.sh: compiled=(");
+    let compiled: BTreeSet<String> = compiled
+        .trim_end_matches(')')
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+    assert_eq!(compiled, programs, "install.sh compiled=(...)");
+
+    let release = read(".github/workflows/release.yml");
+    let between = |from: &str, to: &str| {
+        let start = release
+            .find(from)
+            .unwrap_or_else(|| panic!("release.yml: {from}"));
+        let rest = &release[start..];
+        rest[..rest.find(to).unwrap_or_else(|| panic!("release.yml: {to}"))].to_string()
+    };
+    let built = names_after(&between("cargo build", "mkdir -p"), " -p ", &[' ', '\n']);
+    assert_eq!(built, programs, "release.yml: cargo build -p");
+    let copies = between("cp \"$target", "\"$RUNNER_TEMP/programs/\"");
+    let copied = names_after(&copies, "/release/", &['"', ' ']);
+    assert_eq!(copied, programs, "release.yml: cp");
+    let flags: BTreeSet<String> = between("scripts/pack-release.sh \"$TAG\"", "--commit")
+        .split_whitespace()
+        .filter(|w| w.starts_with("--"))
+        .map(String::from)
+        .collect();
+    let mut packed = set(&["console"]);
+    let mut pack_flags = set(&["--console"]);
+    for (flag, name) in PROGRAMS {
+        packed.insert(name.to_string());
+        pack_flags.insert(flag.to_string());
+    }
+    assert_eq!(packed, programs, "pack-release PROGRAMS");
+    assert_eq!(flags, pack_flags, "release.yml: pack-release.sh flags");
 }
