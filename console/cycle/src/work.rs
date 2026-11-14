@@ -99,9 +99,11 @@
 //!                installed, tehas.slice is not usable on this host, the
 //!                approval names a driver this tehas does not know, the image
 //!                does not support what the cycle is given (on driver lean
-//!                state/cycles/<issue>.lean-refused says so), or the
-//!                product names no gate in
-//!                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+//!                state/cycles/<issue>.lean-refused says so), the image gave
+//!                no capabilities answer or the workspaces' directory was not
+//!                made by tehas (these three say why in
+//!                state/cycles/<issue>.refused), or the product names no gate
+//!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
 //!                cycle is left where it is.
@@ -362,7 +364,7 @@
 //! dispatch-completed lines and a reason read from lines the runner marks
 //! unstable, which may be empty.
 
-use crate::gives::{self, Gap};
+use crate::gives::{self, Gap, NoAnswer};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
 use crate::renew;
@@ -834,7 +836,8 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
 fn gap(home: &Path, issue: u64, kept: &Path, record: &str, log: &Path) -> String {
     let said = match gives::left_out(home, issue, kept, record) {
         Gap::Said(gap) => format!("tehas work: {gap}"),
-        Gap::Unread => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"),
+        Gap::Unread(no @ NoAnswer::Exited(_)) => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read ({}): nothing is said about what this cycle was not given", no.says("left-out")),
+        Gap::Unread(no) => format!("tehas work: what the cycle of issue {issue} was not given could not be asked ({}): nothing is said about what this cycle was not given", no.says("left-out")),
         Gap::Nothing => return String::new(),
     };
     eprintln!("{said}");
@@ -996,6 +999,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         restart: g.restart,
         driver: recorded.driver,
         lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
+        refused_note: home.join(format!("state/cycles/{n}.refused")),
         caps_wait,
         console: console.clone(),
         words,
