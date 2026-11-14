@@ -1029,6 +1029,62 @@
      }
     ]
    }
+  },
+  {
+   "case": "a fresh push fault of the sandbox starts no cycle, and the poll says why",
+   "snapshot": {
+    "push_fault": {
+     "at": "2026-10-31T00:00:00Z",
+     "login": "tehas-bot",
+     "line": "fatal: could not read Username for 'https://github.com'"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the sandbox cannot push: fatal: could not read Username for 'https://github.com' (tehas-bot)"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ],
+    "report_lacks": [
+     "held"
+    ],
+    "report": {
+     "why": "lane",
+     "hold": "holding: the sandbox cannot push: fatal: could not read Username for 'https://github.com' (tehas-bot)"
+    }
+   }
+  },
+  {
+   "case": "with the fault taken off by a start whose check passed, the issue starts",
+   "snapshot": {
+    "push_fault": null
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice)"
+    ],
+    "log_lacks": [
+     "the sandbox cannot push"
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice"
+     }
+    ],
+    "report": {
+     "why": ""
+    }
+   }
   }
  ]
 }

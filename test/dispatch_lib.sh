@@ -411,7 +411,7 @@ t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
-  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/labels" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" \
+  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/labels" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" "$T/home/tehas/state/push-fault.json" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
   t_store_home "$T/home/tehas"
