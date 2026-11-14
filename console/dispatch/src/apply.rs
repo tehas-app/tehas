@@ -138,7 +138,7 @@ impl Writer {
             i += 1;
             if self.status_due {
                 self.status_due = false;
-                self.status(&mut out.printed);
+                self.status(&mut out.printed, &mut out.log);
             }
             // A step that ended the poll changed the queue: the units it
             // would have started, or the poll that could not read GitHub
