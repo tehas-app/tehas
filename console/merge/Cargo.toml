@@ -1,8 +1,8 @@
 # The easy merge: the first refresh of a conflicting pull request, a merge the
 # rules settle and at most one bare `pi` session, pushed as one merge commit
-# (#1031). The command the dispatcher's start runs, installed as
-# ~/tehas/libexec/tehas-merge by install.sh; libexec/easy-merge is the few lines
-# of glue that puts it in the sandbox container. A member of the workspace in
+# (#1031). Meant as the command the dispatcher's start runs. Not installed yet:
+# no install.sh list or release names it, and no installed command starts it
+# (NOT_INSTALLED in ../xtask/src/pack/tests.rs). A member of the workspace in
 # ../Cargo.toml.
 [package]
 name = "tehas-merge"
