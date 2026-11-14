@@ -60,8 +60,11 @@ version to move to.
 4. check the instance against that version's own console. A setting it
    requires and the instance lacks is named with the value of the release's
    `instances/example/instance.env`, and the update stops with 78 with nothing
-   switched. A `TEHAS_` key in `instance.env` that the version never names is
-   warned about;
+   switched. The check runs under a limit of 120 seconds and reads at most
+   64 KiB of what it says: one that runs out of time or says more stops the
+   update with 1, nothing switched. A `TEHAS_` key in `instance.env` that the
+   version never names is warned about, and a key the version's tree could not
+   be searched for is named in a warning of its own;
 5. point `~/tehas/current` at the version, and run `install.sh` and its
    follow-ups from there, as an update from the checkout does. The commands and
    units are the copies `install.sh` makes from that tree.
@@ -227,9 +230,10 @@ new one.
 
 **Steps owed.** install.sh records each follow-up as it copies the file that calls
 for it, in `$TEHAS_HOME/state/update-pending`, and `tehas update` takes a line off
-the record only once it has run. That record is what makes an update complete: a
-run that stops partway, or an install.sh that died with half its files copied,
-leaves the rest owed instead of losing it with install.sh's one-shot report of
+the record only once it has run. A record that cannot be removed after the last
+step fails the run with exit 1, naming the file. That record is what makes an
+update complete: a run that stops partway, or an install.sh that died with half
+its files copied, leaves the rest owed instead of losing it with install.sh's one-shot report of
 what changed - the next run compares again and finds those files matching.
 `install.sh --check` reports the record as `Follow-ups: NOT DONE` and exits 1
 while any of it is left, including a step line no version of tehas here knows.
@@ -296,7 +300,7 @@ nothing under a home it cannot prove is tehas's.
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | Another update is running, the checkout has local changes, is not on a branch, is not on the default branch of origin or does not know it, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, a `TEHAS_HOME` that is not provably tehas's, the tests) |
+| 1    | Another update is running, the checkout has local changes, is not on a branch, is not on the default branch of origin or does not know it, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, or cannot be removed once its last step ran, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, a `TEHAS_HOME` that is not provably tehas's, the tests) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 

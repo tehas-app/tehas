@@ -26,10 +26,18 @@ fn pr(n: u64, head: &str, text: &str) -> Value {
 }
 
 /// The GraphQL answer that holds `nodes`, a JSON list, or the text itself as
-/// the list when it is no JSON.
+/// the list when it is no JSON, and is the last page.
 fn pulls(nodes: &str) -> String {
+    page(nodes, None)
+}
+
+/// One page of the GraphQL answer: `nodes` as [`pulls`] reads them, and the
+/// cursor of the page after it when one follows.
+fn page(nodes: &str, next: Option<&str>) -> String {
     let nodes: Value = serde_json::from_str(nodes).unwrap_or_else(|_| json!(nodes));
-    json!({"data": {"repository": {"pullRequests": {"nodes": nodes}}}}).to_string()
+    let info = json!({"hasNextPage": next.is_some(), "endCursor": next});
+    json!({"data": {"repository": {"pullRequests": {"pageInfo": info, "nodes": nodes}}}})
+        .to_string()
 }
 
 /// The scratch root of one case.
@@ -350,7 +358,8 @@ impl World {
     /// The `gh` of a case: one line per call in `gh.calls`; the GraphQL list of
     /// open pull requests answers from `list.answer` and `pr create` from
     /// `create.answer`, an absent file being GitHub's nothing and a file of
-    /// `fail` a refusal of the call. A list answer is the nodes alone, as
+    /// `fail` a refusal of the call. The page after cursor `c` answers from
+    /// `list.c.answer` when there is one. A list answer is the nodes alone, as
     /// [`pulls`] wraps them. The body file of a create is copied so a case can
     /// read what the draft said.
     fn stub(&self, list: &str, create: &str) {
@@ -365,8 +374,10 @@ set -u
 dir=$(dirname "$0")
 kind=other
 prev=
+page=
 for a in "$@"; do
   case "$a" in
+    cursor=*) page=.${a#cursor=} ;;
     pr) kind=pr ;;
     api) kind=api ;;
     graphql) [ "$kind" = api ] && kind=list ;;
@@ -380,12 +391,13 @@ done
 case "$kind" in pr|api) kind=other ;; esac
 printf '%s %s\n' "$*" "$kind" >>"$dir/gh.calls"
 ans=$dir/$kind.answer
+[ -f "$dir/$kind$page.answer" ] && ans=$dir/$kind$page.answer
 if [ -f "$ans" ]; then
   [ "$(cat "$ans")" != fail ] || exit 1
   [ "$kind" = other ] || { cat "$ans"; exit 0; }
   exit 0
 fi
-[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}'; exit 0; }
+[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}'; exit 0; }
 exit 0
 "#,
         )
@@ -804,6 +816,51 @@ fn a_list_that_cannot_be_read_is_a_refusal() {
 }
 
 #[test]
+fn the_issues_pull_request_on_a_later_page_is_found() {
+    let w = World::new("list-paged");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    w.stub("", "https://github.com/acme/widget/pull/1");
+    let first: Vec<Value> = (100..200)
+        .map(|n| pr(n, &format!("other-{n}"), ""))
+        .collect();
+    let first = page(&json!(first).to_string(), Some("c2"));
+    fs::write(w.dir.join("list.answer"), format!("{first}\n")).unwrap();
+    let second = pulls(&json!([pr(9, "x", "Fixes #7.")]).to_string());
+    fs::write(w.dir.join("list.c2.answer"), format!("{second}\n")).unwrap();
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h);
+    assert!(got.why.contains("/pull/9"), "{}", got.why);
+    assert!(w.asked("cursor=c2"));
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(!w.asked("pr create"));
+}
+
+#[test]
+fn a_list_that_cannot_be_read_whole_is_a_refusal() {
+    let no_cursor = json!({"data": {"repository": {"pullRequests":
+        {"pageInfo": {"hasNextPage": true}, "nodes": []}}}})
+    .to_string();
+    for (i, (what, answer)) in [
+        ("not json", "not json".to_string()),
+        ("no word on more pages", no_cursor),
+        ("pages without end", page("[]", Some("again"))),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let w = World::new(&format!("list-partial-{i}"));
+        w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+        w.stub("", "https://github.com/acme/widget/pull/1");
+        fs::write(w.dir.join("list.answer"), format!("{answer}\n")).unwrap();
+        let mut h = w.host();
+        let got = finish(&w.plan(), &mut h);
+        assert!(got.why.contains("could not be read"), "{what}: {}", got.why);
+        assert!(!w.remote_has("finish/issue-7"), "{what}");
+        assert!(!w.asked("pr create"), "{what}");
+    }
+}
+
+#[test]
 fn a_name_already_on_the_remote_is_refused() {
     let w = World::new("already-pushed");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
@@ -888,6 +945,15 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
     // there for a reviewer, and no body file is left in the work directory.
     assert!(w.remote_has("finish/issue-7"));
     assert_eq!(w.left(), Vec::<String>::new());
+    // The refusal says so, because the next ask is refused by that branch: it
+    // names the branch and what clears it.
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    assert!(got.why.contains("delete the branch"), "{}", got.why);
     // The next ask finds the name on the remote and refuses rather than pushing
     // the same commits a second time.
     let mut h = w.host();
@@ -908,6 +974,22 @@ fn a_draft_that_said_no_url_is_a_refusal() {
     let got = finish(&w.plan(), &mut h);
     assert!(got.why.contains("no url"), "{}", got.why);
     assert_eq!(got.url, "");
+    // gh may have opened it or not; either way the branch stands, and the
+    // refusal names it, since the next ask is refused while it is there.
+    assert!(w.remote_has("finish/issue-7"));
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    let mut h = w.host();
+    let again = finish(&w.plan(), &mut h);
+    assert!(
+        again.why.contains("already a branch of the remote"),
+        "{}",
+        again.why
+    );
 }
 
 #[test]
@@ -1084,11 +1166,25 @@ fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
     let mut bob = pr(4, "y", "");
     bob["author"] = json!({"login": "bob"});
     let answer = pulls(&json!([own.clone(), fork, alice.clone(), bob]).to_string());
-    assert_eq!(own_pulls(&answer, &plan), vec![own, alice]);
-    assert!(own_pulls("not json", &plan).is_empty());
-    assert!(own_pulls("[]", &plan).is_empty());
-    assert!(own_pulls(r#"{"url":"x"}"#, &plan).is_empty());
-    assert!(own_pulls(&pulls("{}"), &plan).is_empty());
+    assert_eq!(
+        own_pulls(&answer, &plan),
+        Some((vec![own.clone(), alice], None))
+    );
+    assert_eq!(
+        own_pulls(&page(&json!([own.clone()]).to_string(), Some("c2")), &plan),
+        Some((vec![own], Some("c2".to_string())))
+    );
+    assert_eq!(own_pulls(&pulls("[]"), &plan), Some((vec![], None)));
+    // An answer that cannot be read is no answer, never an empty list.
+    assert_eq!(own_pulls("not json", &plan), None);
+    assert_eq!(own_pulls("[]", &plan), None);
+    assert_eq!(own_pulls(r#"{"url":"x"}"#, &plan), None);
+    assert_eq!(own_pulls(&pulls("{}"), &plan), None);
+    let no_word = json!({"data": {"repository": {"pullRequests": {"nodes": []}}}});
+    assert_eq!(own_pulls(&no_word.to_string(), &plan), None);
+    let no_cursor = json!({"data": {"repository": {"pullRequests":
+        {"pageInfo": {"hasNextPage": true, "endCursor": null}, "nodes": []}}}});
+    assert_eq!(own_pulls(&no_cursor.to_string(), &plan), None);
 }
 
 #[test]

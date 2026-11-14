@@ -32,11 +32,17 @@ const MIN_CYCLES: u64 = 1;
 
 /// What a poll read of the host, for the two counts. `memory_slots` and
 /// `cpu_slots` are the readings over the sizes one container and one cycle are
-/// given, before any bound; 0 for a reading that is missing or is no number.
+/// given, before any bound; 0 for a reading that is missing or is no number,
+/// and 0 too for one that holds less than one container or cycle.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Probe {
     pub memory_slots: u64,
     pub cpu_slots: u64,
+    /// Whether the slice's memory and the container's size both answered,
+    /// so that a 0 above is the reading's own answer and not its absence.
+    pub memory_read: bool,
+    /// The same for the CPUs and the share of one cycle.
+    pub cpu_read: bool,
     /// The host's CPUs, None when nproc answered nothing.
     pub cpus: Option<u64>,
     /// What one container is given, as the setting writes it.
@@ -58,15 +64,19 @@ impl Probe {
         cycle_cpus: &str,
         ceiling: &str,
     ) -> Probe {
+        let memory = match (max, size(container_memory)) {
+            (Some(max), Some(b)) => Some(max / b),
+            _ => None,
+        };
+        let cpu = match (cpus, count(cycle_cpus.trim()).filter(|n| *n > 0)) {
+            (Some(c), Some(share)) if c > 0 => Some(c / share),
+            _ => None,
+        };
         Probe {
-            memory_slots: match (max, size(container_memory)) {
-                (Some(max), Some(b)) => max / b,
-                _ => 0,
-            },
-            cpu_slots: match (cpus, count(cycle_cpus.trim()).filter(|n| *n > 0)) {
-                (Some(c), Some(share)) if c > 0 => c / share,
-                _ => 0,
-            },
+            memory_slots: memory.unwrap_or(0),
+            cpu_slots: cpu.unwrap_or(0),
+            memory_read: memory.is_some(),
+            cpu_read: cpu.is_some(),
             cpus,
             container_memory: container_memory.to_string(),
             cycle_cpus: cycle_cpus.to_string(),
@@ -111,7 +121,9 @@ pub struct Auto {
     /// TEHAS_CYCLE_CEILING as the instance wrote it, or the default that
     /// bounds `auto` when it named none.
     pub ceiling: String,
-    /// Below the floor of its own range, which is the count in force.
+    /// Below the floor of its own range, which is the count in force: with
+    /// `host` because nothing answered, with a reading's word because it
+    /// answered less than the floor.
     pub floored: bool,
 }
 
@@ -206,14 +218,15 @@ fn how(v: &str) -> &'static str {
 }
 
 /// The count one `auto` came to, and why. `filled` is what the host's own
-/// readings give; the bounds are put on it here, so the reason is the bound
-/// that actually stopped it.
-fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
+/// readings give and `read` whether they answered at all; the bounds are put
+/// on it here, so the reason is the bound that actually stopped it. A reading
+/// that answered less than the floor is still that reading's, not the host's.
+fn auto(p: &Probe, filled: u64, read: bool, name: &'static str, floor: u64) -> (u64, Auto) {
     let count = filled.min(MAX).min(p.ceiling()).max(floor);
     (
         count,
         Auto {
-            bound: if filled == 0 {
+            bound: if !read {
                 key::BOUND_HOST
             } else {
                 p.bounded(filled, name)
@@ -236,7 +249,13 @@ fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
 pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slots {
     let (containers, container) = match how(containers_written) {
         key::HOW_AUTO => {
-            let (n, a) = auto(p, p.memory_slots, key::BOUND_MEMORY, MIN_CONTAINERS);
+            let (n, a) = auto(
+                p,
+                p.memory_slots,
+                p.memory_read,
+                key::BOUND_MEMORY,
+                MIN_CONTAINERS,
+            );
             (n, Some(a))
         }
         // lib/config.sh keeps a number in 2..=16; anything else is taken as
@@ -246,7 +265,7 @@ pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slot
     };
     let (count, cycle) = match how(cycles_written) {
         key::HOW_AUTO => {
-            let (n, a) = auto(p, p.cpu_slots, key::BOUND_CPU, MIN_CYCLES);
+            let (n, a) = auto(p, p.cpu_slots, p.cpu_read, key::BOUND_CPU, MIN_CYCLES);
             (n, Some(a))
         }
         key::HOW_NUMBER => (count(cycles_written).unwrap_or(MIN_CYCLES), None),
@@ -274,8 +293,18 @@ pub fn words(s: &Slots) -> String {
         "auto: {}, {}-bound{}",
         s.cycles,
         a.bound,
-        if a.floored { ", no reading" } else { "" },
+        floor_words(a.bound, a.floored),
     )
+}
+
+/// What a count at its floor adds to the line: `no reading` when nothing
+/// answered, `at the floor` when a reading answered less than the floor.
+pub fn floor_words(bound: &str, floored: bool) -> &'static str {
+    match (floored, bound) {
+        (false, _) => "",
+        (true, key::BOUND_HOST) => ", no reading",
+        (true, _) => ", at the floor",
+    }
 }
 
 /// The same in full, for a person who asks what a resize did: both counts and
@@ -451,6 +480,27 @@ mod tests {
         // nproc answered nothing holds the cycles.
         let p = Probe::read(None, Some(16), "8g", "4", "");
         assert_eq!(derive(&p, "auto", "auto").containers, 2);
+    }
+
+    #[test]
+    fn a_reading_too_small_for_one_is_named_and_held_at_the_floor() {
+        // Four CPUs at seven each give no whole cycle, and a slice of 4 GiB
+        // no 8g container: both readings answered, so each names itself, not
+        // the host, and the line says the floor, not that nothing answered.
+        let s = both(4 * G, 4, "8g", "7", "");
+        assert_eq!((s.cycles, s.containers), (1, 2));
+        let (c, m) = (s.cycle.clone().unwrap(), s.container.clone().unwrap());
+        assert_eq!((c.bound, c.slots, c.floored), ("cpu", 0, true));
+        assert_eq!((m.bound, m.slots, m.floored), ("memory", 0, true));
+        assert_eq!(words(&s), "auto: 1, cpu-bound, at the floor");
+        // The same counts with nothing read keep the host as the reason.
+        let s = derive(&Probe::read(None, None, "8g", "7", ""), "auto", "auto");
+        assert_eq!((s.cycles, s.containers), (1, 2));
+        assert_eq!(s.container.clone().unwrap().bound, "host");
+        assert_eq!(words(&s), "auto: 1, host-bound, no reading");
+        // nproc answering 0 is no reading either.
+        let s = both(32 * G, 0, "8g", "4", "");
+        assert_eq!(s.cycle.unwrap().bound, "host");
     }
 
     #[test]
