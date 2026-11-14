@@ -155,3 +155,15 @@
 
 /* The logo is square. The markup is sized for pixel's factory. */
 .brand img { width: 50px; height: 50px; }
+
+/* The wordmark is a black drawing: dark mode turns it white. The product tag
+   sits beside it in small capitals. */
+.brand .wordmark { width: auto; height: 28px; }
+:root[data-mode="dark"] .brand .wordmark { filter: invert(1); }
+.brand small {
+  font-size: var(--type-small);
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+}
