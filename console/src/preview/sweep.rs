@@ -14,9 +14,10 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::process::{Command, Stdio};
 
-const CONTAINERS: [&str; 6] = [
+const CONTAINERS: [&str; 7] = [
     "ps",
     "-a",
+    "--no-trunc",
     "--filter",
     "label=tehas.preview",
     "--format",
@@ -31,10 +32,11 @@ const IMAGES: [&str; 6] = [
     "{{.ID}} {{.Repository}}:{{.Tag}}",
 ];
 
-/// Only such a word is handed to "docker rm -f", which would take anything else
-/// as a name or an option.
+/// A container's whole id, as `--no-trunc` lists it: 64 lowercase hex. Only
+/// such a word is handed to "docker rm -f", which would take anything else as
+/// a name, an option or a prefix of some other container's id.
 fn is_id(word: &str) -> bool {
-    !word.is_empty() && word.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    word.len() == 64 && word.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// A label that is this repository's pull request, or its default branch.
@@ -278,11 +280,23 @@ mod tests {
     const REPO: &str = "acme/widget";
 
     #[test]
-    fn an_id_is_lowercase_hex_and_nothing_else() {
-        for id in ["abc123", "0", "c0de01"] {
-            assert!(is_id(id), "{id}");
+    fn an_id_is_64_lowercase_hex_and_nothing_else() {
+        for id in ["c0de01".repeat(10) + "abcd", "0".repeat(64)] {
+            assert!(is_id(&id), "{id}");
         }
-        for id in ["", "-f", "ABC", "abcg", "ab c", "tehas-preview-12"] {
+        let short = ["0", "abc123", "c0de01", "0123456789ab"].map(str::to_string);
+        let wrong = ["", "-f", "ABC", "abcg", "ab c", "tehas-preview-12"].map(str::to_string);
+        let sizes = [
+            "a".repeat(63),
+            "a".repeat(65),
+            format!("sha256:{}", "a".repeat(64)),
+        ];
+        let shapes = [
+            format!("-{}", "a".repeat(63)),
+            "A".repeat(64),
+            "g".repeat(64),
+        ];
+        for id in short.iter().chain(&wrong).chain(&sizes).chain(&shapes) {
             assert!(!is_id(id), "{id}");
         }
     }

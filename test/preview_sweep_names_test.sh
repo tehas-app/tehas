@@ -50,9 +50,9 @@ reset
 a=$(commit one)
 pull 63 "$a" >/dev/null
 jq '.state = "closed"' "$fx/pull-63.json" >"$fx/x" && mv "$fx/x" "$fx/pull-63.json"
-echo "c0de03 63 acme/widget debug" >"$fx/extra-containers"
+echo "$(cid c0de03) 63 acme/widget debug" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f -v c0de03"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de03)"
 t_contains "$t_out" "#63: swept, the pull request is closed"
 t_run "$preview --sweep"
 t_lacks "$t_out" "swept"
@@ -63,12 +63,12 @@ reset
 a=$(commit one)
 pulls "$(pull 64 "$a")"
 t_run "$preview"
-echo "c0de04 64 acme/widget extra" >"$fx/extra-containers"
+echo "$(cid c0de04) 64 acme/widget extra" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f -v c0de04"
-t_contains "$t_out" "container c0de04: swept, a second container of #64"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de04)"
+t_contains "$t_out" "container $(cid c0de04): swept, a second container of #64"
 t_eq "$(cat "$fx/docker/container-64")" "$a"
-t_lacks "$(t_calls docker)" "rm -f -v ab64"
+t_lacks "$(t_calls docker)" "rm -f -v $(sid 64)"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 
 t_case "sweep: the serving container is kept when Docker gives it several names"
@@ -82,24 +82,24 @@ for names in "tehas-preview-64,proxy/app" "proxy/app,tehas-preview-64" "proxy/a,
   t_eq "$(cat "$fx/docker/container-64" 2>/dev/null)" "$a"
   t_lacks "$t_out" "swept"
 done
-t_lacks "$(t_calls docker)" "rm -f -v ab64"
+t_lacks "$(t_calls docker)" "rm -f -v $(sid 64)"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 
 t_case "sweep: a container whose name column is empty is kept"
 : >"$fx/names-64"
-echo "c0de06 64 acme/widget " >"$fx/extra-containers"
+echo "$(cid c0de06) 64 acme/widget " >"$fx/extra-containers"
 t_run "$preview --sweep"
 t_eq "$(cat "$fx/docker/container-64" 2>/dev/null)" "$a"
-t_lacks "$(t_calls docker)" "rm -f -v ab64"
-t_lacks "$(t_calls docker)" "rm -f -v c0de06"
+t_lacks "$(t_calls docker)" "rm -f -v $(sid 64)"
+t_lacks "$(t_calls docker)" "rm -f -v $(cid c0de06)"
 t_lacks "$t_out" "swept"
 
 t_case "sweep: a name that only has the serving name inside it is a second container"
 rm -f "$fx/names-64"
-printf '%s\n' "c0de07 64 acme/widget tehas-preview-640" "c0de08 64 acme/widget x,old-tehas-preview-64" >"$fx/extra-containers"
+printf '%s\n' "$(cid c0de07) 64 acme/widget tehas-preview-640" "$(cid c0de08) 64 acme/widget x,old-tehas-preview-64" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f -v c0de07"
-t_contains "$(t_calls docker)" "rm -f -v c0de08"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de07)"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de08)"
 t_eq "$(cat "$fx/docker/container-64")" "$a"
 
 t_case "sweep: a closed pull request with a container that will not go is not called swept, and is tried again"
@@ -107,8 +107,8 @@ reset
 left 66 0000000000000000000000000000000000000066
 pull 66 0000000000000000000000000000000000000066 >/dev/null 2>&1
 jq '.state = "closed"' "$fx/pull-66.json" >"$fx/x" && mv "$fx/x" "$fx/pull-66.json"
-echo "c0de09 66 acme/widget debug" >"$fx/extra-containers"
-echo c0de09 >"$fx/rm-fails"
+echo "$(cid c0de09) 66 acme/widget debug" >"$fx/extra-containers"
+printf '%s\n' "$(cid c0de09)" >"$fx/rm-fails"
 t_run "$preview --sweep"
 t_eq "$t_rc" 0
 t_contains "$t_out" "#66: a container could not be removed, tried again at the next sweep"
@@ -126,13 +126,13 @@ t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 t_case "sweep: a repository GitHub does not show keeps every pull request, and the label passes still run"
 reset
 left 52 0000000000000000000000000000000000000052
-echo "c0de01 7 other/thing foreign" >"$fx/extra-containers"
+echo "$(cid c0de01) 7 other/thing foreign" >"$fx/extra-containers"
 : >"$fx/repo-fails"
 t_run "$preview --sweep"
 t_eq "$t_rc" 0
 t_eq "$(count "$fx/docker" '*-52')" 2
 t_contains "$t_out" "GitHub does not show acme/widget; nothing was swept by its word"
-t_contains "$(t_calls docker)" "rm -f -v c0de01"
+t_contains "$(t_calls docker)" "rm -f -v $(cid c0de01)"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 
 # An answer of exit 0 is the repository only when it says so itself.
@@ -169,10 +169,10 @@ t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 # Its pull requests are asked about, so a closed one goes and a second container is seen.
 t_eq "$(t_calls gh | grep -c 'pulls/7[12]$')" 2
 jq '.state = "closed"' "$fx/pull-71.json" >"$fx/x" && mv "$fx/x" "$fx/pull-71.json"
-echo "c0de0a 72 ACME/WIDGET extra" >"$fx/extra-containers"
+echo "$(cid c0de0a) 72 ACME/WIDGET extra" >"$fx/extra-containers"
 t_run "$preview --sweep"
 t_contains "$t_out" "#71: swept, the pull request is closed"
-t_contains "$t_out" "container c0de0a: swept, a second container of #72"
+t_contains "$t_out" "container $(cid c0de0a): swept, a second container of #72"
 t_eq "$(count "$fx/docker" '*-71')" 0
 t_eq "$(cat "$fx/docker/container-72")" "$b"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 2
@@ -182,7 +182,7 @@ reset
 left 73 0000000000000000000000000000000000000073
 echo "acme/widget-two" >"$fx/label-repo"
 t_run "$preview --sweep"
-t_contains "$t_out" "container ab73: swept, it belongs to no pull request of acme/widget"
+t_contains "$t_out" "container $(sid 73): swept, it belongs to no pull request of acme/widget"
 
 t_case "every container is removed with its volumes: a replace, a stop, a purge and a sweep"
 reset
@@ -209,11 +209,11 @@ t_run "$preview"
 left 83 0000000000000000000000000000000000000083
 pull 83 0000000000000000000000000000000000000083 >/dev/null 2>&1
 jq '.state = "closed"' "$fx/pull-83.json" >"$fx/x" && mv "$fx/x" "$fx/pull-83.json"
-printf '%s\n' "c0de01 7 other/thing foreign" "c0de02 81 acme/widget extra" "c0de03 83 acme/widget debug" >"$fx/extra-containers"
+printf '%s\n' "$(cid c0de01) 7 other/thing foreign" "$(cid c0de02) 81 acme/widget extra" "$(cid c0de03) 83 acme/widget debug" >"$fx/extra-containers"
 t_run "$preview --sweep"
 t_contains "$t_out" "#83: swept, the pull request is closed"
 removals=$(t_calls docker | grep '^rm ')
-for of in tehas-preview-81 tehas-preview-82 tehas-preview-83 c0de01 c0de02 c0de03; do
+for of in tehas-preview-81 tehas-preview-82 tehas-preview-83 $(cid c0de01) $(cid c0de02) $(cid c0de03); do
   t_contains "$removals" "rm -f -v $of"
 done
 t_eq "$(printf '%s\n' "$removals" | grep -c -v '^rm -f -v [0-9a-z-]*$')" 0
