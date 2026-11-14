@@ -80,20 +80,28 @@ const MERGED_GRACE: Duration = Duration::from_secs(5);
 /// `timeout` may, keeps the pipe open, and the read would otherwise last as
 /// long as that child does.
 pub fn merged(cmd: &mut Command) -> (i32, String) {
+    let (rc, said, _) = merged_up_to(cmd, usize::MAX);
+    (rc, said)
+}
+
+/// [`merged`], keeping at most `cap` bytes. Past them the pipe is closed, so a
+/// command that goes on writing gets a SIGPIPE rather than a reader; the third
+/// answer says the text was cut.
+pub fn merged_up_to(cmd: &mut Command, cap: usize) -> (i32, String, bool) {
     let Ok((mut reader, writer)) = io::pipe() else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
     let Ok(other) = writer.try_clone() else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
     cmd.stdout(writer).stderr(other);
     let child = cmd.spawn();
     // The command holds the writers; the read ends only once they are closed.
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     let Ok(mut child) = child else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
-    let said = Arc::new(Mutex::new(Vec::new()));
+    let said = Arc::new(Mutex::new((Vec::new(), false)));
     let (done, ended) = mpsc::channel();
     let into = Arc::clone(&said);
     thread::spawn(move || {
@@ -101,20 +109,27 @@ pub fn merged(cmd: &mut Command) -> (i32, String) {
         loop {
             match reader.read(&mut chunk) {
                 Ok(0) => break,
-                Ok(n) => into
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend_from_slice(&chunk[..n]),
+                Ok(n) => {
+                    let mut kept = into.lock().unwrap_or_else(|e| e.into_inner());
+                    let room = cap - kept.0.len();
+                    if n > room {
+                        kept.0.extend_from_slice(&chunk[..room]);
+                        kept.1 = true;
+                        break;
+                    }
+                    kept.0.extend_from_slice(&chunk[..n]);
+                }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => break,
             }
         }
+        drop(reader);
         let _ = done.send(());
     });
     let rc = child.wait().map(code).unwrap_or(127);
     let _ = ended.recv_timeout(MERGED_GRACE);
     let said = said.lock().unwrap_or_else(|e| e.into_inner());
-    (rc, String::from_utf8_lossy(&said).into_owned())
+    (rc, String::from_utf8_lossy(&said.0).into_owned(), said.1)
 }
 
 pub fn bounded(kill: &str, limit: &str, program: impl AsRef<std::ffi::OsStr>) -> Command {
@@ -363,6 +378,28 @@ mod tests {
         let (rc, said) = merged(Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]));
         assert_eq!(rc, 3);
         assert_eq!(said, "out\nerr\n");
+    }
+
+    #[test]
+    fn merged_up_to_keeps_the_cap_and_says_it_cut() {
+        let (rc, said, cut) = merged_up_to(Command::new("sh").args(["-c", "echo abc"]), 4);
+        assert_eq!((rc, said.as_str(), cut), (0, "abc\n", false));
+        let (_, said, cut) = merged_up_to(Command::new("sh").args(["-c", "echo abcdef"]), 4);
+        assert_eq!((said.as_str(), cut), ("abcd", true));
+    }
+
+    #[test]
+    fn merged_up_to_stops_a_command_that_never_stops_talking() {
+        let started = std::time::Instant::now();
+        let (rc, said, cut) = merged_up_to(&mut Command::new("yes"), 1000);
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(cut);
+        assert_eq!(said.len(), 1000);
+        assert_ne!(rc, 0);
     }
 
     #[test]
