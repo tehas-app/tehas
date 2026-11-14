@@ -191,7 +191,7 @@ pub fn main(given: &[String]) -> u8 {
         pulled,
         logfile: PathBuf::from(logfile),
         tmp_disk: tmp_disk.clone(),
-        freed: 0,
+        freed: Size::ZERO,
         rc: 0,
     };
     run.main(min_mb, min_word, free_kb)
@@ -383,7 +383,7 @@ fn ended(given: &[String]) -> u8 {
         pulled: String::new(),
         logfile: PathBuf::from(logfile),
         tmp_disk: String::new(),
-        freed: 0,
+        freed: Size::ZERO,
         rc: 0,
     };
     run.ended(Path::new(workspace));
@@ -553,7 +553,7 @@ struct Run {
     pulled: String,
     logfile: PathBuf,
     tmp_disk: String,
-    freed: u64,
+    freed: Size,
     rc: u8,
 }
 
@@ -787,16 +787,79 @@ fn newer(p: &Path, hours: u64) -> Option<bool> {
     Some(m > since)
 }
 
+/// What the walk of one path may look at: the cleaner walks a tree to report
+/// its size, and a tree of millions of names must not hold up the rest of the
+/// pass.
+const WALK_ENTRIES: usize = 1_000_000;
+const WALK_WAIT: Duration = Duration::from_secs(10);
+
+/// A byte count, and whether the walk behind it reached the end of the tree.
+/// A count cut short at the walk's bound shows as "at least <n>".
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Size {
+    bytes: u64,
+    whole: bool,
+}
+
+impl Size {
+    const ZERO: Size = Size {
+        bytes: 0,
+        whole: true,
+    };
+}
+
+impl std::fmt::Display for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.whole {
+            f.write_str("at least ")?;
+        }
+        write!(f, "{}", self.bytes)
+    }
+}
+
+impl std::ops::AddAssign for Size {
+    fn add_assign(&mut self, other: Size) {
+        self.bytes += other.bytes;
+        self.whole &= other.whole;
+    }
+}
+
+impl std::ops::AddAssign<u64> for Size {
+    fn add_assign(&mut self, bytes: u64) {
+        self.bytes += bytes;
+    }
+}
+
+impl PartialEq<u64> for Size {
+    fn eq(&self, bytes: &u64) -> bool {
+        self.whole && self.bytes == *bytes
+    }
+}
+
 /// The bytes a path holds, as `du -sb` counts a directory and `stat -c %s` a
-/// file. No link is followed and a file of many names counts once.
-fn bytes_of(p: &Path) -> u64 {
+/// file. No link is followed and a file of many names counts once. The walk
+/// stops at WALK_ENTRIES names or after WALK_WAIT.
+fn bytes_of(p: &Path) -> Size {
+    bytes_within(p, WALK_ENTRIES, Instant::now() + WALK_WAIT)
+}
+
+fn bytes_within(p: &Path, max: usize, deadline: Instant) -> Size {
     if !p.is_dir() {
-        return fs::symlink_metadata(p).map_or(0, |m| m.len());
+        let bytes = fs::symlink_metadata(p).map_or(0, |m| m.len());
+        return Size { bytes, whole: true };
     }
     let mut total = 0;
     let mut seen = HashSet::new();
     let mut stack = vec![p.to_path_buf()];
+    let mut looked = 0;
     while let Some(d) = stack.pop() {
+        if looked >= max || Instant::now() >= deadline {
+            return Size {
+                bytes: total,
+                whole: false,
+            };
+        }
+        looked += 1;
         let Ok(m) = fs::symlink_metadata(&d) else {
             continue;
         };
@@ -810,7 +873,10 @@ fn bytes_of(p: &Path) -> u64 {
             }
         }
     }
-    total
+    Size {
+        bytes: total,
+        whole: true,
+    }
 }
 
 /// `rm -rf`: true when nothing is left at the path.
@@ -2108,7 +2174,7 @@ mod tests {
     /// the whole of a clean run does. The bytes of a directory are what
     /// `bytes_of` counts, so the figure asserted is the sum of the tree named
     /// here.
-    fn one_issue_tree(root: &Path) -> (Run, u64) {
+    fn one_issue_tree(root: &Path) -> (Run, Size) {
         let _ = fs::remove_dir_all(root);
         let works = root.join("work");
         let home = root.join("home");
@@ -2143,7 +2209,7 @@ mod tests {
             pulled: String::new(),
             logfile: root.join("clean.log"),
             tmp_disk: String::new(),
-            freed: 0,
+            freed: Size::ZERO,
             rc: 0,
         };
         (run, bytes_of(&d.join("target")))
@@ -2197,7 +2263,7 @@ mod tests {
         let root = tmp.join("root");
         let (mut run, known) = one_issue_tree(&root);
         let tree = root.join("work/widget-7");
-        assert!(known > 0);
+        assert!(known.bytes > 0);
         // The closing line is the run's, so the dry figure is read after one.
         assert_eq!(
             run.main(30 * 1024, "30g", ""),
@@ -2231,7 +2297,7 @@ mod tests {
         // again: a directory's own size can change when it is written to.
         let (_, known) = one_issue_tree(&root);
         run.dry = false;
-        run.freed = 0;
+        run.freed = Size::ZERO;
         assert!(run.workspaces());
         assert_eq!(
             run.freed,
@@ -2292,7 +2358,7 @@ mod tests {
             pulled: String::new(),
             logfile: root.join("clean.log"),
             tmp_disk: String::new(),
-            freed: 0,
+            freed: Size::ZERO,
             rc: 0,
         };
         let mut run = run;
@@ -2344,7 +2410,7 @@ mod tests {
         std::os::unix::fs::symlink(&aside, devs.join("dave.state")).unwrap();
         let mut dry = Run {
             dry: true,
-            freed: 0,
+            freed: Size::ZERO,
             ..run
         };
         clone("carol", true);
@@ -2363,9 +2429,42 @@ mod tests {
         );
         // A docker that will not answer keeps every build.
         fs::remove_file(&dry.logfile).unwrap();
-        dry.freed = 0;
+        dry.freed = Size::ZERO;
         assert!(dry.clone_targets_among(None, account::uid()));
         assert_eq!(dry.freed, 0);
+    }
+
+    #[test]
+    fn a_walk_past_its_bound_says_its_count_is_short() {
+        let t = TestDir::new("clean-walkbound");
+        let tree = t.join("target");
+        fs::create_dir_all(tree.join("a/b")).unwrap();
+        for i in 0..6 {
+            fs::write(tree.join(format!("a/b/f{i}")), vec![b'x'; 100]).unwrap();
+        }
+        let later = Instant::now() + Duration::from_secs(60);
+        let whole = bytes_within(&tree, 100, later);
+        assert!(whole.whole);
+        assert!(whole.bytes >= 600);
+        assert_eq!(whole.to_string(), whole.bytes.to_string());
+        let cut = bytes_within(&tree, 4, later);
+        assert!(!cut.whole);
+        assert!(cut.bytes < whole.bytes);
+        assert_eq!(cut.to_string(), format!("at least {}", cut.bytes));
+        let late = bytes_within(&tree, 100, Instant::now());
+        assert!(!late.whole);
+        assert_eq!(late.bytes, 0);
+        // A file is one name and is never cut short.
+        let file = bytes_within(&tree.join("a/b/f0"), 0, Instant::now());
+        assert_eq!(file, 100);
+        // One short count makes the run's total short too.
+        let mut freed = Size::ZERO;
+        freed += whole;
+        freed += cut;
+        freed += 5;
+        assert!(!freed.whole);
+        assert_eq!(freed.bytes, whole.bytes + cut.bytes + 5);
+        assert_eq!(freed.to_string(), format!("at least {}", freed.bytes));
     }
 
     #[test]
@@ -2392,7 +2491,7 @@ mod tests {
             pulled: String::new(),
             logfile: root.join("clean.log"),
             tmp_disk: String::new(),
-            freed: 0,
+            freed: Size::ZERO,
             rc: 0,
         };
         let none: Vec<String> = Vec::new();
@@ -2426,7 +2525,7 @@ mod tests {
             pulled: String::new(),
             logfile: root.join("clean.log"),
             tmp_disk: String::new(),
-            freed: 0,
+            freed: Size::ZERO,
             rc: 0,
         };
         fs::create_dir_all(run.clone_lock("alice").unwrap().parent().unwrap()).unwrap();
@@ -2521,7 +2620,7 @@ mod tests {
             pulled: String::new(),
             logfile: root.join("clean.log"),
             tmp_disk: String::new(),
-            freed: 0,
+            freed: Size::ZERO,
             rc: 0,
         };
         (run.cycle_running("7"), run.lock_free("7"))
@@ -2716,7 +2815,7 @@ mod tests {
             .collect();
         found.sort();
         assert_eq!(found, ["node_modules", "target", "target/sub/target"]);
-        assert!(bytes_of(&t.join("target")) > 0);
+        assert!(bytes_of(&t.join("target")).bytes > 0);
         assert!(remove(&t.join("target")));
         assert!(!t.join("target").exists());
         assert!(remove(&t.join("gone")));

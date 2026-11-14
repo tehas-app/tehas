@@ -997,9 +997,10 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         }
     }
 
+    // Not a pass: the caller says it ran nothing instead of "ok".
     if !ran && given.any() && skipped.is_empty() {
         putln("test.sh: no test file and no linted script among the paths given");
-        return 0;
+        return 3;
     }
     if !ran {
         eprintln!("test.sh: nothing could be checked");
