@@ -474,8 +474,11 @@ impl Poll<'_> {
                         or_unknown(by)
                     ));
                 } else if !qid.is_empty() {
+                    // The line names the hold and what clears it: the label is
+                    // the hold, not the read's bound, and a new comment lifts
+                    // nothing while the question on record stays open.
                     self.log(format!(
-                        "skip #{n}: its question is not among the last 100 comments"
+                        "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
                     ));
                 }
                 continue;

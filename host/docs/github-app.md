@@ -332,8 +332,11 @@ as the factory's.
 - Moving an existing factory from a machine user to an app: comments the old
   account wrote stay where they are, but if that account is suspended they are
   hidden, and the dispatcher cannot see a question it asked there
-  (`skip #N: its question is not among the last 100 comments`). Apply
-  `tehas:ready` or `tehas:refine` again to go on with such an issue. A
+  (`skip #N: its question is not among the last 100 comments; tehas:question
+  is set and no comment carries the question, so the issue waits until its
+  open points are answered or the label is taken off`). Take `tehas:question`
+  off and apply `tehas:ready` or `tehas:refine` again to go on with such an
+  issue. A
   question on record that is there but was written by another account than
   the bot is said as `skip #N: its question was written by 'X', not the bot
   'Y'`.

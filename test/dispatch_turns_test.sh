@@ -119,7 +119,7 @@ t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
-t_contains "$t_out" "skip #7: its question is not among the last 100 comments"
+t_contains "$t_out" "skip #7: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
 
 t_case "an answer to a session whose record names no question runs no turn"
 planning
