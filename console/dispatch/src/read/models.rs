@@ -40,7 +40,7 @@ impl Models {
 fn ask(url: &str, key: &str, wanted: &[String]) -> Result<(), String> {
     models::ask(url, key, wanted, &|args, input| {
         let r = run_input("curl", args, Some(input), Duration::from_secs(15));
-        r.ok().then_some(r.out)
+        models::answered(r.status, r.out, r.err)
     })
 }
 
