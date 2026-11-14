@@ -246,13 +246,29 @@ pub(super) fn give(works: &str, images: &str, to: &str, give: bool) -> u8 {
 /// and so is what is past `CARRIED_ENTRIES` or `CARRIED_TOTAL`. The copy is
 /// made beside <to> and moved into place, so a failure leaves what was there.
 pub fn carry(base: &str, rel: &str, to: &str) -> io::Result<()> {
+    carry_over(base, rel, to, true).map(|_| ())
+}
+
+/// `carry`, except that when there is no file to take <to> is left as it was
+/// and the answer is false.
+fn carry_found(base: &str, rel: &str, to: &str) -> io::Result<bool> {
+    carry_over(base, rel, to, false)
+}
+
+fn carry_over(base: &str, rel: &str, to: &str, nothing_replaces: bool) -> io::Result<bool> {
     let new = format!("{to}.new");
     remove(&new)?;
+    let mut budget = Budget::default();
     let copied = match open_below(base, rel) {
-        Some(from) => fs::create_dir_all(&new)
-            .and_then(|()| carry_files(&from, Path::new(&new), &mut Budget::default())),
+        Some(from) => {
+            fs::create_dir_all(&new).and_then(|()| carry_files(&from, Path::new(&new), &mut budget))
+        }
         None => Ok(()),
     };
+    if copied.is_ok() && budget.files == 0 && !nothing_replaces {
+        remove(&new)?;
+        return Ok(false);
+    }
     if let Err(e) = copied.and_then(|()| remove(to)) {
         let _ = remove(&new);
         return Err(e);
@@ -260,7 +276,7 @@ pub fn carry(base: &str, rel: &str, to: &str) -> io::Result<()> {
     if Path::new(&new).is_dir() {
         fs::rename(&new, to)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 /// What one carry has taken so far.
@@ -268,6 +284,7 @@ pub fn carry(base: &str, rel: &str, to: &str) -> io::Result<()> {
 struct Budget {
     entries: usize,
     bytes: u64,
+    files: usize,
 }
 
 fn open_flags(path: &Path, flags: i32) -> io::Result<File> {
@@ -330,6 +347,7 @@ fn carry_files(from: &File, to: &Path, budget: &mut Budget) -> io::Result<()> {
             }
             budget.entries += 1;
             budget.bytes += meta.len();
+            budget.files += 1;
             fs::create_dir_all(to)?;
             // No more than was counted, should it grow while it is read.
             copy_open(file, &target, meta.len())?;
@@ -678,10 +696,18 @@ fn write_out(out: &str, doc: &str) -> io::Result<()> {
 
 fn finish(turn: &Turn, rc: i32, doc: &str, started: u64) -> u8 {
     // The session, before the workspace goes: it is all a later turn has of
-    // this one. A turn whose runner kept none replaces what an earlier one
-    // kept.
+    // this one. A turn whose runner ended replaces what an earlier one kept,
+    // with nothing if it kept none. A turn that failed, its container killed
+    // or never started, may not have reached the runner: when it left no
+    // record, what an earlier turn kept stays for the retry.
     let (keep, tree) = (turn.keep, turn.tree);
-    if carry(tree, SESSIONS, &format!("{keep}/plan-sessions")).is_err() {
+    let kept = format!("{keep}/plan-sessions");
+    let carried = if matches!(rc, 0 | 10 | 11 | 12 | 41) {
+        carry(tree, SESSIONS, &kept)
+    } else {
+        carry_found(tree, SESSIONS, &kept).map(|_| ())
+    };
+    if carried.is_err() {
         warn(&format!("tehas plan: could not keep the session of {tree}"));
     }
     if fs::write(format!("{keep}/exit"), format!("{rc}\n")).is_err() {
@@ -832,6 +858,21 @@ mod tests {
         fs::create_dir(s.0.join("from")).unwrap();
         carry(&s.at("."), "from", &s.at("to")).unwrap();
         assert!(s.has("to"));
+    }
+
+    #[test]
+    fn a_carry_that_found_nothing_leaves_what_was_kept() {
+        let s = Scratch::new("carry-found");
+        s.write("to/abc/session.json", "kept");
+        assert!(!carry_found(&s.at("."), "from", &s.at("to")).unwrap());
+        assert_eq!(s.read("to/abc/session.json"), "kept");
+        fs::create_dir_all(s.0.join("from/empty")).unwrap();
+        assert!(!carry_found(&s.at("."), "from", &s.at("to")).unwrap());
+        assert_eq!(s.read("to/abc/session.json"), "kept");
+        assert!(!s.has("to.new"));
+        s.write("from/abc/session.json", "new");
+        assert!(carry_found(&s.at("."), "from", &s.at("to")).unwrap());
+        assert_eq!(s.read("to/abc/session.json"), "new");
     }
 
     #[test]
