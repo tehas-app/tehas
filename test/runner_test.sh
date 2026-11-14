@@ -1227,11 +1227,11 @@ t_run "cd '$repo' && bash runner/runner.sh test/gone_test.sh"
 t_eq "$t_rc" 2
 t_contains "$t_out" "no test file test/gone_test.sh"
 
-t_case "paths given with nothing to test or lint among them pass"
+t_case "paths given with nothing to test or lint among them are exit 3, not a pass"
 fresh
 fake a_test.sh 0
 t_run "cd '$repo' && bash runner/runner.sh host/docs/x.md"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 3
 t_contains "$t_out" "no test file and no linted script among the paths given"
 t_lacks "$t_out" "ran a_test.sh"
 
