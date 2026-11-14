@@ -23,17 +23,17 @@ reset() {
   cp "$T_ROOT/host/labels.tsv" "$table"
 }
 
-t_case "it needs only the repository, and makes the twenty labels there"
+t_case "it needs only the repository, and makes every label of the table there"
 reset
+rows=$(wc -l <"$T_ROOT/host/labels.tsv")
 t_run "$labels"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | grep -c 'label create')" 20
-t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 20
-for name in tehas:ready tehas:running tehas:awaiting-merge tehas:shipped tehas:pause needs-human-attention \
-  tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced tehas:refined tehas:millwright-escalated tehas:blocked tehas:refreshing tehas:all-hands tehas:lean epic tehas:finish tehas:prototype; do
+t_eq "$(t_calls gh | grep -c 'label create')" "$rows"
+t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" "$rows"
+while IFS=$'\t' read -r name _; do
   t_contains "$(t_calls gh)" "label create $name --repo acme/widget"
   t_contains "$t_out" "label $name"
-done
+done <"$T_ROOT/host/labels.tsv"
 
 t_case "it pins each granting label and the prototype label to its id once the labels are made"
 pins=$T/home/tehas/state/labels
@@ -85,7 +85,7 @@ t_run "$labels"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas labels: could not make tehas:lean"
 t_contains "$t_out" "label tehas:pause"
-t_eq "$(t_calls gh | grep -c 'label create')" 20
+t_eq "$(t_calls gh | grep -c 'label create')" "$rows"
 
 t_case "without the repository nothing is called, exit 78"
 reset
