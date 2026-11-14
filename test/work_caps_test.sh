@@ -166,6 +166,10 @@ t_run "$work 7"
 caps_refused
 t_contains "$t_out" "does not support what this cycle is given, not starting a cycle"
 t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODEL"
+# The cause is left for the park, which does not read the run log.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-lacking
+the input PI_ENSEMBLE_SUBAGENT_MODEL"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 caps_good
 
 t_case "an image that does not read the child's bound stops the cycle: 78, named"
@@ -301,7 +305,7 @@ t_run "$work 7"
 caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_contains "$t_out" "driver lean, work-lean"
-rm -f "$T/home/tehas/state/cycles/7.lean-refused"
+rm -f "$T/home/tehas/state/cycles/7.lean-refused" "$T/home/tehas/state/cycles/7.refused"
 t_store_db "$T/home/tehas"
 caps_good
 
@@ -494,6 +498,8 @@ T_ENV=("${env_ok[@]}" CAPS_RC=1)
 t_run "$work 7"
 caps_refused
 t_contains "$t_out" "gave no --capabilities answer (exit 1)"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-unreadable 1"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 T_ENV=("${env_ok[@]}")
 caps_fresh
 echo 'error: Module not found' >"$T/caps.json"
