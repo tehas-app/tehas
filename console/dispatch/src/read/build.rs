@@ -5,6 +5,7 @@
 
 use super::run::{Calls, GhFail};
 use super::{github, host, models, store};
+use crate::apply::{said_file, SAID_MAX};
 use crate::decide::has;
 use crate::settings::Settings;
 use crate::text;
@@ -470,10 +471,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         }
         let i = entry(&mut issues, *n);
         i["request"] = req.clone();
-        i["refresh_said"] = json!(host::head(
-            &home.join(format!("state/refresh/{n}.said")),
-            200
-        ));
+        i["refresh_said"] = json!(host::head(&said_file(home, *n), SAID_MAX));
         let (shaped, _) = store::approval(&asked, *n);
         let i = entry(&mut issues, *n);
         i["approval"] = shaped;
@@ -1841,6 +1839,26 @@ esac"#,
             assert_eq!(snap.get("refreshing").is_some(), read, "{body}");
             assert_eq!(snap["refresh_requests"], json!([40]));
         }
+    }
+
+    /// The record that a hold was said is read at the path and the length its
+    /// writer in apply.rs uses, so a key it kept is recognised as said.
+    #[test]
+    fn the_said_record_is_read_where_and_as_far_as_its_writer_keeps_it() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        std::fs::write(dir.join("state/refresh/40.json"), r#"{"at":"x"}"#).unwrap();
+        let key = "k".repeat(SAID_MAX + 50);
+        std::fs::write(said_file(&dir, 40), &key).unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(
+            snap["issues"]["40"]["refresh_said"],
+            json!(&key[..SAID_MAX])
+        );
     }
 
     /// The record of a plan's start is read for the issues the rule can start,
