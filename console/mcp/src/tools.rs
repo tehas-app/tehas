@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
+use tehas_core::queue_lists;
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
@@ -65,13 +66,15 @@ pub enum ToolError {
     File { file: String, why: String },
 }
 
+/// The stages `factory_issues` takes: the issue lists of `live/status.json`,
+/// named by the core's constants, and `planning`.
 const STAGES: [&str; 6] = [
-    "queued",
+    queue_lists::QUEUED,
     "planning",
-    "running",
-    "awaiting",
-    "stopped",
-    "completed",
+    queue_lists::RUNNING,
+    queue_lists::AWAITING,
+    queue_lists::STOPPED,
+    queue_lists::COMPLETED,
 ];
 
 /// A status word a cycle can carry. The runner's own words, tehas's own for a
@@ -1266,7 +1269,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
         "factory_issues" => {
             let mut s = Map::new();
             s.insert("generatedAt".into(), json!(true));
-            for stage in ["queued", "running", "awaiting", "stopped", "completed"] {
+            for stage in sessions::ISSUE_STAGES {
                 s.insert(stage.into(), issues.clone());
             }
             s.insert("planning".into(), json!({"count": true, "issues": [true]}));
@@ -1722,6 +1725,17 @@ pub(crate) fn epoch(t: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    // `issues` keeps the spec keys that are stages, and the spec names the
+    // lists by the core's constants: a stage missing from `STAGES` would drop
+    // out of `factory_issues` without a word.
+    #[test]
+    fn every_listed_stage_is_a_stage_the_tool_takes() {
+        for stage in sessions::ISSUE_STAGES {
+            assert!(STAGES.contains(&stage), "{stage} is not in STAGES");
+        }
+        assert!(STAGES.contains(&"planning"));
+    }
 
     // The parser is core's; the rows that matter here are the ones this reader
     // used to take: no colon checked, no range checked, and a field parsed
