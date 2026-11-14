@@ -12,7 +12,6 @@ use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, Output, ToolError};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::MetadataExt;
@@ -176,26 +175,53 @@ fn words_of(kind: &str) -> &'static [&'static str] {
     }
 }
 
-/// The one file name pattern `word` allows for a session.
-fn pattern(kind: &str, issue: u64, word: &str) -> Option<String> {
-    let base = format!("^{kind}-{issue}-[0-9]{{6}}-[0-9]{{6}}");
+/// Whether `name` is the one file name `word` allows for a session of `kind`
+/// and `issue`: `<kind>-<issue>-<6 digits>-<6 digits><suffix>`, or
+/// `dispatch-<kind>-<issue>.log`. The names are a closed set of literal
+/// shapes, so they are matched as text: a search calls this for every log of
+/// every session it reads, and a pattern compiled on each call was most of the
+/// cost of the check.
+pub(crate) fn name_ok(kind: &str, issue: u64, word: &str, name: &str) -> bool {
     let suffix = match (kind, word) {
-        ("work", "transcript") | ("plan", "progress") => r"\.jsonl",
-        ("work", "err") => r"\.jsonl\.err",
-        ("work", "preflight") => r"\.jsonl\.preflight",
-        ("work", "console") => r"\.jsonl\.console",
-        ("work", "result") => r"\.jsonl\.result\.json",
-        ("plan", "result") => r"\.json",
-        ("work" | "plan", "dispatch") => return Some(format!(r"^dispatch-{kind}-{issue}\.log$")),
-        _ => return None,
+        ("work", "transcript") | ("plan", "progress") => ".jsonl",
+        ("work", "err") => ".jsonl.err",
+        ("work", "preflight") => ".jsonl.preflight",
+        ("work", "console") => ".jsonl.console",
+        ("work", "result") => ".jsonl.result.json",
+        ("plan", "result") => ".json",
+        ("work" | "plan", "dispatch") => {
+            return name
+                .strip_prefix("dispatch-")
+                .and_then(|r| r.strip_prefix(kind))
+                .and_then(|r| r.strip_prefix('-'))
+                .and_then(|r| r.strip_suffix(".log"))
+                .is_some_and(|n| is_issue(n, issue));
+        }
+        _ => return false,
     };
-    Some(format!("{base}{suffix}$"))
+    let Some(rest) = name.strip_prefix(kind).and_then(|r| r.strip_prefix('-')) else {
+        return false;
+    };
+    let Some((n, rest)) = rest.split_once('-') else {
+        return false;
+    };
+    let Some(stamp) = rest.strip_suffix(suffix) else {
+        return false;
+    };
+    let b = stamp.as_bytes();
+    is_issue(n, issue)
+        && b.len() == 13
+        && b[6] == b'-'
+        && b[..6].iter().chain(&b[7..]).all(u8::is_ascii_digit)
 }
 
-pub(crate) fn name_ok(kind: &str, issue: u64, word: &str, name: &str) -> bool {
-    pattern(kind, issue, word)
-        .and_then(|p| Regex::new(&p).ok())
-        .is_some_and(|re| re.is_match(name))
+/// Whether `n` is `issue` written as the names write it: decimal digits only,
+/// no sign and no leading zero.
+fn is_issue(n: &str, issue: u64) -> bool {
+    !n.is_empty()
+        && n.bytes().all(|c| c.is_ascii_digit())
+        && (n == "0" || !n.starts_with('0'))
+        && n.parse() == Ok(issue)
 }
 
 fn file_error(file: &str, why: &str) -> ToolError {
@@ -241,6 +267,15 @@ pub(crate) fn open_plain(path: &Path, max: u64) -> Result<(std::fs::File, u64), 
 /// The file masked line by line, its newlines kept as they were. Only a plain
 /// file of at most `LOG_MAX` bytes is read, never one through a link.
 pub fn masked(path: &Path) -> Result<String, ToolError> {
+    masked_upto(path, u64::MAX).map(|(text, _)| text)
+}
+
+/// The masked text of the file from its start, read only as far as it takes:
+/// the reading stops at the end of the first line that takes the masked text
+/// past `upto` bytes, and says with the second value whether it got to the end
+/// of the file. A line is masked whole, as `masked` masks it, so a head of the
+/// file is the same bytes as the head of the whole masked text.
+pub fn masked_upto(path: &Path, upto: u64) -> Result<(String, bool), ToolError> {
     let err = |why: &str| file_error("log", why);
     let (f, len) = open_plain(path, LOG_MAX).map_err(|u| match u {
         Unopened::Gone => err("is gone"),
@@ -249,9 +284,15 @@ pub fn masked(path: &Path) -> Result<String, ToolError> {
         Unopened::TooLarge => err("is over 16 MiB and is not served"),
     })?;
     let mut r = BufReader::new(f.take(LOG_MAX + 1));
-    let mut out = String::with_capacity(len as usize);
+    let mut out = String::with_capacity(len.min(upto.saturating_add(1)) as usize);
     let (mut line, mut read) = (Vec::new(), 0u64);
     loop {
+        if out.len() as u64 > upto {
+            // Whether anything is left: a head that ends where the file ends is
+            // the whole of it.
+            let left = r.fill_buf().map_err(|_| err("could not be read"))?;
+            return Ok((out, left.is_empty()));
+        }
         line.clear();
         let n = r
             .read_until(b'\n', &mut line)
@@ -269,7 +310,7 @@ pub fn masked(path: &Path) -> Result<String, ToolError> {
             out.push('\n');
         }
     }
-    Ok(out)
+    Ok((out, true))
 }
 
 fn bad(why: &str) -> ToolError {
@@ -298,7 +339,7 @@ pub fn tool() -> Value {
             "api": int("The API version, 1."),
             "id": text("The session id."),
             "file": text("The word."),
-            "size": int("The masked file's size in bytes."),
+            "size": int("The masked file's size in bytes. Plain: given only when the read got to the end of the file; a read that gives next may leave it out."),
             "offset": int("Plain: where the text starts, at the start of a character."),
             "next": int("Plain: the offset of the rest. Left out at the end."),
             "text": text("Plain: the masked text."),
@@ -433,7 +474,17 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
             "has a name in the snapshot that is not a log's",
         ));
     }
-    let text = masked(&dirs.logs.join(name)).map_err(|e| match e {
+    // A plain read masks the log only as far as its piece ends, and a few bytes
+    // more: `piece` moves the start and the end on by at most a character, and
+    // a text that holds a byte past the piece is one with a `next`. The work of
+    // a read is then its offset and its bytes, not the size of the log; only
+    // gzip, the whole file, masks the whole file.
+    let upto = if gzip {
+        u64::MAX
+    } else {
+        offset.saturating_add(bytes).saturating_add(8)
+    };
+    let (text, whole) = masked_upto(&dirs.logs.join(name), upto).map_err(|e| match e {
         ToolError::File { why, .. } => file_error(word, &why),
         e => e,
     })?;
@@ -443,7 +494,10 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
     out.insert("api".into(), json!(1));
     out.insert("id".into(), json!(id));
     out.insert("file".into(), json!(word));
-    out.insert("size".into(), json!(size));
+    // The size of the masked file is known only of a read that got to its end.
+    if whole {
+        out.insert("size".into(), json!(size));
+    }
     if gzip {
         let mut z = GzEncoder::new(Vec::new(), Compression::default());
         z.write_all(text.as_bytes())
@@ -461,7 +515,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
         };
         return Ok((blob, place));
     }
-    if offset > size {
+    if whole && offset > size {
         return Err(bad(&format!("offset is past the end; the size is {size}")));
     }
     let (start, end) = piece(&text, offset as usize, bytes as usize);
@@ -663,8 +717,9 @@ pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard
     Ok((Output::Json(Value::Object(out)), place))
 }
 
-/// One line of a masked log: its text, and where it stands in the masked text
-/// of the file, whose newline each line keeps as the whole-file reader keeps it.
+/// One line of a masked log that holds the text searched for: the line cut
+/// to `MATCH_LINE` characters, and where it stands in the masked text of the
+/// file, whose newline each line keeps as the whole-file reader keeps it.
 /// `start` is an offset a match gives and one to give `factory_log`; `end` is
 /// past the line, where the next one starts.
 struct MaskedLine {
@@ -673,22 +728,41 @@ struct MaskedLine {
     text: String,
 }
 
+/// What one reading of a log found: the lines that hold the text, the end of
+/// the last line it kept in view (one that begins at `from` or later, match or
+/// not), the raw bytes it read, and whether it stopped at the cap.
+struct Scanned {
+    found: Vec<MaskedLine>,
+    last_end: Option<u64>,
+    read: u64,
+    stopped: bool,
+}
+
 /// The file read line by line and masked as the whole-file reader masks - the
 /// mask of the line, and its newline kept as it was - so a line holds what of
 /// the secrets the patterns know and nothing more, and a match's offset is one
-/// to give `factory_log`. `from` is one of those offsets: a line that begins
-/// before it is read and masked, but not kept, because the search reads on from
-/// where a `Resume` left off and a line is one unit of it - the line that holds
-/// a `from` in the middle of it is read and masked for nothing. A reading that
-/// kept no line at all read the file for nothing: the cap was spent before its
-/// reading got past the offset, and it has no line to answer from. The reading
-/// stops at
-/// the last line that ends within `stop` raw bytes, which it says with
-/// `stopped`, and gives the bytes it read so the cap of a whole search can be
-/// shared out. Nothing past the cap is read, so a cap never cuts a line in two,
-/// which would hide a secret that spans the cut. The file must be a plain file
-/// of at most `LOG_MAX` bytes, never one through a link.
-fn scan(path: &Path, from: u64, stop: u64) -> Result<(Vec<MaskedLine>, u64, bool), ToolError> {
+/// to give `factory_log`. Only a line that holds `needle` is kept, cut, and the
+/// reading stops once `want` are found: the answer holds at most a few hundred
+/// cut lines, and the rest of what was read is not held while the rest is read.
+/// `from` is one of those offsets: a line that begins before it is read and
+/// masked, but not looked at, because the search reads on from where a `Resume`
+/// left off and a line is one unit of it - the line that holds a `from` in the
+/// middle of it is read and masked for nothing. A reading that got past the
+/// offset to no line at all read the file for nothing: the cap was spent before
+/// its reading got past the offset, and it has no line to answer from, which
+/// `last_end` of `None` says. The reading stops at the last line that ends
+/// within `stop` raw bytes, which it says with `stopped`, and gives the bytes it
+/// read so the cap of a whole search can be shared out. Nothing past the cap is
+/// read, so a cap never cuts a line in two, which would hide a secret that spans
+/// the cut. The file must be a plain file of at most `LOG_MAX` bytes, never one
+/// through a link.
+fn scan(
+    path: &Path,
+    from: u64,
+    stop: u64,
+    needle: &str,
+    want: usize,
+) -> Result<Scanned, ToolError> {
     let err = |why: &str| file_error("log", why);
     let meta = std::fs::symlink_metadata(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -710,9 +784,10 @@ fn scan(path: &Path, from: u64, stop: u64) -> Result<(Vec<MaskedLine>, u64, bool
         return Err(err("is not a plain file"));
     }
     let mut r = BufReader::new(f);
-    let mut lines = Vec::new();
+    let mut found = Vec::new();
+    let mut last_end = None;
     let (mut raw_read, mut masked_read) = (0u64, 0u64);
-    loop {
+    while found.len() < want {
         // Over `LOG_MAX` is not served, whoever asks for the lines.
         if raw_read > LOG_MAX {
             return Err(err("is over 16 MiB and is not served"));
@@ -742,18 +817,28 @@ fn scan(path: &Path, from: u64, stop: u64) -> Result<(Vec<MaskedLine>, u64, bool
         // The newline belongs to the masked text as the whole-file reader keeps
         // it, so the offset of the next line counts it too.
         let masked_end = masked_read + text.len() as u64;
-        // The line is kept when it begins at `from` or later; the one that
-        // holds a `from` in the middle of it is read and masked for nothing.
+        // The line is looked at when it begins at `from` or later; the one
+        // that holds a `from` in the middle of it is read and masked for
+        // nothing. The test is on the uncut line, as the answer has always
+        // made it.
         if masked_read >= from {
-            lines.push(MaskedLine {
-                start: masked_read,
-                end: masked_end,
-                text,
-            });
+            last_end = Some(masked_end);
+            if text.contains(needle) {
+                found.push(MaskedLine {
+                    start: masked_read,
+                    end: masked_end,
+                    text: cut(&text),
+                });
+            }
         }
         masked_read = masked_end;
     }
-    Ok((lines, raw_read, raw_read >= stop))
+    Ok(Scanned {
+        found,
+        last_end,
+        read: raw_read,
+        stopped: raw_read >= stop,
+    })
 }
 
 /// `line` cut to `MATCH_LINE` characters, never inside one. The newline of the
@@ -876,21 +961,23 @@ pub fn search<'a>(
     let mut next = None;
     for (id, logs) in &logs {
         for l in logs {
-            let (lines, read, stopped) =
-                scan(&dirs.logs.join(l.name), l.offset, left).map_err(|e| match e {
-                    ToolError::File { why, .. } => file_error(l.word, &why),
-                    e => e,
-                })?;
+            let want = (limit as usize).saturating_sub(found.len());
+            let Scanned {
+                found: lines,
+                last_end,
+                read,
+                stopped,
+            } = scan(&dirs.logs.join(l.name), l.offset, left, text, want).map_err(|e| match e {
+                ToolError::File { why, .. } => file_error(l.word, &why),
+                e => e,
+            })?;
             left = left.saturating_sub(read);
-            for line in &lines {
-                if !line.text.contains(text) {
-                    continue;
-                }
+            for line in lines {
                 found.push(Found {
                     id,
                     word: l.word,
                     offset: line.start,
-                    line: cut(&line.text),
+                    line: line.text,
                 });
                 if found.len() as u64 == limit {
                     // The match just taken is in the answer, so the rest starts
@@ -915,7 +1002,7 @@ pub fn search<'a>(
                 // none - rather than ending the call at a log it read for
                 // nothing. The rest is answered by the way on of the log whose
                 // lines the answer holds, or by a later call.
-                let Some(last) = lines.last() else {
+                let Some(end) = last_end else {
                     left = 0;
                     continue;
                 };
@@ -924,7 +1011,7 @@ pub fn search<'a>(
                     Some(Resume {
                         id,
                         word: l.word,
-                        offset: last.end,
+                        offset: end,
                     }),
                 ));
             }
@@ -983,9 +1070,72 @@ mod tests {
             ("plan", "result", "plan-7-261021-100000.jsonl.result.json"),
             ("work", "transcript", "../work-7-261021-100000.jsonl"),
             ("other", "dispatch", "dispatch-other-7.log"),
+            ("work", "transcript", "work-07-261021-100000.jsonl"),
+            ("work", "transcript", "work-+7-261021-100000.jsonl"),
+            ("work", "transcript", "work-7-26102-100000.jsonl"),
+            ("work", "transcript", "work-7-2610211-100000.jsonl"),
+            ("work", "transcript", "work-7-261021-1000000.jsonl"),
+            ("work", "transcript", "work-7-261021_100000.jsonl"),
+            ("work", "transcript", "work-7-26102a-100000.jsonl"),
+            ("work", "transcript", "work-7-\u{0662}61021-10000.jsonl"),
+            ("work", "transcript", "work-7--261021-100000.jsonl"),
+            ("work", "result", "work-7-261021-100000.json"),
+            ("work", "dispatch", "dispatch-work-07.log"),
+            ("work", "dispatch", "dispatch-work-7.log.1"),
+            ("work", "dispatch", "xdispatch-work-7.log"),
+            ("plan", "dispatch", "dispatch-plan-.log"),
         ];
         for (k, w, n) in no {
             assert!(!name_ok(k, 7, w, n), "{k} {w} {n:?}");
         }
+        assert!(name_ok(
+            "work",
+            4096,
+            "transcript",
+            "work-4096-261021-100000.jsonl"
+        ));
+        assert!(name_ok("plan", 4096, "dispatch", "dispatch-plan-4096.log"));
+    }
+
+    fn a_log(lines: usize) -> (tehas_core::testdir::TestDir, std::path::PathBuf) {
+        let dir = tehas_core::testdir::TestDir::new("mcp-logs-unit");
+        let path = dir.join("work-7-261021-100000.jsonl");
+        let text: String = (0..lines).map(|i| format!("line {i}\n")).collect();
+        std::fs::write(&path, text).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn a_head_is_masked_only_as_far_as_it_is_asked_for() {
+        let (_dir, path) = a_log(10_000);
+        let whole = masked(&path).unwrap();
+        let (head, to_end) = masked_upto(&path, 3).unwrap();
+        assert!(!to_end);
+        // One line, the one that takes the text past three bytes.
+        assert_eq!(head, "line 0\n");
+        assert!(whole.starts_with(&head));
+        let (all, to_end) = masked_upto(&path, whole.len() as u64).unwrap();
+        assert!(to_end, "a head that ends where the file ends is the whole");
+        assert_eq!(all, whole);
+        let (all, to_end) = masked_upto(&path, whole.len() as u64 - 1).unwrap();
+        assert!(to_end);
+        assert_eq!(all, whole);
+    }
+
+    #[test]
+    fn a_search_keeps_only_the_lines_that_match_and_stops_at_enough() {
+        let (_dir, path) = a_log(10_000);
+        let len = std::fs::metadata(&path).unwrap().len();
+        let s = scan(&path, 0, SEARCH_BYTES_MAX, "line 1", 3).unwrap();
+        let texts: Vec<&str> = s.found.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["line 1\n", "line 10\n", "line 11\n"]);
+        assert!(s.read < len, "read {} of {len}", s.read);
+        assert!(!s.stopped);
+        assert_eq!(s.last_end, Some(s.found[2].end));
+
+        let s = scan(&path, 0, SEARCH_BYTES_MAX, "line 9999", 50).unwrap();
+        assert_eq!(s.found.len(), 1);
+        assert_eq!(s.read, len);
+        assert_eq!(s.last_end, Some(masked(&path).unwrap().len() as u64));
     }
 }

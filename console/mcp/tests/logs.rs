@@ -570,21 +570,14 @@ fn last_line_without_newline() {
     assert_eq!(masked(&path).unwrap(), text);
 }
 
-// A plain read masks the whole file and then cuts one piece from it, so the
-// wait of this test is the mask of the whole log times the number of pieces,
-// not the size of a piece. In the debug profile the mask of a megabyte of
-// these lines costs about a second, so the log this test had - two and a half
-// megabytes - cost near two seconds a read, and the four reads of it (one to
-// know the whole, then the pieces) were most of the eight seconds of this
-// file. The mask stays where the source puts it: a read of a piece has to know
-// the size and the end of the whole masked text, and `joined` is the right
-// answer only if each read masks again. What went was the size of the log, so
-// it is now the smallest that still needs two pieces. A piece is counted in
-// bytes of the masked text and the mask makes these lines about 40 percent
-// shorter, so a file of about 1.75 MB masks to just over the 1 MiB of one
-// plain read: two pieces, two masks, and a quarter of the wait. The other
-// tests of this file read a log of a few hundred bytes and each waited about
-// six seconds only because they take turns, so they waited on this one.
+// A plain read masks the log from its start to the end of its piece, so the
+// wait of this test is the mask of the log up to each piece, summed over the
+// pieces. In the debug profile the mask of a megabyte of these lines costs
+// about a second, so the log stays the smallest that still needs two pieces. A
+// piece is counted in bytes of the masked text and the mask makes these lines
+// about 40 percent shorter, so a file of about 1.75 MB masks to just over the
+// 1 MiB of one plain read. The other tests of this file read a log of a few
+// hundred bytes and wait only because they take turns.
 #[test]
 fn pieces_join() {
     let _t = turn();
@@ -615,7 +608,6 @@ fn pieces_join() {
     let mut pieces = 0;
     loop {
         let out = env.plain(json!({"file": "transcript", "offset": offset}));
-        assert_eq!(out["size"], whole.len());
         assert_eq!(out["offset"], offset);
         let text = out["text"].as_str().unwrap();
         assert!(text.len() as u64 <= PLAIN_MAX);
@@ -623,11 +615,51 @@ fn pieces_join() {
         pieces += 1;
         match out["next"].as_u64() {
             Some(n) => offset = n,
-            None => break,
+            None => {
+                // The last piece read the log to its end, so it knows the size.
+                assert_eq!(out["size"], whole.len());
+                break;
+            }
         }
     }
     assert!(pieces >= 2, "{pieces}");
     assert_eq!(joined, whole);
+}
+
+// A plain read of the head of a log masks only as far as the piece it gives:
+// a one-byte read of a log of many lines does not read the log to its end, so
+// it has no size to give, and its next is the byte after the one it gave.
+#[test]
+fn a_short_read_stops_at_its_piece() {
+    let _t = turn();
+    let mut log = String::new();
+    for i in 0..5000 {
+        log.push_str(&format!("line {i} {}\n", token()));
+    }
+    let env = Env::new(
+        "head",
+        "work",
+        7,
+        &[("transcript", &transcript(7), log.as_bytes())],
+    );
+    let whole = masked(&env.dirs.logs.join(transcript(7))).unwrap();
+    let out = env.plain(json!({"file": "transcript", "bytes": 1}));
+    assert_eq!(out["text"], &whole[..1]);
+    assert_eq!(out["next"], 1);
+    assert!(out.get("size").is_none(), "{out}");
+
+    let at = whole.find("line 10 ").unwrap();
+    let out = env.plain(json!({"file": "transcript", "offset": at, "bytes": 8}));
+    assert_eq!(out["text"], &whole[at..at + 8]);
+    assert_eq!(out["next"], at + 8);
+    assert!(out.get("size").is_none(), "{out}");
+
+    // A read that reaches the end masks the whole log and gives its size.
+    let last = whole.len() - 4;
+    let out = env.plain(json!({"file": "transcript", "offset": last}));
+    assert_eq!(out["text"], &whole[last..]);
+    assert_eq!(out["size"], whole.len());
+    assert!(out.get("next").is_none(), "{out}");
 }
 
 #[test]
