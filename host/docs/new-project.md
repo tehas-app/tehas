@@ -196,11 +196,12 @@ the user in the same run, so no logout is needed. The release ends up in
 has what the machine needs.
 
 To install from files you downloaded yourself, for example on a host that
-cannot reach GitHub, pass their directory:
+cannot reach GitHub, pass their directory. The newest release's tag comes from
+`gh release view -R tehas-app/tehas --json tagName`:
 
 ```
-gh release download v0.9.0 -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
-sudo sh /tmp/tehas-release/install --version v0.9.0 --from /tmp/tehas-release boss
+gh release download <tag> -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
+sudo sh /tmp/tehas-release/install --version <tag> --from /tmp/tehas-release boss
 ```
 
 The tehas user ends up in the `docker` group, which makes it root-equivalent on

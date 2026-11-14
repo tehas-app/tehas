@@ -116,6 +116,8 @@ t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
 # tehas work as bin/tehas runs it: the console loads the settings and execs
 # the tehas-cycle beside it.
+# The renewer of the cycle's token, which tehas work starts from its home.
+t_renewer "$T/home/tehas"
 work="$tree/libexec/work"
 t_verb "$work" tehas work
 checkout=$T/home/tehas/repos/widget

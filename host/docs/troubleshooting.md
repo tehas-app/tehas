@@ -483,6 +483,7 @@ The common ones:
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 | `signal`                            | A `TERM`, `INT` or `HUP` came to `tehas work` (the unit was stopped, or the host shut down) and it stopped the container. The record's `capReason` names the signal and the step, and a run of the gate the stop cut short is closed in the stream by a `verify-aborted` line | Retry once the host is back; nothing in the issue caused it |
+| `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
 | `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
@@ -612,6 +613,13 @@ flight`. When the stop came while the driver's gate ran, the stream holds a
 `verify-aborted` line for it, with `"by": "tehas"` and the signal, and the
 cycle's `console.txt` ends with a line that says so. A person's `tehas stop`
 keeps its own reason and no cap.
+
+A container that ended with 137 when tehas did not stop it goes on record with
+the cap `container-killed`. The record's `capReason` says `the container was
+killed with the exit status 137 and tehas did not stop it, step lens-fix in
+flight; 4 processes in it were killed for memory`. This is not a stop of
+tehas's own: the comment says `Its cause is recorded as the cap
+container-killed`.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
@@ -745,7 +753,11 @@ runner started, and no note is left for it. The comment says `no step started`, 
 `step` is `no-step`, and its `capReason` names the container's own exit status
 (`the container ended with the exit status 1 and wrote no line of its stream, so
 the driver wrote no event and no step started`), so a run of this kind can be
-counted and grouped with the others of it. The word of the step is tehas's own:
+counted and grouped with the others of it. A note that could not be read is
+still the note: the cycle is on record the same way, its `capReason` says the
+exit status could not be read, and `tehasbot cycle` warns of it. A note that is
+a link, or holds anything but an exit status of 1 to 999, is no note, and
+`tehasbot cycle` warns of that too. The word of the step is tehas's own:
 no step of pi-rukas is named there, and it is kept clear of the word
 `not-started`, which names a start `tehas work` refused at exit 4.
 

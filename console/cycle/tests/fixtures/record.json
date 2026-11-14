@@ -988,6 +988,8 @@
     "0",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -995,7 +997,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "-"
    ],
@@ -1009,7 +1011,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=3968b9ad3974b1f8b463e3ea79a7321b70cd8e58c2db9e3d3b991c04e981dbbe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1125,6 +1127,8 @@
     "0",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -1132,7 +1136,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "develop"
    ],
@@ -1144,7 +1148,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `develop`, 0 min (runner exit 137). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `develop`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=b35b4d3655647bcea61331e9ed1555eeb1b6899368211610ea5664fee62b323c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1553,6 +1557,8 @@
     "3",
     "--forks",
     "0",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -1560,7 +1566,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "-"
    ],
@@ -1574,7 +1580,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `-`, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=3968b9ad3974b1f8b463e3ea79a7321b70cd8e58c2db9e3d3b991c04e981dbbe -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2596,7 +2602,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -2741,7 +2748,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -2886,7 +2894,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -3031,7 +3040,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -3176,7 +3186,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -3321,7 +3332,8 @@
     "explore"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started holds no exit status of 1 to 999, so it is not read"
    ],
    "writes": [
     [
@@ -3475,6 +3487,300 @@
     [
      "question",
      "Tehas cycle stopped without a pull request: status `unknown`, no step started, the container of the cycle ended before the driver wrote an event, 0 min (runner exit 2). tehas stopped the cycle: the cap `runner-never-started`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. 3 processes were killed for memory in its container.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=no-step kind= provider=0 sig=f6b0dd3a2b80ac49baf564cab26bd12db7b077b0fb592d6fc7e3ea1a6d2f1b3a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a note that could not be read is still the note: the cycle is on record as runner-never-started, its exit status said as not known",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793526037,
+   "now": 1793526038,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+    "nostart": {
+     "unreadable": true
+    }
+   },
+   "run_log": {
+    "name": "/T/home/tehas/logs/work-7-261011-120000.jsonl",
+    "text": "{}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526038
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526037,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=unknown step=no-step minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "no-step",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--cap",
+    "runner-never-started",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "runner-never-started",
+    "--step",
+    "no-step"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started could not be read, so its exit status is not known"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, no step started, the container of the cycle ended before the driver wrote an event, 0 min (runner exit 2). tehas stopped the cycle: the cap `runner-never-started`. This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=no-step kind= provider=0 sig=f6b0dd3a2b80ac49baf564cab26bd12db7b077b0fb592d6fc7e3ea1a6d2f1b3a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "a note that is a link is no note, and is said: the cycle is reported as one that died part way through",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793526085,
+   "now": 1793526086,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+    "runner_exit": "134\n",
+    "nostart": {
+     "link": true
+    }
+   },
+   "run_log": {
+    "name": "/T/home/tehas/logs/work-7-261101-094126.jsonl",
+    "text": "{\"v\":1,\"kind\":\"step-started\",\"issue\":7,\"event\":{\"step\":\"explore\"}}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793526086
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793526083,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0,
+    "easy": false
+   },
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=unknown step=explore minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "explore",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--runner-exit",
+    "134",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "explore"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log",
+    "WARN: the note of #7 that its container never started is a link, it is not read"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `explore` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=explore kind= provider=0 sig=1440ef56f142eeb7f4cab16199c69a2d22df4759345b343c9a2c82d7bbed69e7 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
