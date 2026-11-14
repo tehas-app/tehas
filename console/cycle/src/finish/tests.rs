@@ -888,6 +888,15 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
     // there for a reviewer, and no body file is left in the work directory.
     assert!(w.remote_has("finish/issue-7"));
     assert_eq!(w.left(), Vec::<String>::new());
+    // The refusal says so, because the next ask is refused by that branch: it
+    // names the branch and what clears it.
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    assert!(got.why.contains("delete the branch"), "{}", got.why);
     // The next ask finds the name on the remote and refuses rather than pushing
     // the same commits a second time.
     let mut h = w.host();
@@ -908,6 +917,22 @@ fn a_draft_that_said_no_url_is_a_refusal() {
     let got = finish(&w.plan(), &mut h);
     assert!(got.why.contains("no url"), "{}", got.why);
     assert_eq!(got.url, "");
+    // gh may have opened it or not; either way the branch stands, and the
+    // refusal names it, since the next ask is refused while it is there.
+    assert!(w.remote_has("finish/issue-7"));
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    let mut h = w.host();
+    let again = finish(&w.plan(), &mut h);
+    assert!(
+        again.why.contains("already a branch of the remote"),
+        "{}",
+        again.why
+    );
 }
 
 #[test]
