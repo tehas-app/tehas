@@ -1275,6 +1275,14 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             eprintln!("tehas work: could not write {}", out.display());
         }
     }
+    if decided.killed {
+        let line = killed_line(&step_in_flight, w.ooms);
+        let out = live.join(format!("console-{}.txt", g.issue));
+        if !append(&out, line.as_bytes()) {
+            eprintln!("tehas work: could not write {}", out.display());
+        }
+        w.append_or_say(line.as_bytes());
+    }
 
     let mut step = result_step(outcome.as_ref());
     if step.is_empty() {
@@ -1332,6 +1340,15 @@ fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
         line += &format!("; the gate of step {s} was left open and is closed as aborted");
     }
     line + "\n"
+}
+
+/// The console's and err's last line of a container killed from outside.
+fn killed_line(step: &str, ooms: u32) -> String {
+    let memory = match ooms {
+        0 => "no process in it was counted as killed for memory".to_string(),
+        n => format!("{n} processes in it were killed for memory"),
+    };
+    format!("tehas work: the container was killed (137) at step {step} and tehas did not stop it; {memory}\n")
 }
 
 /// The reason the runner's progress gives: empty when there is no file,
@@ -1891,6 +1908,17 @@ mod tests {
         assert_eq!(
             signal_line("-", "verify", &gates),
             "tehas work: a stop signal came at step verify, so tehas stopped the container; the gate of step verify was left open and is closed as aborted\n"
+        );
+    }
+
+    #[test]
+    fn the_line_of_a_killed_container_says_the_step_and_the_memory_kills() {
+        assert_eq!(
+            killed_line("lens-fix", 4),
+            "tehas work: the container was killed (137) at step lens-fix and tehas did not stop it; 4 processes in it were killed for memory\n"
+        );
+        assert!(
+            killed_line("-", 0).ends_with("no process in it was counted as killed for memory\n")
         );
     }
 
