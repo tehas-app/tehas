@@ -506,6 +506,19 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A status command run by the poll that fails or is killed at its bound now logs `WARN: the status command ... exited <n>` (or `was killed at its bound or did not start`) instead of passing in silence, and the health warning names the command and how it ended.
 - A cycle's history row and park record keep the pull request number when GitHub spells the repository's owner or name in another case than the settings, or the address ends in a slash. Before, the number was dropped without a word and the run showed no pull request.
 - The `verify` and `release-gate` workflows check the runner's cargo, rustc, rustfmt and clippy before the gate runs. A runner without them now fails with one error that names the runner and the missing tools, instead of a failure in every Rust test that reads as the change's.
+- The slots line of `tehas status` and the dispatcher's hold line no longer say `host-bound, no reading` for a host whose CPUs or slice answered but hold less than one cycle or two containers: they name the reading and say `at the floor`, and `room.slots.*.bound` is `cpu` or `memory` there instead of `host`.
+- `tehasbot store publish --health` no longer leaves the outage marker behind when a failing health report cannot be written, so `/health` keeps answering from the report that is on disk; a marker that cannot be removed is now reported as `remove live/health.down`, not as a write.
+- `tehas clean` reads the sizes and creation times of the images it weighs with one `docker image inspect` per step, instead of one or two per image.
+- The names of the issue lists in `live/status.json` are now defined once and shared by the writer, the health page, the analytics sampler and the MCP server, so a rename can no longer silently zero the queue counts.
+- `tehasbot clean` stops measuring one path after a million names or ten seconds, so a huge build tree no longer holds up the rest of the pass. A size cut short there is logged as `at least <n> bytes`, and so is the run's closing total; the path is still removed.
+- The gate now fails when a program of the Cargo workspace is missing from install.sh's list, the release build or the release tarball's flags, unless it is named as not installed with a reason. `tehas-merge` is named so: it is built and tested but not installed yet.
+- The gate's line for the workspace's tests now counts what ran, as in `ok    the workspace's tests (827 passed, 3 ignored, 41 test binaries)`, and the gate fails when `cargo test` exits 0 but prints no `test result:` line, so a green no longer hides a run in which no Rust test ran.
+- `scripts/test.sh` stops with exit 2 and `test.sh: cannot start <file>: <reason>`
+  when a test file's task process cannot be started, instead of skipping it and
+  letting a record already on disk for that file read as a pass.
+- `scripts/verify.sh --changed` prints a `skip` line for the shell tests when the change holds no test file and no shell script to lint, instead of an `ok` line for a step that ran nothing. `scripts/test.sh` given only such paths now exits 3 rather than 0.
+- `tehas update` from releases runs the new version's settings check under a limit of 120 seconds and reads at most 64 KiB of what it says; a check that runs out of time or says more stops the update with nothing switched, instead of waiting and growing without end.
+- A `TEHAS_` key that could not be searched for in the new version's tree is no longer reported as unknown to it; it gets a warning of its own.
 
 ### Held back
 
@@ -688,6 +701,26 @@ None.
 None.
 
 None. An instance that raised `TEHAS_VERIFY_TIMEOUT` above 1800 now gets that bound on the combined tree too; check that `TEHAS_WORK_TIMEOUT` leaves room for it.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
 
 None.
 
