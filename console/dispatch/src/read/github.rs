@@ -549,9 +549,9 @@ pub fn issue(o: &Open) -> Map<String, Value> {
 /// The comments of several issues, one aliased query per chunk of
 /// `COMMENT_CHUNK`, the chunks side by side. Each issue's answer has the shape
 /// `comments` gives, so a rule cannot tell the two reads apart. A chunk that
-/// failed reads every issue of it as `{"failed": true}`, as a failed `comments`
+/// failed reads every issue of it as `failed_read`, as a failed `comments`
 /// does, so a hold stays a hold; an alias the answer left out or null is that
-/// one issue's failed read.
+/// one issue's failed read, with no line: no gh call failed.
 pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
     let (owner, name) = split(repo);
     let list: Vec<Vec<String>> = numbers
@@ -584,7 +584,7 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
                         }
                         _ => json!({"failed": true}),
                     },
-                    Err(_) => json!({"failed": true}),
+                    Err(f) => failed_read(f),
                 })
                 .collect::<Vec<Value>>()
         })
@@ -592,7 +592,7 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
 }
 
 /// The comments of one issue, as the bash's question and blocker reads have
-/// them; {"failed": true} when the call failed.
+/// them; `failed_read` when the call failed.
 pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
     let (owner, name) = split(repo);
     let num = format!("number={n}");
@@ -601,7 +601,15 @@ pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
         .gh(&[
             "api", "graphql", "-F", &owner, "-F", &name, "-F", &num, "-f", &query,
         ])
-        .unwrap_or_else(|_| json!({"failed": true}))
+        .unwrap_or_else(|f| failed_read(&f))
+}
+
+/// The marker of a read whose gh call failed, with the call's line: a rule
+/// that ends the poll on the marker says what gh said, and a marker with no
+/// line is a read no gh call failed for. The line holds only the words of
+/// `gh_why`'s fixed list, so nothing gh printed beyond them reaches the log.
+pub fn failed_read(f: &GhFail) -> Value {
+    json!({"failed": true, "line": f.line})
 }
 
 /// The states of the issues a blocker comment names, by number.
@@ -648,7 +656,7 @@ pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
             .pointer("/data/repository/pullRequest")
             .cloned()
             .unwrap_or(Value::Null),
-        Err(_) => json!({"failed": true}),
+        Err(f) => failed_read(&f),
     }
 }
 

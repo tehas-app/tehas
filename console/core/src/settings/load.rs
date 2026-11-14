@@ -1659,4 +1659,88 @@ mod tests {
             "{text}"
         );
     }
+
+    /// Settings the example instance names whose rule lives with the program
+    /// that reads them, not in the table.
+    const RULED_ELSEWHERE: [&str; 8] = [
+        // The dispatcher holds their rules and defaults (dispatch/src/slots.rs).
+        "TEHAS_CYCLE_CPUS",
+        "TEHAS_CYCLE_CEILING",
+        // Defaults of this load: the sandbox image, the product's clone and
+        // the cycle's host names.
+        "PI_ENSEMBLE_IMAGE",
+        "TEHAS_WORK_REPO",
+        "PI_ENSEMBLE_HOST_ALIASES",
+        // pi-rukas reads it in the container.
+        "PI_ENSEMBLE_REVIEW_THRESHOLD",
+        // A pin of versions.env, read by core/src/rukas.rs.
+        "PI_RUKAS_IMAGE_DIGEST",
+        // A knob of a run, read before the load (ops/src/update/wait.rs).
+        "TEHAS_UPDATE_LOCK_WAIT",
+    ];
+
+    /// The names the example instance's files set, commented out or not.
+    fn example_names() -> BTreeSet<String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../instances/example");
+        let mut names = BTreeSet::new();
+        for file in ["instance.env", "optional.env"] {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap();
+            for line in text.lines() {
+                let line = line.strip_prefix('#').unwrap_or(line);
+                let Some((name, _)) = line.split_once('=') else {
+                    continue;
+                };
+                let shaped = name.starts_with(|c: char| c.is_ascii_uppercase())
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+                if shaped {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn every_setting_the_example_names_has_a_rule() {
+        let names = example_names();
+        assert!(names.contains("TEHAS_REPO"), "{names:?}");
+        let in_table = |n: &str| TABLE.iter().any(|s| s.name == n);
+        let missing: Vec<&String> = names
+            .iter()
+            .filter(|name| {
+                let role = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
+                    .iter()
+                    .any(|p| name.strip_prefix(p).is_some_and(|r| ROLES.contains(&r)));
+                !(in_table(name) || role || RULED_ELSEWHERE.contains(&name.as_str()))
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "in instances/example with no row in settings/rules.rs: {missing:?}"
+        );
+        for name in RULED_ELSEWHERE {
+            assert!(
+                !in_table(name),
+                "{name} has a row: take it out of RULED_ELSEWHERE"
+            );
+            assert!(
+                names.contains(name),
+                "{name} is no longer in instances/example"
+            );
+        }
+    }
+
+    #[test]
+    fn a_retired_name_is_neither_a_setting_nor_kept() {
+        for name in RETIRED {
+            assert!(
+                !TABLE.iter().any(|s| s.name == name),
+                "{name} is retired and in TABLE"
+            );
+            assert!(!KEPT.contains(&name), "{name} is retired and in KEPT");
+            assert!(!RULED_ELSEWHERE.contains(&name), "{name} is retired");
+        }
+    }
 }
