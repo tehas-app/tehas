@@ -13,7 +13,7 @@ host asks GitHub for nothing, so a second run is a no-op twice.
 What goes is only what says a cycle runs, is owed, or is parked:
 
   state/cycles/<issue>.lock .cid .done .stalled .timed .signal .oom
-                 .forks .disk .nostart .lean-refused .refresh-conflict
+                 .forks .disk .nostart .lean-refused .refused .refresh-conflict
                  .comments .progress.json .result.json .freeze .frozen,
                  and .nostart.new .runner_exit.new .status.new, a write that
                  never finished
