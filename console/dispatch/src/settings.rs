@@ -312,4 +312,23 @@ mod tests {
         let none = Settings::parse(&json!({}));
         assert!(!none.is_millwright("") && !none.is_millwright("[bot]"));
     }
+
+    #[test]
+    fn the_millwright_counts_without_the_allow_list_and_a_listed_person_is_no_app() {
+        let c = Settings::parse(&json!({
+            "TEHAS_ALLOWED_LABELERS": "alice",
+            "TEHAS_MILLWRIGHT_LOGIN": "acme-millwright[bot]",
+        }));
+        // The millwright is judged by its own setting, in both spellings,
+        // whatever the allow-list holds.
+        for who in ["acme-millwright", "acme-millwright[bot]"] {
+            assert!(!c.allowed(who) && c.is_millwright(who), "{who}");
+        }
+        // The allow-list holds people, matched exactly: an App whose slug
+        // equals a listed login is another account.
+        assert!(c.allowed("alice"));
+        for who in ["alice[bot]", "Alice", "alice2", "", "[bot]"] {
+            assert!(!c.allowed(who), "{who}");
+        }
+    }
 }
