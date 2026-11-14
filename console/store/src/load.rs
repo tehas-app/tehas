@@ -181,11 +181,24 @@ fn columns(conn: &Connection, table: &str) -> Result<String, Fail> {
 fn fill(conn: &Connection, home: &Path) -> Result<(), Fail> {
     verbs::schema(conn)?;
     let issues = lock::listed(home).map_err(|e| (1, format!("running: {e}")))?;
-    if let Some(n) = issues
-        .into_iter()
-        .find(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.rc != 0))
-    {
-        return Err((1, format!("running: a cycle is running for #{n}")));
+    // Both a held lock and one that cannot be probed refuse the load; only
+    // the held one is named a running cycle, the other keeps the probe's reason.
+    for n in issues {
+        match lock::probe_file(&lock::path(home, n)) {
+            Some(l) if l.rc == 1 => {
+                return Err((1, format!("running: a cycle is running for #{n}")));
+            }
+            Some(l) if l.held_or_unknown() => {
+                return Err((
+                    1,
+                    format!(
+                        "running: cannot tell whether a cycle runs for #{n}: {}",
+                        l.why.as_deref().unwrap_or("could not tell")
+                    ),
+                ));
+            }
+            _ => {}
+        }
     }
     for table in HISTORY {
         let n: i64 = conn
