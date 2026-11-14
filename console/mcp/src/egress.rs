@@ -164,17 +164,8 @@ fn refuse(mut client: TcpStream, what: &str) {
 }
 
 fn reach(host: &str, port: u16) -> io::Result<TcpStream> {
-    let addrs = (host, port)
-        .to_socket_addrs()
-        .map_err(|e| io::Error::new(e.kind(), format!("the name was not resolved: {e}")))?;
-    first_reached(addrs)
-}
-
-/// The first address that answers. A name that resolved to no address says
-/// so, apart from a name that did not resolve: the remedies differ.
-fn first_reached(addrs: impl Iterator<Item = std::net::SocketAddr>) -> io::Result<TcpStream> {
-    let mut last = io::Error::new(io::ErrorKind::NotFound, "the name resolved to no address");
-    for addr in addrs {
+    let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
+    for addr in (host, port).to_socket_addrs()? {
         match TcpStream::connect_timeout(&addr, CONNECT_WAIT) {
             Ok(s) => return Ok(s),
             Err(e) => last = e,
@@ -183,32 +174,10 @@ fn first_reached(addrs: impl Iterator<Item = std::net::SocketAddr>) -> io::Resul
     Err(last)
 }
 
-/// Why a client's head never came, for the log; None for a client that
-/// connected and closed without a byte, which is a probe, not a request.
-fn no_head(read: &io::Result<usize>, had: usize) -> Option<String> {
-    match read {
-        Ok(_) if had == 0 => None,
-        Ok(_) => Some(format!("the client closed after {had} bytes of its head")),
-        Err(e)
-            if matches!(
-                e.kind(),
-                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-            ) =>
-        {
-            Some(format!("no request head within {} s", HEAD_WAIT.as_secs()))
-        }
-        Err(e) => Some(format!("the head could not be read: {e}")),
-    }
-}
-
 /// Bytes both ways until either side ends.
-fn pipe(a: TcpStream, b: TcpStream, what: &str) {
-    let (mut a2, mut b2) = match (a.try_clone(), b.try_clone()) {
-        (Ok(a2), Ok(b2)) => (a2, b2),
-        (Err(e), _) | (_, Err(e)) => {
-            eprintln!("tehas-mcp egress: {what}: the connection was dropped: {e}");
-            return;
-        }
+fn pipe(a: TcpStream, b: TcpStream) {
+    let (Ok(mut a2), Ok(mut b2)) = (a.try_clone(), b.try_clone()) else {
+        return;
     };
     let up = thread::spawn(move || {
         let (mut a, mut b) = (a, b);
@@ -233,13 +202,8 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
             return refuse(client, "a request head over 16 KiB");
         }
         match client.read(&mut chunk) {
-            Ok(n) if n > 0 => buf.extend_from_slice(&chunk[..n]),
-            read => {
-                if let Some(why) = no_head(&read, buf.len()) {
-                    eprintln!("tehas-mcp egress: {why}");
-                }
-                return;
-            }
+            Ok(0) | Err(_) => return,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
         }
     };
     let (host, port, first) = match ask(&buf[..end]) {
@@ -253,14 +217,10 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
     let mut upstream = match reach(&host, port) {
         Ok(s) => s,
         Err(e) => {
-            let told = client.write_all(
+            eprintln!("tehas-mcp egress: {host}:{port} could not be reached: {e}");
+            let _ = client.write_all(
                 b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             );
-            let told = match told {
-                Ok(()) => "the client was told 502".to_string(),
-                Err(t) => format!("the client was gone before its 502: {t}"),
-            };
-            eprintln!("tehas-mcp egress: {host}:{port} could not be reached: {e}; {told}");
             return;
         }
     };
@@ -271,10 +231,8 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
     };
     // What the client sent after its head is the start of the tunnel's bytes
     // or of the request's body.
-    let what = format!("{host}:{port}");
-    match sent.and_then(|_| upstream.write_all(&buf[end..])) {
-        Ok(()) => pipe(client, upstream, &what),
-        Err(e) => eprintln!("tehas-mcp egress: {what}: the request was dropped: {e}"),
+    if sent.and_then(|_| upstream.write_all(&buf[end..])).is_ok() {
+        pipe(client, upstream);
     }
 }
 
@@ -290,23 +248,8 @@ impl Drop for Slot {
 pub fn serve(listener: TcpListener, allowed: Allowed) {
     let allowed = Arc::new(allowed);
     let active = Arc::new(AtomicUsize::new(0));
-    // One line per run of failed accepts, so a storm of them (out of file
-    // descriptors) is said once rather than once a connection.
-    let mut failing = false;
     for stream in listener.incoming() {
-        let mut stream = match stream {
-            Ok(s) => {
-                failing = false;
-                s
-            }
-            Err(e) => {
-                if !failing {
-                    eprintln!("tehas-mcp egress: a connection could not be accepted: {e}");
-                }
-                failing = true;
-                continue;
-            }
-        };
+        let Ok(mut stream) = stream else { continue };
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
             let _ = stream.write_all(
@@ -408,30 +351,6 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "GET /v1 HTTP/1.1\r\nHost: models.example:8080\r\nAccept: */*\r\nConnection: close\r\n\r\n"
         );
-    }
-
-    #[test]
-    fn a_head_that_never_came_is_said_and_a_bare_probe_is_not() {
-        assert_eq!(no_head(&Ok(0), 0), None);
-        assert_eq!(
-            no_head(&Ok(0), 12).as_deref(),
-            Some("the client closed after 12 bytes of its head")
-        );
-        let timed_out = Err(io::Error::from(io::ErrorKind::WouldBlock));
-        assert_eq!(
-            no_head(&timed_out, 3).as_deref(),
-            Some("no request head within 30 s")
-        );
-        let reset = Err(io::Error::from(io::ErrorKind::ConnectionReset));
-        assert!(no_head(&reset, 0)
-            .unwrap()
-            .starts_with("the head could not be read: "));
-    }
-
-    #[test]
-    fn a_name_of_no_address_is_not_a_name_that_did_not_resolve() {
-        let e = first_reached(std::iter::empty()).unwrap_err();
-        assert_eq!(e.to_string(), "the name resolved to no address");
     }
 
     /// A proxy on a free port, allowed to reach <allowed>, and its address.
