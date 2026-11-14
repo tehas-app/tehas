@@ -14,6 +14,7 @@
 
 use crate::slice;
 use serde_json::{Map, Value};
+use tehas_core::hold::slots as key;
 
 const MIB: u64 = 1_048_576;
 const GIB: u64 = 1_073_741_824;
@@ -87,7 +88,7 @@ impl Probe {
     /// of what the host alone holds, and the reading itself otherwise.
     fn bounded(&self, filled: u64, name: &'static str) -> &'static str {
         match self.ceiling().min(MAX) {
-            c if filled > c => "ceiling",
+            c if filled > c => key::BOUND_CEILING,
             _ => name,
         }
     }
@@ -135,32 +136,33 @@ impl Slots {
     /// sets neither setting to `auto` has nothing to explain, and gets
     /// nothing: the report keeps the shape it had before these settings.
     pub fn report(&self) -> Option<Value> {
-        if self.cycle_how != "auto" && self.container_how != "auto" {
+        if self.cycle_how != key::HOW_AUTO && self.container_how != key::HOW_AUTO {
             return None;
         }
         let mut m = Map::new();
-        m.insert("cycles".into(), Value::from(self.cycles));
-        m.insert("containers".into(), Value::from(self.containers));
-        m.insert("cyclesHow".into(), Value::from(self.cycle_how));
-        m.insert("containersHow".into(), Value::from(self.container_how));
-        for (key, a) in [("cycle", &self.cycle), ("container", &self.container)] {
+        m.insert(key::CYCLES.into(), Value::from(self.cycles));
+        m.insert(key::CONTAINERS.into(), Value::from(self.containers));
+        m.insert(key::CYCLES_HOW.into(), Value::from(self.cycle_how));
+        m.insert(key::CONTAINERS_HOW.into(), Value::from(self.container_how));
+        for (side, a) in [(key::CYCLE, &self.cycle), (key::CONTAINER, &self.container)] {
             if let Some(a) = a {
                 m.insert(
-                    key.into(),
+                    side.into(),
                     Value::Object(
                         [
-                            ("bound".to_string(), Value::from(a.bound)),
-                            ("slots".to_string(), Value::from(a.slots)),
-                            ("cpus".to_string(), a.cpus.map_or(Value::Null, Value::from)),
+                            (key::BOUND, Value::from(a.bound)),
+                            (key::SLOTS, Value::from(a.slots)),
+                            (key::CPUS, a.cpus.map_or(Value::Null, Value::from)),
                             (
-                                "containerMemory".to_string(),
+                                key::CONTAINER_MEMORY,
                                 Value::from(a.container_memory.as_str()),
                             ),
-                            ("cycleCpus".to_string(), Value::from(a.cycle_cpus.as_str())),
-                            ("ceiling".to_string(), Value::from(a.ceiling.as_str())),
-                            ("floored".to_string(), Value::from(a.floored)),
+                            (key::CYCLE_CPUS, Value::from(a.cycle_cpus.as_str())),
+                            (key::CEILING, Value::from(a.ceiling.as_str())),
+                            (key::FLOORED, Value::from(a.floored)),
                         ]
                         .into_iter()
+                        .map(|(k, v)| (k.to_string(), v))
                         .collect::<Map<_, _>>(),
                     ),
                 );
@@ -197,9 +199,9 @@ fn size(s: &str) -> Option<u64> {
 /// What one of the two settings asked for: `auto`, a number, or neither.
 fn how(v: &str) -> &'static str {
     match v.trim() {
-        "auto" => "auto",
-        _ if count(v).is_some() => "number",
-        _ => "fixed",
+        "auto" => key::HOW_AUTO,
+        _ if count(v).is_some() => key::HOW_NUMBER,
+        _ => key::HOW_FIXED,
     }
 }
 
@@ -212,7 +214,7 @@ fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
         count,
         Auto {
             bound: if filled == 0 {
-                "host"
+                key::BOUND_HOST
             } else {
                 p.bounded(filled, name)
             },
@@ -233,21 +235,21 @@ fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
 /// The slots this poll's readings give.
 pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slots {
     let (containers, container) = match how(containers_written) {
-        "auto" => {
-            let (n, a) = auto(p, p.memory_slots, "memory", MIN_CONTAINERS);
+        key::HOW_AUTO => {
+            let (n, a) = auto(p, p.memory_slots, key::BOUND_MEMORY, MIN_CONTAINERS);
             (n, Some(a))
         }
         // lib/config.sh keeps a number in 2..=16; anything else is taken as
         // the floor, and slice::usable says so when it reads the setting.
-        "number" => (count(containers_written).unwrap_or(0), None),
+        key::HOW_NUMBER => (count(containers_written).unwrap_or(0), None),
         _ => (MIN_CONTAINERS, None),
     };
     let (count, cycle) = match how(cycles_written) {
-        "auto" => {
-            let (n, a) = auto(p, p.cpu_slots, "cpu", MIN_CYCLES);
+        key::HOW_AUTO => {
+            let (n, a) = auto(p, p.cpu_slots, key::BOUND_CPU, MIN_CYCLES);
             (n, Some(a))
         }
-        "number" => (count(cycles_written).unwrap_or(MIN_CYCLES), None),
+        key::HOW_NUMBER => (count(cycles_written).unwrap_or(MIN_CYCLES), None),
         _ => (MIN_CYCLES, None),
     };
     Slots {
@@ -265,7 +267,7 @@ pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slot
 /// factory that sets a number, whose line reads as it always did: the count
 /// alone, in brackets, with `limit` in front of it.
 pub fn words(s: &Slots) -> String {
-    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == "auto") else {
+    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == key::HOW_AUTO) else {
         return String::new();
     };
     format!(
@@ -280,7 +282,7 @@ pub fn words(s: &Slots) -> String {
 /// the three numbers they are derived from. live/dispatch.json holds the same
 /// fields as JSON; this is the line `tehas status` prints from them.
 pub fn reason(s: &Slots) -> String {
-    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == "auto") else {
+    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == key::HOW_AUTO) else {
         return String::new();
     };
     let cpus = a.cpus.map_or_else(|| "?".to_string(), |c| c.to_string());
@@ -486,6 +488,46 @@ mod tests {
             reason(&derive(&Probe::read(None, None, "8g", "4", ""), "4", "7")),
             ""
         );
+    }
+
+    #[test]
+    fn the_report_writes_only_the_keys_and_words_core_names() {
+        let names = |v: &Value| {
+            let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        let sorted = |a: &[&str]| {
+            let mut k: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+            k.sort();
+            k
+        };
+        let mut top = key::REQUIRED.to_vec();
+        top.extend(key::DERIVED);
+        // A host that bounds by memory, by CPUs, by the ceiling, and that
+        // gives no reading at all: each bound the producer can write.
+        let mut bounds = Vec::new();
+        for s in [
+            both(48 * G, 24, "8g", "4", ""),
+            both(16 * G, 64, "8g", "4", ""),
+            both(512 * G, 256, "8g", "4", "3"),
+            derive(&Probe::read(None, None, "8g", "4", ""), "auto", "auto"),
+        ] {
+            let r = s.report().unwrap();
+            assert_eq!(names(&r), sorted(&top));
+            assert!(key::HOW_WORDS.contains(&r[key::CYCLES_HOW].as_str().unwrap()));
+            assert!(key::HOW_WORDS.contains(&r[key::CONTAINERS_HOW].as_str().unwrap()));
+            for side in key::DERIVED {
+                assert_eq!(names(&r[side]), sorted(&key::AUTO_KEYS));
+                bounds.push(r[side][key::BOUND].as_str().unwrap().to_string());
+            }
+        }
+        bounds.sort();
+        bounds.dedup();
+        assert_eq!(bounds, sorted(&key::BOUND_WORDS));
+        let p = Probe::read(None, None, "8g", "4", "");
+        assert_eq!(derive(&p, "auto", "x").cycle_how, key::HOW_FIXED);
+        assert_eq!(derive(&p, "auto", "7").cycle_how, key::HOW_NUMBER);
     }
 
     #[test]
