@@ -1875,6 +1875,34 @@ fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
 }
 
 #[test]
+fn a_sweep_that_cannot_look_at_a_name_says_so_and_not_that_the_issue_is_gone() {
+    let mut t = world();
+    let works = t.dir.join("works");
+    fs::create_dir_all(works.join("tehas-work-5")).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let live = t.w.home.join("live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("console-5.txt"), "x").unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o000)).unwrap();
+    // Root is not kept out of a directory by its mode.
+    if fs::symlink_metadata(live.join("console-5.txt")).is_ok() {
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
+        return;
+    }
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap(); // a directory
+    assert_eq!(a.log.len(), 1, "{:?}", a.log);
+    assert!(
+        a.log[0].starts_with("WARN: could not look at live/console-5.txt of #5 ("),
+        "{:?}",
+        a.log
+    );
+    assert!(!works.join("tehas-work-5").exists());
+    assert!(live.join("console-5.txt").exists());
+}
+
+#[test]
 fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
     let mut t = world();
     fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
@@ -3846,6 +3874,30 @@ fn a_first_turn_on_an_epics_approval_says_whose_epic_authorized_it() {
 }
 
 #[test]
+fn a_refine_whose_brief_cannot_be_read_starts_no_turn_and_spends_nothing() {
+    let mut t = world();
+    let extra = t.dir.join("refine-brief.md");
+    let mut turn = first_turn(7);
+    turn["label"] = json!("tehas:refine");
+    turn["auto"] = json!("too-big");
+    turn["brief_extra"] = json!(extra.to_string_lossy());
+    let a = t.apply(json!([{"park_retry": 7, "how": "refine"}, turn]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(a.log.len(), 1, "{:?}", a.log);
+    let head = format!(
+        "ERROR: could not read the refine brief {} (",
+        extra.display()
+    );
+    assert!(
+        a.log[0].starts_with(&head) && a.log[0].ends_with("), not starting a turn of #7"),
+        "{:?}",
+        a.log
+    );
+    assert!(t.writes().is_empty(), "{:?}", t.writes());
+    assert!(!t.dir.join("brief").exists());
+}
+
+#[test]
 fn a_refine_spends_its_park_once_its_brief_is_written_and_says_why() {
     let mut t = world();
     let extra = t.dir.join("refine-brief.md");
@@ -4125,6 +4177,55 @@ fn a_next_turn_from_a_person_and_one_the_store_refuses() {
 }
 
 #[test]
+fn a_next_turn_names_the_path_it_could_not_make_or_write() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let works = t.dir.join("works");
+    fs::create_dir_all(&works).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let keep = works.join("tehas-work-plan-7.keep");
+    fs::write(&keep, "a file").unwrap();
+    let a = t
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, Some(1));
+    let made = format!("ERROR: could not make {} (", keep.display());
+    assert!(a.log.iter().any(|l| l.starts_with(&made)), "{:?}", a.log);
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: could not make the keep directory of #7, not starting a turn"
+    );
+    // The keep directory made, but the answer cannot be written in it.
+    let mut t2 = world();
+    plan_row(
+        &t2,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let works2 = t2.dir.join("works");
+    fs::create_dir_all(works2.join("tehas-work-plan-7.keep/answer.md")).unwrap();
+    fs::write(works2.join(".tehas-workspaces"), "").unwrap();
+    let a = t2
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, Some(1));
+    let wrote = format!(
+        "ERROR: could not write the answer for #7 to {} (",
+        works2.join("tehas-work-plan-7.keep/answer.md").display()
+    );
+    let last = a.log.last().unwrap();
+    assert!(
+        last.starts_with(&wrote) && last.ends_with("), not starting a turn"),
+        "{last}"
+    );
+    assert!(!a.log.iter().any(|l| l.starts_with("ERROR: could not make")));
+    assert!(!t2
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:planning")));
+}
+
+#[test]
 fn a_next_turn_in_a_directory_tehas_did_not_make_starts_nothing() {
     let mut t = world();
     plan_row(
@@ -4141,7 +4242,7 @@ fn a_next_turn_in_a_directory_tehas_did_not_make_starts_nothing() {
         .any(|l| l.ends_with("works exists and was not made by tehas, not touching it")));
     assert_eq!(
         a.log.last().unwrap(),
-        "ERROR: could not write the answer for #7, not starting a turn"
+        "ERROR: could not make the keep directory of #7, not starting a turn"
     );
     assert!(t
         .writes()
