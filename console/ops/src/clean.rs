@@ -66,7 +66,7 @@
 use crate::account;
 use crate::store::{self, bounded, merged};
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::os::unix::ffi::OsStrExt;
@@ -597,21 +597,44 @@ fn docker_list(args: &[&str]) -> Option<String> {
     })
 }
 
-/// The first line docker printed, whatever its status.
-fn docker_first(bound: bool, args: &[&str]) -> String {
-    let mut cmd = if bound {
-        bounded("30", "600", "docker")
-    } else {
-        Command::new("docker")
-    };
-    let said = cmd
-        .args(args)
+/// The tag and the id of a "<tag> <id>" line.
+fn tag_and_id(line: &str) -> (&str, &str) {
+    let (tag, id) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+    (tag, id.trim())
+}
+
+/// The size and creation time docker gives each of <ids>, from one
+/// `docker image inspect` for all of them. An id docker does not answer for is
+/// absent: docker still prints the others when one is gone, so its status is
+/// not read.
+fn image_facts(ids: &[&str]) -> HashMap<String, (u64, String)> {
+    let mut facts = HashMap::new();
+    if ids.is_empty() {
+        return facts;
+    }
+    let Ok(o) = bounded("30", "600", "docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}} {{.Size}} {{.Created}}",
+        ])
+        .args(ids)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
-    said.lines().next().unwrap_or("").to_string()
+    else {
+        return facts;
+    };
+    for line in String::from_utf8_lossy(&o.stdout).lines() {
+        let mut f = line.splitn(3, ' ');
+        let (Some(id), Some(size)) = (f.next(), f.next()) else {
+            continue;
+        };
+        let created = f.next().unwrap_or("").trim().to_string();
+        facts.insert(id.to_string(), (size.parse().unwrap_or(0), created));
+    }
+    facts
 }
 
 /// The ids a container was made from, and those every uid tag of <lines>
@@ -1483,26 +1506,19 @@ impl Run {
         ok
     }
 
-    /// Whether docker dates an image before the age. What it cannot read
-    /// keeps the image.
-    fn image_old_enough(&self, id: &str) -> bool {
-        let t = docker_first(true, &["image", "inspect", "--format", "{{.Created}}", id]);
-        if !stamp_shaped(&t) {
+    /// Whether docker's creation time of an image is before the age. What
+    /// does not read as one keeps the image.
+    fn image_old_enough(&self, t: &str) -> bool {
+        if !stamp_shaped(t) {
             return false;
         }
-        let Ok(o) = Command::new("date").args(["-d", &t, "+%s"]).output() else {
+        let Ok(o) = Command::new("date").args(["-d", t, "+%s"]).output() else {
             return false;
         };
         let Ok(at) = String::from_utf8_lossy(&o.stdout).trim().parse::<i64>() else {
             return false;
         };
         o.status.success() && at < time::now() - self.after as i64 * 3600
-    }
-
-    fn image_size(id: &str) -> u64 {
-        docker_first(false, &["image", "inspect", "--format", "{{.Size}}", id])
-            .parse()
-            .unwrap_or(0)
     }
 
     /// `docker rmi` of one name: Ok, or docker's reason.
@@ -1544,10 +1560,23 @@ impl Run {
         let past = dated_past(&tags, KEEP_BUILDS);
         let mut lines: Vec<&str> = tags.split('\n').filter(|l| dated(l)).collect();
         lines.sort_by(|a, b| b.as_bytes().cmp(a.as_bytes()));
+        // The sizes of what this run removes, read before any removal, in one call.
+        let doomed: Vec<&str> = if self.dry {
+            Vec::new()
+        } else {
+            lines
+                .iter()
+                .map(|l| tag_and_id(l))
+                .filter(|(tag, id)| {
+                    past.iter().any(|(t, _)| t == tag) && !held.iter().any(|h| h == id)
+                })
+                .map(|(_, id)| id)
+                .collect()
+        };
+        let facts = image_facts(&doomed);
         let mut ok = true;
         for line in lines {
-            let (tag, id) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-            let id = id.trim();
+            let (tag, id) = tag_and_id(line);
             if !past.iter().any(|(t, _)| *t == tag) {
                 self.log(&format!(
                     "kept {s}:{tag}: one of the newest {KEEP_BUILDS} builds"
@@ -1567,7 +1596,7 @@ impl Run {
                 ));
                 continue;
             }
-            let kb = Self::image_size(id);
+            let kb = facts.get(id).map_or(0, |f| f.0);
             match Self::rmi(&format!("{s}:{tag}")) {
                 Ok(()) => {
                     self.freed += kb;
@@ -1644,6 +1673,13 @@ impl Run {
             kept.push(rid.clone());
         }
         kept.extend(keep_ids.iter().cloned());
+        let facts = image_facts(
+            &bases
+                .iter()
+                .map(|(_, id)| id.as_str())
+                .filter(|id| is_id(id))
+                .collect::<Vec<_>>(),
+        );
         let mut cands = Vec::new();
         let mut ok = true;
         for (ltag, lid) in &bases {
@@ -1673,14 +1709,15 @@ impl Run {
                 ));
                 continue;
             }
-            if !self.image_old_enough(lid) {
+            let (kb, created) = facts.get(lid).map_or((0, ""), |(k, c)| (*k, c.as_str()));
+            if !self.image_old_enough(created) {
                 let after = self.after;
                 self.log(&format!(
                     "kept {repo}:{ltag}: docker did not date its image past {after} hours"
                 ));
                 continue;
             }
-            cands.push((format!("{repo}:{ltag}"), Self::image_size(lid)));
+            cands.push((format!("{repo}:{ltag}"), kb));
         }
         if !ok {
             return false;
