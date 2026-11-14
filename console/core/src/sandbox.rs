@@ -816,6 +816,51 @@ pub fn security(ceiling_mb: u64) -> Option<Vec<String>> {
     )
 }
 
+/// Which of a container's two lists is not the shape [`slice::limits`] and
+/// [`security`] make.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Misshaped {
+    Limits,
+    Security,
+}
+
+/// The one check of the words a container is started with, beside the code
+/// that makes them: fourteen words of limits under tehas.slice, then the ten
+/// security options with a /tmp of a size in whole megabytes that is no zero.
+/// A list that drifted starts nothing (AGENTS.md rule 4).
+pub fn shape(limits: &[String], security: &[String]) -> Result<(), Misshaped> {
+    let l = limits;
+    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
+        return Err(Misshaped::Limits);
+    }
+    let s = security;
+    let size = s.get(9).and_then(|w| {
+        w.strip_prefix("/tmp:rw,exec,nosuid,nodev,size=")?
+            .strip_suffix("m,mode=1777")
+    });
+    let fixed = [
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "CHOWN",
+        "--cap-add",
+        "FOWNER",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--tmpfs",
+    ];
+    let shaped = s.len() == 10
+        && s[..9] == fixed
+        && size.is_some_and(|m| {
+            !m.is_empty() && m.bytes().all(|b| b.is_ascii_digit()) && !m.starts_with('0')
+        });
+    if shaped {
+        Ok(())
+    } else {
+        Err(Misshaped::Security)
+    }
+}
+
 /// What a container starts with, once the slice said it can be used.
 #[derive(Debug, PartialEq)]
 pub struct Taken {
@@ -1177,6 +1222,57 @@ mod tests {
                  --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
             )
         );
+    }
+
+    #[test]
+    fn what_security_and_the_limits_make_is_the_one_shape_that_passes() {
+        let fourteen = words(
+            "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m \
+             --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024",
+        );
+        for ceiling in [10, 2048, 5478, 999_999_999] {
+            assert_eq!(
+                shape(&fourteen, &security(ceiling).unwrap()),
+                Ok(()),
+                "{ceiling}"
+            );
+        }
+        let ten = security(2048).unwrap();
+        for bad in [
+            "",
+            "--cgroup-parent tehas.slice --memory 2048m",
+            "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m \
+             --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024",
+            "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m \
+             --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024",
+        ] {
+            assert_eq!(shape(&words(bad), &ten), Err(Misshaped::Limits), "{bad}");
+        }
+        let lead = "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+                    --security-opt no-new-privileges:true --tmpfs";
+        for bad in [
+            String::new(),
+            "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+             --security-opt no-new-privileges:true"
+                .to_string(),
+            "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER \
+             --security-opt no-new-privileges:true \
+             --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
+                .to_string(),
+            format!("{lead} /tmp:rw"),
+            format!("{lead} /tmp:rw,exec,size=1024m,mode=1777"),
+            format!("{lead} /tmp:rw,exec,nosuid,nodev,size=0m,mode=1777"),
+            format!("{lead} /tmp:rw,exec,nosuid,nodev,size=01024m,mode=1777"),
+            format!("{lead} /tmp:rw,exec,nosuid,nodev,size=12xm,mode=1777"),
+            format!("{lead} /tmp:rw,exec,nosuid,nodev,size=m,mode=1777"),
+            format!("{lead} /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777 --privileged"),
+        ] {
+            assert_eq!(
+                shape(&fourteen, &words(&bad)),
+                Err(Misshaped::Security),
+                "{bad}"
+            );
+        }
     }
 
     // From test/work_caps_test.sh.
