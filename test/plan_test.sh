@@ -315,6 +315,7 @@ PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
@@ -406,7 +407,7 @@ rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
-  inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
+  inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "VERIFY_SUITE_TIMEOUT_MS",
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY", "SPAWN_TIMEOUT_MS")
     | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
   features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
