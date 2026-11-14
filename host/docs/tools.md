@@ -382,8 +382,9 @@ store itself, into the same directory.
 With paths, relative to the root of the checkout, only those run: the test
 files among them and the lint of those of them it lints anyway. A test file
 named that does not exist stops it with 2; paths with nothing to test or lint
-among them pass with a line that says so. `scripts/verify.sh --changed` calls
-it this way.
+among them stop it with 3 and a line that says so: nothing ran, so it is not a
+pass. `scripts/verify.sh --changed` calls it this way, and prints a `skip` line
+for the shell tests when it gets 3 or the change leaves no path to give.
 
 The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
 it builds first, offline, into the same target directory, fetching the locked
