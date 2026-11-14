@@ -209,8 +209,19 @@ impl Writer {
         };
         let mut said = false;
         for e in self.leftovers(n) {
-            let Ok(m) = std::fs::symlink_metadata(&e) else {
-                continue;
+            let shown = e.strip_prefix(&self.home).unwrap_or(&e);
+            let m = match std::fs::symlink_metadata(&e) {
+                Ok(m) => m,
+                Err(x) if x.kind() == std::io::ErrorKind::NotFound => continue,
+                // A name that cannot be looked at may still be there.
+                Err(x) => {
+                    log.push(format!(
+                        "WARN: could not look at {} of #{n} ({x})",
+                        shown.display()
+                    ));
+                    said = false;
+                    break;
+                }
             };
             let gone = if m.is_dir() {
                 std::fs::remove_dir_all(&e)
@@ -220,7 +231,6 @@ impl Writer {
             if gone.is_ok() {
                 said = true;
             } else {
-                let shown = e.strip_prefix(&self.home).unwrap_or(&e);
                 log.push(format!(
                     "WARN: could not remove {} of #{n}",
                     shown.display()
