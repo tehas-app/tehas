@@ -276,8 +276,9 @@ t_run "$work 7"
 t_eq "$t_rc" 0
 f=$(t_row cycle-show 7 -- .cycle.settings)
 t_eq "$(jq -r 'keys[] | select(startswith("PI_ENSEMBLE_"))' <<<"$f" | LC_ALL=C sort | tr '\n' ' ')" \
-  "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SPAWN_TIMEOUT_MS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
+  "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SPAWN_TIMEOUT_MS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
 t_eq "$(jq -r '.PI_ENSEMBLE_SUBAGENT_MODEL' <<<"$f")" test-model
+t_eq "$(jq -r '.PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS' <<<"$f")" 1800000
 t_eq "$(jq -r '.PI_ENSEMBLE_WORKSPACE_ROOT' <<<"$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.
 t_eq "$(jq -r '.concurrentCycles' <<<"$f")" 1
@@ -346,6 +347,17 @@ t_run "$work 7"
 t_contains "$t_out" "tehas work: this cycle's container reached its limit of processes, 41 starts were refused"
 t_eq "$(cat "$forks_file")" 41
 t_lacks "$t_out" "killed for memory"
+
+t_case "the pids limit the container reached goes on the second line of the count"
+fresh
+slice_good
+slice_child "$cid" 1000 0 max
+printf 'max 21\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+printf '2048\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.max"
+container "\"\$nap\" 1; rm -rf '$T_CGROUP/tehas.slice/docker-$cid.scope'; \"\$nap\" 0.5"
+t_run "$work 7"
+t_eq "$(cat "$forks_file")" "21
+2048"
 
 t_case "a container that stayed under the pids limit leaves no count, and one left by an earlier cycle is removed"
 fresh

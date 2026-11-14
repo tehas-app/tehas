@@ -971,7 +971,7 @@ read_options() { # <the file of the run>
     name { name = ""; printf "env %s\n", $0; next }
     { print }' <"$1"
 }
-# What the review is not given: the token, and the three settings of its own
+# What the review is not given: the token, and the four settings of its own
 # that a cycle is given, which no run that writes no code and runs
 # no gate asks for. What the planning turn is not given: nothing. Everything
 # else docker is handed is the same, which is the point of the case: the two
@@ -981,7 +981,7 @@ t_eq "$(comm -23 <(read_options "$T/review.options" | LC_ALL=C sort) \
   <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" ""
 t_eq "$(comm -13 <(read_options "$T/review.options" | LC_ALL=C sort) \
   <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" \
-  "-v $T/home/tehas/state/github-session:/run/tehas/github:ro env GH_TOKEN env PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS env PI_ENSEMBLE_MAX_WORKSTREAMS env PI_ENSEMBLE_VERIFY_TIMEOUT_MS "
+  "-v $T/home/tehas/state/github-session:/run/tehas/github:ro env GH_TOKEN env PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS env PI_ENSEMBLE_MAX_WORKSTREAMS env PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS env PI_ENSEMBLE_VERIFY_TIMEOUT_MS "
 # One file per case: the review's run and the planning turn's each have their
 # own, so neither is read for the other.
 t_eq "$(grep -l -x -e GH_TOKEN "$T"/calls/docker.args.review \
