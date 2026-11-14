@@ -57,7 +57,7 @@ t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring
 t_eq "$(park_of '[.reason, .automatic]')" '["unknown",false]'
 t_contains "$(t_calls gh)" "--add-label tehas:question"
 # The line of history still names how the start was authorised.
-t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"unknown","-","label","alice"'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"refused","-","label","alice"'
 
 t_case "a cycle that never ran and holds no approval record says that, and asks for a fresh one"
 reset
