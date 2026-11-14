@@ -421,7 +421,7 @@ t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '["cpu"]'
 t_eq "$(jq -r .output "$live/health.json")" \
-  "An idle poll is over its budget on cpu (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0)."
+  "An idle poll is over its budget on cpu (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0): of the last hour's 1 idle poll, cpu had a median of 6 s against 5 s and 1 over it."
 
 t_case "an idle poll over all three budgets names them in the order of the spec"
 reset
