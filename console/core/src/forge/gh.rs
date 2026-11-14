@@ -202,13 +202,15 @@ pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
 }
 
 /// Whether a failed removal answers that the label was not there, which is the
-/// state wanted. The words are gh's own, as the poll's `refresh_unmark` and
-/// tehas-cycle match `Not Found`, and the status is read whole out of the
-/// digits `find_http` located, never as "404" anywhere in the text: a gateway
-/// error whose body happens to carry those three digits is no removal.
+/// state wanted. The status is read whole out of the digits `find_http`
+/// located, never as "404" anywhere in the text: a gateway error whose body
+/// happens to carry those three digits is no removal. gh's own words
+/// `Not Found` count only as the whole reason, never inside one that says
+/// something else: a gh that could not start, or a proxy whose host was not
+/// found, left the label where it was.
 pub(crate) fn says_not_found(why: &str) -> bool {
     let w = why.to_ascii_lowercase();
-    if w.contains("not found") {
+    if w.strip_prefix(": ").unwrap_or(&w).trim() == "not found" {
         return true;
     }
     find_http(&w).is_some_and(|i| &w.as_bytes()[i + 5..i + 8] == b"404")
