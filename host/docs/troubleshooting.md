@@ -547,6 +547,17 @@ current park, on the state store. The poll's log says which case it is:
   `~/tehas/logs/dispatch.log`.
 - `skip #N: the question on record does not belong to this issue`: the
   comment's marker names another issue or kind. Nothing is changed.
+- `skip #N: its question is not among the last 100 comments; tehas:question
+  is set and no comment carries the question, so the issue waits until its
+  open points are answered or the label is taken off`: the host has a question
+  on record for this issue and the comments it read do not carry it. The hold
+  is the `tehas:question` label, not the order of the comments: the poll reads
+  the last 100, so a new comment does not lift it and a comment that fell out
+  of those 100 does not cause it. Answer the open points of the question in
+  the bot's comment, or take `tehas:question` off and apply `tehas:ready` to
+  start afresh. The last is what a factory does when the account that posted
+  the question is gone: see
+  [a GitHub App for a factory](/github-app#things-seen-on-the-first-app).
 - `WARN: could not record the park question of #N, its boxes will not work`
   in the cycle's log: the question was posted while the store did not take
   it. Apply `tehas:ready`.
