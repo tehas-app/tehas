@@ -1240,6 +1240,59 @@ fn never_ran_removes_the_used_approvals_and_keeps_an_unused_one() {
     );
 }
 
+/// A start `tehasbot cycle` reports as refused: the report's never-ran arm
+/// gives `--status refused` with `--never-ran`. `refused` is no word of
+/// `END_REASONS`, so `cycles.end_reason` keeps its CHECK list as it is and
+/// holds `unknown`, while `endings.status` has no CHECK and keeps the word.
+/// health reads the endings, so the word it needs is the one that is stored.
+#[test]
+fn a_refused_never_ran_end_keeps_the_word_in_the_ending_and_unknown_as_reason() {
+    let home = home("never-ran-refused");
+    let (_l, a) = start(&home, 63);
+    let unused_at = approve(&home, 63, "bob", "label");
+    let (n, at) = attempt_args(63, a);
+    let v = ok(
+        &home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "refused",
+            "--never-ran",
+        ],
+    );
+    assert_eq!(v["cycle"]["end_reason"], "unknown");
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM endings"),
+        "refused"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM heartbeats"),
+        "refused"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM cycle_history"),
+        "refused"
+    );
+    // The approval of a start that ran nothing is spent, as of any never-ran
+    // end: no millwright, refresh or later start rests on it.
+    assert_eq!(
+        count(&home, "approvals WHERE issue = 63 AND used_by IS NOT NULL"),
+        0
+    );
+    assert_eq!(
+        one::<i64>(&home, "SELECT at FROM approvals WHERE issue = 63"),
+        unused_at
+    );
+    // What publish writes for the ending: the file the page and health read.
+    ok(&home, &["publish"]);
+    let e: Value =
+        serde_json::from_str(&fs::read_to_string(home.join("live/endings.json")).unwrap()).unwrap();
+    assert_eq!(e[0]["status"], "refused");
+}
+
 #[test]
 fn endings_keep_the_ten_newest() {
     let home = home("endings");

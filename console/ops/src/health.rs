@@ -1563,11 +1563,21 @@ fn ended_well(c: &J) -> bool {
 /// the table never disagree about which words they are.
 const NOT_AN_END: &str = tehas_core::grammar::NOT_AN_END;
 
+/// The word of an ending for a start that was refused before anything ran: no
+/// workspace, no container, no step, no usage. It names no failure of a cycle,
+/// so health leaves the ending out of `checks.failed` and says nothing of it as
+/// the last cycle's end. The store keeps the word in `endings.status` as the
+/// cycle reported it (`ending_status` maps only `NOT_ENDS`), and it is an end,
+/// so `failed_word` still returns it for a row health does name.
+const REFUSED: &str = "refused";
+
 /// Whether a row of the last ten counts for `checks.failed`: an object whose
 /// status is none of the ends that went well. A row that never ended is kept by
-/// that branch too, and named by the word `failed_word` gives it.
+/// that branch too, and named by the word `failed_word` gives it. A start that
+/// never ran is not a failed cycle, so `REFUSED` is kept out here, where both
+/// the list and the line of the last cycle are decided.
 fn a_failed_ending(e: &J) -> bool {
-    matches!(e, J::Obj(_)) && !ended_well(e)
+    matches!(e, J::Obj(_)) && !ended_well(e) && !in_list(e.get("status"), &[REFUSED])
 }
 
 /// The word health shows for an ending: the status it reported for one that
@@ -1793,6 +1803,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let zero = J::num(0.0);
     let failed = !last.is_null()
         && !ended_well(&last)
+        // A start that was refused ran nothing, so it is no failed cycle: the
+        // same rule `a_failed_ending` applies to the list of the last ten.
+        && !in_list(last.get("status"), &[REFUSED])
         && !running.items().iter().any(|c| {
             // A cycle of no known start is running now.
             c.get("startedAt").is_null()
@@ -3643,6 +3656,55 @@ mod tests {
                 ("1".into(), "not an end".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_refused_start_is_no_failed_cycle_in_the_list_or_the_line() {
+        // A start tehas work refused ran nothing, so nothing of it failed:
+        // neither `checks.failed` nor `output` takes it for a failed cycle.
+        // `aborted` and a word that names no end still fail, so the rule is
+        // only ever about the one word.
+        let cases = [
+            ("refused", None, None),
+            (
+                "aborted",
+                Some("aborted"),
+                Some("The last cycle failed: #7 ended as aborted."),
+            ),
+            (
+                "running",
+                Some(NOT_AN_END),
+                Some("The last cycle failed: #7 ended as not an end."),
+            ),
+        ];
+        for (word, in_list, line) in cases {
+            let h = home(&format!("failed-{word}"));
+            h.write(
+                "live/running.json",
+                &format!(
+                    r#"{{"cycles":[],"last":{{"issue":7,"running":false,"status":"{word}","step":"-","startedAt":100,"updatedAt":200}}}}"#
+                ),
+            );
+            h.write(
+                "live/endings.json",
+                &format!(
+                    r#"[{{"issue":7,"status":"{word}","step":"-","startedAt":100,"endedAt":200}}]"#
+                ),
+            );
+            let r = h.report(&Given::default());
+            let failed: Vec<String> = r
+                .at(&["checks", "failed"])
+                .items()
+                .iter()
+                .map(|e| e.get("status").text())
+                .collect();
+            let want: Vec<String> = in_list.map(|w| vec![w.to_string()]).unwrap_or_default();
+            assert_eq!(failed, want, "{word}");
+            match line {
+                Some(s) => assert_eq!(said(&r), ("fail".into(), s.into()), "{word}"),
+                None => assert_ne!(r.get("status").text(), "fail", "{word}"),
+            }
+        }
     }
 
     #[test]

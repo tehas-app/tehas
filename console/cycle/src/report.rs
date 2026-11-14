@@ -1424,6 +1424,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         },
     };
     let mut rc = f.rc;
+    // The word the end of a start that never ran carries. The park's reason and
+    // the summary keep the status below: the dispatcher's hold reads a non-run
+    // by the park's reason, which stays the word it is today.
+    let mut end_status = String::new();
     // tehas work refused the start: with 4, or with 78 and its note on lean.
     let lean_refused = rc == 78 && matches!(f.file("lean-refused"), File::Text(_));
     let never_started = rc == 4 || lean_refused;
@@ -1631,6 +1635,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if never_started {
             r.arm = "never-ran";
             never_ran = true;
+            // Nothing of the cycle ran, so no word the container could have
+            // reported exists: the report names the start as one that was
+            // refused rather than `unknown`, which is the word of a run that
+            // stopped with nothing to say for it. It goes to the end, the line
+            // of history, analytics and the improvement record, so each names
+            // the same thing. The park's reason and the comment's summary keep
+            // the status below: the poll holds a non-run by its reason.
+            end_status = "refused".into();
             let (mut by, mut epoch) = (f.start_by.clone(), f.approval_at.clone());
             match f.start_how.as_str() {
                 "refresh" => {
@@ -1693,8 +1705,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
     }
     let pr_said = if pr.is_empty() { "none" } else { &pr };
+    let said_status = if end_status.is_empty() {
+        &status
+    } else {
+        &end_status
+    };
     r.done = format!(
-        "done #{issue} rc={rc} status={status} step={step} minutes={mins} pr={pr_said} oom_kills={kills} forks_refused={forks}"
+        "done #{issue} rc={rc} status={said_status} step={step} minutes={mins} pr={pr_said} oom_kills={kills} forks_refused={forks}"
     );
     if !closed_pr.is_empty() && pr.is_empty() && merged_pr.is_empty() && status != "closed" {
         parked_now = true;
@@ -1705,7 +1722,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         "--attempt".into(),
         f.attempt.to_string(),
         "--status".into(),
-        status.clone(),
+        if end_status.is_empty() {
+            status.clone()
+        } else {
+            end_status.clone()
+        },
         "--step".into(),
         step.clone(),
         "--rc".into(),
@@ -1762,7 +1783,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     h.insert("started".into(), json!(f.started));
     h.insert("rc".into(), json!(rc));
     for (k, val) in [
-        ("status", &status),
+        ("status", said_status.as_str()),
         ("step", &step),
         ("cap", &cap),
         ("park_reason", &park_reason),
@@ -1803,7 +1824,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             issue,
             started: f.started,
             rc,
-            status: status.clone(),
+            status: said_status.clone(),
             step: step.clone(),
             pr: pr.clone(),
             kills: kills.clone(),
@@ -1836,7 +1857,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         issue.to_string(),
         f.started.to_string(),
         rc.to_string(),
-        status,
+        said_status.to_string(),
         step,
         pr,
         kills,
@@ -1992,6 +2013,77 @@ mod tests {
         });
         let f = Facts::from_json(&facts).expect("the facts read");
         report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// A start that ran nothing: exit 4 from the runner, with no result and no
+    /// workspace. `lean` is the start's driver on its approval.
+    fn never_started(rc: i64, lean: bool) -> Report {
+        let mut files = serde_json::Map::new();
+        files.insert(
+            "progress.json".into(),
+            json!("{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"),
+        );
+        if lean {
+            files.insert("lean-refused".into(), json!(""));
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "signalled": false,
+            "home": "/home/tehas",
+            "rc": rc,
+            "started": 1000,
+            "now": 1000,
+            "start": { "attempt": 1 },
+            "files": files,
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    fn arg<'a>(r: &'a Report, flag: &str) -> Option<&'a str> {
+        r.end
+            .windows(2)
+            .find(|w| w[0] == flag)
+            .map(|w| w[1].as_str())
+    }
+
+    /// A start the runner refused (4) and a lean start tehas work refused (78
+    /// with its note) both end as `refused`, and both still say they never ran:
+    /// health leaves such an ending out of the failed cycles, and the store
+    /// takes the approval with it.
+    #[test]
+    fn a_start_that_never_ran_ends_as_refused_and_still_says_it_never_ran() {
+        for (rc, lean) in [(4, false), (78, true)] {
+            let r = never_started(rc, lean);
+            assert_eq!(r.arm, "never-ran", "rc {rc}");
+            assert_eq!(arg(&r, "--status"), Some("refused"), "{:?}", r.end);
+            assert!(r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
+            assert!(r.done.contains("status=refused"), "{}", r.done);
+            // The park's reason stays the word it was: the poll's hold of a
+            // non-run keys on it.
+            let park = r
+                .actions
+                .iter()
+                .find_map(|a| match a {
+                    Action::Park(p) => Some(p.args.clone()),
+                    _ => None,
+                })
+                .expect("a park");
+            let why = park
+                .windows(2)
+                .find(|w| w[0] == "--reason")
+                .map(|w| w[1].clone())
+                .unwrap_or_default();
+            assert_ne!(why, "refused", "rc {rc}: {park:?}");
+        }
+        // Any other 78 is a cycle that stopped, with the status it reported.
+        let r = never_started(78, false);
+        assert_eq!(r.arm, "parked");
+        assert_eq!(arg(&r, "--status"), Some("unknown"), "{:?}", r.end);
+        assert!(!r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
     }
 
     fn cap_disk(r: &Report) -> bool {
