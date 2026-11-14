@@ -2003,7 +2003,7 @@ from the design's theme file, and the design also picks the page at `/`:
 
 | `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
 | -------------------------- | ------------------- | ----------------------- | ------------------------------- |
-| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `share-logo.png` |
+| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
 | `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels

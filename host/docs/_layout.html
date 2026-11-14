@@ -77,8 +77,12 @@
         <img src="/fun/factory.svg" width="100" height="50" alt="">
         {{- else }}
         <img src="/fun/favicon.svg" width="50" height="50" alt="">
+        <img class="wordmark" src="/fun/tehas-logotype.svg" width="82" height="28" alt="TEHAS">
+        <small>FACTORY</small>
         {{- end }}
+        {{- if eq $design "pixel" }}
         <span>TEHAS</span>
+        {{- end }}
       </a>
       <nav class="menu" aria-label="Site">
         <a href="/floor">FACTORY FLOOR</a>
