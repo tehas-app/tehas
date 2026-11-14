@@ -92,8 +92,7 @@ fn word(v: &Value) -> String {
 }
 
 /// The longest key the reader of <n>.said compares: read/build.rs keeps the
-/// head of the file at this length, so a longer one is never recognised. The
-/// writer and the reader both take it from here, and the path from said_file.
+/// head of the file at this length, so a longer one is never recognised.
 pub const SAID_MAX: usize = 200;
 
 /// state/refresh/<n>.said: what says that an issue's hold was told.
