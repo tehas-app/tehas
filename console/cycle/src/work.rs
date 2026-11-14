@@ -379,6 +379,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
 
@@ -459,43 +460,17 @@ fn branch() -> Option<String> {
 }
 
 /// Why the limits and security options a slice gave are not the documented
-/// ones: fourteen words of limits in tehas.slice, and the ten of "What a
-/// container may not do". A list that drifted starts nothing.
+/// ones. A list that drifted starts nothing.
 fn misshaped(limits: &[String], security: &[String]) -> Option<String> {
-    let (who, what) = ("tehas work", "a cycle");
-    let l = limits;
-    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
-        return Some(format!(
-            "{who}: the container limits could not be made, not starting"
-        ));
+    match sandbox::shape(limits, security).err()? {
+        Misshaped::Limits => {
+            Some("tehas work: the container limits could not be made, not starting".into())
+        }
+        Misshaped::Security => Some(format!(
+            "tehas work: tehas_sandbox_security gave {} words, wants 10: not starting a cycle",
+            security.len()
+        )),
     }
-    let s = security;
-    let tmpfs = s.get(9).and_then(|w| {
-        w.strip_prefix("/tmp:rw,exec,nosuid,nodev,size=")?
-            .strip_suffix("m,mode=1777")
-    });
-    let fixed = [
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--cap-add",
-        "FOWNER",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--tmpfs",
-    ];
-    let shaped = s.len() == 10
-        && s[..9] == fixed
-        && tmpfs.is_some_and(|m| {
-            !m.is_empty() && m.bytes().all(|b| b.is_ascii_digit()) && !m.starts_with('0')
-        });
-    (!shaped).then(|| {
-        format!(
-            "{who}: tehas_sandbox_security gave {} words, wants 10: not starting {what}",
-            s.len()
-        )
-    })
 }
 
 /// The container's limits and security options, as the slice gives them.
