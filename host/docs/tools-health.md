@@ -227,7 +227,8 @@ cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
 bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
-`WARN: the health file could not be written`. The docs server
+`WARN: the health file could not be written: <command> exited <n>` (or
+`was killed at its bound or did not start`). The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
 beside the command (`console tehasbot health`, `console/ops/src/health.rs`): it
