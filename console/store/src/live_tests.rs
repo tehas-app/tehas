@@ -410,6 +410,50 @@ fn health_down_goes_with_the_report_that_failed() {
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
 }
 
+/// A "fail" report whose write fails takes back the marker it made: the
+/// report on disk is still the healthy one, and the site keeps answering 200.
+#[test]
+fn a_failed_report_that_cannot_be_written_leaves_no_marker() {
+    let home = home("publish-health-unwritten");
+    let files = scratch("publish-health-unwritten-files");
+    let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
+    let fail = write_file(&files, "fail.json", b"{\"status\":\"fail\"}\n");
+    publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap();
+    // endings.json, running.json, then health.json.
+    fail_writes(Some(3));
+    let (code, line) = publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
+    assert_eq!(code, 1);
+    assert_eq!(line, "write live/health.json: no space left on device");
+    assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
+    assert!(!home.join("live/health.down").exists());
+}
+
+/// A marker made by an earlier "fail" report stays when the next "fail"
+/// report cannot be written: the report on disk is that earlier one.
+#[test]
+fn a_failed_report_that_cannot_be_written_keeps_an_earlier_marker() {
+    let home = home("publish-health-still-down");
+    let files = scratch("publish-health-still-down-files");
+    let fail = write_file(&files, "fail.json", b"{\"status\":\"fail\"}\n");
+    publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap();
+    fail_writes(Some(3));
+    publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
+    assert!(home.join("live/health.down").exists());
+}
+
+/// A marker that cannot be removed is named as a removal, not a write.
+#[test]
+fn a_marker_that_cannot_be_removed_is_named_as_a_removal() {
+    let home = home("publish-health-stuck");
+    let files = scratch("publish-health-stuck-files");
+    let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
+    // A directory where the marker is: unlink refuses it, as root too.
+    fs::create_dir_all(home.join("live/health.down/x")).unwrap();
+    let (code, line) = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(line.starts_with("remove live/health.down: "), "{line}");
+}
+
 #[test]
 fn a_report_that_is_not_an_object_writes_nothing() {
     let home = home("publish-bad");
