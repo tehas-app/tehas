@@ -54,6 +54,7 @@ use std::time::{Duration, Instant};
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
+use tehas_core::hold::slots as key;
 use tehas_core::queue_lists;
 use tehas_core::time;
 
@@ -1264,30 +1265,6 @@ fn all_held(slice: &J, queue: &J) -> Option<String> {
     ))
 }
 
-/// The four keys api/status.schema.json requires of the slots object.
-const SLOT_REQUIRED: [&str; 4] = ["containers", "containersHow", "cycles", "cyclesHow"];
-/// The two derivations a poll writes only for a setting that said `auto`. They
-/// are optional, so `slots_shape` adds them to the required four when the poll
-/// wrote them; only the names matter, not their order.
-const SLOT_DERIVED: [&str; 2] = ["cycle", "container"];
-/// The seven keys one derivation holds. `only` compares the names as a set, so
-/// the order here is for reading.
-const AUTO_KEYS: [&str; 7] = [
-    "bound",
-    "ceiling",
-    "containerMemory",
-    "cpus",
-    "cycleCpus",
-    "floored",
-    "slots",
-];
-/// The words a setting may ask for.
-const HOW_WORDS: [&str; 3] = ["auto", "fixed", "number"];
-/// The words for what gave a derived count its bound. The list is closed here
-/// as it is in api/status.schema.json, so a release that reads the host another
-/// way adds its word to both, not to one of them.
-const BOUND_WORDS: [&str; 4] = ["ceiling", "cpu", "host", "memory"];
-
 /// Whether <v> is the slots object api/status.schema.json promises: the four
 /// keys, their counts and their words, `cycle` and `container` when the poll
 /// derived them, and nothing else. The schema is the contract this enforces;
@@ -1305,30 +1282,30 @@ fn slots_shape(v: &J, text: Option<&str>) -> bool {
     /// of them its own type. A side that the setting gave no reading for is
     /// not there at all, which the caller allows.
     fn derivation(v: &J) -> bool {
-        only(v, &AUTO_KEYS)
-            && in_list(v.get("bound"), &BOUND_WORDS)
-            && count_of_slots(v.get("slots"))
-            && (v.get("cpus").is_null() || count_of_slots(v.get("cpus")))
-            && v.get("cycleCpus").as_str().is_some()
-            && v.get("containerMemory").as_str().is_some()
-            && v.get("ceiling").as_str().is_some()
-            && matches!(v.get("floored"), J::Bool(_))
+        only(v, &key::AUTO_KEYS)
+            && in_list(v.get(key::BOUND), &key::BOUND_WORDS)
+            && count_of_slots(v.get(key::SLOTS))
+            && (v.get(key::CPUS).is_null() || count_of_slots(v.get(key::CPUS)))
+            && v.get(key::CYCLE_CPUS).as_str().is_some()
+            && v.get(key::CONTAINER_MEMORY).as_str().is_some()
+            && v.get(key::CEILING).as_str().is_some()
+            && matches!(v.get(key::FLOORED), J::Bool(_))
     }
 
     // The four keys the schema requires, plus each side the poll derived.
-    let mut want: Vec<&str> = SLOT_REQUIRED.to_vec();
-    for k in SLOT_DERIVED {
+    let mut want: Vec<&str> = key::REQUIRED.to_vec();
+    for k in key::DERIVED {
         if !v.get(k).is_null() {
             want.push(k);
         }
     }
     only(v, &want)
-        && count_of_slots(v.get("cycles"))
-        && count_of_slots(v.get("containers"))
-        && in_list(v.get("cyclesHow"), &HOW_WORDS)
-        && in_list(v.get("containersHow"), &HOW_WORDS)
-        && (v.get("cycle").is_null() || derivation(v.get("cycle")))
-        && (v.get("container").is_null() || derivation(v.get("container")))
+        && count_of_slots(v.get(key::CYCLES))
+        && count_of_slots(v.get(key::CONTAINERS))
+        && in_list(v.get(key::CYCLES_HOW), &key::HOW_WORDS)
+        && in_list(v.get(key::CONTAINERS_HOW), &key::HOW_WORDS)
+        && (v.get(key::CYCLE).is_null() || derivation(v.get(key::CYCLE)))
+        && (v.get(key::CONTAINER).is_null() || derivation(v.get(key::CONTAINER)))
 }
 
 /// The demand as the last poll left it, when that poll is young enough.
@@ -2763,6 +2740,84 @@ mod tests {
         ] {
             assert!(!slots_shape(&J::parse(text).unwrap(), Some(text)), "{text}");
         }
+    }
+
+    #[test]
+    fn the_slots_words_of_core_are_the_ones_the_schema_closes() {
+        // api/status.schema.json is the public contract; the gate and the
+        // dispatcher read the same lists from tehas_core::hold::slots. A word
+        // or a key added to one and not the other fails here.
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../api/status.schema.json")).unwrap();
+        let o = &schema["properties"]["room"]["properties"]["slots"];
+        let set = |v: &Value| {
+            let mut w: Vec<String> = match v {
+                Value::Array(a) => a.iter().map(|s| s.as_str().unwrap().to_string()).collect(),
+                Value::Object(m) => m.keys().cloned().collect(),
+                _ => panic!("{v}"),
+            };
+            w.sort();
+            w
+        };
+        let of = |a: &[&str]| {
+            let mut w: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+            w.sort();
+            w
+        };
+        let mut all = key::REQUIRED.to_vec();
+        all.extend(key::DERIVED);
+        assert_eq!(set(&o["required"]), of(&key::REQUIRED));
+        assert_eq!(set(&o["properties"]), of(&all));
+        assert_eq!(o["additionalProperties"], Value::Bool(false));
+        for how in [key::CYCLES_HOW, key::CONTAINERS_HOW] {
+            assert_eq!(set(&o["properties"][how]["enum"]), of(&key::HOW_WORDS));
+        }
+        for side in key::DERIVED {
+            let d = &o["properties"][side];
+            assert_eq!(set(&d["required"]), of(&key::AUTO_KEYS));
+            assert_eq!(set(&d["properties"]), of(&key::AUTO_KEYS));
+            assert_eq!(d["additionalProperties"], Value::Bool(false));
+            assert_eq!(
+                set(&d["properties"][key::BOUND]["enum"]),
+                of(&key::BOUND_WORDS)
+            );
+        }
+    }
+
+    #[test]
+    fn the_gate_takes_every_bound_the_dispatcher_writes() {
+        // Each bound the producer can reach: memory and cpu, the ceiling, and
+        // no reading at all. A word the producer gains and the gate does not
+        // know would drop the whole slots line from the status.
+        use tehas_dispatch::slots::{derive, Probe};
+        const G: u64 = 1_073_741_824;
+        let mut seen = Vec::new();
+        for p in [
+            Probe::read(Some(48 * G), Some(24), "8g", "4", ""),
+            Probe::read(Some(512 * G), Some(256), "8g", "4", "3"),
+            Probe::read(None, None, "8g", "4", ""),
+        ] {
+            for (c, k) in [("auto", "auto"), ("auto", "5"), ("x", "auto")] {
+                let Some(r) = derive(&p, c, k).report() else {
+                    continue;
+                };
+                let text = r.to_string();
+                assert!(
+                    slots_shape(&J::parse(&text).unwrap(), Some(&text)),
+                    "{text}"
+                );
+                for side in key::DERIVED {
+                    if let Some(b) = r[side][key::BOUND].as_str() {
+                        seen.push(b.to_string());
+                    }
+                }
+            }
+        }
+        seen.sort();
+        seen.dedup();
+        let mut want: Vec<String> = key::BOUND_WORDS.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        assert_eq!(seen, want);
     }
 
     #[test]

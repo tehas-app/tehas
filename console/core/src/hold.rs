@@ -53,6 +53,59 @@ pub const HELD_PARKED: &str = "parked";
 /// The most characters `held[].text` keeps: it quotes a park's reason.
 pub const HELD_TEXT_MAX: usize = 200;
 
+/// The keys and words of the [`KEY_SLOTS`] object. The dispatcher's
+/// `Slots::report` writes it from these, the health page checks it against
+/// them, and a test holds api/status.schema.json to them, so a key or a word
+/// is added here once.
+pub mod slots {
+    pub const CYCLES: &str = "cycles";
+    pub const CONTAINERS: &str = "containers";
+    pub const CYCLES_HOW: &str = "cyclesHow";
+    pub const CONTAINERS_HOW: &str = "containersHow";
+    /// The derivation of the cycles, written only for a setting that said `auto`.
+    pub const CYCLE: &str = "cycle";
+    /// The derivation of the containers, the same way.
+    pub const CONTAINER: &str = "container";
+    /// The four keys every slots object has.
+    pub const REQUIRED: [&str; 4] = [CYCLES, CONTAINERS, CYCLES_HOW, CONTAINERS_HOW];
+    /// The two derivations, each one there or not.
+    pub const DERIVED: [&str; 2] = [CYCLE, CONTAINER];
+
+    pub const BOUND: &str = "bound";
+    pub const SLOTS: &str = "slots";
+    pub const CPUS: &str = "cpus";
+    pub const CONTAINER_MEMORY: &str = "containerMemory";
+    pub const CYCLE_CPUS: &str = "cycleCpus";
+    pub const CEILING: &str = "ceiling";
+    pub const FLOORED: &str = "floored";
+    /// The seven keys of one derivation.
+    pub const AUTO_KEYS: [&str; 7] = [
+        BOUND,
+        SLOTS,
+        CPUS,
+        CONTAINER_MEMORY,
+        CYCLE_CPUS,
+        CEILING,
+        FLOORED,
+    ];
+
+    pub const HOW_AUTO: &str = "auto";
+    pub const HOW_NUMBER: &str = "number";
+    /// A setting that asked for neither.
+    pub const HOW_FIXED: &str = "fixed";
+    /// The words a setting may ask for.
+    pub const HOW_WORDS: [&str; 3] = [HOW_AUTO, HOW_NUMBER, HOW_FIXED];
+
+    pub const BOUND_CPU: &str = "cpu";
+    pub const BOUND_MEMORY: &str = "memory";
+    /// The endpoint's ceiling stopped the count short of the reading.
+    pub const BOUND_CEILING: &str = "ceiling";
+    /// No reading answered at all.
+    pub const BOUND_HOST: &str = "host";
+    /// The words for what gave a derived count its bound.
+    pub const BOUND_WORDS: [&str; 4] = [BOUND_CPU, BOUND_MEMORY, BOUND_CEILING, BOUND_HOST];
+}
+
 /// One ready issue the poll held on its own, whatever room there was.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Held {
