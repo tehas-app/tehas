@@ -1531,7 +1531,7 @@ fn an_unreadable_status_file_is_a_tool_error_for_the_session_tools() {
         ("dir", "could not be read"),
         ("cut", "is not complete JSON"),
     ] {
-        let env = Env::new("sess-unreadable", Some("a/b"), &[s.clone()]);
+        let env = Env::new("sess-unreadable", Some("a/b"), std::slice::from_ref(&s));
         unreadable(&env.dirs.live, "status.json", how);
         for (name, args) in [
             ("factory_sessions", json!({})),
