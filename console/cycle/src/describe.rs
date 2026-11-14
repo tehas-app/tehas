@@ -232,7 +232,10 @@ pub fn describe(dir: &Path, issue: &str) -> Result<(), String> {
     let file = ModelFile::read(&models::host_path());
     let ask = |args: &[String], input: &str| {
         let (rc, out) = curl(args, input.as_bytes());
-        (rc == 0).then_some(out)
+        match rc {
+            0 => Ok(out),
+            _ => Err(models::NoAnswer::Failed(Some(rc), String::new())),
+        }
     };
     let end = models::pick(&file, &provider, &models::used(), &ask);
     let (url, key) = (file.url(&provider, end), file.key(&provider, end));
