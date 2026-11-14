@@ -612,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
@@ -1673,8 +1675,10 @@ changes, and `released: cycles may start again` once when it ends.
 
 ### The gate's bound and the cycles at once
 
-`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, and how long a
-run takes depends on how many cycles share the host. Each container's quota
+`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, the whole gate
+on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
+which tehas sets from it). How long a run takes depends on how many cycles
+share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
 with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:

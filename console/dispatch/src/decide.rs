@@ -19,7 +19,7 @@ mod epic;
 mod plan;
 mod retry;
 
-pub(crate) use clean::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
+pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use plan::shape;
 pub(crate) use retry::{hex40, refresh_why};
 
@@ -398,8 +398,7 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if !c.improvement_type.is_empty() {
-            let t = &c.improvement_type;
+        if let Some(t) = &c.improvement_type {
             match &s.issue_types {
                 None => {
                     return Err(self.fail(

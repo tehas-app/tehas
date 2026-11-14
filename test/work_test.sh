@@ -21,6 +21,8 @@ echo keep >"$T/home/tehas/work/widget-7/notes.txt"
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "was not made by tehas"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" tree-not-ours
+rm -f "$T/home/tehas/state/cycles/7.refused"
 t_eq "$(cat "$T/home/tehas/work/widget/notes.txt")" keep
 t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
@@ -280,6 +282,7 @@ PI_ENSEMBLE_SPAWN_TIMEOUT_MS
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_CONCURRENCY
+PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
@@ -663,7 +666,8 @@ caps_lean() {
 }
 lean_fresh() {
   fresh
-  rm -rf "$ws" "$ws.state" "$ws.before-retry" "$T/home/tehas/state/cycles/7.lean-refused"
+  rm -rf "$ws" "$ws.state" "$ws.before-retry" "$T/home/tehas/state/cycles/7.lean-refused" \
+    "$T/home/tehas/state/cycles/7.refused"
   mkdir -p "$fx/net"
   issue_is "Words only."
 }
@@ -723,6 +727,8 @@ t_contains "$t_out" "the feature workLeanResultSchema 5"
 t_contains "$t_out" "the feature leanHandoffHost"
 t_contains "$t_out" "(driver lean, work-lean; it does not run classic in its place)"
 t_eq "$([ -e "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" left
+t_eq "$(head -n 1 "$T/home/tehas/state/cycles/7.refused")" caps-lacking
+t_contains "$(cat "$T/home/tehas/state/cycles/7.refused")" "the feature leanHandoffHost"
 t_eq "$(cycle_args)" ""
 t_eq "$(preflight_args)" ""
 t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0

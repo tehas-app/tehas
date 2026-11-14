@@ -1239,7 +1239,10 @@ says the count, and the dispatcher's `done` line has it as `forks_refused`.
 When the run named no cap of its own and no person stopped it, the cycle goes
 on record with the cap `process-limit:<step>` (`process-limit` when no step
 is known) and a reason that carries the count, so `tehas history`, the park
-comment and the analytics row name it. A cap the run named stays.
+comment and the analytics row name it. A cap the run named stays. The comment
+and the reason also say the limit the container had, from its `pids.max`, and
+name the settings it follows, `TEHAS_TICKET_CONCURRENCY` and
+`TEHAS_SLICE_CONTAINERS`; both are among the settings on the cycle's record.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with

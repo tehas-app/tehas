@@ -39,6 +39,10 @@ use crate::runner;
 ///                 makes the cap runner-never-started of it. Memory kills are
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
+///   refused       why tehas work's check refused the start with 78: a first
+///                 line `caps-unreadable <exit>`, `caps-lacking` or
+///                 `tree-not-ours`, then for `caps-lacking` one line for each
+///                 thing the image lacks (src/prepare.rs).
 ///   refresh-conflict  tehas work's 78 was for a refresh whose pull request
 ///                 conflicts, on an image that cannot finish one: JSON naming
 ///                 the pull request, the branch and the files (src/conflict.rs).
@@ -52,13 +56,14 @@ use crate::runner;
 ///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
 ///                 bytes, then the step in flight: tehas work stopped the
 ///                 cycle for its scratch's disk (src/scratch.rs).
-pub const FILES: [&str; 16] = [
+pub const FILES: [&str; 17] = [
     "result.json",
     "progress.json",
     "runner_exit",
     "status",
     "nostart",
     "lean-refused",
+    "refused",
     "refresh-conflict",
     "comments",
     "oom",
