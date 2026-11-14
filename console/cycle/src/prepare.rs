@@ -38,9 +38,6 @@ use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
 use tehas_core::{lock, time};
 
-/// The words of the limits, then of the security options, as the slice gave them.
-const LIMIT_WORDS: usize = 14;
-
 const PROTOCOL: [&str; 15] = [
     "cid",
     "oom",
@@ -281,7 +278,10 @@ pub fn check(c: &Check) -> i32 {
         );
         return 64;
     }
-    let (limits, security) = c.words.split_at(c.words.len().min(LIMIT_WORDS));
+    let Some((limits, security)) = slice::split(&c.words) else {
+        eprintln!("tehas work: the container limits could not be made, not starting");
+        return 78;
+    };
     let mut security = security.to_vec();
     let work = env("TEHAS_WORK_DIR");
     let who = Identity {

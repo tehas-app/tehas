@@ -437,8 +437,21 @@ pub fn cpus(host: u64, load: &Load) -> Option<(String, u64)> {
     Some((format!("{spare}.00"), pids.clamp(2048, 4096)))
 }
 
-/// Exactly the fourteen words a container's limits are for docker run. None
-/// when one of them cannot be made.
+/// How many words [`limits`] gives. A container's words are its limits, then
+/// its security options.
+pub const LIMIT_WORDS: usize = 14;
+
+/// The limits and the security options of a container's words, split where
+/// [`limits`] ends. None when the first [`LIMIT_WORDS`] are not limits under
+/// tehas.slice ending in the CPU weight: a list that drifted starts nothing.
+pub fn split(words: &[String]) -> Option<(&[String], &[String])> {
+    let (l, s) = words.split_at_checked(LIMIT_WORDS)?;
+    let shaped = l[0] == "--cgroup-parent" && l[1] == "tehas.slice" && l[12] == "--cpu-shares";
+    shaped.then_some((l, s))
+}
+
+/// Exactly the [`LIMIT_WORDS`] words a container's limits are for docker run.
+/// None when one of them cannot be made.
 pub fn limits(s: &Usable, load: &Load) -> Option<Vec<String>> {
     if s.ceiling_mb == 0 {
         return None;
@@ -840,7 +853,31 @@ mod tests {
             "--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m \
              --memory-reservation 2g --cpus 7.00 --pids-limit 3072 --cpu-shares 1024"
         );
-        assert_eq!(words.len(), 14);
+        assert_eq!(words.len(), LIMIT_WORDS);
+    }
+
+    #[test]
+    fn the_words_split_where_the_limits_end_or_not_at_all() {
+        let mut words = limits(&slice(8, 5120), &load(3)).unwrap();
+        let security = ["--cap-drop", "ALL"].map(String::from);
+        words.extend(security.clone());
+        let (l, s) = split(&words).unwrap();
+        assert_eq!((l.len(), l[13].as_str()), (LIMIT_WORDS, "1024"));
+        assert_eq!(s, security);
+        assert_eq!(split(&words[..LIMIT_WORDS]).map(|(_, s)| s.len()), Some(0));
+        // One limit short: the split would take a security word as a limit.
+        let mut short = words.clone();
+        short.remove(3);
+        assert_eq!(split(&short), None);
+        assert_eq!(split(&words[..LIMIT_WORDS - 1]), None);
+        // One limit more: the CPU weight is no longer where the limits end.
+        let mut long = words.clone();
+        long.insert(2, "--init".into());
+        assert_eq!(split(&long), None);
+        let mut other = words.clone();
+        other[1] = "other.slice".into();
+        assert_eq!(split(&other), None);
+        assert_eq!(split(&[]), None);
     }
 
     #[test]

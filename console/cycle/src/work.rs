@@ -463,8 +463,7 @@ fn branch() -> Option<String> {
 /// container may not do". A list that drifted starts nothing.
 fn misshaped(limits: &[String], security: &[String]) -> Option<String> {
     let (who, what) = ("tehas work", "a cycle");
-    let l = limits;
-    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
+    if !slice::split(limits).is_some_and(|(_, rest)| rest.is_empty()) {
         return Some(format!(
             "{who}: the container limits could not be made, not starting"
         ));
