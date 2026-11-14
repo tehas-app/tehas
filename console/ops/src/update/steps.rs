@@ -215,8 +215,17 @@ pub(crate) fn write_record(home: &Path, lines: &[String]) -> Result<(), ()> {
         return Err(());
     }
     if lines.is_empty() {
-        let _ = fs::remove_file(&file);
-        return Ok(());
+        // A record left behind would run its steps again on the next update.
+        return match fs::remove_file(&file) {
+            Err(e) if e.kind() != ErrorKind::NotFound => {
+                fault(&format!(
+                    "could not clear the follow-up record {}",
+                    file.display()
+                ));
+                Err(())
+            }
+            _ => Ok(()),
+        };
     }
     let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
     // A name no other writer of the record can be holding: two updates of the
@@ -677,6 +686,15 @@ mod tests {
         assert_eq!(read_record(&d.0).unwrap(), owed);
         write_record(&d.0, &[]).unwrap();
         assert_eq!(fs::read_dir(d.0.join("state")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_cleared_is_a_failure_and_stays() {
+        let d = dir("record-stuck");
+        assert!(write_record(&d.0, &[]).is_ok());
+        d.file("state/update-pending/held", "sandbox\n");
+        assert!(write_record(&d.0, &[]).is_err());
+        assert!(record_file(&d.0).exists());
     }
 
     #[test]
