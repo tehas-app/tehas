@@ -284,6 +284,30 @@ impl<'a> Poll<'a> {
         End(rc)
     }
 
+    /// The end of a poll on a read the rules cannot use. The line names the
+    /// read, and the line of the gh call it failed on when one failed: a read
+    /// that is missing or that no gh call failed for blames no call.
+    fn unreadable(&mut self, what: &str, call: Option<&str>) -> End {
+        let line = match call {
+            Some(l) => format!(
+                "ERROR: unreadable {what}: {}",
+                l.strip_prefix("ERROR: ").unwrap_or(l)
+            ),
+            None => format!("ERROR: unreadable {what}"),
+        };
+        self.fail(tehas_core::call::trim(&line), 1)
+    }
+
+    /// The end of a poll on comments of `n` that were not read.
+    fn comments_unread(&mut self, n: u64) -> End {
+        let call = self
+            .s
+            .issues
+            .get(&n)
+            .and_then(|i| i.comments_failed.clone());
+        self.unreadable(&format!("comments of #{n}"), call.as_deref())
+    }
+
     /// An action, with its place among the poll's lines: the lines before it
     /// are logged before it is applied.
     fn act(&mut self, mut a: Value) {
@@ -1612,7 +1636,7 @@ impl<'a> Poll<'a> {
             Some(who) => Some(who),
             None => {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
-                    return Err(self.fail("ERROR: gh api graphql failed", 1));
+                    return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
                 let at = edit
                     .get("lastEditedAt")
@@ -1789,7 +1813,7 @@ impl<'a> Poll<'a> {
             return Ok(true);
         }
         let Some(answer) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            return Err(self.comments_unread(n));
         };
         let Some(nodes) = answer
             .pointer("/data/repository/issue/comments/nodes")
@@ -1904,10 +1928,7 @@ impl<'a> Poll<'a> {
             return Ok(None);
         };
         let Some(prs) = prs else {
-            if self.s.issues[&n].prs_unreadable {
-                return Err(self.fail(format!("ERROR: unreadable pull requests of #{n}"), 1));
-            }
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            return Err(self.unreadable(&format!("pull requests of #{n}"), None));
         };
         Ok(prs
             .iter()
