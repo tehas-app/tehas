@@ -313,8 +313,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cycle, `tehas work`, `tehas stop`, `tehas history` and `tehas export` need
   `~/tehas/libexec/store` and `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
   anything. Run `install.sh`, which builds the store and makes the database.
-- `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
-  on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
+- `ERROR: the cycle for #N did not start: <why>`: the unit did not put a new
+  attempt on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The
+  reason says which: `its start exited <code>` or `its start did not end
+  within 300s or could not be run` is the `systemctl --user start` itself;
+  `the store was still busy at the end of the <n>s wait` or `the store could
+  not say whether it started (<word>)` is the state store, not the unit; `it
+  put no new attempt on record` is a unit that started and did not record its
+  start. The same reason is in the comment on the issue. The approval is
   taken off the record, or the unit is stopped when the store keeps it, and
   the issue gets `needs-human-attention`. Read
   `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
@@ -908,6 +914,15 @@ Check the push by hand:
 ```
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
+
+While the sandbox cannot push, `tehas work` records the fault in
+`~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
+and the poll holds every start until the file is ten minutes old or a start
+whose check passes takes it off. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
+and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
+remote's URL) and the next start works. Planning turns and refreshes run
+through the hold.
 
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the

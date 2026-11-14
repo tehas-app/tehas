@@ -132,7 +132,9 @@ body that denies the closing word, `this does not fix #<n>`, names no pull
 request of the issue), or the rebase conflicts. Only the factory's own open
 pull requests count, as for the poll: one on a branch of the repository that
 the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. One from a fork, or
-from any other account, does not stop it. A push the remote refuses is not
+from any other account, does not stop it. The open pull requests are read in
+pages of 100 to the last page; a list it cannot read whole, or of more than ten
+pages, refuses the run. A push the remote refuses is not
 tried again. When the push went through and the draft then could not be
 opened, or gh said no URL for it, `finish/issue-<issue>` stays on the remote
 and the refusal says so: open its pull request by hand, or delete the branch

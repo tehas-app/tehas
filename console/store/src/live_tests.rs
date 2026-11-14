@@ -182,6 +182,30 @@ fn a_quiet_cycle_whose_lock_is_free_is_lost() {
     assert_eq!(count(&home, "endings"), 0);
 }
 
+/// A missing lock file is no proof that no one holds the lock: the cycle may
+/// hold it on a file someone removed. Only a lock file found free makes a
+/// quiet cycle lost.
+#[test]
+fn a_quiet_cycle_whose_lock_file_is_gone_is_not_lost() {
+    let home = home("publish-lock-gone");
+    let (lock, _) = start_by(&home, 22, "alice", "label", 1000);
+    beat(&home, 1010, 22, true, "running", "build", "Building");
+    let later = 1010 + LOST_AFTER + 60;
+    let cycles = home.join("state").join("cycles");
+    fs::remove_file(cycles.join("22.lock")).unwrap();
+    publish(&home, later, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"][0]["issue"], 22, "no lock file");
+    assert_eq!(v["cycles"][0]["running"], true, "no lock file");
+    fs::remove_dir_all(&cycles).unwrap();
+    publish(&home, later, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"][0]["issue"], 22, "no state/cycles");
+    assert_eq!(v["last"], Value::Null, "no state/cycles");
+    assert_eq!(count(&home, "endings"), 0);
+    drop(lock);
+}
+
 /// `cycle-end --stopped` and `--refused` end the cycle as `end_report` does:
 /// with a closing heartbeat that says it is not running and a row among the
 /// ten ends. Before that they set only `cycles.ended_at`, which publish never
