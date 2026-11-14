@@ -192,6 +192,11 @@ pub struct Snapshot {
     pub checks: Option<Option<Value>>,
     /// What state/branch-check says the last poll logged.
     pub branch_note: String,
+    /// The fault of a sandbox that cannot push, `state/push-fault.json`: None
+    /// when there is none, Some("unreadable") for one that cannot be read, and
+    /// Some({at, login, line}) for the fault on record. Read by the same poll
+    /// that writes it (Part 1 of this issue's series).
+    pub push_fault: Option<Value>,
     /// The why of the last live/dispatch.json.
     pub last_why: String,
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
@@ -552,6 +557,10 @@ impl Snapshot {
             disk_kb: v.get("disk_kb").map(Value::as_u64),
             checks: v.get("checks").map(opt),
             branch_note: s("branch_note"),
+            push_fault: match v.get("push_fault") {
+                None | Some(Value::Null) => None,
+                Some(f) => Some(f.clone()),
+            },
             last_why: s("last_why"),
             refresh_requests: v
                 .get("refresh_requests")
