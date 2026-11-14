@@ -1288,7 +1288,10 @@
     "exit": 1,
     "picked": [],
     "log": [
-     "ERROR: gh api graphql failed"
+     "ERROR: unreadable comments of #7"
+    ],
+    "log_lacks": [
+     "gh api graphql failed"
     ]
    }
   },
