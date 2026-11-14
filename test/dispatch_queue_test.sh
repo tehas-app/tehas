@@ -114,7 +114,7 @@ t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
   states 12=OPEN
   t_run "$dispatch"
   t_eq "$(started)" ""
-  t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers"
+  t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the millwright names its blockers"
 }
 
 t_case "tehas:blocked from an outsider is ignored, and its blockers are not asked about"
@@ -151,7 +151,7 @@ label_events 7 tehas:blocked=alice
 notes 7 "$(bnote 11 mallory '<!-- tehas:blocked by=13 -->')"
 t_run "$dispatch"
 t_eq "$(started)" ""
-t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers"
+t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the millwright names its blockers"
 
 t_case "the newest blocker comment decides"
 reset

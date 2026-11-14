@@ -358,7 +358,11 @@ cycle, measured against `TEHAS_POLL_BUDGET` by
 [`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
 where `over` names the figures whose median was over its budget (`cpu`, `wall`
 or `writes`) and `budget` is the value the instance runs with. It is `null`
-when the store gave no answer, which means the check did not run.
+when the store gave no answer, which means the check did not run. When `over`
+is not empty, `output` says what tripped it, in the units of the budget:
+`An idle poll is over its budget on cpu (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0):
+of the last hour's 12 idle polls, cpu had a median of 7.25 s against 5 s and 9
+over it.`
 
 `checks.units` names the tehas units systemd has failed
 (`systemctl --user --failed 'tehas-*'`), and is empty when there are none. It is
