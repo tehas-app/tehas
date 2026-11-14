@@ -89,8 +89,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 
     let calls = &mut src.calls;
     s["order"] = store::order(calls);
-    let types = !c.improvement_type.is_empty();
-    let mut q = github::queue(calls, &c.repo, types)?;
+    let mut q = github::queue(calls, &c.repo, c.improvement_type.is_some())?;
     s["repo"] = json!(q.repo);
     if let Some(labels) = q.labels.take() {
         s["tehas_labels"] = labels;
@@ -103,9 +102,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .filter(|o| github::dropped_events(o, &[github::RUNNING]))
         .map(|o| o.number)
         .collect();
-    if types {
+    if let Some(t) = &c.improvement_type {
         s["issue_types"] = json!(q.issue_types);
-        typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
+        typed_as_label(&mut q.open, t, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
     s["bot_id"] = json!(tehas_core::accounts::read(home)
@@ -1708,7 +1707,7 @@ esac"#,
         nodes.push(typed(40, "Improvement"));
         nodes.push(typed(41, "Task"));
         let mut c = settings();
-        c.improvement_type = "Improvement".into();
+        c.improvement_type = Some("Improvement".into());
         let (snap, calls, _, _) = poll_with(&w, &[], &c);
         assert_eq!(snap["issue_types"], json!(["Task", "Improvement"]));
         let improvement = json!([{"name": crate::decide::IMPROVEMENT}]);

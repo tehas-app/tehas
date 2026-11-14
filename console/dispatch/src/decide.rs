@@ -398,8 +398,7 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if !c.improvement_type.is_empty() {
-            let t = &c.improvement_type;
+        if let Some(t) = &c.improvement_type {
             match &s.issue_types {
                 None => {
                     return Err(self.fail(

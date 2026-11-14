@@ -518,14 +518,16 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     // always told.
     let concurrency = vars.text("TEHAS_CONCURRENCY");
     vars.set("PI_ENSEMBLE_MAX_WORKSTREAMS", concurrency);
-    // pi-rukas reads the bound of a gate in ms under two names, one for a
-    // workstream's gate and one for the gate on the combined tree. A gate
-    // refused below is not passed on.
+    // pi-rukas reads the bound of a gate in ms under three names: a
+    // workstream's gate, the gate on the combined tree, and the suite tier
+    // that runs the full command on the combined tree. A gate refused below
+    // is not passed on.
     let verify = vars.text("TEHAS_VERIFY_TIMEOUT");
     if rules::is_count(&verify) {
         let ms = (verify.parse::<u64>().unwrap_or(0) * 1000).to_string();
         vars.set("PI_ENSEMBLE_VERIFY_TIMEOUT_MS", ms.clone());
-        vars.set("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", ms);
+        vars.set("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", ms.clone());
+        vars.set("PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS", ms);
     }
     vars.set("PI_ENSEMBLE_NO_DOCKER_SOCKET", "1");
     vars.set("PI_ENSEMBLE_NO_SSH", "1");
@@ -972,6 +974,7 @@ mod tests {
             ("PI_ENSEMBLE_MAX_WORKSTREAMS", "1"),
             ("PI_ENSEMBLE_VERIFY_TIMEOUT_MS", "1800000"),
             ("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", "1800000"),
+            ("PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS", "1800000"),
             ("PI_ENSEMBLE_NO_DOCKER_SOCKET", "1"),
             ("PI_ENSEMBLE_NO_SSH", "1"),
             ("TEHAS_PREVIEW_MIN_FREE_MB", "5120"),

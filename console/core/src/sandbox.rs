@@ -33,7 +33,7 @@ pub const TARGET_DIR: &str = "/home/vscode/.tehas-target";
 pub const HELPER_KEY: &str = "credential.https://github.com.helper";
 const HELPER: &str = "!gh auth git-credential";
 
-const REVIEW_LEAVES_OUT: [&str; 7] = [
+const REVIEW_LEAVES_OUT: [&str; 8] = [
     "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
     "PI_ENSEMBLE_PLAN_ISSUE",
     "PI_ENSEMBLE_PLAN_SESSION_DIR",
@@ -41,6 +41,7 @@ const REVIEW_LEAVES_OUT: [&str; 7] = [
     "PI_ENSEMBLE_MAX_WORKSTREAMS",
     "PI_ENSEMBLE_VERIFY_TIMEOUT_MS",
     "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS",
+    "PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS",
 ];
 
 // A cycle's own: `tehas work` gives these itself, or not at all, whatever the
