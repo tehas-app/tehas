@@ -485,6 +485,40 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A cycle's record no longer gives a `capReason` that only repeats the cap word: a cap the driver gave no words for reads `no evidence from the driver`, and memory kills in the container are said in the `capReason`, the cycle's `err.txt` line and its console file.
 - A dispatcher poll that ends on comments, an edit record or pull requests it could not read now names that read, `ERROR: unreadable comments of #7`, and adds gh's own words when a gh call is what failed (`: gh api graphql failed: HTTP 502`). Before, it logged `ERROR: gh api graphql failed` even when no gh call had failed.
 - The dispatcher judges a quiet cycle (stop, ask again, or leave it to a person) on the poll's own clock in both halves of the poll, so a slow state store can no longer make it act on a different instant than the one it decided on.
+- The poll holds starts while the sandbox cannot push. While
+  `state/push-fault.json` is on record and younger than ten minutes the poll
+  starts no cycle and logs `holding: the sandbox cannot push: <git's line>
+  (<login>)` once, so every ready issue does not fail the same push check in
+  turn. Past ten minutes the poll starts as it did before, and a start whose
+  push check passes takes the fault off again. Running cycles, planning turns
+  and refreshes are not held by it (#2129).
+- `tehas-cycle finish` now reads every page of the open pull requests before it pushes, and refuses when the list cannot be read whole, so an issue's pull request past the first 100 no longer lets it open a second one.
+- `store load --from` no longer says a cycle is running when a cycle lock under `state/cycles` cannot be probed: it still refuses, and now says it cannot tell whether a cycle runs, with the probe's reason.
+- Removing a label no longer reports success when gh failed for another reason whose message happens to contain the words "not found": only an HTTP 404, or a reason that is exactly "Not Found", counts as the label already being gone.
+- The split of a container's words into its limits and its security options is made in one place, and a cycle whose limits are not the expected fourteen words now refuses to start (exit 78) instead of moving words between the two lists.
+- A running cycle whose lock file or `state/cycles` directory was removed is no longer shown as lost after two minutes of quiet; only a lock file found free marks it lost.
+- `tehas work` says again when the heartbeat or the publish of the live view fails in a new way or fails again after working, instead of once per cycle.
+- A cycle that did not start now says why, in the poll's log and in the comment on the issue: the exit code of the unit's start, a start that ran out of time, a state store that stayed busy or failed during the wait, or a unit that started and put no attempt on record.
+- A planning turn whose `systemctl` cannot be asked now counts as still running, so the dispatcher no longer reports it as cut off while it may be at work. A `state/cycles` that cannot be listed now counts as cycles that may be running: the code index is left alone and auto-finish holds its records.
+- `tehas update` now fails with exit 1 and names the file when it cannot remove the record of follow-up steps after the last one ran. It used to exit 0 and leave the record, so `install.sh --check` stayed red and the next update ran the same steps again.
+- A planning turn whose unit `systemd-run` accepted but which never took its lock or ended within the start wait is now logged as `could not start the planning turn` and its session ended as not started, instead of being reported as running.
+- When the poll cannot mark a pull request as refreshing, the ERROR line that refuses the start now ends with GitHub's reason (for example `HTTP 404` for a missing label, or a rate limit).
+- A status command run by the poll that fails or is killed at its bound now logs `WARN: the status command ... exited <n>` (or `was killed at its bound or did not start`) instead of passing in silence, and the health warning names the command and how it ended.
+- A cycle's history row and park record keep the pull request number when GitHub spells the repository's owner or name in another case than the settings, or the address ends in a slash. Before, the number was dropped without a word and the run showed no pull request.
+- The `verify` and `release-gate` workflows check the runner's cargo, rustc, rustfmt and clippy before the gate runs. A runner without them now fails with one error that names the runner and the missing tools, instead of a failure in every Rust test that reads as the change's.
+- The slots line of `tehas status` and the dispatcher's hold line no longer say `host-bound, no reading` for a host whose CPUs or slice answered but hold less than one cycle or two containers: they name the reading and say `at the floor`, and `room.slots.*.bound` is `cpu` or `memory` there instead of `host`.
+- `tehasbot store publish --health` no longer leaves the outage marker behind when a failing health report cannot be written, so `/health` keeps answering from the report that is on disk; a marker that cannot be removed is now reported as `remove live/health.down`, not as a write.
+- `tehas clean` reads the sizes and creation times of the images it weighs with one `docker image inspect` per step, instead of one or two per image.
+- The names of the issue lists in `live/status.json` are now defined once and shared by the writer, the health page, the analytics sampler and the MCP server, so a rename can no longer silently zero the queue counts.
+- `tehasbot clean` stops measuring one path after a million names or ten seconds, so a huge build tree no longer holds up the rest of the pass. A size cut short there is logged as `at least <n> bytes`, and so is the run's closing total; the path is still removed.
+- The gate now fails when a program of the Cargo workspace is missing from install.sh's list, the release build or the release tarball's flags, unless it is named as not installed with a reason. `tehas-merge` is named so: it is built and tested but not installed yet.
+- The gate's line for the workspace's tests now counts what ran, as in `ok    the workspace's tests (827 passed, 3 ignored, 41 test binaries)`, and the gate fails when `cargo test` exits 0 but prints no `test result:` line, so a green no longer hides a run in which no Rust test ran.
+- `scripts/test.sh` stops with exit 2 and `test.sh: cannot start <file>: <reason>`
+  when a test file's task process cannot be started, instead of skipping it and
+  letting a record already on disk for that file read as a pass.
+- `scripts/verify.sh --changed` prints a `skip` line for the shell tests when the change holds no test file and no shell script to lint, instead of an `ok` line for a step that ran nothing. `scripts/test.sh` given only such paths now exits 3 rather than 0.
+- `tehas update` from releases runs the new version's settings check under a limit of 120 seconds and reads at most 64 KiB of what it says; a check that runs out of time or says more stops the update with nothing switched, instead of waiting and growing without end.
+- A `TEHAS_` key that could not be searched for in the new version's tree is no longer reported as unknown to it; it gets a warning of its own.
 
 ### Held back
 
@@ -667,6 +701,52 @@ None.
 None.
 
 None. An instance that raised `TEHAS_VERIFY_TIMEOUT` above 1800 now gets that bound on the combined tree too; check that `TEHAS_WORK_TIMEOUT` leaves room for it.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
 
 None.
 

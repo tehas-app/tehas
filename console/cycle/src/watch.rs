@@ -138,6 +138,23 @@ fn say(line: &str) {
     let _ = out.flush();
 }
 
+/// The failure to say for a call made every tick: a new one, or one that
+/// differs from the last said. A success ends the run of failures, so the next
+/// one is said again. A store that fails every tick the same way is said once.
+fn say_again(last: &mut Option<String>, now: Result<(), String>) -> Option<String> {
+    match now {
+        Ok(()) => {
+            *last = None;
+            None
+        }
+        Err(e) if last.as_deref() == Some(e.as_str()) => None,
+        Err(e) => {
+            *last = Some(e.clone());
+            Some(e)
+        }
+    }
+}
+
 fn append(file: &Path, line: &[u8]) -> bool {
     let done = OpenOptions::new()
         .create(true)
@@ -654,8 +671,9 @@ struct Watch<'a> {
     sig: &'static str,
     console: Option<Child>,
     live_on: bool,
-    beat_said: bool,
-    publish_said: bool,
+    /// The last failure of the heartbeat and of the publish that was said.
+    beat_said: Option<String>,
+    publish_said: Option<String>,
     ooms: u32,
     /// The processes the kernel log names as killed for memory here.
     oom_names: Vec<String>,
@@ -813,24 +831,21 @@ impl Watch<'_> {
         args.extend(["--status", status, "--step", &step, "--text", &note]);
         let progress = progress_flags(&progress);
         args.extend(progress.iter().map(String::as_str));
-        if let Err(r) = host::store_said(self.home, &args) {
-            if !self.beat_said {
-                eprintln!(
-                    "tehas work: the heartbeat of #{n} is not on record ({}): {}",
-                    r.word, r.line
-                );
-                self.beat_said = true;
-            }
+        let beat = host::store_said(self.home, &args).map(drop).map_err(|r| {
+            format!(
+                "the heartbeat of #{n} is not on record ({}): {}",
+                r.word, r.line
+            )
+        });
+        if let Some(said) = say_again(&mut self.beat_said, beat) {
+            eprintln!("tehas work: {said}");
         }
         // One try: the next tick publishes again, and a stop must not wait on it.
-        if let Err(r) = host::store_said(self.home, &["publish"]) {
-            if !self.publish_said {
-                eprintln!(
-                    "tehas work: the live view is not published ({}): {}",
-                    r.word, r.line
-                );
-                self.publish_said = true;
-            }
+        let publish = host::store_said(self.home, &["publish"])
+            .map(drop)
+            .map_err(|r| format!("the live view is not published ({}): {}", r.word, r.line));
+        if let Some(said) = say_again(&mut self.publish_said, publish) {
+            eprintln!("tehas work: {said}");
         }
     }
 
@@ -1051,8 +1066,8 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         sig: "-",
         console: None,
         live_on: false,
-        beat_said: false,
-        publish_said: false,
+        beat_said: None,
+        publish_said: None,
         ooms: 0,
         oom_names: vec![],
         forks: 0,
@@ -1450,6 +1465,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn a_failure_of_every_tick_is_said_again_when_it_changes_or_comes_back() {
+        let mut last = None;
+        let busy = || Err("busy".to_string());
+        assert_eq!(say_again(&mut last, busy()), Some("busy".to_string()));
+        assert_eq!(say_again(&mut last, busy()), None, "the same failure again");
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a different failure"
+        );
+        assert_eq!(say_again(&mut last, Ok(())), None);
+        assert_eq!(last, None);
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a failure after a success"
+        );
+    }
 
     fn seen(rc: i32) -> Seen<'static> {
         Seen {
@@ -2175,8 +2210,8 @@ mod tests {
             sig: "-",
             console: None,
             live_on: false,
-            beat_said: false,
-            publish_said: false,
+            beat_said: None,
+            publish_said: None,
             ooms: 0,
             oom_names: vec![],
             forks: 0,

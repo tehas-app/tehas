@@ -32,6 +32,8 @@
 # below. Prints one line per step. The workspace's tests get an empty TMPDIR
 # of their own, and anything they leave in it fails the gate: a test makes
 # its directories with tehas_core::testdir::TestDir, which removes them.
+# Their line counts the tests that passed, and a run of them that printed no
+# "test result:" line fails.
 #
 # Every run keeps the whole output of its steps in a log of its own,
 # $TEHAS_VERIFY_LOGS/<mode>-<UTC time>-<pid>.log (default
@@ -170,18 +172,33 @@ step "no product or host names in platform files" scripts/check-generic.sh
 step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-lines.sh
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
-elif [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
-  # 3: none of the paths is a test file or a script the lint reads.
-  rc=0 && scripts/test.sh "${tests[@]}" "${paths[@]}" >"$tmp/out" 2>&1 || rc=$?
-  [ "$rc" != 3 ] || echo "skip  the shell tests of the change (no test file and no linted script among its paths)"
-  [ "$rc" = 3 ] || report "shellcheck and the shell tests of the change" "$rc" "$tmp/out"
+else
+  # test.sh exits 3 when the paths hold no test file and nothing to lint:
+  # nothing ran, which is a skip and not an "ok".
+  rc=3
+  if [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
+    rc=0
+    scripts/test.sh "${tests[@]}" "${paths[@]}" >"$tmp/out" 2>&1 || rc=$?
+  fi
+  if [ "$rc" = 3 ]; then
+    echo "skip  shellcheck and the shell tests (no test file or shell script among the change)"
+  else
+    report "shellcheck and the shell tests of the change" "$rc" "$tmp/out"
+  fi
 fi
 if [ "$cargo_wanted" = 0 ]; then
   echo "skip  the workspace's tests (the change touches nothing under console/)"
 elif [ -n "$cargo_pid" ]; then
   rc=0
   wait "$cargo_pid" || rc=$?
-  report "$cargo_step" "$rc" "$tmp/cargo"
+  # cargo test prints a "test result:" line per test binary. A pass that
+  # printed none ran no test, so it fails; a pass says how many ran.
+  tally=$(awk '/^test result: /{n++; p+=$4; i+=$8} END{if(n) printf "%d passed, %d ignored, %d test binaries", p, i, n}' "$tmp/cargo")
+  if [ "$rc" = 0 ] && [ -z "$tally" ]; then
+    echo 'cargo test exited 0 and printed no "test result:" line: no test ran' >>"$tmp/cargo"
+    rc=1
+  fi
+  report "$cargo_step${tally:+ ($tally)}" "$rc" "$tmp/cargo"
   find "$cargo_tmp" -mindepth 1 -maxdepth 1 >"$tmp/left" 2>&1
   rc=0
   [ ! -s "$tmp/left" ] || rc=1

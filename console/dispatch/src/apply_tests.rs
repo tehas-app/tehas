@@ -446,6 +446,61 @@ fn the_status_is_told_the_poll_ran_it_and_the_others_are_not() {
 }
 
 #[test]
+fn a_status_that_did_not_end_0_says_so() {
+    // The status files keep what the last good run wrote, so a run that failed
+    // is named in the log, as a health run that failed is.
+    let mut t = world();
+    let mut printed = Vec::new();
+    let mut log = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert_eq!(printed, vec!["the status line"]);
+    assert!(log.is_empty());
+
+    t.fail("status", "");
+    let mut printed = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert!(printed.is_empty());
+    let cmd = t.w.host.status_cmd.clone();
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {cmd} exited 1: the status files may be stale"
+        )]
+    );
+
+    // No exit status at all: the command never began, as one killed at its
+    // bound has none either.
+    t.w.host.status_cmd = t.dir.join("no-such-status").to_string_lossy().into_owned();
+    t.w.host.status_args = vec!["status".into()];
+    let mut log = Vec::new();
+    t.w.status(&mut Vec::new(), &mut log);
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {} status was killed at its bound or did not start: the status files may be stale",
+            t.w.host.status_cmd
+        )]
+    );
+}
+
+#[test]
+fn a_start_whose_status_failed_logs_it() {
+    let mut t = world();
+    t.fail("status", "");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(
+        a.log.last().map(String::as_str),
+        Some(
+            format!(
+                "WARN: the status command {} exited 1: the status files may be stale",
+                t.w.host.status_cmd
+            )
+            .as_str()
+        )
+    );
+}
+
+#[test]
 fn every_write_is_journaled_before_and_settled_after() {
     let mut t = world();
     t.fail("gh", "issue comment");
@@ -923,7 +978,7 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert_eq!(a.exit, Some(1));
     assert_eq!(
         a.log.last().unwrap(),
-        "ERROR: the cycle for #7 did not start"
+        "ERROR: the cycle for #7 did not start: its start exited 1"
     );
     let w = t.writes();
     assert!(w
@@ -933,7 +988,50 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
     assert!(w.last().unwrap().starts_with("status"));
     assert!(w
         .iter()
-        .any(|c| c.contains("`tehas-cycle@7.service` did not come up")));
+        .any(|c| c.contains("`tehas-cycle@7.service` did not come up: its start exited 1.")));
+}
+
+/// A start command that comes up and puts nothing on record, after which the
+/// store answers `cycle-show` with `word`, or with no failure when empty.
+fn start_then_store(t: &mut World, word: &str) {
+    let p = t.dir.join("start-then");
+    let line = if word.is_empty() {
+        String::new()
+    } else {
+        format!("printf 'cycle-show|{word}\\n' >>\"$(dirname \"$0\")/fail-store\"\n")
+    };
+    tehas_core::testing::write_exe(&p, format!("#!/bin/bash\n{line}")).unwrap();
+    t.w.host.start_cmd = Some(p.to_string_lossy().into_owned());
+    t.w.host.start_wait = Duration::from_millis(600);
+}
+
+#[test]
+fn a_start_not_taken_says_what_the_store_said_while_it_waited() {
+    for (word, why) in [
+        ("", "it put no new attempt on record within 0s"),
+        ("busy", "the store was still busy at the end of the 0s wait"),
+        (
+            "unreadable",
+            "the store could not say whether it started (unreadable)",
+        ),
+    ] {
+        let mut t = world();
+        start_then_store(&mut t, word);
+        let a = t.apply(json!([start_of(7, "label")]));
+        assert_eq!(a.exit, Some(1), "{word}");
+        assert!(
+            a.log
+                .contains(&format!("ERROR: the cycle for #7 did not start: {why}")),
+            "{word}: {:?}",
+            a.log
+        );
+        assert!(
+            t.writes()
+                .iter()
+                .any(|c| c.contains(&format!("did not come up: {why}."))),
+            "{word}"
+        );
+    }
 }
 
 #[test]
@@ -1070,6 +1168,20 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn a_refused_refresh_mark_logs_gh_reason() {
+    let mut t = world();
+    t.fail("gh", "POST|HTTP 404");
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    let r = t.apply(json!([a]));
+    assert_eq!(
+        r.log[1],
+        "ERROR: could not mark pull request #12 as refreshing, not starting a cycle: HTTP 404"
+    );
 }
 
 #[test]
@@ -4113,13 +4225,25 @@ fn a_session_at_its_limit_of_turns_is_ended() {
     assert!(!t.calls().iter().any(|c| c.starts_with("store plan-answer")));
 }
 
+/// The turn's lock of issue `n`, held as a unit's turn holds it while it runs.
+fn turn_holds_its_lock(t: &World, n: u64) -> fs::File {
+    let f = fs::File::create(t.w.home.join(format!("state/plan-{n}.json.lock"))).unwrap();
+    f.lock().unwrap();
+    f
+}
+
 #[test]
 fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
     let mut t = world();
     // The wait for the unit's lock is the thing under test, not its length.
     t.w.host.launch_poll = Duration::from_millis(200);
     t.w.host.plan_start_cmd = None;
-    t.apply(json!([first_turn(7)]));
+    let _lock = turn_holds_its_lock(&t, 7);
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "planning #7: turn 1 runs as tehas-plan-7.service"
+    );
     assert_eq!(
         fs::read_to_string(t.dir.join("brief.mode")).unwrap().trim(),
         "600"
@@ -4129,11 +4253,30 @@ fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
 }
 
 #[test]
+fn a_unit_whose_turn_never_begins_is_finished_as_not_started() {
+    let mut t = world();
+    t.w.host.launch_poll = Duration::from_millis(1);
+    t.w.host.plan_start_cmd = None;
+    plan_row(&t, json!({"turns": 0, "label": "tehas:plan"}));
+    // systemd-run takes the unit, but its turn neither locks nor ends.
+    let a = t.apply(json!([first_turn(7)]));
+    assert!(a
+        .log
+        .contains(&"ERROR: could not start the planning turn of #7".to_string()));
+    assert!(!a.log.iter().any(|l| l.contains("runs as tehas-plan-7")));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 1 --outcome not-started")));
+}
+
+#[test]
 fn a_turn_runs_from_its_own_copy_of_the_code_when_the_host_has_one() {
     let mut t = world();
     t.w.host.launch_poll = Duration::from_millis(1);
     t.w.host.plan_start_cmd = None;
     t.w.host.pin_cmd = Some("/opt/tehas-cycle".into());
+    let _lock = turn_holds_its_lock(&t, 7);
     t.apply(json!([first_turn(7)]));
     let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(
@@ -4323,6 +4466,22 @@ fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout()
             format!("git -C {co} merge -q --ff-only origin/main"),
         ]
     );
+}
+
+#[test]
+fn cycles_that_cannot_be_listed_leave_the_index_alone() {
+    let mut t = world();
+    // A file where the directory should be: the listing fails, and a cycle
+    // may be running.
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(t.w.home.join("state/cycles"), "").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[0],
+        "the code index stays as it is: state/cycles cannot be listed, so a cycle may be running"
+    );
+    assert!(!t.calls().iter().any(|c| c.contains("tehas-index")));
 }
 
 #[test]
