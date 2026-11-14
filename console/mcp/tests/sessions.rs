@@ -1449,3 +1449,136 @@ fn failures_compare_two_builds_of_one_version() {
         );
     }
 }
+
+// A published file that is there and cannot be read is a tool error naming
+// it, never an absence: a file that is not there is the only absence.
+fn unreadable(live: &std::path::Path, file: &str, how: &str) {
+    let path = live.join(file);
+    let _ = std::fs::remove_file(&path);
+    match how {
+        // A directory in the file's place: the read fails, and not as missing.
+        "dir" => std::fs::create_dir_all(&path).unwrap(),
+        _ => std::fs::write(&path, "{\"repo\": \"a/b\", \"stopped\": [").unwrap(),
+    }
+}
+
+fn names_file(r: Result<Value, ToolError>, file: &str, why: &str) {
+    match r {
+        Err(ToolError::File { file: f, why: w }) => {
+            assert_eq!(f, file);
+            assert_eq!(w, why);
+        }
+        other => panic!("{file}: {other:?}"),
+    }
+}
+
+#[test]
+fn an_unreadable_status_file_is_a_tool_error_for_the_story() {
+    let rows = [sess("work", 7, 60, json!({}))];
+    for (how, why) in [
+        ("dir", "could not be read"),
+        ("cut", "is not complete JSON"),
+    ] {
+        let env = Env::built(
+            "story-unreadable",
+            Some("a/b"),
+            &rows,
+            Some(&[("stopped", json!([row(7, false)]))]),
+            None,
+        );
+        unreadable(&env.dirs.live, "status.json", how);
+        names_file(
+            env.call("factory_issue", json!({"issue": 7})),
+            "status.json",
+            why,
+        );
+    }
+}
+
+#[test]
+fn an_unreadable_running_or_health_file_is_a_tool_error_for_the_story() {
+    let rows = [sess("work", 7, 60, json!({}))];
+    for file in ["running.json", "health.json"] {
+        for (how, why) in [
+            ("dir", "could not be read"),
+            ("cut", "is not complete JSON"),
+        ] {
+            let env = Env::built("story-files", Some("a/b"), &rows, Some(&[]), None);
+            unreadable(&env.dirs.live, file, how);
+            names_file(env.call("factory_issue", json!({"issue": 7})), file, why);
+        }
+    }
+}
+
+// Missing files are still absences: the story is the runs alone.
+#[test]
+fn a_story_without_the_live_files_is_its_runs() {
+    let env = Env::new("story-bare", None, &[sess("work", 7, 60, json!({}))]);
+    let out = env.call("factory_issue", json!({"issue": 7})).unwrap();
+    assert!(out.get("stage").is_none(), "{out}");
+    assert_eq!(out["attempts"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn an_unreadable_status_file_is_a_tool_error_for_the_session_tools() {
+    let s = sess(
+        "work",
+        7,
+        60,
+        json!({"outcome": "failed", "failureCause": "c"}),
+    );
+    for (how, why) in [
+        ("dir", "could not be read"),
+        ("cut", "is not complete JSON"),
+    ] {
+        let env = Env::new("sess-unreadable", Some("a/b"), &[s.clone()]);
+        unreadable(&env.dirs.live, "status.json", how);
+        for (name, args) in [
+            ("factory_sessions", json!({})),
+            ("factory_session", json!({"id": s["id"]})),
+            ("factory_failures", json!({})),
+        ] {
+            names_file(env.call(name, args), "status.json", why);
+        }
+    }
+}
+
+// A run with no outcome on record is counted apart, not under a word of its
+// own in the outcomes.
+#[test]
+fn a_run_without_an_outcome_is_counted_apart() {
+    let rows = [
+        sess("work", 1, 10, json!({"outcome": null})),
+        sess("work", 2, 20, json!({"outcome": "merged"})),
+    ];
+    let env = Env::new("no-outcome", Some("a/b"), &rows);
+    let out = env.call("factory_failures", json!({})).unwrap();
+    let v = &out["versions"][0];
+    assert_eq!(v["runs"], 2);
+    assert_eq!(v["outcomes"], json!({"merged": 1}));
+    assert_eq!(v["outcomesUnknown"], 1);
+}
+
+// Runs with a version missing are one entry with it left out, and it comes
+// after every entry that names both, however many runs it has.
+#[test]
+fn runs_without_a_version_come_after_the_named_pairs() {
+    let mut rows = vec![sess("work", 1, 10, json!({}))];
+    for i in 0..3 {
+        rows.push(sess(
+            "work",
+            10 + i,
+            20 + i,
+            json!({"tehasVersion": null, "rukasVersion": ""}),
+        ));
+    }
+    let env = Env::new("no-version", Some("a/b"), &rows);
+    let out = env.call("factory_failures", json!({})).unwrap();
+    let v = out["versions"].as_array().unwrap();
+    assert_eq!(v.len(), 2, "{out}");
+    assert_eq!(v[0]["tehasVersion"], "v0.7.31");
+    assert_eq!(v[0]["runs"], 1);
+    assert!(v[1].get("tehasVersion").is_none(), "{out}");
+    assert!(v[1].get("rukasVersion").is_none(), "{out}");
+    assert_eq!(v[1]["runs"], 3);
+}
