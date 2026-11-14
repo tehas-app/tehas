@@ -21,12 +21,11 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is and stale is true when it is more than three hours old; no file, or one of another api or naming no file system, is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is; no file is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
             "generatedAt": text("When the answer was made, UTC, as the run that wrote it kept it."),
-            "stale": {"type": "boolean", "description": "True when generatedAt is more than three hours old or cannot be read: the hourly cleaner has stopped publishing, and the figures may no longer be the host's."},
             "dockerRoot": int_("The directory Docker keeps its images in, as Docker named it; left out when it did not say."),
             "filesystems": {
                 "type": "array",
@@ -65,41 +64,15 @@ pub fn tool() -> Value {
 /// host's own reaches the answer. A file that is not there is the tool error
 /// the read says, which is the shape of a host where nobody has asked yet.
 pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
-    call_at(dirs, tools::now())
-}
-
-/// The cleaner publishes every hour, so a reading three hours old is one
-/// the host stopped making.
-const STALE_SECS: i64 = 3 * 3600;
-
-pub(crate) fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     let answer = tools::read(&dirs.live, FILE)?;
-    let refuse = |why: &str| ToolError::File {
-        file: FILE.to_string(),
-        why: why.to_string(),
-    };
     if !answer.is_object() {
-        return Err(refuse("is not one object"));
+        return Err(ToolError::File {
+            file: FILE.to_string(),
+            why: "is not one object".to_string(),
+        });
     }
-    if answer["api"] != 1 {
-        return Err(refuse("is of another api"));
-    }
-    // The writer always watches the instance's home, so an answer with no
-    // file system is half a write or another program's file, not a host
-    // with nothing on it.
-    if answer["filesystems"]
-        .as_array()
-        .is_none_or(|a| a.is_empty())
-    {
-        return Err(refuse("names no file system"));
-    }
-    let stale = answer["generatedAt"]
-        .as_str()
-        .and_then(tools::epoch)
-        .is_none_or(|t| now - t > STALE_SECS);
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
-    out.insert("stale".into(), json!(stale));
     Ok(out)
 }
 
@@ -221,51 +194,6 @@ mod tests {
                 said == "is not complete JSON" || said == "is not one object",
                 "{text:?} refused with {said:?}"
             );
-        }
-    }
-
-    // An object is not yet an answer: one of another api, or one that names no
-    // file system, is half a write or another program's file, and served it
-    // would read as a healthy host with nothing on it.
-    #[test]
-    fn an_object_that_is_no_reading_is_refused() {
-        for (text, want) in [
-            (r#"{"api":1}"#, "names no file system"),
-            (r#"{"api":1,"filesystems":[]}"#, "names no file system"),
-            (r#"{"api":1,"filesystems":{}}"#, "names no file system"),
-            (r#"{"filesystems":[{"paths":["/"]}]}"#, "is of another api"),
-            (
-                r#"{"api":2,"filesystems":[{"paths":["/"]}]}"#,
-                "is of another api",
-            ),
-            (
-                r#"{"api":"1","filesystems":[{"paths":["/"]}]}"#,
-                "is of another api",
-            ),
-        ] {
-            let dir = published(text);
-            match call(&dirs(&dir)) {
-                Err(ToolError::File { why, .. }) => assert_eq!(why, want, "{text}"),
-                other => panic!("{text} is no answer: {other:?}"),
-            }
-        }
-    }
-
-    // The answer says whether its reading is old, so a disk that filled after
-    // the cleaner stopped publishing is not read as the host of now.
-    #[test]
-    fn a_reading_more_than_three_hours_old_is_stale() {
-        let at = tools::epoch("2026-10-31T23:09:32Z").unwrap();
-        let dir = published(ANSWER);
-        let stale = |now: i64| call_at(&dirs(&dir), now).unwrap()["stale"].clone();
-        assert_eq!(stale(at), false);
-        assert_eq!(stale(at + 3 * 3600), false);
-        assert_eq!(stale(at + 3 * 3600 + 1), true);
-        for time in [r#""generatedAt":"yesterday","#, ""] {
-            let dir = published(&format!(
-                r#"{{"api":1,{time}"filesystems":[{{"paths":["/"],"why":"df answered nothing"}}]}}"#
-            ));
-            assert_eq!(call_at(&dirs(&dir), at).unwrap()["stale"], true, "{time}");
         }
     }
 
