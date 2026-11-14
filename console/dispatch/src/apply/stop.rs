@@ -3,7 +3,7 @@
 //! workspaces of issues no cycle has run on for 7 days.
 
 use super::{text, word, Writer};
-use crate::decide::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
+use crate::decide::{quiet_due, quiet_why, Due, QUIET_ASKS};
 use crate::read::host::held;
 use crate::read::run::run_quiet;
 use serde_json::Value;
@@ -40,10 +40,7 @@ impl Writer {
             _ => String::new(),
         };
         let heard: u64 = said_for.parse().unwrap_or(0);
-        let why = format!(
-            "the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s",
-            iso(heard)
-        );
+        let why = quiet_why(n, heard);
         let unit = format!("tehas-cycle@{n}.service");
         let note = match self.calls.store(&[
             "cycle-note",
@@ -74,11 +71,17 @@ impl Writer {
             log.push(format!("WARN: {why}, but the state store's record of it does not read as one, so the poll asks nothing this time"));
             return Then::Go;
         };
-        match quiet_due(times, asked, tehas_core::time::now() as u64) {
-            "wait" => return Then::Go,
-            "stop" => log.push(format!("WARN: {why}: stopping {unit}")),
-            "again" => log.push(format!("WARN: {why}: the poll asks {unit} to stop again")),
-            _ => {
+        // The poll's own instant, the one its decision was made on; the wall
+        // clock only for an action that does not carry it.
+        let now = a
+            .get("now")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| tehas_core::time::now() as u64);
+        match quiet_due(times, asked, now) {
+            Due::Wait => return Then::Go,
+            Due::Stop => log.push(format!("WARN: {why}: stopping {unit}")),
+            Due::Again => log.push(format!("WARN: {why}: the poll asks {unit} to stop again")),
+            Due::Line => {
                 log.push(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
                 let mut args = vec!["cycle-stop-asked".to_string(), n.to_string()];
                 if times != QUIET_ASKS {
