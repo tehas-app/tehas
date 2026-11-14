@@ -110,9 +110,21 @@ impl Writer {
             ));
             return false;
         }
-        std::fs::create_dir_all(works).is_ok()
-            && std::fs::write(works.join(".tehas-workspaces"), "").is_ok()
-            && std::fs::create_dir_all(keep).is_ok()
+        let marker = works.join(".tehas-workspaces");
+        let failed = if let Err(e) = std::fs::create_dir_all(works) {
+            Some((works, e))
+        } else if let Err(e) = std::fs::write(&marker, "") {
+            Some((marker.as_path(), e))
+        } else if let Err(e) = std::fs::create_dir_all(keep) {
+            Some((keep, e))
+        } else {
+            None
+        };
+        if let Some((path, e)) = failed {
+            log.push(format!("ERROR: could not make {} ({e})", path.display()));
+            return false;
+        }
+        true
     }
 
     /// The plan_turn action, first or next; the status command after a turn
@@ -136,7 +148,16 @@ impl Writer {
             // plan_brief: the approved text, kept for the turn's unit.
             let mut brief = format!("# {}\n\n{}\n", text(a, "title"), text(a, "body"));
             if let Some(extra) = a.get("brief_extra").and_then(Value::as_str) {
-                let more = std::fs::read_to_string(extra).unwrap_or_default();
+                // The extra brief is what makes the turn a refine: none read, none started.
+                let more = match std::fs::read_to_string(extra) {
+                    Ok(more) => more,
+                    Err(e) => {
+                        log.push(format!(
+                            "ERROR: could not read the refine brief {extra} ({e}), not starting a turn of #{n}"
+                        ));
+                        return Then::End(1);
+                    }
+                };
                 brief += &format!("\n\n---\n\n{}\n\nThis request is issue #{n} itself. The issue you file replaces #{n}: #{n} is not a duplicate of this plan.\n", more.trim_end_matches('\n'));
             }
             let Some(file) = self.private_file(&format!("plan-{n}.brief"), &brief) else {
@@ -294,11 +315,21 @@ impl Writer {
                 )
             };
             let answer = keep.join("answer.md");
-            if !(self.keep_make(&keep, log) && std::fs::write(&answer, body).is_ok()) {
+            let failed = if !self.keep_make(&keep, log) {
+                Some(format!(
+                    "ERROR: could not make the keep directory of #{n}, not starting a turn"
+                ))
+            } else if let Err(e) = std::fs::write(&answer, body) {
+                Some(format!(
+                    "ERROR: could not write the answer for #{n} to {} ({e}), not starting a turn",
+                    answer.display()
+                ))
+            } else {
+                None
+            };
+            if let Some(line) = failed {
                 self.put_back(n, &undo, log);
-                log.push(format!(
-                    "ERROR: could not write the answer for #{n}, not starting a turn"
-                ));
+                log.push(line);
                 return Then::End(1);
             }
             input = answer;
