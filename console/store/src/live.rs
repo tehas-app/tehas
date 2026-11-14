@@ -354,10 +354,11 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
             ended.push(v);
             continue;
         }
-        // Quiet for two minutes and no one holds its lock: the cycle died
-        // without saying so. Its time is when it became lost, so the view
-        // does not move on every publish.
-        if v.updated_at < now - LOST_AFTER && lock::probe(home, v.issue, false).rc == 0 {
+        // Quiet for two minutes and its lock file is found free: the cycle
+        // died without saying so. A missing file proves nothing, as the cycle
+        // may hold a lock on a file someone removed. Its time is when it
+        // became lost, so the view does not move on every publish.
+        if v.updated_at < now - LOST_AFTER && lock::probe(home, v.issue, true).rc == 0 {
             v.running = false;
             v.status = "lost".to_string();
             v.updated_at += LOST_AFTER;
