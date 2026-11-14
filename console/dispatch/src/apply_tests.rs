@@ -446,6 +446,61 @@ fn the_status_is_told_the_poll_ran_it_and_the_others_are_not() {
 }
 
 #[test]
+fn a_status_that_did_not_end_0_says_so() {
+    // The status files keep what the last good run wrote, so a run that failed
+    // is named in the log, as a health run that failed is.
+    let mut t = world();
+    let mut printed = Vec::new();
+    let mut log = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert_eq!(printed, vec!["the status line"]);
+    assert!(log.is_empty());
+
+    t.fail("status", "");
+    let mut printed = Vec::new();
+    t.w.status(&mut printed, &mut log);
+    assert!(printed.is_empty());
+    let cmd = t.w.host.status_cmd.clone();
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {cmd} exited 1: the status files may be stale"
+        )]
+    );
+
+    // No exit status at all: the command never began, as one killed at its
+    // bound has none either.
+    t.w.host.status_cmd = t.dir.join("no-such-status").to_string_lossy().into_owned();
+    t.w.host.status_args = vec!["status".into()];
+    let mut log = Vec::new();
+    t.w.status(&mut Vec::new(), &mut log);
+    assert_eq!(
+        log,
+        vec![format!(
+            "WARN: the status command {} status was killed at its bound or did not start: the status files may be stale",
+            t.w.host.status_cmd
+        )]
+    );
+}
+
+#[test]
+fn a_start_whose_status_failed_logs_it() {
+    let mut t = world();
+    t.fail("status", "");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(
+        a.log.last().map(String::as_str),
+        Some(
+            format!(
+                "WARN: the status command {} exited 1: the status files may be stale",
+                t.w.host.status_cmd
+            )
+            .as_str()
+        )
+    );
+}
+
+#[test]
 fn every_write_is_journaled_before_and_settled_after() {
     let mut t = world();
     t.fail("gh", "issue comment");
