@@ -909,6 +909,15 @@ Check the push by hand:
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
+While the sandbox cannot push, `tehas work` records the fault in
+`~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
+and the poll holds every start until the file is ten minutes old or a start
+whose check passes takes it off. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
+and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
+remote's URL) and the next start works. Planning turns and refreshes run
+through the hold.
+
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
 driver's combined commit is on the local branch `feature/issue-<N>-...` there.
