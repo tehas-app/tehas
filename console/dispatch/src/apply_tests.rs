@@ -4113,13 +4113,25 @@ fn a_session_at_its_limit_of_turns_is_ended() {
     assert!(!t.calls().iter().any(|c| c.starts_with("store plan-answer")));
 }
 
+/// The turn's lock of issue `n`, held as a unit's turn holds it while it runs.
+fn turn_holds_its_lock(t: &World, n: u64) -> fs::File {
+    let f = fs::File::create(t.w.home.join(format!("state/plan-{n}.json.lock"))).unwrap();
+    f.lock().unwrap();
+    f
+}
+
 #[test]
 fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
     let mut t = world();
     // The wait for the unit's lock is the thing under test, not its length.
     t.w.host.launch_poll = Duration::from_millis(200);
     t.w.host.plan_start_cmd = None;
-    t.apply(json!([first_turn(7)]));
+    let _lock = turn_holds_its_lock(&t, 7);
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "planning #7: turn 1 runs as tehas-plan-7.service"
+    );
     assert_eq!(
         fs::read_to_string(t.dir.join("brief.mode")).unwrap().trim(),
         "600"
@@ -4129,11 +4141,30 @@ fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
 }
 
 #[test]
+fn a_unit_whose_turn_never_begins_is_finished_as_not_started() {
+    let mut t = world();
+    t.w.host.launch_poll = Duration::from_millis(1);
+    t.w.host.plan_start_cmd = None;
+    plan_row(&t, json!({"turns": 0, "label": "tehas:plan"}));
+    // systemd-run takes the unit, but its turn neither locks nor ends.
+    let a = t.apply(json!([first_turn(7)]));
+    assert!(a
+        .log
+        .contains(&"ERROR: could not start the planning turn of #7".to_string()));
+    assert!(!a.log.iter().any(|l| l.contains("runs as tehas-plan-7")));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 1 --outcome not-started")));
+}
+
+#[test]
 fn a_turn_runs_from_its_own_copy_of_the_code_when_the_host_has_one() {
     let mut t = world();
     t.w.host.launch_poll = Duration::from_millis(1);
     t.w.host.plan_start_cmd = None;
     t.w.host.pin_cmd = Some("/opt/tehas-cycle".into());
+    let _lock = turn_holds_its_lock(&t, 7);
     t.apply(json!([first_turn(7)]));
     let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(
