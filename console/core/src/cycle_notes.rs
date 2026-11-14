@@ -14,7 +14,7 @@ pub const RUNNING: [&str; 2] = ["lock", "cid"];
 pub const RECORD: [&str; 2] = ["runner_exit", "status"];
 
 /// What the run said of itself and what parks or holds the issue.
-pub const SAID: [&str; 16] = [
+pub const SAID: [&str; 17] = [
     "oom",
     "forks",
     "stalled",
@@ -25,6 +25,7 @@ pub const SAID: [&str; 16] = [
     "done",
     "nostart",
     "lean-refused",
+    "refused",
     "refresh-conflict",
     "comments",
     "result.json",
@@ -46,7 +47,7 @@ pub const NEW: [&str; 4] = [
 /// for what reads them after the end: the result and the progress for the
 /// record, a freeze, a park's reasons and the comments mode for the next
 /// step on the issue.
-pub const ENDED: [&str; 11] = [
+pub const ENDED: [&str; 12] = [
     "oom",
     "forks",
     "stalled",
@@ -55,6 +56,7 @@ pub const ENDED: [&str; 11] = [
     "disk",
     "stopped",
     "nostart",
+    "refused",
     "done",
     "runner_exit",
     "status",
