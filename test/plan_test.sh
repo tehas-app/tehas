@@ -923,6 +923,30 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$t_rc" 0
 t_eq "$([ -e "$T/keep/plan-sessions" ] && echo left)" ""
 
+t_case "a turn whose container died before the runner wrote leaves what the last turn kept, for the retry"
+first_turn_ran
+cat >"$fx/keeps" <<'EOF'
+rm -rf "$ws/.git/pi-plan-sessions"
+EOF
+rm -f "$fx/doc.json"
+echo 137 >"$fx/doc.rc"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the runner exited 137"}'
+# One that left an empty directory leaves it too.
+cat >"$fx/keeps" <<'EOF'
+rm -rf "$ws/.git/pi-plan-sessions"/*
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+rm -f "$fx/keeps" "$T"/calls/*
+asked
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
+
 t_case "a later turn of a session that has no directory yet makes one and goes on"
 reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
