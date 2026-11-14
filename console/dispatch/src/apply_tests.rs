@@ -82,6 +82,7 @@ case "$name $1" in
       repos/*/issues/[0-9]*) case "$2" in
           */comments*) ;;
           */events*) f=${2#*/issues/}; cat "$d/events-${f%%/*}" 2>/dev/null || echo '{}' ;;
+          */sub_issues*) f=${2#*/issues/}; cat "$d/sub-issues-${f%%/*}" 2>/dev/null || echo '[]' ;;
           *) f=${2#*/issues/}; if [ -f "$d/issue-$f" ]; then cat "$d/issue-$f"; else echo '{"id":555}'; fi ;;
         esac ;;
     esac
@@ -4968,6 +4969,72 @@ fn an_action_a_read_cannot_settle_stays_open() {
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec!["WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: gh api repos/example-owner/example-product/issues/7 failed; the next poll tries again"]);
     assert!(settled(&t).is_empty());
+}
+
+/// An attempted sub-issue-add on #7, its `-F` field as given.
+fn open_sub_issue_add(id: u64, field: &str) -> Value {
+    json!({"id": id, "kind": "sub-issue-add", "issue": 7, "state": "attempted", "intended_at": 990,
+    "attempted_at": 991, "args": {"gh": ["api", "-X", "POST", "repos/r/issues/7/sub_issues", "-F", field]}})
+}
+
+#[test]
+fn a_sub_issue_add_is_done_only_when_its_own_id_is_linked() {
+    let mut t = world();
+    left_open(
+        &t,
+        json!([
+            open_sub_issue_add(3, "sub_issue_id=555"),
+            open_sub_issue_add(4, "sub_issue_id=556")
+        ]),
+    );
+    fs::write(
+        t.dir.join("sub-issues-7"),
+        r#"[{"number": 9}, {"id": 555}]"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (sub-issue-add on #7, 10s old) was done",
+        "journal: action 4 (sub-issue-add on #7, 10s old) did not happen (the sub-issue is not linked); this poll decides it again",
+    ]);
+    let s = settled(&t);
+    assert!(s[0].starts_with("store journal-settle --action 3 --result ok --evidence "));
+    assert!(s[0].contains(r#""sub_issue":555"#), "{}", s[0]);
+    assert_eq!(s[1], "store journal-settle --action 4 --abandoned");
+}
+
+#[test]
+fn a_sub_issue_add_without_a_readable_id_stays_open() {
+    // A linked row with no id must not stand in for the id the record lacks.
+    for field in ["sub_issue_id=x555", "sub_issue_id=", "issue_id=555"] {
+        let mut t = world();
+        left_open(&t, json!([open_sub_issue_add(3, field)]));
+        fs::write(
+            t.dir.join("sub-issues-7"),
+            r#"[{"number": 9}, {"id": null}]"#,
+        )
+        .unwrap();
+        let mut log = Vec::new();
+        t.w.settle(1000, &mut log);
+        assert_eq!(log, vec![
+            "WARN: the journal's action 3 (sub-issue-add on #7, 10s old) could not be settled: it names no sub-issue id; the next poll tries again",
+        ], "{field}");
+        assert!(settled(&t).is_empty(), "{field}");
+    }
+}
+
+#[test]
+fn an_action_without_its_intended_time_is_not_said_to_be_new() {
+    let mut t = world();
+    let mut row = open_label_add(3, 7, "intended");
+    row.as_object_mut().unwrap().remove("intended_at");
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, of unknown age) did not happen (it was never attempted); this poll decides it again",
+    ]);
 }
 
 #[test]
