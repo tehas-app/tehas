@@ -150,7 +150,8 @@ node. It uses no network and no sandbox image, except that cargo fetches the
 workspace's crates the first time. A Rust test makes its scratch
 directories with `tehas_core::testdir::TestDir`, which removes them when the
 test ends; the gate fails when the workspace's tests leave anything in their
-TMPDIR. The rules for changes are in [`AGENTS.md`](AGENTS.md).
+TMPDIR. Their line counts the tests that passed, and the gate fails when
+`cargo test` printed no `test result:` line. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
 and on every push to main: the `verify` check, from
@@ -158,7 +159,9 @@ and on every push to main: the `verify` check, from
 organisation's own runner, installs shellcheck and jq at the versions in
 `host/versions.env` and checks each against a published checksum, scans the
 repository's lockfiles against published advisories with OSV-Scanner at its
-pinned version, and uses the runner's bash, git, jq and cargo. It reads the
+pinned version, and uses the runner's bash, git, jq and cargo. A runner
+without cargo, rustc, rustfmt or clippy fails the job before the gate runs,
+with one error that names the runner and the missing tools. It reads the
 repository, reaches the network only for the pinned tools it downloads and the
 advisory queries, and uses no secret. A newer push to a pull request
 cancels the older run; runs on main are not cancelled.

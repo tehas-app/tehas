@@ -831,7 +831,7 @@ pub enum Misshaped {
 /// A list that drifted starts nothing (AGENTS.md rule 4).
 pub fn shape(limits: &[String], security: &[String]) -> Result<(), Misshaped> {
     let l = limits;
-    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
+    if l.len() != slice::LIMIT_WORDS || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
         return Err(Misshaped::Limits);
     }
     let s = security;
