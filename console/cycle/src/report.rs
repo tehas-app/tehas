@@ -1510,7 +1510,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
         r.actions.push(tidy);
     } else if (rc == 10 || rc == 11) && status == "handoff" && !pr.is_empty() {
-        let held = if review_held == "true" && cap == "awaiting-human-merge" {
+        let held = if review_held == "true" && waits_only_for_a_merge(&cap) {
             " Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
         } else if review_held.is_empty() && waits_only_for_a_merge(&cap) {
             let s = " Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge.";
@@ -2270,8 +2270,12 @@ mod tests {
     /// A cycle that handed off at the cap `awaiting-human-merge` with a
     /// ready pull request open, its progress file `progress` (`None`: none).
     fn handed(progress: Option<&str>) -> Report {
+        handed_at("awaiting-human-merge", progress)
+    }
+
+    fn handed_at(cap: &str, progress: Option<&str>) -> Report {
         let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [
-            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": "awaiting-human-merge"}]});
+            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": cap}]});
         let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
                         "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
         let mut files = json!({"result.json": result.to_string(), "runner_exit": "10\n"});
@@ -2328,6 +2332,19 @@ mod tests {
                 "{case}: {:?}",
                 r.log
             );
+        }
+    }
+
+    // Every cap that waits only for a merge says why a held review parks it.
+    #[test]
+    fn a_held_review_says_why_at_every_cap_that_waits_for_a_merge() {
+        for cap in ["awaiting-human-merge", "lens-fix-reposition"] {
+            let r = handed_at(cap, Some(r#"{"roles":[],"reason":"","reviewHeld":false}"#));
+            assert_eq!(r.arm, "awaiting-merge", "{cap}: {:?}", r.log);
+            let r = handed_at(cap, Some(r#"{"roles":[],"reason":"","reviewHeld":true}"#));
+            assert_eq!(r.arm, "handoff-parked", "{cap}");
+            let said = comments(&r).join("\n");
+            assert!(said.contains("ran out of rounds"), "{cap}: {said}");
         }
     }
 
