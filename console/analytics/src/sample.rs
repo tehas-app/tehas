@@ -29,6 +29,7 @@ use crate::run::{iso_ms, read_json};
 use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::path::Path;
+use tehas_core::queue_lists;
 
 /// Seconds after which a live file no longer describes the poll.
 const STALE: i64 = 600;
@@ -57,10 +58,10 @@ pub fn read(home: &Path, now: i64) -> Sample {
     let mut s = Sample::default();
     if let Some(st) = fresh("status.json", "generatedAt", STALE) {
         let len = |k: &str| st.get(k).and_then(Value::as_array).map(|a| a.len() as i64);
-        s.in_line = len("queued");
-        s.running = len("running");
-        s.awaiting = len("awaiting");
-        s.stopped = len("stopped");
+        s.in_line = len(queue_lists::QUEUED);
+        s.running = len(queue_lists::RUNNING);
+        s.awaiting = len(queue_lists::AWAITING);
+        s.stopped = len(queue_lists::STOPPED);
         s.paused = st.get("paused").and_then(Value::as_bool);
         s.planning = st
             .get("planning")

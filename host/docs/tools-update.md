@@ -60,8 +60,11 @@ version to move to.
 4. check the instance against that version's own console. A setting it
    requires and the instance lacks is named with the value of the release's
    `instances/example/instance.env`, and the update stops with 78 with nothing
-   switched. A `TEHAS_` key in `instance.env` that the version never names is
-   warned about;
+   switched. The check runs under a limit of 120 seconds and reads at most
+   64 KiB of what it says: one that runs out of time or says more stops the
+   update with 1, nothing switched. A `TEHAS_` key in `instance.env` that the
+   version never names is warned about, and a key the version's tree could not
+   be searched for is named in a warning of its own;
 5. point `~/tehas/current` at the version, and run `install.sh` and its
    follow-ups from there, as an update from the checkout does. The commands and
    units are the copies `install.sh` makes from that tree.

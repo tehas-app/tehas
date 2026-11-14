@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for the check scripts/verify.sh makes after the workspace's tests: they
-# run with a TMPDIR of their own, and anything they leave in it fails the gate.
+# Tests for the checks scripts/verify.sh makes of the workspace's tests: they
+# run with a TMPDIR of their own, and anything they leave in it fails the gate;
+# a pass counts the tests that ran, and a run that printed none fails.
 # Each case runs the gate in a scratch repository whose steps are stubs.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -21,9 +22,13 @@ fresh() {
 }
 gate="cd '$tree' && TEHAS_VERIFY_FRESH=1 TEHAS_VERIFY_LOGS='$T/logs' scripts/verify.sh"
 # The stub notes the TMPDIR it was given, and leaves a directory there when
-# the case asks it to.
+# the case asks it to. It prints the lines of $T/results, as cargo test prints
+# one "test result:" line per test binary.
 # shellcheck disable=SC2016  # the stub body is expanded when it runs
-t_stub cargo '[ "$1" = test ] || exit 0; echo "$TMPDIR" >"$T/cargo-tmp"; [ ! -e "$T/leak" ] || mkdir "$TMPDIR/tehas-cargo-4242"; exit 0'
+t_stub cargo '[ "$1" = test ] || exit 0; echo "$TMPDIR" >"$T/cargo-tmp"; [ ! -e "$T/leak" ] || mkdir "$TMPDIR/tehas-cargo-4242"; cat "$T/results"; exit 0'
+printf '%s\n' "running 3 tests" "..." \
+  "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s" \
+  "test result: ok. 9 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.20s" >"$T/results"
 t_stub node 'exit 0'
 
 t_case "the tests get a TMPDIR of their own and a clean run passes"
@@ -42,5 +47,23 @@ t_run "$gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "FAIL  nothing left in the TMPDIR of cargo test"
 t_contains "$t_out" "tehas-cargo-4242"
+
+t_case "a pass says how many tests passed, were ignored and in how many binaries"
+fresh
+rm -f "$T/leak"
+t_run "$gate"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ok    the workspace's tests (12 passed, 2 ignored, 2 test binaries)"
+
+t_case "cargo test that exits 0 and prints no test result line fails the gate"
+fresh
+rm -f "$T/leak"
+cp "$T/results" "$T/results.kept"
+: >"$T/results"
+t_run "$gate"
+mv "$T/results.kept" "$T/results"
+t_eq "$t_rc" 1
+t_contains "$t_out" "FAIL  the workspace's tests"
+t_contains "$t_out" 'printed no "test result:" line: no test ran'
 
 t_done
