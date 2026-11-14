@@ -129,6 +129,26 @@ fn load_refuses_while_a_cycle_lock_is_held() {
 }
 
 #[test]
+fn load_refuses_a_lock_it_cannot_probe_without_naming_a_running_cycle() {
+    let (_from, copy) = a_copy("load-unknown-from");
+    let into = home("load-unknown");
+    let lock = crate::lock::path(&into, 12);
+    fs::create_dir_all(&lock).unwrap();
+    let before = store(&into);
+    let (code, why) = load(&into, &copy).expect_err("refused");
+    assert_eq!(
+        (code, why.as_str()),
+        (
+            1,
+            "running: cannot tell whether a cycle runs for #12: 12.lock is not a regular file"
+        )
+    );
+    assert_eq!(store(&into), before);
+    fs::remove_dir(&lock).unwrap();
+    load(&into, &copy).unwrap();
+}
+
+#[test]
 fn load_refuses_a_copy_of_a_newer_schema_naming_both() {
     let (_from, copy) = a_copy("load-newer-from");
     Connection::open(&copy)

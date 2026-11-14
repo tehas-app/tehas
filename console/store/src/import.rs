@@ -1916,7 +1916,7 @@ fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Group) -> Re
 fn live(home: &Path) -> Result<Option<(i64, &'static str)>, Fail> {
     let unknown = |e: String| (1, format!("live: {e}; nothing was imported"));
     for n in lock::listed(home).map_err(unknown)? {
-        if lock::probe_file(&lock::path(home, n)).is_some_and(|l| l.rc != 0) {
+        if lock::probe_file(&lock::path(home, n)).is_some_and(|l| l.held_or_unknown()) {
             return Ok(Some((n, "a cycle")));
         }
     }
@@ -1927,7 +1927,7 @@ fn live(home: &Path) -> Result<Option<(i64, &'static str)>, Fail> {
             .and_then(|r| r.strip_suffix(".json.lock"))
             .and_then(verbs::number);
         if let Some(n) = n {
-            if lock::probe_file(&state.join(&name)).is_some_and(|l| l.rc != 0) {
+            if lock::probe_file(&state.join(&name)).is_some_and(|l| l.held_or_unknown()) {
                 return Ok(Some((n, "a planning turn")));
             }
         }
