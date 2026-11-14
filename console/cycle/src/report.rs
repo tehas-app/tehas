@@ -1416,6 +1416,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         File::Text(t) if rc == 78 && !never_started => crate::conflict::said(t),
         _ => None,
     };
+    // Why tehas work's check refused the start, which its run log alone holds
+    // otherwise.
+    let refused = match f.file("refused") {
+        File::Text(t) if rc == 78 && conflicted.is_none() => crate::prepare::refused_said(t),
+        _ => None,
+    };
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {
@@ -1594,8 +1600,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 None => format!("with its pull request open{draft}"),
             }
         };
+        let refused_said = match &refused {
+            Some(said) if !never_started => {
+                format!(" Tehas work refused this start before anything ran. {said}")
+            }
+            _ => String::new(),
+        };
         let mut parked = format!(
-            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut lead = String::new();
@@ -1625,7 +1637,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                let lacks = refused
+                    .as_deref()
+                    .unwrap_or("The log names what the image lacks.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
