@@ -362,7 +362,7 @@
 //! dispatch-completed lines and a reason read from lines the runner marks
 //! unstable, which may be empty.
 
-use crate::gives::{self, Gap};
+use crate::gives::{self, Gap, NoAnswer};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
 use crate::renew;
@@ -834,7 +834,8 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
 fn gap(home: &Path, issue: u64, kept: &Path, record: &str, log: &Path) -> String {
     let said = match gives::left_out(home, issue, kept, record) {
         Gap::Said(gap) => format!("tehas work: {gap}"),
-        Gap::Unread => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"),
+        Gap::Unread(no @ NoAnswer::Exited(_)) => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read ({}): nothing is said about what this cycle was not given", no.says("left-out")),
+        Gap::Unread(no) => format!("tehas work: what the cycle of issue {issue} was not given could not be asked ({}): nothing is said about what this cycle was not given", no.says("left-out")),
         Gap::Nothing => return String::new(),
     };
     eprintln!("{said}");
