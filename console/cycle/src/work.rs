@@ -623,16 +623,65 @@ fn reap(mut child: Child) {
 }
 
 /// A child to its end, or until a stop came: then it is left to finish on its
-/// own, as a step's command is, and None.
-fn until_stop(mut child: Child, stop: &Stop) -> Option<bool> {
+/// own, as a step's command is, and None. Err when its end could not be read:
+/// it is killed then, so it writes nothing once the cycle has begun.
+fn until_stop(mut child: Child, stop: &Stop) -> Option<Result<bool, std::io::Error>> {
     loop {
         match child.try_wait() {
-            Ok(Some(s)) => return Some(s.success()),
+            Ok(Some(s)) => return Some(Ok(s.success())),
             Ok(None) if stop.flag().load(std::sync::atomic::Ordering::SeqCst) => return None,
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(_) => return Some(false),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Some(Err(e));
+            }
         }
     }
+}
+
+/// How the descriptions of a start's images ended, when no stop came.
+#[derive(Debug, PartialEq)]
+enum Described {
+    Written,
+    /// describe ran and failed.
+    Failed,
+    /// describe could not be started: nothing was attempted.
+    Unstarted(String),
+    /// describe's end could not be read: whether it wrote them is not known.
+    Unread(String),
+}
+
+/// describe run on the images, as `me describe <dir> <issue>`. None when a
+/// stop came.
+fn describe(me: &Path, dir: &Path, issue: u64, stop: &Stop) -> Option<Described> {
+    let child = Command::new(me)
+        .arg("describe")
+        .arg(dir)
+        .arg(issue.to_string())
+        .stdin(Stdio::null())
+        .spawn();
+    let child = match child {
+        Ok(c) => c,
+        Err(e) => return Some(Described::Unstarted(format!("{}: {e}", me.display()))),
+    };
+    Some(match until_stop(child, stop)? {
+        Ok(true) => Described::Written,
+        Ok(false) => Described::Failed,
+        Err(e) => Described::Unread(e.to_string()),
+    })
+}
+
+/// The line that says how the descriptions ended, or None when they were
+/// written. Each says what happened, as a failure stops no start.
+fn described_line(d: &Described) -> Option<String> {
+    let line = match d {
+        Described::Written => return None,
+        Described::Failed => "describe failed: the descriptions of the images could not be written, the cycle goes on without them".to_string(),
+        Described::Unstarted(why) => format!("describe could not be started ({why}): no description of the images was attempted, the cycle goes on without them"),
+        Described::Unread(why) => format!("the end of describe could not be read ({why}), it was killed: whether the descriptions of the images were written is not known, the cycle goes on"),
+    };
+    Some(format!("tehas work: {line}"))
 }
 
 /// The comment of a start that could not get the issue's images or files.
@@ -742,25 +791,16 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
         // A program of its own, so a stop does not wait on the model.
         // The tehas-cycle beside the script, as a pinned cycle has it.
         let me = Path::new(console).with_file_name("tehas-cycle");
-        let described = {
-            Command::new(me)
-                .arg("describe")
-                .arg(f.dir)
-                .arg(n.to_string())
-                .stdin(Stdio::null())
-                .spawn()
-        };
-        let done = match described {
-            Ok(child) => until_stop(child, stop),
-            Err(_) => Some(false),
-        };
-        match done {
+        match describe(&me, f.dir, n, stop) {
             None => {
                 stop.came();
                 return Err(STOPPED);
             }
-            Some(false) => eprintln!("tehas work: the descriptions of the images could not be written, the cycle goes on without them"),
-            Some(true) => {}
+            Some(d) => {
+                if let Some(line) = described_line(&d) {
+                    eprintln!("{line}");
+                }
+            }
         }
     }
     let kept_new = f.kept.with_extension("json.new");
@@ -1180,6 +1220,42 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 mod tests {
     use super::*;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn a_describe_that_never_started_is_not_said_to_have_failed() {
+        let stop = Stop::default();
+        let dir = Path::new("/nonexistent");
+        let gone = describe(Path::new("/nonexistent/tehas-cycle"), dir, 5, &stop);
+        let Some(Described::Unstarted(why)) = &gone else {
+            panic!("{gone:?}");
+        };
+        assert!(why.contains("/nonexistent/tehas-cycle"), "{why}");
+        let line = described_line(gone.as_ref().unwrap()).unwrap();
+        assert!(line.contains("could not be started"), "{line}");
+        assert!(
+            line.contains("no description of the images was attempted"),
+            "{line}"
+        );
+        assert!(!line.contains("could not be written"), "{line}");
+
+        assert_eq!(
+            describe(Path::new("false"), dir, 5, &stop),
+            Some(Described::Failed)
+        );
+        let line = described_line(&Described::Failed).unwrap();
+        assert!(line.contains("describe failed"), "{line}");
+        assert_eq!(
+            describe(Path::new("true"), dir, 5, &stop),
+            Some(Described::Written)
+        );
+        assert_eq!(described_line(&Described::Written), None);
+
+        let line = described_line(&Described::Unread("no child".into())).unwrap();
+        assert!(
+            line.contains("is not known") && line.contains("no child"),
+            "{line}"
+        );
+    }
 
     #[test]
     fn the_refusals_of_a_start_disarm_agent_text() {
