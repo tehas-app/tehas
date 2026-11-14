@@ -40,6 +40,12 @@ impl Lock {
         }
     }
 
+    /// Held, or the probe could not tell: the answer for a reader that must
+    /// not act while a cycle may be running, and so fails closed on unknown.
+    pub fn held_or_unknown(&self) -> bool {
+        self.rc != 0
+    }
+
     pub fn json(&self, now: i64) -> String {
         let mut pairs = vec![
             ("state", j(self.state())),
