@@ -69,6 +69,20 @@ impl Why {
         self
     }
 
+    /// A refusal after the push: the branch stands on the remote, and rule 4
+    /// refuses every later run while it does, so the refusal names it and what
+    /// clears it. The branch is not deleted: gh may have opened the pull request
+    /// even when it said nothing the run could read, and a deleted head would
+    /// close it.
+    fn stands(mut self, pushed: &str) -> Why {
+        self.why = format!(
+            "{}; {pushed} was pushed and stands on the remote: open its pull request \
+             by hand, or delete the branch before finish is asked again",
+            self.why
+        );
+        self
+    }
+
     /// A refusal of a rule that needs no command's words.
     fn only(why: impl Into<String>) -> Why {
         Why::new(why)
@@ -343,49 +357,85 @@ pub fn has_commits(count: &str) -> bool {
 /// Only the factory's own count, by the poll's rule: a branch of the repository
 /// that the bot or an allowed account opened. GraphQL is asked because that
 /// rule reads the author's user id, which `gh pr list` does not give.
+///
+/// The list is read to its last page. A page that says more follow but names
+/// no cursor, or more pages than [`PAGES_MAX`], refuses the run: a pull request
+/// beyond the first page names the issue just the same.
 fn open_pull(plan: &Plan, h: &mut dyn Host, pushed: &str) -> Result<Option<String>, Why> {
     let (owner, name) = plan.repo.split_once('/').unwrap_or_default();
-    let out = gh(
-        h,
-        &plan.home,
-        &[
-            "api",
-            "graphql",
-            "-f",
-            &format!("query={OPEN_PULLS}"),
-            "-f",
-            &format!("owner={owner}"),
-            "-f",
-            &format!("name={name}"),
-        ],
-    )
-    .let_say("the open pull requests could not be read")?;
-    let own = own_pulls(&out, plan);
-    Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
+    let mut own = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..PAGES_MAX {
+        let mut args = vec![
+            "api".to_string(),
+            "graphql".to_string(),
+            "-f".to_string(),
+            format!("query={OPEN_PULLS}"),
+            "-f".to_string(),
+            format!("owner={owner}"),
+            "-f".to_string(),
+            format!("name={name}"),
+        ];
+        if let Some(c) = &cursor {
+            args.extend(["-f".to_string(), format!("cursor={c}")]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = gh(h, &plan.home, &args).let_say(UNREAD)?;
+        let (mut some, next) = own_pulls(&out, plan).ok_or_else(|| Why::only(UNREAD))?;
+        own.append(&mut some);
+        match next {
+            None => {
+                return Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
+            }
+            Some(c) => cursor = Some(c),
+        }
+    }
+    Err(Why::only(format!(
+        "{UNREAD}: more than {PAGES_MAX} pages of them"
+    )))
 }
 
+const UNREAD: &str = "the open pull requests could not be read";
+
+/// The most pages of open pull requests one run reads, 100 to a page.
+pub const PAGES_MAX: usize = 10;
+
 /// The open pull requests, with what `tehas_core::accounts::own_pull` reads.
-const OPEN_PULLS: &str =
-    "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { \
-pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) { \
+const OPEN_PULLS: &str = "query($owner: String!, $name: String!, $cursor: String) { \
+repository(owner: $owner, name: $name) { \
+pullRequests(states: OPEN, first: 100, after: $cursor, \
+orderBy: {field: CREATED_AT, direction: DESC}) { \
+pageInfo { hasNextPage endCursor } \
 nodes { url headRefName body isCrossRepository \
 author { login ...on User { databaseId } ...on Bot { databaseId } } \
 headRepository { nameWithOwner } } } } }";
 
-/// The factory's own pull requests of a GraphQL answer, each account vouched
-/// for as the poll vouches. An answer of no such shape is nothing open: the
-/// call's own failure is what refuses the run.
-pub fn own_pulls(out: &str, plan: &Plan) -> Vec<Value> {
-    let mut v = serde_json::from_str::<Value>(out.trim()).unwrap_or_default();
+/// The factory's own pull requests of one page of a GraphQL answer, each
+/// account vouched for as the poll vouches, and the cursor of the next page
+/// when there is one. None is a page that cannot be read: no list of nodes, no
+/// word on whether more follow, or more said to follow with no cursor.
+pub fn own_pulls(out: &str, plan: &Plan) -> Option<(Vec<Value>, Option<String>)> {
+    let mut v = serde_json::from_str::<Value>(out.trim()).ok()?;
     tehas_core::accounts::vouch(&mut v);
+    let list = v.pointer("/data/repository/pullRequests")?;
     let allowed = |a: &str| plan.allowed.iter().any(|l| l == a);
-    v.pointer("/data/repository/pullRequests/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    let own = list
+        .get("nodes")?
+        .as_array()?
+        .iter()
         .filter(|p| tehas_core::accounts::own_pull(p, &plan.repo, &plan.bot, allowed))
         .cloned()
-        .collect()
+        .collect();
+    let next = match list.pointer("/pageInfo/hasNextPage")?.as_bool()? {
+        true => Some(
+            list.pointer("/pageInfo/endCursor")
+                .and_then(Value::as_str)
+                .filter(|c| !c.is_empty())?
+                .to_string(),
+        ),
+        false => None,
+    };
+    Some((own, next))
 }
 
 /// The URL of one pull request of an answer, when it is an https one.
@@ -457,7 +507,7 @@ fn rebase_push_open(
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
-    draft(plan, h, pushed, scratch)
+    draft(plan, h, pushed, scratch).map_err(|w| w.stands(pushed))
 }
 
 /// The draft pull request, and the URL gh prints for it.

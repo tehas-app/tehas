@@ -55,6 +55,7 @@ use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
 use tehas_core::hold::slots as key;
+use tehas_core::queue_lists;
 use tehas_core::time;
 
 /// A queue snapshot older than this is not news.
@@ -1375,7 +1376,7 @@ fn held_of(list: &J) -> Vec<J> {
 fn all_held(slice: &J, queue: &J) -> Option<String> {
     let held = slice.get(hold::KEY_HELD).items();
     let queued: Vec<String> = queue
-        .get("queued")
+        .get(queue_lists::QUEUED)
         .items()
         .iter()
         .map(|i| i.get("number").text())
@@ -2188,10 +2189,10 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         let mut q = vec![
             ("time", queue_at.clone()),
             ("paused", J::Bool(paused)),
-            ("inLine", count("queued")),
-            ("building", count("running")),
-            ("review", count("awaiting")),
-            ("stopped", count("stopped")),
+            ("inLine", count(queue_lists::QUEUED)),
+            ("building", count(queue_lists::RUNNING)),
+            ("review", count(queue_lists::AWAITING)),
+            ("stopped", count(queue_lists::STOPPED)),
         ];
         if !queue.get("stale").is_null() {
             q.push(("stale", queue.get("stale").clone()));
