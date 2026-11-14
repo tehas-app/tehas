@@ -527,3 +527,34 @@ fn the_core_files_are_kept_only_when_the_setting_names_them() {
     assert!(cores_kept(Some("1")));
     assert!(cores_kept(Some("0")));
 }
+
+#[test]
+fn a_task_that_cannot_start_stops_the_run_even_over_a_clean_record() {
+    let d = TestDir::new("run-spawn");
+    let out = d.join("run");
+    let key = out.join("test/a_test.sh");
+    fs::create_dir_all(key.parent().unwrap()).unwrap();
+    // A record that reads as a pass is already there: the run must not take it
+    // for this task's result when the task never started.
+    fs::write(with_suffix(&key, ".log"), "1 cases\n").unwrap();
+    fs::write(with_suffix(&key, ".rc"), "0\n").unwrap();
+    let recorder = d.join("no-such-recorder");
+    let mut pool = Pool {
+        recorder: &recorder,
+        root: d.path(),
+        jobs: 1,
+        limit: "300".into(),
+        cores: true,
+        host_cpus: 1,
+        loadavg: d.join("loadavg"),
+        running: Vec::new(),
+    };
+    let err = pool
+        .run(&key, &out, &["bash".as_ref(), "test/a_test.sh".as_ref()])
+        .unwrap_err();
+    assert!(
+        err.starts_with("test.sh: cannot start test/a_test.sh: "),
+        "{err}"
+    );
+    assert!(pool.running.is_empty());
+}
