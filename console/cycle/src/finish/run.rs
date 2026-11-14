@@ -69,6 +69,20 @@ impl Why {
         self
     }
 
+    /// A refusal after the push: the branch stands on the remote, and rule 4
+    /// refuses every later run while it does, so the refusal names it and what
+    /// clears it. The branch is not deleted: gh may have opened the pull request
+    /// even when it said nothing the run could read, and a deleted head would
+    /// close it.
+    fn stands(mut self, pushed: &str) -> Why {
+        self.why = format!(
+            "{}; {pushed} was pushed and stands on the remote: open its pull request \
+             by hand, or delete the branch before finish is asked again",
+            self.why
+        );
+        self
+    }
+
     /// A refusal of a rule that needs no command's words.
     fn only(why: impl Into<String>) -> Why {
         Why::new(why)
@@ -493,7 +507,7 @@ fn rebase_push_open(
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
-    draft(plan, h, pushed, scratch)
+    draft(plan, h, pushed, scratch).map_err(|w| w.stands(pushed))
 }
 
 /// The draft pull request, and the URL gh prints for it.
