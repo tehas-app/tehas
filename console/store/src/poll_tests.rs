@@ -516,6 +516,22 @@ fn poll_idle_names_only_the_figures_over_their_budget() {
     );
     assert_eq!(idle_at(&home, NOW, "3600", "cpu=1")["over"], json!(["cpu"]));
     assert_eq!(idle_at(&home, NOW, "3600", "wall=30")["over"], json!([]));
+    // How many of the idle polls were over each figure in `over`, on their
+    // own; nothing of it when nothing is over.
+    assert_eq!(
+        idle_at(&home, NOW, "3600", "cpu=1,wall=19")["over_polls"],
+        json!({"cpu": 1, "wall": 1})
+    );
+    assert_eq!(
+        idle_at(&home, NOW, "3600", "wall=30")["over_polls"],
+        Value::Null
+    );
+    // A second idle poll of 10 s of wall: the median wall is 15 s, over 14 s,
+    // and only the first poll is over it.
+    record(&home, NOW - 30, &r, real - 10_000, real, Some(0));
+    let v = idle_at(&home, NOW, "3600", "cpu=5,wall=14");
+    assert_eq!(v["over"], json!(["wall"]));
+    assert_eq!(v["over_polls"], json!({"wall": 1}));
     // A figure of no digits at all is not a budget, and neither is a name
     // twice, a name of none of the three, a figure of ten digits, or a figure
     // with a leading 0. The loader refuses another order too (lib/config.sh),

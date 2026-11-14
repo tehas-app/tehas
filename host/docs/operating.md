@@ -612,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
@@ -1307,7 +1309,10 @@ block.
 the issue's text and the issue brief, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
 one issue that a single `/work` cycle finishes: one behaviour change, about one
-or two code files and one test file. A session files one issue, so for a larger request the planner files
+or two code files and one test file. When the refine brief is missing or
+cannot be read, no session starts and the dispatcher logs an ERROR line that
+names it; the next poll tries again. A session files one issue, so for a
+larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
