@@ -224,7 +224,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
-  answer, offers no models, or does not offer the configured model, and
+  answer, refused the request with an HTTP code (401 for a wrong or missing
+  token, 429 for a rate limit), could not be asked because curl could not be
+  run, offers no models, or does not offer the configured model, and
   neither does its backup where `models.json` names one. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
@@ -484,7 +486,7 @@ The common ones:
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 | `signal`                            | A `TERM`, `INT` or `HUP` came to `tehas work` (the unit was stopped, or the host shut down) and it stopped the container. The record's `capReason` names the signal and the step, and a run of the gate the stop cut short is closed in the stream by a `verify-aborted` line | Retry once the host is back; nothing in the issue caused it |
 | `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
-| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice, `TEHAS_SLICE_CONTAINERS` |
+| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
@@ -993,6 +995,15 @@ the dashboard says `no resources`, and the dispatcher's log has one line that
 starts with `holding: no resources:`. It logs `released` at the first poll
 that finds the model again. A cycle that was already running when the endpoint
 went away is not stopped: it stalls and times out.
+
+The hold says which way the call failed:
+
+- `does not answer`: no answer within 10 seconds, or no connection at all.
+- `refused the request with HTTP <code>`: the endpoint answered with an error.
+  401 or 403 is the token: check the `apiKey` in `models.json` and the
+  variable it names in `~/.config/tehas/env`. 429 is a rate limit.
+- `could not be asked: curl could not be run`: curl is not on the dispatcher's
+  PATH. Install it; the endpoint itself may be fine.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.

@@ -119,6 +119,13 @@ mod tests {
             assert!(!an_end(word), "{word:?}");
         }
         assert!(an_end("merged"));
+        // A sandbox that cannot push ends its start with this word (#1741). It
+        // is no end the store names, so `cycles.end_reason` reads `unknown`
+        // while `endings.status` keeps the word: the readers that name it are
+        // part 3. No word is added to `NOT_ENDS` for it.
+        assert!(an_end("push-fault"));
+        assert_eq!(ending_status("push-fault"), "push-fault");
+        assert_eq!(NOT_ENDS, ["running", ""]);
         assert_eq!(NOT_AN_END, "not an end");
     }
 }

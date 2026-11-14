@@ -153,7 +153,7 @@ fn host_shape(given: &[(String, String)]) -> Vec<(String, J)> {
     static HOST: OnceLock<Regex> = OnceLock::new();
     let host = HOST.get_or_init(|| {
         Regex::new(
-            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
+            r"\ATEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|SLICE_CONTAINERS|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)\z",
         )
         .unwrap()
     });
@@ -367,12 +367,13 @@ pub fn write(
         .filter(|c| c.is_ascii_alphanumeric() || "_.:-".contains(*c))
         .take(80)
         .collect();
-    let reason = crate::runner::cut_reason(&prose(&e.reason));
     let kills = if re(r"^(0|[1-9][0-9]{0,8})$", &e.kills) {
         e.kills.as_str()
     } else {
         "0"
     };
+    let reason =
+        crate::runner::cap_reason(&cap, &prose(&e.reason), kills.parse().unwrap_or(0), &[]);
     let image = if re(r"^sha256:[0-9a-f]{64}$", &e.image) {
         e.image.as_str()
     } else {
@@ -561,6 +562,7 @@ mod tests {
         let host = [
             ("TEHAS_WORK_TIMEOUT".to_string(), "600".to_string()),
             ("TEHAS_WORK_STALL".to_string(), "0".to_string()),
+            ("TEHAS_SLICE_CONTAINERS".to_string(), "4".to_string()),
             ("TEHAS_GITHUB_TOKEN".to_string(), "gh_secret".to_string()),
             ("PATH".to_string(), "/bin".to_string()),
         ];
@@ -574,6 +576,7 @@ mod tests {
                 "    \"PI_ENSEMBLE_NOT_A_SETTING\": \"x\"\n",
                 "  },\n",
                 "  \"host\": {\n",
+                "    \"TEHAS_SLICE_CONTAINERS\": \"4\",\n",
                 "    \"TEHAS_WORK_STALL\": \"0\",\n",
                 "    \"TEHAS_WORK_TIMEOUT\": \"600\"\n",
                 "  },\n",

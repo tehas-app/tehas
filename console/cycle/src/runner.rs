@@ -74,6 +74,38 @@ pub fn cut_reason(s: &str) -> String {
     cut(s, REASON_MOST - REASON_CUT.len()) + REASON_CUT
 }
 
+/// What a cycle's record says of a cap the driver gave no words for.
+pub const NO_EVIDENCE: &str = "no evidence from the driver";
+
+/// The reason a record gives for its cap. A reason that is empty or only
+/// repeats the cap word is no evidence, and says so. Memory kills in the
+/// container are said, with the killed processes' names where they are known,
+/// so a memory plan that is too tight is not read as a failed change.
+pub fn cap_reason(cap: &str, reason: &str, kills: u64, names: &[String]) -> String {
+    if cap.is_empty() {
+        return reason.to_string();
+    }
+    let said = reason.trim();
+    let word = cap.split(':').next().unwrap_or(cap);
+    let echo = said.is_empty() || said.eq_ignore_ascii_case(cap) || said.eq_ignore_ascii_case(word);
+    let mut out = if echo {
+        NO_EVIDENCE.to_string()
+    } else {
+        said.to_string()
+    };
+    if kills > 0 && !out.contains("killed for memory") {
+        out += &if kills == 1 {
+            "; 1 process in its container was killed for memory".to_string()
+        } else {
+            format!("; {kills} processes in its container were killed for memory")
+        };
+        if !names.is_empty() {
+            out += &format!(" ({})", names.join(", "));
+        }
+    }
+    cut_reason(&out)
+}
+
 fn plain(v: Option<&Value>) -> String {
     match v {
         Some(Value::String(s)) => kept(s, |c| c.is_ascii_alphanumeric() || "_.:/-".contains(c)),
@@ -563,6 +595,48 @@ mod tests {
     /// so the steps after it are still whole lines.
     fn written(n: usize) -> String {
         "y".repeat(n) + "\n"
+    }
+
+    #[test]
+    fn a_cap_reason_is_never_the_bare_cap_word_and_says_memory_kills() {
+        let none: &[String] = &[];
+        for echo in [
+            "",
+            "  ",
+            "verify-failed:develop",
+            "verify-failed",
+            "VERIFY-FAILED:develop",
+        ] {
+            assert_eq!(
+                cap_reason("verify-failed:develop", echo, 0, none),
+                NO_EVIDENCE,
+                "{echo:?}"
+            );
+        }
+        assert_eq!(cap_reason("round-cap", "round-cap", 0, none), NO_EVIDENCE);
+        assert_eq!(cap_reason("turns", "out of turns", 0, none), "out of turns");
+        assert_eq!(cap_reason("", "", 3, none), "", "no cap, no reason to give");
+        assert_eq!(
+            cap_reason(
+                "verify-failed:develop",
+                "verify-failed:develop",
+                1,
+                &["node".to_string()]
+            ),
+            "no evidence from the driver; 1 process in its container was killed for memory (node)"
+        );
+        assert_eq!(
+            cap_reason("round-cap", "3 rounds", 2, none),
+            "3 rounds; 2 processes in its container were killed for memory"
+        );
+        let said = "the container was killed; 4 processes in it were killed for memory";
+        assert_eq!(
+            cap_reason("container-killed", said, 4, none),
+            said,
+            "said once"
+        );
+        let long = "r".repeat(REASON_MOST + 10);
+        assert!(cap_reason("turns", &long, 1, none).ends_with(REASON_CUT));
     }
 
     #[test]
