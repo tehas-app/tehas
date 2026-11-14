@@ -582,13 +582,17 @@ impl Writer {
                 "-f".into(),
                 "labels[]=tehas:refreshing".into(),
             ];
-            let w = self.write(pr, "refresh-begin", args, None, None);
-            if !matches!(w, Wrote::Done(_)) {
-                if matches!(w, Wrote::Unrecorded) {
+            let why = match self.write(pr, "refresh-begin", args, None, None) {
+                Wrote::Done(_) => None,
+                Wrote::Failed(why) => Some(why),
+                Wrote::Unrecorded => {
                     log.push(Writer::unrecorded(pr));
+                    Some(String::new())
                 }
+            };
+            if let Some(why) = why {
                 log.push(format!(
-                    "ERROR: could not mark pull request #{pr} as refreshing, not starting a cycle"
+                    "ERROR: could not mark pull request #{pr} as refreshing, not starting a cycle{why}"
                 ));
                 return Then::Failed;
             }
