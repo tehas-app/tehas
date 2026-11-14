@@ -215,7 +215,12 @@ impl Writer {
     /// The cycles counted are the locks held now, after this poll's stops,
     /// as the bash counts them again: a cycle that kept its lock is one.
     pub(super) fn index_gate(&mut self, log: &mut Vec<String>) -> bool {
-        let running = crate::read::host::running(&self.home);
+        let Some(running) = crate::read::host::cycles(&self.home) else {
+            log.push(
+                "the code index stays as it is: state/cycles cannot be listed, so a cycle may be running".into(),
+            );
+            return true;
+        };
         if !running.is_empty() {
             let list: Vec<String> = running.iter().map(|n| format!("#{n}")).collect();
             log.push(format!(
