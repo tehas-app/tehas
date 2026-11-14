@@ -31,7 +31,8 @@ EOF
 }
 runs() { t_calls suite | wc -l | tr -d ' '; }
 gate="cd '$tree' && scripts/verify.sh"
-t_stub cargo 'exit 0'
+# shellcheck disable=SC2016  # the stub body is expanded when it runs
+t_stub cargo '[ "$1" != test ] || echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"; exit 0'
 t_stub node 'exit 0'
 
 t_case "a second run on the same tree is a kept pass and runs no step"
