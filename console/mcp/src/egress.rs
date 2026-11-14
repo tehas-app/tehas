@@ -15,6 +15,12 @@
 //! one line on stderr naming the pair. A name is matched in any case and
 //! without a trailing dot. An address is never looked up to decide: the list
 //! names hosts, and the name is what is compared.
+//!
+//! A connection the proxy gives up on says why on stderr too: a head that
+//! never ended, a host that could not be reached and whether it had no
+//! address, a tunnel or request that could not be started, and a run of
+//! failed accepts, once when it starts and once when it ends. So an empty
+//! journal means the proxy dropped nothing, not that it was not used.
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
@@ -153,7 +159,7 @@ pub fn ask(head: &[u8]) -> Ask {
 }
 
 fn refuse(mut client: TcpStream, what: &str) {
-    eprintln!("tehas-mcp egress: refused {what}");
+    say(&format!("refused {what}"));
     let body = format!("{what} is not on the egress allow-list of this tehas host\n");
     let _ = write!(
         client,
@@ -163,21 +169,80 @@ fn refuse(mut client: TcpStream, what: &str) {
     let _ = client.shutdown(Shutdown::Both);
 }
 
-fn reach(host: &str, port: u16) -> io::Result<TcpStream> {
-    let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
-    for addr in (host, port).to_socket_addrs()? {
+fn say(line: &str) {
+    eprintln!("tehas-mcp egress: {line}");
+}
+
+/// A connection to <host>, or why there is none in words that tell a name
+/// that did not resolve, a name that resolved to nothing, and an address that
+/// would not answer apart: the first two are the resolver's, the last the
+/// host's.
+fn reach(host: &str, port: u16) -> Result<TcpStream, String> {
+    let addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| format!("could not be resolved: {e}"))?;
+    first_reached(addrs)
+}
+
+fn first_reached(addrs: impl Iterator<Item = std::net::SocketAddr>) -> Result<TcpStream, String> {
+    let mut last = None;
+    for addr in addrs {
         match TcpStream::connect_timeout(&addr, CONNECT_WAIT) {
             Ok(s) => return Ok(s),
-            Err(e) => last = e,
+            Err(e) => last = Some(format!("could not be reached at {addr}: {e}")),
         }
     }
-    Err(last)
+    Err(last.unwrap_or_else(|| "resolved to no address".to_string()))
+}
+
+/// Why a head that never ended was given up on, or None when the client
+/// closed before it sent a byte, which is a connection that asked nothing.
+fn head_failure(got: usize, read: io::Result<()>) -> Option<String> {
+    match read {
+        Ok(()) if got == 0 => None,
+        Ok(()) => Some(format!(
+            "closed after {got} bytes, before the end of its request head"
+        )),
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            ) =>
+        {
+            Some(format!(
+                "no whole request head within {} s, {got} bytes read",
+                HEAD_WAIT.as_secs()
+            ))
+        }
+        Err(e) => Some(format!("request head unreadable after {got} bytes: {e}")),
+    }
+}
+
+/// The accept loop's record of a run of failures: the first failure of a run
+/// is said, the rest are counted, and the accept that ends the run says how
+/// many there were. A descriptor storm is two lines, not thousands.
+#[derive(Default)]
+struct Accepts {
+    failed: u64,
+}
+
+impl Accepts {
+    fn failed(&mut self, e: &io::Error) -> Option<String> {
+        self.failed += 1;
+        (self.failed == 1).then(|| format!("accept failed: {e}; said once until one succeeds"))
+    }
+
+    fn accepted(&mut self) -> Option<String> {
+        let n = std::mem::take(&mut self.failed);
+        (n > 0).then(|| format!("accepting again after {n} failed accepts"))
+    }
 }
 
 /// Bytes both ways until either side ends.
 fn pipe(a: TcpStream, b: TcpStream) {
-    let (Ok(mut a2), Ok(mut b2)) = (a.try_clone(), b.try_clone()) else {
-        return;
+    let (mut a2, mut b2) = match (a.try_clone(), b.try_clone()) {
+        (Ok(a2), Ok(b2)) => (a2, b2),
+        (Err(e), _) | (_, Err(e)) => return say(&format!("a tunnel could not be held open: {e}")),
     };
     let up = thread::spawn(move || {
         let (mut a, mut b) = (a, b);
@@ -201,10 +266,21 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
         if buf.len() > HEAD_MAX {
             return refuse(client, "a request head over 16 KiB");
         }
-        match client.read(&mut chunk) {
-            Ok(0) | Err(_) => return,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        let read = match client.read(&mut chunk) {
+            Ok(0) => Ok(()),
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                continue;
+            }
+            Err(e) => Err(e),
+        };
+        if let Some(why) = head_failure(buf.len(), read) {
+            let peer = client
+                .peer_addr()
+                .map_or_else(|_| "a client".to_string(), |a| a.to_string());
+            say(&format!("{peer}: {why}"));
         }
+        return;
     };
     let (host, port, first) = match ask(&buf[..end]) {
         Ask::Tunnel(h, p) => (h, p, None),
@@ -216,12 +292,17 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
     }
     let mut upstream = match reach(&host, port) {
         Ok(s) => s,
-        Err(e) => {
-            eprintln!("tehas-mcp egress: {host}:{port} could not be reached: {e}");
-            let _ = client.write_all(
+        Err(why) => {
+            // The client may be gone already; the line says so, so the journal
+            // and what the container saw do not disagree.
+            let told = client.write_all(
                 b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             );
-            return;
+            let gone = told.map_or_else(
+                |e| format!(", and the 502 was not delivered: {e}"),
+                |_| String::new(),
+            );
+            return say(&format!("{host}:{port} {why}{gone}"));
         }
     };
     let _ = client.set_read_timeout(None);
@@ -231,8 +312,9 @@ pub fn serve_one(mut client: TcpStream, allowed: &Allowed) {
     };
     // What the client sent after its head is the start of the tunnel's bytes
     // or of the request's body.
-    if sent.and_then(|_| upstream.write_all(&buf[end..])).is_ok() {
-        pipe(client, upstream);
+    match sent.and_then(|_| upstream.write_all(&buf[end..])) {
+        Ok(()) => pipe(client, upstream),
+        Err(e) => say(&format!("{host}:{port}: not started, a side closed: {e}")),
     }
 }
 
@@ -248,8 +330,23 @@ impl Drop for Slot {
 pub fn serve(listener: TcpListener, allowed: Allowed) {
     let allowed = Arc::new(allowed);
     let active = Arc::new(AtomicUsize::new(0));
+    let mut accepts = Accepts::default();
     for stream in listener.incoming() {
-        let Ok(mut stream) = stream else { continue };
+        let mut stream = match stream {
+            Ok(s) => s,
+            Err(e) => {
+                if let Some(line) = accepts.failed(&e) {
+                    say(&line);
+                }
+                // Out of descriptors, accept fails at once until one is
+                // freed: a pause keeps the loop from spinning on it.
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        };
+        if let Some(line) = accepts.accepted() {
+            say(&line);
+        }
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
             let _ = stream.write_all(
@@ -351,6 +448,63 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "GET /v1 HTTP/1.1\r\nHost: models.example:8080\r\nAccept: */*\r\nConnection: close\r\n\r\n"
         );
+    }
+
+    // A connection given up on says why, and the reasons tell a resolver's
+    // answer from a host's: a name of no address is not a host that would
+    // not answer. A client that closed before a byte asked nothing.
+    #[test]
+    fn a_connection_given_up_on_says_why() {
+        assert_eq!(head_failure(0, Ok(())), None);
+        assert_eq!(
+            head_failure(7, Ok(())).unwrap(),
+            "closed after 7 bytes, before the end of its request head"
+        );
+        let late = head_failure(3, Err(io::Error::from(io::ErrorKind::WouldBlock))).unwrap();
+        assert!(
+            late.starts_with("no whole request head within 30 s"),
+            "{late}"
+        );
+        let reset = head_failure(0, Err(io::Error::from(io::ErrorKind::ConnectionReset))).unwrap();
+        assert!(
+            reset.starts_with("request head unreadable after 0 bytes"),
+            "{reset}"
+        );
+
+        let Err(none) = first_reached(std::iter::empty()) else {
+            panic!("no address reached something");
+        };
+        assert_eq!(none, "resolved to no address");
+        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = closed.local_addr().unwrap();
+        drop(closed);
+        let Err(refused) = first_reached(std::iter::once(at)) else {
+            panic!("a closed port answered");
+        };
+        assert!(
+            refused.starts_with(&format!("could not be reached at {at}: ")),
+            "{refused}"
+        );
+    }
+
+    // A run of failed accepts is said once when it starts and once when it
+    // ends, with its count, however long it runs.
+    #[test]
+    fn a_run_of_failed_accepts_is_two_lines() {
+        let mut a = Accepts::default();
+        assert_eq!(a.accepted(), None);
+        let e = io::Error::other("too many open files");
+        let first = a.failed(&e).unwrap();
+        assert!(first.contains("too many open files"), "{first}");
+        for _ in 0..1000 {
+            assert_eq!(a.failed(&e), None);
+        }
+        assert_eq!(
+            a.accepted().unwrap(),
+            "accepting again after 1001 failed accepts"
+        );
+        assert_eq!(a.accepted(), None);
+        assert!(a.failed(&e).is_some(), "a new run is said again");
     }
 
     /// A proxy on a free port, allowed to reach <allowed>, and its address.

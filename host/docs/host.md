@@ -1449,8 +1449,13 @@ capability dropped, 128m of memory and 512 processes. It connects only to:
 - the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
 
 Anything else is answered `403` and the proxy logs one line naming it:
-`docker logs tehas-egress`. A tool that ignores the proxy variables reaches
-nothing, so a failure is closed, not open. Names are compared, not addresses:
+`docker logs tehas-egress`. A connection it gives up on logs a line too: a
+request head that never ended, an allowed host that could not be reached (a
+name that did not resolve, one that resolved to no address, or an address that
+would not answer, and whether the `502` reached the client), a tunnel or
+request that could not be started, and a run of failed accepts, once at its
+start and once with its count at its end. A tool that ignores the proxy
+variables reaches nothing, so a failure is closed, not open. Names are compared, not addresses:
 the proxy resolves a name itself, through the names of
 `PI_ENSEMBLE_HOST_ALIASES` first, which it is given too. A plain `http://`
 request goes on with the `Host` of its allowed target, never the one the
