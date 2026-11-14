@@ -127,6 +127,24 @@ impl Term {
     };
 }
 
+/// How a host command that did not end 0 ended, for a WARN line: None for 0.
+/// No exit status is a run that outlived its bound, or one that never began.
+pub fn ended_badly(rc: Option<i32>) -> Option<String> {
+    match rc {
+        Some(0) => None,
+        Some(n) => Some(format!("exited {n}")),
+        None => Some("was killed at its bound or did not start".into()),
+    }
+}
+
+/// A host command and its arguments as one name for a log line.
+pub fn named(cmd: &str, args: &[String]) -> String {
+    std::iter::once(cmd)
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// How one start ended.
 enum Then {
     Started,
@@ -445,7 +463,7 @@ impl Writer {
                 }
             }
         }
-        self.status(printed);
+        self.status(printed, log);
         failed.then_some(1)
     }
 
@@ -477,17 +495,19 @@ impl Writer {
     /// The token cannot carry that word: a host with a machine-user token, or
     /// a poll whose token read failed, holds none, and the status would then
     /// run health and so would the poll.
-    pub fn status(&mut self, printed: &mut Vec<String>) {
+    ///
+    /// A run that did not end 0 leaves the status files as the last good one
+    /// wrote them, so `log` gets a WARN naming the command and how it ended.
+    pub fn status(&mut self, printed: &mut Vec<String>, log: &mut Vec<String>) {
         let cmd = self.host.status_cmd.clone();
         let args = self.host.status_args.clone();
-        self.status_of_grace(
-            &cmd,
-            &args,
-            printed,
-            &mut Vec::new(),
-            &Term::HOST,
-            &[FROM_POLL],
-        );
+        let rc = self.status_of_grace(&cmd, &args, printed, log, &Term::HOST, &[FROM_POLL]);
+        if let Some(how) = ended_badly(rc) {
+            log.push(format!(
+                "WARN: the status command {} {how}: the status files may be stale",
+                named(&cmd, &args)
+            ));
+        }
     }
 
     /// The health command, run by the poll after it wrote the demand, under
