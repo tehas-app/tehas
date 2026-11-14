@@ -191,7 +191,7 @@ fn failures_schema() -> Value {
         "cause": text("The failure cause."),
         "kind": text("Its failure kind. Left out when none was recorded."),
         "n": count("Work sessions with this cause."),
-        "issues": array_of(text("An issue link."), "Up to ten issues, newest first. Empty without a valid repo."),
+        "issues": array_of(text("An issue link."), "Up to ten issues, newest first. Empty when the dashboard publishes no status file or no valid repo in it."),
     }});
     let pair = json!({"type": "object", "properties": {
         "tehasVersion": text("The tehas version. Left out when unknown."),
@@ -200,6 +200,7 @@ fn failures_schema() -> Value {
         "imageBuilt": text("With by image: when that image was built, UTC. Left out when unknown."),
         "runs": count("Work sessions on this pair."),
         "outcomes": outcome_counts("Sessions per outcome."),
+        "outcomesUnknown": count("Sessions with no outcome on record, counted here and not in outcomes."),
         "failureKinds": outcome_counts("Sessions per failure kind."),
         "causes": array_of(cause, "The five most common failure causes."),
     }});
@@ -212,7 +213,7 @@ fn failures_schema() -> Value {
         ),
         (
             "versions",
-            array_of(pair, "One entry per version pair, or per pair and image with by image, the most runs first."),
+            array_of(pair, "One entry per version pair, or per pair and image with by image, the most runs first. An entry with either version unknown comes after every entry that names both."),
         ),
     ])
 }
@@ -376,10 +377,22 @@ pub fn find(snap: &Snapshot, id: &str) -> Result<Value, ToolError> {
         .ok_or_else(|| bad(&format!("no session {id} in the last {} days", snap.days)))
 }
 
-fn repo(dirs: &Dirs) -> Option<String> {
-    let bytes = std::fs::read(dirs.live.join("status.json")).ok()?;
-    let v: Value = serde_json::from_slice(&bytes).ok()?;
-    v["repo"].as_str().map(str::to_string)
+/// A live file through `tools::read`, or `None` when it is not there. A file
+/// that is there and cannot be read or parsed is the tool's error: "I could
+/// not look" is never answered as "it is not listed".
+fn published(dirs: &Dirs, file: &str) -> Result<Option<Value>, ToolError> {
+    match std::fs::metadata(dirs.live.join(file)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        _ => tools::read(&dirs.live, file).map(Some),
+    }
+}
+
+fn repo_of(status: &Option<Value>) -> Option<String> {
+    status.as_ref()?["repo"].as_str().map(str::to_string)
+}
+
+fn repo(dirs: &Dirs) -> Result<Option<String>, ToolError> {
+    Ok(repo_of(&published(dirs, "status.json")?))
 }
 
 fn session_links(repo: &Option<String>, s: &Value) -> (Option<String>, Option<String>) {
@@ -453,7 +466,7 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     };
 
     let snap = open(dirs)?;
-    let repo = repo(dirs);
+    let repo = repo(dirs)?;
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
@@ -581,7 +594,7 @@ pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolE
         })
         .collect();
     s.insert("logs".into(), Value::Array(logs));
-    let (i, p) = session_links(&repo(dirs), &raw);
+    let (i, p) = session_links(&repo(dirs)?, &raw);
     insert_opt(&mut s, "issueUrl", i);
     insert_opt(&mut s, "prUrl", p);
     let mut out = Map::new();
@@ -599,6 +612,7 @@ struct Pair {
     built: Option<String>,
     runs: u64,
     outcomes: BTreeMap<String, u64>,
+    outcomes_unknown: u64,
     kinds: BTreeMap<String, u64>,
     causes: BTreeMap<(String, Option<String>), Cause>,
 }
@@ -613,8 +627,8 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
     let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
     let only = word(args, "rukasVersion")?;
     let snap = open(dirs)?;
-    let repo = repo(dirs);
-    let mut pairs: BTreeMap<(String, String, String), Pair> = BTreeMap::new();
+    let repo = repo(dirs)?;
+    let mut pairs: BTreeMap<(Option<String>, Option<String>, String), Pair> = BTreeMap::new();
     for s in snap.sessions().filter(|s| s["kind"] == "work") {
         let text = |k: &str| s[k].as_str().map(str::to_string);
         if only.as_deref().is_some_and(|w| {
@@ -622,10 +636,9 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
         }) {
             continue;
         }
-        let tehas = text("tehasVersion").unwrap_or_default();
-        let rukas = text("rukasVersion")
-            .or_else(|| text("rukasCommit"))
-            .unwrap_or_default();
+        let named = |k: &str| text(k).filter(|v| !v.is_empty());
+        let tehas = named("tehasVersion");
+        let rukas = named("rukasVersion").or_else(|| named("rukasCommit"));
         let image = match by_image {
             true => text("image").unwrap_or_default(),
             false => String::new(),
@@ -635,9 +648,10 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
             p.built = text("imageBuilt");
         }
         p.runs += 1;
-        *p.outcomes
-            .entry(text("outcome").unwrap_or_else(|| "unknown".into()))
-            .or_default() += 1;
+        match text("outcome") {
+            Some(o) => *p.outcomes.entry(o).or_default() += 1,
+            None => p.outcomes_unknown += 1,
+        }
         let kind = text("failureKind");
         if let Some(k) = &kind {
             *p.kinds.entry(k.clone()).or_default() += 1;
@@ -653,7 +667,7 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
         }
     }
     let mut ordered: Vec<_> = pairs.into_iter().collect();
-    ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.runs));
+    ordered.sort_by_key(|((t, r, _), p)| (t.is_none() || r.is_none(), std::cmp::Reverse(p.runs)));
     let versions: Vec<Value> = ordered
         .into_iter()
         .map(|((tehas, rukas, image), p)| {
@@ -677,18 +691,15 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
                 })
                 .collect();
             let mut o = Map::new();
-            if !tehas.is_empty() {
-                o.insert("tehasVersion".into(), json!(tehas));
-            }
-            if !rukas.is_empty() {
-                o.insert("rukasVersion".into(), json!(rukas));
-            }
+            insert_opt(&mut o, "tehasVersion", tehas);
+            insert_opt(&mut o, "rukasVersion", rukas);
             if !image.is_empty() {
                 o.insert("image".into(), json!(image));
                 insert_opt(&mut o, "imageBuilt", p.built);
             }
             o.insert("runs".into(), json!(p.runs));
             o.insert("outcomes".into(), json!(p.outcomes));
+            o.insert("outcomesUnknown".into(), json!(p.outcomes_unknown));
             o.insert("failureKinds".into(), json!(p.kinds));
             o.insert("causes".into(), Value::Array(causes));
             Value::Object(o)
@@ -763,11 +774,9 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;
-    let st = std::fs::read(dirs.live.join("status.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .unwrap_or(Value::Null);
-    let repo = st["repo"].as_str().map(str::to_string);
+    let status = published(dirs, "status.json")?;
+    let repo = repo_of(&status);
+    let st = status.unwrap_or(Value::Null);
 
     // The first list that holds the number, as the dashboard shows it. The
     // planning list is not in status.json: it gives a count, so the numbers
@@ -792,28 +801,22 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
             break;
         }
     }
-    let running_cycle = std::fs::read(dirs.live.join("running.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|r| {
-            r["cycles"]
+    let running_cycle = published(dirs, "running.json")?.and_then(|r| {
+        r["cycles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|c| c["issue"].as_i64() == Some(issue))
+            .cloned()
+    });
+    if stage.is_none() && running_cycle.is_none() {
+        let planning = published(dirs, "health.json")?.is_some_and(|h| {
+            h["checks"]["plans"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .find(|c| c["issue"].as_i64() == Some(issue))
-                .cloned()
+                .any(|p| p["issue"].as_i64() == Some(issue))
         });
-    if stage.is_none() && running_cycle.is_none() {
-        let planning = std::fs::read(dirs.live.join("health.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .is_some_and(|h| {
-                h["checks"]["plans"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|p| p["issue"].as_i64() == Some(issue))
-            });
         if planning {
             stage = Some("planning");
         }
