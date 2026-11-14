@@ -1307,7 +1307,10 @@ block.
 the issue's text and the issue brief, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
 one issue that a single `/work` cycle finishes: one behaviour change, about one
-or two code files and one test file. A session files one issue, so for a larger request the planner files
+or two code files and one test file. When the refine brief is missing or
+cannot be read, no session starts and the dispatcher logs an ERROR line that
+names it; the next poll tries again. A session files one issue, so for a
+larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
