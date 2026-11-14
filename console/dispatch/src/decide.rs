@@ -1985,7 +1985,7 @@ impl<'a> Poll<'a> {
 
     /// open_pr: the url of an open pull request that closes the issue. The
     /// first open one decides; one with no url is none.
-    fn open_pr(&mut self, n: u64) -> Step<Option<String>> {
+    pub(super) fn open_pr(&mut self, n: u64) -> Step<Option<String>> {
         let Some(prs) = self.s.issues.get(&n).map(|i| i.prs.clone()) else {
             return Ok(None);
         };
@@ -2006,7 +2006,7 @@ impl<'a> Poll<'a> {
     /// one reaches `open_pr` with nothing; the page's own read of the bodies
     /// is what holds its issue. The lowest number decides, so the line is the
     /// same on every poll while two of them name the issue.
-    fn named_pr(&self, n: u64) -> Option<String> {
+    pub(super) fn named_pr(&self, n: u64) -> Option<String> {
         // The address comes from the repository the page answered, the way
         // `open_pr` reads GitHub's own url: no repository, no address, no hold.
         let repo = self.s.repo.as_deref().filter(|r| !r.is_empty())?;
@@ -2019,7 +2019,9 @@ impl<'a> Poll<'a> {
 
     /// The hold of an open pull request: `tehas:ready` (or whatever asked)
     /// comes off and the issue is told which pull request holds it. One line,
-    /// whether GitHub linked the two or the pull request's body says so.
+    /// whether GitHub linked the two or the pull request's body says so. The
+    /// retry tick of a park has its own hold in `holds_on_pr_tick`, which
+    /// takes the box off instead of a label and keeps the wording the same.
     fn holds_on_pr(&mut self, n: u64, ask: &str, url: &str) {
         self.log(format!(
             "skip #{n}: pull request {url} is open and closes it"
