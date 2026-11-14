@@ -464,6 +464,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A cycle whose container was killed with 137 from outside, out of memory or otherwise, goes on record with the cap `container-killed`, a `capReason` naming the step and the memory kills, and a line in `console.txt` and `err.txt`.
 - A cycle that died after `commit-pr` now finds its pull request when the driver names the branch in a later event rather than as a step, so its record and comment name the pull request it opened.
 - `instances/example/optional.env` documents `TEHAS_GITHUB_RENEW_EVERY`.
+- The dispatcher stops with exit 78 when `TEHAS_ISSUE_TYPES` is malformed, instead of reading it as unset and polling by the label alone, which missed issues marked by their issue type.
+- A refine turn whose refine brief cannot be read no longer starts on the issue's text alone: the dispatcher logs an ERROR naming the file and starts nothing. A next planning turn that cannot set up its keep directory or answer file names the path and the reason, and a workspace sweep that cannot look at a leftover warns and no longer reports the issue's leftovers as removed.
+- A start that `tehas work` refuses with 78 because the sandbox image gave no capabilities answer, lacks what the cycle is given, or the workspaces' directory was not made by tehas now names that cause in its park comment, from the new note `state/cycles/<issue>.refused`. Before, only the run log on the host said why.
+- `tehas help dispatch` and the poll's `tehas:blocked holds it` log line now name the millwright, not "the fixer", as the account whose `tehas:blocked` label and blocker comment count besides an allowed account, as the dispatcher and the manual already had it.
+- A cycle stopped by its container's process limit now says what that limit was and which settings it follows (`TEHAS_TICKET_CONCURRENCY`, `TEHAS_SLICE_CONTAINERS`), in its park comment and in the reason on its record; `TEHAS_SLICE_CONTAINERS` is now among the settings a cycle's record keeps.
+- `TEHAS_VERIFY_TIMEOUT` now also bounds the whole gate on a cycle's combined tree: tehas passes it to pi-rukas as `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`, which before was left at pi-rukas's own 30 minutes whatever the instance set, and a cycle's record of its settings shows the number in effect.
+- The health line for idle polls over their budget now says what tripped it: for each figure over, the median of the last hour's idle polls in the units of `TEHAS_POLL_BUDGET`, the budget, and how many of those polls were over it. `store poll-idle --budget` adds `over_polls` with those counts.
+- When the attachment checker gives no answer before a start, `tehas work` now says why: it did not answer within 60 seconds, it exited with a status, or its answer could not be read. The comment on the issue and the line in the cycle's log no longer report a slow or failed check as a broken manifest or approval record.
+- A cycle's record no longer gives a `capReason` that only repeats the cap word: a cap the driver gave no words for reads `no evidence from the driver`, and memory kills in the container are said in the `capReason`, the cycle's `err.txt` line and its console file.
+- The dispatcher judges a quiet cycle (stop, ask again, or leave it to a person) on the poll's own clock in both halves of the poll, so a slow state store can no longer make it act on a different instant than the one it decided on.
 
 ### Held back
 
@@ -620,6 +630,26 @@ None.
 None.
 
 None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None. An instance that raised `TEHAS_VERIFY_TIMEOUT` above 1800 now gets that bound on the combined tree too; check that `TEHAS_WORK_TIMEOUT` leaves room for it.
 
 None.
 
