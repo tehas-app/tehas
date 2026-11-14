@@ -1078,10 +1078,10 @@ fn rukas(live: &Path) -> J {
     }
 }
 
-/// `{version}` of the tehas-industry that runs this factory, with what its
-/// alerts file says. None for a factory with none, and for a value that is no
-/// version: either way health and the footer say nothing of an industry.
-fn industry(home: &Path, given: Option<&str>, now: i64) -> Option<(J, Alerts)> {
+/// `{version}` of the tehas-industry that runs this factory. None for a
+/// factory with none, and for a value that is no version: either way health
+/// and the footer say nothing of an industry.
+fn industry(given: Option<&str>) -> Option<J> {
     let v = given?;
     let rest = v.strip_prefix('v')?;
     let (core, pre) = rest.split_once('-').unwrap_or((rest, ""));
@@ -1089,110 +1089,7 @@ fn industry(home: &Path, given: Option<&str>, now: i64) -> Option<(J, Alerts)> {
     let digits = |p: &&str| (1..=6).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit());
     let pre_ok = pre.len() <= 32 && pre.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
     let shaped = parts.len() == 3 && parts.iter().all(digits) && pre_ok && !v.ends_with('-');
-    if !shaped {
-        return None;
-    }
-    let alerts = alerts(&home.join(ALERTS_FILE), now);
-    let mut f = vec![("version", J::str(v))];
-    match &alerts {
-        Alerts::Missing => f.push(("alerts", J::Null)),
-        Alerts::Unreadable => {
-            f.push(("alerts", J::Null));
-            f.push(("alertsUnreadable", J::Bool(true)));
-        }
-        Alerts::Read { time, stale, list } => {
-            f.push(("alertsTime", J::str(time.clone())));
-            f.push(("alerts", J::Arr(list.clone())));
-            f.push(("alertsStale", J::Bool(*stale)));
-        }
-    }
-    Some((obj(f), alerts))
-}
-
-/// Where tehas-industry writes its alerts about this factory on each pass.
-const ALERTS_FILE: &str = "state/industry/alerts.json";
-/// The industry's alerts are not current after this.
-const ALERTS_MAX_AGE: i64 = 300;
-/// The most alerts health carries; the industry raises a handful at most.
-const ALERTS_MOST: usize = 20;
-/// The longest kind kept, in characters.
-const ALERT_KIND_MOST: usize = 64;
-
-/// What the industry's alerts file says.
-#[derive(Debug, PartialEq)]
-enum Alerts {
-    /// No file: the industry has not written one.
-    Missing,
-    /// A file that is not what tehas-industry writes: never "no alerts".
-    Unreadable,
-    /// The file as written at `time`, stale when older than ALERTS_MAX_AGE.
-    Read {
-        time: String,
-        stale: bool,
-        list: Vec<J>,
-    },
-}
-
-impl Alerts {
-    /// The alerts that hold now: none of a file that is stale or unreadable.
-    fn current(&self) -> &[J] {
-        match self {
-            Alerts::Read {
-                stale: false, list, ..
-            } => list,
-            _ => &[],
-        }
-    }
-}
-
-/// `{time, alerts: [{kind, since, text, link}]}` as tehas-industry writes it
-/// (tehas-app/tehas-industry#470). A kind this release does not know is kept
-/// by its word. A link that is no web address is null.
-fn alerts(path: &Path, now: i64) -> Alerts {
-    let bytes = match tehas_core::file::read_regular(path, tehas_core::file::READ_BOUND) {
-        Ok((b, _)) => b,
-        Err(tehas_core::file::ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
-            return Alerts::Missing
-        }
-        Err(_) => return Alerts::Unreadable,
-    };
-    let Some(f) = std::str::from_utf8(&bytes).ok().and_then(J::parse) else {
-        return Alerts::Unreadable;
-    };
-    let (Some(at), J::Arr(items)) = (f.get("time").as_str().and_then(rfc3339), f.get("alerts"))
-    else {
-        return Alerts::Unreadable;
-    };
-    let mut list = Vec::new();
-    for a in items.iter().take(ALERTS_MOST) {
-        let kind = a
-            .get("kind")
-            .as_str()
-            .map(flags::oneline)
-            .unwrap_or_default();
-        let since = a.get("since").as_str().and_then(rfc3339);
-        let (Some(text), Some(since)) = (a.get("text").as_str(), since) else {
-            return Alerts::Unreadable;
-        };
-        if kind.is_empty() || kind.chars().count() > ALERT_KIND_MOST {
-            return Alerts::Unreadable;
-        }
-        let link = match a.get("link").as_str() {
-            Some(l) if l.starts_with("https://") || l.starts_with("http://") => J::str(l),
-            _ => J::Null,
-        };
-        list.push(obj(vec![
-            ("kind", J::Str(kind)),
-            ("since", J::Str(time::iso(since))),
-            ("text", J::Str(flags::oneline(text))),
-            ("link", link),
-        ]));
-    }
-    Alerts::Read {
-        time: time::iso(at),
-        stale: now - at > ALERTS_MAX_AGE,
-        list,
-    }
+    shaped.then(|| obj(vec![("version", J::str(v))]))
 }
 
 /// Where `tehas host-message` keeps the factory's messages.
@@ -1254,43 +1151,6 @@ fn host_message_line(list: &[host_message::Message]) -> Option<String> {
     } else {
         shown.to_string()
     })
-}
-
-/// Seconds since the epoch of an RFC 3339 time: UTC or an offset, with or
-/// without a fraction of a second, which is dropped.
-fn rfc3339(s: &str) -> Option<i64> {
-    let (head, tail) = (s.get(..19)?, &s[19..]);
-    let tail = match tail.strip_prefix('.') {
-        Some(t) => {
-            let digits = t.bytes().take_while(u8::is_ascii_digit).count();
-            (digits > 0).then(|| &t[digits..])?
-        }
-        None => tail,
-    };
-    let at = epoch(&format!("{head}Z"))?;
-    if tail == "Z" || tail == "z" {
-        return Some(at);
-    }
-    let b = tail.as_bytes();
-    let sign = match b.first() {
-        Some(b'+') => 1,
-        Some(b'-') => -1,
-        _ => return None,
-    };
-    let num = |r: std::ops::Range<usize>| -> Option<i64> {
-        let p = tail.get(r)?;
-        p.bytes()
-            .all(|c| c.is_ascii_digit())
-            .then(|| p.parse().ok())?
-    };
-    if b.len() != 6 || b[3] != b':' {
-        return None;
-    }
-    let (hh, mm) = (num(1..3)?, num(4..6)?);
-    if hh > 23 || mm > 59 {
-        return None;
-    }
-    Some(at - sign * (hh * 3600 + mm * 60))
 }
 
 /// The slice as the last poll left it, when that poll is young enough. The
@@ -1885,20 +1745,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
     let order = order(home);
-    let (industry_check, alerts) = match industry(home, g.industry.as_deref(), now) {
-        Some((c, a)) => (Some(c), a),
-        None => (None, Alerts::Missing),
-    };
-    // The first alert the industry raised says why, in its own words.
-    let alert_line = alerts.current().first().map(|a| {
-        let text = a.get("text").text_or_empty();
-        if text.is_empty() {
-            format!("The industry raised an alert: {}.", a.get("kind").text())
-        } else {
-            text
-        }
-    });
-    let alerts_unreadable = alerts == Alerts::Unreadable;
+    let industry_check = industry(g.industry.as_deref());
     let (host_messages_check, host_messages) = host_messages(home);
     let message_line = host_messages.as_deref().and_then(host_message_line);
     let messages_unreadable = host_messages.is_none();
@@ -2039,8 +1886,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let status = if queue.is_null() || failed {
         "fail"
     } else if old_queue
-        || alert_line.is_some()
-        || alerts_unreadable
         || message_line.is_some()
         || messages_unreadable
         || paused
@@ -2085,8 +1930,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             github_fails::WINDOW / 60,
             github.last.as_ref().map_or("", |(_, l)| l.as_str())
         )
-    } else if let Some(line) = alert_line {
-        line
     } else if let Some(line) = message_line {
         line
     } else if paused {
@@ -2175,8 +2018,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "The MCP server does not answer: {}.",
             mcp.get("reason").text()
         )
-    } else if alerts_unreadable {
-        format!("The industry's alerts cannot be read: {ALERTS_FILE} is not what tehas-industry writes.")
     } else if messages_unreadable {
         format!("The host messages cannot be read: {HOST_MESSAGES_FILE}")
     } else if !unlinked.is_empty() {
@@ -3289,58 +3130,6 @@ mod tests {
         assert_eq!(said(&r).0, "pass");
     }
 
-    /// The report of a factory run by an industry, with <file> as the
-    /// industry's alerts, or none.
-    fn with_alerts(h: &Home, file: Option<&str>) -> J {
-        let path = h.0.join("state/industry/alerts.json");
-        match file {
-            Some(text) => {
-                fs::create_dir_all(path.parent().unwrap()).unwrap();
-                fs::write(&path, text).unwrap();
-            }
-            None => {
-                let _ = fs::remove_file(&path);
-            }
-        }
-        h.report(&Given {
-            industry: Some("v0.9.0".to_string()),
-            ..Given::default()
-        })
-    }
-
-    fn alerts_file(time: &str, alerts: &str) -> String {
-        format!(r#"{{"time":"{time}","alerts":{alerts}}}"#)
-    }
-
-    #[test]
-    fn the_industrys_alerts_are_read_only_for_a_factory_with_an_industry() {
-        let h = home("alerts-none");
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused for 4 h.","link":"https://industry.example/f/1"}]"#,
-        );
-        fs::create_dir_all(h.0.join("state/industry")).unwrap();
-        h.write("state/industry/alerts.json", &file);
-        // No industry: the file is not read and the status is as before.
-        let r = h.report(&Given::default());
-        assert!(r.at(&["checks", "industry"]).is_null());
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        // An industry with no file yet: null, not an empty list.
-        let r = with_alerts(&h, None);
-        assert_eq!(
-            r.at(&["checks", "industry"]).dump(),
-            r#"{"version":"v0.9.0","alerts":null}"#
-        );
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        // An empty list: nothing to say.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T14:00:00Z", "[]")));
-        assert_eq!(
-            r.at(&["checks", "industry"]).dump(),
-            r#"{"version":"v0.9.0","alertsTime":"2026-10-17T14:00:00Z","alerts":[],"alertsStale":false}"#
-        );
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-    }
-
     fn message(id: &str, level: &str, text: &str) -> String {
         format!(
             r#"{{"id":"{id}","level":"{level}","text":"{text}","link":null,"at":"2026-10-17T13:00:00Z"}}"#
@@ -3421,25 +3210,6 @@ mod tests {
     }
 
     #[test]
-    fn a_current_alert_is_said_before_a_host_message() {
-        let h = home("messages-alerts");
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused for 4 h.","link":null}]"#,
-        );
-        h.write(
-            "state/host-messages.json",
-            &format!(
-                r#"{{"api":1,"messages":[{}]}}"#,
-                message("move", "alert", "Moving at 18:00")
-            ),
-        );
-        let r = with_alerts(&h, Some(&file));
-        assert_eq!(said(&r), ("warn".into(), "Paused for 4 h.".into()));
-        assert_eq!(r.at(&["checks", "hostMessages", "list"]).len(), 1);
-    }
-
-    #[test]
     fn a_host_message_line_leaves_out_direction_overrides() {
         let h = home("messages-bidi");
         let r = with_messages(&h, &[message("x", "warn", "a\u{202e}b\u{200b}c")]);
@@ -3449,127 +3219,6 @@ mod tests {
             said(&r),
             ("warn".into(), "The host message x is set.".into())
         );
-    }
-
-    #[test]
-    fn each_kind_of_alert_warns_with_its_text() {
-        let h = home("alerts-kinds");
-        for (kind, text) in [
-            ("paused", "Paused for 4 h by the industry."),
-            ("frozen", "Frozen since the move: 3 h."),
-            ("held-by-one", "#12 has held the factory still for 2 h."),
-            ("flooded", "A kind this release does not know."),
-        ] {
-            let file = alerts_file(
-                "2026-10-17T14:00:00Z",
-                &format!(
-                    r#"[{{"kind":"{kind}","since":"2026-10-17T10:00:00+02:00","text":"{text}","link":"https://industry.example/f/1"}},{{"kind":"paused","since":"2026-10-17T09:00:00Z","text":"second","link":"javascript:alert(1)"}}]"#
-                ),
-            );
-            let r = with_alerts(&h, Some(&file));
-            assert_eq!(said(&r), ("warn".into(), text.into()), "{kind}");
-            assert_eq!(
-                r.at(&["checks", "industry", "alerts"]).dump(),
-                format!(
-                    r#"[{{"kind":"{kind}","since":"2026-10-17T08:00:00Z","text":"{text}","link":"https://industry.example/f/1"}},{{"kind":"paused","since":"2026-10-17T09:00:00Z","text":"second","link":null}}]"#
-                ),
-                "{kind}"
-            );
-        }
-        // The alert is said before the pause the factory itself knows of.
-        h.write(
-            "state/pause.json",
-            r#"{"at":"2026-10-17T13:00:00Z","reason":"weekend"}"#,
-        );
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused\nfor 4 h.","link":"https://industry.example/f/1"}]"#,
-        );
-        assert_eq!(
-            said(&with_alerts(&h, Some(&file))),
-            ("warn".into(), "Paused for 4 h.".into())
-        );
-    }
-
-    #[test]
-    fn a_stale_alerts_file_is_said_stale_and_its_alerts_are_not_current() {
-        let h = home("alerts-stale");
-        let alert = r#"[{"kind":"frozen","since":"2026-10-17T10:00:00Z","text":"Frozen.","link":"https://industry.example/f/1"}]"#;
-        // Five minutes and twenty seconds old.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T13:55:00Z", alert)));
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        assert!(r.at(&["checks", "industry", "alertsStale"]).is_true());
-        assert_eq!(r.at(&["checks", "industry", "alerts"]).len(), 1);
-        // A fraction of a second is read and a minute inside the bound is current.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T13:59:20.123Z", alert)));
-        assert_eq!(said(&r), ("warn".into(), "Frozen.".into()));
-        assert_eq!(
-            r.at(&["checks", "industry", "alertsTime"]).text(),
-            "2026-10-17T13:59:20Z"
-        );
-    }
-
-    #[test]
-    fn a_malformed_alerts_file_is_unreadable_never_no_alerts() {
-        let h = home("alerts-malformed");
-        let one = |a: &str| alerts_file("2026-10-17T14:00:00Z", &format!("[{a}]"));
-        for file in [
-            String::new(),
-            "{".to_string(),
-            "[]".to_string(),
-            r#"{"alerts":[]}"#.to_string(),
-            r#"{"time":"yesterday","alerts":[]}"#.to_string(),
-            r#"{"time":"2026-10-17T14:00:00Z","alerts":{}}"#.to_string(),
-            one(r#"{"since":"2026-10-17T10:00:00Z","text":"x","link":"https://a"}"#),
-            one(r#"{"kind":"","since":"2026-10-17T10:00:00Z","text":"x"}"#),
-            one(r#"{"kind":"paused","since":"soon","text":"x"}"#),
-            one(r#"{"kind":"paused","since":"2026-10-17T10:00:00Z","text":7}"#),
-            one(r#"{"kind":"paused","since":"2026-10-17T10:00:00+2:00","text":"x"}"#),
-            one(r#""paused""#),
-        ] {
-            let r = with_alerts(&h, Some(&file));
-            assert_eq!(
-                r.at(&["checks", "industry"]).dump(),
-                r#"{"version":"v0.9.0","alerts":null,"alertsUnreadable":true}"#,
-                "{file}"
-            );
-            assert_eq!(
-                said(&r),
-                (
-                    "warn".into(),
-                    "The industry's alerts cannot be read: state/industry/alerts.json is not what tehas-industry writes.".into()
-                ),
-                "{file}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_sample_alerts_file_of_the_api_is_read() {
-        let h = home("alerts-sample");
-        let sample = include_str!("../../../api/industry-alerts.sample.json");
-        let r = with_alerts(&h, Some(sample));
-        let alerts = r.at(&["checks", "industry", "alerts"]).items().to_vec();
-        let kinds: Vec<String> = alerts.iter().map(|a| a.get("kind").text()).collect();
-        assert_eq!(kinds, ["paused", "frozen", "held-by-one"]);
-        assert!(alerts.iter().all(|a| a.get("link").as_str().is_some()));
-    }
-
-    #[test]
-    fn rfc3339_times_are_read_in_utc() {
-        assert_eq!(rfc3339("2026-10-17T14:00:20Z"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T14:00:20.5Z"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T16:00:20+02:00"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T13:30:20-00:30"), Some(NOW));
-        for bad in [
-            "",
-            "2026-10-17T14:00:20",
-            "2026-10-17T14:00:20.Z",
-            "2026-10-17T14:00:20+0200",
-            "2026-10-17 14:00:20Z",
-        ] {
-            assert_eq!(rfc3339(bad), None, "{bad}");
-        }
     }
 
     #[test]
