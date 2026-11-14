@@ -500,7 +500,7 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
                 break;
             }
             let file = lock::path(home, issue);
-            if lock::probe_file(&file).is_none_or(|l| l.rc != 0) {
+            if lock::probe_file(&file).is_none_or(|l| l.held_or_unknown()) {
                 continue;
             }
             if unused(c, &file, issue, before)? {
@@ -551,7 +551,7 @@ fn locks_held(home: &Path) -> Result<String, Fail> {
     let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
     let held: Vec<String> = issues
         .into_iter()
-        .filter(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.rc != 0))
+        .filter(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.held_or_unknown()))
         .map(j)
         .collect();
     Ok(line("locks-held", &[("held", list(&held))]))
