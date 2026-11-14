@@ -9,6 +9,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
+use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
 
 // The words an answer may give for an outcome or a kind, and the words the
 // filters of `factory_sessions` accept. `factory_issue` describes the same
@@ -702,7 +703,7 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
 }
 
 /// The stage lists of the dashboard, in the order `factory_issues` gives them.
-const ISSUE_STAGES: [&str; 5] = ["queued", "running", "awaiting", "stopped", "completed"];
+pub(crate) const ISSUE_STAGES: [&str; 5] = [QUEUED, RUNNING, AWAITING, STOPPED, COMPLETED];
 
 /// The named keys of one value, copied as they are: a time, a word or a count.
 fn copied(src: &Value, key: &str) -> Option<Value> {

@@ -24,24 +24,43 @@ pub fn held(path: &Path) -> bool {
     )
 }
 
-/// The issues whose cycle holds its lock.
+/// The issues whose cycle holds its lock. A listing that fails reads as none
+/// here; a caller that must not take that for no cycle asks `cycles`.
 pub fn running(home: &Path) -> Vec<u64> {
-    let mut out: Vec<u64> = fs::read_dir(home.join("state/cycles"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().into_string().ok()?;
-            let n: u64 = name.strip_suffix(".lock")?.parse().ok()?;
-            held(&e.path()).then_some(n)
-        })
-        .collect();
+    cycles(home).unwrap_or_default()
+}
+
+/// The issues whose cycle holds its lock, or None when `state/cycles` is there
+/// but cannot be listed: then a cycle may be running. No directory is no cycle.
+pub fn cycles(home: &Path) -> Option<Vec<u64>> {
+    let dir = match fs::read_dir(home.join("state/cycles")) {
+        Ok(d) => d,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let mut out = Vec::new();
+    for e in dir {
+        let e = e.ok()?;
+        let Some(n) = e
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(".lock"))
+            .and_then(|n| n.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if held(&e.path()) {
+            out.push(n);
+        }
+    }
     out.sort_unstable();
-    out
+    Some(out)
 }
 
 /// What a planning turn on record as running is: in flight (its lock held or
-/// its unit active), and whether it left its exit status.
+/// its unit active), and whether it left its exit status. A `systemctl` that
+/// gives no answer leaves the turn in flight: a turn that cannot be seen is not
+/// one that ended, and collecting it would cut off a turn still at work.
 pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
     let st = home.join(format!("state/plan-{n}.json"));
     let rc = st.with_extension("json.rc").is_file();
@@ -63,8 +82,8 @@ pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
         ],
         Duration::from_secs(30),
     );
-    let active = r.ok()
-        && matches!(
+    let active = !r.ok()
+        || matches!(
             r.out.trim(),
             "active" | "activating" | "deactivating" | "reloading"
         );
@@ -687,5 +706,52 @@ mod tests {
         drop(child.stdin.take().unwrap());
         child.wait().unwrap();
         assert!(!held(&lock), "the lock was given back");
+    }
+
+    #[test]
+    fn a_turn_whose_unit_cannot_be_asked_stays_in_flight() {
+        let h = home("turn");
+        let stub = h.join("systemctl");
+        let answer = |body: &str| {
+            fs::write(&stub, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut p = fs::metadata(&stub).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut p, 0o755);
+            fs::set_permissions(&stub, p).unwrap();
+            turn(&h, 7, stub.to_str().unwrap())
+        };
+        assert_eq!(answer("echo active"), (true, false));
+        assert_eq!(answer("echo inactive"), (false, false), "a unit that ended");
+        assert_eq!(answer("echo failed"), (false, false), "a unit that failed");
+        assert_eq!(
+            answer("echo refused >&2; exit 1"),
+            (true, false),
+            "no answer"
+        );
+        let gone = h.join("no-such-systemctl");
+        assert_eq!(
+            turn(&h, 7, gone.to_str().unwrap()),
+            (true, false),
+            "no program"
+        );
+        fs::write(h.join("state/plan-7.json.rc"), "0").unwrap();
+        assert_eq!(
+            turn(&h, 7, gone.to_str().unwrap()),
+            (false, true),
+            "an exit status"
+        );
+    }
+
+    #[test]
+    fn cycles_that_cannot_be_listed_are_not_none() {
+        let h = home("cycles");
+        assert_eq!(cycles(&h), Some(vec![]), "no directory is no cycle");
+        fs::create_dir(h.join("state/cycles")).unwrap();
+        fs::write(h.join("state/cycles/7.lock"), "").unwrap();
+        fs::write(h.join("state/cycles/notes.txt"), "").unwrap();
+        assert_eq!(cycles(&h), Some(vec![]), "a lock no one holds");
+        fs::remove_dir_all(h.join("state/cycles")).unwrap();
+        fs::write(h.join("state/cycles"), "").unwrap();
+        assert_eq!(cycles(&h), None, "a directory that cannot be listed");
+        assert_eq!(running(&h), Vec::<u64>::new());
     }
 }

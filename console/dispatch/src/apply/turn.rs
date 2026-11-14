@@ -464,7 +464,8 @@ impl Writer {
     }
 
     /// plan_launch: the turn as its own unit, which outlives the poll. A
-    /// moment for the unit to take its lock, so the status after shows it.
+    /// moment for the unit to take its lock, so the status after shows it;
+    /// true only once the turn holds its lock or has ended.
     fn plan_launch(&mut self, n: u64, cmd: &[String]) -> bool {
         let st = self.st(n, "");
         let mut turn: Vec<String> = vec![
@@ -514,6 +515,8 @@ impl Writer {
             }
             std::thread::sleep(self.host.launch_poll);
         }
-        true
+        // A unit that neither took its lock nor ended in that time did not
+        // start the turn: the caller finishes it as not started.
+        false
     }
 }

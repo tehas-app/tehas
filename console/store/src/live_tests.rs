@@ -182,6 +182,30 @@ fn a_quiet_cycle_whose_lock_is_free_is_lost() {
     assert_eq!(count(&home, "endings"), 0);
 }
 
+/// A missing lock file is no proof that no one holds the lock: the cycle may
+/// hold it on a file someone removed. Only a lock file found free makes a
+/// quiet cycle lost.
+#[test]
+fn a_quiet_cycle_whose_lock_file_is_gone_is_not_lost() {
+    let home = home("publish-lock-gone");
+    let (lock, _) = start_by(&home, 22, "alice", "label", 1000);
+    beat(&home, 1010, 22, true, "running", "build", "Building");
+    let later = 1010 + LOST_AFTER + 60;
+    let cycles = home.join("state").join("cycles");
+    fs::remove_file(cycles.join("22.lock")).unwrap();
+    publish(&home, later, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"][0]["issue"], 22, "no lock file");
+    assert_eq!(v["cycles"][0]["running"], true, "no lock file");
+    fs::remove_dir_all(&cycles).unwrap();
+    publish(&home, later, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["cycles"][0]["issue"], 22, "no state/cycles");
+    assert_eq!(v["last"], Value::Null, "no state/cycles");
+    assert_eq!(count(&home, "endings"), 0);
+    drop(lock);
+}
+
 /// `cycle-end --stopped` and `--refused` end the cycle as `end_report` does:
 /// with a closing heartbeat that says it is not running and a row among the
 /// ten ends. Before that they set only `cycles.ended_at`, which publish never
@@ -384,6 +408,50 @@ fn health_down_goes_with_the_report_that_failed() {
     assert!(!home.join("live/health.down").exists());
     // The dispatch report is left as it was.
     assert_eq!(read(&home, "dispatch.json"), "{\"why\":\"idle\"}\n");
+}
+
+/// A "fail" report whose write fails takes back the marker it made: the
+/// report on disk is still the healthy one, and the site keeps answering 200.
+#[test]
+fn a_failed_report_that_cannot_be_written_leaves_no_marker() {
+    let home = home("publish-health-unwritten");
+    let files = scratch("publish-health-unwritten-files");
+    let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
+    let fail = write_file(&files, "fail.json", b"{\"status\":\"fail\"}\n");
+    publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap();
+    // endings.json, running.json, then health.json.
+    fail_writes(Some(3));
+    let (code, line) = publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
+    assert_eq!(code, 1);
+    assert_eq!(line, "write live/health.json: no space left on device");
+    assert_eq!(read(&home, "health.json"), "{\"status\":\"ok\"}\n");
+    assert!(!home.join("live/health.down").exists());
+}
+
+/// A marker made by an earlier "fail" report stays when the next "fail"
+/// report cannot be written: the report on disk is that earlier one.
+#[test]
+fn a_failed_report_that_cannot_be_written_keeps_an_earlier_marker() {
+    let home = home("publish-health-still-down");
+    let files = scratch("publish-health-still-down-files");
+    let fail = write_file(&files, "fail.json", b"{\"status\":\"fail\"}\n");
+    publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap();
+    fail_writes(Some(3));
+    publish(&home, NOW, &["--health", fail.to_str().unwrap()]).unwrap_err();
+    assert!(home.join("live/health.down").exists());
+}
+
+/// A marker that cannot be removed is named as a removal, not a write.
+#[test]
+fn a_marker_that_cannot_be_removed_is_named_as_a_removal() {
+    let home = home("publish-health-stuck");
+    let files = scratch("publish-health-stuck-files");
+    let fine = write_file(&files, "ok.json", b"{\"status\":\"ok\"}\n");
+    // A directory where the marker is: unlink refuses it, as root too.
+    fs::create_dir_all(home.join("live/health.down/x")).unwrap();
+    let (code, line) = publish(&home, NOW, &["--health", fine.to_str().unwrap()]).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(line.starts_with("remove live/health.down: "), "{line}");
 }
 
 #[test]

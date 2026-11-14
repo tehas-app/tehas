@@ -466,6 +466,19 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
 }
 
 #[test]
+fn the_end_record_keeps_a_pr_whose_address_spells_the_repo_in_another_case() {
+    let h = Host::new("merged-case");
+    h.result("merged", "done", "feature/issue-7-x", "");
+    let prs: Value = json!([{"url": "https://github.com/A/B/pull/9/", "state": "MERGED",
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
+    fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
+    let o = h.report(0, false);
+    assert!(o.status.success(), "{}", out(&o));
+    let end = h.at("store cycle-end");
+    assert!(h.calls()[end].contains("--pr 9"), "{}", h.calls()[end]);
+}
+
+#[test]
 fn a_lean_cycle_keeps_the_driver_record_before_it_clears_the_workspace() {
     let h = Host::new("lean-kept");
     h.result("handoff", "verify", "feature/issue-7-x", "build-blocked");
