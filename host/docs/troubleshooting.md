@@ -936,7 +936,11 @@ Before any work, pi-rukas found a pull request already open for the issue:
 its branch names the issue, or its description closes it (`Fixes #<N>`).
 Nothing was written. Here it was once a pull request of an earlier cycle and
 once a person's own. Merge that pull request, or close it and retry. A retry
-while it is open stops the same way.
+that asks with the `tehas:ready` label stops the same way while it is open: the
+poll takes the label off and names the pull request on the issue. A retry
+asked by ticking `Retry` in the park comment does not reach pi-rukas at all:
+the poll sees the open pull request first, unticks the box and says the same
+on the issue. Merge or close the pull request, then tick the box again.
 
 ### `review-incomplete`
 
