@@ -6,6 +6,9 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
+# A start that finds the host cannot push comments the issue, so the gh stub
+# above answers for every suite of these files: not every case reads the issue
+# itself, and one that reaches no stub at all fails the case it ran in.
 stub_github
 
 # --- An issue that links what the cycle is not given -------------------------
