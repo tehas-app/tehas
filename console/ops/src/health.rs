@@ -1849,21 +1849,29 @@ fn limit(home: &Path, now: i64) -> J {
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
-/// The fault of a sandbox that cannot push, `state/push-fault.json`, read
-/// directly as this page reads `state/limit.json`: null with none, and the
-/// record as it stands with one. A file that is no JSON is still a fault: the
-/// shape of `line` and `login` below says what the host knows of it.
+/// The fault of a sandbox that cannot push, `state/push-fault.json`, read off
+/// the host's file the way the dispatcher's own reader of it does
+/// (`read::host::push_fault` through `read_regular`: never through a link, and
+/// under one bound), so the two readers give the poll and the page the same
+/// answer for one file. A file that is there and holds nothing usable is still
+/// a fault: the host has it on record, and the shape of `line` and `login`
+/// below says what the page knows of it. Only a file that is not there at all
+/// is no fault.
 fn push_fault(home: &Path) -> J {
     let path = home.join(tehas_core::sandbox::PUSH_FAULT);
-    match fs::metadata(&path) {
-        Ok(m) if m.len() == 0 => J::Null,
-        Err(_) => J::Null,
-        _ => match read(&path) {
-            None | Some(J::Null) => {
-                obj(vec![("at", J::Null), ("login", J::Null), ("line", J::Null)])
-            }
-            Some(f) => f,
-        },
+    let unreadable = || obj(vec![("at", J::Null), ("login", J::Null), ("line", J::Null)]);
+    let bytes = match tehas_core::file::read_regular(&path, tehas_core::file::READ_BOUND) {
+        Ok((b, _)) => b,
+        Err(tehas_core::file::ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
+            return J::Null
+        }
+        // Over the bound, a link, a directory, or bytes that are no text: the
+        // file is there and the page cannot make it say more than that it is.
+        Err(_) => return unreadable(),
+    };
+    match std::str::from_utf8(&bytes).ok().and_then(J::parse) {
+        None | Some(J::Null) => unreadable(),
+        Some(f) => f,
     }
 }
 
@@ -2784,6 +2792,47 @@ mod tests {
         );
         // The fault off: the page passes again.
         fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "pass");
+    }
+
+    /// The page reads the fault as the dispatcher's own reader of the same file
+    /// does: never through a link, and under one bound. A file that is there and
+    /// cannot be read is still a fault of the host, never no fault: a page that
+    /// called it clean would contradict the poll, which holds every start on it.
+    #[test]
+    fn a_push_fault_the_page_cannot_read_is_still_a_fault() {
+        use std::os::unix::fs::symlink;
+        let h = home("push-fault-unreadable");
+        // A link at the name is not the host's own record: the page reads no
+        // file through it, and says the host cannot push rather than nothing.
+        fs::write(
+            h.0.join("state/elsewhere.json"),
+            "{\"line\":\"not the fault\"}",
+        )
+        .unwrap();
+        symlink("elsewhere.json", h.0.join("state/push-fault.json")).unwrap();
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r).0, "fail");
+        assert_eq!(
+            r.get("output").text(),
+            "The sandbox cannot push: the sandbox cannot push to origin. The App's install needs Contents write on the product repository."
+        );
+        // A file over the bound is no fault the page can parse, and still a
+        // fault the host has.
+        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::write(
+            h.0.join("state/push-fault.json"),
+            "x".repeat(tehas_core::file::READ_BOUND_LEN),
+        )
+        .unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "fail");
+        // A directory of that name, which the old reader opened and read as no
+        // fault at all, is a fault too.
+        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::create_dir(h.0.join("state/push-fault.json")).unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "fail");
+        fs::remove_dir(h.0.join("state/push-fault.json")).unwrap();
+        // Nothing at the name is the only thing that is no fault.
         assert_eq!(said(&h.report(&Given::default())).0, "pass");
     }
 

@@ -521,6 +521,54 @@ fn a_probe_with_no_image_asks_nothing_and_records_nothing() {
     );
 }
 
+/// A host whose memory ceiling is too small for a container of its own cannot
+/// be asked either. It is a different fault of the settings from an image that
+/// is not named, and it is said as itself: a host told to raise an image it
+/// already has is told to fix the wrong thing.
+#[test]
+fn a_probe_of_a_ceiling_too_small_for_a_container_asks_nothing_and_names_the_ceiling() {
+    let mut t = world();
+    // 6m is the smallest `TEHAS_CONTAINER_MEMORY` the settings admit, and under
+    // the 10m `sandbox::security` will build options for.
+    t.w.host.container_memory = "6m".into();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["WARN: the sandbox could not be asked whether it can push: TEHAS_CONTAINER_MEMORY is under the 10m a container needs: no container to ask: no fault recorded"]
+    );
+    assert!(!t.w.push_holds, "no fault of the sandbox, no hold");
+    assert_eq!(
+        push_fault_of(&t).unwrap()["at"],
+        "2026-10-30T23:40:00Z",
+        "the fault keeps its own time: nothing was written"
+    );
+    assert!(
+        !t.calls().iter().any(|c| c.contains("docker")),
+        "{:?}",
+        t.calls()
+    );
+}
+
+/// The stand-in a test names needs no image and no ceiling: it runs no
+/// container, so neither of the two settings above stops it.
+#[test]
+fn a_probe_of_a_standin_asks_without_an_image_or_a_ceiling() {
+    let mut t = world();
+    t.w.host.push_probe_cmd = Some(t.dir.join("probe-ok").to_string_lossy().into_owned());
+    tehas_core::testing::write_exe(t.dir.join("probe-ok"), "#!/bin/sh\nexit 0\n").unwrap();
+    t.w.host.image = String::new();
+    t.w.host.container_memory = "6m".into();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"],
+        "a stand-in asks what it was told to, whatever the settings say"
+    );
+    assert!(push_fault_of(&t).is_none(), "a passing probe takes it off");
+}
+
 fn label() -> Value {
     json!({"issue": 7, "remove": ["tehas:ready"], "add": ["needs-human-attention"],
         "fail": "WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention",
