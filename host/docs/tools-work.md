@@ -132,6 +132,21 @@ exit 4, and the issue is told `Tehas started no cycle: its record on this host
 could not be updated as it started`. A run on its own has no attempt and
 records no image.
 
+Before the container starts, the command clears what a cycle of the issue left
+under `state/cycles/<issue>.*`. A cycle's end clears these notes itself, so
+what is still there comes from a cycle that was killed before its end: the
+command names it on its error stream with the first line of each (the
+container id, the counts of out-of-memory kills and refused forks, the signal)
+before it removes it. A container under the cycle's name that outlived its
+client is removed with `docker rm -f`, and that is said too, as is a removal
+that failed for any reason but there being no such container.
+
+The workspace a stopped cycle left is moved to `<name>-<issue>.before-retry`.
+When one is already there, from the cycle before that, it is first renamed to
+`.before-retry.old` and removed only once the newer tree is in its place, and
+the command says that it replaced it. When the move fails, the older tree is
+put back and the start stops.
+
 What is bound here is the body and the title: the record carries the hash of
 each, and a start is refused when either is not the approved one. The
 dispatcher also reads the label events and refuses an issue renamed since the

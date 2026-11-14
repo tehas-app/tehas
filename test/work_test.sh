@@ -578,7 +578,7 @@ T_ENV=("${env_ok[@]}")
 
 t_case "the cycle clock saying over stops the cycle at its time limit"
 fresh
-rm -f "$T/home/tehas/state/cycles/7.timed"
+rm -f "$T/home/tehas/state/cycles/7.timed" "$T/home/tehas/state/cycles/7.stalled"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 printf 'over\n' >"$T/clock.check"
