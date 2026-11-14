@@ -16,7 +16,8 @@
 //!     as the shell's left the units, the backup and the polls out.
 //!
 //!   console health report <home> [--sessions <json>] [--units <text>]
-//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>]
+//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>
+//!     [--poll-idle <json>]] [--mcp <json>]
 //!     The report alone on standard output, from the answers a shell gathered
 //!     and gave as arguments; nothing is written. It is the part `run` calls
 //!     after it made those answers itself.
@@ -92,6 +93,8 @@ struct Given {
     backup: Option<String>,
     poll_over: Option<String>,
     poll_budget: Option<String>,
+    /// The whole answer of `store poll-idle`: what the idle polls measured.
+    poll_idle: Option<String>,
     mcp: Option<String>,
     /// TEHAS_INDUSTRY_VERSION: the tehas-industry that runs this factory.
     industry: Option<String>,
@@ -336,11 +339,11 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
     // The whole answer of the read of the newest copy, which is what
     // `--backup` of `report` was given by the shell.
     let backup = ask(Step::Backup, &["backup", "--show"])?.map(|v| v.to_string());
-    let over = ask(
+    let idle = ask(
         Step::PollIdle,
         &["poll-idle", "--since", "3600", "--budget", budget],
-    )?
-    .map(|v| v["over"].to_string());
+    )?;
+    let over = idle.as_ref().map(|v| v["over"].to_string());
     // The shell's `tehas_store_get .over` of a read that answered is the empty
     // list when nothing is over budget, and the report keeps the entry it was
     // given; only a read that refused leaves it out. The budget goes with it
@@ -355,6 +358,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         backup,
         poll_over: over,
         poll_budget,
+        poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
         industry: env::var("TEHAS_INDUSTRY_VERSION").ok(),
     })
@@ -913,7 +917,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>] [--industry <version>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--industry <version>]"
         );
         2
     };
@@ -933,6 +937,7 @@ pub fn main(given: &[String]) -> u8 {
             "--backup" => g.backup = Some(v),
             "--poll-over" => g.poll_over = Some(v),
             "--poll-budget" => g.poll_budget = Some(v),
+            "--poll-idle" => g.poll_idle = Some(v),
             "--mcp" => g.mcp = Some(v),
             "--industry" => g.industry = Some(v),
             _ => return usage(),
@@ -1770,6 +1775,72 @@ fn joined(v: &J) -> String {
         .join(", ")
 }
 
+/// The line of idle polls over their budget: the figures over it and the
+/// budget, then from the store's answer what each of those figures measured,
+/// in the unit of the budget, and how many of the polls were over it.
+fn over_budget_line(cost: &J, idle: &J) -> String {
+    let budget = cost.get("budget").text();
+    let head = format!(
+        "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={budget})",
+        joined(cost.get("over"))
+    );
+    let figures: Vec<String> = cost
+        .get("over")
+        .items()
+        .iter()
+        .filter_map(|name| {
+            let name = name.as_str()?;
+            let (key, unit) = match name {
+                "cpu" => ("cpu_ms", " s"),
+                "wall" => ("wall_ms", " s"),
+                "writes" => ("writes", ""),
+                _ => return None,
+            };
+            let median = idle.get(key).as_f64()? as i64;
+            let median = if unit.is_empty() {
+                median.to_string()
+            } else {
+                seconds(median)
+            };
+            let mut said = format!("{name} had a median of {median}{unit}");
+            if let Some(limit) = budget_of(&budget, name) {
+                said.push_str(&format!(" against {limit}{unit}"));
+            }
+            if let Some(n) = idle.at(&["over_polls", name]).as_f64() {
+                said.push_str(&format!(" and {} over it", n as i64));
+            }
+            Some(said)
+        })
+        .collect();
+    match idle.get("polls").as_f64().map(|p| p as i64) {
+        Some(polls) if polls > 0 && !figures.is_empty() => format!(
+            "{head}: of the last hour's {polls} idle poll{}, {}.",
+            if polls == 1 { "" } else { "s" },
+            figures.join("; ")
+        ),
+        _ => format!("{head}."),
+    }
+}
+
+/// Milliseconds as seconds, with no more decimals than they need.
+fn seconds(ms: i64) -> String {
+    let frac = format!("{:03}", ms.rem_euclid(1000));
+    let frac = frac.trim_end_matches('0');
+    let whole = ms.div_euclid(1000);
+    if frac.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole}.{frac}")
+    }
+}
+
+/// The value one figure of a `TEHAS_POLL_BUDGET` spec gives, as written.
+fn budget_of(spec: &str, name: &str) -> Option<String> {
+    spec.split(',')
+        .find_map(|part| part.split_once('=').filter(|(k, _)| *k == name))
+        .map(|(_, v)| v.to_string())
+}
+
 /// The limit as `flags::read` reads it. A reading the page cannot parse is
 /// unreadable, as it is to every other reader, never nothing.
 fn limit(home: &Path, now: i64) -> J {
@@ -2094,10 +2165,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             ),
         }
     } else if over_budget {
-        format!(
-            "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={}).",
-            joined(poll_cost.get("over")),
-            poll_cost.get("budget").text()
+        over_budget_line(
+            &poll_cost,
+            &g.poll_idle.as_deref().and_then(J::parse).unwrap_or(J::Null),
         )
     } else if mcp_silent {
         format!(
@@ -3624,6 +3694,41 @@ mod tests {
             said(&h.report(&g)).1,
             "An idle poll is over its budget on cpu, wall (TEHAS_POLL_BUDGET=cpu=5)."
         );
+        // With the store's answer the line says what tripped: each figure's
+        // median in the unit of the budget, the budget, and how many of the
+        // idle polls were over it.
+        let g = Given {
+            poll_over: Some(r#"["cpu","wall"]"#.into()),
+            poll_budget: Some("cpu=5,wall=30,writes=0".into()),
+            poll_idle: Some(
+                r#"{"polls":12,"cpu_ms":7250,"wall_ms":41000,"writes":0,"over":["cpu","wall"],"over_polls":{"cpu":9,"wall":3}}"#
+                    .into(),
+            ),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)),
+            (
+                "warn".into(),
+                "An idle poll is over its budget on cpu, wall (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0): of the last hour's 12 idle polls, cpu had a median of 7.25 s against 5 s and 9 over it; wall had a median of 41 s against 30 s and 3 over it."
+                    .into()
+            )
+        );
+        let g = Given {
+            poll_over: Some(r#"["writes"]"#.into()),
+            poll_budget: Some("cpu=5,wall=30,writes=0".into()),
+            poll_idle: Some(
+                r#"{"polls":1,"cpu_ms":3000,"wall_ms":20000,"writes":2,"over":["writes"],"over_polls":{"writes":1}}"#
+                    .into(),
+            ),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "An idle poll is over its budget on writes (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0): of the last hour's 1 idle poll, writes had a median of 2 against 0 and 1 over it."
+        );
+        assert_eq!(seconds(5001), "5.001");
+        assert_eq!(seconds(6000), "6");
         // A store that did not answer is no check, never a passed one.
         assert_eq!(
             h.report(&Given::default()).at(&["checks", "poll_cost"]),
