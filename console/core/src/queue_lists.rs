@@ -1,6 +1,7 @@
 //! The issue lists of `live/status.json`: the keys `tehasbot status` writes
-//! them under. The health page, the analytics sampler and the MCP server
-//! read the lists by these constants, so a list is renamed in one place.
+//! them under. The health page, the dashboard snapshot, the analytics sampler
+//! and the MCP server read the lists by these constants, so a list is renamed
+//! in one place.
 
 /// `running`: the issues a cycle is working on.
 pub const RUNNING: &str = "running";
