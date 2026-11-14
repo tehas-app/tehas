@@ -224,7 +224,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
-  answer, offers no models, or does not offer the configured model, and
+  answer, refused the request with an HTTP code (401 for a wrong or missing
+  token, 429 for a rate limit), could not be asked because curl could not be
+  run, offers no models, or does not offer the configured model, and
   neither does its backup where `models.json` names one. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
@@ -350,6 +352,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
   once more already, and the line ends `(tried 2 times)`. When it repeats,
   `tehas status` shows a `github` line with the count of the last ten
   minutes; GitHub's status page is often green through these.
+- `ERROR: unreadable comments of #N` (or `edit record of #N`, `pull requests
+  of #N`, `pull request #N`): the poll holds no usable answer for that read
+  and ends there, for the same reason. When a gh call is what failed, its
+  line follows: `ERROR: unreadable comments of #7: gh api graphql failed:
+  HTTP 502`. With nothing after the read, no gh call failed: the answer came
+  without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
   `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
@@ -901,6 +909,15 @@ Check the push by hand:
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
+While the sandbox cannot push, `tehas work` records the fault in
+`~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
+and the poll holds every start until the file is ten minutes old or a start
+whose check passes takes it off. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
+and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
+remote's URL) and the next start works. Planning turns and refreshes run
+through the hold.
+
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
 driver's combined commit is on the local branch `feature/issue-<N>-...` there.
@@ -993,6 +1010,15 @@ the dashboard says `no resources`, and the dispatcher's log has one line that
 starts with `holding: no resources:`. It logs `released` at the first poll
 that finds the model again. A cycle that was already running when the endpoint
 went away is not stopped: it stalls and times out.
+
+The hold says which way the call failed:
+
+- `does not answer`: no answer within 10 seconds, or no connection at all.
+- `refused the request with HTTP <code>`: the endpoint answered with an error.
+  401 or 403 is the token: check the `apiKey` in `models.json` and the
+  variable it names in `~/.config/tehas/env`. 429 is a rate limit.
+- `could not be asked: curl could not be run`: curl is not on the dispatcher's
+  PATH. Install it; the endpoint itself may be fine.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.
