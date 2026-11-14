@@ -496,7 +496,8 @@ fn retry_fields(s: &serde_json::Value) -> Option<String> {
     Some(line)
 }
 
-/// The tokens models.json names that are set.
+/// The tokens models.json names that are set. Which names a key may give is
+/// decided by models::key_names alone; this adds no rule of its own.
 pub fn tokens() -> Vec<String> {
     let names = models::key_names(&ModelFile::read(&models::host_path()).json);
     names.into_iter().filter(|name| set(name)).collect()
