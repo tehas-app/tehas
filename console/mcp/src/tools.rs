@@ -1266,7 +1266,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
         "factory_issues" => {
             let mut s = Map::new();
             s.insert("generatedAt".into(), json!(true));
-            for stage in ["queued", "running", "awaiting", "stopped", "completed"] {
+            for stage in sessions::ISSUE_STAGES {
                 s.insert(stage.into(), issues.clone());
             }
             s.insert("planning".into(), json!({"count": true, "issues": [true]}));
