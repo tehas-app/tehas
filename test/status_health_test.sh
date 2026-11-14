@@ -44,6 +44,75 @@ t_run "$status && $summary --json"
 t_eq "$(jq -c '[.state, .limit]' <<<"$t_out")" '["warn",{"state":"unreadable"}]'
 t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "Nothing starts: the limit cannot be read"
 
+# The fault of a sandbox that cannot push, as the start whose push check was
+# refused leaves it (console/cycle/src/prepare.rs): the time, the bot's login
+# and git's line. The poll holds every start while it stands, so status and
+# health say it rather than leaving the host still with no word of why.
+set_push_fault() { # <json>: what to write where the start that failed left it
+  mkdir -p "$T/home/tehas/state"
+  printf '%s\n' "$1" >"$T/home/tehas/state/push-fault.json"
+}
+
+t_case "push: a sandbox that cannot push is a fail, in the lines, the file and --json"
+reset
+set_push_fault '{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"remote: Permission to acme/widget denied to tehas-bot"}'
+t_run "$status && $summary"
+t_contains "$t_out" "push      the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot (tehas-bot)"
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_contains "$(jq -r .output "$live/health.json")" "The sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot (tehas-bot)"
+t_eq "$(jq -r '.checks.pushFault.line' "$live/health.json")" \
+  "remote: Permission to acme/widget denied to tehas-bot"
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.state, .pushFault.login]' <<<"$t_out")" '["fail","tehas-bot"]'
+
+reset
+set_push_fault '{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"denied"}'
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" fail
+
+# The fault off again, and the host passes as it did before.
+rm -f "$T/home/tehas/state/push-fault.json"
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_lacks "$t_out" "the sandbox cannot push"
+
+t_case "push: a fault that says nothing still fails, with a line of the host's own"
+reset
+set_push_fault 'not json'
+t_run "$status && $summary"
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_contains "$t_out" "push      the sandbox cannot push: the sandbox cannot push to origin"
+
+reset
+set_push_fault '{"at":"2026-10-17T13:00:00Z","login":"","line":""}'
+t_run "$status"
+t_contains "$(jq -r .output "$live/health.json")" "The sandbox cannot push: the sandbox cannot push to origin."
+
+t_case "push: a sandbox that cannot push is said before a slice hold or a limit"
+reset
+set_push_fault '{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"denied"}'
+set_limit '{"v":1,"cycles":2,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}'
+t_run "$status"
+t_contains "$(jq -r .output "$live/health.json")" "The sandbox cannot push: denied (tehas-bot)"
+
+# The file is written by a process of the host, so the status page does not
+# print its text raw: `shown` takes the control and invisible-format characters
+# out of every value the page says, as it does for a person's own text. A fault
+# whose line carries an escape does not repaint the terminal of whoever runs
+# `tehas status`.
+t_case "push: control characters of the fault's line cannot reach the terminal"
+reset
+# The escape and the override are written as the JSON escapes of them: a raw
+# control character is not valid in a JSON string, and jq, which the cases of
+# this file read the health file with, would refuse the whole file. The words of
+# the line stand, the control characters of it do not.
+set_push_fault '{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"denied\u001b[31mred\u202e"}'
+# `tehasbot health` is the one that reads the file and writes the health page;
+# `tehas status` then says what the page holds.
+t_run "$health && $summary"
+t_contains "$t_out" "push      the sandbox cannot push: denied [31mred (tehas-bot)"
+t_eq "$(grep -c 'push      the sandbox cannot push' <<<"$t_out")" 1
+
 t_case "limit: the room under it, from the last poll"
 reset
 held limit "holding: the limit allows 1 cycle at once and 1 is running" 1 2

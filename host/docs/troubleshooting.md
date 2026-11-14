@@ -917,12 +917,32 @@ tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 
 While the sandbox cannot push, `tehas work` records the fault in
 `~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
-and the poll holds every start until the file is ten minutes old or a start
-whose check passes takes it off. The log has one line,
-`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
-and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
-remote's URL) and the next start works. Planning turns and refreshes run
-through the hold.
+and the poll holds every start while the file stands. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`, and `tehas status`
+prints `push      the sandbox cannot push: <git's line> (<login>)` while the
+file stands. Nothing is parked and no issue loses `tehas:ready`. Once the file
+is ten minutes old the poll asks the sandbox itself, with no cycle spent on it:
+it runs the same dry-run push a start runs, and a check that passes takes the
+file off and the queue starts as usual, while one that is refused writes the
+fault fresh and the hold begins again from that moment. A probe whose container
+could not start at all (no docker on the host, a daemon that is not up, an image
+that is not there) is the host's fault and not the sandbox's: nothing is
+recorded, so the fault keeps the time the start wrote and the next poll asks
+again rather than holding on a check that never ran. Planning turns and
+refreshes run through the hold.
+
+The fix is nearly always the App's install rather than the host's git: the
+install whose token the sandbox is given needs **Contents: Read and write** on
+the product repository. Check it on the App's page under *Installation access*,
+or with a person's own credentials:
+
+```
+git -C ~/tehas/checkout/<product> push --dry-run origin HEAD:refs/heads/tehas-preflight
+```
+
+When that push is refused too, the repository, not the container, is the
+problem. When it works, the fault is in what the sandbox is given: a token
+without Contents write, a remote that is not the App's, or an expired install.
 
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the

@@ -267,8 +267,10 @@ TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
 issue), TEHAS_CYCLE_START_WAIT (seconds for a started cycle [30]),
 TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
 [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup), TEHAS_FETCH_WAIT
-(seconds the fetch of the checkout may take [120]) and TEHAS_CHECK_WAIT
-(seconds the read of TEHAS_BRANCH_CHECK may take [30]).
+(seconds the fetch of the checkout may take [120]), TEHAS_CHECK_WAIT
+(seconds the read of TEHAS_BRANCH_CHECK may take [30]), TEHAS_PUSH_PROBE_CMD
+(in place of the container that asks whether the sandbox can push, run with no
+arguments) and TEHAS_PUSH_PROBE_WAIT (seconds that probe may take [300]).
 
 Before a start changes any label, the poll records what it rests on in the
 state store (libexec/store, approval-record): who approved and when, by the

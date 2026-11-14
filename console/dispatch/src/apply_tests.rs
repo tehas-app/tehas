@@ -209,6 +209,10 @@ fn world() -> World {
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
             read_only: false,
+            container_memory: "8g".into(),
+            push_probe_cmd: None,
+            push_probe_wait: Duration::from_secs(5),
+            push_holds: false,
         },
         ended: None,
         spend: None,
@@ -217,6 +221,7 @@ fn world() -> World {
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        push_holds: false,
     };
     World {
         dir,
@@ -318,6 +323,202 @@ impl World {
 /// come from `End`, the code that really starts them.
 fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
     End::host_of(dry).runs_host_commands(w, printed);
+}
+
+/// The fault of a start whose push check was refused, in the shape Part 1
+/// writes it: `state/push-fault.json` with the time, the bot's login and git's
+/// line. The poll holds every start while it is young and asks the sandbox
+/// again once it is old (Part 3).
+fn push_fault_file(t: &World, at: &str) {
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(
+        t.w.home.join("state/push-fault.json"),
+        format!(
+            "{{\"at\":\"{at}\",\"login\":\"tehas-bot\",\"line\":\"remote: Permission to acme/widget denied to tehas-bot\"}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// What the fault says now, or None when the file is off.
+fn push_fault_of(t: &World) -> Option<Value> {
+    let text = fs::read_to_string(t.w.home.join("state/push-fault.json")).ok()?;
+    serde_json::from_str(text.trim_end()).ok()
+}
+
+#[test]
+fn a_probe_that_passes_takes_the_fault_off_and_lets_the_poll_start() {
+    let mut t = world();
+    t.w.host.push_probe_cmd = Some(t.dir.join("probe-ok").to_string_lossy().into_owned());
+    tehas_core::testing::write_exe(t.dir.join("probe-ok"), "#!/bin/sh\nexit 0\n").unwrap();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    assert!(push_fault_of(&t).is_some(), "the fault of the start");
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"]
+    );
+    assert!(!t.w.push_holds, "the host can push: the poll goes on");
+    assert!(push_fault_of(&t).is_none(), "a passing probe takes it off");
+    // And the starts of the poll run: the fault is no longer in their way.
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    assert!(
+        t.calls().iter().any(|c| c.starts_with("start 7")),
+        "{:?}",
+        t.calls()
+    );
+}
+
+#[test]
+fn a_probe_that_is_refused_writes_the_fault_fresh_and_starts_nothing() {
+    let mut t = world();
+    t.w.host.push_probe_cmd = Some(t.dir.join("probe-bad").to_string_lossy().into_owned());
+    tehas_core::testing::write_exe(
+        t.dir.join("probe-bad"),
+        "#!/bin/sh\nprintf '%s\\n' 'remote: Permission to acme/widget denied to tehas-bot' >&2\nexit 1\n",
+    )
+    .unwrap();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    // The poll runs the probe before its starts and ends on the hold, so no
+    // start is applied. The probe itself renews the fault and marks the hold.
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot"]
+    );
+    assert!(t.w.push_holds, "the poll ends on the hold");
+    let f = push_fault_of(&t).expect("the fault stands");
+    assert_eq!(
+        f["line"],
+        "remote: Permission to acme/widget denied to tehas-bot"
+    );
+    let at = f["at"].as_str().unwrap();
+    assert_ne!(
+        at, "2026-10-30T23:40:00Z",
+        "the fault is written fresh: {at}"
+    );
+    // Nothing was marked running and no unit started: the poll ends at the hold.
+    assert!(
+        !t.calls().iter().any(|c| c.starts_with("start 7")),
+        "{:?}",
+        t.calls()
+    );
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+}
+
+#[test]
+fn a_probe_a_dry_run_asks_nothing_and_changes_nothing() {
+    let mut t = world();
+    t.w.host.push_probe_cmd = Some(t.dir.join("probe-ok").to_string_lossy().into_owned());
+    tehas_core::testing::write_exe(t.dir.join("probe-ok"), "#!/bin/sh\nexit 0\n").unwrap();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    assert!(t.w.push_probe(true).is_empty(), "a dry run asks nothing");
+    assert!(!t.w.push_holds);
+    assert_eq!(
+        push_fault_of(&t).unwrap()["at"],
+        "2026-10-30T23:40:00Z",
+        "a dry run writes no state"
+    );
+    assert!(
+        !t.calls().iter().any(|c| c.contains("probe-ok")),
+        "{:?}",
+        t.calls()
+    );
+}
+
+/// A probe the host could not run is no fault of the sandbox (Part 1's rule):
+/// nothing is written and the hold is not renewed, so the next poll owes the
+/// probe again rather than sitting out another ten minutes on a fault of the
+/// host's own making.
+#[test]
+fn a_probe_the_host_could_not_run_records_no_fault_and_renews_nothing() {
+    let mut t = world();
+    // The log cannot be made: `logs` is a file, so the check's log has no
+    // directory to stand in.
+    fs::write(t.w.home.join("logs"), "").unwrap();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["WARN: the sandbox could not be asked whether it can push: no place to write the check's log: no fault recorded"]
+    );
+    assert!(!t.w.push_holds, "no fault of the sandbox, no hold");
+    assert_eq!(
+        push_fault_of(&t).unwrap()["at"],
+        "2026-10-30T23:40:00Z",
+        "the fault keeps its own time: nothing was written"
+    );
+}
+
+/// What the host could not run is no refusal of a push (Part 1's rule), whether
+/// it stopped before the container or inside it: a `timeout` that could not exec
+/// the client, or a docker that found no image or no daemon, is the host's
+/// fault. Recording one as the sandbox's would hold every ready issue for
+/// another ten minutes, again and again, on a check that never asked.
+#[test]
+fn a_probe_the_container_could_not_start_records_no_fault_and_renews_nothing() {
+    let mut t = world();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    for (name, body) in [
+        (
+            "no-client",
+            "#!/bin/sh\nprintf '%s\\n' 'timeout: failed to run command 'docker': No such file or directory' >&2\nexit 127\n",
+        ),
+        (
+            "no-image",
+            "#!/bin/sh\nprintf '%s\\n' 'docker: Error response from daemon: No such image:' >&2\nexit 125\n",
+        ),
+        (
+            "no-daemon",
+            "#!/bin/sh\nprintf '%s\\n' 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\nexit 1\n",
+        ),
+    ] {
+        let exe = t.dir.join(name);
+        tehas_core::testing::write_exe(&exe, body).unwrap();
+        t.w.host.push_probe_cmd = Some(exe.to_string_lossy().into_owned());
+        let lines = t.w.push_probe(false);
+        assert!(
+            lines[0].starts_with("WARN: the sandbox could not be asked")
+                && lines[0].ends_with("no fault recorded"),
+            "{name}: {lines:?}"
+        );
+        assert!(!t.w.push_holds, "{name}: no fault of the sandbox, no hold");
+        assert_eq!(
+            push_fault_of(&t).unwrap()["at"],
+            "2026-10-30T23:40:00Z",
+            "{name}: the fault keeps the time the start wrote"
+        );
+    }
+}
+
+/// A host that names no sandbox image has no container to ask. The probe is not
+/// run with words that ask docker for a container of no image: that is a fault
+/// of the settings, and the sandbox is neither cleared nor held on it.
+#[test]
+fn a_probe_with_no_image_asks_nothing_and_records_nothing() {
+    let mut t = world();
+    t.w.host.image = String::new();
+    push_fault_file(&t, "2026-10-30T23:40:00Z");
+    let lines = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["WARN: the sandbox could not be asked whether it can push: no sandbox image to ask: no fault recorded"]
+    );
+    assert!(!t.w.push_holds, "no fault of the sandbox, no hold");
+    assert_eq!(
+        push_fault_of(&t).unwrap()["at"],
+        "2026-10-30T23:40:00Z",
+        "the fault keeps its own time: nothing was written"
+    );
+    assert!(
+        !t.calls().iter().any(|c| c.contains("docker")),
+        "{:?}",
+        t.calls()
+    );
 }
 
 fn label() -> Value {

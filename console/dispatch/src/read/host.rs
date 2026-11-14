@@ -108,10 +108,11 @@ pub fn pause(home: &Path) -> Value {
     }
 }
 
-/// How long the poll holds starts on a push fault before it tries again. Part
-/// 3 replaces the wait with a re-probe of the push check; until then a fault
-/// that is never cleared costs one start every so often rather than one for
-/// every ready issue.
+/// How long a push fault stands before the poll asks the sandbox again: the
+/// wait of Part 2, kept as the poll's own bound on the asking. A fault younger
+/// than it holds the starts and is not asked about; at it, the poll runs the
+/// dry-run push itself (`Writer::push_probe`) and the record left behind
+/// decides: off with a check that passed, fresh with one that was refused.
 pub const PUSH_FAULT_HOLD: i64 = 600;
 
 /// The record of a sandbox that cannot push: `state/pause.json`'s neighbour,
@@ -151,19 +152,30 @@ pub fn push_fault_line(fault: &Value) -> String {
     }
 }
 
-/// Whether a push fault still holds the poll: one that is on record and no
-/// older than [`PUSH_FAULT_HOLD`], or one the poll cannot read the age of.
-/// A fault with no readable time holds rather than starts: nothing about the
-/// host has been proven, and the wait is short either way.
-pub fn push_fault_holds(fault: &Value, now: i64) -> bool {
-    match fault {
-        Value::Null => false,
-        Value::Object(_) => match fault.get("at").and_then(Value::as_str).and_then(epoch) {
-            Some(at) => now - at < PUSH_FAULT_HOLD,
-            None => true,
-        },
-        _ => true,
-    }
+/// Whether a push fault holds the poll's starts. A fault that is on record
+/// holds, whatever its age: the poll asks the sandbox itself past the wait of
+/// [`PUSH_FAULT_HOLD`] (`push_fault_aged_out`), so the file that stands after
+/// that asking is the record of a push that is still refused. A fault with no
+/// readable time holds rather than starts: nothing about the host has been
+/// proven, and the wait is short either way.
+pub fn push_fault_holds(fault: &Value) -> bool {
+    !matches!(fault, Value::Null)
+}
+
+/// Whether the poll owes a re-probe of the sandbox's push: a fault on record,
+/// dated, and at least [`PUSH_FAULT_HOLD`] old. The poll asks the sandbox
+/// itself, in the seconds a container of a dry-run push takes, and holds the
+/// starts until it has asked once; see
+/// `crate::apply::start::Writer::push_probe`. A fault the poll cannot date is
+/// not owed a probe: the probe has no age to answer for, and the hold above
+/// keeps the poll where it was.
+pub fn push_fault_aged_out(fault: &Value, now: i64) -> bool {
+    matches!(fault, Value::Object(_))
+        && fault
+            .get("at")
+            .and_then(Value::as_str)
+            .and_then(epoch)
+            .is_some_and(|at| now - at >= PUSH_FAULT_HOLD)
 }
 
 /// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
@@ -534,35 +546,64 @@ mod tests {
     }
 
     #[test]
-    fn a_push_fault_holds_until_it_is_ten_minutes_old() {
-        let at = "2026-10-31T00:00:00Z";
-        let fault = |line: &str| json!({"at": at, "login": "tehas-bot", "line": line});
-        let now = epoch(at).unwrap();
-        assert!(!push_fault_holds(&Value::Null, now), "no fault");
+    fn a_push_fault_holds_while_the_file_stands() {
+        let fault =
+            |line: &str| json!({"at": "2026-10-31T00:00:00Z", "login": "tehas-bot", "line": line});
+        assert!(!push_fault_holds(&Value::Null), "no fault");
         assert!(
-            push_fault_holds(&fault("denied"), now),
+            push_fault_holds(&fault("denied")),
             "a fault of this instant"
         );
         assert!(
-            push_fault_holds(&fault("denied"), now + PUSH_FAULT_HOLD - 1),
+            push_fault_holds(&fault("denied")),
             "a fault still inside the wait"
         );
+        // Past the wait the file is the poll's own record: it asked the sandbox
+        // and the sandbox refused, so the hold stands until a check passes.
         assert!(
-            !push_fault_holds(&fault("denied"), now + PUSH_FAULT_HOLD),
-            "a fault of the wait's own age starts again"
+            push_fault_holds(&fault("denied")),
+            "a fault of the wait's own age, renewed by the poll's probe"
         );
-        assert!(!push_fault_holds(
-            &fault("denied"),
-            now + PUSH_FAULT_HOLD + 100
-        ));
+        assert!(push_fault_holds(&fault("denied")), "a fault of any age");
         assert!(
-            push_fault_holds(&json!({"at": "nonsense", "login": "", "line": "x"}), now),
+            push_fault_holds(&json!({"at": "nonsense", "login": "", "line": "x"})),
             "a fault whose age cannot be read holds"
         );
         assert!(
-            push_fault_holds(&json!("unreadable"), now),
+            push_fault_holds(&json!("unreadable")),
             "a fault that cannot be read"
         );
+    }
+
+    #[test]
+    fn only_a_dated_fault_past_the_wait_owes_a_probe() {
+        let at = "2026-10-31T00:00:00Z";
+        let fault = |line: &str| json!({"at": at, "login": "tehas-bot", "line": line});
+        let now = epoch(at).unwrap();
+        assert!(
+            !push_fault_aged_out(&Value::Null, now),
+            "no fault, nothing to ask"
+        );
+        assert!(
+            !push_fault_aged_out(&fault("denied"), now + PUSH_FAULT_HOLD - 1),
+            "a fault still inside the wait"
+        );
+        assert!(
+            push_fault_aged_out(&fault("denied"), now + PUSH_FAULT_HOLD),
+            "a fault of the wait's own age is the poll's to end"
+        );
+        assert!(push_fault_aged_out(
+            &fault("denied"),
+            now + PUSH_FAULT_HOLD + 100
+        ));
+        // A fault the poll cannot date holds and is not aged out either: the
+        // probe has no age to answer for, and the hold keeps the poll where it
+        // was rather than asking every poll.
+        assert!(!push_fault_aged_out(
+            &json!({"at": "nonsense", "login": "", "line": "x"}),
+            now
+        ));
+        assert!(!push_fault_aged_out(&json!("unreadable"), now));
     }
 
     #[test]

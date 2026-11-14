@@ -20,7 +20,7 @@ use crate::apply::start::Host;
 use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
-use crate::read::host::hostname;
+use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
@@ -325,6 +325,7 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
+            container_memory: env("TEHAS_CONTAINER_MEMORY"),
             plan_cmd: match opt("TEHAS_PLAN_CMD") {
                 Some(cmd) => vec![cmd],
                 None => vec![
@@ -355,6 +356,12 @@ fn writer(
                 Ok(n) => Duration::from_secs(n),
                 Err(_) => Duration::from_secs(120),
             },
+            // The poll asks the sandbox whether it can push when a fault has
+            // aged out: the host's own docker words, or the stand-in a test
+            // names, bounded as the cycle's own check is.
+            push_probe_cmd: opt("TEHAS_PUSH_PROBE_CMD"),
+            push_probe_wait: secs("TEHAS_PUSH_PROBE_WAIT", 300),
+            push_holds: false,
         },
         ended: None,
         spend: None,
@@ -363,6 +370,7 @@ fn writer(
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        push_holds: false,
     }
 }
 
@@ -738,6 +746,21 @@ fn body(
     };
     for l in refresh_warn(&snap) {
         say(l);
+    }
+    // The debt of a push fault that has aged out, paid before the rules are
+    // read and before any start: the poll asks the sandbox whether it can push,
+    // in the seconds a container of a dry-run push takes, and not with a cycle.
+    // A check that passes takes the file off; one that is refused writes it
+    // fresh, with git's line and the login of the settings. Either way the
+    // record the rules below read is the host's fact of this moment, so the
+    // hold, its word (`lane`) and the line of the log are the ordinary ones of
+    // a fault on file, said once, and a queue the host can push starts. A dry
+    // run asks nothing and changes nothing: the next real poll probes.
+    if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before) {
+        for l in w.push_probe(dry) {
+            say(&l);
+        }
+        snap["push_fault"] = push_fault(home);
     }
     let (said, refused) = crate::pins::settle(home, &mut snap, dry);
     for l in &said {

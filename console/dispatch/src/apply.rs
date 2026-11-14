@@ -68,6 +68,9 @@ pub struct Writer {
     /// The checkout was refreshed this poll by the index's gate, so the
     /// starts do not refresh it again.
     pub fetched: bool,
+    /// The poll owes a re-probe of the sandbox's push and it failed: the fault
+    /// was renewed and the poll starts nothing. Set by `push_probe`.
+    pub push_holds: bool,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the

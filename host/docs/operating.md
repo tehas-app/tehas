@@ -1597,12 +1597,24 @@ recording, and both commands then say so and exit 69.
 - No new cycle while the sandbox cannot push. A start whose push check is
   refused leaves `~/tehas/state/push-fault.json` (see
   [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
-  while that file is younger than ten minutes the poll starts no cycle and
-  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
-  every ready issue does not fail the same check in turn. Past ten minutes the
-  poll starts as it does today, and the start whose check passes takes the
-  file off again. Running cycles, planning turns and refreshes are not held by
-  it: what a refresh pushes already stands on the remote.
+  while that file stands the poll starts no cycle and logs
+  `holding: the sandbox cannot push: <git's line> (<login>)` once, so every
+  ready issue does not fail the same check in turn. `tehas status` says
+  `push      the sandbox cannot push: <git's line> (<login>)` and
+  `tehasbot health` fails the page with it, so the host says it without anyone
+  reading the log.
+  Once the file is ten minutes old the poll asks the sandbox itself, with no
+  cycle spent on it: it runs the same dry-run push a start runs, before it
+  reads the queue, bounded by `TEHAS_PUSH_PROBE_WAIT` (300 seconds) and stood
+  in for by `TEHAS_PUSH_PROBE_CMD` in a test. A check that passes takes the
+  file off and the queue starts; one that is refused writes the fault fresh and
+  the hold begins again from that moment. A probe the host could not run at all
+  is no refusal of a push: where `timeout` or docker itself could not start, or
+  where the host names no sandbox image, nothing is recorded, the fault keeps
+  the time the start wrote, and the next poll owes the asking again. A refused
+  probe writes what the container said to `logs/dispatch-preflight.log` and
+  keeps only git's first line. Running cycles, planning turns and refreshes
+  are not held by it: what a refresh pushes already stands on the remote.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at

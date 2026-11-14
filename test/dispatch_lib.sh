@@ -254,9 +254,9 @@ t_real_timeout=$(command -v timeout || true)
 # a command the case stubs to hang which the list does not name: were sleep
 # itself stubbed to answer at once, a bound checked through it would go
 # unbounded. Production keeps every bound: this is a stub of a test.
-t_timeout_kept=(df docker systemctl gh git curl sleep gate-run analytics attach)
 # Built as one string so the list reaches the stub's body when the stub is
 # written, not when a test calls it: the body is one single-quoted argument.
+t_timeout_kept=(df docker systemctl gh git curl sleep gate-run analytics attach)
 t_timeout_kept_str=" ${t_timeout_kept[*]} "
 t_stub timeout '
 name=${2##*/}

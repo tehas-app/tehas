@@ -122,6 +122,198 @@ pub fn give_cycle_token(cmd: &mut Command) -> &mut Command {
     }
 }
 
+/// The record of a sandbox that cannot push: `<home>/state/push-fault.json`,
+/// one host fact with no issue in its name. The cycle supervisor writes it when
+/// its push check is refused (Part 1), the poll holds starts while it is young
+/// (Part 2), and the poll's own re-probe and `tehasbot health` read it (Part 3).
+/// Every reader and writer of the file names it here.
+pub const PUSH_FAULT: &str = "state/push-fault.json";
+
+/// Why the sandbox cannot push, as the one who found it says it: when the time
+/// it was found, the bot whose token was tried, and git's own line, with the
+/// host's secrets replaced. The mask is a feature of `tehas_core`: a build
+/// without it masks nothing, as every other writer of these lines does.
+#[cfg(feature = "mask")]
+pub fn mask_line(line: &str) -> String {
+    crate::mask::mask(line)
+}
+
+/// The line as it stands where the build holds no mask.
+#[cfg(not(feature = "mask"))]
+pub fn mask_line(line: &str) -> String {
+    line.to_string()
+}
+
+/// The fault of a sandbox that cannot push, as the one who found it says it:
+/// when the time it was found, the bot whose token was tried, and git's own
+/// line. `at` is the ISO time of `at`, the login is the host's bot, and the
+/// line is masked before it is written. A file that is there and says nothing
+/// usable is still a fault: the reader holds what it cannot date.
+pub fn push_fault_record(line: &str, at: i64, login: &str) -> String {
+    serde_json::json!({
+        "at": crate::time::iso(at),
+        "login": login,
+        "line": mask_line(line),
+    })
+    .to_string()
+}
+
+/// The fault put on `file`, or taken off it. A check that passed removes the
+/// fault: the next start is judged on its own check, not on this one's. A line
+/// of its own always makes a fault, whatever the time it carries.
+pub fn write_push_fault(home: &std::path::Path, line: &str, at: i64, login: &str) {
+    let path = home.join(PUSH_FAULT);
+    if line.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return;
+    }
+    let doc = push_fault_record(line, at, login);
+    let dir = path.parent().unwrap_or(home);
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    // The one name, so a leftover of a run killed mid-write cannot block the
+    // next, and a reader never sees half of the record.
+    let _ = crate::file::write_atomic(
+        &path,
+        format!("{doc}\n").as_bytes(),
+        0o600,
+        &crate::file::Temp::Predictable,
+    );
+}
+
+/// What asking the sandbox whether it can push came to.
+///
+/// `ok` is the answer: the check ran and the push was accepted. `line` is git's
+/// own first word of why it was not, masked, empty when the check passed. `ran`
+/// says whether the sandbox was asked at all: a host that could not write the
+/// log, could not start `timeout`, or could not start the container it was
+/// given learned nothing of the sandbox, and Part 1's rule says a check that
+/// never ran records no fault, so the caller does not renew the hold on it.
+#[derive(Debug)]
+pub struct ProbeOutcome {
+    pub ran: bool,
+    pub ok: bool,
+    pub line: String,
+}
+
+/// The one-line answer of a probe the host could not run at all, in the words
+/// of the host rather than git's.
+const COULD_NOT_RUN: &str = "the sandbox could not be asked whether it can push";
+
+/// `timeout`'s own 127: it could not exec what it was given. A docker client
+/// missing from the host's PATH answers with it before a container starts.
+const NOT_EXECUTABLE: i32 = 127;
+
+/// Whether the first words of a probe's log, or its exit code, are the host's
+/// own rather than git's. `timeout` says 127 when it could not exec what it was
+/// given, and 126 when it found it but could not run it: a `docker` client
+/// missing from the host, an image that is not there, or a daemon that is not up
+/// all answer in the host's words and none of them is a push that git refused.
+/// An empty log of those codes is the host's too: it wrote nothing because it
+/// asked nothing.
+fn host_words(line: &str, rc: i32) -> bool {
+    matches!(rc, 126 | NOT_EXECUTABLE)
+        || line.starts_with("timeout:")
+        || line.starts_with("docker:")
+        || line.starts_with("Unable to find image")
+        || line.contains("Cannot connect to the Docker daemon")
+}
+
+/// The first line of a probe's log: git's own words of why a push is refused,
+/// masked. An empty log says nothing.
+fn probe_line(text: &[u8]) -> String {
+    String::from_utf8_lossy(text)
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .map(mask_line)
+        .unwrap_or_default()
+}
+
+/// Ask the sandbox whether it can push, outside a cycle: the dry-run container
+/// of [`push_check`] against the product's checkout, with the cycle's token and
+/// the same bound `timeout -k` gives the cycle's own check. The poll calls this
+/// when a fault has aged out, so the wait ends on its own and no cycle is spent
+/// finding out. `words` are the whole command; a test names its own stand-in.
+///
+/// Its output goes to `log` and nowhere else: the poll's log holds only the one
+/// line of the fault it writes. A child that outlives its bound is a failed
+/// check, as `timeout`'s 124 is.
+pub fn probe_push(
+    words: &[String],
+    bound: std::time::Duration,
+    log: &std::path::Path,
+) -> ProbeOutcome {
+    let opened = std::fs::File::create(log).and_then(|f| Ok((f.try_clone()?, f)));
+    let Ok((err, out)) = opened else {
+        return ProbeOutcome {
+            ran: false,
+            ok: false,
+            line: COULD_NOT_RUN.to_string(),
+        };
+    };
+    let mut cmd = Command::new("timeout");
+    // Each word its own argument, so a wait of 0 ("no bound") is timeout's own
+    // no bound and not one long word its parser refuses.
+    cmd.arg("-k");
+    cmd.arg("10");
+    cmd.arg(bound.as_secs().to_string());
+    for w in words {
+        cmd.arg(w);
+    }
+    cmd.stdin(Stdio::null());
+    cmd.stdout(out);
+    cmd.stderr(err);
+    give_cycle_token(&mut cmd);
+    // A child the host could not even start is no answer of the sandbox: it
+    // records no fault, so the status is read here rather than folded into the
+    // exit code of a check that ran.
+    let rc = match cmd.status() {
+        Ok(s) => s.code().unwrap_or(NOT_EXECUTABLE),
+        Err(_) => {
+            return ProbeOutcome {
+                ran: false,
+                ok: false,
+                line: COULD_NOT_RUN.to_string(),
+            }
+        }
+    };
+    if rc == 0 {
+        return ProbeOutcome {
+            ran: true,
+            ok: true,
+            line: String::new(),
+        };
+    }
+    let text = std::fs::read(log).unwrap_or_default();
+    let mut line = probe_line(&text);
+    if host_words(&line, rc) {
+        // The host could not ask: the words are `timeout`'s or docker's, not
+        // git's, and Part 1's rule leaves a check that never ran without a
+        // fault. The caller re-owes the probe instead of holding for another
+        // wait on a fault of its own making.
+        return ProbeOutcome {
+            ran: false,
+            ok: false,
+            line,
+        };
+    }
+    if line.is_empty() {
+        // A check that wrote nothing still refused the push: without a line of
+        // its own it would read as no check having run and clear the hold.
+        line = if rc == 124 || rc == 137 {
+            format!("the push check did not end within {}s", bound.as_secs())
+        } else {
+            format!("the sandbox could not be asked whether it can push (exit {rc})")
+        };
+    }
+    ProbeOutcome {
+        ran: true,
+        ok: false,
+        line,
+    }
+}
+
 fn pair(flag: &str, words: Vec<String>) -> Vec<String> {
     words
         .into_iter()
@@ -896,6 +1088,150 @@ fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fault's record: the time as the ISO of the second given, the login as
+    /// given, and git's line with the host's secrets replaced.
+    #[test]
+    fn the_push_fault_record_names_its_time_its_login_and_a_masked_line() {
+        let doc = push_fault_record(
+            "remote: Permission denied for ghp_SECRETSECRETSECRET",
+            0,
+            "tehas-bot",
+        );
+        let v: serde_json::Value = serde_json::from_str(&doc).unwrap();
+        assert_eq!(v["at"], "1970-01-01T00:00:00Z");
+        assert_eq!(v["login"], "tehas-bot");
+        assert!(
+            v["line"]
+                .as_str()
+                .unwrap()
+                .starts_with("remote: Permission denied for ghp_***"),
+            "{doc}"
+        );
+    }
+
+    /// A passing probe takes the file off; a refusal writes it fresh, and the
+    /// probe's own word fills a log that git wrote nothing into.
+    #[test]
+    fn a_passing_probe_takes_the_fault_off_and_a_refusal_writes_it() {
+        let d = crate::testdir::TestDir::new("push-fault-probe");
+        let home = d.path();
+        let log = d.join("log");
+
+        // A stand-in that ends 0: the sandbox can push.
+        let ok = d.join("ok");
+        crate::testing::write_exe(&ok, "#!/bin/sh\nexit 0\n").unwrap();
+        write_push_fault(home, "remote: denied", 1, "tehas-bot");
+        assert!(home.join(PUSH_FAULT).is_file(), "the fault of the start");
+        let r = probe_push(
+            &[ok.to_string_lossy().into_owned()],
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && r.ok, "{:?}", r);
+        write_push_fault(home, "", 0, "tehas-bot");
+        assert!(
+            !home.join(PUSH_FAULT).exists(),
+            "a check that passed leaves no fault"
+        );
+
+        // A stand-in that refuses and says why in git's words.
+        let bad = d.join("bad");
+        crate::testing::write_exe(
+            &bad,
+            "#!/bin/sh\nprintf '%s\\n' 'remote: Permission to acme/widget denied to tehas-bot' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let r = probe_push(
+            &[bad.to_string_lossy().into_owned()],
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && !r.ok, "{:?}", r);
+        assert_eq!(
+            r.line,
+            "remote: Permission to acme/widget denied to tehas-bot"
+        );
+        write_push_fault(home, &r.line, 1, "tehas-bot");
+        let v: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.join(PUSH_FAULT)).unwrap()).unwrap();
+        assert_eq!(v["login"], "tehas-bot");
+        assert_eq!(v["line"], r.line);
+
+        // A check that wrote nothing is still a refusal: without a line of its
+        // own it would read as no check having run.
+        let mute = d.join("mute");
+        crate::testing::write_exe(&mute, "#!/bin/sh\nexit 128\n").unwrap();
+        let r = probe_push(
+            &[mute.to_string_lossy().into_owned()],
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && !r.ok && !r.line.is_empty(), "{:?}", r);
+
+        // A probe the host could not run at all. `timeout` says so on the log and
+        // ends 127; the words are the host's, not git's, and Part 1's rule leaves
+        // such a check without a fault of the sandbox.
+        let missing = d.join("missing");
+        crate::testing::write_exe(
+            &missing,
+            "#!/bin/sh\nprintf '%s\\n' 'timeout: failed to run command: No such file or directory' >&2\nexit 127\n",
+        )
+        .unwrap();
+        let r = probe_push(
+            &[missing.to_string_lossy().into_owned()],
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(!r.ran && !r.ok, "{:?}", r);
+        assert!(r.line.contains("No such file or directory"), "{:?}", r);
+
+        // A container that could not start: the docker client's own words, or
+        // `timeout` ending 127 because the client is not on the host at all.
+        // Neither is a push git refused.
+        for (name, body) in [
+            (
+                "no-image",
+                "#!/bin/sh\nprintf '%s\\n' 'docker: Error response from daemon: No such image:' >&2\nexit 125\n",
+            ),
+            (
+                "no-daemon",
+                "#!/bin/sh\nprintf '%s\\n' 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\nexit 1\n",
+            ),
+            (
+                "no-client",
+                "#!/bin/sh\nprintf '%s\\n' 'timeout: failed to run command 'docker': No such file or directory' >&2\nexit 127\n",
+            ),
+            (
+                "not-executable",
+                "#!/bin/sh\nprintf '%s\\n' 'timeout: command found but cannot be executed' >&2\nexit 126\n",
+            ),
+            (
+                "silent-client",
+                "#!/bin/sh\nexit 127\n",
+            ),
+        ] {
+            let exe = d.join(name);
+            crate::testing::write_exe(&exe, body).unwrap();
+            let r = probe_push(
+                &[exe.to_string_lossy().into_owned()],
+                std::time::Duration::from_secs(5),
+                &log,
+            );
+            assert!(!r.ran && !r.ok, "{name}: {:?}", r);
+        }
+
+        // A refusal that says nothing is still the sandbox's: an exit of a git
+        // that ran is not the host's, whatever its words.
+        let mute = d.join("mute-127");
+        crate::testing::write_exe(&mute, "#!/bin/sh\nexit 128\n").unwrap();
+        let r = probe_push(
+            &[mute.to_string_lossy().into_owned()],
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && !r.ok && !r.line.is_empty(), "{:?}", r);
+    }
 
     #[test]
     fn the_products_settings_are_read_only_as_a_plain_file_of_a_bounded_size() {
