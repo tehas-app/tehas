@@ -1031,19 +1031,22 @@ fn auto_finish_step(
         return;
     }
     let (asked, _) = crate::finish::counted(settings, snap, settings.control);
+    let locks = crate::read::host::cycles(home);
     let running: Vec<u64> = snap["running"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|r| r["issue"].as_u64())
-        .chain(crate::read::host::running(home))
+        .chain(locks.clone().unwrap_or_default())
         .collect();
+    // A cycle that cannot be seen may be running: every record is held.
+    let unseen = locks.is_none();
     let now = tehas_core::time::now();
     let mut read = 0;
     let mut cases = Vec::new();
     for rec in records {
         let n = rec.issue;
-        let held = asked.contains(&n) || running.contains(&n) || d.picked.contains(&n);
+        let held = unseen || asked.contains(&n) || running.contains(&n) || d.picked.contains(&n);
         let mut c = Case {
             rec,
             held,
