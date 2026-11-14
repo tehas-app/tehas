@@ -350,6 +350,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
   once more already, and the line ends `(tried 2 times)`. When it repeats,
   `tehas status` shows a `github` line with the count of the last ten
   minutes; GitHub's status page is often green through these.
+- `ERROR: unreadable comments of #N` (or `edit record of #N`, `pull requests
+  of #N`, `pull request #N`): the poll holds no usable answer for that read
+  and ends there, for the same reason. When a gh call is what failed, its
+  line follows: `ERROR: unreadable comments of #7: gh api graphql failed:
+  HTTP 502`. With nothing after the read, no gh call failed: the answer came
+  without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
   `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the

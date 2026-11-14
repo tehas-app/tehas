@@ -1938,10 +1938,10 @@ esac"#,
     }
 
     /// A chunk whose comment query GitHub refused is a failed read for every
-    /// issue of it, not an empty one: the snapshot holds `{"failed": true}` for
-    /// each, which `Snapshot::parse` turns into no comments at all, and decide
-    /// ends the poll on it rather than reading an issue as one that names no
-    /// blocker, so a hold stays a hold and nothing starts.
+    /// issue of it, not an empty one: the snapshot holds `{"failed": true}` and
+    /// the call's line for each, which `Snapshot::parse` turns into no comments
+    /// at all, and decide ends the poll on it rather than reading an issue as
+    /// one that names no blocker, so a hold stays a hold and nothing starts.
     #[test]
     fn a_failed_chunk_holds_every_issue_of_it_and_starts_nothing() {
         let w = startable(world());
@@ -1959,7 +1959,7 @@ esac"#,
         for n in 21..=23 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true}),
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"}),
                 "issue {n} shares the refused chunk"
             );
             assert!(
@@ -1984,8 +1984,11 @@ esac"#,
         assert!(d.picked.is_empty(), "nothing starts: {:?}", d.picked);
         assert_ne!(d.exit, 0, "the poll ends on the failed read: {:?}", d.log);
         assert!(
-            d.log.iter().any(|l| l.starts_with("ERROR:")),
-            "the poll says the read failed: {:?}",
+            d.log
+                .iter()
+                .any(|l| l.starts_with("ERROR: unreadable comments of #")
+                    && l.ends_with(": gh api graphql failed: HTTP 500")),
+            "the poll names the read and gh's words: {:?}",
             d.log
         );
     }
@@ -2030,7 +2033,7 @@ esac"#,
         for n in [31u64, 32] {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true})
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"})
             );
         }
         // The answered chunk's issues start as they would have; the refused
@@ -2052,7 +2055,7 @@ esac"#,
         for n in 21..=30 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true}),
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"}),
                 "issue {n} shares the refused chunk"
             );
         }
