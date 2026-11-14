@@ -336,13 +336,12 @@ fn control(
 /// counts as paused and has nothing to say for itself beyond that. `by` stays
 /// out: the page can be public.
 fn host_pause_flag(file: &Path) -> (J, bool) {
-    if !file.exists() {
-        return (J::Null, false);
-    }
     // Read as no flag by the one reading of the file: it holds the factory and
     // says nothing more.
-    if crate::flags::read_pause(file).state() != "ok" {
-        return (obj(vec![("at", J::Null), ("reason", J::Null)]), true);
+    match crate::flags::read_pause(file).state() {
+        "none" => return (J::Null, false),
+        "ok" => {}
+        _ => return (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
     }
     let text = fs::read(file).ok().and_then(|b| String::from_utf8(b).ok());
     let flag = text.as_deref().and_then(J::parse);
@@ -1433,6 +1432,12 @@ mod tests {
             assert!(held, "{bad}");
             assert_eq!(flag.dump(), damaged, "{bad}");
         }
+        // A link whose target is gone holds too, as the dispatcher reads it.
+        fs::remove_file(&f).unwrap();
+        std::os::unix::fs::symlink(dir.join("gone.json"), &f).unwrap();
+        let (flag, held) = host_pause_flag(&f);
+        assert!(held);
+        assert_eq!(flag.dump(), damaged);
     }
 
     #[test]
