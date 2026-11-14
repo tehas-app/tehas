@@ -153,9 +153,12 @@ pub struct ModelFile {
     pub json: Value,
 }
 
-/// The variables the file names, sorted, each once.
+/// The variables the file names, sorted, each once. Only a key
+/// [`names_a_token`] accepts names one, the rule [`keys_ok`] refuses a file
+/// by: a key it refuses, `$PATH` say, names no variable a container is given.
 pub fn key_names(models: &Value) -> Vec<String> {
     let mut names: Vec<String> = keys(models)
+        .filter(|(_, k)| names_a_token(k))
         .filter_map(|(_, k)| k.strip_prefix('$'))
         .map(|k| k.strip_prefix('{').unwrap_or(k))
         .map(|k| k.strip_suffix('}').unwrap_or(k).to_string())
@@ -583,6 +586,51 @@ mod tests {
             ["TEHAS_MODEL_KEY_FLEET", "TEHAS_MODEL_KEY_MAIN"]
         );
         assert!(key_names(&json!({})).is_empty());
+    }
+
+    /// The names a container is given are read by the one rule that refuses
+    /// a key at load: a value it refuses names no variable, and every name
+    /// collected comes from a value it accepts.
+    #[test]
+    fn a_name_is_collected_only_from_a_key_the_strict_rule_accepts() {
+        let spellings = [
+            "$TEHAS_MODEL_KEY_MAIN",
+            "${TEHAS_MODEL_KEY_MAIN}",
+            "${TEHAS_MODEL_KEY_MAIN",
+            "$TEHAS_MODEL_KEY_MAIN}",
+            "TEHAS_MODEL_KEY_MAIN}",
+            "$PATH",
+            "${HOME}",
+            "$GH_TOKEN",
+            "$TEHAS_MODEL_KEY_",
+            "$TEHAS_MODEL_KEY_lower",
+            "$TEHAS_MODEL_KEY_A B",
+            "${{TEHAS_MODEL_KEY_MAIN}}",
+            "unused",
+            "",
+        ];
+        for key in spellings {
+            let file = json!({"providers": {"p": {"apiKey": key, "backupApiKey": key}}});
+            let names = key_names(&file);
+            if names_a_token(key) {
+                assert_eq!(names, ["TEHAS_MODEL_KEY_MAIN"], "{key}");
+            } else {
+                assert!(names.is_empty(), "{key} gave {names:?}");
+            }
+        }
+        // The four spellings of a token keep working.
+        for key in [
+            "$TEHAS_MODEL_KEY_MAIN",
+            "${TEHAS_MODEL_KEY_MAIN}",
+            "${TEHAS_MODEL_KEY_MAIN",
+            "$TEHAS_MODEL_KEY_MAIN}",
+        ] {
+            assert!(names_a_token(key), "{key}");
+        }
+        assert_eq!(
+            keys_ok(&json!({"providers": {"p": {"apiKey": "$PATH"}}}), "f", |_| true),
+            Err("models.json: provider p has an apiKey that is neither a word nor $TEHAS_MODEL_KEY_<NAME> (see f)".to_string())
+        );
     }
 
     #[test]

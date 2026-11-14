@@ -856,6 +856,28 @@
    }
   },
   {
+   "case": "pull requests that could not be read end the poll on the read, not on a gh call",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "prs": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: unreadable pull requests of #7"
+    ],
+    "log_lacks": [
+     "gh api graphql failed"
+    ]
+   }
+  },
+  {
    "case": "a snapshot that lacks the marked list names it",
    "expect": {
     "needs": [
