@@ -46,6 +46,8 @@ t_stub node 'exit 0'
 # and for the workspace's tests. A '-' stands for a tool the toolchain does not
 # hold: the gate keeps no pass made on one toolchain and asks again on another,
 # so a case that counts runs gives the same answers every time it calls this.
+# It answers `cargo test` with one result line too: the gate fails a run whose
+# cargo printed no "test result:" line, as no test ran.
 t_stub_cargo_versions() { # <rustfmt version or '-'> <clippy version or '-'>
   # The body goes in a file, as the cargo stub beside a real workspace does
   # (test/lib.sh, t_stub_cargo): its own $1 and $2 stay the stub's arguments.
@@ -59,6 +61,7 @@ t_stub_cargo_versions() { # <rustfmt version or '-'> <clippy version or '-'>
   else printf '  "fmt --version") echo %s; exit 0 ;;\n' "$1" >>"$f"; fi
   if [ "$2" = - ]; then printf '  "clippy --version") exit 1 ;;\n' >>"$f"
   else printf '  "clippy --version") echo %s; exit 0 ;;\n' "$2" >>"$f"; fi
+  printf '  test*) echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"; exit 0 ;;\n' >>"$f"
   printf '  "--version") echo "cargo 1.85.0"; exit 0 ;;\nesac\nexit 0\n' >>"$f"
   # The record of a call is t_stub's own line, and the body runs after it, so
   # the calls of the stub stand in t_calls cargo beside what each one printed.

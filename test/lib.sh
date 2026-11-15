@@ -811,6 +811,16 @@ t_fake_limits() {
   } >"$dir/tehas-cycle"
   chmod +x "$dir/tehas-cycle"
 }
+# t_renewer <home>: a stand-in for the token renewer tehas work starts from
+# <home>/libexec/tehas-cycle before its container, unless a program is there
+# already. It writes its words to $T/renew.calls and ends.
+t_renewer() {
+  local dir=$1/libexec
+  [ -e "$dir/tehas-cycle" ] && return 0
+  mkdir -p "$dir"
+  printf '#!%s\necho "$*" >>%q\n' "$T_BASH" "$T/renew.calls" >"$dir/tehas-cycle"
+  chmod +x "$dir/tehas-cycle"
+}
 # t_console: the console of this checkout, in $T_CONSOLE, as t_dispatch gets
 # tehas-dispatch: from T_CONSOLE_BIN, or built here when the file runs alone.
 T_CONSOLE=$T/console-bin

@@ -256,10 +256,13 @@ pub fn after(home: &Path, a: &After) {
 /// Nothing builds in a kept workspace again, and the cycle still holds its
 /// lock.
 fn clean(home: &Path, a: &After) {
-    let scratch = match (env("TEHAS_SCRATCH_DIR"), a.workdir.rsplit('/').next()) {
-        (dir, Some(name)) if !dir.is_empty() => format!("{dir}/{name}"),
-        _ => String::new(),
-    };
+    let scratch = crate::scratch::dir(
+        &env("TEHAS_SCRATCH_DIR"),
+        &env("TEHAS_WORK_DIR"),
+        a.ended.issue,
+    )
+    .map(|d| d.to_string_lossy().into_owned())
+    .unwrap_or_default();
     let clean_log = home.join("logs/clean.log").to_string_lossy().into_owned();
     let cleaned = Command::new("timeout")
         .args(["-k", "5", "300", &a.console, "clean", "ended", &a.workdir])

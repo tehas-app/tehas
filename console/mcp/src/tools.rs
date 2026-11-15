@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
+use tehas_core::queue_lists;
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
@@ -65,13 +66,15 @@ pub enum ToolError {
     File { file: String, why: String },
 }
 
+/// The stages `factory_issues` takes: the issue lists of `live/status.json`,
+/// named by the core's constants, and `planning`.
 const STAGES: [&str; 6] = [
-    "queued",
+    queue_lists::QUEUED,
     "planning",
-    "running",
-    "awaiting",
-    "stopped",
-    "completed",
+    queue_lists::RUNNING,
+    queue_lists::AWAITING,
+    queue_lists::STOPPED,
+    queue_lists::COMPLETED,
 ];
 
 /// A status word a cycle can carry. The runner's own words, tehas's own for a
@@ -314,36 +317,6 @@ fn status_schema() -> Value {
             obj(
                 vec![
                     ("version", given("The tehas-industry version, such as v0.9.0.")),
-                    (
-                        "alerts",
-                        arr(
-                            obj(
-                                vec![
-                                    (
-                                        "kind",
-                                        prop(
-                                            "string",
-                                            "paused, frozen or held-by-one. Treat it as an open list.",
-                                        ),
-                                    ),
-                                    ("since", given("When it started, UTC.")),
-                                    ("text", prop("string", "The alert for a person. Do not parse it.")),
-                                    ("link", given("Where the industry shows it, or null.")),
-                                ],
-                                "One alert.",
-                            ),
-                            "What the industry sees of this factory that it cannot see of itself. Left out until the industry has written them, or when they cannot be read.",
-                        ),
-                    ),
-                    ("alertsTime", given("When the industry wrote the alerts, UTC.")),
-                    (
-                        "alertsStale",
-                        given("true when the alerts are more than five minutes old: they are not current."),
-                    ),
-                    (
-                        "alertsUnreadable",
-                        given("true when the industry's alerts file cannot be read."),
-                    ),
                 ],
                 "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
             ),
@@ -1252,9 +1225,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "hostMessages": {"list": [{"id": true, "level": true, "text": true, "link": true,
                                        "at": true}],
                              "unreadable": true},
-            "industry": {"version": true,
-                         "alerts": [{"kind": true, "since": true, "text": true, "link": true}],
-                         "alertsTime": true, "alertsStale": true, "alertsUnreadable": true},
+            "industry": {"version": true},
             // The two keys of `hold`, copied from the poll's own report by
             // `held`, which names the file's fields through `tehas_core::hold`.
             // A report whose word is not one of the thirteen is no hold, so
@@ -1266,7 +1237,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
         "factory_issues" => {
             let mut s = Map::new();
             s.insert("generatedAt".into(), json!(true));
-            for stage in ["queued", "running", "awaiting", "stopped", "completed"] {
+            for stage in sessions::ISSUE_STAGES {
                 s.insert(stage.into(), issues.clone());
             }
             s.insert("planning".into(), json!({"count": true, "issues": [true]}));
@@ -1722,6 +1693,17 @@ pub(crate) fn epoch(t: &str) -> Option<i64> {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    // `issues` keeps the spec keys that are stages, and the spec names the
+    // lists by the core's constants: a stage missing from `STAGES` would drop
+    // out of `factory_issues` without a word.
+    #[test]
+    fn every_listed_stage_is_a_stage_the_tool_takes() {
+        for stage in sessions::ISSUE_STAGES {
+            assert!(STAGES.contains(&stage), "{stage} is not in STAGES");
+        }
+        assert!(STAGES.contains(&"planning"));
+    }
 
     // The parser is core's; the rows that matter here are the ones this reader
     // used to take: no colon checked, no range checked, and a field parsed

@@ -40,7 +40,11 @@ note `state/cycles/<issue>.lean-refused` and the lines below, which end
 `(driver lean, work-lean; it does not run classic in its place)`. It starts no
 container and moves nothing. `tehasbot cycle` reads the note and parks the
 issue as a start that never ran: its approval goes with the report, so nothing
-starts it again on its own. Any other 78 is a stopped cycle. A refresh whose
+starts it again on its own. Any other 78 is a stopped cycle. When the image
+gave no capabilities answer, lacks what the cycle is given, or the directory
+of the workspaces was not made by tehas, the note
+`state/cycles/<issue>.refused` holds the cause, and the park comment names it,
+so the issue says why the start was refused without the run log. A refresh whose
 pull request conflicts with the branch, on an image whose capabilities do not
 set `continuePrMergeVerify`, stops with 78 after the workspace is made and
 before the push check, with the note `state/cycles/<issue>.refresh-conflict`
@@ -209,6 +213,11 @@ unstable, which may be empty. A line of the log that is no JSON, such as the
 last line of a container killed mid-write, is left out of that count; the file
 then names how many lines it left out and of how many, as
 `"unparsed":{"lines":N,"of":M}`, and `tehasbot cycle` says so in its log.
+Its `from` says where roles and failure come from: `result`, `progress`
+when the run wrote no result (no file, or an empty one, as a runner that
+crashed or never started leaves it), or `bad-result` when the result has
+something in it but gives no entry for the issue (a link, no JSON, another
+schema version, or no entry with the issue's number).
 Before the cycle's container, after the push check, `tehas work` installs the
 product's dependencies in the workspace, in a container of the sandbox image
 with the cycle's limits and security options, the workspace and no token (see

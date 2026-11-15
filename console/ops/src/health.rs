@@ -16,7 +16,8 @@
 //!     as the shell's left the units, the backup and the polls out.
 //!
 //!   console health report <home> [--sessions <json>] [--units <text>]
-//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>]
+//!     [--backup <json>] [--poll-over <json> --poll-budget <spec>
+//!     [--poll-idle <json>]] [--mcp <json>]
 //!     The report alone on standard output, from the answers a shell gathered
 //!     and gave as arguments; nothing is written. It is the part `run` calls
 //!     after it made those answers itself.
@@ -53,6 +54,8 @@ use std::time::{Duration, Instant};
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
+use tehas_core::hold::slots as key;
+use tehas_core::queue_lists;
 use tehas_core::time;
 
 /// A queue snapshot older than this is not news.
@@ -92,6 +95,8 @@ struct Given {
     backup: Option<String>,
     poll_over: Option<String>,
     poll_budget: Option<String>,
+    /// The whole answer of `store poll-idle`: what the idle polls measured.
+    poll_idle: Option<String>,
     mcp: Option<String>,
     /// TEHAS_INDUSTRY_VERSION: the tehas-industry that runs this factory.
     industry: Option<String>,
@@ -336,11 +341,11 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
     // The whole answer of the read of the newest copy, which is what
     // `--backup` of `report` was given by the shell.
     let backup = ask(Step::Backup, &["backup", "--show"])?.map(|v| v.to_string());
-    let over = ask(
+    let idle = ask(
         Step::PollIdle,
         &["poll-idle", "--since", "3600", "--budget", budget],
-    )?
-    .map(|v| v["over"].to_string());
+    )?;
+    let over = idle.as_ref().map(|v| v["over"].to_string());
     // The shell's `tehas_store_get .over` of a read that answered is the empty
     // list when nothing is over budget, and the report keeps the entry it was
     // given; only a read that refused leaves it out. The budget goes with it
@@ -355,6 +360,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         backup,
         poll_over: over,
         poll_budget,
+        poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
         industry: env::var("TEHAS_INDUSTRY_VERSION").ok(),
     })
@@ -913,7 +919,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec>] [--mcp <json>] [--industry <version>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--industry <version>]"
         );
         2
     };
@@ -933,6 +939,7 @@ pub fn main(given: &[String]) -> u8 {
             "--backup" => g.backup = Some(v),
             "--poll-over" => g.poll_over = Some(v),
             "--poll-budget" => g.poll_budget = Some(v),
+            "--poll-idle" => g.poll_idle = Some(v),
             "--mcp" => g.mcp = Some(v),
             "--industry" => g.industry = Some(v),
             _ => return usage(),
@@ -1072,10 +1079,10 @@ fn rukas(live: &Path) -> J {
     }
 }
 
-/// `{version}` of the tehas-industry that runs this factory, with what its
-/// alerts file says. None for a factory with none, and for a value that is no
-/// version: either way health and the footer say nothing of an industry.
-fn industry(home: &Path, given: Option<&str>, now: i64) -> Option<(J, Alerts)> {
+/// `{version}` of the tehas-industry that runs this factory. None for a
+/// factory with none, and for a value that is no version: either way health
+/// and the footer say nothing of an industry.
+fn industry(given: Option<&str>) -> Option<J> {
     let v = given?;
     let rest = v.strip_prefix('v')?;
     let (core, pre) = rest.split_once('-').unwrap_or((rest, ""));
@@ -1083,110 +1090,7 @@ fn industry(home: &Path, given: Option<&str>, now: i64) -> Option<(J, Alerts)> {
     let digits = |p: &&str| (1..=6).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit());
     let pre_ok = pre.len() <= 32 && pre.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
     let shaped = parts.len() == 3 && parts.iter().all(digits) && pre_ok && !v.ends_with('-');
-    if !shaped {
-        return None;
-    }
-    let alerts = alerts(&home.join(ALERTS_FILE), now);
-    let mut f = vec![("version", J::str(v))];
-    match &alerts {
-        Alerts::Missing => f.push(("alerts", J::Null)),
-        Alerts::Unreadable => {
-            f.push(("alerts", J::Null));
-            f.push(("alertsUnreadable", J::Bool(true)));
-        }
-        Alerts::Read { time, stale, list } => {
-            f.push(("alertsTime", J::str(time.clone())));
-            f.push(("alerts", J::Arr(list.clone())));
-            f.push(("alertsStale", J::Bool(*stale)));
-        }
-    }
-    Some((obj(f), alerts))
-}
-
-/// Where tehas-industry writes its alerts about this factory on each pass.
-const ALERTS_FILE: &str = "state/industry/alerts.json";
-/// The industry's alerts are not current after this.
-const ALERTS_MAX_AGE: i64 = 300;
-/// The most alerts health carries; the industry raises a handful at most.
-const ALERTS_MOST: usize = 20;
-/// The longest kind kept, in characters.
-const ALERT_KIND_MOST: usize = 64;
-
-/// What the industry's alerts file says.
-#[derive(Debug, PartialEq)]
-enum Alerts {
-    /// No file: the industry has not written one.
-    Missing,
-    /// A file that is not what tehas-industry writes: never "no alerts".
-    Unreadable,
-    /// The file as written at `time`, stale when older than ALERTS_MAX_AGE.
-    Read {
-        time: String,
-        stale: bool,
-        list: Vec<J>,
-    },
-}
-
-impl Alerts {
-    /// The alerts that hold now: none of a file that is stale or unreadable.
-    fn current(&self) -> &[J] {
-        match self {
-            Alerts::Read {
-                stale: false, list, ..
-            } => list,
-            _ => &[],
-        }
-    }
-}
-
-/// `{time, alerts: [{kind, since, text, link}]}` as tehas-industry writes it
-/// (tehas-app/tehas-industry#470). A kind this release does not know is kept
-/// by its word. A link that is no web address is null.
-fn alerts(path: &Path, now: i64) -> Alerts {
-    let bytes = match tehas_core::file::read_regular(path, tehas_core::file::READ_BOUND) {
-        Ok((b, _)) => b,
-        Err(tehas_core::file::ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
-            return Alerts::Missing
-        }
-        Err(_) => return Alerts::Unreadable,
-    };
-    let Some(f) = std::str::from_utf8(&bytes).ok().and_then(J::parse) else {
-        return Alerts::Unreadable;
-    };
-    let (Some(at), J::Arr(items)) = (f.get("time").as_str().and_then(rfc3339), f.get("alerts"))
-    else {
-        return Alerts::Unreadable;
-    };
-    let mut list = Vec::new();
-    for a in items.iter().take(ALERTS_MOST) {
-        let kind = a
-            .get("kind")
-            .as_str()
-            .map(flags::oneline)
-            .unwrap_or_default();
-        let since = a.get("since").as_str().and_then(rfc3339);
-        let (Some(text), Some(since)) = (a.get("text").as_str(), since) else {
-            return Alerts::Unreadable;
-        };
-        if kind.is_empty() || kind.chars().count() > ALERT_KIND_MOST {
-            return Alerts::Unreadable;
-        }
-        let link = match a.get("link").as_str() {
-            Some(l) if l.starts_with("https://") || l.starts_with("http://") => J::str(l),
-            _ => J::Null,
-        };
-        list.push(obj(vec![
-            ("kind", J::Str(kind)),
-            ("since", J::Str(time::iso(since))),
-            ("text", J::Str(flags::oneline(text))),
-            ("link", link),
-        ]));
-    }
-    Alerts::Read {
-        time: time::iso(at),
-        stale: now - at > ALERTS_MAX_AGE,
-        list,
-    }
+    shaped.then(|| obj(vec![("version", J::str(v))]))
 }
 
 /// Where `tehas host-message` keeps the factory's messages.
@@ -1248,43 +1152,6 @@ fn host_message_line(list: &[host_message::Message]) -> Option<String> {
     } else {
         shown.to_string()
     })
-}
-
-/// Seconds since the epoch of an RFC 3339 time: UTC or an offset, with or
-/// without a fraction of a second, which is dropped.
-fn rfc3339(s: &str) -> Option<i64> {
-    let (head, tail) = (s.get(..19)?, &s[19..]);
-    let tail = match tail.strip_prefix('.') {
-        Some(t) => {
-            let digits = t.bytes().take_while(u8::is_ascii_digit).count();
-            (digits > 0).then(|| &t[digits..])?
-        }
-        None => tail,
-    };
-    let at = epoch(&format!("{head}Z"))?;
-    if tail == "Z" || tail == "z" {
-        return Some(at);
-    }
-    let b = tail.as_bytes();
-    let sign = match b.first() {
-        Some(b'+') => 1,
-        Some(b'-') => -1,
-        _ => return None,
-    };
-    let num = |r: std::ops::Range<usize>| -> Option<i64> {
-        let p = tail.get(r)?;
-        p.bytes()
-            .all(|c| c.is_ascii_digit())
-            .then(|| p.parse().ok())?
-    };
-    if b.len() != 6 || b[3] != b':' {
-        return None;
-    }
-    let (hh, mm) = (num(1..3)?, num(4..6)?);
-    if hh > 23 || mm > 59 {
-        return None;
-    }
-    Some(at - sign * (hh * 3600 + mm * 60))
 }
 
 /// The slice as the last poll left it, when that poll is young enough. The
@@ -1369,7 +1236,7 @@ fn held_of(list: &J) -> Vec<J> {
 fn all_held(slice: &J, queue: &J) -> Option<String> {
     let held = slice.get(hold::KEY_HELD).items();
     let queued: Vec<String> = queue
-        .get("queued")
+        .get(queue_lists::QUEUED)
         .items()
         .iter()
         .map(|i| i.get("number").text())
@@ -1398,30 +1265,6 @@ fn all_held(slice: &J, queue: &J) -> Option<String> {
     ))
 }
 
-/// The four keys api/status.schema.json requires of the slots object.
-const SLOT_REQUIRED: [&str; 4] = ["containers", "containersHow", "cycles", "cyclesHow"];
-/// The two derivations a poll writes only for a setting that said `auto`. They
-/// are optional, so `slots_shape` adds them to the required four when the poll
-/// wrote them; only the names matter, not their order.
-const SLOT_DERIVED: [&str; 2] = ["cycle", "container"];
-/// The seven keys one derivation holds. `only` compares the names as a set, so
-/// the order here is for reading.
-const AUTO_KEYS: [&str; 7] = [
-    "bound",
-    "ceiling",
-    "containerMemory",
-    "cpus",
-    "cycleCpus",
-    "floored",
-    "slots",
-];
-/// The words a setting may ask for.
-const HOW_WORDS: [&str; 3] = ["auto", "fixed", "number"];
-/// The words for what gave a derived count its bound. The list is closed here
-/// as it is in api/status.schema.json, so a release that reads the host another
-/// way adds its word to both, not to one of them.
-const BOUND_WORDS: [&str; 4] = ["ceiling", "cpu", "host", "memory"];
-
 /// Whether <v> is the slots object api/status.schema.json promises: the four
 /// keys, their counts and their words, `cycle` and `container` when the poll
 /// derived them, and nothing else. The schema is the contract this enforces;
@@ -1439,30 +1282,30 @@ fn slots_shape(v: &J, text: Option<&str>) -> bool {
     /// of them its own type. A side that the setting gave no reading for is
     /// not there at all, which the caller allows.
     fn derivation(v: &J) -> bool {
-        only(v, &AUTO_KEYS)
-            && in_list(v.get("bound"), &BOUND_WORDS)
-            && count_of_slots(v.get("slots"))
-            && (v.get("cpus").is_null() || count_of_slots(v.get("cpus")))
-            && v.get("cycleCpus").as_str().is_some()
-            && v.get("containerMemory").as_str().is_some()
-            && v.get("ceiling").as_str().is_some()
-            && matches!(v.get("floored"), J::Bool(_))
+        only(v, &key::AUTO_KEYS)
+            && in_list(v.get(key::BOUND), &key::BOUND_WORDS)
+            && count_of_slots(v.get(key::SLOTS))
+            && (v.get(key::CPUS).is_null() || count_of_slots(v.get(key::CPUS)))
+            && v.get(key::CYCLE_CPUS).as_str().is_some()
+            && v.get(key::CONTAINER_MEMORY).as_str().is_some()
+            && v.get(key::CEILING).as_str().is_some()
+            && matches!(v.get(key::FLOORED), J::Bool(_))
     }
 
     // The four keys the schema requires, plus each side the poll derived.
-    let mut want: Vec<&str> = SLOT_REQUIRED.to_vec();
-    for k in SLOT_DERIVED {
+    let mut want: Vec<&str> = key::REQUIRED.to_vec();
+    for k in key::DERIVED {
         if !v.get(k).is_null() {
             want.push(k);
         }
     }
     only(v, &want)
-        && count_of_slots(v.get("cycles"))
-        && count_of_slots(v.get("containers"))
-        && in_list(v.get("cyclesHow"), &HOW_WORDS)
-        && in_list(v.get("containersHow"), &HOW_WORDS)
-        && (v.get("cycle").is_null() || derivation(v.get("cycle")))
-        && (v.get("container").is_null() || derivation(v.get("container")))
+        && count_of_slots(v.get(key::CYCLES))
+        && count_of_slots(v.get(key::CONTAINERS))
+        && in_list(v.get(key::CYCLES_HOW), &key::HOW_WORDS)
+        && in_list(v.get(key::CONTAINERS_HOW), &key::HOW_WORDS)
+        && (v.get(key::CYCLE).is_null() || derivation(v.get(key::CYCLE)))
+        && (v.get(key::CONTAINER).is_null() || derivation(v.get(key::CONTAINER)))
 }
 
 /// The demand as the last poll left it, when that poll is young enough.
@@ -1720,11 +1563,21 @@ fn ended_well(c: &J) -> bool {
 /// the table never disagree about which words they are.
 const NOT_AN_END: &str = tehas_core::grammar::NOT_AN_END;
 
+/// The word of an ending for a start that was refused before anything ran: no
+/// workspace, no container, no step, no usage. It names no failure of a cycle,
+/// so health leaves the ending out of `checks.failed` and says nothing of it as
+/// the last cycle's end. The store keeps the word in `endings.status` as the
+/// cycle reported it (`ending_status` maps only `NOT_ENDS`), and it is an end,
+/// so `failed_word` still returns it for a row health does name.
+const REFUSED: &str = "refused";
+
 /// Whether a row of the last ten counts for `checks.failed`: an object whose
 /// status is none of the ends that went well. A row that never ended is kept by
-/// that branch too, and named by the word `failed_word` gives it.
+/// that branch too, and named by the word `failed_word` gives it. A start that
+/// never ran is not a failed cycle, so `REFUSED` is kept out here, where both
+/// the list and the line of the last cycle are decided.
 fn a_failed_ending(e: &J) -> bool {
-    matches!(e, J::Obj(_)) && !ended_well(e)
+    matches!(e, J::Obj(_)) && !ended_well(e) && !in_list(e.get("status"), &[REFUSED])
 }
 
 /// The word health shows for an ending: the status it reported for one that
@@ -1770,6 +1623,72 @@ fn joined(v: &J) -> String {
         .join(", ")
 }
 
+/// The line of idle polls over their budget: the figures over it and the
+/// budget, then from the store's answer what each of those figures measured,
+/// in the unit of the budget, and how many of the polls were over it.
+fn over_budget_line(cost: &J, idle: &J) -> String {
+    let budget = cost.get("budget").text();
+    let head = format!(
+        "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={budget})",
+        joined(cost.get("over"))
+    );
+    let figures: Vec<String> = cost
+        .get("over")
+        .items()
+        .iter()
+        .filter_map(|name| {
+            let name = name.as_str()?;
+            let (key, unit) = match name {
+                "cpu" => ("cpu_ms", " s"),
+                "wall" => ("wall_ms", " s"),
+                "writes" => ("writes", ""),
+                _ => return None,
+            };
+            let median = idle.get(key).as_f64()? as i64;
+            let median = if unit.is_empty() {
+                median.to_string()
+            } else {
+                seconds(median)
+            };
+            let mut said = format!("{name} had a median of {median}{unit}");
+            if let Some(limit) = budget_of(&budget, name) {
+                said.push_str(&format!(" against {limit}{unit}"));
+            }
+            if let Some(n) = idle.at(&["over_polls", name]).as_f64() {
+                said.push_str(&format!(" and {} over it", n as i64));
+            }
+            Some(said)
+        })
+        .collect();
+    match idle.get("polls").as_f64().map(|p| p as i64) {
+        Some(polls) if polls > 0 && !figures.is_empty() => format!(
+            "{head}: of the last hour's {polls} idle poll{}, {}.",
+            if polls == 1 { "" } else { "s" },
+            figures.join("; ")
+        ),
+        _ => format!("{head}."),
+    }
+}
+
+/// Milliseconds as seconds, with no more decimals than they need.
+fn seconds(ms: i64) -> String {
+    let frac = format!("{:03}", ms.rem_euclid(1000));
+    let frac = frac.trim_end_matches('0');
+    let whole = ms.div_euclid(1000);
+    if frac.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole}.{frac}")
+    }
+}
+
+/// The value one figure of a `TEHAS_POLL_BUDGET` spec gives, as written.
+fn budget_of(spec: &str, name: &str) -> Option<String> {
+    spec.split(',')
+        .find_map(|part| part.split_once('=').filter(|(k, _)| *k == name))
+        .map(|(_, v)| v.to_string())
+}
+
 /// The limit as `flags::read` reads it. A reading the page cannot parse is
 /// unreadable, as it is to every other reader, never nothing.
 fn limit(home: &Path, now: i64) -> J {
@@ -1813,20 +1732,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
     let order = order(home);
-    let (industry_check, alerts) = match industry(home, g.industry.as_deref(), now) {
-        Some((c, a)) => (Some(c), a),
-        None => (None, Alerts::Missing),
-    };
-    // The first alert the industry raised says why, in its own words.
-    let alert_line = alerts.current().first().map(|a| {
-        let text = a.get("text").text_or_empty();
-        if text.is_empty() {
-            format!("The industry raised an alert: {}.", a.get("kind").text())
-        } else {
-            text
-        }
-    });
-    let alerts_unreadable = alerts == Alerts::Unreadable;
+    let industry_check = industry(g.industry.as_deref());
     let (host_messages_check, host_messages) = host_messages(home);
     let message_line = host_messages.as_deref().and_then(host_message_line);
     let messages_unreadable = host_messages.is_none();
@@ -1897,6 +1803,9 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let zero = J::num(0.0);
     let failed = !last.is_null()
         && !ended_well(&last)
+        // A start that was refused ran nothing, so it is no failed cycle: the
+        // same rule `a_failed_ending` applies to the list of the last ten.
+        && !in_list(last.get("status"), &[REFUSED])
         && !running.items().iter().any(|c| {
             // A cycle of no known start is running now.
             c.get("startedAt").is_null()
@@ -1967,8 +1876,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let status = if queue.is_null() || failed {
         "fail"
     } else if old_queue
-        || alert_line.is_some()
-        || alerts_unreadable
         || message_line.is_some()
         || messages_unreadable
         || paused
@@ -2013,8 +1920,6 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             github_fails::WINDOW / 60,
             github.last.as_ref().map_or("", |(_, l)| l.as_str())
         )
-    } else if let Some(line) = alert_line {
-        line
     } else if let Some(line) = message_line {
         line
     } else if paused {
@@ -2094,18 +1999,15 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             ),
         }
     } else if over_budget {
-        format!(
-            "An idle poll is over its budget on {} (TEHAS_POLL_BUDGET={}).",
-            joined(poll_cost.get("over")),
-            poll_cost.get("budget").text()
+        over_budget_line(
+            &poll_cost,
+            &g.poll_idle.as_deref().and_then(J::parse).unwrap_or(J::Null),
         )
     } else if mcp_silent {
         format!(
             "The MCP server does not answer: {}.",
             mcp.get("reason").text()
         )
-    } else if alerts_unreadable {
-        format!("The industry's alerts cannot be read: {ALERTS_FILE} is not what tehas-industry writes.")
     } else if messages_unreadable {
         format!("The host messages cannot be read: {HOST_MESSAGES_FILE}")
     } else if !unlinked.is_empty() {
@@ -2141,10 +2043,10 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         let mut q = vec![
             ("time", queue_at.clone()),
             ("paused", J::Bool(paused)),
-            ("inLine", count("queued")),
-            ("building", count("running")),
-            ("review", count("awaiting")),
-            ("stopped", count("stopped")),
+            ("inLine", count(queue_lists::QUEUED)),
+            ("building", count(queue_lists::RUNNING)),
+            ("review", count(queue_lists::AWAITING)),
+            ("stopped", count(queue_lists::STOPPED)),
         ];
         if !queue.get("stale").is_null() {
             q.push(("stale", queue.get("stale").clone()));
@@ -2854,6 +2756,84 @@ mod tests {
     }
 
     #[test]
+    fn the_slots_words_of_core_are_the_ones_the_schema_closes() {
+        // api/status.schema.json is the public contract; the gate and the
+        // dispatcher read the same lists from tehas_core::hold::slots. A word
+        // or a key added to one and not the other fails here.
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../api/status.schema.json")).unwrap();
+        let o = &schema["properties"]["room"]["properties"]["slots"];
+        let set = |v: &Value| {
+            let mut w: Vec<String> = match v {
+                Value::Array(a) => a.iter().map(|s| s.as_str().unwrap().to_string()).collect(),
+                Value::Object(m) => m.keys().cloned().collect(),
+                _ => panic!("{v}"),
+            };
+            w.sort();
+            w
+        };
+        let of = |a: &[&str]| {
+            let mut w: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+            w.sort();
+            w
+        };
+        let mut all = key::REQUIRED.to_vec();
+        all.extend(key::DERIVED);
+        assert_eq!(set(&o["required"]), of(&key::REQUIRED));
+        assert_eq!(set(&o["properties"]), of(&all));
+        assert_eq!(o["additionalProperties"], Value::Bool(false));
+        for how in [key::CYCLES_HOW, key::CONTAINERS_HOW] {
+            assert_eq!(set(&o["properties"][how]["enum"]), of(&key::HOW_WORDS));
+        }
+        for side in key::DERIVED {
+            let d = &o["properties"][side];
+            assert_eq!(set(&d["required"]), of(&key::AUTO_KEYS));
+            assert_eq!(set(&d["properties"]), of(&key::AUTO_KEYS));
+            assert_eq!(d["additionalProperties"], Value::Bool(false));
+            assert_eq!(
+                set(&d["properties"][key::BOUND]["enum"]),
+                of(&key::BOUND_WORDS)
+            );
+        }
+    }
+
+    #[test]
+    fn the_gate_takes_every_bound_the_dispatcher_writes() {
+        // Each bound the producer can reach: memory and cpu, the ceiling, and
+        // no reading at all. A word the producer gains and the gate does not
+        // know would drop the whole slots line from the status.
+        use tehas_dispatch::slots::{derive, Probe};
+        const G: u64 = 1_073_741_824;
+        let mut seen = Vec::new();
+        for p in [
+            Probe::read(Some(48 * G), Some(24), "8g", "4", ""),
+            Probe::read(Some(512 * G), Some(256), "8g", "4", "3"),
+            Probe::read(None, None, "8g", "4", ""),
+        ] {
+            for (c, k) in [("auto", "auto"), ("auto", "5"), ("x", "auto")] {
+                let Some(r) = derive(&p, c, k).report() else {
+                    continue;
+                };
+                let text = r.to_string();
+                assert!(
+                    slots_shape(&J::parse(&text).unwrap(), Some(&text)),
+                    "{text}"
+                );
+                for side in key::DERIVED {
+                    if let Some(b) = r[side][key::BOUND].as_str() {
+                        seen.push(b.to_string());
+                    }
+                }
+            }
+        }
+        seen.sort();
+        seen.dedup();
+        let mut want: Vec<String> = key::BOUND_WORDS.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        assert_eq!(seen, want);
+    }
+
+    #[test]
     fn the_shape_of_the_polls_own_slots_is_the_one_the_gate_takes() {
         // The gate's contract is the object the dispatcher writes, so the
         // producer is the witness. `slots_of` is this file's own copy of the
@@ -3218,58 +3198,6 @@ mod tests {
         assert_eq!(said(&r).0, "pass");
     }
 
-    /// The report of a factory run by an industry, with <file> as the
-    /// industry's alerts, or none.
-    fn with_alerts(h: &Home, file: Option<&str>) -> J {
-        let path = h.0.join("state/industry/alerts.json");
-        match file {
-            Some(text) => {
-                fs::create_dir_all(path.parent().unwrap()).unwrap();
-                fs::write(&path, text).unwrap();
-            }
-            None => {
-                let _ = fs::remove_file(&path);
-            }
-        }
-        h.report(&Given {
-            industry: Some("v0.9.0".to_string()),
-            ..Given::default()
-        })
-    }
-
-    fn alerts_file(time: &str, alerts: &str) -> String {
-        format!(r#"{{"time":"{time}","alerts":{alerts}}}"#)
-    }
-
-    #[test]
-    fn the_industrys_alerts_are_read_only_for_a_factory_with_an_industry() {
-        let h = home("alerts-none");
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused for 4 h.","link":"https://industry.example/f/1"}]"#,
-        );
-        fs::create_dir_all(h.0.join("state/industry")).unwrap();
-        h.write("state/industry/alerts.json", &file);
-        // No industry: the file is not read and the status is as before.
-        let r = h.report(&Given::default());
-        assert!(r.at(&["checks", "industry"]).is_null());
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        // An industry with no file yet: null, not an empty list.
-        let r = with_alerts(&h, None);
-        assert_eq!(
-            r.at(&["checks", "industry"]).dump(),
-            r#"{"version":"v0.9.0","alerts":null}"#
-        );
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        // An empty list: nothing to say.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T14:00:00Z", "[]")));
-        assert_eq!(
-            r.at(&["checks", "industry"]).dump(),
-            r#"{"version":"v0.9.0","alertsTime":"2026-10-17T14:00:00Z","alerts":[],"alertsStale":false}"#
-        );
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-    }
-
     fn message(id: &str, level: &str, text: &str) -> String {
         format!(
             r#"{{"id":"{id}","level":"{level}","text":"{text}","link":null,"at":"2026-10-17T13:00:00Z"}}"#
@@ -3350,25 +3278,6 @@ mod tests {
     }
 
     #[test]
-    fn a_current_alert_is_said_before_a_host_message() {
-        let h = home("messages-alerts");
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused for 4 h.","link":null}]"#,
-        );
-        h.write(
-            "state/host-messages.json",
-            &format!(
-                r#"{{"api":1,"messages":[{}]}}"#,
-                message("move", "alert", "Moving at 18:00")
-            ),
-        );
-        let r = with_alerts(&h, Some(&file));
-        assert_eq!(said(&r), ("warn".into(), "Paused for 4 h.".into()));
-        assert_eq!(r.at(&["checks", "hostMessages", "list"]).len(), 1);
-    }
-
-    #[test]
     fn a_host_message_line_leaves_out_direction_overrides() {
         let h = home("messages-bidi");
         let r = with_messages(&h, &[message("x", "warn", "a\u{202e}b\u{200b}c")]);
@@ -3378,127 +3287,6 @@ mod tests {
             said(&r),
             ("warn".into(), "The host message x is set.".into())
         );
-    }
-
-    #[test]
-    fn each_kind_of_alert_warns_with_its_text() {
-        let h = home("alerts-kinds");
-        for (kind, text) in [
-            ("paused", "Paused for 4 h by the industry."),
-            ("frozen", "Frozen since the move: 3 h."),
-            ("held-by-one", "#12 has held the factory still for 2 h."),
-            ("flooded", "A kind this release does not know."),
-        ] {
-            let file = alerts_file(
-                "2026-10-17T14:00:00Z",
-                &format!(
-                    r#"[{{"kind":"{kind}","since":"2026-10-17T10:00:00+02:00","text":"{text}","link":"https://industry.example/f/1"}},{{"kind":"paused","since":"2026-10-17T09:00:00Z","text":"second","link":"javascript:alert(1)"}}]"#
-                ),
-            );
-            let r = with_alerts(&h, Some(&file));
-            assert_eq!(said(&r), ("warn".into(), text.into()), "{kind}");
-            assert_eq!(
-                r.at(&["checks", "industry", "alerts"]).dump(),
-                format!(
-                    r#"[{{"kind":"{kind}","since":"2026-10-17T08:00:00Z","text":"{text}","link":"https://industry.example/f/1"}},{{"kind":"paused","since":"2026-10-17T09:00:00Z","text":"second","link":null}}]"#
-                ),
-                "{kind}"
-            );
-        }
-        // The alert is said before the pause the factory itself knows of.
-        h.write(
-            "state/pause.json",
-            r#"{"at":"2026-10-17T13:00:00Z","reason":"weekend"}"#,
-        );
-        let file = alerts_file(
-            "2026-10-17T14:00:00Z",
-            r#"[{"kind":"paused","since":"2026-10-17T10:00:00Z","text":"Paused\nfor 4 h.","link":"https://industry.example/f/1"}]"#,
-        );
-        assert_eq!(
-            said(&with_alerts(&h, Some(&file))),
-            ("warn".into(), "Paused for 4 h.".into())
-        );
-    }
-
-    #[test]
-    fn a_stale_alerts_file_is_said_stale_and_its_alerts_are_not_current() {
-        let h = home("alerts-stale");
-        let alert = r#"[{"kind":"frozen","since":"2026-10-17T10:00:00Z","text":"Frozen.","link":"https://industry.example/f/1"}]"#;
-        // Five minutes and twenty seconds old.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T13:55:00Z", alert)));
-        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
-        assert!(r.at(&["checks", "industry", "alertsStale"]).is_true());
-        assert_eq!(r.at(&["checks", "industry", "alerts"]).len(), 1);
-        // A fraction of a second is read and a minute inside the bound is current.
-        let r = with_alerts(&h, Some(&alerts_file("2026-10-17T13:59:20.123Z", alert)));
-        assert_eq!(said(&r), ("warn".into(), "Frozen.".into()));
-        assert_eq!(
-            r.at(&["checks", "industry", "alertsTime"]).text(),
-            "2026-10-17T13:59:20Z"
-        );
-    }
-
-    #[test]
-    fn a_malformed_alerts_file_is_unreadable_never_no_alerts() {
-        let h = home("alerts-malformed");
-        let one = |a: &str| alerts_file("2026-10-17T14:00:00Z", &format!("[{a}]"));
-        for file in [
-            String::new(),
-            "{".to_string(),
-            "[]".to_string(),
-            r#"{"alerts":[]}"#.to_string(),
-            r#"{"time":"yesterday","alerts":[]}"#.to_string(),
-            r#"{"time":"2026-10-17T14:00:00Z","alerts":{}}"#.to_string(),
-            one(r#"{"since":"2026-10-17T10:00:00Z","text":"x","link":"https://a"}"#),
-            one(r#"{"kind":"","since":"2026-10-17T10:00:00Z","text":"x"}"#),
-            one(r#"{"kind":"paused","since":"soon","text":"x"}"#),
-            one(r#"{"kind":"paused","since":"2026-10-17T10:00:00Z","text":7}"#),
-            one(r#"{"kind":"paused","since":"2026-10-17T10:00:00+2:00","text":"x"}"#),
-            one(r#""paused""#),
-        ] {
-            let r = with_alerts(&h, Some(&file));
-            assert_eq!(
-                r.at(&["checks", "industry"]).dump(),
-                r#"{"version":"v0.9.0","alerts":null,"alertsUnreadable":true}"#,
-                "{file}"
-            );
-            assert_eq!(
-                said(&r),
-                (
-                    "warn".into(),
-                    "The industry's alerts cannot be read: state/industry/alerts.json is not what tehas-industry writes.".into()
-                ),
-                "{file}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_sample_alerts_file_of_the_api_is_read() {
-        let h = home("alerts-sample");
-        let sample = include_str!("../../../api/industry-alerts.sample.json");
-        let r = with_alerts(&h, Some(sample));
-        let alerts = r.at(&["checks", "industry", "alerts"]).items().to_vec();
-        let kinds: Vec<String> = alerts.iter().map(|a| a.get("kind").text()).collect();
-        assert_eq!(kinds, ["paused", "frozen", "held-by-one"]);
-        assert!(alerts.iter().all(|a| a.get("link").as_str().is_some()));
-    }
-
-    #[test]
-    fn rfc3339_times_are_read_in_utc() {
-        assert_eq!(rfc3339("2026-10-17T14:00:20Z"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T14:00:20.5Z"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T16:00:20+02:00"), Some(NOW));
-        assert_eq!(rfc3339("2026-10-17T13:30:20-00:30"), Some(NOW));
-        for bad in [
-            "",
-            "2026-10-17T14:00:20",
-            "2026-10-17T14:00:20.Z",
-            "2026-10-17T14:00:20+0200",
-            "2026-10-17 14:00:20Z",
-        ] {
-            assert_eq!(rfc3339(bad), None, "{bad}");
-        }
     }
 
     #[test]
@@ -3624,6 +3412,41 @@ mod tests {
             said(&h.report(&g)).1,
             "An idle poll is over its budget on cpu, wall (TEHAS_POLL_BUDGET=cpu=5)."
         );
+        // With the store's answer the line says what tripped: each figure's
+        // median in the unit of the budget, the budget, and how many of the
+        // idle polls were over it.
+        let g = Given {
+            poll_over: Some(r#"["cpu","wall"]"#.into()),
+            poll_budget: Some("cpu=5,wall=30,writes=0".into()),
+            poll_idle: Some(
+                r#"{"polls":12,"cpu_ms":7250,"wall_ms":41000,"writes":0,"over":["cpu","wall"],"over_polls":{"cpu":9,"wall":3}}"#
+                    .into(),
+            ),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)),
+            (
+                "warn".into(),
+                "An idle poll is over its budget on cpu, wall (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0): of the last hour's 12 idle polls, cpu had a median of 7.25 s against 5 s and 9 over it; wall had a median of 41 s against 30 s and 3 over it."
+                    .into()
+            )
+        );
+        let g = Given {
+            poll_over: Some(r#"["writes"]"#.into()),
+            poll_budget: Some("cpu=5,wall=30,writes=0".into()),
+            poll_idle: Some(
+                r#"{"polls":1,"cpu_ms":3000,"wall_ms":20000,"writes":2,"over":["writes"],"over_polls":{"writes":1}}"#
+                    .into(),
+            ),
+            ..Given::default()
+        };
+        assert_eq!(
+            said(&h.report(&g)).1,
+            "An idle poll is over its budget on writes (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0): of the last hour's 1 idle poll, writes had a median of 2 against 0 and 1 over it."
+        );
+        assert_eq!(seconds(5001), "5.001");
+        assert_eq!(seconds(6000), "6");
         // A store that did not answer is no check, never a passed one.
         assert_eq!(
             h.report(&Given::default()).at(&["checks", "poll_cost"]),
@@ -3833,6 +3656,55 @@ mod tests {
                 ("1".into(), "not an end".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_refused_start_is_no_failed_cycle_in_the_list_or_the_line() {
+        // A start tehas work refused ran nothing, so nothing of it failed:
+        // neither `checks.failed` nor `output` takes it for a failed cycle.
+        // `aborted` and a word that names no end still fail, so the rule is
+        // only ever about the one word.
+        let cases = [
+            ("refused", None, None),
+            (
+                "aborted",
+                Some("aborted"),
+                Some("The last cycle failed: #7 ended as aborted."),
+            ),
+            (
+                "running",
+                Some(NOT_AN_END),
+                Some("The last cycle failed: #7 ended as not an end."),
+            ),
+        ];
+        for (word, in_list, line) in cases {
+            let h = home(&format!("failed-{word}"));
+            h.write(
+                "live/running.json",
+                &format!(
+                    r#"{{"cycles":[],"last":{{"issue":7,"running":false,"status":"{word}","step":"-","startedAt":100,"updatedAt":200}}}}"#
+                ),
+            );
+            h.write(
+                "live/endings.json",
+                &format!(
+                    r#"[{{"issue":7,"status":"{word}","step":"-","startedAt":100,"endedAt":200}}]"#
+                ),
+            );
+            let r = h.report(&Given::default());
+            let failed: Vec<String> = r
+                .at(&["checks", "failed"])
+                .items()
+                .iter()
+                .map(|e| e.get("status").text())
+                .collect();
+            let want: Vec<String> = in_list.map(|w| vec![w.to_string()]).unwrap_or_default();
+            assert_eq!(failed, want, "{word}");
+            match line {
+                Some(s) => assert_eq!(said(&r), ("fail".into(), s.into()), "{word}"),
+                None => assert_ne!(r.get("status").text(), "fail", "{word}"),
+            }
+        }
     }
 
     #[test]

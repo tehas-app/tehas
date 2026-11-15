@@ -83,6 +83,7 @@ use std::time::{Duration, Instant};
 use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
 use tehas_core::github_fails;
+use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
 use tehas_core::time;
 
@@ -167,9 +168,9 @@ fn gh_write(args: &[&str]) -> bool {
 /// of what closed them: when the read fails, the run keeps these keys of the
 /// file before and says the part is stale.
 const QUEUE_PART: [&str; 7] = [
-    "queueAt", "running", "queued", "awaiting", "stopped", "planned", "planning",
+    "queueAt", RUNNING, QUEUED, AWAITING, STOPPED, PLANNED, "planning",
 ];
-const COMPLETED_PART: [&str; 3] = ["completedAt", "completed", "completedCount"];
+const COMPLETED_PART: [&str; 3] = ["completedAt", COMPLETED, "completedCount"];
 
 /// The snapshot with the parts named in `stale` taken from `previous`, the
 /// file it replaces: a key that file did not have is left out, and a `queueAt`
@@ -335,13 +336,12 @@ fn control(
 /// counts as paused and has nothing to say for itself beyond that. `by` stays
 /// out: the page can be public.
 fn host_pause_flag(file: &Path) -> (J, bool) {
-    if !file.exists() {
-        return (J::Null, false);
-    }
     // Read as no flag by the one reading of the file: it holds the factory and
     // says nothing more.
-    if crate::flags::read_pause(file).state() != "ok" {
-        return (obj(vec![("at", J::Null), ("reason", J::Null)]), true);
+    match crate::flags::read_pause(file).state() {
+        "none" => return (J::Null, false),
+        "ok" => {}
+        _ => return (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
     }
     let text = fs::read(file).ok().and_then(|b| String::from_utf8(b).ok());
     let flag = text.as_deref().and_then(J::parse);
@@ -566,27 +566,27 @@ fn snapshot(f: &Facts) -> Result<J, String> {
         ),
         ("allHands", f.switches.all_hands.map_or(J::Null, J::Bool)),
         ("noResources", J::Bool(f.no_resources)),
-        ("running", J::Arr(with(&|h| h.contains(&"tehas:running")))),
+        (RUNNING, J::Arr(with(&|h| h.contains(&"tehas:running")))),
         (
-            "queued",
+            QUEUED,
             J::Arr(sorted(
                 with(&|h| h.contains(&"tehas:ready") && !h.contains(&"tehas:running")),
                 "number",
             )),
         ),
         (
-            "awaiting",
+            AWAITING,
             J::Arr(with(&|h| h.contains(&"tehas:awaiting-merge"))),
         ),
         (
-            "stopped",
+            STOPPED,
             J::Arr(with(&|h| {
                 h.contains(&"needs-human-attention") && !h.contains(&"tehas:running")
             })),
         ),
-        ("planned", J::Arr(planned)),
+        (PLANNED, J::Arr(planned)),
         ("planning", planning),
-        ("completed", J::Arr(completed)),
+        (COMPLETED, J::Arr(completed)),
     ];
     if let Some(n) = &f.count {
         fields.push(("completedCount", n.clone()));
@@ -594,16 +594,16 @@ fn snapshot(f: &Facts) -> Result<J, String> {
     fields.push((
         "links",
         obj(vec![
-            ("queued", list("is:issue is:open label:tehas:ready")),
+            (QUEUED, list("is:issue is:open label:tehas:ready")),
             (
-                "awaiting",
+                AWAITING,
                 list("is:issue is:open label:tehas:awaiting-merge"),
             ),
             (
-                "stopped",
+                STOPPED,
                 list("is:issue is:open label:needs-human-attention"),
             ),
-            ("completed", list(&f.query)),
+            (COMPLETED, list(&f.query)),
             (
                 "all",
                 J::str(format!("https://github.com/{}/issues", f.repo)),
@@ -658,7 +658,7 @@ fn events(now_snapshot: &J, was: &J, issues: &J, issue_control: &str, now: i64) 
     };
     let mut out = Vec::new();
     if !was.is_null() {
-        for (key, event) in [("awaiting", "awaiting"), ("stopped", "stopped")] {
+        for (key, event) in [(AWAITING, "awaiting"), (STOPPED, "stopped")] {
             let old = numbers(was, key);
             for n in numbers(now_snapshot, key) {
                 if !holds(&old, n) {
@@ -671,8 +671,8 @@ fn events(now_snapshot: &J, was: &J, issues: &J, issue_control: &str, now: i64) 
             }
         }
     }
-    let old_done = numbers(was, "completed");
-    for issue in now_snapshot.get("completed").items() {
+    let old_done = numbers(was, COMPLETED);
+    for issue in now_snapshot.get(COMPLETED).items() {
         let new = was.is_null() || !holds(&old_done, issue.get("number"));
         if let (true, Some(at)) = (new, recent(issue)) {
             out.push(Change {
@@ -682,11 +682,11 @@ fn events(now_snapshot: &J, was: &J, issues: &J, issue_control: &str, now: i64) 
             });
         }
     }
-    let done = numbers(now_snapshot, "completed");
-    let awaiting = numbers(was, "awaiting");
-    let mut in_work = numbers(was, "queued");
-    in_work.extend(numbers(was, "running"));
-    in_work.extend(numbers(was, "stopped"));
+    let done = numbers(now_snapshot, COMPLETED);
+    let awaiting = numbers(was, AWAITING);
+    let mut in_work = numbers(was, QUEUED);
+    in_work.extend(numbers(was, RUNNING));
+    in_work.extend(numbers(was, STOPPED));
     in_work.retain(|n| !holds(&awaiting, n));
     for issue in each(issues).unwrap_or_default() {
         let n = issue.get("number");
@@ -1257,6 +1257,15 @@ mod tests {
     }
 
     #[test]
+    fn every_list_its_readers_name_is_in_the_snapshot() {
+        let issues = j("[]");
+        let s = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        for name in tehas_core::queue_lists::LISTS {
+            assert!(matches!(s.get(name), J::Arr(_)), "{name}");
+        }
+    }
+
+    #[test]
     fn the_lists_of_a_snapshot() {
         let issue = |n: u32, state: &str, label: &str| {
             format!(
@@ -1423,6 +1432,12 @@ mod tests {
             assert!(held, "{bad}");
             assert_eq!(flag.dump(), damaged, "{bad}");
         }
+        // A link whose target is gone holds too, as the dispatcher reads it.
+        fs::remove_file(&f).unwrap();
+        std::os::unix::fs::symlink(dir.join("gone.json"), &f).unwrap();
+        let (flag, held) = host_pause_flag(&f);
+        assert!(held);
+        assert_eq!(flag.dump(), damaged);
     }
 
     #[test]

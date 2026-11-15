@@ -40,7 +40,8 @@
 #
 # What `user` owns and will replace: Node, gh and Bun from release archives;
 # Pi, ctx7 and parallel-cli from the npm trees pinned in host/npm; Rust, vipune
-# and oo; codebase-memory-mcp; the pi-rukas clone, moved to the branch's head
+# and oo; codebase-memory-mcp; the pi-rukas clone, moved to the commit
+# PI_RUKAS_FOLLOW names (the newest tag of the line in versions.env by default)
 # on every run. System packages are not
 # pinned: `root` installs what the distribution offers and `check` only requires
 # them to be present.

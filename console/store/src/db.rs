@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -220,6 +220,38 @@ ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
 UPDATE approvals SET started_by = used_by, started_how = how,
                      started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
   WHERE used_by IS NOT NULL;
+";
+
+/// The step from 13 to 14: `cycles.how` takes 'host', the start of an approval
+/// `tehas start` recorded (#1967). The table is rebuilt as `STEP_4` rebuilds it,
+/// with foreign keys off (`step_14`), and every row is copied.
+pub(crate) const STEP_14: &str = "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1136,6 +1168,9 @@ pub fn write_schema(
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
+///
+/// The steps themselves are `STEPS` below, in the order they run, so that a
+/// new schema is one new entry there and not an edit to every arm of a match.
 pub fn migrate(
     conn: &mut Connection,
     file: &Path,
@@ -1160,93 +1195,68 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        1 => step(conn, 2, STEP_2)
-            .and_then(|()| step(conn, 3, STEP_3))
-            .and_then(|()| step_4(conn))
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        2 => step(conn, 3, STEP_3)
-            .and_then(|()| step_4(conn))
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        3 => step_4(conn)
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        4 => step(conn, 5, STEP_5)
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        5 => step(conn, 6, STEP_6)
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        6 => step(conn, 7, STEP_7)
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        7 => step(conn, 8, STEP_8)
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        8 => step(conn, 9, STEP_9)
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        9 => step(conn, 10, STEP_10)
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        // The store of the release before last sits at 10.
-        10 => step_11(conn)
-            .and_then(|()| step(conn, 12, STEP_12))
-            .and_then(|()| step(conn, 13, STEP_13)),
-        // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12).and_then(|()| step(conn, 13, STEP_13)),
-        // A store at 12 is one this binary wrote before the easy mark was kept
-        // on the approval: the step to 13 is all it needs.
-        12 => step(conn, 13, STEP_13),
+        // Every step above the schema the store was found at, in the order the
+        // list holds them, and none before it: a step that fails is the answer.
+        // A `from` outside 0..SCHEMA_VERSION -- the version of a later release,
+        // or a number no release wrote -- has no steps to run and is refused
+        // below.
+        from if from > 0 && from < SCHEMA_VERSION => {
+            for (to, run) in STEPS.iter().filter(|(to, _)| *to > from) {
+                run(conn).map_err(|e| at_step(e, *to, from))?;
+            }
+            Ok(())
+        }
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
         ))),
     }
 }
+
+/// What a step does to the connection: the same answer `step` gives.
+type Step = fn(&mut Connection) -> Result<(), DbError>;
+
+/// Which step gave up on the way from `from`, for the line the caller reads.
+/// `step` names the schema it expected in the file; a step with work around the
+/// transaction -- the VACUUM of `step_4` -- says only that the batch failed, so
+/// without this the caller cannot tell one step from another.
+fn at_step(e: DbError, to: i64, from: i64) -> DbError {
+    DbError::Corrupt(format!(
+        "the step from schema {from} to {to} failed: {}",
+        e.detail().unwrap_or_else(|| e.word().to_string())
+    ))
+}
+
+/// One schema step: the schema it brings the store to, and the function that
+/// runs it. A plain step is a closure over `step` and its SQL; a step with work
+/// around the transaction is named as it is.
+///
+/// The order of the list is the order the steps run, so it must stay sorted by
+/// target: `schema_tests` asserts the targets are exactly `2..=SCHEMA_VERSION`,
+/// each once, so a step out of order or left out fails the build rather than a
+/// host's migration.
+pub(crate) const STEPS: &[(i64, Step)] = &[
+    (2, |c| step(c, 2, STEP_2)),
+    (3, |c| step(c, 3, STEP_3)),
+    (4, step_4),
+    (5, |c| step(c, 5, STEP_5)),
+    (6, |c| step(c, 6, STEP_6)),
+    (7, |c| step(c, 7, STEP_7)),
+    (8, |c| step(c, 8, STEP_8)),
+    (9, |c| step(c, 9, STEP_9)),
+    (10, |c| step(c, 10, STEP_10)),
+    // The store of the release before last sits at 10, so the step to 11 is
+    // where its migration starts.
+    (11, step_11),
+    // The store of the previous release sits at 11.
+    (12, |c| step(c, 12, STEP_12)),
+    // A store at 12 is one this binary wrote before the easy mark was kept on
+    // the approval: the steps to 13 and 14 are all it needs.
+    (13, |c| step(c, 13, STEP_13)),
+    // A store at 13 is one this binary wrote before `cycles.how` took 'host':
+    // the step to 14 is all it needs.
+    (14, step_14),
+];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
 /// `user_version`: a failure commits nothing and leaves the store where it
@@ -1301,6 +1311,17 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 4, STEP_4);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 14, run as `step_4` runs its rebuild of `cycles`.
+fn step_14(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 14, STEP_14);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

@@ -1611,10 +1611,21 @@ mod tests {
         // The count is the whole of the answer on a host whose daemon listed
         // nothing: no container is held back, so the list of them is left out
         // rather than printed empty, the way every field with nothing in it is.
-        assert!(
-            full["full"].get("containers").is_none(),
-            "no listing is no list: {full}"
-        );
+        // A host of these tests may have a daemon that holds some back (a CI
+        // runner does), so the rule is pinned both ways: the list is there
+        // exactly when the count is not none, and it holds that many.
+        let stopped = full["full"]["stoppedContainers"].as_u64().unwrap();
+        match full["full"].get("containers") {
+            None => assert_eq!(stopped, 0, "no listing is no list: {full}"),
+            Some(list) => {
+                assert!(stopped > 0, "an empty listing is left out: {full}");
+                assert_eq!(
+                    list.as_array().map(Vec::len),
+                    Some(stopped as usize),
+                    "{full}"
+                );
+            }
+        }
     }
 
     // The scratch disk is the fourth file system, and it is named only when

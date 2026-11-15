@@ -61,38 +61,76 @@ fn status_of(s: std::process::ExitStatus) -> i32 {
         .unwrap_or(127)
 }
 
+/// Why a verb gave no answer. Said on the issue, so it names no host path.
+#[derive(Debug, PartialEq)]
+pub enum NoAnswer {
+    NotInstalled,
+    NotRun,
+    TimedOut,
+    Exited(i32),
+    Unusable,
+}
+
+impl NoAnswer {
+    pub fn says(&self, verb: &str) -> String {
+        match self {
+            NoAnswer::NotInstalled => "the attachment checker is not installed".to_string(),
+            NoAnswer::NotRun => format!("attach: {verb} could not be run"),
+            NoAnswer::TimedOut => {
+                format!("attach: {verb} did not answer within {ASK_SECS} seconds")
+            }
+            NoAnswer::Exited(rc) => format!("attach: {verb} exited {rc}"),
+            NoAnswer::Unusable => format!("attach: {verb} gave no answer that could be read"),
+        }
+    }
+}
+
+const ASK_SECS: u64 = 60;
+
 /// One verb that fetches nothing, within 60 s: its answer when it is one line
 /// with api 1, ok and that verb. What it says on its error stream is part of
 /// the line, so a program that complains gives no answer.
-fn ask(home: &Path, verb: &str, args: &[String]) -> Option<Value> {
-    let bin = attach(home)?;
-    let (mut reader, writer) = std::io::pipe().ok()?;
+fn ask(home: &Path, verb: &str, args: &[String]) -> Result<Value, NoAnswer> {
+    ask_within(home, verb, args, ASK_SECS)
+}
+
+fn ask_within(home: &Path, verb: &str, args: &[String], secs: u64) -> Result<Value, NoAnswer> {
+    let bin = attach(home).ok_or(NoAnswer::NotInstalled)?;
+    let (mut reader, writer) = std::io::pipe().map_err(|_| NoAnswer::NotRun)?;
     let child = {
         let mut cmd = Command::new("timeout");
-        cmd.args(["-k", "2", "60"])
+        cmd.args(["-k", "2", &secs.to_string()])
             .arg(&bin)
             .arg(verb)
             .args(args)
             .stdin(Stdio::null())
-            .stdout(writer.try_clone().ok()?)
+            .stdout(writer.try_clone().map_err(|_| NoAnswer::NotRun)?)
             .stderr(writer);
         cmd.spawn()
     };
-    let mut child = child.ok()?;
+    let mut child = child.map_err(|_| NoAnswer::NotRun)?;
     let mut out = String::new();
     let _ = reader.read_to_string(&mut out);
-    if !child.wait().ok()?.success() {
-        return None;
+    let status = child.wait().map_err(|_| NoAnswer::NotRun)?;
+    // timeout's own statuses: 124 after TERM, 137 after the KILL of -k.
+    match status_of(status) {
+        0 => {}
+        124 | 137 => return Err(NoAnswer::TimedOut),
+        rc => return Err(NoAnswer::Exited(rc)),
     }
     let line = out.trim_end_matches('\n');
     if line.contains('\n') {
-        return None;
+        return Err(NoAnswer::Unusable);
     }
-    let v: Value = serde_json::from_str(line).ok()?;
+    let v: Value = serde_json::from_str(line).map_err(|_| NoAnswer::Unusable)?;
     let ok = v.get("api").and_then(Value::as_f64) == Some(1.0)
         && v.get("ok") == Some(&Value::Bool(true))
         && v.get("verb").and_then(Value::as_str) == Some(verb);
-    ok.then_some(v)
+    if ok {
+        Ok(v)
+    } else {
+        Err(NoAnswer::Unusable)
+    }
 }
 
 /// A field as `jq -r '.<key> // ""'` prints it.
@@ -299,9 +337,12 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
         "--millwright".into(),
         env("TEHAS_MILLWRIGHT_LOGIN"),
     ];
-    let Some(answer) = ask(home, "comments", &args) else {
-        return Err("the issue's comments could not be written".to_string());
-    };
+    let answer = ask(home, "comments", &args).map_err(|no| {
+        format!(
+            "the issue's comments could not be written ({})",
+            no.says("comments")
+        )
+    })?;
     match word(&answer, "why") {
         why if why.is_empty() => Ok(()),
         why => Err(why),
@@ -364,9 +405,12 @@ pub fn changed(home: &Path, kept: &Path, dir: &Path) -> Result<(), String> {
         }
     }
     let args = [kept, &manifest].map(|p| p.to_string_lossy().into_owned());
-    let Some(answer) = ask(home, "changed", &args) else {
-        return Err("the kept manifest could not be compared".to_string());
-    };
+    let answer = ask(home, "changed", &args).map_err(|no| {
+        format!(
+            "the kept manifest could not be compared ({})",
+            no.says("changed")
+        )
+    })?;
     match word(&answer, "link") {
         link if link.is_empty() => Ok(()),
         link => Err(format!(
@@ -381,8 +425,9 @@ pub enum Gap {
     Said(String),
     /// No record, an issue that links nothing, a link in place of the file.
     Nothing,
-    /// A record that could not be read, or a manifest that could not be written.
-    Unread,
+    /// No answer, and why. Exited: the program could not read the record or
+    /// the kept manifest, or write <file>.
+    Unread(NoAnswer),
 }
 
 pub fn left_out(home: &Path, issue: u64, file: &Path, record: &str) -> Gap {
@@ -399,8 +444,8 @@ pub fn left_out(home: &Path, issue: u64, file: &Path, record: &str) -> Gap {
         env_or("TEHAS_WORK_FILES", "0"),
     ];
     match ask(home, "left-out", &args) {
-        None => Gap::Unread,
-        Some(a) => match word(&a, "gap") {
+        Err(no) => Gap::Unread(no),
+        Ok(a) => match word(&a, "gap") {
             gap if gap.is_empty() => Gap::Nothing,
             gap => Gap::Said(gap),
         },
@@ -474,7 +519,8 @@ fn shaped(v: &Value, key: &str, ok: impl Fn(&str) -> bool) -> bool {
 /// The person's approval a record rests on, {at, by, how, body_sha256}: the
 /// record's own when a person gave it, its rests_on when the millwright or a
 /// refresh did. None for a missing record, a link, a shape it does not know, or
-/// an account that is not allowed now.
+/// an account that is not allowed now. The host's approval (#1967) names no
+/// account to allow: its kind is what makes it a base.
 pub fn millwright_base(record: &str) -> Option<Value> {
     if !is_record(record) {
         return None;
@@ -498,12 +544,13 @@ fn base(r: &Value, allowed: &str) -> Option<Value> {
     }) && shaped(base, "by", |s| {
         s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
     }) && shaped(base, "how", |s| {
-        matches!(s, "label" | "retry-tick" | "outage-retry")
+        matches!(s, "label" | "retry-tick" | "outage-retry" | "host")
     }) && shaped(base, "body_sha256", |s| {
         s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
     });
     let by = base.get("by").and_then(Value::as_str)?;
-    (ok && events::allowed_in(allowed, by)).then(|| {
+    let host = base.get("how").and_then(Value::as_str) == Some("host");
+    (ok && (host || events::allowed_in(allowed, by))).then(|| {
         let field = |k: &str| base.get(k).cloned().unwrap_or(Value::Null);
         json!({"at": field("at"), "by": field("by"), "how": field("how"),
             "body_sha256": field("body_sha256")})
@@ -599,6 +646,20 @@ mod tests {
             assert_eq!(got["by"], "alice");
             assert_eq!(got["how"], "label");
         }
+    }
+
+    /// #1967: the host's approval is a base with no account on the list.
+    #[test]
+    fn the_hosts_approval_is_a_base_without_an_allowed_account() {
+        let mut host = person("host");
+        host["how"] = json!("host");
+        let fixer = json!({"at": "2026-10-02T00:00:00Z", "by": "tehas-fixer", "how": "fixer",
+            "body_sha256": "a".repeat(64), "fixer_starts": 1, "rests_on": host.clone()});
+        for shape in [host, fixer] {
+            let got = base(&shape, "alice").expect("an approval");
+            assert_eq!(got["how"], "host");
+        }
+        assert!(base(&person("host"), "alice").is_none());
     }
 
     #[test]
@@ -749,7 +810,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             changed(&d, &kept, &dir),
-            Err("the kept manifest could not be compared".to_string())
+            Err(
+                "the kept manifest could not be compared (the attachment checker is not installed)"
+                    .to_string()
+            )
         );
         // No kept manifest: nothing to compare.
         fs::remove_file(&kept).unwrap();
@@ -764,12 +828,94 @@ mod tests {
         let file = d.join("left.json");
         assert!(matches!(
             left_out(&d, 7, &file, &record.to_string_lossy()),
-            Gap::Unread
+            Gap::Unread(NoAnswer::NotInstalled)
         ));
         let none = d.join("no-such-record");
         assert!(matches!(
             left_out(&d, 7, &file, &none.to_string_lossy()),
             Gap::Nothing
+        ));
+    }
+
+    /// A home whose libexec/attach is the shell script <body>.
+    fn with_program(name: &str, body: &str) -> TestDir {
+        let d = scratch(name);
+        let bin = d.join("libexec/attach");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_program_that_does_not_answer_in_time_is_told_from_one_that_answers_wrong() {
+        let d = with_program("slow", "sleep 5");
+        assert_eq!(ask_within(&d, "changed", &[], 1), Err(NoAnswer::TimedOut));
+        for (body, no) in [
+            ("exit 124", NoAnswer::TimedOut),
+            ("exit 3", NoAnswer::Exited(3)),
+            ("echo nonsense", NoAnswer::Unusable),
+            ("", NoAnswer::Unusable),
+            (
+                r#"echo '{"api":1,"ok":true,"verb":"other"}'"#,
+                NoAnswer::Unusable,
+            ),
+            (
+                r#"echo '{"api":1,"ok":false,"verb":"changed"}'"#,
+                NoAnswer::Unusable,
+            ),
+            (
+                r#"echo '{"api":1,"ok":true,"verb":"changed"}'; echo more"#,
+                NoAnswer::Unusable,
+            ),
+        ] {
+            let d = with_program("wrong", body);
+            assert_eq!(ask(&d, "changed", &[]), Err(no), "{body}");
+        }
+        let d = with_program("right", r#"echo '{"api":1,"ok":true,"verb":"changed"}'"#);
+        assert!(ask(&d, "changed", &[]).is_ok());
+    }
+
+    #[test]
+    fn why_a_compare_got_no_answer_is_in_the_reason_and_names_no_path() {
+        let kept_of = |d: &Path| {
+            let dir = d.join("images");
+            fs::create_dir_all(&dir).unwrap();
+            let kept = d.join("kept.json");
+            fs::write(&kept, r#"{"images":[]}"#).unwrap();
+            (kept, dir)
+        };
+        for (body, why) in [
+            (
+                "exit 124",
+                "attach: changed did not answer within 60 seconds",
+            ),
+            ("exit 2", "attach: changed exited 2"),
+            (
+                "echo nonsense",
+                "attach: changed gave no answer that could be read",
+            ),
+        ] {
+            let d = with_program("compare", body);
+            let (kept, dir) = kept_of(d.path());
+            let got = changed(&d, &kept, &dir).unwrap_err();
+            assert_eq!(
+                got,
+                format!("the kept manifest could not be compared ({why})")
+            );
+            assert!(!got.contains(&*d.to_string_lossy()), "{got}");
+        }
+        let d = with_program("comments", "exit 124");
+        assert_eq!(
+            comments_only(&d, 7, &d.join("images"), "record"),
+            Err("the issue's comments could not be written (attach: comments did not answer within 60 seconds)".to_string())
+        );
+        let d = with_program("gap", "exit 124");
+        let record = d.join("record.json");
+        fs::write(&record, "{}").unwrap();
+        assert!(matches!(
+            left_out(&d, 7, &d.join("left.json"), &record.to_string_lossy()),
+            Gap::Unread(NoAnswer::TimedOut)
         ));
     }
 }

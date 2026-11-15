@@ -293,6 +293,15 @@ not json|the model endpoint offers no models
 {"data":[{"id":"other"}]}|the model endpoint does not offer test-model
 CASES
 
+t_case "no resources: an endpoint that refuses the request is said to, with its HTTP code"
+reset
+mesh
+t_stub curl 'cat >/dev/null; echo "curl: (22) The requested URL returned error: 401" >&2; exit 22'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: the model endpoint refused the request with HTTP 401"]'
+mesh_curl
+
 t_case "a role's own model the endpoint does not offer holds the start, and the endpoint is asked once"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model

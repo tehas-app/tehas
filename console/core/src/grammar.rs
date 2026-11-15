@@ -71,6 +71,30 @@ pub fn an_end(word: &str) -> bool {
 /// removes the old word, and with it the arm of each match that needs it.
 pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
 
+/// The fewest characters an MCP API key has.
+pub const MCP_KEY_MIN: usize = 32;
+
+/// The keys of one MCP key setting, split on any whitespace, each at least
+/// [`MCP_KEY_MIN`] characters of `A-Za-z0-9_-`. The MCP server reads its
+/// lists with this, and the console reads the same settings with it before it
+/// starts the server's container, so the two never disagree about a list. The
+/// error names the setting and the key's place, never the key.
+pub fn mcp_keys<'a>(raw: &'a str, setting: &str) -> Result<Vec<&'a str>, String> {
+    let keys: Vec<&str> = raw.split_whitespace().collect();
+    for (i, k) in keys.iter().enumerate() {
+        let ok = k.len() >= MCP_KEY_MIN
+            && k.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        if !ok {
+            return Err(format!(
+                "{setting}: key {} is not at least {MCP_KEY_MIN} characters of A-Za-z0-9_-",
+                i + 1,
+            ));
+        }
+    }
+    Ok(keys)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +125,25 @@ mod tests {
     }
 
     #[test]
+    fn mcp_keys_split_on_any_whitespace_and_name_a_bad_one_by_place() {
+        let key = "abcdefghijklmnopqrstuvwxyz012345";
+        assert_eq!(mcp_keys("", "X"), Ok(vec![]));
+        assert_eq!(mcp_keys(" \t\r\n", "X"), Ok(vec![]));
+        assert_eq!(mcp_keys(key, "X"), Ok(vec![key]));
+        for sep in [" ", "\t", "\n", "\r\n", "\x0b", "\x0c"] {
+            let two = format!("{key}{sep}{key}");
+            assert_eq!(mcp_keys(&two, "X"), Ok(vec![key, key]), "{sep:?}");
+        }
+        let bad = format!("{key}\n{}+", &key[..31]);
+        assert_eq!(
+            mcp_keys(&bad, "TEHAS_MCP_KEYS").unwrap_err(),
+            "TEHAS_MCP_KEYS: key 2 is not at least 32 characters of A-Za-z0-9_-"
+        );
+        assert!(mcp_keys(&key[..31], "X").is_err());
+        assert!(mcp_keys(&format!("{key}="), "X").is_err());
+    }
+
+    #[test]
     fn the_millwright_pair_is_the_new_word_and_the_old_one() {
         // The one list the store, analytics and the MCP server all read. Each
         // of them has a test of its own that its words are these two.
@@ -119,6 +162,13 @@ mod tests {
             assert!(!an_end(word), "{word:?}");
         }
         assert!(an_end("merged"));
+        // A sandbox that cannot push ends its start with this word (#1741). It
+        // is no end the store names, so `cycles.end_reason` reads `unknown`
+        // while `endings.status` keeps the word: the readers that name it are
+        // part 3. No word is added to `NOT_ENDS` for it.
+        assert!(an_end("push-fault"));
+        assert_eq!(ending_status("push-fault"), "push-fault");
+        assert_eq!(NOT_ENDS, ["running", ""]);
         assert_eq!(NOT_AN_END, "not an end");
     }
 }

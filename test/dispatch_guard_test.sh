@@ -366,6 +366,15 @@ for missing in "${poll_needs[@]}"; do
   t_eq "$(t_calls fake-start)" ""
 done
 
+t_case "tehas-dispatch stops a run whose TEHAS_ISSUE_TYPES no load would take"
+reset
+rm -f "$T"/calls/*
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_ISSUE_TYPES=bug=Bug \"$T_DISPATCH\" decide"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas-dispatch: TEHAS_ISSUE_TYPES is not valid: bug is no kind"
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+
 # Arguments. A poll starts only from an argument this command knows, and the
 # check runs before the instance settings are read.
 t_case "--help prints the usage of the command and calls nothing"

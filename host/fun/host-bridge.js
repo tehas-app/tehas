@@ -21,8 +21,6 @@
   const TIMEOUT = 5 * 1000;
   const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
   const ID = /^[a-z0-9-]{1,32}$/;
-  const LEVELS = ["info", "warn", "alert"];
-  const WORDS = { info: "Notice", warn: "Warning", alert: "Alert" };
   // A control character, or a line or paragraph separator, as panels.js folds them.
   const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
   const SPACE_OR_CONTROL = /[\s\u0000-\u001f\u007f-\u009f]/;
@@ -71,8 +69,8 @@
   }
 
   // The answer as the pages use it, or null when it is ignored whole:
-  // { ticketLink, notices: [{ id, level, text, link }], notes: Map(issue -> [{ text, link }]),
-  //   menu: [{ id, label, url }] }. A `tokens` field is ignored.
+  // { ticketLink, notes: Map(issue -> [{ text, link }]), menu: [{ id, label, url }] }.
+  // A `tokens` field is ignored.
   // `now` is the time to judge the answer's age by, in ms.
   function read(text, now) {
     if (typeof text !== "string" || new TextEncoder().encode(text).length > MAX_BYTES) return null;
@@ -88,21 +86,6 @@
     const t = Date.parse(v.time);
     // A time far ahead would keep an answer young for ever.
     if (Number.isNaN(t) || Math.abs(now - t) > MAX_AGE) return null;
-
-    const notices = [];
-    const ids = new Set();
-    for (const n of Array.isArray(v.notices) ? v.notices : []) {
-      if (notices.length === 5) break;
-      const e = object(n);
-      if (!e || typeof e.id !== "string" || !ID.test(e.id) || ids.has(e.id)) continue;
-      if (!LEVELS.includes(e.level)) continue;
-      const words = line(e.text, 200);
-      if (words === null) continue;
-      let to = null;
-      if (e.link !== undefined && (to = link(e.link)) === null) continue;
-      ids.add(e.id);
-      notices.push({ id: e.id, level: e.level, text: words, link: to });
-    }
 
     const notes = new Map();
     let kept = 0;
@@ -134,7 +117,7 @@
       menu.push({ id: e.id, label, url });
     }
 
-    return { ticketLink: ticketLink(v.ticketLink), notices, notes, menu };
+    return { ticketLink: ticketLink(v.ticketLink), notes, menu };
   }
 
   // Where a ticket links on the dashboard: the host's page for a ticket of the
@@ -173,30 +156,6 @@
       return c;
     }));
     return box;
-  }
-
-  // The notices, beside the alerts banner and drawn as its lines are.
-  function drawNotices(el, list, doc) {
-    const node = (name, cls, words) => {
-      const n = doc.createElement(name);
-      if (cls) n.className = cls;
-      if (words) n.textContent = words;
-      return n;
-    };
-    el.replaceChildren(
-      ...list.map((n) => {
-        const p = node("p", "industry-alert host-notice");
-        p.setAttribute("data-level", n.level);
-        p.append(node("b", "", WORDS[n.level]), node("span", "", n.text));
-        if (n.link) {
-          const a = node("a", "", "Open");
-          aim(a, n.link);
-          p.append(a);
-        }
-        return p;
-      }),
-    );
-    el.hidden = list.length === 0;
   }
 
   // Asks for the answer and keeps the last good one. A 404 is no host and
@@ -243,7 +202,7 @@
   const listeners = [];
   let answer = null;
   const api = {
-    read, ticketHref, notesOf, chips, drawNotices, keeper,
+    read, ticketHref, notesOf, chips, keeper,
     current: () => answer,
     ticket: (repo, url) => ticketHref(answer, repo, url),
     notes: (doc, issue) => chips(doc, notesOf(answer, issue)),
@@ -260,13 +219,11 @@
     }
   } catch { /* no service workers here */ }
 
-  const notices = document.getElementById("host-notices");
   const k = keeper({
     fetch: (...a) => fetch(...a),
     now: Date.now,
     changed: (a) => {
       answer = a;
-      if (notices) drawNotices(notices, a ? a.notices : [], document);
       for (const fn of listeners) {
         try { fn(a); } catch { /* one view's failure stops no other */ }
       }
