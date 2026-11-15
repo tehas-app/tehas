@@ -755,8 +755,7 @@
   {
    "case": "a refresh of a wide issue starts: the hold is never asked of one",
    "settings": {
-    "TEHAS_SIZE_MAX_FILES": "3",
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_SIZE_MAX_FILES": "3"
    },
    "snapshot": {
     "ready": [],
@@ -981,8 +980,7 @@
   {
    "case": "a fresh push fault holds no refresh: what it would push already stands",
    "settings": {
-    "TEHAS_SIZE_MAX_FILES": "3",
-    "TEHAS_REFRESH_CONFLICTS": "1"
+    "TEHAS_SIZE_MAX_FILES": "3"
    },
    "snapshot": {
     "ready": [],

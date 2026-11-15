@@ -228,8 +228,6 @@ struct Poll<'a> {
     /// this poll closed.
     plan_busy: Option<u64>,
     plan_closed: Vec<u64>,
-    /// The refresh requests refresh_sweep dropped this poll.
-    refresh_swept: Vec<u64>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -259,7 +257,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
-        refresh_swept: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -458,7 +455,6 @@ impl<'a> Poll<'a> {
                 rc,
             ));
         }
-        self.refresh_sweep(&bot);
         if !self.dry {
             let demand = self.demand();
             self.d.demand = Some(demand);
@@ -593,21 +589,12 @@ impl<'a> Poll<'a> {
             }
         }
         // A refresh request waits as a ready issue does, unless the image holds
-        // every refresh or TEHAS_REFRESH_CONFLICTS holds this one (a request
-        // `tehasbot refresh --pr N` wrote is not held by the setting). The hold
-        // is in the file, and the log has it once.
+        // every refresh. The hold is in the file, and the log has it once.
         let mut held = String::new();
-        let requests: Vec<u64> = self
-            .s
-            .refresh_requests
-            .iter()
-            .copied()
-            .filter(|n| !self.refresh_swept.contains(n))
-            .collect();
+        let requests = self.s.refresh_requests.clone();
         if !requests.is_empty() {
             held = self.refresh_held().unwrap_or_default();
             if held.is_empty() {
-                let mut by_setting = false;
                 for n in requests {
                     if self.plan_open(n) || self.running(n) {
                         continue;
@@ -618,10 +605,6 @@ impl<'a> Poll<'a> {
                         .get(&n)
                         .and_then(|i| i.request.clone())
                         .unwrap_or(Value::Null);
-                    if self.refresh_setting_held(&req) {
-                        by_setting = true;
-                        continue;
-                    }
                     let at = req
                         .get("at")
                         .and_then(Value::as_str)
@@ -631,9 +614,6 @@ impl<'a> Poll<'a> {
                     if !at.is_empty() && (oldest.is_empty() || at < oldest) {
                         oldest = at;
                     }
-                }
-                if by_setting {
-                    held = retry::REFRESH_SETTING_HOLD.to_string();
                 }
             }
             if held != self.s.refresh_held {
@@ -836,6 +816,11 @@ impl<'a> Poll<'a> {
         Ok(all)
     }
 
+    /// refresh_waits: a refresh request is on this host.
+    fn refresh_waits(&self) -> bool {
+        !self.s.refresh_requests.is_empty()
+    }
+
     /// The approval `tehas start` recorded for `n` that waits for a start.
     fn host_start(&self, n: u64) -> Option<Value> {
         self.s
@@ -866,21 +851,6 @@ impl<'a> Poll<'a> {
         None
     }
 
-    /// pr_asked: a waiting refresh request was written by
-    /// `tehasbot refresh --pr N` (`"asked": "pr"`), which starts with
-    /// `TEHAS_REFRESH_CONFLICTS` off.
-    fn pr_asked(&self) -> bool {
-        self.s.refresh_requests.iter().any(|n| {
-            self.s
-                .issues
-                .get(n)
-                .and_then(|i| i.request.as_ref())
-                .and_then(|r| r.get("asked"))
-                .and_then(Value::as_str)
-                == Some("pr")
-        })
-    }
-
     /// 2 and 3: the slots, the limit, the slice and the cap on unreviewed
     /// work, with the hold that keeps cycles back when one does.
     fn room(&mut self) -> Step<Room> {
@@ -890,9 +860,9 @@ impl<'a> Poll<'a> {
         let mut cycles = count;
         let mut lane: Option<i64> = None;
         let refreshing = self.live().filter(|(_, how)| how == "refresh").count() as i64;
-        // With the setting off the lane is kept only while a `--pr` request
-        // waits or a refresh runs, so the cycles keep every slot otherwise.
-        if c.refresh_slots > 0 && (c.refresh_conflicts || refreshing > 0 || self.pr_asked()) {
+        // The lane is kept only while a request waits or a refresh runs, so
+        // the cycles keep every slot otherwise.
+        if c.refresh_slots > 0 && (refreshing > 0 || self.refresh_waits()) {
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
@@ -2765,13 +2735,7 @@ impl<'a> Poll<'a> {
         let mut order: Vec<(char, u64)> = Vec::new();
         let numbers: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
         order.extend(ranked.iter().map(|n| ('o', *n)));
-        order.extend(
-            self.s
-                .refresh_requests
-                .iter()
-                .filter(|n| !self.refresh_swept.contains(n))
-                .map(|n| ('r', *n)),
-        );
+        order.extend(self.s.refresh_requests.iter().map(|n| ('r', *n)));
         order.extend(
             numbers
                 .iter()

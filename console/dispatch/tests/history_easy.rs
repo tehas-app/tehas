@@ -744,7 +744,7 @@ fn settings(check: bool) -> Value {
     let mut s = json!({
         "TEHAS_REPO": REPO, "TEHAS_CONTROL_ISSUE": 1,
         "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_TICKET_CONCURRENCY": 2,
-        "TEHAS_BOT_LOGIN": BOT, "TEHAS_REFRESH_CONFLICTS": "1",
+        "TEHAS_BOT_LOGIN": BOT,
         "TEHAS_EASY_MERGE": "1",
     });
     if check {
