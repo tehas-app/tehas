@@ -2412,8 +2412,20 @@ reason `refresh-conflict`, with the files named:
 
 The park counts as a parked refresh, so none starts again on its own. A
 person merges `main` into the branch and resolves the conflict there. A merge
-that is clean, or one git cannot judge (a head the workspace does not hold),
-runs the refresh as before.
+that is clean runs the refresh as before, and so does one made by a git that
+has no such read of its own - it says the usage of `merge-tree`, or that the
+command is not there - with what git said in the cycle log.
+
+A read that judged nothing starts no container. It is the run this check exists
+to prevent, and no note is written for a conflict nobody saw. `tehas work`
+exits 78 and says in the cycle log which part of the answer was missing: the
+read ran out of time, git could not be started, the request's record holds no
+pull request, the head of the record is no commit, git wrote no tree object and
+named the side it could not merge, or git wrote a tree object and answered a
+status that is no answer. The same fault sits on the preflight log of the
+cycle: a name that cannot be opened for the push check or for the product's
+install ends the start with 78 and says the name and what the system answered,
+and is not told as a sandbox that refused to push.
 
 **What it does not do.** Failing checks and requested changes, pull requests
 the bot did not open, from forks or closing several issues, and conflicts

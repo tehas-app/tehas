@@ -249,13 +249,40 @@ caps_good
 
 # A refresh's record, as the dispatcher writes it, or another start's. The
 # body it approved is the one the stub answers with, so the text check of a
-# start that carries a record is met.
+# start that carries a record is met. The head of a refresh names a commit the
+# cycle's clone holds, and the merge of it with the branch is clean: a head of
+# no 40 digits, or a head the clone does not hold, is a merge nobody judged,
+# and it starts no container (#2227).
+refresh_n=0
 refresh_record() { # <how>
   local -a pr=()
   mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
   issue_is "" NONE
   t_store_db "$T/home/tehas"
-  [ "$1" != refresh ] || pr=(--refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})")
+  [ "$1" != refresh ] || {
+    # A refresh's record is the dispatcher's own: of the two heads of the read of
+    # the merge, the checkout's origin/main and the request's head, and it names
+    # the request at 50. A head of no 40 digits, or a record of no pull request,
+    # is a merge nobody judged, and it starts no container (#2227).
+    local n=$((++refresh_n))
+    local b=refresh-holds-$n f=refresh-$n.txt g=main-moved-$n.txt
+    git -C "$upstream" show-ref -q --verify "refs/heads/$b" || {
+      git -C "$upstream" checkout -q -b "$b"
+      printf 'the request\n' >"$upstream/$f"
+      git -C "$upstream" add -f -- "$f"
+      git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m "the request's own file"
+      git -C "$upstream" checkout -q main
+      printf 'main moved on\n' >"$upstream/$g"
+      git -C "$upstream" add -f -- "$g"
+      git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m "main moves"
+    }
+    local head
+    head=$(git -C "$upstream" rev-parse "$b")
+    git -C "$checkout" fetch -q "$upstream" "+refs/heads/*:refs/remotes/origin/*"
+    jq -n --arg h "$head" '{links: [], refresh_of: {pr: 50, head_sha: $h, branch: "main"}}' \
+      >"$T/refresh-input.json"
+    pr=(--input-file "$T/refresh-input.json" --refresh-pr 50 --refresh-head "$head")
+  }
   t_approve "$T/home/tehas" 7 alice "$1" "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
     --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" "${pr[@]}"
   t_started "$T/home/tehas" 7
@@ -310,8 +337,10 @@ t_store_db "$T/home/tehas"
 caps_good
 
 # A refresh of pull request 50 at <head>, its record as the dispatcher writes
-# it: refresh_of names the head.
-refresh_at() { # <head>
+# it: refresh_of names the head. The head is a commit the clone holds, as a
+# dispatcher's is, so the read of the conflict check judges the merge: <file> of
+# the product is put on the request's branch and moved on main, which merges.
+refresh_at() { # <head> [<file>]
   mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
   issue_is "" NONE
   t_store_db "$T/home/tehas"
@@ -369,19 +398,19 @@ t_eq "$(find "$note7" 2>/dev/null)" ""
 t_store_db "$T/home/tehas"
 caps_good
 
-t_case "a refresh that merges cleanly, or whose head the workspace does not hold, runs as before"
-for h in "$(pr_branch feature/two clean.txt "a new file")" "$(printf 'e%.0s' {1..40})"; do
-  caps_fresh
-  caps_continue
-  refresh_at "$h"
-  t_run "$work 7"
-  t_eq "$t_rc" 2
-  t_contains "$(cycle_args | tr '\n' ' ')" "--continue-pr"
-  t_eq "$(find "$note7" 2>/dev/null)" ""
-  t_store_db "$T/home/tehas"
-  caps_good
-done
-t_contains "$t_out" "whether pull request #50 conflicts with origin/main could not be read, the refresh runs"
+# A refresh that merges cleanly runs as before. A read that judged nothing is no
+# longer one that runs: test/work_refresh_judge_test.sh holds what the host is
+# told of each of them (#2227).
+t_case "a refresh that merges cleanly runs as before"
+caps_fresh
+caps_continue
+refresh_at "$(pr_branch feature/two clean.txt "a new file")"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(cycle_args | tr '\n' ' ')" "--continue-pr"
+t_eq "$(find "$note7" 2>/dev/null)" ""
+t_store_db "$T/home/tehas"
+caps_good
 
 for how in label retry-tick outage-retry fixer host; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
