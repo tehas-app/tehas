@@ -61,8 +61,7 @@ t_stub_cargo_versions() { # <rustfmt version or '-'> <clippy version or '-'>
   else printf '  "fmt --version") echo %s; exit 0 ;;\n' "$1" >>"$f"; fi
   if [ "$2" = - ]; then printf '  "clippy --version") exit 1 ;;\n' >>"$f"
   else printf '  "clippy --version") echo %s; exit 0 ;;\n' "$2" >>"$f"; fi
-  printf '  test*) echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"; exit 0 ;;\n' >>"$f"
-  printf '  "--version") echo "cargo 1.85.0"; exit 0 ;;\nesac\nexit 0\n' >>"$f"
+  printf '  test*) echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"; exit 0 ;;\n  "--version") echo "cargo 1.85.0"; exit 0 ;;\nesac\nexit 0\n' >>"$f"
   # The record of a call is t_stub's own line, and the body runs after it, so
   # the calls of the stub stand in t_calls cargo beside what each one printed.
   # shellcheck disable=SC2016  # the line is the stub's text, expanded when it runs
