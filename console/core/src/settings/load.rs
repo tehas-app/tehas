@@ -105,7 +105,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 13] = [
+const RETIRED: [&str; 15] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -118,6 +118,8 @@ const RETIRED: [&str; 13] = [
     "TEHAS_LOW_GATE",
     "TEHAS_LOW_GATE_WAIT",
     "TEHAS_PRIORITY_FIELD",
+    "TEHAS_REFRESH_CONFLICTS",
+    "TEHAS_REFRESH_EVERY",
     "TEHAS_OVERLAP_HOLD",
 ];
 
@@ -413,7 +415,9 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
         // the Rust poll, and beesknees26 and business are the default design,
-        // so the line stays loadable.
+        // so the line stays loadable. A value the timed refresh scan took is
+        // dropped: refreshes are asked for with --pr now, and the line is
+        // left to the operator to take out.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
@@ -421,6 +425,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_DISPATCHER", "rust" | "")
                 | ("TEHAS_THEME", "beesknees26" | "")
                 | ("TEHAS_LAYOUT", "business" | "")
+                | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
+                | ("TEHAS_REFRESH_EVERY", "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
@@ -428,7 +434,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                         | "TEHAS_OVERLAP_HOLD",
                     ""
                 )
-        ) {
+        ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
+        {
             vars.unset(name.as_bytes());
             continue;
         }
@@ -444,6 +451,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
+            "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
             "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             _ => format!(
@@ -454,6 +462,15 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         return Err(format!("{name} {reason} (see {file})"));
     }
     Ok(())
+}
+
+/// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
+/// leading 0. The digits check matters: u32's parse also takes a leading '+'.
+fn minutes(v: &str) -> bool {
+    v.bytes().all(|b| b.is_ascii_digit())
+        && !v.starts_with('0')
+        && v.len() <= 4
+        && v.parse::<u32>().is_ok_and(|n| (1..=1440).contains(&n))
 }
 
 /// `export NAME=${NAME:-default}`.
@@ -1278,6 +1295,12 @@ mod tests {
             "TEHAS_LAYOUT=business",
             "TEHAS_LOW_GATE=",
             "TEHAS_PRIORITY_FIELD=",
+            "TEHAS_REFRESH_CONFLICTS=",
+            "TEHAS_REFRESH_CONFLICTS=0",
+            "TEHAS_REFRESH_CONFLICTS=1",
+            "TEHAS_REFRESH_EVERY=",
+            "TEHAS_REFRESH_EVERY=1",
+            "TEHAS_REFRESH_EVERY=1440",
             "TEHAS_OVERLAP_HOLD=",
         ] {
             let vars = loads(&[line]);
@@ -1296,6 +1319,22 @@ mod tests {
                 "TEHAS_LOW_GATE=/x/gate",
                 "is no longer read: tehas order sets the order ready issues start in, so take the line out",
             ),
+            (
+                "TEHAS_REFRESH_CONFLICTS=yes",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+            ),
+            (
+                "TEHAS_REFRESH_EVERY=010",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+            ),
+            (
+                "TEHAS_REFRESH_EVERY=+10",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+            ),
+            (
+                "TEHAS_REFRESH_EVERY=+1",
+                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                ),
             (
                 "TEHAS_OVERLAP_HOLD=1",
                 "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",

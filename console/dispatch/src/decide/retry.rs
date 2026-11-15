@@ -120,10 +120,6 @@ pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> St
     }
 }
 
-/// Why `refresh_setting_held` holds a request, in the log, `.held` and
-/// `refreshHold`.
-pub(super) const REFRESH_SETTING_HOLD: &str = "TEHAS_REFRESH_CONFLICTS is not 1";
-
 /// The largest start this rule can put a date on, as the other rules that
 /// read a start from the store take it: 9999-12-31T23:59:59Z.
 const MAX_START: u64 = 99_999_999_999;
@@ -820,8 +816,7 @@ impl Poll<'_> {
     }
 
     /// refresh_held: why the sandbox image lets no refresh start on this
-    /// host, empty when it lets one. `TEHAS_REFRESH_CONFLICTS` is a hold of
-    /// each request, `refresh_setting_held`.
+    /// host, empty when it lets one.
     pub(super) fn refresh_held(&mut self) -> Option<String> {
         match self.s.continues {
             None => {
@@ -834,14 +829,6 @@ impl Poll<'_> {
                 self.c.image
             )),
         }
-    }
-
-    /// refresh_setting_held: `TEHAS_REFRESH_CONFLICTS` is not 1 and the
-    /// request was not written by `tehasbot refresh --pr N`. It keys on the
-    /// marker, so a request left from before the setting was turned off does
-    /// not start.
-    pub(super) fn refresh_setting_held(&self, req: &Value) -> bool {
-        !self.c.refresh_conflicts && req.get("asked").and_then(Value::as_str) != Some("pr")
     }
 
     /// What of pull request `node` keeps the refresh of `n` that `req` asks
@@ -882,77 +869,6 @@ impl Poll<'_> {
             "busy".into()
         } else {
             String::new()
-        }
-    }
-
-    /// refresh_sweep (#1973): with `TEHAS_REFRESH_CONFLICTS` off the timed
-    /// scan exits at once and rule 4b holds a request it wrote before, so
-    /// nothing would ever remove one. Each such request goes through the
-    /// start checks that read only what the poll already holds: it is
-    /// dropped when its issue is closed or no longer waits for a merge, or
-    /// when its pull request is closed, moved, no longer conflicts or no
-    /// longer one the factory refreshes. One that passes them still waits.
-    /// A read that failed or cannot be told keeps the request, and the poll
-    /// goes on. Runs before the demand, so `refreshHold` clears in the poll
-    /// that drops the last such request, and whatever the room.
-    pub(super) fn refresh_sweep(&mut self, bot: &str) {
-        if self.c.refresh_conflicts {
-            return;
-        }
-        for n in self.s.refresh_requests.clone() {
-            if self.running(n) || self.plan_open(n) {
-                continue;
-            }
-            let Some(req) = self.s.issues.get(&n).and_then(|i| i.request.clone()) else {
-                continue;
-            };
-            if !self.refresh_setting_held(&req) {
-                continue;
-            }
-            if let Some(why) = self.refresh_sweep_why(n, &req, bot) {
-                let _ = self.refresh_drop(n, &why);
-                self.refresh_swept.push(n);
-            }
-        }
-    }
-
-    /// Why refresh_sweep drops the request `req` of `n`, None to keep it.
-    fn refresh_sweep_why(&self, n: u64, req: &Value, bot: &str) -> Option<String> {
-        if !(req.get("pr").is_some_and(Value::is_number)
-            && hex40(req.get("head_sha"))
-            && hex40(req.get("base_sha")))
-        {
-            return Some("its request cannot be read".into());
-        }
-        let w = self.work(n);
-        if !w.is_object() {
-            return None;
-        }
-        let state = w
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_lowercase();
-        if !w.get("pull_request").unwrap_or(&Value::Null).is_null() || state == "closed" {
-            return Some("it is not an open issue".into());
-        }
-        if state != "open" {
-            return None;
-        }
-        if let Some(why) = refresh_labels_why(&labels(&w)) {
-            return Some(why);
-        }
-        let pr = req["pr"].as_u64().unwrap_or(0);
-        let node = self.s.pulls.get(&pr)?;
-        if node.get("failed") == Some(&json!(true)) {
-            return None;
-        }
-        if !node.is_object() {
-            return Some(format!("pull request #{pr} cannot be read"));
-        }
-        match self.refresh_pull_why(n, node, req, bot).as_str() {
-            "" | "wait" | "busy" => None,
-            w => Some(w.to_string()),
         }
     }
 
@@ -997,13 +913,6 @@ impl Poll<'_> {
             self.need("request");
             return Ok(None);
         };
-        if self.refresh_setting_held(&req) {
-            if !self.refresh_said {
-                self.log(format!("hold refreshes: {REFRESH_SETTING_HOLD}"));
-            }
-            self.refresh_said = true;
-            return Ok(None);
-        }
         if !(req.get("pr").is_some_and(Value::is_number)
             && hex40(req.get("head_sha"))
             && hex40(req.get("base_sha")))
