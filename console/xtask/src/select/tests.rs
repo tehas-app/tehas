@@ -46,8 +46,11 @@ impl Tree {
     }
 }
 
-/// A workspace of the real shape, as cargo metadata --no-deps gives it. report
-/// depends on the store for its tests, summary on report to build.
+/// A workspace of the real shape, as cargo metadata --no-deps gives it. The
+/// directories are ones the selector reads a path under console/ in: report and
+/// summary share the merge directory, as the real analytics shares the mcp one.
+/// report depends on the store for its tests; attach reaches no part of the
+/// settings of a run, so it stands for a crate the settings do not reach.
 const WORKSPACE: &str = r#"{"workspace_root": "/w", "packages": [
   {"name": "console", "manifest_path": "/w/Cargo.toml", "dependencies": [
     {"name": "serde_json", "kind": null},
@@ -63,10 +66,12 @@ const WORKSPACE: &str = r#"{"workspace_root": "/w", "packages": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
-  {"name": "report", "manifest_path": "/w/report/Cargo.toml", "dependencies": [
+  {"name": "report", "manifest_path": "/w/merge/Cargo.toml", "dependencies": [
     {"name": "store", "kind": "dev", "path": "/w/store"}]},
-  {"name": "summary", "manifest_path": "/w/summary/Cargo.toml", "dependencies": [
-    {"name": "report", "kind": "build", "path": "/w/report"}]}
+  {"name": "summary", "manifest_path": "/w/merge/Cargo.toml", "dependencies": [
+    {"name": "report", "kind": "build", "path": "/w/merge"}]},
+  {"name": "attach", "manifest_path": "/w/attach/Cargo.toml", "dependencies": [
+    {"name": "serde_json", "kind": null}]}
 ]}"#;
 
 #[test]
@@ -132,15 +137,122 @@ fn a_changed_helper_selects_the_test_files_that_name_it() {
 }
 
 #[test]
-fn a_path_under_console_selects_the_workspace_and_the_shell_tests_that_build_it() {
+fn a_path_under_console_selects_the_shell_tests_that_take_a_program() {
     let t = Tree::new();
     t.fake("a_test.sh", "t_store || t_skip")
-        .fake("b_test.sh", "console/target")
-        .fake("c_test.sh", "nothing")
-        .fake("d_test.sh", "t_attach");
+        .fake("b_test.sh", "nothing at all")
+        .fake("c_test.sh", "the console of a cycle")
+        .fake("d_test.sh", "t_attach")
+        .fake("e_test.sh", "t_fake_limits")
+        .fake("f_test.sh", "T_ENV+=(TEHAS_CYCLE_FROM=unit)")
+        .fake("g_test.sh", "no store or console in its prose");
+    // The helpers of test/lib.sh that copy a program in, and the word console/
+    // with its directory. Not the bare word of a program's name in prose, not
+    // a TEHAS_* variable of the command, and not a file that reads a built
+    // program out of the target directory without naming either. attach is a
+    // crate the settings do not reach, so only these tests are picked.
     assert_eq!(
-        t.pick(&["console/store/src/main.rs"]),
-        "cargo\ntest test/a_test.sh\ntest test/b_test.sh\ntest test/d_test.sh"
+        t.pick_ws(&["console/attach/src/main.rs"]),
+        "crate attach\ntest test/a_test.sh\ntest test/d_test.sh"
+    );
+    // A test that names the console's directory is picked as before, and so is
+    // one that calls t_console.
+    t.fake("h_test.sh", "reads console/src/run.rs")
+        .fake("i_test.sh", "t_console || t_skip");
+    assert_eq!(
+        t.pick_ws(&["console/attach/src/main.rs"]),
+        "crate attach\ntest test/a_test.sh\ntest test/d_test.sh\ntest test/h_test.sh\ntest test/i_test.sh"
+    );
+}
+
+#[test]
+fn a_path_under_console_selects_the_tests_that_run_a_built_program_by_its_helper_or_its_variable() {
+    let t = Tree::new();
+    for (name, text) in [
+        ("a_test.sh", "t_dispatch || t_skip"),
+        ("b_test.sh", "t_cycle || t_skip"),
+        ("c_test.sh", "t_console || t_bad \"$t_console_why\""),
+        ("d_test.sh", "t_verb \"$T/bin/tehas\" tehas status"),
+        ("e_test.sh", "[ -n \"${T_CONSOLE_BIN:-}\" ]"),
+        (
+            "f_test.sh",
+            "cp \"$T_TARGET/debug/tehas-cycle\" \"$T_CYCLE\"",
+        ),
+    ] {
+        t.fake(name, text);
+    }
+    t.fake("g_test.sh", "nothing at all");
+    // f_test.sh names no helper and no variable of the run, so it is not
+    // picked: what the run hands a test file is the contract between them.
+    // attach is a crate the settings do not reach, so the pick stays narrow.
+    assert_eq!(
+        t.pick_ws(&["console/attach/src/main.rs"]),
+        "crate attach\ntest test/a_test.sh\ntest test/b_test.sh\ntest test/c_test.sh\ntest test/d_test.sh\ntest test/e_test.sh"
+    );
+}
+
+#[test]
+fn a_change_under_core_selects_every_shell_test() {
+    let t = Tree::new();
+    for name in [
+        "a_test.sh",
+        "b_test.sh",
+        "install_steps_test.sh",
+        "pack_release_test.sh",
+    ] {
+        t.fake(name, "nothing at all");
+    }
+    t.file("test/x_view_test.mjs", "// nothing here\n");
+    // Every shell test loads the settings through the console beside it, so a
+    // change to the library of the settings, or to a crate that depends on it,
+    // is a change to all of them. The heavy files stay left to the full gate,
+    // and a node test is not a shell test, so nothing names it here.
+    for p in [
+        "console/core/src/settings/load.rs",
+        "console/mcp/src/tools.rs",
+    ] {
+        assert_eq!(
+            t.pick_ws(&[p]),
+            (if p.starts_with("console/core/") {
+                "cargo"
+            } else {
+                "crate tehas-mcp"
+            })
+                .to_owned()
+                + "\ntest test/a_test.sh\ntest test/b_test.sh\nomit test/install_steps_test.sh\nomit test/pack_release_test.sh",
+            "{p}"
+        );
+    }
+}
+
+#[test]
+fn a_crate_the_settings_reach_selects_every_shell_test() {
+    let t = Tree::new();
+    t.fake("a_test.sh", "nothing at all")
+        .fake("b_test.sh", "t_cycle || t_skip")
+        .fake("c_test.sh", "nothing at all");
+    // A path in no crate asks for the whole workspace, and every shell test
+    // runs with it. tehas-mcp is a crate of the fake workspace that depends on
+    // the library of the settings, so its tests are all of them without the
+    // workspace's own line.
+    for p in ["console/newcrate/src/lib.rs", "console/mcp/src/tools.rs"] {
+        assert_eq!(
+            t.pick_ws(&[p]),
+            (if p.starts_with("console/newcrate/") {
+                "cargo"
+            } else {
+                "crate tehas-mcp"
+            })
+            .to_owned()
+                + "\ntest test/a_test.sh\ntest test/b_test.sh\ntest test/c_test.sh",
+            "{p}"
+        );
+    }
+    // A crate the settings do not reach keeps the old, narrower pick: only the
+    // test that takes a program.
+    assert_eq!(
+        t.pick_ws(&["console/attach/src/main.rs"]),
+        "crate attach\ntest test/b_test.sh"
     );
 }
 
