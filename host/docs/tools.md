@@ -318,9 +318,16 @@ named `update_*`). A path under `console/` also runs `cargo test -p` for the
 crate it is in and the crates that depend on it, from `cargo metadata`. The
 tests of the console and the dispatcher run the store's program, which no
 manifest says, so `console/xtask/src/select.rs` lists that link: they run with the
-store, and a change to the store runs them. A path in `console/core/`, a
-manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
-read runs the whole workspace's tests. A changelog fragment, a path under
+store, and a change to the store runs them. The shell tests of a path under
+`console/` are the files that name `console/` or take a program of the
+workspace from the run: one of the helpers of `test/lib.sh` that copy one in
+(`t_store`, `t_attach`, `t_dispatch`, `t_cycle`, `t_console`, `t_verb`), or one
+of the variables the runner hands out (`T_STORE_BIN` and its four siblings).
+A path in `console/core/`, a manifest, `console/Cargo.lock`, a path in no crate,
+or metadata that cannot be read runs the whole workspace's tests, and every
+shell test with it: every shell test loads the settings through the console
+beside it, so a change to that library, or to a crate that depends on it, is a
+change to all of them. A changelog fragment, a path under
 `changelog.d/`, runs the test files that name `changelog.d`.
 The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
