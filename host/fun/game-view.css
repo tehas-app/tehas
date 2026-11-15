@@ -755,7 +755,7 @@ body[data-factory="live"] .console-state::before {
   .source, .topbar > .gate { padding: 4px 8px; }
   .menu { padding: 0 8px; }
   .brand img { width: auto; height: 40px; }
-  .brand span { display: none; }
+  .brand span, .brand .wordmark, .brand small { display: none; }
 
   .sign { display: flex; }
   .scene { width: calc(100% - 2 * var(--edge)); }
