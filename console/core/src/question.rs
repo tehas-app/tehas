@@ -40,12 +40,53 @@ pub fn retry_of(label: &str) -> Option<bool> {
 /// retry of it waits while the issue carries `tehas:lean`.
 pub const LEAN_REFUSED: &str = "lean-refused";
 
-/// The `sig` of a park marker: the hash of the park's fields, its free text
-/// in the hash only. The cycle writes it, the MCP server's `factory_park`
-/// gives it again from the fields the run recorded.
+/// The `sig` of a park marker: the hash of the park's fields as the state
+/// store keeps them, its free text in the hash only. The cycle writes it, the
+/// MCP server's `factory_park` gives it again from the fields the run
+/// recorded, and the cycle's repeat check hashes the row `cycle-end` stored.
+///
+/// Each field is cleaned here and not at the callers, the way `cycle-end`
+/// cleans it (`Cleaned::word` of the store): a park whose words hold a space,
+/// an uppercase letter or a field over its bound has to say that it repeats
+/// the one before it, so the marker of a run and the row of its history hash
+/// the same bytes whatever a caller passed. A field already clean and within
+/// its bound hashes as it did before the cleaning moved here.
+///
+/// A field is the characters of its set, in order, cut to its bound in bytes.
+/// `step` keeps ASCII alphanumerics, `_`, `.` and `-`; `cap` keeps those and
+/// `:`; `park_reason` and `kind` keep `a-z` and `-`; `cause` keeps the set of
+/// `cap`.
 pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &str) -> String {
     use sha2::{Digest, Sha256};
-    Sha256::digest(format!("{step}|{cap}|{park_reason}|{kind}|{cause}").as_bytes())
+
+    /// The characters of `keep`, then the first `max` bytes of them.
+    fn word(keep: fn(u8) -> bool, max: usize, given: &str) -> String {
+        let mut v: String = given
+            .chars()
+            .filter(|c| c.is_ascii() && keep(*c as u8))
+            .collect();
+        v.truncate(max);
+        v
+    }
+    fn word_char(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b"_.-".contains(&b)
+    }
+    fn cap_char(b: u8) -> bool {
+        word_char(b) || b == b':'
+    }
+    fn kebab_char(b: u8) -> bool {
+        b.is_ascii_lowercase() || b == b'-'
+    }
+    let cleaned = [
+        (word_char as fn(u8) -> bool, 40, step),
+        (cap_char as fn(u8) -> bool, 80, cap),
+        (kebab_char as fn(u8) -> bool, 40, park_reason),
+        (kebab_char, 40, kind),
+        (cap_char, 60, cause),
+    ]
+    .map(|(keep, max, given)| word(keep, max, given))
+    .join("|");
+    Sha256::digest(cleaned.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
@@ -324,6 +365,85 @@ mod tests {
         assert_eq!(
             park_sig("-", "", "", "", ""),
             "7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec"
+        );
+    }
+
+    // The hash is taken over the fields as `cycle-end` keeps them, so the
+    // words that store to one row hash as one signature: the park marker of
+    // a run and the repeat check's read of its row cannot disagree.
+    #[test]
+    fn a_park_signature_ignores_what_the_store_would_drop() {
+        // Every field of a run's stop, given as a run gives it and as the
+        // store keeps it. The cap keeps no space or slash, the kind no space,
+        // the cause no space: one signature for the two ways of saying them.
+        assert_eq!(
+            park_sig(
+                "develop",
+                "Child timeout/develop",
+                "child-timeout",
+                "verify failed",
+                "a cause with spaces"
+            ),
+            park_sig(
+                "develop",
+                "Childtimeoutdevelop",
+                "child-timeout",
+                "verifyfailed",
+                "acausewithspaces"
+            )
+        );
+        // A space in the step, whose set keeps neither it nor a slash. What
+        // a run calls a step and what its row holds are two words only for
+        // the hash: they are one park.
+        assert_eq!(
+            park_sig("feature/issue 7", "", "", "", ""),
+            park_sig("featureissue7", "", "", "", "")
+        );
+        // An uppercase letter is outside the kebab set too, so it goes where
+        // it sits, and a field whose every character goes is the empty field.
+        assert_eq!(
+            park_sig("develop", "", "", "Provider", ""),
+            park_sig("develop", "", "", "rovider", "")
+        );
+        assert_eq!(
+            park_sig("develop", "é", "é", "é", ""),
+            park_sig("develop", "", "", "", "")
+        );
+        // A cause over its bound of 60 hashes as the first 60 characters of
+        // what its set keeps, whatever follows them.
+        let long = "0123456789".repeat(7);
+        assert_eq!(long.len(), 70);
+        assert_eq!(
+            park_sig("develop", "", "", "", &long),
+            park_sig("develop", "", "", "", &long[..60])
+        );
+        // The kept run is cut at its bound, so what is left out of a field
+        // over it is what comes after the bound, not what comes before: the
+        // long cause above and one a character shorter say the same park,
+        // and one that lost its first character does not.
+        assert_eq!(
+            park_sig("develop", "", "", "", &long),
+            park_sig("develop", "", "", "", &long[..69])
+        );
+        assert_ne!(
+            park_sig("develop", "", "", "", &long),
+            park_sig("develop", "", "", "", &long[1..])
+        );
+        // `cap` keeps `:` and `step` does not; each field is cut to its own
+        // bound, so the same characters are two fields of two lengths.
+        assert_ne!(
+            park_sig("develop", "verify-failed:develop", "", "verify", ""),
+            park_sig("develop", "verify-faileddevelop", "", "verify", "")
+        );
+        let caps = "C".repeat(40) + ":" + &"c".repeat(41);
+        assert_eq!(
+            park_sig("", &caps, "", "", ""),
+            park_sig("", &("C".repeat(40) + ":" + &"c".repeat(40)), "", "", "")
+        );
+        let steps = "s".repeat(41);
+        assert_eq!(
+            park_sig(&steps, "", "", "", ""),
+            park_sig(&"s".repeat(40), "", "", "", "")
         );
     }
 
