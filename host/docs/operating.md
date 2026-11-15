@@ -1074,6 +1074,11 @@ dispatcher's log says so.
    agent asks more than one question in a turn, the comment lists them all,
    numbered, with their choices as text and no box for them: answer them in
    a reply.
+   A turn that ends on an issue a person closed in the meantime is dropped: the
+   poll reads the state before it posts, and a closed issue gets nothing of the
+   turn, its session closes, and one line in the log says
+   `planning #N dropped: the issue is closed`. A state the poll cannot read
+   holds the post to the next poll rather than close the session on no answer.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free
@@ -2249,7 +2254,11 @@ the new names.
   `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
   when the cycle had none. `provider` is 1 when a provider outage stopped
   it. `sig` is the sha256 of the history line's
-  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `step|cap|park_reason|failure_kind|failure_cause`, each field as the store
+  keeps it: its characters outside the field's set, then its first bytes up to
+  the field's bound (`step` 40 of `[A-Za-z0-9_.-]`, `cap` 80 of those and `:`,
+  `park_reason` and `failure_kind` 40 of `[a-z-]`, `failure_cause` 60 of the
+  set of `cap`). Two parks with the same
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.

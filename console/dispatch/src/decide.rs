@@ -17,10 +17,12 @@ use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 
 mod clean;
 mod epic;
+mod flow;
 mod plan;
 mod retry;
 
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
+pub(crate) use flow::in_flow;
 pub(crate) use plan::shape;
 pub(crate) use retry::{hex40, refresh_why};
 
@@ -3146,23 +3148,6 @@ pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
         _ => 0.0,
     };
     (n < 1_000_000.0).then_some(n as u64)
-}
-
-/// Whether the labels put an issue in a flow of its own, where a
-/// `tehas:blocked` on its own starts nothing.
-fn in_flow(labels: &[String]) -> bool {
-    labels.iter().any(|l| {
-        matches!(
-            l.as_str(),
-            "tehas:running"
-                | "tehas:awaiting-merge"
-                | "tehas:question"
-                | "tehas:planning"
-                | "tehas:refreshing"
-                | "tehas:plan"
-                | "tehas:refine"
-        )
-    })
 }
 
 /// The most numbers `labelAlone` lists, so the line status prints is bounded.

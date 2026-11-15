@@ -59,7 +59,38 @@ case "$1 $2" in
   "repo view") if [ -e "$T/fx/gh-stderr-fails" ]; then
       cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
     cat "$T/fx/repo.json" || exit 1 ;;
-  "issue view") cat "$T/fx/issue-$3.json" 2>/dev/null || cat "$T/fx/control.json" || exit 1 ;;
+  # The state of an issue, which the poll reads before it posts a planning
+  # turn, and the plain read of an issue for every other caller; both reach
+  # this arm. The state read asks GitHub for the one field state and is told
+  # from the plain read by the position of that word, not a substring test: the
+  # page read of the poll is also a gh call whose query text holds the word
+  # states, so a substring match would answer that GraphQL read here. Only a
+  # call that names state beside --json is the state read. Its answer and the
+  # plain read are said below.
+  "issue view")
+    asks_state=""
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = --json ] && [ "$a" = state ]; then asks_state=1; fi
+      prev=$a
+    done
+    if [ -n "$asks_state" ]; then
+      # The state of an issue, which the poll reads before it posts a planning
+      # turn. A case that means a closed issue writes fx/state-<n>.json and that
+      # file answers the read; an issue no case closed is open, as an issue of
+      # GitHub that no one closed is. The quotes are escaped with a backslash,
+      # as the body loses a single quote and a bare backslash on the way here,
+      # and no bare $ appears, which the test shell would expand.
+      if [ -f "$T/fx/state-$3.json" ]; then
+        cat "$T/fx/state-$3.json" || exit 1
+      else
+        jq -cn "{state: \"OPEN\"}"
+      fi
+    elif [ -f "$T/fx/issue-$3.json" ]; then
+      cat "$T/fx/issue-$3.json" || exit 1
+    else
+      cat "$T/fx/control.json" || exit 1
+    fi ;;
   "issue list")
     # The closed issues console tidy run searches for, when a case names some.
     case "$*" in *"--state closed"*) [ ! -e "$T/fx/closed.json" ] || exec cat "$T/fx/closed.json" ;; esac
@@ -410,7 +441,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
+  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/state-[0-9]* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/labels" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" "$T/home/tehas/state/push-fault.json" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
