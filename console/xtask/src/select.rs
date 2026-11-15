@@ -17,11 +17,15 @@
 //!     and test/lib.sh: full.
 //!   - A test file: itself.
 //!   - console/: the crate the path is in and the crates that depend on it, and
-//!     the shell tests that name console/ or build the store or the attachment
-//!     checker (t_store, t_attach). The dependencies are those of `cargo
+//!     the shell tests that name console/ or take a program of the workspace
+//!     from the run: one of the helpers of test/lib.sh that copy one in, or one
+//!     of the variables in `BINS` below. The dependencies are those of `cargo
 //!     metadata` on the tree as it stands, plus the list in `RUNS` below.
 //!   - cargo instead of crates when the path is in console/core/, is a manifest
 //!     or the lock, is in no crate, or cargo cannot say what the crates are.
+//!   - Every shell test file as well, for a path whose crate reaches `SETTINGS`
+//!     below: every shell test loads the settings through the console beside
+//!     it, so a change there is a change to all of them.
 //!   - A helper under test/ or a fixture under test/fixtures/<name>/: the test
 //!     files that name it. A changelog fragment, changelog.d/*: the test files
 //!     that name changelog.d.
@@ -48,13 +52,31 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// <crate>:<crate of a program>. The tests of the first run the program of the
-/// second, found beside the test binary. No manifest says so, so metadata
-/// cannot: a change to the program needs those tests, and those tests need the
-/// program built by the same cargo command, or they run a stale one.
-/// test/select_test.sh holds this list to the crates that look beside their
-/// own executable for a program.
+/// <crate>:<crate of a program whose crate metadata does not name>. The tests
+/// of the first run the program of the second, found beside the test binary. No
+/// manifest says so, so metadata cannot: a change to the program needs those
+/// tests, and those tests need the program built by the same cargo command, or
+/// they run a stale one. A crate already named as a dependency of the other is
+/// left out. test/select_test.sh holds this list to the crates that look beside
+/// their own executable for a program.
 pub const RUNS: &[(&str, &str)] = &[("console", "store"), ("tehas-dispatch", "store")];
+
+/// The crate of the settings every shell test loads, through the console
+/// beside it (test/lib.sh). A path in it, or in a crate it reaches, is a change
+/// to the settings of every command, so it needs every shell test.
+const SETTINGS: &str = "tehas-core";
+
+/// The programs scripts/test.sh builds for the test files, each with the
+/// variable that names it to them. A test file that reads one of them takes a
+/// program of the workspace from the run, so a change under console/ needs it.
+/// The list is the one that run builds, so test/select_test.sh holds it to it.
+pub const BINS: &[(&str, &str)] = &[
+    ("T_STORE_BIN", "store"),
+    ("T_ATTACH_BIN", "attach"),
+    ("T_DISPATCH_BIN", "tehas-dispatch"),
+    ("T_CYCLE_BIN", "tehas-cycle"),
+    ("T_CONSOLE_BIN", "console"),
+];
 
 /// `cargo metadata` of the tree's workspace. --no-deps needs neither the lock
 /// nor the registry, and lists dependencies of every kind.
@@ -83,6 +105,8 @@ pub fn cargo_metadata(root: &Path) -> Option<String> {
 struct Crates {
     at: HashMap<String, String>,
     users: HashMap<String, Vec<String>>,
+    /// <crate>: the crates of its own dependencies, of any kind.
+    deps: HashMap<String, Vec<String>>,
 }
 
 fn read_crates(json: &str) -> Option<Crates> {
@@ -91,6 +115,7 @@ fn read_crates(json: &str) -> Option<Crates> {
     let mut at = HashMap::new();
     let mut known = HashSet::new();
     let mut users: HashMap<String, Vec<String>> = HashMap::new();
+    let mut deps: HashMap<String, Vec<String>> = HashMap::new();
     for pkg in v.get("packages")?.as_array()? {
         let name = pkg.get("name")?.as_str()?;
         if name.is_empty() {
@@ -110,6 +135,9 @@ fn read_crates(json: &str) -> Option<Crates> {
                 .entry(d.to_string())
                 .or_default()
                 .push(name.to_string());
+            deps.entry(name.to_string())
+                .or_default()
+                .push(d.to_string());
         }
     }
     if !at.contains_key("console") {
@@ -124,7 +152,7 @@ fn read_crates(json: &str) -> Option<Crates> {
             .or_default()
             .push(user.to_string());
     }
-    Some(Crates { at, users })
+    Some(Crates { at, users, deps })
 }
 
 /// The crate a path under console/ is in, or None when only the whole
@@ -169,6 +197,49 @@ fn between(file: &str, start: &str, end: &str) -> bool {
 /// <stem>_test.sh or <stem>_*_test.sh.
 fn named_for(file: &str, stem: &str) -> bool {
     file == format!("{stem}_test.sh") || between(file, &format!("{stem}_"), "_test.sh")
+}
+
+/// Whether a test file takes a program of the workspace from the run: it calls
+/// one of the helpers of test/lib.sh that copy one in, or names one of the
+/// variables the run hands out. Only these names count, word-bounded: the bare
+/// name of a program (console, store) is an ordinary word in a test's prose.
+fn runs_a_program(t: &[u8]) -> bool {
+    [
+        "t_store",
+        "t_attach",
+        "t_dispatch",
+        "t_cycle",
+        "t_console",
+        "t_verb",
+    ]
+    .iter()
+    .chain(BINS.iter().map(|(var, _)| var))
+    .any(|needle| has_word(t, needle.as_bytes()))
+}
+
+/// Whether <name> reaches <target> through the dependencies of metadata, or the
+/// list of programs no manifest names. The directions of `want`: a crate reaches
+/// the crates of its own dependencies and the programs it runs.
+fn reaches(crates: &Crates, target: &str, name: &str) -> bool {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut todo = vec![name];
+    while let Some(n) = todo.pop() {
+        if n == target {
+            return true;
+        }
+        if !seen.insert(n) {
+            continue;
+        }
+        for (user, program) in RUNS {
+            if *user == n {
+                todo.push(program);
+            }
+        }
+        for dep in crates.deps.get(n).into_iter().flatten() {
+            todo.push(dep);
+        }
+    }
+    false
 }
 
 fn heavy(f: &str) -> bool {
@@ -331,6 +402,7 @@ pub fn select(
 ) -> Vec<String> {
     let mut suite = Suite::new(root);
     let mut picked: BTreeSet<String> = BTreeSet::new();
+    let mut every_shell_test = false;
     let mut direct: HashSet<String> = HashSet::new();
     let mut wanted: BTreeSet<String> = BTreeSet::new();
     let mut metadata = Some(metadata);
@@ -356,14 +428,28 @@ pub fn select(
                     crates = read().as_deref().and_then(read_crates);
                 }
                 match crates.as_ref().and_then(|c| crate_of(c, p).map(|n| (c, n))) {
-                    Some((c, name)) => want(c, &mut wanted, name),
-                    None => cargo = true,
+                    Some((c, name)) => {
+                        // A crate the settings reach, by metadata or by the
+                        // list above, changes the settings of every command.
+                        if name == SETTINGS || reaches(c, SETTINGS, name) {
+                            every_shell_test = true;
+                        }
+                        want(c, &mut wanted, name);
+                    }
+                    None => {
+                        cargo = true;
+                        every_shell_test = true;
+                    }
                 }
             }
             let tests = suite.tests.clone();
             for f in tests {
+                if every_shell_test && !f.ends_with(".mjs") {
+                    picked.insert(f);
+                    continue;
+                }
                 let t = suite.text(&f);
-                if has(t, "console/") || has(t, "t_store") || has(t, "t_attach") {
+                if has(t, "console/") || runs_a_program(t) {
                     picked.insert(f);
                 }
             }
