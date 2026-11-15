@@ -94,18 +94,23 @@ t_stub docker 'case "$1" in
       fi
       exit 0 ;;
     inspect)
-      # One image, asked for its age or its size, the format string naming
-      # which. A docker that knows the image answers one of them; one that
-      # knows it not is a tag whose image is gone, which the age rule leaves.
-      what=""
-      for a in "$@"; do
-        if [[ $a == *Created* ]]; then what=created; fi
-        if [[ $a == *Size* ]]; then what=size; fi
+      # Every image asked at once, a line "<id> <size> <created>" for each
+      # one docker knows: $fx/size-<id> and $fx/created-<id>, either making it
+      # known. One it knows not is a tag whose image is gone, which the age
+      # rule leaves; as docker does, the others are still answered and the
+      # call fails.
+      [ "$3 $4" = "--format {{.Id}} {{.Size}} {{.Created}}" ] || exit 1
+      shift 4
+      rc=0
+      for id in "$@"; do
+        if [ -s "$T/fx/size-$id" ] || [ -s "$T/fx/created-$id" ]; then
+          echo "$id $(cat "$T/fx/size-$id" 2>/dev/null || echo 0) $(cat "$T/fx/created-$id" 2>/dev/null)"
+        else
+          echo "Error: No such image: $id" >&2
+          rc=1
+        fi
       done
-      [ -n "$what" ] || exit 1
-      id=${@: -1}
-      [ -s "$T/fx/$what-$id" ] || exit 1
-      cat "$T/fx/$what-$id" ;;
+      exit "$rc" ;;
     # No step of the cleaner prunes images: only the build cache is pruned, and
     # every image goes by the name the cleaner knows. A run that asked for a
     # prune of images would name the reach of the step wrongly, so the stub
@@ -1499,6 +1504,9 @@ t_lacks "$t_out" "removed $image_name:261014-1000"
 # Only the one image reports a size; a docker that answers none contributes
 # nothing to the total, which is what the closing line adds up.
 t_contains "$t_out" "freed 3000000000 bytes"
+# The sizes of the four removals are one question to docker, not one each.
+t_eq "$(t_calls docker | grep -c '^image inspect ')" 1
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{.Size}} {{.Created}} sha256:4 sha256:3 sha256:2 sha256:1"
 
 t_case "the newest two builds stay whatever their age"
 reset
@@ -1661,6 +1669,9 @@ t_contains "$t_out" "freed 5000000000 bytes"
 # Each removal names one tag of the followed repository: no ids, no pattern, and
 # no image of any other name is handed to docker.
 t_eq "$(t_calls docker | grep -c '^rmi ')" "2"
+# The dates and sizes of the three bases are one question to docker.
+t_eq "$(t_calls docker | grep -c '^image inspect ')" 1
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{.Size}} {{.Created}} $sha_old1 $sha_old2 $sha_now"
 
 t_case "a base a kept sandbox tag was built on stays, and one a container holds stays"
 reset
@@ -1769,7 +1780,7 @@ date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$base1"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
 t_run "$clean"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "image inspect --format {{.Created}} $base1"
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{.Size}} {{.Created}} $base1"
 t_lacks "$(t_calls docker)" "rmi"
 t_contains "$t_out" "kept $base_repo:sha-aaaaaaaaaaaa: docker did not date its image past 6 hours"
 # A base docker will not date is kept the same way: an unknown age is not an old one.

@@ -53,8 +53,10 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "start-order"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-message"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr-lane"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-lane"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-sweep"
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "host-start"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
@@ -62,7 +64,27 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-starts"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-starts` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-lane"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-lane` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-sweep"'
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-sweep` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-json"'
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-json` ('
+t_eq "$(jq -r .refreshScan <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
+
+t_case "api says whether the timed refresh scan is on: TEHAS_REFRESH_CONFLICTS is 1"
+reset
+installed v0.8.0+cb6912a
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.refreshScan, (keys_unsorted | .[-2:])]' <<<"$t_out")" '[true,["refreshScan","poll"]]'
+t_run "$api"
+t_contains "$t_out" "refresh     scan on"
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
+t_run "$api"
+t_contains "$t_out" "refresh     scan off"
 
 t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"
 reset

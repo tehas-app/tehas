@@ -23,12 +23,14 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot refresh --pr N       # ask for the refresh of pull request N now
+tehasbot refresh --pr N --json  # the same, and print what it asked as one object
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # the GitHub writes of the last day, by hour
+tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -37,7 +39,10 @@ as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
 `tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
 run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
-by a person), and one `tehas-cycle@<issue>.service` per running
+by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
+`tehasbot mcp serve` only while `TEHAS_MCP=1`, and
+[The MCP server](/mcp-server) is how it is switched on), and one
+`tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -127,8 +132,13 @@ body that denies the closing word, `this does not fix #<n>`, names no pull
 request of the issue), or the rebase conflicts. Only the factory's own open
 pull requests count, as for the poll: one on a branch of the repository that
 the bot or an account of `TEHAS_ALLOWED_LABELERS` opened. One from a fork, or
-from any other account, does not stop it. A push the remote refuses is not
-tried again. A refusal
+from any other account, does not stop it. The open pull requests are read in
+pages of 100 to the last page; a list it cannot read whole, or of more than ten
+pages, refuses the run. A push the remote refuses is not
+tried again. When the push went through and the draft then could not be
+opened, or gh said no URL for it, `finish/issue-<issue>` stays on the remote
+and the refusal says so: open its pull request by hand, or delete the branch
+before asking again, since a branch of that name refuses the next run. A refusal
 names the rule and, where the command said something, its first line. On a
 host the poll runs it when an issue asks with a marked comment and
 `tehas:finish`; see [finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
@@ -195,7 +205,7 @@ keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
 approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
-`refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
+`refresh`, `outage-retry`, `host`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Docker is asked for that
 commit before the record starts, and a daemon that has not answered in 30
 seconds costs only the commit: the start goes on record without it. Started by
@@ -269,7 +279,9 @@ What the result says is checked against GitHub. A pull request counts as the
 cycle's only when the bot opened it on the branch the result names and it
 names the issue: its head is
 `feature/issue-<n>-...`, as pi-rukas names a branch, or its body closes `#<n>`
-(`Fixes #<n>`, `Closes #<n>`). A pull request on that branch that names
+(`Fixes #<n>`, `Closes #<n>`, `Resolved #<n>`; a body that denies it, `does
+not fix #<n>`, closes nothing). Finish and the dispatcher read a pull request
+by the same rule. A pull request on that branch that names
 another issue is said in the comment and not taken. A result of `merged` is
 reported as merged only when the bot has a merged pull request for the issue
 on that branch. Without one the issue is parked, the comment says that the
@@ -328,7 +340,16 @@ recorded as `cap:provider-outage`, as only tehas names an outage), and with the 
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. The reason is kept whole up to 2000 characters, as many as the
 condensed stream keeps of a text; a longer one ends ` (cut)`, and so does the
-park comment's. The record's `handoffDelivered` says whether pi-rukas's
+park comment's. A `capReason` is never the bare cap word: a cap whose reason
+is empty, or only repeats the cap or its first word, is on record as
+`no evidence from the driver`. When processes in the container were killed for
+memory, the record's `capReason` says how many (`; 1 process in its container
+was killed for memory`), so a memory plan that is too tight is not read as a
+change that failed its gate. The line `tehas work` writes to the cycle's
+`err.txt` at a cap follows the same rule and names the killed processes where
+the kernel log gives their names, and the console file gets the line
+`tehas work: <n> processes in this cycle's container were killed for memory`.
+The record's `handoffDelivered` says whether pi-rukas's
 handoff reached a comment, on the issue or on its pull request: `true` when
 the cycle's park or comment that carries it was posted, or lean posted its own
 report; `false` when every post of it failed, and the log then says

@@ -19,7 +19,7 @@ remain the way to change anything.
 
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
-[`tehas order`](#tehas-order),
+[`tehas order`](#tehas-order), [`tehas start`](#tehas-start),
 [`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
 [`tehas thaw`](#tehas-freeze-and-tehas-thaw), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
@@ -75,6 +75,8 @@ listed here when a release has it.
    With `--only`, an issue the program leaves out waits. The order stays on
    disk through restarts until it is set again or cleared; give `--for` only
    when an order should lapse if the program stops setting it.
+   To say which issue starts at all, with no label of a GitHub account,
+   approve it with [`tehas start N`](#tehas-start).
 5. Before an upgrade or a move, [`tehas drain --wait`](#tehas-drain), then
    `tehas limit clear` once it is done.
 
@@ -117,9 +119,10 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "store-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-message-health", "refresh-pr-starts", "refresh-pr-lane", "refresh-pr-sweep", "refresh-pr-json", "host-start"],
   "millwright": null,
   "fixer": null,
+  "refreshScan": false,
   "poll": {
     "last": {
       "at": 1761400000,
@@ -142,9 +145,10 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) and `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for while `TEHAS_REFRESH_CONFLICTS` is not 1, [refreshes](/operating#refreshes)) `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `refresh-pr-sweep` (while `TEHAS_REFRESH_CONFLICTS` is not 1 the dispatcher drops a request the timed run wrote once a start check fails, [refreshes](/operating#refreshes)), `refresh-pr-json` ([`tehasbot refresh --pr N --json`](/tools-github#tehasbot-refresh) prints what it asked as one object, and `refreshScan` is in this answer) and `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) |
 | `millwright` | The app's login, or `null` before it is known |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
+| `refreshScan` | `true` when the timed scan of `tehas-refresh.timer` looks for conflicting pull requests: `TEHAS_REFRESH_CONFLICTS` is 1. `false` when its runs exit at once, and a refresh starts only when `tehasbot refresh --pr N` asks for one. Whether the timer is enabled is not read |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
 `poll` in two objects, in milliseconds and in whole numbers:
@@ -237,20 +241,20 @@ tehas status --json
 | `room.slots.containersHow` | The same for the containers |
 | `room.slots.cycle` | How the cycles were derived; left out when `cyclesHow` is not `auto` |
 | `room.slots.container` | How the containers were derived; left out when `containersHow` is not `auto` |
-| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`. Treat it as an open list |
-| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered |
+| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`, which is for a host whose readings answered nothing. Treat it as an open list |
+| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered, or when the CPUs hold less than one cycle |
 | `room.slots.cycle.cpus` | The host's CPUs as `nproc` answered, `null` when it answered nothing |
 | `room.slots.cycle.cycleCpus` | `TEHAS_CYCLE_CPUS` as written: the CPUs one cycle is given |
 | `room.slots.cycle.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written: the memory one container is given |
 | `room.slots.cycle.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default: the most cycles the endpoint may serve |
-| `room.slots.cycle.floored` | `true` when no reading answered and the count is the floor of its setting: 1 cycle, 2 containers |
+| `room.slots.cycle.floored` | `true` when the count is the floor of its setting, 1 cycle: with `bound` `host` because no reading answered, with `cpu` because the CPUs hold less than one cycle |
 | `room.slots.container.bound` | The same for the containers: `memory`, `ceiling` or `host` |
 | `room.slots.container.slots` | The containers the slice's `MemoryMax` holds at `TEHAS_CONTAINER_MEMORY`, before the bounds |
 | `room.slots.container.cpus` | The host's CPUs, read for the line the two counts are shown in; `null` when `nproc` answered nothing |
 | `room.slots.container.cycleCpus` | `TEHAS_CYCLE_CPUS` as written, named beside the pair so a person reads both numbers of one derivation together |
 | `room.slots.container.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written |
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
-| `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
+| `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
 | `versions.platform` | The tehas release: `release`, `latest` and `behind` |
@@ -370,6 +374,49 @@ answer: the command exits 1.
 Exit 0; 1 the file could not be written or removed; 64 on a bad argument,
 which writes nothing; 78 without an instance.
 
+## tehas start
+
+```
+tehas start <issue> [--json]
+tehas start <issue> --clear [--json]
+```
+
+```json
+{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}
+```
+
+Approves an open issue for a start, from the host, in place of a
+`tehas:ready` label from an allowed account. It runs as the factory's user and
+needs no GitHub login of its own: the approval is a row of the state store of
+its own kind, `host`. It reads the issue from GitHub once, to refuse a number
+that is no open issue and to bind the title and text the approval covers.
+
+Nothing starts at once and nothing passes a hold. The next poll starts the
+issue under the rules every start passes: the slots and the limit, a pause or
+a drain, a blocked-by link or `tehas:blocked`, an open pull request that
+closes it, a park on the same text and the start order, which sorts it with
+the ready issues. A title or text changed since the approval starts nothing,
+and the poll log says to run `tehas start` again. Running it again replaces
+the approval that waits; any start of the issue uses it up.
+
+`--clear` takes back an approval that has not started a cycle, and answers
+it, or `null` with `cleared: false` when none waited.
+
+| Field | Meaning |
+| --- | --- |
+| `issue` | The issue |
+| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and the sums of the text and the title. `null` from a `--clear` that found none |
+| `cleared` | `true` when `--clear` took an approval back |
+
+The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
+"host"`) and `tehas status` say the cycle was started from the host. The
+millwright may retry such a cycle as one a person's label started, and may
+ask for its finish.
+
+Exit 0 recorded, taken back or nothing to take back; 1 GitHub has no open
+issue of that number or did not answer, or the store refused; 64 on a bad
+argument, which writes nothing; 78 without an instance.
+
 ## tehas drain
 
 ```
@@ -455,36 +502,6 @@ running cycle, a freeze asked twice, or a thaw of a cycle that is not frozen.
 So a caller that asks every minute changes nothing by asking again. Exit 1
 when the request could not be written or removed; 64 on a bad argument; 78
 without an instance. `tehas api` lists the feature `freeze`.
-
-## Industry alerts
-
-```
-~/tehas/state/industry/alerts.json
-```
-
-```json
-{"time": "2026-10-17T14:00:00Z", "alerts": [{"kind": "paused", "since": "2026-10-17T10:00:00Z", "text": "Paused for 4 h: tehas:pause on the control issue.", "link": "https://tehas-industry.example/factories/tehas-tehas"}]}
-```
-
-The one file a program writes into the factory rather than a command it
-runs: tehas-industry writes it on each pass, atomically, with what it sees of
-the factory that the factory cannot see of itself. [`tehasbot
-health`](/tools-health#tehasbot-health) reads it when `TEHAS_INDUSTRY_VERSION` is
-set, into `checks.industry.alerts`, and the front pages show the current
-alerts as a banner. The source holds its JSON Schema,
-`api/industry-alerts.schema.json`, and a sample, `api/industry-alerts.sample.json`.
-
-| Field | Meaning |
-| --- | --- |
-| `time` | When the industry wrote the file, RFC 3339. Alerts more than five minutes old are not current |
-| `alerts` | The alerts that hold now; an empty list when there are none |
-| `alerts.kind` | `paused` (paused or drained for too long), `frozen` (nothing moves) or `held-by-one` (one ticket has held the factory still while work waits). A kind tehas does not know is shown by its word |
-| `alerts.since` | When it started, RFC 3339 |
-| `alerts.text` | The alert for a person, one line. Health keeps 200 characters of it |
-| `alerts.link` | Where the industry shows it, an `http` or `https` address |
-
-A file that is not this shape is unreadable: health says so and warns, and
-never reads it as no alerts.
 
 ## The finish ask
 
@@ -614,7 +631,7 @@ schema names it, under `cycles` for a field of a line.
 | `cycles.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
 | `cycles.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
 | `cycles.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright` or `hand` |
+| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
 | `cycles.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
 | `cycles.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
 | `cycles.filed` | The issues the turn filed, when it filed any. A field of a plan line |
@@ -1242,7 +1259,7 @@ written, and still: treat all of it as public.
 | `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
 | `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
-| `health.down` | the store's `publish`, which makes it before a `fail` health report and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
+| `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
@@ -1269,7 +1286,7 @@ GET /host/bridge.json
 ```
 
 ```json
-{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
+{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
 ```
 
 A contract between the dashboard and a host that fronts the factory's domain.
@@ -1293,15 +1310,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `host` | One line, at most 40 characters. Shown nowhere |
 | `time` | RFC 3339. An answer more than 5 minutes old, or as far ahead of the server's clock, is ignored whole |
 | `ticketLink` | Optional. Where a ticket of the factory's repository links, with `{n}` for its number once. Starts with `/host/`, at most 200 characters. Absent: tickets link to GitHub |
-| `notices` | Optional, at most 5. Lines at the top of the front pages |
-| `notices.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list |
-| `notices.level` | `info`, `warn` or `alert` |
-| `notices.text` | One line, 1 to 200 characters. Control characters become spaces |
-| `notices.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `ticketNotes` | Optional, at most 200. A short note on a ticket, wherever the dashboard draws that ticket |
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
-| `ticketNotes.link` | Optional, as `notices.link` |
+| `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does |
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
@@ -1311,8 +1323,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
   whole.
 - An element that breaks a rule is dropped alone; the rest is used. Past the
   limit of a list, the elements after it are dropped.
-- Unknown fields are ignored, at the top level and in each element. A
-  `tokens` field, which an earlier release drew, is one of them.
+- Unknown fields are ignored, at the top level and in each element. The
+  `tokens` and `notices` fields, which earlier releases drew, are among them.
+  A host shows a message on the factory with
+  [`tehas host-message`](#tehas-host-message).
 - Text goes into the page as text only, never as markup.
 - A link is used only if it passes its rule. A path under `/host/` opens in
   the same tab; an `https://` address in a new one.
@@ -1321,8 +1335,6 @@ How the dashboard draws it:
 
 - `ticketLink`: every link to an issue of the factory's repository goes there
   instead, in the same tab. Pull requests keep linking to GitHub.
-- `notices`: a line each at the top of both front pages, in the tone of its
-  level, beside the industry's alerts and drawn the same way.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
 - `menu`: an item each in the menu of both front pages, after the panels of

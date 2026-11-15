@@ -257,7 +257,6 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_TOP", SWITCH, "0"),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
-    always("TEHAS_OVERLAP_HOLD", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
     always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
@@ -328,6 +327,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
     given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
+    given("TEHAS_GITHUB_RENEW_EVERY", Rule::Count),
     given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
     given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
@@ -813,7 +813,6 @@ mod tests {
             "TEHAS_PREVIEWS",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
-            "TEHAS_OVERLAP_HOLD",
         ] {
             takes(name, "1");
             refuses(name, "2", "expected 0 or 1");

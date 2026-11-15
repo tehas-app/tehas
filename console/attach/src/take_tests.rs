@@ -990,3 +990,60 @@ fn a_reply_adds_to_the_session_and_a_failure_leaves_it_as_it_was() {
         Err("the session's images could not be read".to_string())
     );
 }
+
+#[test]
+fn a_reply_whose_old_directory_cannot_be_removed_is_still_written() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    let stuck = format!("{dir}/stuck");
+    fs::create_dir_all(&stuck).unwrap();
+    fs::write(format!("{stuck}/x"), "x").unwrap();
+    let mode = |path: &str, bits| fs::set_permissions(path, fs::Permissions::from_mode(bits));
+    mode(&stuck, 0o555).unwrap();
+    if fs::write(format!("{stuck}/y"), "y").is_ok() {
+        // Permissions do not hold for this user, so nothing can fail to go.
+        mode(&stuck, 0o755).unwrap();
+        return;
+    }
+    let manifest = json!({"images": [], "files": [], "leftOut": [], "issue": 7,
+        "approval": null, "leftOutMore": 0})
+    .to_string();
+    fs::write(format!("{dir}/manifest.json"), &manifest).unwrap();
+    let text = format!("{base}/reply");
+    let link = file(2, "b.png");
+    fs::write(&text, &link).unwrap();
+    let run = AnswerRun {
+        dir: &dir,
+        text: &text,
+        id: "42",
+        wants: ALL,
+    };
+    let said = answer(&run, &Fake::default());
+    let old = format!("{dir}.old");
+    let left = Path::new(&old).exists();
+    mode(&stuck, 0o755).unwrap();
+    if left {
+        mode(&format!("{old}/stuck"), 0o755).unwrap();
+    }
+    assert_eq!(
+        said,
+        Ok((format!("- image-1.png, from {link}"), String::new()))
+    );
+    assert_eq!(listing(&dir), ["image-1.png", "manifest.json", "stuck"]);
+    assert!(left);
+}
+
+#[test]
+fn a_swap_that_fails_says_which_step_and_why() {
+    let (_scratch, base) = scratch();
+    let dir = format!("{base}/images");
+    fs::create_dir_all(&dir).unwrap();
+    let copy = format!("{dir}.new");
+    let why = swap(&dir, &copy, &format!("{copy}/manifest.json")).unwrap_err();
+    assert!(
+        why.starts_with("the session's images could not be written (the copy's mode: "),
+        "{why}"
+    );
+    assert!(why.contains("No such file or directory"), "{why}");
+    assert_eq!(listing(&base), ["images"]);
+}

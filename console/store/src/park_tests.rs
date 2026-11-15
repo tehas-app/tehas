@@ -100,7 +100,7 @@ fn park_records_the_park_and_its_question() {
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
                "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
-               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false})
+               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false,"cap":null})
     );
     assert_eq!(
         one::<String>(
@@ -372,6 +372,45 @@ fn park_show_refine_lists_the_intent_parks_a_refine_is_owed() {
     assert_eq!(ok(&home, &["park-show", "62"])["park"]["refine"], false);
     // The outage retry is another list.
     assert_eq!(ok(&home, &["park-show", "--automatic"])["parks"], json!([]));
+}
+
+/// `park-show` answers the cap of the parked run, read from the same history
+/// row its `park_reason` comes from: the same string `history-show` answers for
+/// that attempt, and null when the park has no history row.
+#[test]
+fn park_show_answers_the_cap_of_the_parked_run() {
+    let home = home("park-cap");
+    let (_l, a) = start_by(&home, 71, "alice", "label", NOW);
+    let (n, at) = (71.to_string(), a.to_string());
+    ok(
+        &home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "parked",
+            "--cap",
+            "verify-failed:develop",
+            "--park-reason",
+            "underspecified",
+            "--parked",
+        ],
+    );
+    park(&home, 71, a, "verify-failed", &[]).unwrap();
+    let v = ok(&home, &["park-show", "71"]);
+    assert_eq!(v["park"]["cap"], "verify-failed:develop");
+    assert_eq!(v["park"]["park_reason"], "underspecified");
+    let rows = ok(&home, &["history-show", "71", "--kind", "cycle"])["rows"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let row = rows
+        .iter()
+        .find(|r| r["attempt"] == json!(a))
+        .expect("the attempt has a history row");
+    assert_eq!(row["cap"], v["park"]["cap"]);
 }
 
 #[test]

@@ -19,6 +19,7 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::issue_pull::names_issue;
 
 /// The name the status reads to know the poll ran it, and the value that means
 /// so. It is one of the names the load of the settings keeps.
@@ -124,6 +125,24 @@ impl Term {
         bound: Duration::from_secs(120),
         grace: Duration::from_secs(5),
     };
+}
+
+/// How a host command that did not end 0 ended, for a WARN line: None for 0.
+/// No exit status is a run that outlived its bound, or one that never began.
+pub fn ended_badly(rc: Option<i32>) -> Option<String> {
+    match rc {
+        Some(0) => None,
+        Some(n) => Some(format!("exited {n}")),
+        None => Some("was killed at its bound or did not start".into()),
+    }
+}
+
+/// A host command and its arguments as one name for a log line.
+pub fn named(cmd: &str, args: &[String]) -> String {
+    std::iter::once(cmd)
+        .chain(args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// How one start ended.
@@ -337,22 +356,6 @@ fn bounded(items: Vec<Value>) -> (Vec<Value>, usize) {
     (items.into_iter().skip(dropped).collect(), dropped)
 }
 
-/// tehas_names_issue: a pull request is the issue's when its head is the
-/// issue's branch or its body closes it.
-fn names_issue(pr: &Value, n: u64) -> bool {
-    use regex::Regex;
-    let head = pr.get("headRefName").and_then(Value::as_str).unwrap_or("");
-    let branch = format!("feature/issue-{n}");
-    if head == branch || head.starts_with(&format!("{branch}-")) {
-        return true;
-    }
-    let body = pr.get("body").and_then(Value::as_str).unwrap_or("");
-    Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{n}([^0-9]|$)"
-    ))
-    .is_ok_and(|re| re.is_match(body))
-}
-
 /// The comment that lifts a park's hold off the millwright's `tehas:ready` at
 /// `at`: the note `fixer_note` would put on the record, when it carries the
 /// `action=change` marker within the text a cycle is given and no other
@@ -460,7 +463,7 @@ impl Writer {
                 }
             }
         }
-        self.status(printed);
+        self.status(printed, log);
         failed.then_some(1)
     }
 
@@ -492,17 +495,19 @@ impl Writer {
     /// The token cannot carry that word: a host with a machine-user token, or
     /// a poll whose token read failed, holds none, and the status would then
     /// run health and so would the poll.
-    pub fn status(&mut self, printed: &mut Vec<String>) {
+    ///
+    /// A run that did not end 0 leaves the status files as the last good one
+    /// wrote them, so `log` gets a WARN naming the command and how it ended.
+    pub fn status(&mut self, printed: &mut Vec<String>, log: &mut Vec<String>) {
         let cmd = self.host.status_cmd.clone();
         let args = self.host.status_args.clone();
-        self.status_of_grace(
-            &cmd,
-            &args,
-            printed,
-            &mut Vec::new(),
-            &Term::HOST,
-            &[FROM_POLL],
-        );
+        let rc = self.status_of_grace(&cmd, &args, printed, log, &Term::HOST, &[FROM_POLL]);
+        if let Some(how) = ended_badly(rc) {
+            log.push(format!(
+                "WARN: the status command {} {how}: the status files may be stale",
+                named(&cmd, &args)
+            ));
+        }
     }
 
     /// The health command, run by the poll after it wrote the demand, under
@@ -597,13 +602,17 @@ impl Writer {
                 "-f".into(),
                 "labels[]=tehas:refreshing".into(),
             ];
-            let w = self.write(pr, "refresh-begin", args, None, None);
-            if !matches!(w, Wrote::Done(_)) {
-                if matches!(w, Wrote::Unrecorded) {
+            let why = match self.write(pr, "refresh-begin", args, None, None) {
+                Wrote::Done(_) => None,
+                Wrote::Failed(why) => Some(why),
+                Wrote::Unrecorded => {
                     log.push(Writer::unrecorded(pr));
+                    Some(String::new())
                 }
+            };
+            if let Some(why) = why {
                 log.push(format!(
-                    "ERROR: could not mark pull request #{pr} as refreshing, not starting a cycle"
+                    "ERROR: could not mark pull request #{pr} as refreshing, not starting a cycle{why}"
                 ));
                 return Then::Failed;
             }
@@ -745,6 +754,13 @@ impl Writer {
         let when = iso(tehas_core::time::now() as u64).replacen('T', " ", 1);
         let when = &when[..16];
         let how = text(a, "how");
+        // The host's approval is no GitHub account's, and an `@` before its
+        // word would mention one.
+        let whose = if given == crate::decide::HOST || by == crate::decide::HOST {
+            "the host's".to_string()
+        } else {
+            format!("@{by}'s")
+        };
         let branch = a
             .pointer("/refresh_of/branch")
             .and_then(Value::as_str)
@@ -754,11 +770,11 @@ impl Writer {
         // container still runs the full refresh, so the comment says that too.
         if easy {
             let url = text(a, "refresh_url");
-            self.say(n, &format!("Tehas chose the easy merge of this issue on `{host}` at {when} UTC: it merges `{branch}` into {url} with no model and no container. This cycle is the full refresh kept in reserve for what the easy merge cannot do. It rests on @{by}'s {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
+            self.say(n, &format!("Tehas chose the easy merge of this issue on `{host}` at {when} UTC: it merges `{branch}` into {url} with no model and no container. This cycle is the full refresh kept in reserve for what the easy merge cannot do. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
         } else if refresh_pr.is_some() {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
-            self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @{by}'s {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
+            self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
         } else {
             let left = if left_out.is_empty() {
                 String::new()
@@ -766,12 +782,15 @@ impl Writer {
                 let names: Vec<String> = left_out.iter().map(|l| format!("`{l}`")).collect();
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
-            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by @{by}'s {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
+            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
         }
-        if self.unit_start(n, before, log) {
-            self.analytics(&["event".into(), n.to_string(), "started".into()], log);
-            return Then::Started;
-        }
+        let why = match self.unit_start(n, before, log) {
+            Ok(()) => {
+                self.analytics(&["event".into(), n.to_string(), "started".into()], log);
+                return Then::Started;
+            }
+            Err(why) => why,
+        };
         // A unit that comes up after this finds its approval gone and runs
         // nothing; when the approval stays on record, the unit is stopped.
         if !self.restore(n, recorded, log) && !self.unit_stop(n) {
@@ -779,7 +798,7 @@ impl Writer {
                 "WARN: could not stop tehas-cycle@{n}.service: a late start may still use its approval"
             ));
         }
-        log.push(format!("ERROR: the cycle for #{n} did not start"));
+        log.push(format!("ERROR: the cycle for #{n} did not start: {why}"));
         let args = vec![
             "issue".into(),
             "edit".into(),
@@ -794,7 +813,7 @@ impl Writer {
         if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
             log.push(format!("WARN: label change on #{n} failed"));
         }
-        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
+        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
         Then::Failed
     }
 
@@ -1302,12 +1321,14 @@ impl Writer {
     }
 
     /// start_cycle: the unit started, and its start on record as an attempt
-    /// later than `before`, within the wait.
-    fn unit_start(&mut self, n: u64, before: u64, log: &mut Vec<String>) -> bool {
+    /// later than `before`, within the wait. Otherwise why it is not taken as
+    /// started: the start's exit, or what the store said while it waited.
+    fn unit_start(&mut self, n: u64, before: u64, log: &mut Vec<String>) -> Result<(), String> {
         // systemctl start waits for the unit. The bound is the poll's: a start
         // past it gave up, and its late unit finds no approval on record.
+        let bound = Duration::from_secs(300);
         let rc = match &self.host.start_cmd {
-            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(300)),
+            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, bound),
             None => run_quiet(
                 &self.host.systemctl,
                 &[
@@ -1316,36 +1337,56 @@ impl Writer {
                     format!("tehas-cycle@{n}.service"),
                 ],
                 None,
-                Duration::from_secs(300),
+                bound,
             ),
         };
-        if rc != Some(0) {
-            return false;
+        match rc {
+            Some(0) => {}
+            Some(c) => return Err(format!("its start exited {c}")),
+            None => {
+                return Err(format!(
+                    "its start did not end within {}s or could not be run",
+                    bound.as_secs()
+                ))
+            }
         }
+        let wait = self.host.start_wait.as_secs();
+        // The store's word when its last answer was no answer.
+        let mut unanswered: Option<String> = None;
+        let mut unusable: Option<String> = None;
         let began = Instant::now();
         while began.elapsed() < self.host.start_wait {
             match self.calls.store(&["cycle-show", &n.to_string()]) {
                 Ok(v) => {
+                    unanswered = None;
                     if v.pointer("/cycle/attempt")
                         .and_then(Value::as_u64)
                         .is_some_and(|a| a > before)
                     {
-                        return true;
+                        return Ok(());
                     }
                 }
-                Err(f) if matches!(word(&f).as_str(), "busy" | "timeout") => {}
-                Err(_) => break,
+                Err(f) if matches!(word(&f).as_str(), "busy" | "timeout") => {
+                    unanswered = Some(word(&f));
+                }
+                Err(f) => {
+                    unusable = Some(word(&f));
+                    break;
+                }
             }
             std::thread::sleep(Duration::from_millis(500));
         }
         if held(&self.home.join(format!("state/cycles/{n}.lock"))) {
             log.push(format!(
-                "WARN: the cycle for #{n} holds its lock but did not say so in {}s; taking it as started",
-                self.host.start_wait.as_secs()
+                "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));
-            return true;
+            return Ok(());
         }
-        false
+        Err(match (unusable, unanswered) {
+            (Some(w), _) => format!("the store could not say whether it started ({w})"),
+            (None, Some(w)) => format!("the store was still {w} at the end of the {wait}s wait"),
+            (None, None) => format!("it put no new attempt on record within {wait}s"),
+        })
     }
 
     /// stop_unit: the issue's unit stopped and waited for.

@@ -972,6 +972,85 @@ fn cleaned_values_never_fail_an_end() {
     assert_eq!(v["cleaned"], json!(["--status"]));
 }
 
+/// The signature of a park is taken over the words as this command keeps
+/// them, so the marker the cycle writes and the repeat check that reads the
+/// row back agree whatever the run passed. The words are what one run says of
+/// one stop in the three places it says them: its cap, its failure kind, and
+/// the long cause it gives for that kind. A store that kept each word whole
+/// would hash the same bytes as the marker does; one that cuts or drops is the
+/// store this signature has to follow, so the case makes every field dirty in
+/// the way a run's word is dirty and the whole store still says one sig.
+#[test]
+fn a_park_signature_is_the_same_over_the_words_as_given_and_as_stored() {
+    let home = home("end-park-sig");
+    let (_lock, a) = start(&home, 70);
+    let (n, at) = attempt_args(70, a);
+    let cap = "Child timeout/develop";
+    let park_reason = "child-timeout";
+    let failure_kind = "child timeout";
+    // 70 characters, with a space among them, over the bound of a cause.
+    let failure_cause = format!("{} {}", "c".repeat(40), "d".repeat(29));
+    let v = ok(
+        &home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "handoff",
+            "--step",
+            "develop",
+            "--cap",
+            cap,
+            "--park-reason",
+            park_reason,
+            "--failure-kind",
+            failure_kind,
+            "--failure-cause",
+            &failure_cause,
+            "--parked",
+        ],
+    );
+    assert_eq!(
+        v["cleaned"],
+        json!(["--cap", "--failure-kind", "--failure-cause"])
+    );
+    // NULL is read as the empty field, as the repeat check reads a row.
+    type Words = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let row: Words = conn(&home)
+        .query_row(
+            "SELECT cap, park_reason, failure_kind, failure_cause, step FROM cycle_history WHERE issue = 70",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .unwrap();
+    let stored = |v: &Option<String>| v.clone().unwrap_or_default();
+    assert_eq!(stored(&row.0), "Childtimeoutdevelop");
+    assert_eq!(stored(&row.1), "child-timeout");
+    assert_eq!(stored(&row.2), "childtimeout");
+    assert_eq!(
+        stored(&row.3),
+        format!("{}{}", "c".repeat(40), "d".repeat(20))
+    );
+    assert_eq!(
+        tehas_core::question::park_sig("develop", cap, park_reason, failure_kind, &failure_cause),
+        tehas_core::question::park_sig(
+            &stored(&row.4),
+            &stored(&row.0),
+            &stored(&row.1),
+            &stored(&row.2),
+            &stored(&row.3)
+        )
+    );
+}
+
 #[test]
 fn a_container_branch_of_a_plain_shape_is_kept() {
     let home = home("end-branch");
@@ -1238,6 +1317,59 @@ fn never_ran_removes_the_used_approvals_and_keeps_an_unused_one() {
         one::<i64>(&home, "SELECT at FROM approvals WHERE issue = 62"),
         unused_at
     );
+}
+
+/// A start `tehasbot cycle` reports as refused: the report's never-ran arm
+/// gives `--status refused` with `--never-ran`. `refused` is no word of
+/// `END_REASONS`, so `cycles.end_reason` keeps its CHECK list as it is and
+/// holds `unknown`, while `endings.status` has no CHECK and keeps the word.
+/// health reads the endings, so the word it needs is the one that is stored.
+#[test]
+fn a_refused_never_ran_end_keeps_the_word_in_the_ending_and_unknown_as_reason() {
+    let home = home("never-ran-refused");
+    let (_l, a) = start(&home, 63);
+    let unused_at = approve(&home, 63, "bob", "label");
+    let (n, at) = attempt_args(63, a);
+    let v = ok(
+        &home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "refused",
+            "--never-ran",
+        ],
+    );
+    assert_eq!(v["cycle"]["end_reason"], "unknown");
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM endings"),
+        "refused"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM heartbeats"),
+        "refused"
+    );
+    assert_eq!(
+        one::<String>(&home, "SELECT status FROM cycle_history"),
+        "refused"
+    );
+    // The approval of a start that ran nothing is spent, as of any never-ran
+    // end: no millwright, refresh or later start rests on it.
+    assert_eq!(
+        count(&home, "approvals WHERE issue = 63 AND used_by IS NOT NULL"),
+        0
+    );
+    assert_eq!(
+        one::<i64>(&home, "SELECT at FROM approvals WHERE issue = 63"),
+        unused_at
+    );
+    // What publish writes for the ending: the file the page and health read.
+    ok(&home, &["publish"]);
+    let e: Value =
+        serde_json::from_str(&fs::read_to_string(home.join("live/endings.json")).unwrap()).unwrap();
+    assert_eq!(e[0]["status"], "refused");
 }
 
 #[test]

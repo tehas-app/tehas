@@ -40,7 +40,11 @@ note `state/cycles/<issue>.lean-refused` and the lines below, which end
 `(driver lean, work-lean; it does not run classic in its place)`. It starts no
 container and moves nothing. `tehasbot cycle` reads the note and parks the
 issue as a start that never ran: its approval goes with the report, so nothing
-starts it again on its own. Any other 78 is a stopped cycle. A refresh whose
+starts it again on its own. Any other 78 is a stopped cycle. When the image
+gave no capabilities answer, lacks what the cycle is given, or the directory
+of the workspaces was not made by tehas, the note
+`state/cycles/<issue>.refused` holds the cause, and the park comment names it,
+so the issue says why the start was refused without the run log. A refresh whose
 pull request conflicts with the branch, on an image whose capabilities do not
 set `continuePrMergeVerify`, stops with 78 after the workspace is made and
 before the push check, with the note `state/cycles/<issue>.refresh-conflict`
@@ -205,7 +209,15 @@ failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
 (`features.usageByRole`, `features.failureReason`). An image that does not,
 v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
 counted once by its key, and a reason read from lines the runner marks
-unstable, which may be empty.
+unstable, which may be empty. A line of the log that is no JSON, such as the
+last line of a container killed mid-write, is left out of that count; the file
+then names how many lines it left out and of how many, as
+`"unparsed":{"lines":N,"of":M}`, and `tehasbot cycle` says so in its log.
+Its `from` says where roles and failure come from: `result`, `progress`
+when the run wrote no result (no file, or an empty one, as a runner that
+crashed or never started leaves it), or `bad-result` when the result has
+something in it but gives no entry for the issue (a link, no JSON, another
+schema version, or no entry with the issue's number).
 Before the cycle's container, after the push check, `tehas work` installs the
 product's dependencies in the workspace, in a container of the sandbox image
 with the cycle's limits and security options, the workspace and no token (see
@@ -258,7 +270,10 @@ container it saw killed leaves the word `killed` in
 the runner wrote no result at all. A container it watched to its end that wrote
 no result and not one line of its stream leaves its own exit status, one line of
 digits, in `~/tehas/state/cycles/<issue>.nostart`, which is what says this issue
-started no runner rather than one that died part way through. The four files
+started no runner rather than one that died part way through. A log that could
+not be looked at is not taken for an empty one: it leaves no `nostart`, and the
+error stream of the cycle says the stream could not be read, so the disk is
+the place to look rather than the driver. The four files
 `tehasbot cycle` reads and removes for a cycle say four things: `runner_exit` is
 there when this command watched the run and holds the runner's own exit,
 `status` carries the one word `killed` when it saw the container killed,

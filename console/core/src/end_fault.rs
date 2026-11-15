@@ -138,18 +138,19 @@ impl EndFault {
         let step = v["step"].as_str().filter(|s| STEPS.contains(s))?;
         Some(EndFault {
             issue: v["issue"].as_u64().filter(|n| *n > 0)?,
-            attempt: v["attempt"].as_u64().unwrap_or(0),
+            attempt: v["attempt"].as_u64().filter(|n| *n > 0)?,
             step: step.to_string(),
             github: v["github"].as_bool()?,
             host: v["host"].as_bool().unwrap_or(false),
             why: one_line(v["why"].as_str().unwrap_or("")),
             at: v["at"].as_i64()?,
             tries: v["tries"]
-                .as_array()
-                .map(|a| a.iter().filter_map(Value::as_i64).collect())
-                .unwrap_or_default(),
+                .as_array()?
+                .iter()
+                .map(Value::as_i64)
+                .collect::<Option<_>>()?,
             stopped: one_line(v["stopped"].as_str().unwrap_or("")),
-            said: v["said"].as_bool().unwrap_or(false),
+            said: v["said"].as_bool()?,
         })
     }
 
@@ -238,26 +239,36 @@ pub fn all(home: &Path) -> Vec<EndFault> {
     out
 }
 
-/// Write the record, through a new file and a rename. False when it was not
-/// written.
-pub fn write(home: &Path, r: &EndFault) -> bool {
+/// Write the record, through a new file and a rename. The error says which
+/// of the three failed and why, so a full disk reads apart from a permission.
+pub fn write(home: &Path, r: &EndFault) -> Result<(), String> {
     let p = path(home, r.issue);
     let new = p.with_extension("json.new");
-    let ok = p.parent().is_some_and(|d| fs::create_dir_all(d).is_ok())
-        && fs::write(&new, format!("{}\n", r.to_json())).is_ok()
-        && fs::rename(&new, &p).is_ok();
-    if !ok {
+    let dir = p.parent().unwrap_or(home);
+    let done = fs::create_dir_all(dir)
+        .map_err(|e| format!("cannot create {}: {e}", dir.display()))
+        .and_then(|()| {
+            fs::write(&new, format!("{}\n", r.to_json()))
+                .map_err(|e| format!("cannot write {}: {e}", new.display()))
+        })
+        .and_then(|()| {
+            fs::rename(&new, &p).map_err(|e| format!("cannot rename it to {}: {e}", p.display()))
+        });
+    if done.is_err() {
         let _ = fs::remove_file(&new);
     }
-    ok
+    done
 }
 
-/// Remove the record of `issue`; true when there is none left.
-pub fn remove(home: &Path, issue: u64) -> bool {
+/// Remove the record of `issue`. Ok when there is none left, as when
+/// `state/cycles` is no directory; the error says why one is still there.
+pub fn remove(home: &Path, issue: u64) -> Result<(), String> {
+    use std::io::ErrorKind::{NotADirectory, NotFound};
     let p = path(home, issue);
     match fs::remove_file(&p) {
-        Ok(()) => true,
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        Ok(()) => Ok(()),
+        Err(e) if matches!(e.kind(), NotFound | NotADirectory) => Ok(()),
+        Err(e) => Err(format!("cannot remove {}: {e}", p.display())),
     }
 }
 
@@ -337,6 +348,28 @@ mod tests {
     }
 
     #[test]
+    fn a_record_with_a_damaged_attempt_tries_or_said_does_not_read() {
+        let good = seen("push", "HTTP 502").to_json();
+        for (field, bad) in [
+            ("attempt", json!(0)),
+            ("attempt", json!("1")),
+            ("attempt", Value::Null),
+            ("tries", json!(["x"])),
+            ("tries", json!([1000, {"at": 1600}])),
+            ("tries", json!("1000")),
+            ("tries", Value::Null),
+            ("said", json!("false")),
+            ("said", Value::Null),
+        ] {
+            let mut v = good.clone();
+            v[field] = bad.clone();
+            assert_eq!(EndFault::from_json(&v), None, "{field}: {bad}");
+            v.as_object_mut().unwrap().remove(field);
+            assert_eq!(EndFault::from_json(&v), None, "{field} missing");
+        }
+    }
+
+    #[test]
     fn tries_are_three_at_most_ten_minutes_apart_within_the_hour() {
         let mut r = seen("push", "HTTP 502");
         assert_eq!(r.due(1001), Due::Now);
@@ -389,11 +422,36 @@ mod tests {
         let dir = crate::testdir::TestDir::new("end-fault");
         let home = dir.path();
         let r = rec("push", "HTTP 502");
-        assert!(write(home, &r));
+        assert_eq!(write(home, &r), Ok(()));
         assert_eq!(read(home, 7), Some(r.clone()));
         assert_eq!(all(home), vec![r]);
-        assert!(remove(home, 7));
-        assert!(remove(home, 7));
+        assert_eq!(remove(home, 7), Ok(()));
+        assert_eq!(remove(home, 7), Ok(()));
         assert_eq!(read(home, 7), None);
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_written_or_removed_says_why() {
+        let dir = crate::testdir::TestDir::new("end-fault-blocked");
+        let home = dir.path();
+        // A directory where the record goes: no rename lands on it and no
+        // remove takes it, whoever runs the test.
+        fs::create_dir_all(path(home, 7).join("x")).unwrap();
+        let why = write(home, &rec("push", "HTTP 502")).unwrap_err();
+        assert!(why.starts_with("cannot rename it to "), "{why}");
+        assert!(why.contains("7.end-failed.json: "), "{why}");
+        assert!(!path(home, 7).with_extension("json.new").exists());
+        let why = remove(home, 7).unwrap_err();
+        assert!(why.starts_with("cannot remove "), "{why}");
+    }
+
+    #[test]
+    fn no_record_is_left_where_state_cycles_is_no_directory() {
+        let dir = crate::testdir::TestDir::new("end-fault-no-dir");
+        let home = dir.path();
+        fs::create_dir_all(home.join("state")).unwrap();
+        fs::write(home.join("state/cycles"), "").unwrap();
+        assert_eq!(remove(home, 7), Ok(()));
+        assert!(write(home, &rec("push", "HTTP 502")).is_err());
     }
 }

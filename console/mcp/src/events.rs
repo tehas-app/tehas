@@ -697,7 +697,7 @@ mod tests {
             "wait"
         );
         assert_eq!(
-            d("skip #316: its question is not among the last 100 comments"),
+            d("skip #316: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"),
             "skip"
         );
         assert_eq!(d("ignore #508: tehas:blocked was taken off"), "skip");
