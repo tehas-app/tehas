@@ -479,24 +479,24 @@ impl GhRunner for Bounded {
             .map_err(|e| format!("{} could not be run: {e}", self.program))?;
         // Both pipes are drained on their own thread: a child that fills one
         // while the other is still being read would never get to its end.
-        let mut out = child.stdout.take().expect("piped");
-        let reading = std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = out.read_to_string(&mut text);
-            text
-        });
-        let mut err = child.stderr.take().expect("piped");
-        let reading_err = std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = err.read_to_string(&mut text);
-            text
-        });
+        let out = child.stdout.take().expect("piped");
+        // None when the stream could not be read to its end: an empty answer
+        // is then no answer of gh's.
+        let drain = |mut s: Box<dyn Read + Send>| {
+            std::thread::spawn(move || {
+                let mut text = Vec::new();
+                s.read_to_end(&mut text).ok()?;
+                Some(String::from_utf8_lossy(&text).into_owned())
+            })
+        };
+        let reading = drain(Box::new(out));
+        let reading_err = drain(Box::new(child.stderr.take().expect("piped")));
 
         let code = wait(&mut child, self.bound, self.grace);
-        let out = reading.join().unwrap_or_default();
-        let err = reading_err.join().unwrap_or_default();
+        let out = reading.join().ok().flatten();
+        let err = reading_err.join().ok().flatten().unwrap_or_default();
         match code {
-            Some(0) => Ok(out),
+            Some(0) => out.ok_or_else(|| format!("{}'s answer could not be read", self.program)),
             // Outlived its bound: a call that says nothing of itself still
             // says what stopped it.
             None => Err(format!(

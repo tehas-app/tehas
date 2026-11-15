@@ -282,6 +282,7 @@ const SCRUBBED: [&str; 17] = [
 struct Stream {
     text: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     done: std::sync::mpsc::Receiver<()>,
+    failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn bounded_stream<S: std::io::Read + Send + 'static>(stream: Option<S>) -> Option<Stream> {
@@ -289,6 +290,8 @@ fn bounded_stream<S: std::io::Read + Send + 'static>(stream: Option<S>) -> Optio
     let text = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (tx, done) = std::sync::mpsc::channel();
     let kept = std::sync::Arc::clone(&text);
+    let failed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let broke = std::sync::Arc::clone(&failed);
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
@@ -300,29 +303,36 @@ fn bounded_stream<S: std::io::Read + Send + 'static>(stream: Option<S>) -> Optio
                     t.extend_from_slice(&buf[..n.min(room)]);
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => break,
+                Err(_) => {
+                    broke.store(true, std::sync::atomic::Ordering::SeqCst);
+                    break;
+                }
             }
         }
         let _ = tx.send(());
     });
-    Some(Stream { text, done })
+    Some(Stream { text, done, failed })
 }
 
 /// What a stream said by `until`. A stream still open then is one a process
 /// outside the call's reach holds, and is not waited for: the call has ended.
-/// The answer says whether the stream reached its end.
-fn taken(s: Option<Stream>, until: Instant) -> (String, bool) {
+/// The answer says whether the stream reached its end, and is None when the
+/// stream could not be read: that is not an empty answer.
+fn taken(s: Option<Stream>, until: Instant) -> Option<(String, bool)> {
     let Some(s) = s else {
-        return (String::new(), true);
+        return Some((String::new(), true));
     };
     let left = until.saturating_duration_since(Instant::now());
     let ended = s.done.recv_timeout(left).is_ok();
+    if s.failed.load(std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
     let text = s
         .text
         .lock()
         .map(|t| String::from_utf8_lossy(&t).into_owned())
-        .unwrap_or_default();
-    (text, ended)
+        .ok()?;
+    Some((text, ended))
 }
 
 /// One command in `dir`, its standard input closed, both streams read as they
@@ -412,8 +422,11 @@ pub(super) fn within(
         }
     };
     let drained = Instant::now() + grace;
-    let (out, out_ended) = taken(out, drained);
-    let (mut err, err_ended) = taken(err, drained);
+    let (Some((out, out_ended)), Some((mut err, err_ended))) =
+        (taken(out, drained), taken(err, drained))
+    else {
+        return missing(&format!("{program}'s answer could not be read"));
+    };
     if stopped {
         // The first line is what a refusal quotes, so it names the call.
         err = format!(

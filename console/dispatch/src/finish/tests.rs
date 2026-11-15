@@ -378,6 +378,7 @@ fn ran(status: Option<i32>, out: &str, err: &str) -> Ran {
         out: out.into(),
         err: err.into(),
         truncated: false,
+        unread: false,
     }
 }
 
