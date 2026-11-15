@@ -36,7 +36,7 @@ sx=$T_ROOT/test/fixtures/headless-c5ddc0a
 scaps=$(cat "$sx/capabilities.json")
 # What tehas work gives a cycle's container, of PI_ENSEMBLE_* names.
 given="PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_WORKSPACE_ROOT PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_VERIFY_TIMEOUT_MS
-  PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER"
+  PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER"
 
 t_case "the runner of v0.14.0, on result schema 5, supports what tehas gives a cycle"
 t_eq "$(tehas_headless_unsupported "$scaps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" ""
@@ -45,9 +45,11 @@ t_case "the result schema the bash reads is the one tehas-cycle takes"
 t_eq "$(tehas_headless_unsupported "$(jq -c --argjson v "$tehas_headless_result" '.contracts.resultSchema.version = $v' <<<"$scaps")" "--json" "")" ""
 
 t_case "a runner on result schema 3 is refused for that alone"
-t_eq "$(tehas_headless_unsupported "$caps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
+# These runners came before the suite tier and its bound.
+old_given=${given/ PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS/}
+t_eq "$(tehas_headless_unsupported "$caps" "--timeout 360 --json --restart" "$old_given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
   "result schema version 3, not 5"
-t_eq "$(tehas_headless_unsupported "$ncaps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
+t_eq "$(tehas_headless_unsupported "$ncaps" "--timeout 360 --json --restart" "$old_given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
   "result schema version 3, not 5"
 
 t_case "a role's model and provider are inputs of their family"

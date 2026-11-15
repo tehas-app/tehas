@@ -696,6 +696,14 @@ fn the_step_from_13_keeps_the_cycles_and_takes_host() {
 }
 
 #[test]
+fn the_steps_are_the_ladder_up_to_the_schema_this_binary_writes() {
+    // The list migrate walks is one entry per schema, in order, each once: a
+    // step put after a later one, or left out, or doubled, is caught here.
+    let targets: Vec<i64> = db::STEPS.iter().map(|(to, _)| *to).collect();
+    assert_eq!(targets, (2..=db::SCHEMA_VERSION).collect::<Vec<_>>());
+}
+
+#[test]
 fn a_store_above_7_is_future() {
     let home = home("schema-8");
     conn(&home)

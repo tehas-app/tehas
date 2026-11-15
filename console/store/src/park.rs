@@ -237,9 +237,14 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 /// The SELECT of a current park: the cycle's attempt joined in, `automatic`
 /// derived, the park question on record, when the hold was told, the body
 /// the parked attempt's approval bound (null for a run with none), the park
-/// reason its end gave, and `refine` derived: an intent park as underspecified
-/// or too-large, of a cycle a label or a retry started, on an issue that never
-/// had a planning session, whose one start no start has spent.
+/// reason and the cap its end gave, and `refine` derived: an intent park as
+/// underspecified or too-large, of a cycle a label or a retry started, on an
+/// issue that never had a planning session, whose one start no start has spent.
+///
+/// `PARK_NAMES` names these columns and `current` reads three of them by
+/// position, so a new column goes next to the two from the history row and
+/// `refine` stays last: `row_json` pairs a name with the column of its own
+/// index, so a name given in the wrong place is read off the wrong column.
 const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.pr, p.retries,
     c.started_at, c.started_by,
     (p.reason = 'provider-outage' AND p.retries = 0 AND c.requeued = 0 AND c.how <> 'hand'
@@ -250,6 +255,7 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
     (SELECT a.body_sha256 FROM approvals a WHERE a.issue = p.issue AND a.used_by = p.attempt
       ORDER BY a.used_at DESC, a.at DESC LIMIT 1),
     h.park_reason,
+    h.cap,
     (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
       AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry', 'host')
       AND c.started_by IS NOT NULL
@@ -259,7 +265,7 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
   LEFT JOIN cycle_history h ON h.id = (SELECT max(e.id) FROM cycle_history e
     WHERE e.issue = p.issue AND e.attempt = p.attempt)";
 
-const PARK_NAMES: [&str; 15] = [
+const PARK_NAMES: [&str; 16] = [
     "issue",
     "attempt",
     "at",
@@ -274,6 +280,7 @@ const PARK_NAMES: [&str; 15] = [
     "told_at",
     "body_sha256",
     "park_reason",
+    "cap",
     "refine?",
 ];
 

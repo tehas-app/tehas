@@ -185,8 +185,8 @@ Rules, in order:
      off, whoever made it.
      An issue that carries tehas:blocked waits while any issue it names is
      open, named by the newest comment with the marker
-     <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
-     nobody else edited. A label with no such comment, a malformed marker or
+     <!-- tehas:blocked by=12,34 --> by an allowed account or the
+     millwright, one nobody else edited. A label with no such comment, a malformed marker or
      a state GitHub does not give holds it too, and the log says why.
      Alone, on an issue in no other flow, it approves as tehas:ready does.
      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
@@ -209,7 +209,8 @@ Rules, in order:
      is a ready issue with no label: its approval counts in place of one,
      and a title or text changed since the approval starts nothing.
      tehas:blocked in rule 6 counts when
-     its latest event applies it and is by an allowed account or the fixer.
+     its latest event applies it and is by an allowed account or the
+     millwright.
      A running cycle is never stopped to make room.
   8. After the rules, a poll that is not paused, dry or failed runs the finish
      step (no slot, no agent, no cycle) for at most three open issues that

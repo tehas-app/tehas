@@ -6,6 +6,9 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
+# A start that finds the host cannot push comments the issue, so the gh stub
+# above answers for every suite of these files: not every case reads the issue
+# itself, and one that reaches no stub at all fails the case it ran in.
 stub_github
 
 # --- An issue that links what the cycle is not given -------------------------
@@ -145,7 +148,7 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_lacks "$t_out" "gives a cycle none"
 t_contains "$t_out" "the approval record of issue 7, or the manifest kept for it, could not be read"
-t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"
+t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read (attach: left-out exited 1): nothing is said about what this cycle was not given"
 t_eq "$(kept_manifests)" 1
 
 t_case "a link of the record that is not of GitHub's storage is not counted"

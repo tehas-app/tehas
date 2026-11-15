@@ -426,6 +426,17 @@ mod tests {
     }
 
     #[test]
+    fn the_blocked_rule_names_the_millwright_the_reader_accepts() {
+        // newest_marker and order_stands accept an allowed account or
+        // TEHAS_MILLWRIGHT_LOGIN; the printed rule must name the same two.
+        let text = DISPATCH.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(!text.contains("or the fixer"), "{text}");
+        assert!(text
+            .contains("<!-- tehas:blocked by=12,34 --> by an allowed account or the millwright"));
+        assert!(text.contains("is by an allowed account or the millwright."));
+    }
+
+    #[test]
     fn limit_keeps_what_follows_its_action() {
         assert_eq!(limit_words(&[]), Ok(words(&["limit", "show"])));
         assert_eq!(

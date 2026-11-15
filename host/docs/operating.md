@@ -612,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
@@ -1072,6 +1074,11 @@ dispatcher's log says so.
    agent asks more than one question in a turn, the comment lists them all,
    numbered, with their choices as text and no box for them: answer them in
    a reply.
+   A turn that ends on an issue a person closed in the meantime is dropped: the
+   poll reads the state before it posts, and a closed issue gets nothing of the
+   turn, its session closes, and one line in the log says
+   `planning #N dropped: the issue is closed`. A state the poll cannot read
+   holds the post to the next poll rather than close the session on no answer.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free
@@ -1307,7 +1314,10 @@ block.
 the issue's text and the issue brief, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
 one issue that a single `/work` cycle finishes: one behaviour change, about one
-or two code files and one test file. A session files one issue, so for a larger request the planner files
+or two code files and one test file. When the refine brief is missing or
+cannot be read, no session starts and the dispatcher logs an ERROR line that
+names it; the next poll tries again. A session files one issue, so for a
+larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
@@ -1589,6 +1599,15 @@ recording, and both commands then say so and exit 69.
   nor does its backup where there is one. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back.
+- No new cycle while the sandbox cannot push. A start whose push check is
+  refused leaves `~/tehas/state/push-fault.json` (see
+  [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
+  while that file is younger than ten minutes the poll starts no cycle and
+  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
+  every ready issue does not fail the same check in turn. Past ten minutes the
+  poll starts as it does today, and the start whose check passes takes the
+  file off again. Running cycles, planning turns and refreshes are not held by
+  it: what a refresh pushes already stands on the remote.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
@@ -1664,7 +1683,8 @@ recording, and both commands then say so and exit 69.
   start as before, so an outage at GitHub does not stop the factory; the log
   says why it could not tell, once each time that changes.
 
-The review cap, the new pi-rukas, the room, the pressure and a red branch hold back cycles
+The review cap, the new pi-rukas, the room, the pressure, a red branch and a
+sandbox that cannot push hold back cycles
 only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
@@ -1673,8 +1693,10 @@ changes, and `released: cycles may start again` once when it ends.
 
 ### The gate's bound and the cycles at once
 
-`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, and how long a
-run takes depends on how many cycles share the host. Each container's quota
+`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, the whole gate
+on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
+which tehas sets from it). How long a run takes depends on how many cycles
+share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
 with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:
@@ -2232,7 +2254,11 @@ the new names.
   `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
   when the cycle had none. `provider` is 1 when a provider outage stopped
   it. `sig` is the sha256 of the history line's
-  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `step|cap|park_reason|failure_kind|failure_cause`, each field as the store
+  keeps it: its characters outside the field's set, then its first bytes up to
+  the field's bound (`step` 40 of `[A-Za-z0-9_.-]`, `cap` 80 of those and `:`,
+  `park_reason` and `failure_kind` 40 of `[a-z-]`, `failure_cause` 60 of the
+  set of `cap`). Two parks with the same
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.

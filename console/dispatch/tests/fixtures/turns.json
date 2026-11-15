@@ -435,7 +435,7 @@
    "expect": {
     "nothing": true,
     "log": [
-     "skip #7: its question is not among the last 100 comments"
+     "skip #7: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
     ]
    }
   },

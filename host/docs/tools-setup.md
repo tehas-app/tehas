@@ -149,7 +149,7 @@ console and no checkout to build one from.
 tehas labels        # one line per label
 ```
 
-Creates the twenty labels tehas uses in the product repository: `tehas:ready`,
+Creates the twenty-two labels tehas uses in the product repository: `tehas:ready`,
 `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
@@ -157,8 +157,9 @@ filed a ticket for), `tehas:millwright-escalated`, `tehas:blocked`, `tehas:refre
 pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
 `tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)),
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
-[finishing a stopped cycle](/operating#finishing-a-stopped-cycle)) and
-`tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)).
+[finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
+`tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)), and
+`tehas:improvement` and `cross-project` (the improvement loop's).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
 the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
