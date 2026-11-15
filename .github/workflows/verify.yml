@@ -104,10 +104,10 @@ jobs:
           test "$("$RUNNER_TEMP/node/bin/node" --version)" = "v$NODE_VERSION"
       - name: the cargo build kept between runs
         run: |
-          # The checkout's git clean removes console/target, so it lives outside
-          # the workspace: one per runner instance, so two jobs never wait on
-          # each other's cargo lock.
-          dir=$HOME/.cache/tehas-target/$RUNNER_NAME
+          # Keep native artifacts separate when a runner is reprovisioned with
+          # a different host target or Rust release.
+          toolchain=$(rustc -vV | awk '$1 == "host:" || $1 == "release:" {printf "%s-", $2}')
+          dir=$HOME/.cache/tehas-target/$RUNNER_NAME/$toolchain
           mkdir -p "$dir"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: the toolchain the gate builds with
