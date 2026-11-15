@@ -142,6 +142,19 @@ fn s<'a>(v: &'a Value, path: &str) -> &'a str {
     v.pointer(path).and_then(Value::as_str).unwrap_or("")
 }
 
+/// The rule of pi-rukas's handoff marker: `line` is exactly the marker of
+/// `issue`, and of no other issue. The cap is 1 to 80 characters of its set,
+/// so a cap with a space or a missing cap is no marker, and neither is the
+/// marker with anything else on its line. `q_render` prints the marker of a
+/// park by this rule, and a cycle counts a handoff delivered by it too.
+pub fn is_handoff_marker(line: &str, issue: u64) -> bool {
+    Regex::new(&format!(
+        r"^<!-- pi-rukas:handoff issue={issue} cap=[A-Za-z0-9_.:-]{{1,80}} -->$"
+    ))
+    .unwrap()
+    .is_match(line)
+}
+
 /// q_render: the body of a question comment. `out` holds the text, the
 /// question, pi-rukas's handoff marker (`marker`) and, for a park, tehas's
 /// park marker (`park`); `line` is the host's own, put between the question
@@ -149,13 +162,9 @@ fn s<'a>(v: &'a Value, path: &str) -> &'a str {
 /// a comment before this one, so nothing of a long plan can move a box.
 pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> String {
     let mut b = String::new();
-    let handoff = Regex::new(&format!(
-        r"^<!-- pi-rukas:handoff issue={issue} cap=[A-Za-z0-9_.:-]{{1,80}} -->$"
-    ))
-    .unwrap();
     if kind == Kind::Park {
         let marker = s(out, "/marker");
-        if handoff.is_match(marker) {
+        if is_handoff_marker(marker, issue) {
             b += &format!("{marker}\n");
         }
         b += &format!("{}\n\n", q_clean(s(out, "/text"), 40000));
@@ -524,6 +533,30 @@ mod tests {
         );
         assert!(body.contains("- [ ] Retry with the issue and all its comments"));
         assert!(body.contains("- [ ] Retry with the issue text only"));
+    }
+
+    #[test]
+    fn the_handoff_marker_is_this_issues_and_well_formed() {
+        assert!(is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->",
+            7
+        ));
+        assert!(!is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=8 cap=verify-failed:develop -->",
+            7
+        ));
+        assert!(!is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=7 cap=a b -->",
+            7
+        ));
+        assert!(!is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=7 cap= -->",
+            7
+        ));
+        assert!(!is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=7 cap=x --> trailing",
+            7
+        ));
     }
 
     #[test]
