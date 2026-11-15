@@ -61,6 +61,14 @@ impl Events {
                 return Events::Unreadable;
             };
             let s = |k: &str| o.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            // A stamp that is present and is no text cannot be ordered, so
+            // the whole answer is unreadable rather than read as no stamp:
+            // the same rule `forge::gh::page_events` refuses by.
+            let at = match o.get("created_at") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) => Some(s.clone()),
+                Some(_) => return Events::Unreadable,
+            };
             out.push(Event {
                 event: s("event"),
                 label: o
@@ -75,10 +83,7 @@ impl Events {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
-                at: o
-                    .get("created_at")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
+                at,
             });
         }
         Events::Read(out)
@@ -272,6 +277,92 @@ mod allowed_tests {
         assert!(!allowed_in("alice bob", "alice bob"));
         assert!(!allowed_in("alice bob", ""));
         assert!(!allowed_in("", ""));
+    }
+
+    /// The list is what lib/config.sh checks: whole logins with one space
+    /// between them, exact case. The rule reads no other spelling as a login
+    /// of it.
+    #[test]
+    fn the_rule_reads_the_list_as_lib_config_sh_writes_it() {
+        // A login of the list, and one of no other case.
+        assert!(allowed_in("alice", "alice"));
+        assert!(!allowed_in("alice", "Alice"));
+        // Two spaces stand for no login: the empty word between them names
+        // nobody. The logins on either side of it are still whole logins.
+        assert!(!allowed_in("alice  bob", ""));
+        assert!(allowed_in("alice  bob", "alice"));
+        // A list of no logins allows nobody.
+        assert!(!allowed_in("", "alice"));
+        // A login that holds a space is no login of a space-separated list.
+        assert!(!allowed_in("alice bob", "alice bob"));
+        assert!(!allowed_in("alice bob", " alice"));
+        assert!(!allowed_in("alice bob", "alice "));
+    }
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::{Event, Events};
+    use serde_json::json;
+
+    fn labeled(actor: &str, at: serde_json::Value) -> serde_json::Value {
+        json!({
+            "event": "labeled",
+            "label": {"name": "tehas:ready"},
+            "actor": {"login": actor},
+            "created_at": at,
+        })
+    }
+
+    /// One rule for a stamp, the one `forge::gh::page_events` refuses by: a
+    /// stamp that is there and is no text cannot be ordered, and an entry
+    /// whose tie would be won by it is not the site's own unstamped event.
+    #[test]
+    fn a_stamp_that_is_no_text_makes_the_answer_unreadable() {
+        for stamp in [json!(1), json!({"$date": 1}), json!([1]), json!(true)] {
+            let v = json!([labeled("mallory", stamp.clone())]);
+            assert_eq!(
+                Events::parse(&v),
+                Events::Unreadable,
+                "{stamp} was read as a stamp"
+            );
+            // Among pages, one bad stamp unreadables the whole answer.
+            let v = json!([
+                labeled("alice", json!("2026-01-01T00:00:00Z")),
+                [labeled("mallory", stamp.clone())]
+            ]);
+            assert_eq!(Events::parse(&v), Events::Unreadable, "{stamp}");
+        }
+    }
+
+    /// The site's own answers of no time: no `created_at`, or one that is
+    /// JSON null. Both are read as no stamp, the oldest of the page.
+    #[test]
+    fn an_absent_or_null_stamp_is_still_read_as_no_stamp() {
+        let mut no_stamp = labeled("mallory", json!(null));
+        let v = json!([
+            no_stamp.clone(),
+            labeled("alice", json!("2026-01-01T00:00:00Z"))
+        ]);
+        let mallory = Event {
+            event: "labeled".into(),
+            label: "tehas:ready".into(),
+            actor: "mallory".into(),
+            at: None,
+        };
+        let want = Events::Read(vec![
+            mallory.clone(),
+            Event {
+                event: "labeled".into(),
+                label: "tehas:ready".into(),
+                actor: "alice".into(),
+                at: Some("2026-01-01T00:00:00Z".into()),
+            },
+        ]);
+        assert_eq!(Events::parse(&v), want);
+        no_stamp.as_object_mut().unwrap().remove("created_at");
+        let v = json!([no_stamp]);
+        assert_eq!(Events::parse(&v), Events::Read(vec![mallory]));
     }
 }
 

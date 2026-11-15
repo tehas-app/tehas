@@ -124,11 +124,12 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
                 .unwrap_or_default()
                 .to_string()
         };
+        // The same rule as `Events::parse`: a stamp that is present and is no
+        // text cannot be ordered, so the whole page is refused rather than
+        // read as no stamp. jq sorts a number before every string, so reading
+        // a wrong-typed stamp as no stamp would win a tie the reference reader
+        // gives to the stamped event.
         let stamp = match o.get("created_at") {
-            // Absent is the site saying nothing of the time; present and no
-            // text is an answer that cannot be read. jq sorts a number before
-            // every string, so reading a wrong-typed stamp as no stamp would
-            // win a tie the reference reader gives to the stamped event.
             None => None,
             Some(Value::Null) => None,
             Some(Value::String(s)) => Some(s.clone()),
