@@ -164,9 +164,10 @@ impl Settings {
             .map(|why| format!("{k} is not valid: {why}"))
     }
 
-    /// tehas_allowed_labeler: an empty name is nobody.
+    /// tehas_allowed_labeler: an empty name is nobody. The list is the
+    /// setting's own words joined, so the rule is `events::allowed_in`'s.
     pub fn allowed(&self, login: &str) -> bool {
-        !login.is_empty() && self.allowed.iter().any(|a| a == login)
+        tehas_core::events::allowed_in(&self.allowed.join(" "), login)
     }
 
     /// tehas_millwright_is.
@@ -175,11 +176,10 @@ impl Settings {
     }
 }
 
-/// A login as GraphQL gives it: REST names a GitHub App `<slug>[bot]` and
-/// GraphQL `<slug>`, one account.
-pub fn account(login: &str) -> &str {
-    login.strip_suffix("[bot]").unwrap_or(login)
-}
+/// A login as GraphQL gives it: gh's JSON `app/<slug>`, REST's `<slug>[bot]`
+/// and GraphQL's `<slug>` are one account. The rule lives in `tehas-core`; the
+/// dispatcher's callers import it from here.
+pub use tehas_core::accounts::account;
 
 #[cfg(test)]
 mod tests {
@@ -329,6 +329,30 @@ mod tests {
         assert!(c.allowed("alice"));
         for who in ["alice[bot]", "Alice", "alice2", "", "[bot]"] {
             assert!(!c.allowed(who), "{who}");
+        }
+        // Two spaces of the setting stand for no login: the empty word
+        // between them names nobody, as `allowed_in` reads it.
+        let doubled = Settings::parse(&json!({"TEHAS_ALLOWED_LABELERS": "alice  bob"}));
+        assert!(!doubled.allowed(""));
+        assert!(doubled.allowed("bob"));
+        // A setting of no logins allows nobody.
+        assert!(!Settings::parse(&json!({})).allowed("alice"));
+    }
+
+    #[test]
+    fn an_app_in_ghs_spelling_is_the_millwright_too() {
+        for setting in ["acme-millwright", "acme-millwright[bot]"] {
+            let c = Settings::parse(&json!({"TEHAS_MILLWRIGHT_LOGIN": setting}));
+            for who in [
+                "app/acme-millwright",
+                "app/acme-millwright[bot]",
+                "acme-millwright",
+                "acme-millwright[bot]",
+            ] {
+                assert!(c.is_millwright(who), "{setting} as {who}");
+            }
+            assert!(!c.is_millwright("app/acme-millwright2"));
+            assert!(!c.is_millwright("app/"));
         }
     }
 }

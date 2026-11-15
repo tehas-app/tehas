@@ -23,18 +23,26 @@ pub const FILE: &str = "state/account-ids";
 /// The bound of the file: a list of logins, nothing near it.
 const BOUND: u64 = 64 * 1024;
 
-/// A login as GraphQL gives it.
+/// A login as GraphQL gives it: one account is gh's `app/<slug>`, REST's
+/// `<slug>[bot]` and GraphQL's `<slug>`. A login that is only one of the two
+/// marks - `""`, `"[bot]"` or `"app/"` - names nobody and is kept whole, so it
+/// matches no account of any list.
 pub fn account(login: &str) -> &str {
-    login.strip_suffix("[bot]").unwrap_or(login)
+    match login {
+        "" | "[bot]" | "app/" => login,
+        login => {
+            let login = login.strip_prefix("app/").unwrap_or(login);
+            login.strip_suffix("[bot]").unwrap_or(login)
+        }
+    }
 }
 
 /// Whether `login` is the factory's own, the bot's. An empty name matches
-/// nothing. Logins compare as `account` gives them, and gh's JSON
-/// `app/<slug>` is the app's too.
+/// nothing. Logins compare as `account` gives them, so all three spellings of
+/// the app's name are the app's.
 pub fn factorys(login: &str, bot: &str) -> bool {
-    let bare = |l: &str| account(l.strip_prefix("app/").unwrap_or(l)).to_string();
-    let login = bare(login);
-    !login.is_empty() && !bot.is_empty() && bare(bot) == login
+    let (login, bot) = (account(login), account(bot));
+    !login.is_empty() && !bot.is_empty() && bot == login
 }
 
 /// Whether a pull request is the factory's own to count: its branch is in
@@ -228,6 +236,27 @@ fn warn(login: &str, id: Option<u64>, doubt: &Doubt) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_three_spellings_of_an_app_are_one_account() {
+        for (spelling, bare) in [
+            ("app/acme-bot", "acme-bot"),
+            ("acme-bot[bot]", "acme-bot"),
+            ("acme-bot", "acme-bot"),
+            ("app/acme-bot[bot]", "acme-bot"),
+            ("alice", "alice"),
+            // What names nobody stays as it is: it is no other account's name.
+            ("", ""),
+            ("[bot]", "[bot]"),
+            ("app/", "app/"),
+        ] {
+            assert_eq!(account(spelling), bare, "{spelling}");
+        }
+        let one = account("app/acme-bot");
+        assert_eq!(one, account("acme-bot[bot]"));
+        assert_eq!(one, account("acme-bot"));
+        assert_eq!(one, "acme-bot");
+    }
 
     #[test]
     fn the_factorys_own_is_the_bot() {
