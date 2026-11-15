@@ -35,7 +35,8 @@ EOF
 }
 gate="cd '$tree' && TEHAS_VERIFY_FRESH=1 TEHAS_VERIFY_LOGS='$T/logs' scripts/verify.sh"
 names="cd '$tree' && printf '%s\\n' one-two-three >scripts/check-generic.names"
-t_stub cargo 'exit 0'
+# shellcheck disable=SC2016  # the stub body is expanded when it runs
+t_stub cargo '[ "$1" != test ] || echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"; exit 0'
 t_stub node 'exit 0'
 
 t_case "without the list the name lint is a skip line, not ok"
