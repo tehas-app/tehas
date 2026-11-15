@@ -9,7 +9,7 @@
 use crate::after::{self, log};
 use crate::facts::Facts;
 use crate::host::{self, Start};
-use crate::report::{report, Action, Ask, Park, Report, HANDOFF_MARK};
+use crate::report::{report, Action, Ask, Park, Report};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -19,6 +19,7 @@ use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GRACE};
 use tehas_core::end_fault;
 use tehas_core::journal::{Journal, Wrote};
+use tehas_core::question::is_handoff_marker;
 
 /// The comment a park posts when its question's label could not be added.
 pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
@@ -113,6 +114,17 @@ impl Tried {
             format!("repos/{}/issues/{}", self.repo, self.issue),
         ]
     }
+}
+
+/// Whether `body` carries the handoff of pi-rukas for `issue`: its first line
+/// is the marker, and the marker of this issue alone. Every body tehas posts
+/// with the marker puts it on the first line (`marker_line`, `q_render`), so a
+/// real handoff counts; a body that only quotes a marker, or names another
+/// issue, does not.
+fn carries_handoff(body: &str, issue: u64) -> bool {
+    body.lines()
+        .next()
+        .is_some_and(|l| is_handoff_marker(l, issue))
 }
 
 /// The author a cycle's pull requests are listed by: the bot's login, or the
@@ -302,8 +314,8 @@ impl Writer<'_> {
 
     /// A body posted with pi-rukas's handoff marker carries its handoff.
     fn handed(&mut self, posted: bool, body: &str) {
-        self.handed_off |= posted && body.contains(HANDOFF_MARK);
-        if !posted && body.contains(HANDOFF_MARK) {
+        self.handed_off |= posted && carries_handoff(body, self.issue);
+        if !posted && carries_handoff(body, self.issue) {
             self.handoff_failed = Some(self.last_failed.clone());
         }
     }
@@ -778,8 +790,28 @@ pub fn run(home: &Path, s: &Start) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_lean, author_of, pr_list};
+    use super::{approved_lean, author_of, carries_handoff, pr_list};
     use serde_json::json;
+
+    #[test]
+    fn a_handoff_counts_only_by_its_marker_on_the_first_line() {
+        let marker = "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->";
+        assert!(carries_handoff(
+            &format!("{marker}\nTehas cycle handed off."),
+            7
+        ));
+        // Quoted below the first line, the marker is text the agent wrote.
+        assert!(!carries_handoff(
+            "Tehas cycle handed off.\n\nIt wrote:\n{marker}",
+            7
+        ));
+        // Another issue's marker is no handoff of this one.
+        assert!(!carries_handoff(
+            &format!("{marker}\nTehas cycle handed off."),
+            8
+        ));
+        assert!(!carries_handoff("", 7));
+    }
 
     #[test]
     fn the_cycles_pull_requests_are_listed_by_the_bots_login() {
