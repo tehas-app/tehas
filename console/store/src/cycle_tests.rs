@@ -972,6 +972,85 @@ fn cleaned_values_never_fail_an_end() {
     assert_eq!(v["cleaned"], json!(["--status"]));
 }
 
+/// The signature of a park is taken over the words as this command keeps
+/// them, so the marker the cycle writes and the repeat check that reads the
+/// row back agree whatever the run passed. The words are what one run says of
+/// one stop in the three places it says them: its cap, its failure kind, and
+/// the long cause it gives for that kind. A store that kept each word whole
+/// would hash the same bytes as the marker does; one that cuts or drops is the
+/// store this signature has to follow, so the case makes every field dirty in
+/// the way a run's word is dirty and the whole store still says one sig.
+#[test]
+fn a_park_signature_is_the_same_over_the_words_as_given_and_as_stored() {
+    let home = home("end-park-sig");
+    let (_lock, a) = start(&home, 70);
+    let (n, at) = attempt_args(70, a);
+    let cap = "Child timeout/develop";
+    let park_reason = "child-timeout";
+    let failure_kind = "child timeout";
+    // 70 characters, with a space among them, over the bound of a cause.
+    let failure_cause = format!("{} {}", "c".repeat(40), "d".repeat(29));
+    let v = ok(
+        &home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "handoff",
+            "--step",
+            "develop",
+            "--cap",
+            cap,
+            "--park-reason",
+            park_reason,
+            "--failure-kind",
+            failure_kind,
+            "--failure-cause",
+            &failure_cause,
+            "--parked",
+        ],
+    );
+    assert_eq!(
+        v["cleaned"],
+        json!(["--cap", "--failure-kind", "--failure-cause"])
+    );
+    // NULL is read as the empty field, as the repeat check reads a row.
+    type Words = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let row: Words = conn(&home)
+        .query_row(
+            "SELECT cap, park_reason, failure_kind, failure_cause, step FROM cycle_history WHERE issue = 70",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .unwrap();
+    let stored = |v: &Option<String>| v.clone().unwrap_or_default();
+    assert_eq!(stored(&row.0), "Childtimeoutdevelop");
+    assert_eq!(stored(&row.1), "child-timeout");
+    assert_eq!(stored(&row.2), "childtimeout");
+    assert_eq!(
+        stored(&row.3),
+        format!("{}{}", "c".repeat(40), "d".repeat(20))
+    );
+    assert_eq!(
+        tehas_core::question::park_sig("develop", cap, park_reason, failure_kind, &failure_cause),
+        tehas_core::question::park_sig(
+            &stored(&row.4),
+            &stored(&row.0),
+            &stored(&row.1),
+            &stored(&row.2),
+            &stored(&row.3)
+        )
+    );
+}
+
 #[test]
 fn a_container_branch_of_a_plain_shape_is_kept() {
     let home = home("end-branch");
