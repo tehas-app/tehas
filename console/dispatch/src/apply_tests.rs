@@ -75,6 +75,10 @@ case "$name $1" in
   "gh issue") case "$2 $*" in
       "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
       "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
+      # An issue asked for its state alone, as `plan_post` asks it before it
+      # posts a turn: its own file, so a case can hold the issue open for one
+      # read and closed for the next.
+      "view "*"--json state"*) cat "$d/state-$3" 2>/dev/null || echo '{"state":"OPEN"}' ;;
       "view "*"--json title"*) cat "$d/view-$3" 2>/dev/null || echo '{}' ;;
     esac ;;
   "gh api") case "$*" in *"-X POST"*/comments*) echo 99 ;; esac
@@ -2683,6 +2687,12 @@ fn alices_session() -> Value {
     json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "by": "alice", "answers": []})
 }
 
+/// The state the stub of `gh issue view --json state` answers for issue 7, as
+/// `plan_post` asks it before it posts anything of a turn.
+fn issue_state(t: &World, state: &str) {
+    fs::write(t.dir.join("state-7"), json!({"state": state}).to_string()).unwrap();
+}
+
 fn the_record(t: &World) -> PathBuf {
     t.w.home.join("state/plan-start/7.json")
 }
@@ -3012,6 +3022,146 @@ fn a_draft_that_is_gone_asks() {
     fs::remove_file(t.dir.join("works/tehas-work-plan-7.keep/draft.json")).unwrap();
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
+}
+
+/// What a turn whose issue was closed must not do: post the plan, its open
+/// points or its boxes, change a label, or leave the session open for the next
+/// poll to post them.
+fn posts_nothing_of_itself(t: &World) {
+    let w = t.writes();
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
+        "{w:?}"
+    );
+    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 7")), "{w:?}");
+    assert!(
+        !w.iter().any(|c| c.contains("--add-label tehas:question")),
+        "{w:?}"
+    );
+    assert!(!w.iter().any(|c| c.contains("question-asked")), "{w:?}");
+}
+
+#[test]
+fn a_turn_that_ends_after_its_issue_was_closed_is_dropped_and_its_session_closed() {
+    // The turn of #2214: it started while the issue was open and ended after a
+    // person closed it, and posted its plan, its open points and its boxes, and
+    // put tehas:question back for the tidy to take off again.
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    issue_state(&t, "CLOSED");
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    posts_nothing_of_itself(&t);
+    // The session is closed as `plan_close` closes one whose record is gone.
+    assert!(
+        t.writes().contains(&"store plan-end 7 --close".to_string()),
+        "{:?}",
+        t.writes()
+    );
+    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+    assert!(!t.w.home.join("state/plan-7.json.rc").exists());
+    // The rc file is taken off by the collect that recorded the turn, before
+    // the post read the issue; the keep directory is the post's own to remove.
+    assert!(!t.dir.join("works/tehas-work-plan-7.keep").exists());
+    assert!(!the_record(&t).exists());
+    // One line, naming the closed issue, and no other line of the post. It
+    // comes before the collect's own line, which is said after the post.
+    assert_eq!(
+        a.log,
+        vec![
+            "planning #7 dropped: the issue is closed, so nothing of its turn was posted"
+                .to_string(),
+            "done planning #7 turn=2 rc=0".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn a_waiting_turn_of_a_closed_issue_is_dropped_with_no_line_of_its_own() {
+    // The same turn read by the poll that finds it waiting to be posted, with
+    // no collect before it: the drop is the one line the poll says.
+    let mut t = world();
+    plan_row(&t, alices_session());
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Drafted.",
+               "question": {"question": "Tick.", "options": [{"label": TICK}]}}),
+    );
+    issue_state(&t, "CLOSED");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec!["planning #7 dropped: the issue is closed, so nothing of its turn was posted"]
+    );
+    posts_nothing_of_itself(&t);
+    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+}
+
+#[test]
+fn a_turn_that_ends_while_its_issue_is_open_posts_as_before() {
+    // The other side of the same read: an open issue answers OPEN and the turn
+    // of the case above is posted whole.
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    issue_state(&t, "OPEN");
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Drafted.",
+               "question": {"question": "Open points.", "options": [{"label": TICK}]}}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    assert!(
+        t.writes()
+            .contains(&"store plan-end 7 --posted".to_string()),
+        "{:?}",
+        t.writes()
+    );
+    assert!(
+        !a.log.iter().any(|l| l.contains("the issue is closed")),
+        "{:?}",
+        a.log
+    );
+}
+
+#[test]
+fn a_turn_waits_when_the_state_of_its_issue_cannot_be_read() {
+    // Neither posted nor dropped: a GitHub that answers nothing is no answer,
+    // so the session stays open and the next poll asks again.
+    let mut t = world();
+    plan_row(&t, alices_session());
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Drafted.",
+               "question": {"question": "Tick.", "options": [{"label": TICK}]}}),
+    );
+    t.fail("gh", "--json state");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l
+                .contains("the state of #7 could not be read before its planning turn was posted")),
+        "{:?}",
+        a.log
+    );
+    posts_nothing_of_itself(&t);
+    assert!(
+        !t.writes().contains(&"store plan-end 7 --close".to_string()),
+        "{:?}",
+        t.writes()
+    );
+    assert!(t.w.home.join("state/plan-7.json.out").exists());
 }
 
 /// The poll a person's tick on Update this issue ends in: the outcome the
