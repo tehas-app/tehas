@@ -137,17 +137,6 @@
       "reason": "expected 0 or 1"
     },
     {
-      "name": "TEHAS_OVERLAP_HOLD",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "0",
-        "1"
-      ],
-      "reason": "expected 0 or 1"
-    },
-    {
       "name": "TEHAS_READ_ONLY",
       "rule": "one-of",
       "when": "always",
@@ -552,6 +541,13 @@
       "when": "given",
       "default": "",
       "reason": "expected the ID GitHub shows, a whole number"
+    },
+    {
+      "name": "TEHAS_GITHUB_RENEW_EVERY",
+      "rule": "count",
+      "when": "given",
+      "default": null,
+      "reason": "expected a positive whole number"
     },
     {
       "name": "TEHAS_MILLWRIGHT_APP",

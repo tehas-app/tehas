@@ -4,7 +4,8 @@
 //! state of its workspace. One JSON object; `report` decides from it.
 //!
 //! A file is a string (a regular file and what it holds), {"link": true} (a
-//! link, which is never read), or absent. The run log is {"name", "text"}, with
+//! link, which is never read), {"unreadable": true} (a regular file that could
+//! not be read), or absent. The run log is {"name", "text"}, with
 //! {"truncated": true} when only its end is held, or {"name", "unreadable":
 //! true} for one that could not be read.
 
@@ -18,6 +19,8 @@ use crate::runner::LOG_TAIL;
 pub enum File {
     Absent,
     Link,
+    /// A regular file that is there but could not be read.
+    Unreadable,
     Text(String),
 }
 
@@ -26,6 +29,9 @@ impl File {
         match v {
             Some(Value::String(s)) => File::Text(s.clone()),
             Some(Value::Object(o)) if o.get("link") == Some(&Value::Bool(true)) => File::Link,
+            Some(Value::Object(o)) if o.get("unreadable") == Some(&Value::Bool(true)) => {
+                File::Unreadable
+            }
             _ => File::Absent,
         }
     }
@@ -111,14 +117,16 @@ fn st(v: &Value, k: &str) -> String {
     }
 }
 
+/// The store's answer, or the word of its failure: "unknown" when the facts
+/// hold none, "malformed" when what they hold is not a store's answer.
 fn answer(v: Option<&Value>) -> Result<Value, String> {
     match v {
-        Some(Value::Object(o)) if o.contains_key("error") => Err(o
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string()),
-        Some(v) => Ok(v.clone()),
+        Some(Value::Object(o)) => match o.get("error") {
+            None => Ok(v.cloned().unwrap_or_default()),
+            Some(Value::String(w)) => Err(w.clone()),
+            Some(_) => Err("malformed".into()),
+        },
+        Some(_) => Err("malformed".into()),
         None => Err("unknown".into()),
     }
 }
@@ -135,8 +143,29 @@ impl Facts {
             .get("attempt")
             .and_then(Value::as_u64)
             .ok_or("the facts name no attempt")?;
+        // The report's outcome and the writes of the cycle's end depend on
+        // these: a default would report a wrong outcome or write to no repo.
+        let repo = v
+            .get("repo")
+            .and_then(Value::as_str)
+            .filter(|r| !r.is_empty())
+            .ok_or("the facts name no repo")?
+            .to_string();
+        let time = |k: &str| v.get(k).and_then(Value::as_i64);
+        let started = time("started").ok_or("the facts hold no start time")?;
+        let now = time("now").ok_or("the facts hold no time now")?;
+        let signalled = v
+            .get("signalled")
+            .and_then(Value::as_bool)
+            .ok_or("the facts do not say whether a signal stopped the cycle")?;
         let flag = |k: &str| v.get(k).and_then(Value::as_bool).unwrap_or(false);
-        let int = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
+        // An exit status of 0 is the verdict of success, so a missing one is
+        // not read as 0.
+        let int = |k: &str| {
+            v.get(k)
+                .and_then(Value::as_i64)
+                .ok_or(format!("the facts hold no whole number for {k}"))
+        };
         let files = v
             .get("files")
             .and_then(Value::as_object)
@@ -157,17 +186,17 @@ impl Facts {
         });
         Ok(Facts {
             issue,
-            repo: st(v, "repo"),
+            repo,
             home: st(v, "home"),
             hostname: st(v, "hostname"),
             workdir: st(v, "workdir"),
             workspaces_marked: flag("workspaces_marked"),
             workdir_dir: flag("workdir_dir"),
             before_retry_dir: flag("before_retry_dir"),
-            rc: int("rc"),
-            signalled: flag("signalled"),
-            started: int("started"),
-            now: int("now"),
+            rc: int("rc")?,
+            signalled,
+            started,
+            now,
             attempt,
             start_by: st(&start, "by"),
             start_how: st(&start, "how"),
@@ -246,6 +275,50 @@ fn first_bytes_any(text: &str, n: usize) -> &str {
 mod tests {
     use super::*;
 
+    fn minimal() -> Value {
+        serde_json::json!({
+            "issue": 7, "repo": "acme/widget", "rc": 0, "signalled": false,
+            "started": 1000, "now": 1600, "start": {"attempt": 1},
+        })
+    }
+
+    #[test]
+    fn facts_with_what_the_end_needs_are_read() {
+        let f = Facts::from_json(&minimal()).expect("the facts read");
+        assert_eq!(
+            (f.repo.as_str(), f.started, f.now, f.signalled),
+            ("acme/widget", 1000, 1600, false)
+        );
+    }
+
+    #[test]
+    fn facts_missing_or_mistyping_what_the_end_needs_are_refused() {
+        for (k, bad) in [
+            ("repo", Value::Null),
+            ("repo", Value::from("")),
+            ("repo", Value::from(5)),
+            ("started", Value::Null),
+            ("started", Value::from("1000")),
+            ("now", Value::Null),
+            ("now", Value::from(1.5)),
+            ("signalled", Value::Null),
+            ("signalled", Value::from("false")),
+        ] {
+            let mut v = minimal();
+            match bad {
+                Value::Null => {
+                    v.as_object_mut().unwrap().remove(k);
+                }
+                b => v[k] = b,
+            }
+            assert!(
+                Facts::from_json(&v).is_err(),
+                "{k} = {:?} was read",
+                v.get(k)
+            );
+        }
+    }
+
     #[test]
     fn reads_are_bashs() {
         assert_eq!(first_bytes("12345\nx", 3), "123");
@@ -255,5 +328,60 @@ mod tests {
         );
         assert_eq!(line("  killed \nmore"), "killed");
         assert_eq!(two_lines("60\n review\nx"), ("60".into(), "review".into()));
+    }
+
+    fn least() -> Value {
+        serde_json::json!({"issue": 7, "repo": "acme/widget", "rc": 0,
+                           "signalled": false, "started": 100, "now": 160,
+                           "start": {"attempt": 1}})
+    }
+
+    #[test]
+    fn an_exit_status_or_a_time_that_is_not_a_number_is_refused() {
+        assert_eq!(Facts::from_json(&least()).unwrap().rc, 0);
+        for (k, bad) in [
+            ("rc", None),
+            ("rc", Some(serde_json::json!("1"))),
+            ("rc", Some(Value::Null)),
+            ("rc", Some(serde_json::json!(1.5))),
+            ("started", None),
+            ("started", Some(serde_json::json!("100"))),
+            ("now", None),
+            ("now", Some(Value::Null)),
+        ] {
+            let mut v = least();
+            match bad {
+                Some(b) => v[k] = b,
+                None => {
+                    v.as_object_mut().unwrap().remove(k);
+                }
+            }
+            let e = Facts::from_json(&v).unwrap_err();
+            let want = match k {
+                "started" => "the facts hold no start time".to_string(),
+                "now" => "the facts hold no time now".to_string(),
+                _ => format!("the facts hold no whole number for {k}"),
+            };
+            assert_eq!(e, want);
+        }
+    }
+
+    #[test]
+    fn an_answer_of_the_store_that_is_not_an_object_is_no_answer() {
+        let mut v = least();
+        v["record"] = serde_json::json!({"cycle": {"attempt": 1}});
+        v["approval"] = serde_json::json!("store down");
+        v["history"] = serde_json::json!({"error": 3});
+        let f = Facts::from_json(&v).unwrap();
+        assert!(f.record.is_ok());
+        assert_eq!(f.approval, Err("malformed".into()));
+        assert_eq!(f.history, Err("malformed".into()));
+        v["approval"] = serde_json::json!({"error": "busy"});
+        v["history"] = serde_json::json!([1]);
+        v.as_object_mut().unwrap().remove("record");
+        let f = Facts::from_json(&v).unwrap();
+        assert_eq!(f.approval, Err("busy".into()));
+        assert_eq!(f.history, Err("malformed".into()));
+        assert_eq!(f.record, Err("unknown".into()));
     }
 }

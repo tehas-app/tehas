@@ -280,7 +280,7 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 t_case "a request without asked counts in the demand beside a --pr one"
 refresh_setup
 asked_pr
-jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-16T09:00:00Z", pr: 51, head_sha: $h, base_sha: $b}' >"$refresh_dir/8.json"
+pull51
 slots 1
 running_refresh 9
 t_run "$dispatch"

@@ -86,8 +86,46 @@ pub fn print(given: &[String]) -> u8 {
     }
     let poll = poll_line(&home);
     let product = home.join("state/check-product.json");
-    let ends = end_lines(&tehas_core::end_fault::all(&home), now);
+    let mut ends = host_lines(&home, now);
+    ends.extend(end_lines(&tehas_core::end_fault::all(&home), now));
     answer(&file, now, Some((&poll, product.to_str())), &ends)
+}
+
+/// The starts `tehas start` asked for (#1967): each cycle one started that
+/// still runs, then each approval that waits for a poll. A store that cannot
+/// answer is no line.
+fn host_lines(home: &Path, now: i64) -> Vec<String> {
+    let Ok(v) = store::call(home, &["approval-hosts"]) else {
+        return Vec::new();
+    };
+    host_lines_of(&J::parse(&v.to_string()).unwrap_or(J::Null), now)
+}
+
+fn host_lines_of(v: &J, now: i64) -> Vec<String> {
+    let when = |t: &J| {
+        t.as_f64()
+            .map_or("at an unknown time".to_string(), |s| ago(s as i64, now))
+    };
+    let mut lines: Vec<String> = v
+        .get("running")
+        .items()
+        .iter()
+        .map(|r| {
+            format!(
+                "start     #{} started from the host {}, running",
+                r.get("issue").text(),
+                when(r.get("started_at"))
+            )
+        })
+        .collect();
+    lines.extend(v.get("waiting").items().iter().map(|w| {
+        format!(
+            "start     #{} approved from the host {}, waits for the next poll",
+            w.get("issue").text(),
+            when(w.get("at"))
+        )
+    }));
+    lines
 }
 
 /// The cycles whose last GitHub step failed (#1726): the next try of the poll,
@@ -548,13 +586,24 @@ fn slots_line(s: &J) -> String {
         "slots     cycles auto: {}, {}-bound{} ({} CPUs over TEHAS_CYCLE_CPUS={}, {} containers of tehas.slice over TEHAS_CONTAINER_MEMORY={}, ceiling {})\n",
         s.get("cycles").text(),
         a.get("bound").or(&J::Str("host".to_string())).text(),
-        if a.get("floored").is_true() { ", no reading" } else { "" },
+        floor_words(a.get("bound").as_str().unwrap_or("host"), a.get("floored").is_true()),
         cpus,
         a.get("cycleCpus").or(&J::Str("?".to_string())).text(),
         s.get("containers").text(),
         a.get("containerMemory").or(&J::Str("?".to_string())).text(),
         a.get("ceiling").or(&J::Str("?".to_string())).text(),
     )
+}
+
+/// What a count at its floor adds to the slots line, as the dispatcher's own
+/// words say it: `no reading` when nothing answered, `at the floor` when a
+/// reading answered less than the floor.
+fn floor_words(bound: &str, floored: bool) -> &'static str {
+    match (floored, bound) {
+        (false, _) => "",
+        (true, "host") => ", no reading",
+        (true, _) => ", at the floor",
+    }
 }
 
 /// The slice check of the dispatcher's last poll.
@@ -974,6 +1023,20 @@ mod tests {
     }
 
     #[test]
+    fn the_hosts_starts_have_a_line_each() {
+        let v =
+            h(r#"{"running":[{"issue":12,"started_at":1000}],"waiting":[{"issue":14,"at":1540}]}"#);
+        assert_eq!(
+            host_lines_of(&v, 1600),
+            [
+                "start     #12 started from the host 10 min ago, running",
+                "start     #14 approved from the host 60 s ago, waits for the next poll",
+            ]
+        );
+        assert!(host_lines_of(&h(r#"{"running":[],"waiting":[]}"#), 1600).is_empty());
+    }
+
+    #[test]
     fn ages_in_seconds_minutes_and_hours() {
         assert_eq!(ago(NOW - 40, NOW), "40 s ago");
         assert_eq!(ago(NOW + 5, NOW), "0 s ago");
@@ -1148,6 +1211,33 @@ mod tests {
             "{}",
             slice_line(&held, NOW)
         );
+        // A host that answered too few CPUs for one cycle is held at the
+        // floor by its own reading, which is not "no reading".
+        let few = h(
+            r#"{"checks":{"slice":{"why":"","room":0,"committed":0,"max":0,"reserve":"2g","time":"2026-10-17T14:00:00Z",
+                 "slots":{"cycles":1,"containers":2,"cyclesHow":"auto","containersHow":"auto",
+                          "cycle":{"bound":"cpu","slots":0,"cpus":4,"cycleCpus":"7","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
+        );
+        assert!(
+            slice_line(&few, NOW).starts_with(
+                "slots     cycles auto: 1, cpu-bound, at the floor (4 CPUs over TEHAS_CYCLE_CPUS=7"
+            ),
+            "{}",
+            slice_line(&few, NOW)
+        );
+    }
+
+    #[test]
+    fn the_floor_words_are_the_dispatchers() {
+        for bound in ["cpu", "memory", "ceiling", "host"] {
+            for floored in [false, true] {
+                assert_eq!(
+                    floor_words(bound, floored),
+                    tehas_dispatch::slots::floor_words(bound, floored),
+                    "{bound} {floored}"
+                );
+            }
+        }
     }
 
     #[test]

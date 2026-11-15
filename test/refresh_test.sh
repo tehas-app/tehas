@@ -131,7 +131,11 @@ t_contains "$t_out" "Usage:"
 # was the end of the timed scan.
 t_case "the refresh text is the words it has"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "ac705b0e376d4bae1b83bc3d139769bda5c02a3ca5a5341a37a80fbbcbccfe59"
+  "e49d21dde977d6a43525b9712f3164b2f2b75cbe756d2f9c7dd0d67bed68f7ac"
+
+t_case "the refresh text says drafts are kept, as the rule keeps them"
+t_lacks "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")" "no draft"
+t_contains "$(tr '\n' ' ' <"$T_ROOT/console/dispatch/src/usage/refresh.txt")" "A draft is kept too"
 
 t_case "--help prints the refresh text word for word"
 reset
@@ -223,9 +227,38 @@ for how in fails null; do
   t_contains "$t_out" "ERROR"
 done
 
+t_case "--pr N --json prints what it asked on standard output, whatever the setting"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
+one "$(pr 50 7)"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" "{\"asked\":true,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":null}"
+t_eq "$(jq -r .asked "$dir/7.json")" "pr"
+t_contains "$(cat "$logfile")" "asked for pull request #50: wrote the request of #7"
+
+t_case "--pr N --json on one not refreshed exits 3 and says why in the object"
+reset
+one "$(pr 50 7 '.mergeable = "MERGEABLE"')"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 3
+t_eq "$(jq -c . <<<"$t_out")" "{\"asked\":false,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":\"it does not conflict: GitHub says MERGEABLE\"}"
+t_eq "$(requests)" ""
+t_run "$refresh --pr 50 --json 2>&1 >/dev/null"
+t_contains "$t_out" "is not refreshed: it does not conflict"
+
+t_case "--pr N --json whose GitHub read fails exits 1 with a null issue and head"
+reset
+: >"$fx/pr-fails"
+t_run "$refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$(jq -c '[.asked, .pr, .issue, .head_sha]' <<<"$t_out")" '[false,50,null,null]'
+t_contains "$(jq -r .why <<<"$t_out")" "GitHub did not answer for pull request #50"
+t_eq "$(requests)" ""
+
 t_case "--pr without a number above 0 is refused with 64 and calls nothing"
 reset
-for args in "--pr 0" "--pr x" "--pr" "--pr 50 51"; do
+for args in "--pr 0" "--pr x" "--pr" "--pr 50 51" "--pr 50 --jsn" "--json --pr 50" "--pr 0 --json"; do
   t_run "$refresh $args"
   t_eq "$args $t_rc" "$args 64"
 done

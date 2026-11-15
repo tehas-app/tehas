@@ -26,9 +26,6 @@ are added when an answer arrives.
   "host": "example-host",
   "time": "2026-11-08T12:00:00Z",
   "ticketLink": "/host/ticket/{n}",
-  "notices": [
-    {"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}
-  ],
   "ticketNotes": [
     {"issue": 42, "text": "Example note", "link": "/host/ticket/42"}
   ],
@@ -44,15 +41,10 @@ are added when an answer arrives.
 | `host` | One line, at most 40 characters. Shown nowhere |
 | `time` | RFC 3339. An answer more than 5 minutes old is ignored whole |
 | `ticketLink` | Optional. Where a ticket of the factory's repository links, with `{n}` for its number once. Starts with `/host/`, at most 200 characters. Absent: tickets link to GitHub |
-| `notices` | Optional, at most 5. Lines at the top of the front pages |
-| `notices.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list |
-| `notices.level` | `info`, `warn` or `alert` |
-| `notices.text` | One line, 1 to 200 characters. Control characters become spaces |
-| `notices.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `ticketNotes` | Optional, at most 200. A short note on a ticket, wherever the dashboard draws that ticket |
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters |
-| `ticketNotes.link` | Optional, as `notices.link` |
+| `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does |
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
@@ -70,8 +62,6 @@ Reading it:
 
 - **`ticketLink`**: every link to a ticket of the factory's repository goes
   there instead, same tab. Pull requests keep linking to GitHub.
-- **`notices`**: a line each at the top of both front pages, in the level's
-  tone, beside the alerts banner and drawn the same way.
 - **`ticketNotes`**: a small chip beside the ticket's number or title in
   every view that draws it, linked when it has a link.
 - **`menu`**: an item each in the menu of both front pages, after the
@@ -115,3 +105,10 @@ usage the host could not read. The business front page draws it as text in a
 "Token use" block at the foot of the Performance section. The contract stays
 version 1: a dashboard that predates the field ignores it. `tehas api` lists
 `host-bridge-tokens`, so a host can tell which factories draw it.
+
+## Notices removed (#1972)
+
+The answer had a `notices` field, lines at the top of the front pages. No
+host sent any, and `tehas host-message` is the one way a host shows a
+message on the factory, so the field is gone from the contract. An answer
+that still carries it is read as before and the field is ignored.

@@ -171,7 +171,7 @@ analytics_stub() { # [<bash body>]
 '"${1:-}"
 }
 
-t_case "a start records ready once the approval is written and started once the cycle runs; the poll ends with a sample and a prune"
+t_case "a start records ready once the approval is written and started once the cycle runs; the poll ends with a sample"
 reset
 analytics_stub
 t_run "$dispatch"
@@ -179,12 +179,10 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls analytics)" "event 7 ready
 event 7 started
-sample
-prune"
+sample"
 t_eq "$(<"$T/calls/analytics.moment")" "event 7 ready: approved status=1
 event 7 started: approved started status=1
-sample: approved started tidied status=3
-prune: approved started tidied status=3"
+sample: approved started tidied status=3"
 t_lacks "$t_out" "analytics"
 
 t_case "ready is recorded at the time tehas:ready was accepted, as the approval record says it"
@@ -196,8 +194,7 @@ t_eq "$t_rc" 0
 t_eq "$(approval .at)" "2026-01-01T00:00:00Z"
 t_eq "$(t_calls analytics)" "event 7 ready --at 1767225600
 event 7 started
-sample
-prune"
+sample"
 
 t_case "an approval GitHub gave no time for is on record at the poll's, and ready has none"
 reset
@@ -214,8 +211,7 @@ analytics_stub
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(t_calls analytics)" "event 7 ready
-sample
-prune"
+sample"
 
 t_case "a poll that starts nothing, a held poll and a paused poll take no sample; a poll GitHub fails still does"
 reset
@@ -223,21 +219,21 @@ analytics_stub
 echo '[]' >"$fx/ready.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "prune"
+t_eq "$(t_calls analytics)" ""
 reset
 analytics_stub
 no_slice
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(t_calls analytics)" "prune"
+t_eq "$(t_calls analytics)" ""
 reset
 analytics_stub
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(t_calls analytics)" "prune"
+t_eq "$(t_calls analytics)" ""
 reset
 # The poll's read of GitHub fails before any write, so nothing marks the queue
 # changed: the sample of it would say what the poll never read, so it is the
@@ -246,7 +242,7 @@ analytics_stub
 rm -f "$fx/repo.json"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_eq "$(t_calls analytics)" "prune"
+t_eq "$(t_calls analytics)" ""
 
 t_case "a dry run and TEHAS_ANALYTICS=off call no analytics"
 reset
@@ -270,8 +266,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "WARN analytics event: exit 70"
 t_contains "$t_out" "WARN analytics sample: exit 70"
-t_contains "$t_out" "WARN analytics prune: exit 70"
-t_eq "$(grep -c "WARN analytics" <<<"$t_out")" 4
+t_eq "$(grep -c "WARN analytics" <<<"$t_out")" 3
 reset
 analytics_stub 'exit 70'
 rm -f "$fx/repo.json"
@@ -287,7 +282,7 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(($(date +%s) - before < 20))" 1
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(grep -c "WARN analytics .*: exit 124" <<<"$t_out")" 4
+t_eq "$(grep -c "WARN analytics .*: exit 124" <<<"$t_out")" 3
 
 # --- The approval and the start on the state store ------------------------------
 t_case "a state store that is not installed stops the poll at 78 before any call to GitHub"

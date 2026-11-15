@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tehas_core::file::{read_regular, ReadError};
+use tehas_core::file::{read_regular, ReadError, READ_BOUND};
 
 /// Whether a lock file is held by someone, or cannot be told apart from one
 /// that is: anything but no lock and a lock the probe took counts as held, as
@@ -24,24 +24,43 @@ pub fn held(path: &Path) -> bool {
     )
 }
 
-/// The issues whose cycle holds its lock.
+/// The issues whose cycle holds its lock. A listing that fails reads as none
+/// here; a caller that must not take that for no cycle asks `cycles`.
 pub fn running(home: &Path) -> Vec<u64> {
-    let mut out: Vec<u64> = fs::read_dir(home.join("state/cycles"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().into_string().ok()?;
-            let n: u64 = name.strip_suffix(".lock")?.parse().ok()?;
-            held(&e.path()).then_some(n)
-        })
-        .collect();
+    cycles(home).unwrap_or_default()
+}
+
+/// The issues whose cycle holds its lock, or None when `state/cycles` is there
+/// but cannot be listed: then a cycle may be running. No directory is no cycle.
+pub fn cycles(home: &Path) -> Option<Vec<u64>> {
+    let dir = match fs::read_dir(home.join("state/cycles")) {
+        Ok(d) => d,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let mut out = Vec::new();
+    for e in dir {
+        let e = e.ok()?;
+        let Some(n) = e
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(".lock"))
+            .and_then(|n| n.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if held(&e.path()) {
+            out.push(n);
+        }
+    }
     out.sort_unstable();
-    out
+    Some(out)
 }
 
 /// What a planning turn on record as running is: in flight (its lock held or
-/// its unit active), and whether it left its exit status.
+/// its unit active), and whether it left its exit status. A `systemctl` that
+/// gives no answer leaves the turn in flight: a turn that cannot be seen is not
+/// one that ended, and collecting it would cut off a turn still at work.
 pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
     let st = home.join(format!("state/plan-{n}.json"));
     let rc = st.with_extension("json.rc").is_file();
@@ -63,29 +82,76 @@ pub fn turn(home: &Path, n: u64, systemctl: &str) -> (bool, bool) {
         ],
         Duration::from_secs(30),
     );
-    let active = r.ok()
-        && matches!(
+    let active = !r.ok()
+        || matches!(
             r.out.trim(),
             "active" | "activating" | "deactivating" | "reloading"
         );
     (active, false)
 }
 
-/// tehas_pause_read: the flag, "unreadable" for one that is no flag, null for
-/// none.
+/// The pause flag, as `tehas pause` and the health page read it: the one
+/// reader in tehas_core. Null for none, "unreadable" for something at the name
+/// that is no flag.
 pub fn pause(home: &Path) -> Value {
-    let p = home.join("state/pause.json");
-    if !p.exists() {
-        return Value::Null;
-    }
-    let v: Value = fs::read_to_string(&p)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or(Value::Null);
-    if v.get("at").is_some_and(Value::is_string) && v.get("reason").is_some_and(Value::is_string) {
+    tehas_core::pause::read(&home.join("state/pause.json")).value()
+}
+
+/// How long the poll holds starts on a push fault before it tries again. Part
+/// 3 replaces the wait with a re-probe of the push check; until then a fault
+/// that is never cleared costs one start every so often rather than one for
+/// every ready issue.
+pub const PUSH_FAULT_HOLD: i64 = 600;
+
+/// The record of a sandbox that cannot push: `state/pause.json`'s neighbour,
+/// written by the cycle supervisor when its push check is refused (Part 1) and
+/// taken off by the start whose check passes. Null for none, "unreadable" for
+/// a file that is there and says nothing usable, and {at, login, line} for the
+/// fault on record. Its `line` is what git said, masked by the writer; a file
+/// that does not parse still counts as a fault, with the line left empty.
+pub fn push_fault(home: &Path) -> Value {
+    let p = home.join("state/push-fault.json");
+    let v: Value = match read_regular(&p, READ_BOUND) {
+        Ok((bytes, _)) => serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => return Value::Null,
+        Err(_) => Value::Null,
+    };
+    if v.get("at").is_some_and(Value::is_string)
+        && v.get("login").is_some_and(Value::is_string)
+        && v.get("line").is_some_and(Value::is_string)
+    {
         v
     } else {
         json!("unreadable")
+    }
+}
+
+/// The fault's line as the poll says it: git's words when the file has them,
+/// the one line of the host's own for a fault that says nothing.
+pub fn push_fault_line(fault: &Value) -> String {
+    let line = match fault {
+        Value::Object(_) => fault.get("line").and_then(Value::as_str).unwrap_or(""),
+        _ => "",
+    };
+    if line.is_empty() {
+        "the sandbox cannot push to origin".into()
+    } else {
+        line.to_string()
+    }
+}
+
+/// Whether a push fault still holds the poll: one that is on record and no
+/// older than [`PUSH_FAULT_HOLD`], or one the poll cannot read the age of.
+/// A fault with no readable time holds rather than starts: nothing about the
+/// host has been proven, and the wait is short either way.
+pub fn push_fault_holds(fault: &Value, now: i64) -> bool {
+    match fault {
+        Value::Null => false,
+        Value::Object(_) => match fault.get("at").and_then(Value::as_str).and_then(epoch) {
+            Some(at) => now - at < PUSH_FAULT_HOLD,
+            None => true,
+        },
+        _ => true,
     }
 }
 
@@ -169,11 +235,13 @@ pub fn plan_start(home: &Path, n: u64) -> Option<Value> {
 
 /// The why of the last live/dispatch.json, empty when it cannot be read. The
 /// key is the core report's, as is the word: a reader that kept its own copy
-/// of either would go on reading a field the poll no longer writes.
+/// of either would go on reading a field the poll no longer writes. It is read
+/// as the store publishes it, a regular file under the shared bound, so a link
+/// or a file that grew past it counts as no report.
 pub fn last_why(home: &Path) -> String {
-    fs::read_to_string(home.join("live/dispatch.json"))
+    read_regular(&home.join("live/dispatch.json"), READ_BOUND)
         .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|(bytes, _)| serde_json::from_slice::<Value>(&bytes).ok())
         .and_then(|v| {
             v.get(tehas_core::hold::KEY_WHY)
                 .and_then(Value::as_str)
@@ -389,71 +457,6 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64, days: 
     Value::Array(out)
 }
 
-/// What the running cycles' branches change, for TEHAS_OVERLAP_HOLD: by
-/// issue, the files `git diff --name-only <default>...<branch>` names in the
-/// dispatcher's own checkout, for each of the issue's branches the checkout
-/// last fetched (`feature/issue-<n>`, `feature/issue-<n>-*` and
-/// `finish/issue-<n>`). An issue with no such branch changes nothing; one whose
-/// branches cannot be listed or diffed is {"failed": true}. Git runs in the
-/// checkout only, never in a cycle's workspace.
-pub fn changed(checkout: &str, default: &str, issues: &[u64]) -> Value {
-    let wait = Duration::from_secs(10);
-    let git = |args: &[String]| {
-        let mut all = vec![
-            "-C".to_string(),
-            checkout.to_string(),
-            "-c".into(),
-            "core.quotePath=false".into(),
-        ];
-        all.extend_from_slice(args);
-        run("git", &all, wait)
-    };
-    let mut out = serde_json::Map::new();
-    for n in issues {
-        if checkout.is_empty() {
-            out.insert(n.to_string(), json!({"failed": true}));
-            continue;
-        }
-        let origin = "refs/remotes/origin";
-        let refs = git(&[
-            "for-each-ref".into(),
-            "--format=%(refname)".into(),
-            format!("{origin}/feature/issue-{n}"),
-            format!("{origin}/feature/issue-{n}-*"),
-            format!("{origin}/finish/issue-{n}"),
-        ]);
-        let mut files: Vec<String> = Vec::new();
-        let mut ok = refs.ok();
-        for r in refs.out.lines() {
-            if !ok {
-                break;
-            }
-            let diff = git(&[
-                "diff".into(),
-                "--name-only".into(),
-                "--no-renames".into(),
-                format!("{origin}/{default}...{r}"),
-                "--".into(),
-            ]);
-            ok = diff.ok();
-            for f in diff.out.lines() {
-                if !files.iter().any(|x| x == f) {
-                    files.push(f.to_string());
-                }
-            }
-        }
-        out.insert(
-            n.to_string(),
-            if ok {
-                json!(files)
-            } else {
-                json!({"failed": true})
-            },
-        );
-    }
-    Value::Object(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +468,130 @@ mod tests {
         let d = TestDir::new(&format!("dispatch-host-{name}"));
         fs::create_dir_all(d.join("state")).unwrap();
         d
+    }
+
+    #[test]
+    fn a_pause_flag_is_read_as_the_console_reads_it() {
+        let h = home("pause");
+        let file = h.join("state/pause.json");
+        assert_eq!(pause(&h), Value::Null, "no file");
+        fs::write(
+            &file,
+            r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"r"}"#,
+        )
+        .unwrap();
+        assert_eq!(pause(&h)["at"], json!("2026-10-15T10:00:00Z"));
+        // A link whose target is gone is something at the name, so it holds.
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(h.join("gone.json"), &file).unwrap();
+        assert_eq!(pause(&h), json!("unreadable"));
+        assert_eq!(
+            tehas_core::pause::read(&file).state,
+            "unreadable",
+            "the console's reading"
+        );
+    }
+
+    #[test]
+    fn a_push_fault_is_read_whole_and_one_that_says_nothing_counts_as_present() {
+        let h = home("push-fault");
+        let file = h.join("state/push-fault.json");
+        assert_eq!(push_fault(&h), Value::Null, "no file");
+        fs::write(
+            &file,
+            r#"{"at":"2026-10-31T00:00:00Z","login":"tehas-bot","line":"remote: Permission to acme/widget denied to tehas-bot"}"#,
+        )
+        .unwrap();
+        let f = push_fault(&h);
+        assert_eq!(f["login"], json!("tehas-bot"));
+        assert_eq!(
+            push_fault_line(&f),
+            "remote: Permission to acme/widget denied to tehas-bot"
+        );
+        // A fault of the poll's own shape but empty of words is still a fault.
+        fs::write(
+            &file,
+            r#"{"at":"2026-10-31T00:00:00Z","login":"tehas-bot","line":""}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            push_fault_line(&push_fault(&h)),
+            "the sandbox cannot push to origin"
+        );
+        // Anything else the file holds is no fault the poll can name, and is
+        // not taken for no fault.
+        fs::write(&file, "not json").unwrap();
+        assert_eq!(push_fault(&h), json!("unreadable"));
+        fs::write(&file, r#"{"login":"tehas-bot"}"#).unwrap();
+        assert_eq!(push_fault(&h), json!("unreadable"));
+        // A link is no fault, and neither is a file that grew past the bound:
+        // both are a fault the poll cannot read.
+        fs::remove_file(&file).unwrap();
+        let real = h.join("real.json");
+        fs::write(
+            &real,
+            r#"{"at":"2026-10-31T00:00:00Z","login":"tehas-bot","line":"denied"}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        assert_eq!(push_fault(&h), json!("unreadable"));
+        fs::remove_file(&file).unwrap();
+        fs::write(
+            &file,
+            format!(r#"{{"line":"x"}}{}"#, " ".repeat(READ_BOUND as usize)),
+        )
+        .unwrap();
+        assert_eq!(push_fault(&h), json!("unreadable"));
+    }
+
+    #[test]
+    fn a_push_fault_holds_until_it_is_ten_minutes_old() {
+        let at = "2026-10-31T00:00:00Z";
+        let fault = |line: &str| json!({"at": at, "login": "tehas-bot", "line": line});
+        let now = epoch(at).unwrap();
+        assert!(!push_fault_holds(&Value::Null, now), "no fault");
+        assert!(
+            push_fault_holds(&fault("denied"), now),
+            "a fault of this instant"
+        );
+        assert!(
+            push_fault_holds(&fault("denied"), now + PUSH_FAULT_HOLD - 1),
+            "a fault still inside the wait"
+        );
+        assert!(
+            !push_fault_holds(&fault("denied"), now + PUSH_FAULT_HOLD),
+            "a fault of the wait's own age starts again"
+        );
+        assert!(!push_fault_holds(
+            &fault("denied"),
+            now + PUSH_FAULT_HOLD + 100
+        ));
+        assert!(
+            push_fault_holds(&json!({"at": "nonsense", "login": "", "line": "x"}), now),
+            "a fault whose age cannot be read holds"
+        );
+        assert!(
+            push_fault_holds(&json!("unreadable"), now),
+            "a fault that cannot be read"
+        );
+    }
+
+    #[test]
+    fn the_last_why_is_read_only_from_a_regular_file_under_the_bound() {
+        let h = home("last-why");
+        assert_eq!(last_why(&h), "");
+        fs::create_dir_all(h.join("live")).unwrap();
+        let file = h.join("live/dispatch.json");
+        fs::write(&file, r#"{"why":"room"}"#).unwrap();
+        assert_eq!(last_why(&h), "room");
+        let pad = " ".repeat(READ_BOUND as usize);
+        fs::write(&file, format!(r#"{{"why":"room"}}{pad}"#)).unwrap();
+        assert_eq!(last_why(&h), "", "a report past the bound is none");
+        let real = h.join("real.json");
+        fs::write(&real, r#"{"why":"room"}"#).unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        assert_eq!(last_why(&h), "", "a link is not the poll's report");
     }
 
     #[test]
@@ -593,50 +720,49 @@ mod tests {
     }
 
     #[test]
-    fn a_running_cycles_changes_are_read_from_its_branches_in_the_checkout() {
-        let d = TestDir::new("dispatch-host-changed");
-        let (origin, checkout) = (d.join("origin"), d.join("checkout"));
-        let git = |dir: &Path, args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .arg("-C")
-                .arg(dir)
-                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
-                .args(args)
-                .output()
-                .unwrap()
-                .status
-                .success();
-            assert!(ok, "git {args:?}");
+    fn a_turn_whose_unit_cannot_be_asked_stays_in_flight() {
+        let h = home("turn");
+        let stub = h.join("systemctl");
+        let answer = |body: &str| {
+            fs::write(&stub, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut p = fs::metadata(&stub).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut p, 0o755);
+            fs::set_permissions(&stub, p).unwrap();
+            turn(&h, 7, stub.to_str().unwrap())
         };
-        fs::create_dir_all(&origin).unwrap();
-        git(&origin, &["init", "-q", "-b", "main"]);
-        fs::write(origin.join("README.md"), "x\n").unwrap();
-        git(&origin, &["add", "."]);
-        git(&origin, &["commit", "-q", "-m", "base"]);
-        let branch = |name: &str, file: &str| {
-            git(&origin, &["checkout", "-q", "-b", name, "main"]);
-            fs::create_dir_all(origin.join(file).parent().unwrap()).unwrap();
-            fs::write(origin.join(file), "y\n").unwrap();
-            git(&origin, &["add", "."]);
-            git(&origin, &["commit", "-q", "-m", name]);
-        };
-        branch("feature/issue-9-the-fix", "lib/a.sh");
-        branch("finish/issue-9", "test/a test.sh");
-        branch("feature/issue-90-other", "lib/b.sh");
-        git(&origin, &["checkout", "-q", "main"]);
-        fs::write(origin.join("main.rs"), "z\n").unwrap();
-        git(&origin, &["add", "."]);
-        git(&origin, &["commit", "-q", "-m", "main moves on"]);
-        let src = origin.to_string_lossy().into_owned();
-        git(&d, &["clone", "-q", &src, "checkout"]);
-        let at = checkout.to_string_lossy().into_owned();
+        assert_eq!(answer("echo active"), (true, false));
+        assert_eq!(answer("echo inactive"), (false, false), "a unit that ended");
+        assert_eq!(answer("echo failed"), (false, false), "a unit that failed");
         assert_eq!(
-            changed(&at, "main", &[9, 8]),
-            json!({"9": ["lib/a.sh", "test/a test.sh"], "8": []})
+            answer("echo refused >&2; exit 1"),
+            (true, false),
+            "no answer"
         );
-        assert_eq!(changed(&at, "trunk", &[9]), json!({"9": {"failed": true}}));
-        let none = d.join("none").to_string_lossy().into_owned();
-        assert_eq!(changed(&none, "main", &[9]), json!({"9": {"failed": true}}));
-        assert_eq!(changed("", "main", &[9]), json!({"9": {"failed": true}}));
+        let gone = h.join("no-such-systemctl");
+        assert_eq!(
+            turn(&h, 7, gone.to_str().unwrap()),
+            (true, false),
+            "no program"
+        );
+        fs::write(h.join("state/plan-7.json.rc"), "0").unwrap();
+        assert_eq!(
+            turn(&h, 7, gone.to_str().unwrap()),
+            (false, true),
+            "an exit status"
+        );
+    }
+
+    #[test]
+    fn cycles_that_cannot_be_listed_are_not_none() {
+        let h = home("cycles");
+        assert_eq!(cycles(&h), Some(vec![]), "no directory is no cycle");
+        fs::create_dir(h.join("state/cycles")).unwrap();
+        fs::write(h.join("state/cycles/7.lock"), "").unwrap();
+        fs::write(h.join("state/cycles/notes.txt"), "").unwrap();
+        assert_eq!(cycles(&h), Some(vec![]), "a lock no one holds");
+        fs::remove_dir_all(h.join("state/cycles")).unwrap();
+        fs::write(h.join("state/cycles"), "").unwrap();
+        assert_eq!(cycles(&h), None, "a directory that cannot be listed");
+        assert_eq!(running(&h), Vec::<u64>::new());
     }
 }

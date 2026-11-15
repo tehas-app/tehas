@@ -20,6 +20,8 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas panel [set ...|clear ...]  # the pages of the project the dashboard links
+tehas host-message [set ...|clear ...]  # short messages for this factory
 tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
@@ -27,13 +29,19 @@ tehas api [--json]               # what this factory speaks, for a program
 tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
+tehas start <issue> [--clear]    # approve an issue for a start, from the host
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
+tehas freeze <issue> [--reason R]  # hold a running cycle still, its clocks stopped
+tehas thaw <issue>               # let a frozen cycle go on
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas state pack|unpack -        # move a stopped factory's state to another machine
 tehas state check [--json]       # the state store's integrity and rows
+tehas state copy --to <file>     # a copy of the store, taken while cycles run
+tehas state load --from <file>   # fill a drained factory's empty store from one
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
+tehas mcp key                    # a new key for the read-only MCP server
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -48,7 +56,9 @@ scripts from `libexec/` in the platform repository (`dev-login`, `setup` and
 of `bootstrap.sh dev` runs the first) and the Rust programs it builds (the
 console, analytics, the MCP server, the state store, the attachment checker,
 `tehas-dispatch` and `tehas-cycle`). The two commands only choose one and run
-it, and exit with its status. `tehas status` and `tehas disk` need no settings.
+it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
+`tehas dev` and `tehas mcp key` need no settings, and `tehasbot mcp key` and
+`tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
 `tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
@@ -63,10 +73,22 @@ Every command that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
 [The host](/host).
 
+The two lists name every command the two programs route. Four of them have no
+section of these pages and are on the page that describes them: `tehas panel`
+and `tehas host-message` on [the factory API](/api#tehas-panel) and
+[the factory API](/api#tehas-host-message), `tehas mcp key` and
+`tehasbot mcp serve` on [The MCP server](/mcp-server#how-it-runs), which
+`tehas-mcp.service` runs. `tehas state copy --to <file>` and
+`tehas state load --from <file>` are the two verbs `tehas state` holds beside
+[`pack`, `unpack` and `check`](/tools-control#tehas-state), on
+[the factory API](/api#tehas-state-copy).
+
 ## Instance settings
 
 Set in `instance.env` in the instance directory. `instances/example/instance.env`
-in the platform repository has every one with a comment.
+in the platform repository has the required ones with a comment, and
+`instances/example/optional.env` beside it has every optional one with its
+default, or an example where there is none.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
@@ -104,6 +126,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_APP`          | empty                                    | Optional. The login of a second GitHub App, `<slug>[bot]`, that the factory trusts as [its millwright](/operating#the-millwrights-grant) in place of its own app. The factory still acts as its own app; only the millwright's grant moves. A value that is not `<slug>[bot]` stops every command with 78. Empty: the millwright is the factory's own app |
 | `TEHAS_CYCLE_LOGIN`             | refused                                  | Not a setting. The login of the account a cycle's token belonged to, which a host needed when a cycle ran as a second account with `GH_CYCLE_TOKEN`. The factory acts as one GitHub App and a cycle's pull requests are the app's own, so a line for this name stops every command with 78 and says `TEHAS_CYCLE_LOGIN is no longer used: the factory acts as a GitHub App.` Take the line out and run `tehas setup --new-app`. See [Moving a host that used a token](/github-app#moving-a-host-that-used-a-token) |
 | `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehasbot github-token](/tools-github#tehasbot-github-token)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` each print a warning and are ignored |
+| `TEHAS_GITHUB_RENEW_EVERY`      | `300`                                    | Optional. How many seconds apart the app's tokens are renewed while a cycle, a planning turn or a session runs. A positive whole number of seconds: `5m` is refused, and more than `540` is taken as `540`, so a token is renewed before it has ten minutes left. A cycle whose renewer cannot start is not started |
 | `TEHAS_OWNER`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
@@ -111,7 +134,6 @@ in the platform repository has every one with a comment.
 | `TEHAS_MILLWRIGHT_MAX_FEEDS`   | `2`                                      | How many cycles the feed started may run at once. A positive whole number |
 | `TEHAS_MILLWRIGHT_EPICS`       | `0`                                      | 1 lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_EASY_MERGE`             | `0`                                      | 1 lets the dispatcher choose an easy merge for a refresh start instead of the full refresh cycle (see [refreshes](/operating#refreshes)): one merge of the branch into the pull request with no model and no container, at most once since the person's approval. The full refresh runs when the setting is off, when that approval has had its easy merge, when the store names no row for an easy merge it says the approval had, when nothing ran on record after the last easy merge, or when a check named by `TEHAS_BRANCH_CHECK` failed on the pull request after it. Today the choice is on the approval record, in `dispatch.log` and in the comment on the issue: the cycle an easy start runs is still the full refresh, so no host has merged this way yet. Anything but 0 or 1 stops every command with 78 |
-| `TEHAS_OVERLAP_HOLD`           | `0`                                      | 1 holds a start while a running cycle's branch changes a path the issue's body names (see [what happens next](/operating#3-what-happens-next)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_READ_ONLY`              | `0`                                      | 1 writes nothing to GitHub: every write of the host and of a cycle's container is refused and said, and the dispatcher keeps its starts on the host (see [read-only](/operating#read-only)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
@@ -144,9 +166,9 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](/tools-work#tehas-work) |
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. The text of the comments a retry is given does not depend on it: ticking `Retry with the issue and all its comments` is the opt-in. See [tehas work](/tools-work#tehas-work) |
 | `TEHAS_WORK_ZIPS`               | `0`                                      | `1` unpacks a zip the issue's text links into the same read-only directory, at most 2 archives and 4 MB each. A zip is taken by its first bytes, not its name; every file in it goes through the checks of a linked one and counts against the same limits, and the archive is not kept. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](/tools-work#tehas-work) |
-| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT`. Size it against the gate's wall time with `TEHAS_TICKET_CONCURRENCY` cycles running (see [The gate's bound and the cycles at once](/operating#the-gates-bound-and-the-cycles-at-once)) |
+| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS`, `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`, the last the bound of the whole gate on the combined tree; pi-rukas alone allows ten minutes for the first and 30 for the last. A cycle's record of its settings shows all three. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT`. Size it against the gate's wall time with `TEHAS_TICKET_CONCURRENCY` cycles running (see [The gate's bound and the cycles at once](/operating#the-gates-bound-and-the-cycles-at-once)) |
 | `TEHAS_CHILD_TIMEOUT`           | `7200`                                   | Seconds one child of a cycle may take before pi-rukas ends it: its backstop for a child nothing else stopped. A positive whole number, at most `TEHAS_WORK_TIMEOUT`, because no child may outlive the cycle that spawned it; a longer one is refused with 78. `tehas work` passes it to the container as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, in milliseconds; pi-rukas alone allows two hours. Raise it when a fixer still making progress is stopped with hours of the cycle's budget left |
-| `TEHAS_BUILD_TIMEOUT`           | `1800`                                   | Seconds one `cargo build` of `install.sh` may take, the offline attempt and the online one each on its own. A build that runs past it is cut off, the install stops with the build's own words, and the message says the build was cut off and names the command of the attempt that was. Both programs due are built before anything is installed, so the worst case is four attempts in all: a value set with `tehas update` in mind must stay well under the 1800 s that `tehas update` gives the whole of `install.sh`, or that outer bound is the one that fires. A build cut off at the default is a host that has never fetched: run `./bootstrap.sh user` so cargo and its crate cache are there, or raise this bound. See [the host manual](/host) |
+| `TEHAS_BUILD_TIMEOUT`           | `1800`                                   | Seconds one `cargo build` of `install.sh` may take, the offline attempt and the online one each on its own. A build that runs past it is cut off, the install stops with the build's own words, and the message says the build was cut off and names the command of the attempt that was. `install.sh` builds seven programs (the console, the analytics program, the MCP server, the state store, the attachment checker, `tehas-dispatch` and `tehas-cycle`), each with at most two attempts, offline first and online when that fails, so the worst case is fourteen builds in all: a value set with `tehas update` in mind must stay well under the 1800 s that `tehas update` gives the whole of `install.sh`, or that outer bound is the one that fires. A build cut off at the default is a host that has never fetched: run `./bootstrap.sh user` so cargo and its crate cache are there, or raise this bound. See [the host manual](/host) |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_SIZE_MAX_FILES`          | unset                                    | Optional. The count of files an issue may name before the dispatcher holds it instead of starting it: see [Limits that hold work back](/operating#limits-that-hold-work-back). Unset, no issue is held for its size. A whole number of at least 1. The `sizes` figures of [tehas analytics](/analytics#size) say where to set it |
 | `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
@@ -174,9 +196,10 @@ session.
 - `PI_ENSEMBLE_SANDBOX_MODE` and `PI_ENSEMBLE_WORKSPACE_ROOT`: tehas sets these
   for every container. An instance line for one of them is a second `-e` for a
   name tehas has already fixed, given after tehas' own.
-- `PI_ENSEMBLE_MAX_WORKSTREAMS`, `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and
-  `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`: tehas sets all three after it
-  reads the instance file, the first from `TEHAS_CONCURRENCY` and the two
+- `PI_ENSEMBLE_MAX_WORKSTREAMS`, `PI_ENSEMBLE_VERIFY_TIMEOUT_MS`,
+  `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS` and
+  `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`: tehas sets all four after it
+  reads the instance file, the first from `TEHAS_CONCURRENCY` and the three
   timeouts from `TEHAS_VERIFY_TIMEOUT`. An instance line for one of them is
   replaced by tehas' value before the container starts, with no message: set
   the `TEHAS_*` name instead. No instance line gives a cycle the Docker socket
@@ -293,9 +316,16 @@ named `update_*`). A path under `console/` also runs `cargo test -p` for the
 crate it is in and the crates that depend on it, from `cargo metadata`. The
 tests of the console and the dispatcher run the store's program, which no
 manifest says, so `console/xtask/src/select.rs` lists that link: they run with the
-store, and a change to the store runs them. A path in `console/core/`, a
-manifest, `console/Cargo.lock`, a path in no crate, or metadata that cannot be
-read runs the whole workspace's tests. A changelog fragment, a path under
+store, and a change to the store runs them. The shell tests of a path under
+`console/` are the files that name `console/` or take a program of the
+workspace from the run: one of the helpers of `test/lib.sh` that copy one in
+(`t_store`, `t_attach`, `t_dispatch`, `t_cycle`, `t_console`, `t_verb`), or one
+of the variables the runner hands out (`T_STORE_BIN` and its four siblings).
+A path in `console/core/`, a manifest, `console/Cargo.lock`, a path in no crate,
+or metadata that cannot be read runs the whole workspace's tests, and every
+shell test with it: every shell test loads the settings through the console
+beside it, so a change to that library, or to a crate that depends on it, is a
+change to all of them. A changelog fragment, a path under
 `changelog.d/`, runs the test files that name `changelog.d`.
 The heavy integration files, `test/install_*`, `test/update_*`,
 `test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
@@ -357,8 +387,9 @@ store itself, into the same directory.
 With paths, relative to the root of the checkout, only those run: the test
 files among them and the lint of those of them it lints anyway. A test file
 named that does not exist stops it with 2; paths with nothing to test or lint
-among them pass with a line that says so. `scripts/verify.sh --changed` calls
-it this way.
+among them stop it with 3 and a line that says so: nothing ran, so it is not a
+pass. `scripts/verify.sh --changed` calls it this way, and prints a `skip` line
+for the shell tests when it gets 3 or the change leaves no path to give.
 
 The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
 it builds first, offline, into the same target directory, fetching the locked

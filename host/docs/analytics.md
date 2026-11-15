@@ -46,12 +46,25 @@ cycle's container: it runs on the host after the container has gone.
 
 ## 365 days
 
-Rows older than 365 days are deleted on every write and on every poll, and the
+Rows older than 365 days are deleted on every write, and the
 file never holds more than 365 days of runs. A run is as old as its end. The
 events of an issue that started and has not ended are kept at most a day
 longer. 365 days is fixed and is not a setting. A file made when it was ten
 days says 365 in `meta` after its next prune; what was deleted before stays
 deleted.
+
+Two things a write does not do belong to `analytics prune`: the sweep of the
+`analytics.db.schema-<version>` files a migration left beside the database, and
+SQLite's `PRAGMA optimize`. Until #1769 the poll ran that command itself about
+every two minutes; nothing schedules it now, so both go undone until someone
+asks for them:
+
+```
+~/tehas/libexec/analytics prune
+```
+
+The rows need neither - the writes bound the tables - so this is the command
+that clears the aside files of [The file](#the-file) below.
 
 ## The file
 
@@ -127,7 +140,7 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `millwright` (`fixer` on a run recorded before the rename) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
+| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `millwright` (`fixer` on a run recorded before the rename), `host` (an approval of `tehas start`) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -479,7 +492,9 @@ by version (the default) a group is a pair of `tehasVersion` and
 group with neither key. Grouped by `week` a group is `week`, the Monday that
 opens the UTC week, `YYYY-MM-DD`, newest first. A run is counted on its end,
 and a run that never ended on its start. An outcome the schema does not allow,
-or none at all, counts under `unknown`. The counting is the database's: one
+or none at all, counts under `unknown`. A failure kind or park reason that
+is recorded but is no word counts under `unrecognised`; one not recorded is
+left out of its map. The counting is the database's: one
 row per group of the window leaves SQLite, not one per run of it, which is what
 keeps the whole-year scan short enough for the poll that asks for it.
 

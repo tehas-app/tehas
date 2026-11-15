@@ -8,7 +8,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::thread::sleep;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread::{self, sleep};
 use std::time::Duration;
 
 /// What a call that did not answer said: the status
@@ -69,26 +70,66 @@ fn code(status: ExitStatus) -> i32 {
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
 }
 
+/// How long the output of a command that exited is read after it: what a
+/// child it left behind still holds open is not waited on beyond this.
+const MERGED_GRACE: Duration = Duration::from_secs(5);
+
 /// Standard output and standard error as one text, and the exit status: 127
-/// for a command that could not be started.
+/// for a command that could not be started. The command's own exit ends the
+/// wait: a child of it that outlived it, as one that ignored the TERM of a
+/// `timeout` may, keeps the pipe open, and the read would otherwise last as
+/// long as that child does.
 pub fn merged(cmd: &mut Command) -> (i32, String) {
+    let (rc, said, _) = merged_up_to(cmd, usize::MAX);
+    (rc, said)
+}
+
+/// [`merged`], keeping at most `cap` bytes. Past them the pipe is closed, so a
+/// command that goes on writing gets a SIGPIPE rather than a reader; the third
+/// answer says the text was cut.
+pub fn merged_up_to(cmd: &mut Command, cap: usize) -> (i32, String, bool) {
     let Ok((mut reader, writer)) = io::pipe() else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
     let Ok(other) = writer.try_clone() else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
     cmd.stdout(writer).stderr(other);
     let child = cmd.spawn();
     // The command holds the writers; the read ends only once they are closed.
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     let Ok(mut child) = child else {
-        return (127, String::new());
+        return (127, String::new(), false);
     };
-    let mut said = Vec::new();
-    let _ = reader.read_to_end(&mut said);
+    let said = Arc::new(Mutex::new((Vec::new(), false)));
+    let (done, ended) = mpsc::channel();
+    let into = Arc::clone(&said);
+    thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let mut kept = into.lock().unwrap_or_else(|e| e.into_inner());
+                    let room = cap - kept.0.len();
+                    if n > room {
+                        kept.0.extend_from_slice(&chunk[..room]);
+                        kept.1 = true;
+                        break;
+                    }
+                    kept.0.extend_from_slice(&chunk[..n]);
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        drop(reader);
+        let _ = done.send(());
+    });
     let rc = child.wait().map(code).unwrap_or(127);
-    (rc, String::from_utf8_lossy(&said).into_owned())
+    let _ = ended.recv_timeout(MERGED_GRACE);
+    let said = said.lock().unwrap_or_else(|e| e.into_inner());
+    (rc, String::from_utf8_lossy(&said.0).into_owned(), said.1)
 }
 
 pub fn bounded(kill: &str, limit: &str, program: impl AsRef<std::ffi::OsStr>) -> Command {
@@ -330,5 +371,47 @@ mod tests {
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
         let no = call(&home, &["backup"]).unwrap_err();
         assert_eq!((no.rc, no.word.as_str()), (78, "garbled"));
+    }
+
+    #[test]
+    fn merged_keeps_both_streams_and_the_status() {
+        let (rc, said) = merged(Command::new("sh").args(["-c", "echo out; echo err >&2; exit 3"]));
+        assert_eq!(rc, 3);
+        assert_eq!(said, "out\nerr\n");
+    }
+
+    #[test]
+    fn merged_up_to_keeps_the_cap_and_says_it_cut() {
+        let (rc, said, cut) = merged_up_to(Command::new("sh").args(["-c", "echo abc"]), 4);
+        assert_eq!((rc, said.as_str(), cut), (0, "abc\n", false));
+        let (_, said, cut) = merged_up_to(Command::new("sh").args(["-c", "echo abcdef"]), 4);
+        assert_eq!((said.as_str(), cut), ("abcd", true));
+    }
+
+    #[test]
+    fn merged_up_to_stops_a_command_that_never_stops_talking() {
+        let started = std::time::Instant::now();
+        let (rc, said, cut) = merged_up_to(&mut Command::new("yes"), 1000);
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(cut);
+        assert_eq!(said.len(), 1000);
+        assert_ne!(rc, 0);
+    }
+
+    #[test]
+    fn merged_answers_when_the_command_exits_whatever_it_left_running() {
+        // The child of the command keeps the write end open for a minute.
+        let started = std::time::Instant::now();
+        let (rc, said) = merged(Command::new("sh").args(["-c", "sleep 60 & echo said; exit 2"]));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!((rc, said.as_str()), (2, "said\n"));
     }
 }

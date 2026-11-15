@@ -179,9 +179,10 @@ the views of the cycles it did not keep before it writes anything, so a
 publish that fails on a write leaves no cycle that has ended shown as
 running.
 `tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
-poll call it. A running cycle not heard from for two minutes whose lock is
-free is shown as `lost`, and its end is kept as lost when the issue starts
-again.
+poll call it. A running cycle not heard from for two minutes whose lock file
+is found free is shown as `lost`, and its end is kept as lost when the issue
+starts again. A missing lock file, or a missing `state/cycles`, does not make
+a cycle lost: the cycle may still hold its lock on a file that was removed.
 
 The console, the now file of the status line, and the mask of a log, also mask in any case the names
 the host knows that an agent can print: each name and address in
@@ -227,7 +228,8 @@ cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
 bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
-`WARN: the health file could not be written`. The docs server
+`WARN: the health file could not be written: <command> exited <n>` (or
+`was killed at its bound or did not start`). The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person. The whole run is the console
 beside the command (`console tehasbot health`, `console/ops/src/health.rs`): it
@@ -254,7 +256,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the industry that runs the factory raised an alert in the last five minutes or wrote an alerts file that cannot be read (`checks.industry.alerts`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the time its lists
@@ -263,7 +265,7 @@ older) and the counts in line, building, in review and stopped, and `stale`
 when the snapshot kept a part from an earlier read: the age of the snapshot is
 the age of its lists, so lists kept through ten minutes of failed reads warn as
 an old snapshot does. `checks.github` is `{failed, windowSeconds, lastAt, last}`:
-the GitHub reads the poll, `tehasbot status` and `tehas tidy` could not make
+the GitHub reads the poll, `tehasbot status` and `console tidy run` could not make
 in the last ten minutes, from `~/tehas/state/github-failures`, and the newest
 of their log lines. A read cleared by its retry is not on it. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
@@ -325,21 +327,6 @@ A factory that runs on its own has no `checks.industry`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
 
-With an industry, `checks.industry` also carries the alerts it writes into
-`~/tehas/state/industry/alerts.json` on each pass, as [the factory
-API](/api#industry-alerts) describes the file: `alerts`, a list of `{kind,
-since, text, link}`, with `alertsTime`, when the industry wrote them, and
-`alertsStale`, `true` when that is more than five minutes ago. A stale file's
-alerts are listed but not current. `kind` is `paused`, `frozen` or
-`held-by-one`, and a kind this release does not know is kept by its word.
-`since` is in UTC, `text` is one line of at most 200 characters, and `link` is
-`null` when the file's is not an `http` or `https` address. No file yet is
-`alerts: null`. A file that cannot be read, or is not what the industry
-writes, is `alerts: null` with `alertsUnreadable: true`, never an empty list.
-Any current alert makes the health `warn`, with the first alert's text as
-`output`, ahead of the pause the factory knows of itself; an unreadable file
-makes it `warn` with `The industry's alerts cannot be read: ...`.
-
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
@@ -358,7 +345,11 @@ cycle, measured against `TEHAS_POLL_BUDGET` by
 [`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
 where `over` names the figures whose median was over its budget (`cpu`, `wall`
 or `writes`) and `budget` is the value the instance runs with. It is `null`
-when the store gave no answer, which means the check did not run.
+when the store gave no answer, which means the check did not run. When `over`
+is not empty, `output` says what tripped it, in the units of the budget:
+`An idle poll is over its budget on cpu (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0):
+of the last hour's 12 idle polls, cpu had a median of 7.25 s against 5 s and 9
+over it.`
 
 `checks.units` names the tehas units systemd has failed
 (`systemctl --user --failed 'tehas-*'`), and is empty when there are none. It is
@@ -393,7 +384,10 @@ read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
 `startedAt` and `time`. The `status` of an ending whose status names no end at
 all (`running`, or none) is `not an end`, and `output` says of the last cycle
-that it "ended as not an end". health does not change the overall status. An
+that it "ended as not an end". A start that was refused before anything ran ends
+as `refused` and is no failed cycle: it is left out of `checks.failed`, and
+health says nothing of it as the last cycle's end. Nothing of such a start ran,
+so nothing of it failed. health does not change the overall status. An
 abort that a merge overtook ten seconds later leaves the status `pass`, and is
 still in `checks.failed` until ten more cycles have ended. A monitor that polls
 less often than cycles end reads it to see every failure. The ten endings are

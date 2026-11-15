@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 14;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -199,6 +199,59 @@ CREATE TABLE start_order (
   reason TEXT,
   set_at INTEGER NOT NULL
 );
+";
+
+/// The step from 12 to 13: what a start was, kept on the approval it ran on (#1751).
+/// The keeping after a start deletes the approvals of the starts the base no longer
+/// rests on, and a record left with only its live rows answered no refreshes, no easy
+/// merge, and no mark for the row of a cycle whose approval had gone: the poll took
+/// every refresh after the first easy merge for the full one, and could drop the
+/// refresh it owed for want of a count. `started_by`, `started_how` and `started_easy`
+/// are written by the start itself, so the record says what its starts were after their
+/// rows are gone. The `UPDATE` backfills them from the rows that still stand, which is
+/// all a store can say of the starts whose approvals it kept; a start whose row the
+/// keeping deleted before this step is unknowable, and counts nowhere it was not
+/// already counted.
+pub const STEP_13: &str = "
+ALTER TABLE approvals ADD COLUMN started_by INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE approvals ADD COLUMN started_how TEXT NOT NULL DEFAULT '';
+ALTER TABLE approvals ADD COLUMN started_easy INTEGER NOT NULL DEFAULT 0
+  CHECK (started_easy IN (0, 1));
+UPDATE approvals SET started_by = used_by, started_how = how,
+                     started_easy = CASE WHEN easy = 1 THEN 1 ELSE 0 END
+  WHERE used_by IS NOT NULL;
+";
+
+/// The step from 13 to 14: `cycles.how` takes 'host', the start of an approval
+/// `tehas start` recorded (#1967). The table is rebuilt as `STEP_4` rebuilds it,
+/// with foreign keys off (`step_14`), and every row is copied.
+pub(crate) const STEP_14: &str = "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand','host')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -753,6 +806,8 @@ pub enum Purpose {
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
+/// A connection that writes also runs `PRAGMA quick_check` (#1769), so the
+/// first write of a run is refused rather than written into a damaged file.
 /// A file that exists but cannot be opened is `unreadable`, and the store does
 /// not move it (ADR 0003).
 pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
@@ -816,11 +871,21 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
     conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
-/// The same checks and the same connection as `open`, for the reader that must
+/// The same connection as `open` and the same pragmas, for the reader that must
 /// not disturb a writer's lock at all: read-only, so it waits at most READ_WAIT
 /// and writes no row. It can still make the -wal and -shm beside the file when
 /// they are absent, at the file's mode. `check` is the verb that reads, and
 /// section 4 says so.
+///
+/// A read open runs no `PRAGMA quick_check` (#1769): the check reads every page
+/// of the file, so a poll that made eight reads of the store paid eight whole
+/// scans of it, and a reader writes nothing whatever the pages hold. What a
+/// read of a damaged file can answer is the same SQLite reports for a file that
+/// is not a database at all - `classify` still turns it into 78 `corrupt` - and
+/// the damage a read cannot see is the read verb's to survive and `check`'s to
+/// name: `check` runs `PRAGMA integrity_check` over the whole file whatever the
+/// open did, and every verb that writes meets the quick_check of its own open
+/// before it changes a byte.
 pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
@@ -896,10 +961,27 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 }
 
 /// What every connection sets, in the one place: the journal mode, the busy
-/// handler, the durability and the foreign keys. The handler asks again every
-/// BUSY_POLL, for up to BUSY_TIMEOUT (5 s) on a connection that writes and
-/// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
-/// SQLite's busy_timeout, which then reads 0.
+/// handler, the durability and the foreign keys, and - for a connection that
+/// writes - `PRAGMA quick_check`. The handler asks again every BUSY_POLL, for
+/// up to BUSY_TIMEOUT (5 s) on a connection that writes and READ_WAIT (1 s) on
+/// one that reads, then the word `busy`. It replaces SQLite's busy_timeout,
+/// which then reads 0.
+///
+/// The check belongs to the writer alone (#1769). `check`, `migrate` and
+/// `create` keep it, and so does the first write of a run: those are the opens
+/// after which the store's own rows are at risk, and refusing a damaged file
+/// there is what keeps a verb from writing into one. A read pays nothing for a
+/// file it cannot change.
+///
+/// `prepare_of_the_store` is the one test's way in: it puts SQLite's trace hook on the
+/// connection between the call that makes it and the call that prepares it, which is the only
+/// moment SQLite is quiet enough for the hook, and so it opens the file itself and is given this
+/// function rather than a copy of what it says.
+#[cfg(test)]
+pub(crate) fn prepare_of_the_store(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+    prepare(conn, purpose)
+}
+
 fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
@@ -914,13 +996,15 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
         .map_err(classify)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
-    let check: String = conn
-        .query_row("PRAGMA quick_check", [], |r| r.get(0))
-        .map_err(classify)?;
-    if check != "ok" {
-        return Err(DbError::Corrupt(format!(
-            "the database failed its check: {check}"
-        )));
+    if purpose == Purpose::Write {
+        let check: String = conn
+            .query_row("PRAGMA quick_check", [], |r| r.get(0))
+            .map_err(classify)?;
+        if check != "ok" {
+            return Err(DbError::Corrupt(format!(
+                "the database failed its check: {check}"
+            )));
+        }
     }
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -1084,6 +1168,9 @@ pub fn write_schema(
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
+///
+/// The steps themselves are `STEPS` below, in the order they run, so that a
+/// new schema is one new entry there and not an edit to every arm of a match.
 pub fn migrate(
     conn: &mut Connection,
     file: &Path,
@@ -1108,79 +1195,68 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        1 => step(conn, 2, STEP_2)
-            .and_then(|()| step(conn, 3, STEP_3))
-            .and_then(|()| step_4(conn))
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        2 => step(conn, 3, STEP_3)
-            .and_then(|()| step_4(conn))
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        3 => step_4(conn)
-            .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        4 => step(conn, 5, STEP_5)
-            .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        5 => step(conn, 6, STEP_6)
-            .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        6 => step(conn, 7, STEP_7)
-            .and_then(|()| step(conn, 8, STEP_8))
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        7 => step(conn, 8, STEP_8)
-            .and_then(|()| step(conn, 9, STEP_9))
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        8 => step(conn, 9, STEP_9)
-            .and_then(|()| step(conn, 10, STEP_10))
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        9 => step(conn, 10, STEP_10)
-            .and_then(|()| step_11(conn))
-            .and_then(|()| step(conn, 12, STEP_12)),
-        // The store of the release before last sits at 10.
-        10 => step_11(conn).and_then(|()| step(conn, 12, STEP_12)),
-        // The store of the previous release sits at 11.
-        11 => step(conn, 12, STEP_12),
+        // Every step above the schema the store was found at, in the order the
+        // list holds them, and none before it: a step that fails is the answer.
+        // A `from` outside 0..SCHEMA_VERSION -- the version of a later release,
+        // or a number no release wrote -- has no steps to run and is refused
+        // below.
+        from if from > 0 && from < SCHEMA_VERSION => {
+            for (to, run) in STEPS.iter().filter(|(to, _)| *to > from) {
+                run(conn).map_err(|e| at_step(e, *to, from))?;
+            }
+            Ok(())
+        }
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
         ))),
     }
 }
+
+/// What a step does to the connection: the same answer `step` gives.
+type Step = fn(&mut Connection) -> Result<(), DbError>;
+
+/// Which step gave up on the way from `from`, for the line the caller reads.
+/// `step` names the schema it expected in the file; a step with work around the
+/// transaction -- the VACUUM of `step_4` -- says only that the batch failed, so
+/// without this the caller cannot tell one step from another.
+fn at_step(e: DbError, to: i64, from: i64) -> DbError {
+    DbError::Corrupt(format!(
+        "the step from schema {from} to {to} failed: {}",
+        e.detail().unwrap_or_else(|| e.word().to_string())
+    ))
+}
+
+/// One schema step: the schema it brings the store to, and the function that
+/// runs it. A plain step is a closure over `step` and its SQL; a step with work
+/// around the transaction is named as it is.
+///
+/// The order of the list is the order the steps run, so it must stay sorted by
+/// target: `schema_tests` asserts the targets are exactly `2..=SCHEMA_VERSION`,
+/// each once, so a step out of order or left out fails the build rather than a
+/// host's migration.
+pub(crate) const STEPS: &[(i64, Step)] = &[
+    (2, |c| step(c, 2, STEP_2)),
+    (3, |c| step(c, 3, STEP_3)),
+    (4, step_4),
+    (5, |c| step(c, 5, STEP_5)),
+    (6, |c| step(c, 6, STEP_6)),
+    (7, |c| step(c, 7, STEP_7)),
+    (8, |c| step(c, 8, STEP_8)),
+    (9, |c| step(c, 9, STEP_9)),
+    (10, |c| step(c, 10, STEP_10)),
+    // The store of the release before last sits at 10, so the step to 11 is
+    // where its migration starts.
+    (11, step_11),
+    // The store of the previous release sits at 11.
+    (12, |c| step(c, 12, STEP_12)),
+    // A store at 12 is one this binary wrote before the easy mark was kept on
+    // the approval: the steps to 13 and 14 are all it needs.
+    (13, |c| step(c, 13, STEP_13)),
+    // A store at 13 is one this binary wrote before `cycles.how` took 'host':
+    // the step to 14 is all it needs.
+    (14, step_14),
+];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
 /// `user_version`: a failure commits nothing and leaves the store where it
@@ -1235,6 +1311,17 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 4, STEP_4);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 14, run as `step_4` runs its rebuild of `cycles`.
+fn step_14(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 14, STEP_14);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

@@ -47,7 +47,15 @@ logged as `wait #N: not in the start order (--only)`; refreshes do not wait.
 An expired order is logged as `order expired at <time>: ready issues start
 lowest number first`, and one the poll cannot read as `WARN: the
 start order could not be read from the state store: ready issues start lowest
-number first`. Either way the poll goes on as with no order. The cap on issues
+number first`. Either way the poll goes on as with no order. An open issue
+[tehas start](/api#tehas-start) approved is a ready issue with no label:
+it starts as `start #N (started from the host)` under every hold above,
+and a title or text changed since the approval is logged as `skip #N: its
+title or text changed since the host approved it at <time>; run `tehas start
+N` again to approve it`. A list of those approvals the poll cannot read is
+logged as `WARN: the host's approvals could not be read from the state store:
+no issue starts on one this poll`, and the labelled issues start as before.
+The cap on issues
 awaiting merge holds no refresh: it takes a pull request out of awaiting
 merge as it starts. Who applied `tehas:ready` is read at the decision, when
 the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
@@ -114,8 +122,7 @@ Every real poll that holds the dispatcher's lock ends with one sample in the
 factory's analytics, `~/tehas/state/analytics.db`, when its work could have
 changed the queue: a write to GitHub, a start, a stop or a planning turn. A
 paused, held or failed poll that changed nothing takes none, so an idle factory
-writes no row rather than the same reading again; `analytics prune` keeps its
-schedule whatever the poll did. One consequence: the report counts each sample
+writes no row rather than the same reading again. One consequence: the report counts each sample
 for the time to the next, at most ten minutes (see
 [`availability`](/tools-health#tehasbot-status-and-the-console)), so a stretch with no
 sample - a long pause or an idle week - counts as not available rather than as
@@ -125,8 +132,10 @@ a merge, stopped and in planning from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
-`dispatch.json` older than two and a half, an earlier poll's, neither. Then
-`analytics prune` removes what is older than 365 days. A start records the
+`dispatch.json` older than two and a half, an earlier poll's, neither. Nothing
+at the end of the poll prunes the analytics database: each write of the program
+- `run`, `plan`, `event` and `sample` - prunes after it writes, so a poll that
+wrote nothing has nothing to prune (#1769). A start records the
 events `ready`, as its approval record is written and at the time that record
 says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
 the first time for each issue. Each call may take 5 seconds.
@@ -153,7 +162,8 @@ under [Troubleshooting](/troubleshooting). Log:
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 When it has an issue to start, it puts the product checkout on the default
-branch and fast-forwards it. If no cycle is running and the branch has moved
+branch and fast-forwards it. If no cycle is running (a `state/cycles` that cannot be listed counts as one
+that may be) and the branch has moved
 since the last indexing, it starts [tehas index](/tools-dev#tehas-index) as its own unit,
 `tehas-index.service`, and ends: the log says `holding: the code index is
 refreshed first`. The unit asks for a poll when it ends, and that poll starts
@@ -187,6 +197,10 @@ A planning turn waits for neither. It runs as its own unit,
 the code as a cycle runs (`tehas-cycle pin plan`, see
 [tehasbot cycle](/tools-tehasbot#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+A unit whose turn neither takes `~/tehas/state/plan-<issue>.json.lock` nor
+ends within about five seconds of `systemd-run` did not start the turn: the
+poll logs `ERROR: could not start the planning turn of #<issue>` and ends the
+session as not started.
 Only the questions need the list of issues that carry `tehas:question`. When
 that list cannot be read, the poll logs `WARN: the issues with a question could
 not be read, so no question is answered this poll`, answers no question and
@@ -239,7 +253,12 @@ planning write of the poll, a list that cannot be read holds every issue for
 the rest of that poll. A turn running on record is not begun again by a new
 `tehas:plan`; the poll logs the issue and starts nothing.
 
-One planning turn runs at a time. A comment is a question only if the host has its id on record
+One planning turn runs at a time. A turn on record as running counts as
+running while its lock is held or its unit `tehas-plan-<issue>.service` is
+active; when `systemctl` cannot be asked, the turn still counts as running, so
+it is not reported as cut off while it may be at work.
+
+A comment is a question only if the host has its id on record
 on the state store: the question of the issue's open planning session, or of
 its current park (`question-known`). An answer that begins a turn answers that
 question on record, so a second tick in it runs nothing. A question of an earlier attempt, one taken off the record,
@@ -389,8 +408,9 @@ issue is marked `tehas:running`; if that label change fails, the poll stops.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `retry-tick`, `millwright`, `refresh`, or `outage-retry` for the one start
-after a provider outage), `body_sha256`, the sha256 of the body that approval
+(`label`, `retry-tick`, `millwright`, `refresh`, `outage-retry` for the one start
+after a provider outage, or `host` for an approval of `tehas start`, whose `by`
+is `host` too), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
 inputs `links`, the links to GitHub's attachment storage in that body, and

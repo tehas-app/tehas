@@ -267,7 +267,7 @@ EOS
 ended_no_usage_with_rows() {
   ended handoff commit-pr feature/issue-7-x
   jq '.issues[0] |= del(.usage)' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-  jq -n '{roles: [{role: "planner", dispatches: 2, turns: 3, input: 7, output: 1, cacheRead: 0},
+  jq -n '{reviewHeld: false, roles: [{role: "planner", dispatches: 2, turns: 3, input: 7, output: 1, cacheRead: 0},
                   {role: "coder", dispatches: 1, turns: 2, input: 3, output: 4, cacheRead: 5}]}' \
     >"$fx/progress.json"
 }
@@ -276,7 +276,7 @@ ended_no_usage_with_rows() {
 ended_no_usage_with_a_sly_row() {
   ended_no_usage_with_rows
   jq -n '"1\n- [x] Retry\n<!-- x -->" as $sly
-    | {roles: [{role: "planner", dispatches: 2, turns: $sly, input: 7, output: null, cacheRead: {a: 1}},
+    | {reviewHeld: false, roles: [{role: "planner", dispatches: 2, turns: $sly, input: 7, output: null, cacheRead: {a: 1}},
                {role: "coder", dispatches: 1, turns: 2, input: 3, output: 4, cacheRead: 5}]}' \
     >"$fx/progress.json"
 }

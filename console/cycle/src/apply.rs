@@ -9,7 +9,7 @@
 use crate::after::{self, log};
 use crate::facts::Facts;
 use crate::host::{self, Start};
-use crate::report::{report, Action, Ask, Park, Report, HANDOFF_MARK};
+use crate::report::{report, Action, Ask, Park, Report};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
@@ -19,6 +19,7 @@ use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GRACE};
 use tehas_core::end_fault;
 use tehas_core::journal::{Journal, Wrote};
+use tehas_core::question::is_handoff_marker;
 
 /// The comment a park posts when its question's label could not be added.
 pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
@@ -113,6 +114,17 @@ impl Tried {
             format!("repos/{}/issues/{}", self.repo, self.issue),
         ]
     }
+}
+
+/// Whether `body` carries the handoff of pi-rukas for `issue`: its first line
+/// is the marker, and the marker of this issue alone. Every body tehas posts
+/// with the marker puts it on the first line (`marker_line`, `q_render`), so a
+/// real handoff counts; a body that only quotes a marker, or names another
+/// issue, does not.
+fn carries_handoff(body: &str, issue: u64) -> bool {
+    body.lines()
+        .next()
+        .is_some_and(|l| is_handoff_marker(l, issue))
 }
 
 /// The author a cycle's pull requests are listed by: the bot's login, or the
@@ -302,8 +314,8 @@ impl Writer<'_> {
 
     /// A body posted with pi-rukas's handoff marker carries its handoff.
     fn handed(&mut self, posted: bool, body: &str) {
-        self.handed_off |= posted && body.contains(HANDOFF_MARK);
-        if !posted && body.contains(HANDOFF_MARK) {
+        self.handed_off |= posted && carries_handoff(body, self.issue);
+        if !posted && carries_handoff(body, self.issue) {
             self.handoff_failed = Some(self.last_failed.clone());
         }
     }
@@ -587,19 +599,7 @@ fn clear_workspace(workdir: &str) {
 /// left as it starts (src/supervise.rs), which is the one point reached
 /// however the cycle before it ended.
 fn clear_notes(home: &Path, issue: u64) {
-    for name in [
-        "oom",
-        "forks",
-        "stalled",
-        "timed",
-        "signal",
-        "disk",
-        "stopped",
-        "nostart",
-        "done",
-        "runner_exit",
-        "status",
-    ] {
+    for name in tehas_core::cycle_notes::ENDED {
         let _ = fs::remove_file(home.join(format!("state/cycles/{issue}.{name}")));
     }
 }
@@ -648,7 +648,16 @@ fn end(home: &Path, r: &Report, f: &Facts) -> bool {
 
 /// The record of a failed GitHub step of this end (#1726), or none: an end
 /// with no failed step removes the one an earlier cycle of the issue left.
-fn keep_end_fault(home: &Path, f: &Facts, a: &after::After, handoff: Option<&str>, now: i64) {
+/// False when the store of records is not as this end left it: a record that
+/// is not written is never tried again nor shown, and one that is not removed
+/// is.
+fn keep_end_fault(
+    home: &Path,
+    f: &Facts,
+    a: &after::After,
+    handoff: Option<&str>,
+    now: i64,
+) -> bool {
     let issue = f.issue;
     let handoff = handoff.filter(|_| a.ended.handoff_delivered == Some(false));
     let left = crate::end_failed::Left {
@@ -659,28 +668,27 @@ fn keep_end_fault(home: &Path, f: &Facts, a: &after::After, handoff: Option<&str
         pr: !a.ended.pr.is_empty(),
         handoff_failed: handoff,
     };
-    match crate::end_failed::of(&left, now) {
+    let kept = match crate::end_failed::of(&left, now) {
         Some(r) => {
             log(&format!("#{issue}: {}: on record", r.failure()));
-            if !end_fault::write(home, &r) {
-                log(&format!(
-                    "WARN: the failed end of #{issue} is not on record"
-                ));
-            }
+            end_fault::write(home, &r)
+                .map_err(|why| format!("the failed end of #{issue} is not on record: {why}"))
         }
-        None => {
-            if !end_fault::remove(home, issue) {
-                log(&format!(
-                    "WARN: could not remove {}",
-                    end_fault::path(home, issue).display()
-                ));
-            }
+        None => end_fault::remove(home, issue).map_err(|why| {
+            format!("the failed end of an earlier cycle of #{issue} is still on record: {why}")
+        }),
+    };
+    match kept {
+        Ok(()) => true,
+        Err(e) => {
+            log(&format!("ERROR: {e}"));
+            false
         }
     }
 }
 
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
-/// is not on record.
+/// or the record of its failed end is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
     let issue = s.issue;
     let workdir = format!("{}-{issue}", env("TEHAS_WORK_DIR"));
@@ -766,14 +774,14 @@ pub fn run(home: &Path, s: &Start) -> i32 {
             "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
         ));
     }
-    keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
+    let fault_kept = keep_end_fault(home, &facts, &a, w.handoff_failed.as_deref(), now);
     a.approved = approved;
     a.console = s.console.clone();
     a.status_cmd = s.status_cmd.clone();
     a.status_args = s.status_args.clone();
     a.workdir = workdir;
     after::after(home, &a);
-    if on_record {
+    if on_record && fault_kept {
         0
     } else {
         70
@@ -782,8 +790,28 @@ pub fn run(home: &Path, s: &Start) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_lean, author_of, pr_list};
+    use super::{approved_lean, author_of, carries_handoff, pr_list};
     use serde_json::json;
+
+    #[test]
+    fn a_handoff_counts_only_by_its_marker_on_the_first_line() {
+        let marker = "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->";
+        assert!(carries_handoff(
+            &format!("{marker}\nTehas cycle handed off."),
+            7
+        ));
+        // Quoted below the first line, the marker is text the agent wrote.
+        assert!(!carries_handoff(
+            "Tehas cycle handed off.\n\nIt wrote:\n{marker}",
+            7
+        ));
+        // Another issue's marker is no handoff of this one.
+        assert!(!carries_handoff(
+            &format!("{marker}\nTehas cycle handed off."),
+            8
+        ));
+        assert!(!carries_handoff("", 7));
+    }
 
     #[test]
     fn the_cycles_pull_requests_are_listed_by_the_bots_login() {

@@ -267,6 +267,7 @@ PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT
 TERM"
@@ -805,8 +806,14 @@ if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
 [ ! -e /proc/self/fd/9 ] || echo open >"$T/calls/docker.fd9"
 printf "%s\n" "$@" >"$T/calls/docker.args.1"'
 lock=$T/home/tehas/state/dev/frank.lock
+# The order the case is about: the command waits on the lock, the cleaner takes
+# the build output away during that wait, and the lock comes free afterwards.
+# Each of the three is told by a marker rather than by a count of looks: the
+# lock t_hold has taken, the target the command made, and the target the case
+# removed. A wait that reads the directory before the command got there is the
+# timing this case used to guess at, and on a loaded host it is the reason the
+# run was met with no build output to make again and refused 78.
 t_hold "$lock"
-# The removal happens while the command waits for the lock.
 (n=0
   until [ -d "$devs/frank.state/target" ] || [ $((n += 1)) -gt 600 ]; do "$(command -pv sleep)" 0.05; done
   rmdir "$devs/frank.state/target"; kill "$t_holder") &

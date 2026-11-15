@@ -29,23 +29,41 @@ pub(crate) fn iso(secs: u64) -> String {
     tehas_core::time::iso(secs as i64)
 }
 
-/// What the poll does now about an episode asked about `times` times, last
-/// at `asked`.
-pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> &'static str {
+/// What the poll does now about a quiet cycle's episode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Due {
+    /// First ask: stop it.
+    Stop,
+    /// The wait since the last ask has not passed.
+    Wait,
+    /// Ask it to stop again.
+    Again,
+    /// Asked enough: say it needs a person, and ask no more.
+    Line,
+}
+
+/// What is due for an episode asked about `times` times, last at `asked`.
+/// Both halves of a poll judge on the snapshot's `now`.
+pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> Due {
     let next = if times <= QUIET_ASKS {
         asked + QUIET_RETRY
     } else {
         asked + QUIET_RETRY * QUIET_ASKS
     };
     if times == 0 {
-        "stop"
+        Due::Stop
     } else if now + 1 < next {
-        "wait"
+        Due::Wait
     } else if times < QUIET_ASKS {
-        "again"
+        Due::Again
     } else {
-        "line"
+        Due::Line
     }
+}
+
+/// Why a cycle is quiet, as both halves of a poll say it.
+pub(crate) fn quiet_why(n: u64, heard: u64) -> String {
+    format!("the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s", iso(heard))
 }
 
 /// A pull request of issue `n`'s own branch, `feature/issue-<n>` or
@@ -104,7 +122,7 @@ impl Poll<'_> {
             if now.saturating_sub(heard) <= QUIET_BOUND {
                 continue;
             }
-            let why = format!("the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s", iso(heard));
+            let why = quiet_why(n, heard);
             if r.took == 0 {
                 self.log(format!("WARN: {why}, and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop {n} or systemctl --user stop tehas-cycle@{n}.service"));
                 continue;
@@ -118,33 +136,34 @@ impl Poll<'_> {
             let unit = format!("tehas-cycle@{n}.service");
             if self.dry {
                 match due {
-                    "stop" => self.log(format!("would stop {unit}: {why}")),
-                    "again" => self.log(format!("would ask {unit} to stop again: {why}")),
-                    "line" => self.log(format!(
+                    Due::Stop => self.log(format!("would stop {unit}: {why}")),
+                    Due::Again => self.log(format!("would ask {unit} to stop again: {why}")),
+                    Due::Line => self.log(format!(
                         "would say that {unit} needs a person and ask no more: {why}"
                     )),
-                    _ => {}
+                    Due::Wait => {}
                 }
                 continue;
             }
             // The line is the one the store's answer is expected to give:
-            // apply decides from the answer, as the bash does, and logs that.
-            let mut a = json!({"quiet": n, "said_for": heard});
+            // apply decides from the answer, as the bash does, and logs that,
+            // on this poll's clock.
+            let mut a = json!({"quiet": n, "said_for": heard, "now": now});
             match due {
-                "stop" => {
+                Due::Stop => {
                     a["log"] = json!(format!("WARN: {why}: stopping {unit}"));
                     a["stop"] = json!(true);
                 }
-                "again" => {
+                Due::Again => {
                     a["log"] = json!(format!("WARN: {why}: the poll asks {unit} to stop again"));
                     a["stop"] = json!(true);
                 }
-                "line" => {
+                Due::Line => {
                     a["log"] = json!(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
                     a["asked"] = json!(true);
                     a["said_only"] = json!(asks != QUIET_ASKS);
                 }
-                _ => {}
+                Due::Wait => {}
             }
             self.act(a);
         }

@@ -273,7 +273,8 @@ Rules that hold for every command:
   A `cd` in it moves no command, an `exit` in it is a refusal, and what it
   prints goes to standard error. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
-  file no further once it has a finding: the owner and mode of the instance
+  file no further once it has a finding: the owner and mode of
+  `~/.config/tehas/env`, of `~/.config/tehas/instance-dir`, of the instance
   directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
   the settings are read. The last is not sourced, but it is built into the
   image every cycle runs, so its bytes carry the same trust.
@@ -541,11 +542,10 @@ instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the tehas-industry that runs the factory from `checks.industry` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
-module shows a banner at the top of both pages while the industry has current
-alerts about the factory (`checks.industry.alerts`): each alert's kind as a
-word (Paused, Frozen, Held by one ticket, or the kind's own word for one this
-release does not know), its text, how long ago it started and its link. With
-no industry, or no current alert, there is no banner. A
+module shows a banner at the top of both pages while a host message is set
+(`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
+each message's level as a word (Alert, Warning or Notice), its text, when it
+was set and its link. With no message there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 
@@ -785,7 +785,8 @@ JSON answer:
   under `state/`. The step then compacts the file, so the migrate rewrites
   it. The step to 12 adds `start_order`, the order
   [`tehas order`](/api#tehas-order) sets; `store check` counts 24 tables
-  after it.
+  after it. The step to 13 rebuilds `cycles` so its `how` may say `host`,
+  a start [`tehas start`](/api#tehas-start) approved, and keeps every row.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
@@ -1237,7 +1238,10 @@ says the count, and the dispatcher's `done` line has it as `forks_refused`.
 When the run named no cap of its own and no person stopped it, the cycle goes
 on record with the cap `process-limit:<step>` (`process-limit` when no step
 is known) and a reason that carries the count, so `tehas history`, the park
-comment and the analytics row name it. A cap the run named stays.
+comment and the analytics row name it. A cap the run named stays. The comment
+and the reason also say the limit the container had, from its `pids.max`, and
+name the settings it follows, `TEHAS_TICKET_CONCURRENCY` and
+`TEHAS_SLICE_CONTAINERS`; both are among the settings on the cycle's record.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
@@ -1289,10 +1293,11 @@ hold a slot for ever:
 | A call of `~/tehas/libexec/analytics` from a cycle or a poll | 5 s, then a kill 1 s later | `WARN analytics <subcommand>: exit N`, and the cycle or the poll goes on as without it |
 | The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 277 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
-| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written` |
+| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written: <command> ...`. A status that did not end 0 leaves its files as they were, and the poll says `WARN: the status command <command> exited <n>: the status files may be stale` (or `was killed at its bound or did not start`) |
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
 | One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |
+| A call to GitHub in a run of the improvement loop | 300 s, then a kill 10 s later | The call counts as failed, and the log says `gh <command> gave no answer in 300s, or could not be run`. A run of the loop ends at 90 minutes (`TimeoutStartSec` of `tehas-improve.service`), which a test holds above the analyst's 3600 s |
 | The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
@@ -1343,7 +1348,10 @@ slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
 The same is in the [status object](/api#tehas-status--json) as `room.slots`.
 A host whose reading answers nothing (no `nproc`, a slice with no limit) would
 be held to one cycle and two containers rather than given the ceiling: the poll
-starts one cycle rather than what it cannot show room for. Set a number, which
+starts one cycle rather than what it cannot show room for, and the line says
+`host-bound, no reading`. A host that answered too little for one cycle, such
+as 4 CPUs at `TEHAS_CYCLE_CPUS=7`, is held the same way, and the line names the
+reading that held it: `cpu-bound, at the floor`. Set a number, which
 is also what an instance needs when it wants workstreams (see the axis below).
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
@@ -1446,7 +1454,9 @@ Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches
 nothing, so a failure is closed, not open. Names are compared, not addresses:
 the proxy resolves a name itself, through the names of
-`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too.
+`PI_ENSEMBLE_HOST_ALIASES` first, which it is given too. A plain `http://`
+request goes on with the `Host` of its allowed target, never the one the
+client sent.
 
 The first container that needs the proxy makes both networks and starts it,
 under `~/tehas/state/egress.lock`. It is started again when its list, the
@@ -1993,7 +2003,7 @@ from the design's theme file, and the design also picks the page at `/`:
 
 | `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
 | -------------------------- | ------------------- | ----------------------- | ------------------------------- |
-| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `share-logo.png` |
+| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
 | `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels
@@ -2073,7 +2083,7 @@ Both are outside the repository and the tehas tree.
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads three files of the workspace, as data: the product's `.pi/settings.json`, for the retry line of the cycle's log, and the runner's record of the attempt, `.pi/work-state/<issue>.json` or `.pi/lean-state/<issue>.json`. Each only as a plain file with no link on the way, and only up to a size bound. A cycle's outcome is the runner's result, from its standard output |
-| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
+| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token, no capabilities and `no-new-privileges` |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |

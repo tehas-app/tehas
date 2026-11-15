@@ -91,8 +91,8 @@ fn word(v: &Value) -> String {
         .to_string()
 }
 
-/// The longest key the reader of <n>.said compares: read/build.rs keeps the
-/// head of the file at this length, so a longer one is never recognised.
+/// The longest key kept in <n>.said: the writer here and the reader in
+/// read/build.rs both cut the file at this length.
 pub const SAID_MAX: usize = 200;
 
 /// state/refresh/<n>.said: what says that an issue's hold was told.
@@ -138,7 +138,7 @@ impl Writer {
             i += 1;
             if self.status_due {
                 self.status_due = false;
-                self.status(&mut out.printed);
+                self.status(&mut out.printed, &mut out.log);
             }
             // A step that ended the poll changed the queue: the units it
             // would have started, or the poll that could not read GitHub

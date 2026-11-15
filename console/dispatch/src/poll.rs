@@ -102,6 +102,17 @@ fn pass(lines: &[String]) {
     }
 }
 
+/// The status command, what it printed, and a WARN when it did not end 0.
+fn refresh_status(w: &mut Writer) {
+    let mut printed = Vec::new();
+    let mut log = Vec::new();
+    w.status(&mut printed, &mut log);
+    pass(&printed);
+    for l in &log {
+        say(l);
+    }
+}
+
 /// The kernel's clock ticks per second, AT_CLKTCK of a process's auxiliary
 /// vector (/proc/<pid>/auxv): what sysconf(_SC_CLK_TCK) answers, read without
 /// libc. None when the vector does not hold it.
@@ -413,7 +424,7 @@ impl End<'_> {
     #[cfg(test)]
     pub fn runs_host_commands(&self, w: &mut Writer, printed: &mut Vec<String>) {
         self.runs_tidy(w, printed);
-        w.status(printed);
+        w.status(printed, &mut Vec::new());
         w.health(printed, &mut Vec::new());
     }
 
@@ -430,13 +441,9 @@ impl End<'_> {
         // their order: the sample reads the status's files. A poll that
         // started, stopped, wrote or turned nothing leaves both to the next
         // poll that does - the poll's cost is still recorded, as health and
-        // status read it whatever the last poll did. The prune keeps its
-        // schedule, being the one step of the end that bounds what the others
-        // read.
+        // status read it whatever the last poll did.
         if self.changed.queue {
-            let mut printed = Vec::new();
-            w.status(&mut printed);
-            pass(&printed);
+            refresh_status(w);
         }
         let started = format!("{:.6}", self.started);
         let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
@@ -468,12 +475,14 @@ impl End<'_> {
             ));
         }
         let mut log = Vec::new();
-        // The sample of the queue as the status above wrote it; the rule and
-        // the prune's exemption are stated at the status.
+        // The sample of the queue as the status above wrote it; the rule is
+        // stated at the status. Nothing else of the end reads the analytics
+        // database: the prune of the old poll asked the same question the
+        // writes answer for themselves, since `run`, `plan`, `event` and
+        // `sample` each prune after they write (#1769).
         if self.changed.queue {
             w.analytics(&["sample".into()], &mut log);
         }
-        w.analytics(&["prune".into()], &mut log);
         for l in &log {
             say(l);
         }
@@ -685,9 +694,7 @@ fn body(
         }
     }
     if !dry && status_due(home, w.before) {
-        let mut printed = Vec::new();
-        w.status(&mut printed);
-        pass(&printed);
+        refresh_status(w);
     }
     let now = w.before;
     let mut src = Sources {
@@ -869,13 +876,19 @@ impl crate::auto_finish::Hands for FinishHands<'_> {
     }
 
     fn keep(&mut self, r: &tehas_core::end_fault::EndFault) -> bool {
-        tehas_core::end_fault::write(Path::new(&self.home), r)
+        match tehas_core::end_fault::write(Path::new(&self.home), r) {
+            Ok(()) => true,
+            Err(why) => {
+                say(&format!("WARN: the failed end of #{}: {why}", r.issue));
+                false
+            }
+        }
     }
 
     fn drop(&mut self, n: u64) {
-        if !tehas_core::end_fault::remove(Path::new(&self.home), n) {
+        if let Err(why) = tehas_core::end_fault::remove(Path::new(&self.home), n) {
             say(&format!(
-                "WARN: the failed end of #{n} could not be removed"
+                "WARN: the failed end of #{n} could not be removed: {why}"
             ));
         }
     }
@@ -1018,19 +1031,22 @@ fn auto_finish_step(
         return;
     }
     let (asked, _) = crate::finish::counted(settings, snap, settings.control);
+    let locks = crate::read::host::cycles(home);
     let running: Vec<u64> = snap["running"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|r| r["issue"].as_u64())
-        .chain(crate::read::host::running(home))
+        .chain(locks.clone().unwrap_or_default())
         .collect();
+    // A cycle that cannot be seen may be running: every record is held.
+    let unseen = locks.is_none();
     let now = tehas_core::time::now();
     let mut read = 0;
     let mut cases = Vec::new();
     for rec in records {
         let n = rec.issue;
-        let held = asked.contains(&n) || running.contains(&n) || d.picked.contains(&n);
+        let held = unseen || asked.contains(&n) || running.contains(&n) || d.picked.contains(&n);
         let mut c = Case {
             rec,
             held,
@@ -1080,8 +1096,11 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
         for l in &log {
             say(l);
         }
-        if rc != Some(0) {
-            say("WARN: the health file could not be written");
+        if let Some(how) = crate::apply::start::ended_badly(rc) {
+            say(&format!(
+                "WARN: the health file could not be written: {} {how}",
+                crate::apply::start::named(&w.host.health_cmd, &w.host.health_args)
+            ));
         }
     }
 }
@@ -1121,9 +1140,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
     }
     let before = snap.get("last_why").and_then(Value::as_str).unwrap_or("");
     if report.why.map_or("", |w| w.as_str()) != before {
-        let mut printed = Vec::new();
-        w.status(&mut printed);
-        pass(&printed);
+        refresh_status(w);
     }
 }
 
