@@ -5,6 +5,7 @@
 
 use super::run::{Calls, GhFail};
 use super::{github, host, models, store};
+use crate::apply::{said_file, SAID_MAX};
 use crate::decide::has;
 use crate::settings::Settings;
 use crate::text;
@@ -79,6 +80,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .trim_end_matches('\n')
         .to_string());
     s["refresh_held"] = json!(host::head(&home.join("state/refresh/.held"), 300));
+    s["push_fault"] = host::push_fault(home);
     if c.read_only {
         s["read_only_ran"] = json!(tehas_core::read_only::recorded(home));
     }
@@ -89,8 +91,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 
     let calls = &mut src.calls;
     s["order"] = store::order(calls);
-    let types = !c.improvement_type.is_empty();
-    let mut q = github::queue(calls, &c.repo, types)?;
+    let mut q = github::queue(calls, &c.repo, c.improvement_type.is_some())?;
     s["repo"] = json!(q.repo);
     if let Some(labels) = q.labels.take() {
         s["tehas_labels"] = labels;
@@ -103,9 +104,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .filter(|o| github::dropped_events(o, &[github::RUNNING]))
         .map(|o| o.number)
         .collect();
-    if types {
+    if let Some(t) = &c.improvement_type {
         s["issue_types"] = json!(q.issue_types);
-        typed_as_label(&mut q.open, &c.improvement_type, crate::decide::IMPROVEMENT);
+        typed_as_label(&mut q.open, t, crate::decide::IMPROVEMENT);
     }
     s["user"] = json!({"login": c.bot_login});
     s["bot_id"] = json!(tehas_core::accounts::read(home)
@@ -405,6 +406,23 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     );
     let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
     candidates.extend(numbers(&s["blocked"]));
+    // The issues `tehas start` approved are candidates as the labelled ones
+    // are, each open one with its labels. A paused poll asks nothing of them.
+    if !paused(&s, c) {
+        s["host_starts"] = match store::hosts(calls) {
+            Value::Array(list) => list
+                .into_iter()
+                .filter_map(|mut h| {
+                    let n = h.get("issue").and_then(Value::as_u64)?;
+                    let o = q.open.iter().find(|o| o.number == n)?;
+                    h["labels"] = o.labels.iter().map(|l| json!({"name": l})).collect();
+                    candidates.insert(n);
+                    Some(h)
+                })
+                .collect(),
+            failed => failed,
+        };
+    }
     let candidates: Vec<u64> = candidates.into_iter().collect();
     for n in &candidates {
         if let Some(record) = host::plan_start(home, *n) {
@@ -453,10 +471,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         }
         let i = entry(&mut issues, *n);
         i["request"] = req.clone();
-        i["refresh_said"] = json!(host::head(
-            &home.join(format!("state/refresh/{n}.said")),
-            200
-        ));
+        i["refresh_said"] = json!(host::head(&said_file(home, *n), SAID_MAX));
         let (shaped, _) = store::approval(&asked, *n);
         let i = entry(&mut issues, *n);
         i["approval"] = shaped;
@@ -1198,6 +1213,9 @@ case "$line" in
   $(sed -n 2p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"history-show","rows":[]}' >"$out" ;;
   $(sed -n 3p "$here/../store-words")*) printf '%s' '{"api":1,"ok":true,"verb":"park-show","parks":[]}' >"$out" ;;
   approval-current*) printf '%s' '{"api":1,"ok":true,"verb":"approval-current","current":null}' >"$out" ;;
+  # The approvals of `tehas start` a case wrote beside the programs, or none.
+  approval-hosts*) if [ -f "$here/../.approval-hosts" ]; then cat "$here/../.approval-hosts" >"$out"
+    else printf '%s' '{"api":1,"ok":true,"verb":"approval-hosts","waiting":[]}' >"$out"; fi ;;
   # The answer of any other verb is the one line of its own: a store of this
   # host has nothing to say. The leading dot is spelled out so that the body
   # file `tehas_core::testing` leaves beside the program cannot answer for a
@@ -1688,7 +1706,7 @@ esac"#,
         nodes.push(typed(40, "Improvement"));
         nodes.push(typed(41, "Task"));
         let mut c = settings();
-        c.improvement_type = "Improvement".into();
+        c.improvement_type = Some("Improvement".into());
         let (snap, calls, _, _) = poll_with(&w, &[], &c);
         assert_eq!(snap["issue_types"], json!(["Task", "Improvement"]));
         let improvement = json!([{"name": crate::decide::IMPROVEMENT}]);
@@ -1823,6 +1841,26 @@ esac"#,
         }
     }
 
+    /// The record that a hold was said is read at the path and the length its
+    /// writer in apply.rs uses, so a key it kept is recognised as said.
+    #[test]
+    fn the_said_record_is_read_where_and_as_far_as_its_writer_keeps_it() {
+        let _clock = crate::read::run::no_case_clock();
+        let dir = host(&world(), &[]);
+        std::fs::write(dir.join("state/refresh/40.json"), r#"{"at":"x"}"#).unwrap();
+        let key = "k".repeat(SAID_MAX + 50);
+        std::fs::write(said_file(&dir, 40), &key).unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(
+            snap["issues"]["40"]["refresh_said"],
+            json!(&key[..SAID_MAX])
+        );
+    }
+
     /// The record of a plan's start is read for the issues the rule can start,
     /// each its own, and it reaches the type the rule reads.
     #[test]
@@ -1848,6 +1886,44 @@ esac"#,
         );
         assert_eq!(parsed.issues[&22].plan_start, None);
         assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
+    }
+
+    /// The host's approvals reach the rules only for the issues open on the
+    /// queue's page: an approval of a closed issue, or of a number the page
+    /// does not hold, is dropped, so nothing of it is started.
+    #[test]
+    fn a_host_approval_of_an_issue_not_open_is_dropped() {
+        let _clock = crate::read::run::no_case_clock();
+        let mut w = world();
+        w["queue"]["data"]["repository"]["closedRunning"]["nodes"] = json!([{"number": 40}]);
+        let dir = host(&w, &[]);
+        let waiting = |n: u64| json!({"issue": n, "at": 1_793_404_000, "body_sha256": "x", "title_sha256": null});
+        fixture(
+            &dir,
+            "approval-hosts",
+            &json!({"api": 1, "ok": true, "verb": "approval-hosts",
+                    "waiting": [waiting(21), waiting(40), waiting(77)]}),
+        );
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        let starts: Vec<u64> = snap["host_starts"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the approvals were read: {}", snap["host_starts"]))
+            .iter()
+            .filter_map(|h| h["issue"].as_u64())
+            .collect();
+        assert_eq!(starts, vec![21], "only the open issue's approval stands");
+        let parsed = Snapshot::parse(&snap);
+        let hosts: Vec<u64> = parsed
+            .host_starts
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|h| h["issue"].as_u64())
+            .collect();
+        assert_eq!(hosts, vec![21]);
     }
 
     /// A comment that names nothing asks nothing of the blockers: the poll pays
@@ -1881,10 +1957,10 @@ esac"#,
     }
 
     /// A chunk whose comment query GitHub refused is a failed read for every
-    /// issue of it, not an empty one: the snapshot holds `{"failed": true}` for
-    /// each, which `Snapshot::parse` turns into no comments at all, and decide
-    /// ends the poll on it rather than reading an issue as one that names no
-    /// blocker, so a hold stays a hold and nothing starts.
+    /// issue of it, not an empty one: the snapshot holds `{"failed": true}` and
+    /// the call's line for each, which `Snapshot::parse` turns into no comments
+    /// at all, and decide ends the poll on it rather than reading an issue as
+    /// one that names no blocker, so a hold stays a hold and nothing starts.
     #[test]
     fn a_failed_chunk_holds_every_issue_of_it_and_starts_nothing() {
         let w = startable(world());
@@ -1902,7 +1978,7 @@ esac"#,
         for n in 21..=23 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true}),
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"}),
                 "issue {n} shares the refused chunk"
             );
             assert!(
@@ -1927,8 +2003,11 @@ esac"#,
         assert!(d.picked.is_empty(), "nothing starts: {:?}", d.picked);
         assert_ne!(d.exit, 0, "the poll ends on the failed read: {:?}", d.log);
         assert!(
-            d.log.iter().any(|l| l.starts_with("ERROR:")),
-            "the poll says the read failed: {:?}",
+            d.log
+                .iter()
+                .any(|l| l.starts_with("ERROR: unreadable comments of #")
+                    && l.ends_with(": gh api graphql failed: HTTP 500")),
+            "the poll names the read and gh's words: {:?}",
             d.log
         );
     }
@@ -1973,7 +2052,7 @@ esac"#,
         for n in [31u64, 32] {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true})
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"})
             );
         }
         // The answered chunk's issues start as they would have; the refused
@@ -1995,7 +2074,7 @@ esac"#,
         for n in 21..=30 {
             assert_eq!(
                 snap["issues"][n.to_string()]["comments"],
-                json!({"failed": true}),
+                json!({"failed": true, "line": "ERROR: gh api graphql failed: HTTP 500"}),
                 "issue {n} shares the refused chunk"
             );
         }

@@ -315,6 +315,7 @@ PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
@@ -406,7 +407,7 @@ rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
-  inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
+  inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "VERIFY_SUITE_TIMEOUT_MS",
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY", "SPAWN_TIMEOUT_MS")
     | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
   features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
@@ -414,6 +415,7 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # by hand.
 t_store_home "$T/home/tehas"
 t_verb "$shim/libexec/work" tehas work
+t_renewer "$T/home/tehas"
 T_ENV+=(GH_CYCLE_TOKEN=cycle-token)
 t_run "$shim/libexec/work 7"
 unset 'T_ENV[-1]'
@@ -920,6 +922,30 @@ EOF
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$T/keep/plan-sessions" ] && echo left)" ""
+
+t_case "a turn whose container died before the runner wrote leaves what the last turn kept, for the retry"
+first_turn_ran
+cat >"$fx/keeps" <<'EOF'
+rm -rf "$ws/.git/pi-plan-sessions"
+EOF
+rm -f "$fx/doc.json"
+echo 137 >"$fx/doc.rc"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","why":"the runner exited 137"}'
+# One that left an empty directory leaves it too.
+cat >"$fx/keeps" <<'EOF'
+rm -rf "$ws/.git/pi-plan-sessions"/*
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+rm -f "$fx/keeps" "$T"/calls/*
+asked
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
 
 t_case "a later turn of a session that has no directory yet makes one and goes on"
 reset

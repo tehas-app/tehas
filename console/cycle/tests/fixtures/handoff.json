@@ -498,13 +498,13 @@
    ]
   },
   "expect": {
-   "done": "done #7 rc=4 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "done": "done #7 rc=4 status=refused step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
    "end": [
     "7",
     "--attempt",
     "1",
     "--status",
-    "unknown",
+    "refused",
     "--step",
     "-",
     "--rc",
@@ -656,13 +656,13 @@
    ]
   },
   "expect": {
-   "done": "done #7 rc=4 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "done": "done #7 rc=4 status=refused step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
    "end": [
     "7",
     "--attempt",
     "1",
     "--status",
-    "unknown",
+    "refused",
     "--step",
     "-",
     "--rc",
@@ -793,13 +793,13 @@
    ]
   },
   "expect": {
-   "done": "done #7 rc=4 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "done": "done #7 rc=4 status=refused step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
    "end": [
     "7",
     "--attempt",
     "1",
     "--status",
-    "unknown",
+    "refused",
     "--step",
     "-",
     "--rc",

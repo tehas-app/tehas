@@ -55,8 +55,8 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-lane"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-sweep"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "refresh-pr-json"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 32
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "host-start"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 33
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
@@ -66,6 +66,8 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-lane"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-lane` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-sweep"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-sweep` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-json"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-json` ('
 t_eq "$(jq -r .refreshScan <<<"$t_out")" false

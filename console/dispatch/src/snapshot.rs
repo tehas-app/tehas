@@ -31,11 +31,12 @@ pub struct Issue {
     /// The pull requests that close it, {url, state}; None when the call
     /// failed or the answer cannot be read.
     pub prs: Option<Vec<Value>>,
-    /// The call worked but its answer is no list of pull requests.
-    pub prs_unreadable: bool,
     /// The issue's last 100 comments, for tehas:blocked and a park's lift; None
     /// when the call failed or was not asked.
     pub comments: Option<Value>,
+    /// The line of the gh call the comments read failed on; None when no gh
+    /// call failed, or none was asked.
+    pub comments_failed: Option<String>,
     /// The states of the issues its blocker comment names, by number: OPEN,
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
     pub blockers: BTreeMap<u64, String>,
@@ -172,6 +173,11 @@ pub struct Snapshot {
     pub limit: Value,
     /// The start order as `tehas order` reads it (tehas_core::order).
     pub order: Value,
+    /// The open issues `tehas start` approved that no cycle has used yet, as
+    /// `store approval-hosts` lists them with each issue's labels: {issue,
+    /// at, body_sha256, title_sha256, labels}. None when the list could not
+    /// be read.
+    pub host_starts: Option<Vec<Value>>,
     pub slice: Reading,
     /// What the model endpoints answered: the hold, when both failed, and
     /// which endpoint the subagent provider is on.
@@ -186,6 +192,11 @@ pub struct Snapshot {
     pub checks: Option<Option<Value>>,
     /// What state/branch-check says the last poll logged.
     pub branch_note: String,
+    /// The fault of a sandbox that cannot push, `state/push-fault.json`: None
+    /// when there is none, Some("unreadable") for one that cannot be read, and
+    /// Some({at, login, line}) for the fault on record. Read by the same poll
+    /// that writes it (Part 1 of this issue's series).
+    pub push_fault: Option<Value>,
     /// The why of the last live/dispatch.json.
     pub last_why: String,
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
@@ -245,6 +256,15 @@ pub struct Snapshot {
 
 fn failed(v: &Value) -> bool {
     v.get("failed").and_then(Value::as_bool) == Some(true)
+}
+
+/// The line a failed read's marker holds of its gh call, as
+/// `read::github::failed_read` writes it.
+pub fn failed_line(v: Option<&Value>) -> Option<String> {
+    v.filter(|v| failed(v))
+        .and_then(|v| v.get("line"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -343,8 +363,8 @@ fn issue(v: &Value) -> Issue {
             .filter(|p| !failed(p))
             .and_then(Value::as_array)
             .cloned(),
-        prs_unreadable: v.get("prs").is_some_and(|p| !failed(p) && !p.is_array()),
         comments: v.get("comments").and_then(opt),
+        comments_failed: failed_line(v.get("comments")),
         blockers: v
             .get("blockers")
             .and_then(Value::as_object)
@@ -505,6 +525,11 @@ impl Snapshot {
                 .get("order")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            host_starts: match v.get("host_starts") {
+                None => Some(Vec::new()),
+                Some(Value::Array(a)) => Some(a.clone()),
+                Some(_) => None,
+            },
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
             endpoint_hold: v
                 .get("endpoint")
@@ -532,6 +557,10 @@ impl Snapshot {
             disk_kb: v.get("disk_kb").map(Value::as_u64),
             checks: v.get("checks").map(opt),
             branch_note: s("branch_note"),
+            push_fault: match v.get("push_fault") {
+                None | Some(Value::Null) => None,
+                Some(f) => Some(f.clone()),
+            },
             last_why: s("last_why"),
             refresh_requests: v
                 .get("refresh_requests")

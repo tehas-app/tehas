@@ -132,7 +132,9 @@ fn one(image: &Path, url: &str, model: &str, key: &str, issue: &str) -> String {
         "webp" => "image/webp",
         _ => return "not described: not an image this knows".into(),
     };
-    let bytes = fs::read(image).unwrap_or_default();
+    let Ok(bytes) = fs::read(image) else {
+        return "not described: the image could not be read".into();
+    };
     let (rc, out) =
         chat(url, key, issue, &request(model, kind, &base64(&bytes))).unwrap_or((127, "".into()));
     match rc {
@@ -230,7 +232,10 @@ pub fn describe(dir: &Path, issue: &str) -> Result<(), String> {
     let file = ModelFile::read(&models::host_path());
     let ask = |args: &[String], input: &str| {
         let (rc, out) = curl(args, input.as_bytes());
-        (rc == 0).then_some(out)
+        match rc {
+            0 => Ok(out),
+            _ => Err(models::NoAnswer::Failed(Some(rc), String::new())),
+        }
     };
     let end = models::pick(&file, &provider, &models::used(), &ask);
     let (url, key) = (file.url(&provider, end), file.key(&provider, end));
@@ -333,5 +338,12 @@ mod tests {
             v["messages"][0]["content"][1]["image_url"]["url"],
             "data:image/png;base64,QQ=="
         );
+    }
+
+    #[test]
+    fn an_image_that_cannot_be_read_is_not_sent() {
+        let d = tehas_core::testdir::TestDir::new("describe-unreadable");
+        let said = one(&d.join("image-1.png"), "http://127.0.0.1:9", "m", "", "7");
+        assert_eq!(said, "not described: the image could not be read");
     }
 }
