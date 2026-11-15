@@ -14,8 +14,9 @@
 //!   endings.json       the ten last ends, oldest first, one line
 //!   running.json       {"cycles": [...], "last": ...}, one line
 //!   health.json        the file given with --health, as given; health.down
-//!                      is made before a "fail" report is renamed into place,
-//!                      and removed after any other is
+//!                      is made before a "fail" report is renamed into place
+//!                      (and taken back if that rename fails and this call
+//!                      made it), and removed after any other is
 //!
 //! and removes each live/cycles/<number>.json that it did not write, before
 //! any of the writes above: a publish that fails on a write has already taken
@@ -354,10 +355,11 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
             ended.push(v);
             continue;
         }
-        // Quiet for two minutes and no one holds its lock: the cycle died
-        // without saying so. Its time is when it became lost, so the view
-        // does not move on every publish.
-        if v.updated_at < now - LOST_AFTER && lock::probe(home, v.issue, false).rc == 0 {
+        // Quiet for two minutes and its lock file is found free: the cycle
+        // died without saying so. A missing file proves nothing, as the cycle
+        // may hold a lock on a file someone removed. Its time is when it
+        // became lost, so the view does not move on every publish.
+        if v.updated_at < now - LOST_AFTER && lock::probe(home, v.issue, true).rc == 0 {
             v.running = false;
             v.status = "lost".to_string();
             v.updated_at += LOST_AFTER;
@@ -639,16 +641,24 @@ fn publish(
     let mut down = Value::Null;
     if let Some((bytes, fail)) = &health {
         let marker = live.join("health.down");
+        // A marker this call made goes again when the report it goes with
+        // could not be renamed in: the report on disk is still the old one.
+        let made = *fail && !marker.exists();
         if *fail {
             File::create(&marker).map_err(|e| write_failed("health.down", e))?;
         }
-        put(&live, "health.json", bytes, &mut n)?;
+        if let Err(e) = put(&live, "health.json", bytes, &mut n) {
+            if made {
+                let _ = fs::remove_file(&marker);
+            }
+            return Err(e);
+        }
         written.push(j("health.json"));
         if !*fail {
             match fs::remove_file(&marker) {
                 Ok(()) => {}
                 Err(e) if e.kind() == ErrorKind::NotFound => {}
-                Err(e) => return Err(write_failed("health.down", e)),
+                Err(e) => return Err(remove_failed("health.down", e)),
             }
         }
         down = Value::Bool(*fail);

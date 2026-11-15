@@ -50,6 +50,7 @@ fn read(case: &str, result: &str, rc: i64, prs: Value, driver: &str) -> Report {
         "hostname": "tehas-test",
         "workdir": "/home/tehas/work/widget-7",
         "rc": rc,
+        "signalled": false,
         "started": 1000,
         "now": 1600,
         "start": {"attempt": 2, "by": "alice", "how": "label"},

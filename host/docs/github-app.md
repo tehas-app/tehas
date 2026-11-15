@@ -180,7 +180,10 @@ ignored once `~/tehas/state/github/login` exists; take them out too.
   and a session have no relay. `tehas work` renews the cycle's token
   every 5 minutes while the cycle runs. A failed renewal is one line
   in the cycle's work log, never a token, and is tried again after 30 seconds,
-  so two failures in a row no longer let the token run out. The renewer is
+  so two failures in a row no longer let the token run out. One renewal
+  that runs past 60 seconds is stopped, with what it started, and counts as a
+  failed one, so a hung call to GitHub neither stops the renewals nor holds
+  the end of the cycle. The renewer is
   `tehas-cycle renew` (`console/cycle/src/renew.rs`).
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
@@ -310,6 +313,11 @@ runs it. It refuses, with the reason written back to the cycle:
   `<!-- tehas:`, in any letter case and with any white space after `<!--`;
 - the 51st write of a cycle.
 
+A title and a body that pass are posted masked as the console masks a log:
+tokens, keys, passwords, private addresses and the host's names are taken
+out. Every `@` mention gets a zero-width space after the `@`, so a cycle's
+text notifies nobody.
+
 The host also takes the marker apart where it quotes an agent's text itself, in
 its own comments and in the plan, so a marker an agent wrote cannot come back
 as the factory's.
@@ -324,8 +332,11 @@ as the factory's.
 - Moving an existing factory from a machine user to an app: comments the old
   account wrote stay where they are, but if that account is suspended they are
   hidden, and the dispatcher cannot see a question it asked there
-  (`skip #N: its question is not among the last 100 comments`). Apply
-  `tehas:ready` or `tehas:refine` again to go on with such an issue. A
+  (`skip #N: its question is not among the last 100 comments; tehas:question
+  is set and no comment carries the question, so the issue waits until its
+  open points are answered or the label is taken off`). Take `tehas:question`
+  off and apply `tehas:ready` or `tehas:refine` again to go on with such an
+  issue. A
   question on record that is there but was written by another account than
   the bot is said as `skip #N: its question was written by 'X', not the bot
   'Y'`.

@@ -14,7 +14,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
-| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`, which the state store publishes from the cycle's heartbeats; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. A start that parked before the container ran keeps the clone it made and the one before it: neither is removed. |
+| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`, which the state store publishes from the cycle's heartbeats; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. A start that parked before the container ran puts the stopped workspace back at `tehas-<issue>` in place of its own clone, so a retry refused early loses nothing; when there was none to put back, it keeps the clone it made. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
@@ -189,6 +189,11 @@ Run `tehas dispatch --dry-run` and read what it prints.
   issues start in, so take the line out` (the same for `TEHAS_LOW_GATE` and
   `TEHAS_LOW_GATE_WAIT`): every command stops with 78 while the instance sets
   one of them to a value. Take the line out. A blank value is ignored.
+- `TEHAS_OVERLAP_HOLD is no longer read: a host holds an issue out of the
+  start order with tehas order set --only, so take the line out`: every
+  command stops with 78 while the instance sets it to a value. Take the line
+  out, and keep two issues apart with `tehas order set --only` instead. A
+  blank value is ignored.
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll or
   `improve.log`) or `... maps prototype to ...` (the Protolab's log): the
   owner of the repository has no issue type of that name. Nothing was
@@ -219,7 +224,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
-  answer, offers no models, or does not offer the configured model, and
+  answer, refused the request with an HTTP code (401 for a wrong or missing
+  token, 429 for a rate limit), could not be asked because curl could not be
+  run, offers no models, or does not offer the configured model, and
   neither does its backup where `models.json` names one. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
@@ -306,8 +313,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cycle, `tehas work`, `tehas stop`, `tehas history` and `tehas export` need
   `~/tehas/libexec/store` and `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
   anything. Run `install.sh`, which builds the store and makes the database.
-- `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
-  on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
+- `ERROR: the cycle for #N did not start: <why>`: the unit did not put a new
+  attempt on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The
+  reason says which: `its start exited <code>` or `its start did not end
+  within 300s or could not be run` is the `systemctl --user start` itself;
+  `the store was still busy at the end of the <n>s wait` or `the store could
+  not say whether it started (<word>)` is the state store, not the unit; `it
+  put no new attempt on record` is a unit that started and did not record its
+  start. The same reason is in the comment on the issue. The approval is
   taken off the record, or the unit is stopped when the store keeps it, and
   the issue gets `needs-human-attention`. Read
   `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
@@ -345,6 +358,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
   once more already, and the line ends `(tried 2 times)`. When it repeats,
   `tehas status` shows a `github` line with the count of the last ten
   minutes; GitHub's status page is often green through these.
+- `ERROR: unreadable comments of #N` (or `edit record of #N`, `pull requests
+  of #N`, `pull request #N`): the poll holds no usable answer for that read
+  and ends there, for the same reason. When a gh call is what failed, its
+  line follows: `ERROR: unreadable comments of #7: gh api graphql failed:
+  HTTP 502`. With nothing after the read, no gh call failed: the answer came
+  without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
   `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
@@ -478,7 +497,8 @@ The common ones:
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 | `signal`                            | A `TERM`, `INT` or `HUP` came to `tehas work` (the unit was stopped, or the host shut down) and it stopped the container. The record's `capReason` names the signal and the step, and a run of the gate the stop cut short is closed in the stream by a `verify-aborted` line | Retry once the host is back; nothing in the issue caused it |
-| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice, `TEHAS_SLICE_CONTAINERS` |
+| `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
+| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
@@ -527,6 +547,17 @@ current park, on the state store. The poll's log says which case it is:
   `~/tehas/logs/dispatch.log`.
 - `skip #N: the question on record does not belong to this issue`: the
   comment's marker names another issue or kind. Nothing is changed.
+- `skip #N: its question is not among the last 100 comments; tehas:question
+  is set and no comment carries the question, so the issue waits until its
+  open points are answered or the label is taken off`: the host has a question
+  on record for this issue and the comments it read do not carry it. The hold
+  is the `tehas:question` label, not the order of the comments: the poll reads
+  the last 100, so a new comment does not lift it and a comment that fell out
+  of those 100 does not cause it. Answer the open points of the question in
+  the bot's comment, or take `tehas:question` off and apply `tehas:ready` to
+  start afresh. The last is what a factory does when the account that posted
+  the question is gone: see
+  [a GitHub App for a factory](/github-app#things-seen-on-the-first-app).
 - `WARN: could not record the park question of #N, its boxes will not work`
   in the cycle's log: the question was posted while the store did not take
   it. Apply `tehas:ready`.
@@ -607,6 +638,13 @@ flight`. When the stop came while the driver's gate ran, the stream holds a
 `verify-aborted` line for it, with `"by": "tehas"` and the signal, and the
 cycle's `console.txt` ends with a line that says so. A person's `tehas stop`
 keeps its own reason and no cap.
+
+A container that ended with 137 when tehas did not stop it goes on record with
+the cap `container-killed`. The record's `capReason` says `the container was
+killed with the exit status 137 and tehas did not stop it, step lens-fix in
+flight; 4 processes in it were killed for memory`. This is not a stop of
+tehas's own: the comment says `Its cause is recorded as the cap
+container-killed`.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
@@ -733,13 +771,18 @@ that names `wall-clock` is the cap below.
 The container started, ran its preflight, and ended before the driver of
 pi-rukas wrote its first event. Nothing of the issue was read, no step began,
 no branch was made, and no model time was spent. This cap is tehas's, not
-pi-rukas's: `tehas work` watched the container to its end, found no result and
-not one line in the cycle's stream, and left the account of it in
-`state/cycles/<N>.nostart`. The comment says `no step started`, the record's
+pi-rukas's: `tehas work` watched the container to its end, found its result
+empty and not one line in the cycle's stream, and left the account of it in
+`state/cycles/<N>.nostart`. A result it could not read is still a result: that
+runner started, and no note is left for it. The comment says `no step started`, the record's
 `step` is `no-step`, and its `capReason` names the container's own exit status
 (`the container ended with the exit status 1 and wrote no line of its stream, so
 the driver wrote no event and no step started`), so a run of this kind can be
-counted and grouped with the others of it. The word of the step is tehas's own:
+counted and grouped with the others of it. A note that could not be read is
+still the note: the cycle is on record the same way, its `capReason` says the
+exit status could not be read, and `tehasbot cycle` warns of it. A note that is
+a link, or holds anything but an exit status of 1 to 999, is no note, and
+`tehasbot cycle` warns of that too. The word of the step is tehas's own:
 no step of pi-rukas is named there, and it is kept clear of the word
 `not-started`, which names a start `tehas work` refused at exit 4.
 
@@ -883,6 +926,15 @@ Check the push by hand:
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
+While the sandbox cannot push, `tehas work` records the fault in
+`~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
+and the poll holds every start until the file is ten minutes old or a start
+whose check passes takes it off. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
+and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
+remote's URL) and the next start works. Planning turns and refreshes run
+through the hold.
+
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
 driver's combined commit is on the local branch `feature/issue-<N>-...` there.
@@ -895,7 +947,11 @@ Before any work, pi-rukas found a pull request already open for the issue:
 its branch names the issue, or its description closes it (`Fixes #<N>`).
 Nothing was written. Here it was once a pull request of an earlier cycle and
 once a person's own. Merge that pull request, or close it and retry. A retry
-while it is open stops the same way.
+that asks with the `tehas:ready` label stops the same way while it is open: the
+poll takes the label off and names the pull request on the issue. A retry
+asked by ticking `Retry` in the park comment does not reach pi-rukas at all:
+the poll sees the open pull request first, unticks the box and says the same
+on the issue. Merge or close the pull request, then tick the box again.
 
 ### `review-incomplete`
 
@@ -975,6 +1031,15 @@ the dashboard says `no resources`, and the dispatcher's log has one line that
 starts with `holding: no resources:`. It logs `released` at the first poll
 that finds the model again. A cycle that was already running when the endpoint
 went away is not stopped: it stalls and times out.
+
+The hold says which way the call failed:
+
+- `does not answer`: no answer within 10 seconds, or no connection at all.
+- `refused the request with HTTP <code>`: the endpoint answered with an error.
+  401 or 403 is the token: check the `apiKey` in `models.json` and the
+  variable it names in `~/.config/tehas/env`. 429 is a rate limit.
+- `could not be asked: curl could not be run`: curl is not on the dispatcher's
+  PATH. Install it; the endpoint itself may be fine.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.

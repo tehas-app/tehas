@@ -35,7 +35,8 @@
 # With paths, relative to the root of the checkout, only those run: the test
 # files among them, and the lint of those of them it would lint anyway.
 # scripts/verify.sh --changed gives it the paths a change touched. A test file
-# named that does not exist stops the run with 2.
+# named that does not exist stops the run with 2; paths with no test file and
+# nothing to lint among them stop it with 3.
 #
 # The test files and the lint of each shell script run side by side, at most
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
@@ -60,7 +61,7 @@
 # the check under timeout and records its status and time when it ends.
 #
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked,
-#       or the runner did not build
+#       or the runner did not build, 3 the paths given hold nothing to check
 set -uo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 2

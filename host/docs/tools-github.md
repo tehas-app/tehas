@@ -9,6 +9,7 @@ description: "Asking for refreshes, the App's tokens, and the writes of the last
 
 ```
 tehasbot refresh --pr 50    # ask for the refresh of pull request #50 now
+tehasbot refresh --pr 50 --json  # the same, and say what it asked as one object
 tail ~/tehas/logs/refresh.log
 ```
 
@@ -42,6 +43,19 @@ on standard error and nothing written; 1 the read of GitHub failed or took
 more than 20 seconds, or named no pull request, nothing written; 64 no `--pr`,
 or N is not a whole number above 0, before any setting is read; 78 a setting
 is missing or malformed.
+
+With `--json` it also prints one object on standard output on exit 0, 3 and
+1, so a caller does not read standard error for the reason:
+
+```
+{"asked": true, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": null}
+{"asked": false, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
+```
+
+`asked` is `true` when the request was written, and `why` is then `null`;
+otherwise `why` holds the same words as standard error. `issue` and
+`head_sha` are `null` when GitHub did not name them, as when its read
+failed. Exit 64 and 78 print no object.
 
 ## tehasbot github-token
 
@@ -117,6 +131,8 @@ created, an edit only on an issue the cycle created during that cycle, and a
 cycle has at most 50 such writes. Labels, assignees, milestones, projects,
 state changes, another repository and any text with `<!-- tehas:` in it are
 refused with the reason (see [the relay](/github-app#the-relay-is-a-security-channel)).
+What it posts is masked as the console masks a log, and its `@` mentions
+notify nobody.
 
 A planning turn's and a manual session's container is given
 `~/tehas/state/github-session` read-only at `/run/tehas/github`, never the key

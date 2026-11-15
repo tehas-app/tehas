@@ -102,6 +102,17 @@ t_eq "$(cat "$ws.before-retry/left-over.txt")" unrecoverable
 t_contains "$t_out" "holds what the last cycle left"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
+t_case "a start that parks before its container puts back the workspace of the cycle that ran"
+product_nothing
+rm -rf "$ws.before-retry"
+mkdir -p "$ws"
+echo finished >"$ws/finished.txt"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cat "$ws/finished.txt")" finished
+t_eq "$(find "$ws.before-retry" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 t_case "a gate of comments and blank lines only is no gate: the cycle parks"
 product_commit .pi/verify-cmd '# scripts/verify.sh' '' '   '
 t_run "$work 7"
@@ -155,6 +166,10 @@ t_run "$work 7"
 caps_refused
 t_contains "$t_out" "does not support what this cycle is given, not starting a cycle"
 t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODEL"
+# The cause is left for the park, which does not read the run log.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-lacking
+the input PI_ENSEMBLE_SUBAGENT_MODEL"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 caps_good
 
 t_case "an image that does not read the child's bound stops the cycle: 78, named"
@@ -290,7 +305,7 @@ t_run "$work 7"
 caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_contains "$t_out" "driver lean, work-lean"
-rm -f "$T/home/tehas/state/cycles/7.lean-refused"
+rm -f "$T/home/tehas/state/cycles/7.lean-refused" "$T/home/tehas/state/cycles/7.refused"
 t_store_db "$T/home/tehas"
 caps_good
 
@@ -368,7 +383,7 @@ for h in "$(pr_branch feature/two clean.txt "a new file")" "$(printf 'e%.0s' {1.
 done
 t_contains "$t_out" "whether pull request #50 conflicts with origin/main could not be read, the refresh runs"
 
-for how in label retry-tick outage-retry fixer; do
+for how in label retry-tick outage-retry fixer host; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh
   caps_continue
@@ -483,6 +498,8 @@ T_ENV=("${env_ok[@]}" CAPS_RC=1)
 t_run "$work 7"
 caps_refused
 t_contains "$t_out" "gave no --capabilities answer (exit 1)"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-unreadable 1"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 T_ENV=("${env_ok[@]}")
 caps_fresh
 echo 'error: Module not found' >"$T/caps.json"

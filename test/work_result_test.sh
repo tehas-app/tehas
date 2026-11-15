@@ -50,6 +50,19 @@ for line in "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"
   t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
 done
 
+t_case "a container that wrote a result the reader refuses is not a runner that never started"
+for shape in 'not json' '{"schemaVersion":4,"issues":[]}' \
+  '{"schemaVersion":5,"issues":[{"issue":8}]}' \
+  '{"schemaVersion":5,"issues":[{"issue":7,"handoff":"x"}]}' \
+  '{"schemaVersion":5,"issues":[{"issue":7,"usage":"x"}]}'; do
+  fresh
+  container "printf '%s\n' '$shape'; exit 1"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+  t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
+done
+
 t_case "a killed container, one tehas stopped, and one that wrote its result leave no note of a runner that never started"
 fresh
 container 'exit 137'
@@ -126,13 +139,13 @@ t_eq "$(jq -r '.issues[0].cap' "$cycle_log.result.json")" verify-failed:develop
 t_contains "$t_out" "status=handoff step=develop cap=verify-failed:develop runner_exit=10"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"handoff"]'
 
-t_case "a cycle that ended at a cap with nothing in its error stream leaves the cap there, with the stream's name"
+t_case "a cycle that ended at a cap with nothing in its error stream leaves the cap there, as no evidence, with the stream's name"
 fresh
 container 'says handoff verify-failed:develop; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop: no evidence from the driver
 tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
 t_lacks "$(cat "$cycle_log.err")" "holds nothing"
 t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
@@ -157,7 +170,7 @@ says handoff developer-timeout; exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap developer-timeout
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap developer-timeout: no evidence from the driver
 [pi-rukas] WARN work-driver: plan to-spec gate, halting before branch
 [pi-rukas] killed after 7200000ms timeout, after 71620 lines
 [pi-rukas] work-driver: exec error tail is unattributed, no FAILED marker found
@@ -214,9 +227,9 @@ cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log
 err=$(cat "$cycle_log.err")
 t_eq "$(printf '%s\n' "$err" | sed -n '/^\[pi-rukas\]/p' | wc -L)" 1000
 t_lacks "$err" "ends here"
-# The line of the cap (51), the copied line (1000), the line of the stream's
+# The line of the cap, with no evidence (80), the copied line (1000), the line of the stream's
 # name (47), each with its end of line.
-t_eq "$(wc -c <"$cycle_log.err")" 1127
+t_eq "$(wc -c <"$cycle_log.err")" 1156
 
 t_case "the copied lines of the stream together stay under 64 KiB of the record"
 fresh
@@ -231,9 +244,9 @@ t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
 err=$(cat "$cycle_log.err")
 t_eq "$(printf '%s\n' "$err" | grep -c '^\[pi-rukas\]')" 20
-# 20 lines of 1000 characters, the line of the cap (52), the line of the
+# 20 lines of 1000 characters, the line of the cap with no evidence (81), the line of the
 # stream's name (47), each with its end of line: well under the 64 KiB.
-t_eq "$(wc -c <"$cycle_log.err")" 20146
+t_eq "$(wc -c <"$cycle_log.err")" 20175
 t_contains "$err" "repetition 100"
 
 t_case "the reason of the cap is kept to what the park comment can hold"
@@ -282,6 +295,20 @@ exit 30"
 t_run "$work 7"
 t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":2,"turns":4,"input":20,"output":8,"cacheRead":2},{"role":"opsx","dispatches":1,"turns":2,"input":10,"output":4,"cacheRead":1}]'
 t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
+t_eq "$(jq -c '.from' "$progress_file")" '{"roles":"progress","failure":"progress"}'
+
+t_case "a container that prints nothing leaves an empty result, which is no result: progress, not a bad result"
+fresh
+container 'exit 1'
+t_run "$work 7"
+t_eq "$(cat "$result_file")" ""
+t_eq "$(jq -c '[.roles, .failure, .from]' "$progress_file")" '[[],null,{"roles":"progress","failure":"progress"}]'
+
+t_case "a result of another schema is a bad result"
+fresh
+container 'says merged | sed "s/\"schemaVersion\":5/\"schemaVersion\":3/"; exit 0'
+t_run "$work 7"
+t_eq "$(jq -c '.from' "$progress_file")" '{"roles":"bad-result","failure":"bad-result"}'
 
 t_case "the usage per role and the failure of a schema 5 run come from its result"
 fresh

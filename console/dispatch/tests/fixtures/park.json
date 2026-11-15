@@ -82,6 +82,70 @@
    }
   },
   {
+   "case": "a park whose question is no longer on record does not hold a new tehas:ready",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0,
+     "question": null
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick"
+    ],
+    "log_lacks": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ]
+   }
+  },
+  {
    "case": "and the next poll of the same park only logs, with no comment",
    "snapshot": {
     "ready": [
@@ -838,6 +902,198 @@
    }
   },
   {
+   "case": "a ticked retry whose issue has an open pull request that closes it starts nothing, and the box is unticked",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "after": {
+    "issues": {
+     "7": {
+      "prs": [
+       {
+        "url": "https://github.com/acme/widget/pull/90",
+        "state": "OPEN"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+      "say": "Retry was ticked and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then tick Retry."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of that hold says it and changes nothing",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "after": {
+    "issues": {
+     "7": {
+      "prs": [
+       {
+        "url": "https://github.com/acme/widget/pull/90",
+        "state": "OPEN"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a ticked retry whose only pull request is closed starts the cycle",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "after": {
+    "issues": {
+     "7": {
+      "prs": [
+       {
+        "url": "https://github.com/acme/widget/pull/90",
+        "state": "CLOSED"
+       },
+       {
+        "url": "https://github.com/acme/widget/pull/91",
+        "state": "MERGED"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "is open and closes it"
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "how": "retry tick",
+      "given": "retry-tick"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a ticked retry whose pull request names the issue with no closing reference is held by its body",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "after": {
+    "pulls_name": {
+     "7": [
+      101,
+      90
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "say": "Retry was ticked and nothing was started: https://github.com/acme/widget/pull/90 is open and closes this issue. Merge or close that pull request, then tick Retry."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a pull request that names another issue does not hold the retry",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "after": {
+    "pulls_name": {
+     "8": [
+      90
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "is open and closes it"
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "how": "retry tick",
+      "given": "retry-tick"
+     }
+    ]
+   }
+  },
+  {
    "case": "a retry waits while every slot is taken, and the tick stays",
    "world": "parked",
    "park_q": [
@@ -1224,7 +1480,10 @@
     "exit": 1,
     "picked": [],
     "log": [
-     "ERROR: gh api graphql failed"
+     "ERROR: unreadable comments of #7"
+    ],
+    "log_lacks": [
+     "gh api graphql failed"
     ]
    }
   },
@@ -2007,7 +2266,7 @@
    "expect": {
     "picked": [],
     "log": [
-     "skip #7: its question is not among the last 100 comments"
+     "skip #7: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
     ],
     "exit": 0
    }

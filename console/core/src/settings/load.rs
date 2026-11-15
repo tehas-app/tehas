@@ -105,7 +105,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 14] = [
+const RETIRED: [&str; 15] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -120,6 +120,7 @@ const RETIRED: [&str; 14] = [
     "TEHAS_PRIORITY_FIELD",
     "TEHAS_REFRESH_CONFLICTS",
     "TEHAS_REFRESH_EVERY",
+    "TEHAS_OVERLAP_HOLD",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -427,7 +428,10 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | ("TEHAS_REFRESH_EVERY", "")
                 | (
-                    "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD",
+                    "TEHAS_LOW_GATE"
+                        | "TEHAS_LOW_GATE_WAIT"
+                        | "TEHAS_PRIORITY_FIELD"
+                        | "TEHAS_OVERLAP_HOLD",
                     ""
                 )
         ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
@@ -448,6 +452,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
             "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
+            "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
@@ -530,14 +535,16 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     // always told.
     let concurrency = vars.text("TEHAS_CONCURRENCY");
     vars.set("PI_ENSEMBLE_MAX_WORKSTREAMS", concurrency);
-    // pi-rukas reads the bound of a gate in ms under two names, one for a
-    // workstream's gate and one for the gate on the combined tree. A gate
-    // refused below is not passed on.
+    // pi-rukas reads the bound of a gate in ms under three names: a
+    // workstream's gate, the gate on the combined tree, and the suite tier
+    // that runs the full command on the combined tree. A gate refused below
+    // is not passed on.
     let verify = vars.text("TEHAS_VERIFY_TIMEOUT");
     if rules::is_count(&verify) {
         let ms = (verify.parse::<u64>().unwrap_or(0) * 1000).to_string();
         vars.set("PI_ENSEMBLE_VERIFY_TIMEOUT_MS", ms.clone());
-        vars.set("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", ms);
+        vars.set("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", ms.clone());
+        vars.set("PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS", ms);
     }
     vars.set("PI_ENSEMBLE_NO_DOCKER_SOCKET", "1");
     vars.set("PI_ENSEMBLE_NO_SSH", "1");
@@ -984,6 +991,7 @@ mod tests {
             ("PI_ENSEMBLE_MAX_WORKSTREAMS", "1"),
             ("PI_ENSEMBLE_VERIFY_TIMEOUT_MS", "1800000"),
             ("PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS", "1800000"),
+            ("PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS", "1800000"),
             ("PI_ENSEMBLE_NO_DOCKER_SOCKET", "1"),
             ("PI_ENSEMBLE_NO_SSH", "1"),
             ("TEHAS_PREVIEW_MIN_FREE_MB", "5120"),
@@ -1022,6 +1030,21 @@ mod tests {
             refused(&["TEHAS_DESIGN=paper"]),
             format!("TEHAS_DESIGN is not valid: expected beesknees26 or pixel (see {FILE})")
         );
+    }
+
+    #[test]
+    fn a_renewal_period_is_whole_seconds_or_left_out() {
+        assert_eq!(loads(&[]).text("TEHAS_GITHUB_RENEW_EVERY"), "");
+        assert_eq!(
+            loads(&["TEHAS_GITHUB_RENEW_EVERY=600"]).text("TEHAS_GITHUB_RENEW_EVERY"),
+            "600"
+        );
+        for typo in ["5m", "0", "300s"] {
+            assert_eq!(
+                refused(&[&format!("TEHAS_GITHUB_RENEW_EVERY={typo}")]),
+                format!("TEHAS_GITHUB_RENEW_EVERY is not valid: expected a positive whole number (see {FILE})")
+            );
+        }
     }
 
     #[test]
@@ -1278,6 +1301,7 @@ mod tests {
             "TEHAS_REFRESH_EVERY=",
             "TEHAS_REFRESH_EVERY=1",
             "TEHAS_REFRESH_EVERY=1440",
+            "TEHAS_OVERLAP_HOLD=",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1310,6 +1334,14 @@ mod tests {
             (
                 "TEHAS_REFRESH_EVERY=+1",
                 "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                ),
+            (
+                "TEHAS_OVERLAP_HOLD=1",
+                "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
+            ),
+            (
+                "TEHAS_OVERLAP_HOLD=0",
+                "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
             ),
             (
                 "TEHAS_LAYOUT=floor",
@@ -1665,5 +1697,89 @@ mod tests {
             text.contains("_tehas_bad=([TEHAS_REPO]='expected owner/name' )\n"),
             "{text}"
         );
+    }
+
+    /// Settings the example instance names whose rule lives with the program
+    /// that reads them, not in the table.
+    const RULED_ELSEWHERE: [&str; 8] = [
+        // The dispatcher holds their rules and defaults (dispatch/src/slots.rs).
+        "TEHAS_CYCLE_CPUS",
+        "TEHAS_CYCLE_CEILING",
+        // Defaults of this load: the sandbox image, the product's clone and
+        // the cycle's host names.
+        "PI_ENSEMBLE_IMAGE",
+        "TEHAS_WORK_REPO",
+        "PI_ENSEMBLE_HOST_ALIASES",
+        // pi-rukas reads it in the container.
+        "PI_ENSEMBLE_REVIEW_THRESHOLD",
+        // A pin of versions.env, read by core/src/rukas.rs.
+        "PI_RUKAS_IMAGE_DIGEST",
+        // A knob of a run, read before the load (ops/src/update/wait.rs).
+        "TEHAS_UPDATE_LOCK_WAIT",
+    ];
+
+    /// The names the example instance's files set, commented out or not.
+    fn example_names() -> BTreeSet<String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../instances/example");
+        let mut names = BTreeSet::new();
+        for file in ["instance.env", "optional.env"] {
+            let text = std::fs::read_to_string(dir.join(file)).unwrap();
+            for line in text.lines() {
+                let line = line.strip_prefix('#').unwrap_or(line);
+                let Some((name, _)) = line.split_once('=') else {
+                    continue;
+                };
+                let shaped = name.starts_with(|c: char| c.is_ascii_uppercase())
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+                if shaped {
+                    names.insert(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn every_setting_the_example_names_has_a_rule() {
+        let names = example_names();
+        assert!(names.contains("TEHAS_REPO"), "{names:?}");
+        let in_table = |n: &str| TABLE.iter().any(|s| s.name == n);
+        let missing: Vec<&String> = names
+            .iter()
+            .filter(|name| {
+                let role = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
+                    .iter()
+                    .any(|p| name.strip_prefix(p).is_some_and(|r| ROLES.contains(&r)));
+                !(in_table(name) || role || RULED_ELSEWHERE.contains(&name.as_str()))
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "in instances/example with no row in settings/rules.rs: {missing:?}"
+        );
+        for name in RULED_ELSEWHERE {
+            assert!(
+                !in_table(name),
+                "{name} has a row: take it out of RULED_ELSEWHERE"
+            );
+            assert!(
+                names.contains(name),
+                "{name} is no longer in instances/example"
+            );
+        }
+    }
+
+    #[test]
+    fn a_retired_name_is_neither_a_setting_nor_kept() {
+        for name in RETIRED {
+            assert!(
+                !TABLE.iter().any(|s| s.name == name),
+                "{name} is retired and in TABLE"
+            );
+            assert!(!KEPT.contains(&name), "{name} is retired and in KEPT");
+            assert!(!RULED_ELSEWHERE.contains(&name), "{name} is retired");
+        }
     }
 }

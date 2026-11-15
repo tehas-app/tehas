@@ -559,4 +559,11 @@ holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 t_lacks "$t_out" "lift #7"
 
+t_case "a park whose question is no longer on record does not hold a new tehas:ready"
+# No box of that park starts anything now, and its untick points at the label.
+parked_again "Words."
+TEHAS_HOME=$T/home/tehas "$T_STORE" question-answered 7 --id 4001 --withdraw >/dev/null
+lifts
+t_contains "$t_out" "lift #7: its last cycle parked on intent-park and the body has not changed since, lifted as its park has no question on record to tick"
+
 t_done

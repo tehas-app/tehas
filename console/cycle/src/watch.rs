@@ -138,6 +138,23 @@ fn say(line: &str) {
     let _ = out.flush();
 }
 
+/// The failure to say for a call made every tick: a new one, or one that
+/// differs from the last said. A success ends the run of failures, so the next
+/// one is said again. A store that fails every tick the same way is said once.
+fn say_again(last: &mut Option<String>, now: Result<(), String>) -> Option<String> {
+    match now {
+        Ok(()) => {
+            *last = None;
+            None
+        }
+        Err(e) if last.as_deref() == Some(e.as_str()) => None,
+        Err(e) => {
+            *last = Some(e.clone());
+            Some(e)
+        }
+    }
+}
+
 fn append(file: &Path, line: &[u8]) -> bool {
     let done = OpenOptions::new()
         .create(true)
@@ -291,6 +308,15 @@ pub fn event(text: &str, key: &str) -> Option<u32> {
     found.next_back()
 }
 
+/// The number of a cgroup's pids.max. None for `max`, no limit.
+pub fn pids_max(text: &str) -> Option<u32> {
+    let v = text.trim();
+    (!v.is_empty() && v.len() < 10 && v.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| v.parse().ok())
+        .flatten()
+        .filter(|n| *n > 0)
+}
+
 /// The kills of the kernel log named for this container.
 pub fn kills_in(log: &str, id: &str) -> u32 {
     let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
@@ -298,6 +324,27 @@ pub fn kills_in(log: &str, id: &str) -> u32 {
     lines
         .filter(|l| l.starts_with("oom-kill:") && l.contains(&scope))
         .count() as u32
+}
+
+/// The names of the processes the kernel log says were killed for memory in
+/// this container, each once, in the order they were killed.
+pub fn killed_names(log: &str, id: &str) -> Vec<String> {
+    let scope = format!("task_memcg=/tehas.slice/docker-{id}.scope,");
+    let mut names: Vec<String> = vec![];
+    for l in log.lines() {
+        if !(l.starts_with("oom-kill:") && l.contains(&scope)) {
+            continue;
+        }
+        let Some(task) = l.split(',').find_map(|f| f.strip_prefix("task=")) else {
+            continue;
+        };
+        let task = runner::kept(task, |c| c.is_ascii_alphanumeric() || "._-".contains(c));
+        let task = runner::cut(&task, 40);
+        if !task.is_empty() && !names.contains(&task) && names.len() < 5 {
+            names.push(task);
+        }
+    }
+    names
 }
 
 /// The driver's own words for a refusal, as they stand in the cycle's stream:
@@ -358,13 +405,9 @@ pub fn open_gates(stream: &[u8], issue: u64) -> Vec<(String, String)> {
             Some("verify-started") => open.push((word("step"), word("command"))),
             Some("verify-completed" | "verify-aborted") => {
                 let step = word("step");
-                match open.iter().rposition(|(s, _)| *s == step) {
-                    Some(i) => {
-                        open.remove(i);
-                    }
-                    None => {
-                        open.pop();
-                    }
+                // An end that matches no start says nothing of the gates still open.
+                if let Some(i) = open.iter().rposition(|(s, _)| *s == step) {
+                    open.remove(i);
                 }
             }
             _ => {}
@@ -401,8 +444,17 @@ pub struct Seen<'a> {
     pub stopped: bool,
     /// The time limit had passed when the container ended.
     pub at_limit: bool,
-    /// The container's stream holds nothing.
+    /// The container's stream holds nothing. False when it could not be read.
     pub log_empty: bool,
+    /// The result file holds nothing. False when it holds text the reader
+    /// refused: that runner wrote a result, so it started.
+    pub result_empty: bool,
+}
+
+/// Whether the stream at `log` holds nothing. A failure to look is an error,
+/// not an empty stream: tehas work created the file before the container ran.
+pub fn stream_empty(log: &Path) -> std::io::Result<bool> {
+    fs::metadata(log).map(|m| m.len() == 0)
 }
 
 /// What that end means.
@@ -490,7 +542,8 @@ pub fn decide(s: &Seen) -> Decided {
         && !s.disk
         && s.rc != 137
         && (1..=999).contains(&s.rc)
-        && s.log_empty;
+        && s.log_empty
+        && s.result_empty;
     Decided {
         status,
         ran_out,
@@ -618,10 +671,15 @@ struct Watch<'a> {
     sig: &'static str,
     console: Option<Child>,
     live_on: bool,
-    beat_said: bool,
-    publish_said: bool,
+    /// The last failure of the heartbeat and of the publish that was said.
+    beat_said: Option<String>,
+    publish_said: Option<String>,
     ooms: u32,
+    /// The processes the kernel log names as killed for memory here.
+    oom_names: Vec<String>,
     forks: u32,
+    /// The container's pids.max, when it is a number.
+    pids_max: Option<u32>,
     oom_id: String,
     /// The container is paused by a freeze, and the cycle clock read when it
     /// was paused, if it could be read.
@@ -773,24 +831,21 @@ impl Watch<'_> {
         args.extend(["--status", status, "--step", &step, "--text", &note]);
         let progress = progress_flags(&progress);
         args.extend(progress.iter().map(String::as_str));
-        if let Err(r) = host::store_said(self.home, &args) {
-            if !self.beat_said {
-                eprintln!(
-                    "tehas work: the heartbeat of #{n} is not on record ({}): {}",
-                    r.word, r.line
-                );
-                self.beat_said = true;
-            }
+        let beat = host::store_said(self.home, &args).map(drop).map_err(|r| {
+            format!(
+                "the heartbeat of #{n} is not on record ({}): {}",
+                r.word, r.line
+            )
+        });
+        if let Some(said) = say_again(&mut self.beat_said, beat) {
+            eprintln!("tehas work: {said}");
         }
         // One try: the next tick publishes again, and a stop must not wait on it.
-        if let Err(r) = host::store_said(self.home, &["publish"]) {
-            if !self.publish_said {
-                eprintln!(
-                    "tehas work: the live view is not published ({}): {}",
-                    r.word, r.line
-                );
-                self.publish_said = true;
-            }
+        let publish = host::store_said(self.home, &["publish"])
+            .map(drop)
+            .map_err(|r| format!("the live view is not published ({}): {}", r.word, r.line));
+        if let Some(said) = say_again(&mut self.publish_said, publish) {
+            eprintln!("tehas work: {said}");
         }
     }
 
@@ -813,6 +868,9 @@ impl Watch<'_> {
         if let Some(n) = event(&read("pids.events"), "max") {
             self.forks = n;
         }
+        if let Some(n) = pids_max(&read("pids.max")) {
+            self.pids_max = Some(n);
+        }
     }
 
     /// The kills since the last look went with the cgroup. The kernel log names
@@ -830,9 +888,13 @@ impl Watch<'_> {
             .stderr(Stdio::null())
             .output();
         if let Ok(o) = out {
-            let n = kills_in(&String::from_utf8_lossy(&o.stdout), &self.oom_id);
+            let log = String::from_utf8_lossy(&o.stdout);
+            let n = kills_in(&log, &self.oom_id);
             if o.status.success() && n > self.ooms {
                 self.ooms = n;
+            }
+            if o.status.success() {
+                self.oom_names = killed_names(&log, &self.oom_id);
             }
         }
     }
@@ -845,6 +907,13 @@ impl Watch<'_> {
             return true;
         }
         let _ = fs::remove_file(&new);
+        self.lost(file);
+        false
+    }
+
+    /// A file of the protocol that could not be written is said in the
+    /// cycle's own record, not only on this command's stream.
+    fn lost(&self, file: &Path) {
         let line = format!("tehas work: could not write {}", file.display());
         eprintln!("{line}");
         if !append(&self.err, format!("{line}\n").as_bytes()) {
@@ -854,13 +923,15 @@ impl Watch<'_> {
                 file.display()
             );
         }
-        false
     }
 
-    fn write_or_say(&self, file: &Path, words: &str) {
-        if fs::write(file, words).is_err() {
-            eprintln!("tehas work: could not write {}", file.display());
+    /// Whether the file was written; a file that was not is said in the record.
+    fn write_or_say(&self, file: &Path, words: &str) -> bool {
+        let wrote = fs::write(file, words).is_ok();
+        if !wrote {
+            self.lost(file);
         }
+        wrote
     }
 
     fn append_or_say(&self, line: &[u8]) {
@@ -995,10 +1066,12 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         sig: "-",
         console: None,
         live_on: false,
-        beat_said: false,
-        publish_said: false,
+        beat_said: None,
+        publish_said: None,
         ooms: 0,
+        oom_names: vec![],
         forks: 0,
+        pids_max: None,
         oom_id: String::new(),
         paused: false,
         frozen_at: None,
@@ -1141,7 +1214,9 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     // what the report makes of the run after this point may fail, and this word
     // must not go with it.
     w.write_note(&w.files.runner_exit, &rc.to_string());
-    let log_empty = fs::metadata(&g.log).map_or(true, |m| m.len() == 0);
+    let log_look = stream_empty(&g.log);
+    let log_empty = matches!(log_look, Ok(true));
+    let result_empty = result.as_deref().is_none_or(str::is_empty);
     let seen_end = Seen {
         rc,
         outcome: outcome.as_ref(),
@@ -1153,6 +1228,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         stopped,
         at_limit: time::now() - started - w.frozen_secs >= g.limit as i64,
         log_empty,
+        result_empty,
     };
     let decided = decide(&seen_end);
     let status = decided.status.clone();
@@ -1205,11 +1281,20 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         );
         w.append_or_say(line.as_bytes());
     }
-    if w.ooms > 0 {
-        say(&format!(
-            "tehas work: {} processes in this cycle's container were killed for memory",
-            w.ooms
-        ));
+    if let Err(e) = &log_look {
+        if outcome.is_none() {
+            let line = format!(
+                "tehas work: issue {} ended with the container's exit {rc} and its stream {} could not be read ({e}): whether a step started is not known. Look at the disk and the file, not the driver.\n",
+                g.issue,
+                g.log.display()
+            );
+            say(line.trim_end());
+            w.append_or_say(line.as_bytes());
+        }
+    }
+    let oom_line = (w.ooms > 0).then(|| memory_line(w.ooms, &w.oom_names));
+    if let Some(line) = &oom_line {
+        say(line.trim_end());
         w.write_or_say(&w.files.oom, &format!("{}\n", w.ooms));
     }
     if w.forks > 0 {
@@ -1217,17 +1302,30 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
             "tehas work: this cycle's container reached its limit of processes, {} starts were refused",
             w.forks
         ));
-        w.write_or_say(&w.files.forks, &format!("{}\n", w.forks));
+        // The limit on a second line, so the report can name it.
+        let max = w.pids_max.map(|m| format!("{m}\n")).unwrap_or_default();
+        w.write_or_say(&w.files.forks, &format!("{}\n{max}", w.forks));
     }
     // Let the console catch the last transcript lines.
     std::thread::sleep(settle);
     w.end_console();
+    let mut tail = oom_line.unwrap_or_default();
     if w.interrupted {
-        let line = signal_line(w.sig, &step_in_flight, &cut_gates);
+        tail += &signal_line(w.sig, &step_in_flight, &cut_gates);
+    }
+    if !tail.is_empty() {
+        let out = live.join(format!("console-{}.txt", g.issue));
+        if !append(&out, tail.as_bytes()) {
+            eprintln!("tehas work: could not write {}", out.display());
+        }
+    }
+    if decided.killed {
+        let line = killed_line(&step_in_flight, w.ooms);
         let out = live.join(format!("console-{}.txt", g.issue));
         if !append(&out, line.as_bytes()) {
             eprintln!("tehas work: could not write {}", out.display());
         }
+        w.append_or_say(line.as_bytes());
     }
 
     let mut step = result_step(outcome.as_ref());
@@ -1241,7 +1339,7 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
     let _ = fs::remove_file(&w.console_now);
     let _ = fs::copy(&w.files.result, beside(&g.log, ".result.json"));
     let summary = progress::summary(&g.log, Some((&w.files.result, g.issue)));
-    w.write_or_say(&w.files.progress, &format!("{summary}\n"));
+    let wrote_progress = w.write_or_say(&w.files.progress, &format!("{summary}\n"));
     // A stop this command made is its own cap, unless the runner had ended first.
     let mut cap = text(outcome.as_ref(), "cap");
     match status.as_str() {
@@ -1267,9 +1365,24 @@ pub fn run(home: &Path, g: &Given, stop: Arc<AtomicBool>) -> i32 {
         && empty_err
         && (!cap.is_empty() || status == "aborted")
     {
-        tell_the_end(&w, &cap);
+        tell_the_end(&w, &cap, wrote_progress);
     }
     code
+}
+
+/// The line of a cycle with processes killed for memory in its container.
+fn memory_line(n: u32, names: &[String]) -> String {
+    let named = if names.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", names.join(", "))
+    };
+    let who = if n == 1 {
+        "1 process in this cycle's container was".to_string()
+    } else {
+        format!("{n} processes in this cycle's container were")
+    };
+    format!("tehas work: {who} killed for memory{named}\n")
 }
 
 /// The console's last line of a cycle a signal stopped.
@@ -1288,26 +1401,62 @@ fn signal_line(sig: &str, step: &str, gates: &[(String, String)]) -> String {
     line + "\n"
 }
 
+/// The console's and err's last line of a container killed from outside.
+fn killed_line(step: &str, ooms: u32) -> String {
+    let memory = match ooms {
+        0 => "no process in it was counted as killed for memory".to_string(),
+        n => format!("{n} processes in it were killed for memory"),
+    };
+    format!("tehas work: the container was killed (137) at step {step} and tehas did not stop it; {memory}\n")
+}
+
+/// The reason the runner's progress gives: empty when there is no file,
+/// `None` when a file is there but cannot be read. The file is read as the
+/// store reads it: a regular file under the bound it is recorded with, so a
+/// link or a file past the bound is not read.
+fn end_reason(progress: &Path) -> Option<String> {
+    use tehas_core::file::{read_regular, ReadError, READ_BOUND};
+    let text = match read_regular(progress, READ_BOUND) {
+        Ok((bytes, _)) => Some(String::from_utf8(bytes).ok()?),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return None,
+    };
+    Some(runner::progress_fields(text.as_deref())[1].clone())
+}
+
 /// What reaches err.txt of the cycle's improvement record for a cycle that ended
 /// at a cap or was aborted: an empty one there reads as nothing happened.
-fn tell_the_end(w: &Watch, cap: &str) {
+/// `wrote` is whether this command wrote the progress file: when it did not,
+/// a file left by an earlier run of the issue must not give this run's reason.
+fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {
     let n = w.g.issue;
-    let progress = fs::read_to_string(&w.files.progress).ok();
-    let reason = runner::progress_fields(progress.as_deref())[1].clone();
-    let line = if cap.is_empty() {
-        format!("tehas work: issue {n} ended as aborted with no cap\n")
-    } else if reason.is_empty() {
-        format!("tehas work: issue {n} ended at the cap {cap}\n")
+    let reason = if wrote {
+        end_reason(&w.files.progress).ok_or("read")
     } else {
-        format!("tehas work: issue {n} ended at the cap {cap}: {reason}\n")
+        Err("written")
+    };
+    let line = match (cap.is_empty(), reason) {
+        (true, _) => format!("tehas work: issue {n} ended as aborted with no cap\n"),
+        (false, Err(how)) => format!(
+            "tehas work: issue {n} ended at the cap {cap}; the progress file could not be {how}, so its reason is not in this line\n"
+        ),
+        (false, Ok(r)) => format!(
+            "tehas work: issue {n} ended at the cap {cap}: {}\n",
+            runner::cap_reason(cap, &r, w.ooms.into(), &w.oom_names)
+        ),
     };
     w.append_or_say(line.as_bytes());
-    let lines = diag(&fs::read(&w.g.log).unwrap_or_default());
-    if !lines.is_empty() && !append(&w.err, &lines) {
-        eprintln!("tehas work: could not write {}", w.err.display());
-    }
     let name = w.g.log.file_name().unwrap_or_default().to_string_lossy();
-    let line = format!("tehas work: the driver's diagnostics are in {name}\n");
+    let line = match fs::read(&w.g.log) {
+        Ok(stream) => {
+            let lines = diag(&stream);
+            if !lines.is_empty() && !append(&w.err, &lines) {
+                eprintln!("tehas work: could not write {}", w.err.display());
+            }
+            format!("tehas work: the driver's diagnostics are in {name}\n")
+        }
+        Err(_) => format!("tehas work: the driver's diagnostics could not be read from {name}\n"),
+    };
     w.append_or_say(line.as_bytes());
 }
 
@@ -1316,6 +1465,26 @@ mod tests {
     use super::*;
     use serde_json::json;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn a_failure_of_every_tick_is_said_again_when_it_changes_or_comes_back() {
+        let mut last = None;
+        let busy = || Err("busy".to_string());
+        assert_eq!(say_again(&mut last, busy()), Some("busy".to_string()));
+        assert_eq!(say_again(&mut last, busy()), None, "the same failure again");
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a different failure"
+        );
+        assert_eq!(say_again(&mut last, Ok(())), None);
+        assert_eq!(last, None);
+        assert_eq!(
+            say_again(&mut last, Err("refused".to_string())),
+            Some("refused".to_string()),
+            "a failure after a success"
+        );
+    }
 
     fn seen(rc: i32) -> Seen<'static> {
         Seen {
@@ -1329,11 +1498,141 @@ mod tests {
             stopped: false,
             at_limit: false,
             log_empty: false,
+            result_empty: true,
         }
     }
 
     fn dir(name: &str) -> TestDir {
         TestDir::new(&format!("watch-{name}"))
+    }
+
+    #[test]
+    fn the_end_reason_is_read_only_from_a_regular_file_under_the_bound() {
+        let d = dir("end-reason");
+        let file = d.join("progress.json");
+        assert_eq!(end_reason(&file), Some(String::new()), "absent: no reason");
+        fs::write(&file, r#"{"reason":"out of turns"}"#).unwrap();
+        assert_eq!(end_reason(&file).as_deref(), Some("out of turns"));
+        let pad = " ".repeat(tehas_core::file::READ_BOUND as usize);
+        fs::write(&file, format!(r#"{{"reason":"out of turns"}}{pad}"#)).unwrap();
+        assert_eq!(
+            end_reason(&file),
+            None,
+            "a progress past the bound is not read"
+        );
+        let real = d.join("real.json");
+        fs::write(&real, r#"{"reason":"out of turns"}"#).unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&real, &file).unwrap();
+        assert_eq!(
+            end_reason(&file),
+            None,
+            "a link is not the runner's progress"
+        );
+        fs::remove_file(&file).unwrap();
+        fs::write(&file, b"\xff\xfe").unwrap();
+        assert_eq!(
+            end_reason(&file),
+            None,
+            "bytes that are not text are not read"
+        );
+        fs::remove_file(&file).unwrap();
+        fs::create_dir_all(&file).unwrap();
+        assert_eq!(end_reason(&file), None, "a directory is not read");
+    }
+
+    #[test]
+    fn the_end_line_of_a_cap_the_driver_only_named_says_no_evidence_and_the_memory_kills() {
+        let d = dir("end-echo");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let mut w = a_watch(&d, &home, &g);
+        fs::write(&g.log, "").unwrap();
+        fs::write(&w.files.progress, r#"{"reason":"verify-failed:develop"}"#).unwrap();
+        w.ooms = 1;
+        w.oom_names = vec!["node".into()];
+        tell_the_end(&w, "verify-failed:develop", true);
+        let got = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap verify-failed:develop: no evidence from the driver; 1 process in its container was killed for memory (node)\n"),
+            "{got}"
+        );
+    }
+
+    #[test]
+    fn the_kernel_log_names_this_containers_killed_processes_once() {
+        let (a, b) = ("a".repeat(64), "b".repeat(64));
+        let log = format!(
+            "oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=node,pid=1\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{b}.scope,task=rustc,pid=2\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=node,pid=3\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,task=ca$rgo;x,pid=4\n\
+             oom-kill:constraint=x,task_memcg=/tehas.slice/docker-{a}.scope,pid=5\n"
+        );
+        assert_eq!(killed_names(&log, &a), ["node", "cargox"]);
+        assert!(killed_names(&log, &"c".repeat(64)).is_empty());
+        assert_eq!(
+            memory_line(2, &killed_names(&log, &a)),
+            "tehas work: 2 processes in this cycle's container were killed for memory (node, cargox)\n"
+        );
+        assert_eq!(
+            memory_line(1, &[]),
+            "tehas work: 1 process in this cycle's container was killed for memory\n"
+        );
+    }
+
+    #[test]
+    fn the_end_line_says_when_its_reason_or_diagnostics_could_not_be_carried() {
+        let d = dir("end-line");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let w = a_watch(&d, &home, &g);
+        let err = || fs::read_to_string(&w.err).unwrap_or_default();
+        let reset = || {
+            let _ = fs::remove_file(&w.err);
+        };
+        fs::write(&g.log, "[pi-rukas] WARN 1\nother\n").unwrap();
+
+        // Absent progress: the cap with no evidence, said as such.
+        tell_the_end(&w, "turns", true);
+        assert_eq!(
+            err(),
+            "tehas work: issue 7 ended at the cap turns: no evidence from the driver\n[pi-rukas] WARN 1\ntehas work: the driver's diagnostics are in log\n"
+        );
+        reset();
+
+        // This run's write failed: a previous run's file does not answer for it.
+        fs::write(&w.files.progress, r#"{"reason":"the old run's reason"}"#).unwrap();
+        tell_the_end(&w, "turns", false);
+        let got = err();
+        assert!(!got.contains("old run"), "{got}");
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap turns; the progress file could not be written, so its reason is not in this line\n"),
+            "{got}"
+        );
+        reset();
+
+        // There but unreadable: said, not an empty reason.
+        fs::remove_file(&w.files.progress).unwrap();
+        fs::create_dir_all(&w.files.progress).unwrap();
+        tell_the_end(&w, "turns", true);
+        let got = err();
+        assert!(
+            got.starts_with("tehas work: issue 7 ended at the cap turns; the progress file could not be read, so its reason is not in this line\n"),
+            "{got}"
+        );
+        reset();
+
+        // An unreadable driver log is said, not passed over as no diagnostics.
+        fs::remove_file(&g.log).unwrap();
+        fs::create_dir_all(&g.log).unwrap();
+        tell_the_end(&w, "", true);
+        assert_eq!(
+            err(),
+            "tehas work: issue 7 ended as aborted with no cap\ntehas work: the driver's diagnostics could not be read from log\n"
+        );
     }
 
     #[test]
@@ -1578,6 +1877,24 @@ mod tests {
     }
 
     #[test]
+    fn a_stream_that_cannot_be_read_is_not_an_empty_one() {
+        let d = dir("stream");
+        let empty = d.join("empty.jsonl");
+        fs::write(&empty, "").unwrap();
+        let full = d.join("full.jsonl");
+        fs::write(&full, "{}\n").unwrap();
+        assert!(stream_empty(&empty).unwrap());
+        assert!(!stream_empty(&full).unwrap());
+        let gone = stream_empty(&d.join("gone.jsonl"));
+        assert!(gone.is_err());
+        let s = Seen {
+            log_empty: matches!(gone, Ok(true)),
+            ..seen(1)
+        };
+        assert!(!decide(&s).nostart);
+    }
+
+    #[test]
     fn nostart_is_a_container_with_no_result_no_line_and_no_stop() {
         let quiet = |rc| Seen {
             log_empty: true,
@@ -1618,6 +1935,16 @@ mod tests {
         ] {
             assert!(!decide(&s).nostart);
         }
+    }
+
+    #[test]
+    fn a_result_the_reader_refuses_is_still_a_runner_that_started() {
+        let quiet = Seen {
+            log_empty: true,
+            result_empty: false,
+            ..seen(1)
+        };
+        assert!(!decide(&quiet).nostart);
     }
 
     #[test]
@@ -1662,6 +1989,17 @@ mod tests {
         // A gate closed by an aborted line is closed.
         let aborted = cut + &aborted_line(7, "verify", "make test", "TERM", 5);
         assert!(open_gates(aborted.as_bytes(), 7).is_empty());
+        // An end with no start of its step closes no gate that is running.
+        let stray = line("verify-started", "develop")
+            + &line("verify-started", "verify")
+            + &line("verify-completed", "lensreview");
+        assert_eq!(
+            open_gates(stray.as_bytes(), 7),
+            vec![
+                ("develop".to_string(), "make test".to_string()),
+                ("verify".to_string(), "make test".to_string())
+            ]
+        );
     }
 
     #[test]
@@ -1692,6 +2030,17 @@ mod tests {
         assert_eq!(
             signal_line("-", "verify", &gates),
             "tehas work: a stop signal came at step verify, so tehas stopped the container; the gate of step verify was left open and is closed as aborted\n"
+        );
+    }
+
+    #[test]
+    fn the_line_of_a_killed_container_says_the_step_and_the_memory_kills() {
+        assert_eq!(
+            killed_line("lens-fix", 4),
+            "tehas work: the container was killed (137) at step lens-fix and tehas did not stop it; 4 processes in it were killed for memory\n"
+        );
+        assert!(
+            killed_line("-", 0).ends_with("no process in it was counted as killed for memory\n")
         );
     }
 
@@ -1778,6 +2127,14 @@ mod tests {
     }
 
     #[test]
+    fn a_pids_limit_is_a_number_and_max_is_none() {
+        assert_eq!(pids_max("4096\n"), Some(4096));
+        for none in ["max\n", "", "0\n", "-1", "40 96", "1234567890"] {
+            assert_eq!(pids_max(none), None, "{none:?}");
+        }
+    }
+
+    #[test]
     fn the_cgroup_of_a_container_is_read_from_its_cid() {
         let d = dir("cgroup");
         let id = "a".repeat(64);
@@ -1819,12 +2176,8 @@ mod tests {
         assert!(diag(b"nothing here\n").is_empty());
     }
 
-    #[test]
-    fn a_note_is_written_whole_or_not_at_all() {
-        let d = dir("note");
-        let home = d.join("home");
-        fs::create_dir_all(home.join("state/cycles")).unwrap();
-        let g = Given {
+    fn given(d: &Path) -> Given {
+        Given {
             issue: 7,
             attempt: String::new(),
             log: d.join("log"),
@@ -1842,11 +2195,14 @@ mod tests {
             docker: vec![],
             signal: Arc::default(),
             scratch: scratch::Bounds::default(),
-        };
-        let w = Watch {
-            home: &home,
-            g: &g,
-            files: Files::of(&home, 7),
+        }
+    }
+
+    fn a_watch<'a>(d: &Path, home: &'a Path, g: &'a Given) -> Watch<'a> {
+        Watch {
+            home,
+            g,
+            files: Files::of(home, 7),
             err: d.join("log.err"),
             console_now: d.join("now"),
             stop: Arc::new(AtomicBool::new(false)),
@@ -1854,17 +2210,28 @@ mod tests {
             sig: "-",
             console: None,
             live_on: false,
-            beat_said: false,
-            publish_said: false,
+            beat_said: None,
+            publish_said: None,
             ooms: 0,
+            oom_names: vec![],
             forks: 0,
+            pids_max: None,
             oom_id: String::new(),
             paused: false,
             frozen_at: None,
             frozen_secs: 0,
             frozen_wall: 0,
             freeze_said: false,
-        };
+        }
+    }
+
+    #[test]
+    fn a_note_is_written_whole_or_not_at_all() {
+        let d = dir("note");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let w = a_watch(&d, &home, &g);
         assert!(w.write_note(&w.files.runner_exit, "10"));
         assert_eq!(fs::read_to_string(&w.files.runner_exit).unwrap(), "10\n");
         assert!(!beside(&w.files.runner_exit, ".new").exists());
@@ -1875,6 +2242,14 @@ mod tests {
         assert!(fs::read_to_string(&w.err)
             .unwrap()
             .contains("could not write"));
+        // A stop note lost the same way is said in the record too.
+        fs::create_dir_all(&w.files.stalled).unwrap();
+        w.write_or_say(&w.files.stalled, "600\ndevelop\n");
+        let err = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            err.contains(&format!("could not write {}", w.files.stalled.display())),
+            "{err}"
+        );
     }
 
     #[test]

@@ -94,7 +94,7 @@ use std::time::{Duration, Instant};
 use tehas_core::events::{pause_holds, UNKNOWN_ACTOR};
 use tehas_core::file::Temp;
 use tehas_core::forge::{Bounded, Forge, GitHub};
-use tehas_core::limit::{self as limit_file, leading_number, object, quoted};
+use tehas_core::limit::{self as limit_file, leading_number};
 pub use tehas_core::limit::{epoch, oneline, REASON};
 use tehas_core::lock::{self, Probe};
 use tehas_core::time;
@@ -662,12 +662,28 @@ fn poll_passed(lock: &Path, wait: u64) -> bool {
         eprintln!("tehas drain: could not open {}", lock.display());
         return false;
     };
+    match try_until(|| f.try_lock(), wait) {
+        Ok(taken) => taken,
+        Err(e) => {
+            eprintln!("tehas drain: could not probe {}: {e}", lock.display());
+            false
+        }
+    }
+}
+
+/// Try a lock until it is taken or `wait` seconds have passed: `Ok(false)`
+/// when it was held the whole time, `Err` when it could not be tried at all.
+fn try_until(
+    mut attempt: impl FnMut() -> Result<(), TryLockError>,
+    wait: u64,
+) -> Result<bool, std::io::Error> {
     let deadline = Instant::now() + Duration::from_secs(wait);
     loop {
-        match f.try_lock() {
-            Ok(()) => return true,
+        match attempt() {
+            Ok(()) => return Ok(true),
             Err(TryLockError::WouldBlock) if Instant::now() < deadline => sleep(LOCK_TRY),
-            Err(_) => return false,
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(e)) => return Err(e),
         }
     }
 }
@@ -777,16 +793,7 @@ pub fn drained(file: &Path) -> bool {
 /// file which is no flag has no line, and is named by the command which found
 /// it, because only there is the name of the file known.
 pub fn read_pause(file: &Path) -> Reading {
-    match fs::symlink_metadata(file) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Reading::of_pause("none"),
-        Err(_) => Reading::of_pause("unreadable"),
-        Ok(_) => match fs::read(file) {
-            Ok(bytes) => read_pause_bytes(&bytes),
-            // A directory has no bytes to read: it is no flag, and the command
-            // which asks says so.
-            Err(_) => Reading::of_pause("unreadable"),
-        },
-    }
+    reading_of_pause(tehas_core::pause::read(file))
 }
 
 /// The flag, its time and its reason, in the words the readers of the switch
@@ -833,44 +840,26 @@ fn not_a_flag(file: &Path) -> String {
     format!("{} is not a pause flag", file.display())
 }
 
-/// The reading of the bytes of a pause flag, from the text of the file: every
-/// check of tehas_pause_read, one for one. An object whose `at` and `reason`
-/// are strings is a flag; anything else is no flag. `by` may be anything and
-/// reads as nobody, and nothing which reaches a page publishes it.
+/// The reading of the bytes of a pause flag, as tehas_core reads them.
+#[cfg(test)]
 fn read_pause_bytes(bytes: &[u8]) -> Reading {
-    let text = match std::str::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(_) => return Reading::of_pause("unreadable"),
-    };
-    let keys = match object(bytes) {
-        Some(keys) => keys,
-        None => return Reading::of_pause("unreadable"),
-    };
-    let held = |want: &str| {
-        keys.iter()
-            .find(|(name, _)| name == want)
-            .map(|(_, at)| &text[at.0..at.1])
-    };
-    // The checks of tehas_pause_read, one for one: an object whose at and
-    // reason are strings. by may be anything and reads as nobody.
-    let at = match held("at").and_then(quoted) {
-        Some(at) => at,
-        None => return Reading::of_pause("unreadable"),
-    };
-    let reason = match held("reason").and_then(quoted) {
-        Some(reason) => oneline(&reason),
-        None => return Reading::of_pause("unreadable"),
-    };
-    let by = held("by").and_then(quoted).unwrap_or_default();
-    let mut out = Reading::of_pause("ok");
-    out.line = format!("pause     {}", pause_line(&at, &reason));
+    reading_of_pause(tehas_core::pause::parse(bytes))
+}
+
+/// The words and fields of a pause reading. `reason` is left out when empty.
+fn reading_of_pause(p: tehas_core::pause::Pause) -> Reading {
+    let mut out = Reading::of_pause(p.state);
+    if p.state != "ok" {
+        return out;
+    }
+    out.line = format!("pause     {}", pause_line(&p.at, &p.reason));
     out.fields
-        .push(("by".into(), Value::String(by).to_string()));
+        .push(("by".into(), Value::String(p.by).to_string()));
     out.fields
-        .push(("at".into(), Value::String(at).to_string()));
-    if !reason.is_empty() {
+        .push(("at".into(), Value::String(p.at).to_string()));
+    if !p.reason.is_empty() {
         out.fields
-            .push(("reason".into(), Value::String(reason).to_string()));
+            .push(("reason".into(), Value::String(p.reason).to_string()));
     }
     out
 }
@@ -1735,6 +1724,37 @@ mod tests {
         holder.wait().unwrap();
         assert!(poll_passed(&lock, 0));
         assert!(!poll_passed(&d.join("no/such/dir"), 0));
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_tried_is_an_error_not_a_held_lock() {
+        let mut tries = 0;
+        let held = try_until(
+            || {
+                tries += 1;
+                Err(TryLockError::WouldBlock)
+            },
+            0,
+        );
+        assert_eq!((held.ok(), tries), (Some(false), 1));
+        let mut tries = 0;
+        let freed = try_until(
+            || {
+                tries += 1;
+                if tries < 3 {
+                    Err(TryLockError::WouldBlock)
+                } else {
+                    Ok(())
+                }
+            },
+            1,
+        );
+        assert_eq!((freed.ok(), tries), (Some(true), 3));
+        let broken = try_until(
+            || Err(TryLockError::Error(std::io::Error::other("no locks"))),
+            1,
+        );
+        assert_eq!(broken.unwrap_err().to_string(), "no locks");
     }
 
     #[test]

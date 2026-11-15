@@ -7,7 +7,6 @@
 //! outcome jq cannot make is none, and a progress jq stops in gives the fields
 //! it had printed before it stopped.
 
-use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -29,6 +28,26 @@ pub fn values(text: &str) -> Option<Vec<Value>> {
         .into_iter::<Value>()
         .collect::<Result<Vec<_>, _>>()
         .ok()
+}
+
+/// The issue's entry of one result value: the first object of its `issues`,
+/// a list or an object, whose `issue` is that whole number. Every reader of
+/// an entry goes through here, so they agree on the entry they describe.
+pub fn issue_entry(result: &Value, issue: u64) -> Option<&Value> {
+    let entries: Box<dyn Iterator<Item = &Value>> = match result.get("issues")? {
+        Value::Array(a) => Box::new(a.iter()),
+        Value::Object(o) => Box::new(o.values()),
+        _ => return None,
+    };
+    entries
+        .filter(|e| e.is_object())
+        .find(|e| e.get("issue").and_then(Value::as_u64) == Some(issue))
+}
+
+/// The issue's entry in the last of a result's values that has one: a file
+/// a re-run appended to describes the newest run.
+pub fn last_issue_entry(results: &[Value], issue: u64) -> Option<&Value> {
+    results.iter().rev().find_map(|r| issue_entry(r, issue))
 }
 
 /// A string with only the bytes of `keep`, as gsub("[^...]"; "") leaves it.
@@ -53,6 +72,38 @@ pub fn cut_reason(s: &str) -> String {
         return s.to_string();
     }
     cut(s, REASON_MOST - REASON_CUT.len()) + REASON_CUT
+}
+
+/// What a cycle's record says of a cap the driver gave no words for.
+pub const NO_EVIDENCE: &str = "no evidence from the driver";
+
+/// The reason a record gives for its cap. A reason that is empty or only
+/// repeats the cap word is no evidence, and says so. Memory kills in the
+/// container are said, with the killed processes' names where they are known,
+/// so a memory plan that is too tight is not read as a failed change.
+pub fn cap_reason(cap: &str, reason: &str, kills: u64, names: &[String]) -> String {
+    if cap.is_empty() {
+        return reason.to_string();
+    }
+    let said = reason.trim();
+    let word = cap.split(':').next().unwrap_or(cap);
+    let echo = said.is_empty() || said.eq_ignore_ascii_case(cap) || said.eq_ignore_ascii_case(word);
+    let mut out = if echo {
+        NO_EVIDENCE.to_string()
+    } else {
+        said.to_string()
+    };
+    if kills > 0 && !out.contains("killed for memory") {
+        out += &if kills == 1 {
+            "; 1 process in its container was killed for memory".to_string()
+        } else {
+            format!("; {kills} processes in its container were killed for memory")
+        };
+        if !names.is_empty() {
+            out += &format!(" ({})", names.join(", "));
+        }
+    }
+    cut_reason(&out)
 }
 
 fn plain(v: Option<&Value>) -> String {
@@ -92,17 +143,7 @@ fn outcome_of(r: &Value, issue: u64) -> Option<Value> {
     if o.get("schemaVersion").and_then(Value::as_f64) != Some(RESULT_SCHEMA as f64) {
         return None;
     }
-    let e = match o.get("issues") {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(Value::as_object)
-            .find(|e| e.get("issue").and_then(Value::as_f64) == Some(issue as f64))?,
-        Some(Value::Object(m)) => m
-            .values()
-            .filter_map(Value::as_object)
-            .find(|e| e.get("issue").and_then(Value::as_f64) == Some(issue as f64))?,
-        _ => return None,
-    };
+    let e = issue_entry(r, issue)?;
     // `.handoff.body?` of a handoff that is no object makes no value, and so
     // no object at all; a usage that is no object stops jq.
     if hides(e.get("handoff")) {
@@ -274,6 +315,9 @@ pub fn run(text: &str, issue: u64) -> Run {
     if branch == "commit-pr" || !branch_of(issue, &branch) {
         branch.clear();
     }
+    if branch.is_empty() && at.is_some() {
+        branch = branch_said_after_push(text, issue);
+    }
     Run {
         step: steps.last().cloned().unwrap_or_default(),
         branch,
@@ -281,9 +325,43 @@ pub fn run(text: &str, issue: u64) -> Run {
     }
 }
 
+/// The last branch of this issue an event after the last commit-pr names in its
+/// `branch` field, unstable events too. A driver that names no branch as the
+/// step after commit-pr names it there. It only says which branch to ask GitHub
+/// about: the pull request is still GitHub's answer.
+fn branch_said_after_push(text: &str, issue: u64) -> String {
+    let mut pushed = false;
+    let mut branch = String::new();
+    for l in text.split('\n') {
+        let Ok(v) = serde_json::from_str::<Value>(l) else {
+            continue;
+        };
+        if v.get("v").and_then(Value::as_f64) != Some(1.0) {
+            continue;
+        }
+        let Some(e) = v.get("event").filter(|e| e.is_object()) else {
+            continue;
+        };
+        if v.get("kind").and_then(Value::as_str) == Some("step-started") {
+            if e.get("step").and_then(Value::as_str) == Some("commit-pr") {
+                pushed = true;
+                branch.clear();
+            }
+            continue;
+        }
+        if let Some(b) = e.get("branch").and_then(Value::as_str) {
+            if pushed && branch_of(issue, b) {
+                branch = b.to_string();
+            }
+        }
+    }
+    branch
+}
+
 /// The fields tehas-cycle reads of the progress summary, in its order:
 /// reviewHeld, reason, from.failure, failure.kind, failure.role and
-/// failure.cause. Each is empty past the point where jq would stop.
+/// failure.cause. Each is empty past the point where jq would stop, and
+/// reviewHeld is empty too when it is not a boolean.
 pub fn progress_fields(text: Option<&str>) -> [String; 6] {
     let mut f: [String; 6] = Default::default();
     let Some(v) = text.and_then(|t| first_value(&cut_bytes(t, 1_000_000))) else {
@@ -296,7 +374,12 @@ pub fn progress_fields(text: Option<&str>) -> [String; 6] {
         Value::String(s) => cut(&kept(s, set), most),
         _ => String::new(),
     };
-    f[0] = (get.at(&v, &["reviewHeld"]) == Some(Value::Bool(true))).to_string();
+    // reviewHeld is `true`, `false`, or empty when the progress does not say:
+    // a field that is not there is not a review that held nothing.
+    // Not through `at`, which reads `false` as nothing, as jq's `//` does.
+    if let Some(Value::Bool(b)) = v.get("reviewHeld") {
+        f[0] = b.to_string();
+    }
     let reason = match get.at(&v, &["reason"]).unwrap_or(Value::Null) {
         Value::Null | Value::Bool(false) => Value::String(String::new()),
         Value::String(s) => Value::String(s.replace('\n', " ")),
@@ -493,26 +576,9 @@ pub fn usage(outcome: &Value, progress: Option<&str>) -> (String, bool) {
     (lines.join("\n"), unreadable)
 }
 
-/// `mine` of tehas_names_issue: a pull request whose head is the issue's
-/// branch, or whose body closes the issue.
-pub fn names_issue(pr: &Value, issue: u64) -> bool {
-    let text = |k: &str| match pr.get(k) {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-    };
-    let head = text("headRefName");
-    if head == format!("feature/issue-{issue}")
-        || head.starts_with(&format!("feature/issue-{issue}-"))
-    {
-        return true;
-    }
-    let re = Regex::new(&format!(
-        r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{issue}([^0-9]|$)"
-    ))
-    .unwrap();
-    re.is_match(&text("body"))
-}
+/// `mine` of tehas_names_issue: the one rule, which finish and the dispatcher
+/// ask too.
+pub use tehas_core::issue_pull::names_issue;
 
 #[cfg(test)]
 mod tests {
@@ -529,6 +595,48 @@ mod tests {
     /// so the steps after it are still whole lines.
     fn written(n: usize) -> String {
         "y".repeat(n) + "\n"
+    }
+
+    #[test]
+    fn a_cap_reason_is_never_the_bare_cap_word_and_says_memory_kills() {
+        let none: &[String] = &[];
+        for echo in [
+            "",
+            "  ",
+            "verify-failed:develop",
+            "verify-failed",
+            "VERIFY-FAILED:develop",
+        ] {
+            assert_eq!(
+                cap_reason("verify-failed:develop", echo, 0, none),
+                NO_EVIDENCE,
+                "{echo:?}"
+            );
+        }
+        assert_eq!(cap_reason("round-cap", "round-cap", 0, none), NO_EVIDENCE);
+        assert_eq!(cap_reason("turns", "out of turns", 0, none), "out of turns");
+        assert_eq!(cap_reason("", "", 3, none), "", "no cap, no reason to give");
+        assert_eq!(
+            cap_reason(
+                "verify-failed:develop",
+                "verify-failed:develop",
+                1,
+                &["node".to_string()]
+            ),
+            "no evidence from the driver; 1 process in its container was killed for memory (node)"
+        );
+        assert_eq!(
+            cap_reason("round-cap", "3 rounds", 2, none),
+            "3 rounds; 2 processes in its container were killed for memory"
+        );
+        let said = "the container was killed; 4 processes in it were killed for memory";
+        assert_eq!(
+            cap_reason("container-killed", said, 4, none),
+            said,
+            "said once"
+        );
+        let long = "r".repeat(REASON_MOST + 10);
+        assert!(cap_reason("turns", &long, 1, none).ends_with(REASON_CUT));
     }
 
     #[test]
@@ -559,6 +667,39 @@ mod tests {
             7
         )
         .is_none());
+    }
+
+    #[test]
+    fn every_reader_takes_the_same_entry_of_a_result() {
+        let cases = [
+            (r#"{"issues":[{"issue":8},{"issue":7,"n":1}]}"#, Some(1)),
+            (r#"{"issues":{"a":{"issue":7,"n":1}}}"#, Some(1)),
+            (
+                r#"{"issues":[{"issue":7,"n":1},{"issue":7,"n":2}]}"#,
+                Some(1),
+            ),
+            (r#"{"issues":[{"issue":7.0,"n":1}]}"#, None),
+            (r#"{"issues":[{"issue":"7","n":1}]}"#, None),
+            (r#"{"issues":[7,{"issue":7,"n":1}]}"#, Some(1)),
+            (r#"{"issues":7}"#, None),
+            (
+                "{\"issues\":[{\"issue\":7,\"n\":1}]}\n{\"issues\":[{\"issue\":7,\"n\":2}]}",
+                Some(2),
+            ),
+            (
+                "{\"issues\":[{\"issue\":7,\"n\":1}]}\n{\"issues\":[{\"issue\":8}]}",
+                Some(1),
+            ),
+        ];
+        for (text, n) in cases {
+            let all = values(text).unwrap();
+            let got = last_issue_entry(&all, 7).map(|e| e["n"].as_u64().unwrap());
+            assert_eq!(got, n, "{text}");
+            let schema5 = text.replace("{\"issues\"", "{\"schemaVersion\":5,\"issues\"");
+            assert_eq!(outcome(&schema5, 7).is_some(), n.is_some(), "{text}");
+            let end = crate::end_failed::entry(text, 7);
+            assert_eq!(end["n"].as_u64(), n, "{text}");
+        }
     }
 
     #[test]
@@ -611,6 +752,31 @@ mod tests {
         assert_eq!(run(&l("commit-pr"), 7).branch, "");
         let bad = l("plan") + "{\"v\":1,\"kind\":\"step-started\",\"event\":\"x\"}\n";
         assert_eq!(run(&bad, 7).step, "");
+    }
+
+    #[test]
+    fn a_log_with_no_branch_step_after_commit_pr_names_the_branch_a_later_event_carries() {
+        let l = started;
+        let said = |b: &str| {
+            format!("{{\"v\":1,\"kind\":\"lens-residuals-posted\",\"unstable\":true,\"event\":{{\"prNumber\":9,\"branch\":\"{b}\"}}}}\n")
+        };
+        let log = [
+            l("commit-pr"),
+            l("lens-review"),
+            said("feature/issue-7-a"),
+            l("lens-fix"),
+        ]
+        .concat();
+        assert_eq!(run(&log, 7).branch, "feature/issue-7-a");
+        assert_eq!(run(&log, 7).step, "lens-fix");
+        // Only a branch of this issue, only after a push, and the branch step
+        // after commit-pr comes first.
+        let other = l("commit-pr") + &said("feature/issue-8-a");
+        assert_eq!(run(&other, 7).branch, "");
+        let before = said("feature/issue-7-a") + &l("commit-pr") + &l("lens-review");
+        assert_eq!(run(&before, 7).branch, "");
+        let both = l("commit-pr") + &l("feature/issue-7-b") + &said("feature/issue-7-a");
+        assert_eq!(run(&both, 7).branch, "feature/issue-7-b");
     }
 
     #[test]
@@ -677,6 +843,10 @@ mod tests {
         ));
         assert_eq!(f[2..], ["result", "provider", "coder", "xy"]);
         assert_eq!(progress_fields(Some("[1]"))[0], "");
+        // Only a boolean says the review held something or nothing.
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":false}"#))[0], "false");
+        assert_eq!(progress_fields(Some(r#"{"reason":"x"}"#))[0], "");
+        assert_eq!(progress_fields(Some(r#"{"reviewHeld":"false"}"#))[0], "");
     }
 
     #[test]

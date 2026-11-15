@@ -332,7 +332,7 @@ jq -n '{data: {repository: {issue: {comments: {nodes: [
   {databaseId: 9, author: {login: "alice"}, body: "hm", createdAt: "t", lastEditedAt: null, editor: null}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "skip #7: its question is not among the last 100 comments"
+t_contains "$t_out" "skip #7: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
 
 t_case "retry is the ticked line's text, not its place"
 swapped() { # <leave box> <retry box>

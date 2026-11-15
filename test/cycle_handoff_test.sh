@@ -57,7 +57,7 @@ t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring
 t_eq "$(park_of '[.reason, .automatic]')" '["unknown",false]'
 t_contains "$(t_calls gh)" "--add-label tehas:question"
 # The line of history still names how the start was authorised.
-t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"unknown","-","label","alice"'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"refused","-","label","alice"'
 
 t_case "a cycle that never ran and holds no approval record says that, and asks for a fresh one"
 reset
@@ -245,7 +245,7 @@ t_case "the token usage per role is posted on the pull request, with the result'
 reset
 ended handoff commit-pr feature/x
 jq '.issues[0].usage = {turns: 4, input: 35, output: 11, cacheRead: 1, dispatches: 3}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-echo '{"roles":[{"role":"developer","dispatches":2,"turns":3,"input":30,"output":10,"cacheRead":1}],"reason":""}' >"$fx/progress.json"
+echo '{"roles":[{"role":"developer","dispatches":2,"turns":3,"input":30,"output":10,"cacheRead":1}],"reason":"","reviewHeld":false}' >"$fx/progress.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "| developer | 2 | 3 | 30 | 10 | 1 |"

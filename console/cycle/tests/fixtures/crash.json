@@ -414,7 +414,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=7489ac313d32b1b65945a332b23fab75161a08076a6e578f5c24a4470b0aac4e -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=227a1980dec6a7313b8793fd6fa2e307511f8e1f4fd3fdb85250b8a3fc700146 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1133,7 +1133,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The branch `feature/issue-7-install-sh-checks-instance-env` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=7489ac313d32b1b65945a332b23fab75161a08076a6e578f5c24a4470b0aac4e -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The branch `feature/issue-7-install-sh-checks-instance-env` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=227a1980dec6a7313b8793fd6fa2e307511f8e1f4fd3fdb85250b8a3fc700146 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1426,7 +1426,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/issue-7-install-sh-checks-instance-env` (status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min, runner exit 134). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=7489ac313d32b1b65945a332b23fab75161a08076a6e578f5c24a4470b0aac4e -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `feature/issue-7-install-sh-checks-instance-env` (status `unknown`, last step `feature/issue-7-install-sh-checks-instance-env` read from its run log, 0 min, runner exit 134). Look for one there before you retry. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-install-sh-checks-instanc kind= provider=0 sig=227a1980dec6a7313b8793fd6fa2e307511f8e1f4fd3fdb85250b8a3fc700146 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1999,7 +1999,9 @@
     "--branch",
     "feature/issue-7-install-sh-checks-instance-env",
     "--pr",
-    "347"
+    "347",
+    "--cap",
+    "container-killed"
    ],
    "park": null,
    "log": [
@@ -2134,6 +2136,8 @@
     "137",
     "--host-saw",
     "killed",
+    "--cap",
+    "container-killed",
     "--parked"
    ],
    "park": [
@@ -2141,7 +2145,7 @@
     "--attempt",
     "1",
     "--reason",
-    "killed",
+    "container-killed",
     "--step",
     "develop"
    ],
@@ -2155,7 +2159,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `killed`, last step `develop` read from its run log, 0 min (runner exit 137). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `killed`, last step `develop` read from its run log, 0 min (runner exit 137). Its cause is recorded as the cap `container-killed`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=b35b4d3655647bcea61331e9ed1555eeb1b6899368211610ea5664fee62b323c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3306,7 +3310,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped with pull request #347 open: status `unknown`, last step `feature/issue-7-installed` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/347\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-installed kind= provider=0 sig=f5cfe2d3d8bbe3f93f75978e7d363b3d31cdf251a9b15dfc8f4b709ca1f418f1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped with pull request #347 open: status `unknown`, last step `feature/issue-7-installed` read from its run log, 0 min (runner exit 134). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/347\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=featureissue-7-installed kind= provider=0 sig=6b2d2c5a801d70c6fedc75335f986ddb50a13ca41dd596cb24a65643f13ea4e6 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3339,7 +3343,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": 3,\n      \"input\": 7,\n      \"output\": 1,\n      \"cacheRead\": 0\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
+    "progress.json": "{\n  \"reviewHeld\": false,\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": 3,\n      \"input\": 7,\n      \"output\": 1,\n      \"cacheRead\": 0\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
    },
    "record": {
     "api": 1,
@@ -3475,7 +3479,7 @@
    },
    "files": {
     "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/issue-7-x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
-    "progress.json": "{\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry\\n<!-- x -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
+    "progress.json": "{\n  \"reviewHeld\": false,\n  \"roles\": [\n    {\n      \"role\": \"planner\",\n      \"dispatches\": 2,\n      \"turns\": \"1\\n- [x] Retry\\n<!-- x -->\",\n      \"input\": 7,\n      \"output\": null,\n      \"cacheRead\": {\n        \"a\": 1\n      }\n    },\n    {\n      \"role\": \"coder\",\n      \"dispatches\": 1,\n      \"turns\": 2,\n      \"input\": 3,\n      \"output\": 4,\n      \"cacheRead\": 5\n    }\n  ]\n}\n"
    },
    "record": {
     "api": 1,

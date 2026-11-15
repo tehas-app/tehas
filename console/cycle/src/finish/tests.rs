@@ -7,7 +7,7 @@ use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
 use super::run::{has_commits, issue_branch_of, own_pulls, pull_for_issue, pull_named, Why};
 use super::{finish, Finished};
-use crate::finish::cmd::{asked, asked_of_git, Done, Live};
+use crate::finish::cmd::{asked, asked_of_git, within, Done, Live};
 use crate::finish::Host;
 use serde_json::{json, Value};
 use std::fs;
@@ -26,10 +26,18 @@ fn pr(n: u64, head: &str, text: &str) -> Value {
 }
 
 /// The GraphQL answer that holds `nodes`, a JSON list, or the text itself as
-/// the list when it is no JSON.
+/// the list when it is no JSON, and is the last page.
 fn pulls(nodes: &str) -> String {
+    page(nodes, None)
+}
+
+/// One page of the GraphQL answer: `nodes` as [`pulls`] reads them, and the
+/// cursor of the page after it when one follows.
+fn page(nodes: &str, next: Option<&str>) -> String {
     let nodes: Value = serde_json::from_str(nodes).unwrap_or_else(|_| json!(nodes));
-    json!({"data": {"repository": {"pullRequests": {"nodes": nodes}}}}).to_string()
+    let info = json!({"hasNextPage": next.is_some(), "endCursor": next});
+    json!({"data": {"repository": {"pullRequests": {"pageInfo": info, "nodes": nodes}}}})
+        .to_string()
 }
 
 /// The scratch root of one case.
@@ -350,7 +358,8 @@ impl World {
     /// The `gh` of a case: one line per call in `gh.calls`; the GraphQL list of
     /// open pull requests answers from `list.answer` and `pr create` from
     /// `create.answer`, an absent file being GitHub's nothing and a file of
-    /// `fail` a refusal of the call. A list answer is the nodes alone, as
+    /// `fail` a refusal of the call. The page after cursor `c` answers from
+    /// `list.c.answer` when there is one. A list answer is the nodes alone, as
     /// [`pulls`] wraps them. The body file of a create is copied so a case can
     /// read what the draft said.
     fn stub(&self, list: &str, create: &str) {
@@ -365,8 +374,10 @@ set -u
 dir=$(dirname "$0")
 kind=other
 prev=
+page=
 for a in "$@"; do
   case "$a" in
+    cursor=*) page=.${a#cursor=} ;;
     pr) kind=pr ;;
     api) kind=api ;;
     graphql) [ "$kind" = api ] && kind=list ;;
@@ -380,12 +391,13 @@ done
 case "$kind" in pr|api) kind=other ;; esac
 printf '%s %s\n' "$*" "$kind" >>"$dir/gh.calls"
 ans=$dir/$kind.answer
+[ -f "$dir/$kind$page.answer" ] && ans=$dir/$kind$page.answer
 if [ -f "$ans" ]; then
   [ "$(cat "$ans")" != fail ] || exit 1
   [ "$kind" = other ] || { cat "$ans"; exit 0; }
   exit 0
 fi
-[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}'; exit 0; }
+[ "$kind" = list ] && { echo '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}'; exit 0; }
 exit 0
 "#,
         )
@@ -804,6 +816,51 @@ fn a_list_that_cannot_be_read_is_a_refusal() {
 }
 
 #[test]
+fn the_issues_pull_request_on_a_later_page_is_found() {
+    let w = World::new("list-paged");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    w.stub("", "https://github.com/acme/widget/pull/1");
+    let first: Vec<Value> = (100..200)
+        .map(|n| pr(n, &format!("other-{n}"), ""))
+        .collect();
+    let first = page(&json!(first).to_string(), Some("c2"));
+    fs::write(w.dir.join("list.answer"), format!("{first}\n")).unwrap();
+    let second = pulls(&json!([pr(9, "x", "Fixes #7.")]).to_string());
+    fs::write(w.dir.join("list.c2.answer"), format!("{second}\n")).unwrap();
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h);
+    assert!(got.why.contains("/pull/9"), "{}", got.why);
+    assert!(w.asked("cursor=c2"));
+    assert!(!w.remote_has("finish/issue-7"));
+    assert!(!w.asked("pr create"));
+}
+
+#[test]
+fn a_list_that_cannot_be_read_whole_is_a_refusal() {
+    let no_cursor = json!({"data": {"repository": {"pullRequests":
+        {"pageInfo": {"hasNextPage": true}, "nodes": []}}}})
+    .to_string();
+    for (i, (what, answer)) in [
+        ("not json", "not json".to_string()),
+        ("no word on more pages", no_cursor),
+        ("pages without end", page("[]", Some("again"))),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let w = World::new(&format!("list-partial-{i}"));
+        w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+        w.stub("", "https://github.com/acme/widget/pull/1");
+        fs::write(w.dir.join("list.answer"), format!("{answer}\n")).unwrap();
+        let mut h = w.host();
+        let got = finish(&w.plan(), &mut h);
+        assert!(got.why.contains("could not be read"), "{what}: {}", got.why);
+        assert!(!w.remote_has("finish/issue-7"), "{what}");
+        assert!(!w.asked("pr create"), "{what}");
+    }
+}
+
+#[test]
 fn a_name_already_on_the_remote_is_refused() {
     let w = World::new("already-pushed");
     w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
@@ -888,6 +945,15 @@ fn a_draft_that_cannot_be_opened_keeps_its_branch_for_the_next_ask() {
     // there for a reviewer, and no body file is left in the work directory.
     assert!(w.remote_has("finish/issue-7"));
     assert_eq!(w.left(), Vec::<String>::new());
+    // The refusal says so, because the next ask is refused by that branch: it
+    // names the branch and what clears it.
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    assert!(got.why.contains("delete the branch"), "{}", got.why);
     // The next ask finds the name on the remote and refuses rather than pushing
     // the same commits a second time.
     let mut h = w.host();
@@ -908,6 +974,22 @@ fn a_draft_that_said_no_url_is_a_refusal() {
     let got = finish(&w.plan(), &mut h);
     assert!(got.why.contains("no url"), "{}", got.why);
     assert_eq!(got.url, "");
+    // gh may have opened it or not; either way the branch stands, and the
+    // refusal names it, since the next ask is refused while it is there.
+    assert!(w.remote_has("finish/issue-7"));
+    assert!(
+        got.why
+            .contains("finish/issue-7 was pushed and stands on the remote"),
+        "{}",
+        got.why
+    );
+    let mut h = w.host();
+    let again = finish(&w.plan(), &mut h);
+    assert!(
+        again.why.contains("already a branch of the remote"),
+        "{}",
+        again.why
+    );
 }
 
 #[test]
@@ -1084,44 +1166,50 @@ fn only_the_factorys_own_pull_requests_of_an_answer_are_read() {
     let mut bob = pr(4, "y", "");
     bob["author"] = json!({"login": "bob"});
     let answer = pulls(&json!([own.clone(), fork, alice.clone(), bob]).to_string());
-    assert_eq!(own_pulls(&answer, &plan), vec![own, alice]);
-    assert!(own_pulls("not json", &plan).is_empty());
-    assert!(own_pulls("[]", &plan).is_empty());
-    assert!(own_pulls(r#"{"url":"x"}"#, &plan).is_empty());
-    assert!(own_pulls(&pulls("{}"), &plan).is_empty());
+    assert_eq!(
+        own_pulls(&answer, &plan),
+        Some((vec![own.clone(), alice], None))
+    );
+    assert_eq!(
+        own_pulls(&page(&json!([own.clone()]).to_string(), Some("c2")), &plan),
+        Some((vec![own], Some("c2".to_string())))
+    );
+    assert_eq!(own_pulls(&pulls("[]"), &plan), Some((vec![], None)));
+    // An answer that cannot be read is no answer, never an empty list.
+    assert_eq!(own_pulls("not json", &plan), None);
+    assert_eq!(own_pulls("[]", &plan), None);
+    assert_eq!(own_pulls(r#"{"url":"x"}"#, &plan), None);
+    assert_eq!(own_pulls(&pulls("{}"), &plan), None);
+    let no_word = json!({"data": {"repository": {"pullRequests": {"nodes": []}}}});
+    assert_eq!(own_pulls(&no_word.to_string(), &plan), None);
+    let no_cursor = json!({"data": {"repository": {"pullRequests":
+        {"pageInfo": {"hasNextPage": true, "endCursor": null}, "nodes": []}}}});
+    assert_eq!(own_pulls(&no_cursor.to_string(), &plan), None);
 }
 
 #[test]
-fn a_body_closes_an_issue_only_when_a_word_of_closing_names_it() {
-    for (text, yes) in [
-        ("Fixes #7.", true),
-        ("Closes #7", true),
-        ("resolves #7 in one line", true),
-        ("close: #7", true),
-        ("This fixes #7.", true),
-        ("FIXED #7", true),
-        ("Fixes #70.", false),
-        ("see #7", false),
-        ("Fixes #7x", false),
-        ("Fixes#7", false),
-        ("unfixes #7", false),
-        ("This does not fix #7.", false),
-        ("not fixed #7", false),
-        ("no test fixes #7", false),
-        ("never resolved #7", false),
-        ("This doesn't fix #7.", false),
-        ("it isn't fixed #7", false),
-        // A word of nothing further back is the case's own claim and not a
-        // denial of the closing word: the factory's bodies put that word at the
-        // end of what they say.
-        ("nothing here, but it fixes #7", true),
-        ("##7", false),
-        ("", false),
+fn finish_and_the_runner_take_the_same_pull_requests_for_an_issue() {
+    // Bodies and heads the two used to read differently. Each is the issue's
+    // pull request for both or for neither.
+    let url = "https://github.com/acme/widget/pull/3";
+    for (head, text, yes) in [
+        ("x", "Fixes #7", true),
+        ("x", "Resolved #7", true),
+        ("x", "some textfixes #7", false),
+        ("x", "This does not fix #7.", false),
+        ("x", "Fixes #7x", false),
+        ("x", "fixes:#7", true),
+        ("feature/issue-7-a+b", "", true),
+        ("feature/issue-70", "", false),
     ] {
+        let mut p = pr(3, head, text);
+        p["url"] = json!(url);
+        let runner = crate::runner::names_issue(&p, 7);
+        assert_eq!(runner, yes, "runner: {head:?} {text:?}");
         assert_eq!(
-            super::run::closes_issue(text, "#7"),
+            pull_for_issue(&[p], 7).is_some(),
             yes,
-            "{text:?} closes #7: {yes}"
+            "finish: {head:?} {text:?}"
         );
     }
 }
@@ -1310,6 +1398,159 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
         None,
         "a name that is no branch of the issue is no branch"
     );
+}
+
+/// Stops the process a stub left behind, by the pid it wrote.
+fn stop_left(pid_file: &Path) {
+    if let Ok(pid) = fs::read_to_string(pid_file) {
+        let _ = Command::new("kill")
+            .args(["-KILL", pid.trim()])
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[test]
+fn a_call_that_ended_is_not_held_by_a_process_it_left_with_its_output() {
+    // A program can leave a process behind that keeps its streams open. The call
+    // has ended and said what it had to say; the run reads that and goes on
+    // instead of waiting for the process that was left.
+    let dir = root("left");
+    let pid = dir.join("pid");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        format!(
+            "#!/bin/sh
+printf 'https://example.invalid/pull/1\\n'
+sleep 60 &
+echo $! > '{}'
+exit 0
+",
+            pid.display()
+        ),
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    stop_left(&pid);
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, Some(0), "{got:?}");
+    assert_eq!(got.out, "https://example.invalid/pull/1\n", "{got:?}");
+    assert!(
+        got.err
+            .contains("stub left a process that held its output open"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn a_call_past_its_bound_is_not_held_by_a_process_outside_its_group_and_says_so() {
+    // The group is signalled when a call outlives its bound, but a process that
+    // left the group is not reached and still holds the streams. The run is not
+    // held by it, and the line a refusal quotes names the call that was stopped.
+    let dir = root("outlived");
+    let pid = dir.join("pid");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        format!(
+            "#!/bin/sh
+printf 'a word before\\n' >&2
+setsid sleep 60 &
+echo $! > '{}'
+sleep 60
+",
+            pid.display()
+        ),
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(1),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    stop_left(&pid);
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, None, "{got:?}");
+    assert_eq!(
+        got.said().as_deref(),
+        Some("stub did not end within 1 s and was stopped"),
+        "{got:?}"
+    );
+    assert!(got.err.contains("a word before"), "{got:?}");
+}
+
+#[test]
+fn a_call_killed_by_a_signal_before_its_bound_does_not_say_it_was_stopped() {
+    // A program that dies of a signal has no exit code either, but it ended on
+    // its own and long before the bound. Its own last words are what a refusal
+    // quotes, and nothing claims the run stopped it.
+    let dir = root("signalled");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        "#!/bin/sh
+printf 'fatal: the last word\\n' >&2
+kill -KILL $$
+",
+    )
+    .unwrap();
+    let began = std::time::Instant::now();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    let took = began.elapsed();
+    assert!(took.as_secs() < 10, "the call waited {took:?}: {got:?}");
+    assert_eq!(got.status, None, "{got:?}");
+    assert_eq!(
+        got.said().as_deref(),
+        Some("fatal: the last word"),
+        "{got:?}"
+    );
+    assert!(!got.err.contains("did not end within"), "{got:?}");
+}
+
+#[test]
+fn a_stream_past_what_is_kept_is_read_to_its_end_and_cut() {
+    // A program that prints more than a run keeps is still read to its end, so it
+    // never stops on a full pipe, and the run keeps only the first of it.
+    let dir = root("long");
+    let stub = dir.join("stub");
+    write_exe(
+        &stub,
+        "#!/bin/sh
+head -c 300000 /dev/zero | tr '\\0' a
+exit 3
+",
+    )
+    .unwrap();
+    let got = within(
+        stub.to_str().unwrap(),
+        &[],
+        &dir,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(1),
+    );
+    assert_eq!(got.status, Some(3), "{got:?}");
+    assert_eq!(got.out.len(), 1 << 16);
+    assert!(got.out.bytes().all(|b| b == b'a'));
+    assert_eq!(got.err, "");
 }
 
 #[test]

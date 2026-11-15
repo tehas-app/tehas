@@ -158,6 +158,12 @@ issue's lock, and backs the state store up not at all. Its figure is an estimate
 of a tree that moves while it is measured: a workspace a cycle writes between
 two dry runs answers with two figures.
 
+The walk that measures one path stops after a million names or ten seconds,
+so a huge tree does not hold up the rest of the pass. A figure cut short
+there reads `at least <n> bytes`, on the path's line and on the closing
+`freed` or `would free` line. The removal itself is not bounded: the path
+still goes.
+
 Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),
 where they are a person's call). A docker that answers no image list, or nothing
