@@ -345,8 +345,9 @@ t_eq "$t_rc" 64
 t_run "'$notes' v1.2.3 '$T/no-such-file'"
 t_eq "$t_rc" 1
 
-t_case "the checkout's CHANGELOG.md has an Unreleased section with an Adopter action"
-t_run "'$notes' Unreleased"
+t_case "the checkout's CHANGELOG.md newest release has an Adopter action"
+newest=$(sed -n 's/^## \(v[0-9][0-9.]*\) .*/\1/p' "$T_ROOT/CHANGELOG.md" | head -n 1)
+t_run "'$notes' '$newest'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "### Adopter action"
 
