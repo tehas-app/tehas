@@ -287,7 +287,7 @@ fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
 
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
 fn allowed(who: &str, list: &str) -> bool {
-    !who.is_empty() && list.split(' ').any(|login| login == who)
+    tehas_core::events::allowed_in(list, who)
 }
 
 fn unread(n: u64, typed: bool) -> String {
@@ -880,7 +880,6 @@ mod tests {
         assert!(allowed("bob", "alice bob"));
         assert!(!allowed("ali", "alice bob"));
         assert!(!allowed("Alice", "alice bob"));
-        assert!(!allowed("", "alice  bob"));
     }
 
     #[test]

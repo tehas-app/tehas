@@ -213,7 +213,7 @@ fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
 
 fn allowed(login: &str) -> bool {
     let list = env::var("TEHAS_ALLOWED_LABELERS").unwrap_or_default();
-    !login.is_empty() && list.split(' ').any(|l| l == login)
+    tehas_core::events::allowed_in(&list, login)
 }
 
 /// `.[]`: the items of a list or the values of an object, None for anything
