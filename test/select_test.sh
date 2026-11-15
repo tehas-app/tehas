@@ -65,6 +65,7 @@ EOF
   test)
     echo "$*" >>"$T/cargo-args"
     [ ! -e "$T/cargo-fails" ] || exit 101
+    echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
     ;;
 esac'
 }
@@ -91,6 +92,30 @@ crate tehas-ops"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"
+
+# The tests that run a built program take it from the run, so a change under
+# console/ needs them: headless_test.sh is one of them and names none of the
+# words the old pick looked for. A helper of test/lib.sh that copies a program
+# in (t_cycle) is enough to be one.
+t_case "the real workspace: a cycle change selects the shell tests that run a built program"
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/cycle/src/main.rs 2>&1 | grep '^test ')
+t_contains "$picked" "test test/headless_test.sh"
+t_contains "$picked" "test test/console_run_test.sh"
+t_contains "$picked" "test test/sandbox_argv_test.sh"
+
+# Every shell test loads the settings through the console beside it, so a path
+# under core/ is a change to all of them, and one that names no program of the
+# workspace runs too. The heavy files are named too, as omit lines: they reach
+# core through the settings, and stay left to the full gate.
+t_case "the real workspace: a core change selects every shell test"
+picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
+for f in headless_test.sh describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
+  models_test.sh cycle_handoff_test.sh energy_test.sh tidy_test.sh sandbox_argv_test.sh \
+  shim_writes_test.sh mcp_test.sh; do
+  t_contains "$picked" "est test/$f"
+done
+[ "$(grep -cE '^(test|omit) test/' <<<"$picked")" = "$(find "$T_ROOT/test" -maxdepth 1 -name '*_test.sh' | wc -l)" ] ||
+  t_bad "a core change did not name every shell test file"
 
 t_case "the real workspace: each crate of cargo metadata is selected by a path in it"
 while IFS=$'\t' read -r name dir; do
@@ -180,7 +205,18 @@ gitrepo
 t_run "cd '$repo' && bash scripts/verify.sh --changed"
 t_eq "$t_rc" 0
 t_contains "$t_out" "note  0 changed paths"
-t_lacks "$t_out" "shell tests"
+t_contains "$t_out" "skip  shellcheck and the shell tests"
+t_lacks "$t_out" "ok    shellcheck"
+[ ! -e "$T/ran-a_test.sh" ] || t_bad "a_test.sh ran"
+
+t_case "verify.sh --changed names a change with no test file and no linted script as a skip, not ok"
+gitrepo
+printf '# notes\n' >"$repo/docs/notes.md"
+t_run "cd '$repo' && bash scripts/verify.sh --changed"
+t_eq "$t_rc" 0
+t_contains "$t_out" "0 test files"
+t_contains "$t_out" "skip  shellcheck and the shell tests (no test file or shell script among the change)"
+t_lacks "$t_out" "ok    shellcheck and the shell tests"
 [ ! -e "$T/ran-a_test.sh" ] || t_bad "a_test.sh ran"
 
 t_case "verify.sh --changed fails when a selected test file fails"

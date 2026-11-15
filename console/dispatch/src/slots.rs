@@ -14,6 +14,7 @@
 
 use crate::slice;
 use serde_json::{Map, Value};
+use tehas_core::hold::slots as key;
 
 const MIB: u64 = 1_048_576;
 const GIB: u64 = 1_073_741_824;
@@ -31,11 +32,17 @@ const MIN_CYCLES: u64 = 1;
 
 /// What a poll read of the host, for the two counts. `memory_slots` and
 /// `cpu_slots` are the readings over the sizes one container and one cycle are
-/// given, before any bound; 0 for a reading that is missing or is no number.
+/// given, before any bound; 0 for a reading that is missing or is no number,
+/// and 0 too for one that holds less than one container or cycle.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Probe {
     pub memory_slots: u64,
     pub cpu_slots: u64,
+    /// Whether the slice's memory and the container's size both answered,
+    /// so that a 0 above is the reading's own answer and not its absence.
+    pub memory_read: bool,
+    /// The same for the CPUs and the share of one cycle.
+    pub cpu_read: bool,
     /// The host's CPUs, None when nproc answered nothing.
     pub cpus: Option<u64>,
     /// What one container is given, as the setting writes it.
@@ -57,15 +64,19 @@ impl Probe {
         cycle_cpus: &str,
         ceiling: &str,
     ) -> Probe {
+        let memory = match (max, size(container_memory)) {
+            (Some(max), Some(b)) => Some(max / b),
+            _ => None,
+        };
+        let cpu = match (cpus, count(cycle_cpus.trim()).filter(|n| *n > 0)) {
+            (Some(c), Some(share)) if c > 0 => Some(c / share),
+            _ => None,
+        };
         Probe {
-            memory_slots: match (max, size(container_memory)) {
-                (Some(max), Some(b)) => max / b,
-                _ => 0,
-            },
-            cpu_slots: match (cpus, count(cycle_cpus.trim()).filter(|n| *n > 0)) {
-                (Some(c), Some(share)) if c > 0 => c / share,
-                _ => 0,
-            },
+            memory_slots: memory.unwrap_or(0),
+            cpu_slots: cpu.unwrap_or(0),
+            memory_read: memory.is_some(),
+            cpu_read: cpu.is_some(),
             cpus,
             container_memory: container_memory.to_string(),
             cycle_cpus: cycle_cpus.to_string(),
@@ -87,7 +98,7 @@ impl Probe {
     /// of what the host alone holds, and the reading itself otherwise.
     fn bounded(&self, filled: u64, name: &'static str) -> &'static str {
         match self.ceiling().min(MAX) {
-            c if filled > c => "ceiling",
+            c if filled > c => key::BOUND_CEILING,
             _ => name,
         }
     }
@@ -110,7 +121,9 @@ pub struct Auto {
     /// TEHAS_CYCLE_CEILING as the instance wrote it, or the default that
     /// bounds `auto` when it named none.
     pub ceiling: String,
-    /// Below the floor of its own range, which is the count in force.
+    /// Below the floor of its own range, which is the count in force: with
+    /// `host` because nothing answered, with a reading's word because it
+    /// answered less than the floor.
     pub floored: bool,
 }
 
@@ -135,32 +148,33 @@ impl Slots {
     /// sets neither setting to `auto` has nothing to explain, and gets
     /// nothing: the report keeps the shape it had before these settings.
     pub fn report(&self) -> Option<Value> {
-        if self.cycle_how != "auto" && self.container_how != "auto" {
+        if self.cycle_how != key::HOW_AUTO && self.container_how != key::HOW_AUTO {
             return None;
         }
         let mut m = Map::new();
-        m.insert("cycles".into(), Value::from(self.cycles));
-        m.insert("containers".into(), Value::from(self.containers));
-        m.insert("cyclesHow".into(), Value::from(self.cycle_how));
-        m.insert("containersHow".into(), Value::from(self.container_how));
-        for (key, a) in [("cycle", &self.cycle), ("container", &self.container)] {
+        m.insert(key::CYCLES.into(), Value::from(self.cycles));
+        m.insert(key::CONTAINERS.into(), Value::from(self.containers));
+        m.insert(key::CYCLES_HOW.into(), Value::from(self.cycle_how));
+        m.insert(key::CONTAINERS_HOW.into(), Value::from(self.container_how));
+        for (side, a) in [(key::CYCLE, &self.cycle), (key::CONTAINER, &self.container)] {
             if let Some(a) = a {
                 m.insert(
-                    key.into(),
+                    side.into(),
                     Value::Object(
                         [
-                            ("bound".to_string(), Value::from(a.bound)),
-                            ("slots".to_string(), Value::from(a.slots)),
-                            ("cpus".to_string(), a.cpus.map_or(Value::Null, Value::from)),
+                            (key::BOUND, Value::from(a.bound)),
+                            (key::SLOTS, Value::from(a.slots)),
+                            (key::CPUS, a.cpus.map_or(Value::Null, Value::from)),
                             (
-                                "containerMemory".to_string(),
+                                key::CONTAINER_MEMORY,
                                 Value::from(a.container_memory.as_str()),
                             ),
-                            ("cycleCpus".to_string(), Value::from(a.cycle_cpus.as_str())),
-                            ("ceiling".to_string(), Value::from(a.ceiling.as_str())),
-                            ("floored".to_string(), Value::from(a.floored)),
+                            (key::CYCLE_CPUS, Value::from(a.cycle_cpus.as_str())),
+                            (key::CEILING, Value::from(a.ceiling.as_str())),
+                            (key::FLOORED, Value::from(a.floored)),
                         ]
                         .into_iter()
+                        .map(|(k, v)| (k.to_string(), v))
                         .collect::<Map<_, _>>(),
                     ),
                 );
@@ -197,22 +211,23 @@ fn size(s: &str) -> Option<u64> {
 /// What one of the two settings asked for: `auto`, a number, or neither.
 fn how(v: &str) -> &'static str {
     match v.trim() {
-        "auto" => "auto",
-        _ if count(v).is_some() => "number",
-        _ => "fixed",
+        "auto" => key::HOW_AUTO,
+        _ if count(v).is_some() => key::HOW_NUMBER,
+        _ => key::HOW_FIXED,
     }
 }
 
 /// The count one `auto` came to, and why. `filled` is what the host's own
-/// readings give; the bounds are put on it here, so the reason is the bound
-/// that actually stopped it.
-fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
+/// readings give and `read` whether they answered at all; the bounds are put
+/// on it here, so the reason is the bound that actually stopped it. A reading
+/// that answered less than the floor is still that reading's, not the host's.
+fn auto(p: &Probe, filled: u64, read: bool, name: &'static str, floor: u64) -> (u64, Auto) {
     let count = filled.min(MAX).min(p.ceiling()).max(floor);
     (
         count,
         Auto {
-            bound: if filled == 0 {
-                "host"
+            bound: if !read {
+                key::BOUND_HOST
             } else {
                 p.bounded(filled, name)
             },
@@ -233,21 +248,27 @@ fn auto(p: &Probe, filled: u64, name: &'static str, floor: u64) -> (u64, Auto) {
 /// The slots this poll's readings give.
 pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slots {
     let (containers, container) = match how(containers_written) {
-        "auto" => {
-            let (n, a) = auto(p, p.memory_slots, "memory", MIN_CONTAINERS);
+        key::HOW_AUTO => {
+            let (n, a) = auto(
+                p,
+                p.memory_slots,
+                p.memory_read,
+                key::BOUND_MEMORY,
+                MIN_CONTAINERS,
+            );
             (n, Some(a))
         }
         // lib/config.sh keeps a number in 2..=16; anything else is taken as
         // the floor, and slice::usable says so when it reads the setting.
-        "number" => (count(containers_written).unwrap_or(0), None),
+        key::HOW_NUMBER => (count(containers_written).unwrap_or(0), None),
         _ => (MIN_CONTAINERS, None),
     };
     let (count, cycle) = match how(cycles_written) {
-        "auto" => {
-            let (n, a) = auto(p, p.cpu_slots, "cpu", MIN_CYCLES);
+        key::HOW_AUTO => {
+            let (n, a) = auto(p, p.cpu_slots, p.cpu_read, key::BOUND_CPU, MIN_CYCLES);
             (n, Some(a))
         }
-        "number" => (count(cycles_written).unwrap_or(MIN_CYCLES), None),
+        key::HOW_NUMBER => (count(cycles_written).unwrap_or(MIN_CYCLES), None),
         _ => (MIN_CYCLES, None),
     };
     Slots {
@@ -265,22 +286,32 @@ pub fn derive(p: &Probe, containers_written: &str, cycles_written: &str) -> Slot
 /// factory that sets a number, whose line reads as it always did: the count
 /// alone, in brackets, with `limit` in front of it.
 pub fn words(s: &Slots) -> String {
-    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == "auto") else {
+    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == key::HOW_AUTO) else {
         return String::new();
     };
     format!(
         "auto: {}, {}-bound{}",
         s.cycles,
         a.bound,
-        if a.floored { ", no reading" } else { "" },
+        floor_words(a.bound, a.floored),
     )
+}
+
+/// What a count at its floor adds to the line: `no reading` when nothing
+/// answered, `at the floor` when a reading answered less than the floor.
+pub fn floor_words(bound: &str, floored: bool) -> &'static str {
+    match (floored, bound) {
+        (false, _) => "",
+        (true, key::BOUND_HOST) => ", no reading",
+        (true, _) => ", at the floor",
+    }
 }
 
 /// The same in full, for a person who asks what a resize did: both counts and
 /// the three numbers they are derived from. live/dispatch.json holds the same
 /// fields as JSON; this is the line `tehas status` prints from them.
 pub fn reason(s: &Slots) -> String {
-    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == "auto") else {
+    let Some(a) = s.cycle.as_ref().filter(|_| s.cycle_how == key::HOW_AUTO) else {
         return String::new();
     };
     let cpus = a.cpus.map_or_else(|| "?".to_string(), |c| c.to_string());
@@ -452,6 +483,27 @@ mod tests {
     }
 
     #[test]
+    fn a_reading_too_small_for_one_is_named_and_held_at_the_floor() {
+        // Four CPUs at seven each give no whole cycle, and a slice of 4 GiB
+        // no 8g container: both readings answered, so each names itself, not
+        // the host, and the line says the floor, not that nothing answered.
+        let s = both(4 * G, 4, "8g", "7", "");
+        assert_eq!((s.cycles, s.containers), (1, 2));
+        let (c, m) = (s.cycle.clone().unwrap(), s.container.clone().unwrap());
+        assert_eq!((c.bound, c.slots, c.floored), ("cpu", 0, true));
+        assert_eq!((m.bound, m.slots, m.floored), ("memory", 0, true));
+        assert_eq!(words(&s), "auto: 1, cpu-bound, at the floor");
+        // The same counts with nothing read keep the host as the reason.
+        let s = derive(&Probe::read(None, None, "8g", "7", ""), "auto", "auto");
+        assert_eq!((s.cycles, s.containers), (1, 2));
+        assert_eq!(s.container.clone().unwrap().bound, "host");
+        assert_eq!(words(&s), "auto: 1, host-bound, no reading");
+        // nproc answering 0 is no reading either.
+        let s = both(32 * G, 0, "8g", "4", "");
+        assert_eq!(s.cycle.unwrap().bound, "host");
+    }
+
+    #[test]
     fn a_ceiling_that_is_no_count_leaves_the_default_in_force() {
         let p = Probe::read(Some(1024 * G), Some(256), "8g", "1", "many");
         assert_eq!(p.ceiling(), MAX);
@@ -486,6 +538,46 @@ mod tests {
             reason(&derive(&Probe::read(None, None, "8g", "4", ""), "4", "7")),
             ""
         );
+    }
+
+    #[test]
+    fn the_report_writes_only_the_keys_and_words_core_names() {
+        let names = |v: &Value| {
+            let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        let sorted = |a: &[&str]| {
+            let mut k: Vec<String> = a.iter().map(|s| s.to_string()).collect();
+            k.sort();
+            k
+        };
+        let mut top = key::REQUIRED.to_vec();
+        top.extend(key::DERIVED);
+        // A host that bounds by memory, by CPUs, by the ceiling, and that
+        // gives no reading at all: each bound the producer can write.
+        let mut bounds = Vec::new();
+        for s in [
+            both(48 * G, 24, "8g", "4", ""),
+            both(16 * G, 64, "8g", "4", ""),
+            both(512 * G, 256, "8g", "4", "3"),
+            derive(&Probe::read(None, None, "8g", "4", ""), "auto", "auto"),
+        ] {
+            let r = s.report().unwrap();
+            assert_eq!(names(&r), sorted(&top));
+            assert!(key::HOW_WORDS.contains(&r[key::CYCLES_HOW].as_str().unwrap()));
+            assert!(key::HOW_WORDS.contains(&r[key::CONTAINERS_HOW].as_str().unwrap()));
+            for side in key::DERIVED {
+                assert_eq!(names(&r[side]), sorted(&key::AUTO_KEYS));
+                bounds.push(r[side][key::BOUND].as_str().unwrap().to_string());
+            }
+        }
+        bounds.sort();
+        bounds.dedup();
+        assert_eq!(bounds, sorted(&key::BOUND_WORDS));
+        let p = Probe::read(None, None, "8g", "4", "");
+        assert_eq!(derive(&p, "auto", "x").cycle_how, key::HOW_FIXED);
+        assert_eq!(derive(&p, "auto", "7").cycle_how, key::HOW_NUMBER);
     }
 
     #[test]

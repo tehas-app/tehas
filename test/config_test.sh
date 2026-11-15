@@ -26,11 +26,11 @@ t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENS
 t_eq "$t_out" "acme/widget test-model 1"
 
 t_case "a gate gets thirty minutes unless the instance says otherwise, and pi-rukas is told in milliseconds"
-t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
-t_eq "$t_out" "1800 1800000 1800000"
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS'"
+t_eq "$t_out" "1800 1800000 1800000 1800000"
 t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=600
-t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
-t_eq "$t_out" "600 600000 600000"
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS'"
+t_eq "$t_out" "600 600000 600000 600000"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a workaround is named with the release that fixes it, and only a setting the instance has"
@@ -1639,7 +1639,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "5a14233fa2b42c49790d0f2b3216d3fd715983030065d763d7d7ebb35dcae741"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "41b983b0bac937cb24a4f415288805a06d2bfd412b251939349d4d18220d7a6f"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

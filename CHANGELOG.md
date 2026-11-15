@@ -22,7 +22,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 - A first `tehas setup` on a new factory with a GitHub App no longer stops at `console ids record` with "gh exited 4". With no `GH_TOKEN`, the step makes the app's installation token from its key, as `tehasbot github-token` does, and stops with 78 when no token can be made (#1714).
 - The sandbox base builds again: vipune and oo are built on Ubuntu 24.04, the distro of the image they run in, not on Debian bookworm, whose glibc 2.36 could not link the onnxruntime that vipune's embeddings download. On v0.25.1 `tehas update` stopped at the sandbox step with `undefined symbol: __isoc23_strtol`. The base build now also runs vipune and oo, so a binary that does not start stops the build (#1716).
-- The pinned ctx7 moves from 0.8.2 to 0.10.0.
+- The pinned ctx7 moves from 0.8.2 to 0.11.0.
 - A release is gated on the speed lane: `.github/workflows/release-gate.yml` runs the whole gate on one commit on a `[self-hosted, speedlane]` runner and builds the sandbox base image and the sandbox image with `host/sandbox/build.sh`, with a smoke run of vipune in it. `scripts/tag-release.sh` tags a commit once a run of it on that exact commit is green, starting one and waiting for it when there is none, and runs no gate of its own then; `--local-gate` runs the gate on the machine as before, and `--no-verify` runs none. A batch pull request titled `Express Lane ...` runs `verify` on the speed lane too (#1718).
 - `install.sh --check` no longer calls drift what Pi 1.5.0 writes itself: a `~/.pi/agent/settings.json` that differs from the installed one only in the `defaultProvider` and `defaultModel` Pi set when a person picked a model, or in Pi's key order, passes. A key tehas sets that differs is still drift. `~/.pi/agent/mcp.json` is installed at mode 600. The generic Pi settings put `httpIdleTimeoutMs` at the top level, where Pi 1.5 reads it (Pi 1.5 ignored it under `retry.provider`); an instance `settings.json` with it nested has it moved there at install, and the cycle's `provider retry:` log line reads either place (#1723).
 - A cycle whose push or pull request failed on GitHub's side (a 5xx, a 429, a rate limit, a timeout or a connection error) is finished by a later poll with the same `tehas-cycle finish` that `tehas:finish` runs: at most 3 tries, at least 10 minutes apart, within an hour. A 4xx that is the request's own, a failed test, a review or a park still waits for the ask. The cycle's record says which end step failed and whose fault it was, and `tehas status` lists a cycle waiting to be finished (#1726).
@@ -464,6 +464,125 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A cycle whose container was killed with 137 from outside, out of memory or otherwise, goes on record with the cap `container-killed`, a `capReason` naming the step and the memory kills, and a line in `console.txt` and `err.txt`.
 - A cycle that died after `commit-pr` now finds its pull request when the driver names the branch in a later event rather than as a step, so its record and comment name the pull request it opened.
 - `instances/example/optional.env` documents `TEHAS_GITHUB_RENEW_EVERY`.
+- A cycle whose sandbox cannot push now records the fault in
+  `state/push-fault.json`, ends its start as `push-fault`, and posts a short
+  "no cycle" comment with the git line instead of parking the issue with retry
+  boxes; the issue keeps `tehas:ready` so a person can retry after they fix the
+  host (#1741).
+- The settings tests now fail when the example instance names a setting with no rule, or when a retired setting is still kept or still has a rule.
+- The dispatcher stops with exit 78 when `TEHAS_ISSUE_TYPES` is malformed, instead of reading it as unset and polling by the label alone, which missed issues marked by their issue type.
+- `tehas plan` now refuses a container whose `/tmp` size is not a whole number of megabytes, as `tehas work` already did: both commands check the container's limits and security options with one shared check beside the code that makes them.
+- The dispatcher no longer settles a journalled sub-issue link as done when the record names no readable sub-issue id: the action stays open with a warning, and only a linked row with the same id counts as proof. A journal line for an action with no intended time now says "of unknown age" instead of "0s old".
+- A refine turn whose refine brief cannot be read no longer starts on the issue's text alone: the dispatcher logs an ERROR naming the file and starts nothing. A next planning turn that cannot set up its keep directory or answer file names the path and the reason, and a workspace sweep that cannot look at a leftover warns and no longer reports the issue's leftovers as removed.
+- A start that `tehas work` refuses with 78 because the sandbox image gave no capabilities answer, lacks what the cycle is given, or the workspaces' directory was not made by tehas now names that cause in its park comment, from the new note `state/cycles/<issue>.refused`. Before, only the run log on the host said why.
+- `tehas help dispatch` and the poll's `tehas:blocked holds it` log line now name the millwright, not "the fixer", as the account whose `tehas:blocked` label and blocker comment count besides an allowed account, as the dispatcher and the manual already had it.
+- A cycle stopped by its container's process limit now says what that limit was and which settings it follows (`TEHAS_TICKET_CONCURRENCY`, `TEHAS_SLICE_CONTAINERS`), in its park comment and in the reason on its record; `TEHAS_SLICE_CONTAINERS` is now among the settings a cycle's record keeps.
+- `TEHAS_VERIFY_TIMEOUT` now also bounds the whole gate on a cycle's combined tree: tehas passes it to pi-rukas as `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`, which before was left at pi-rukas's own 30 minutes whatever the instance set, and a cycle's record of its settings shows the number in effect.
+- The health line for idle polls over their budget now says what tripped it: for each figure over, the median of the last hour's idle polls in the units of `TEHAS_POLL_BUDGET`, the budget, and how many of those polls were over it. `store poll-idle --budget` adds `over_polls` with those counts.
+- The "no resources" hold now says why the model endpoint check failed: `refused the request with HTTP 401` (or the code it got), `could not be asked: curl could not be run`, or `does not answer` only for an endpoint that gave no answer, in the dispatcher's log, `live/dispatch.json` and `tehas status`.
+- When the attachment checker gives no answer before a start, `tehas work` now says why: it did not answer within 60 seconds, it exited with a status, or its answer could not be read. The comment on the issue and the line in the cycle's log no longer report a slow or failed check as a broken manifest or approval record.
+- A provider key in `models.json` gives a container a variable only when it reads as `$TEHAS_MODEL_KEY_<NAME>`, the same rule that refuses the file at load: a key such as `$PATH` no longer names a variable on the container's command line.
+- A cycle's record no longer gives a `capReason` that only repeats the cap word: a cap the driver gave no words for reads `no evidence from the driver`, and memory kills in the container are said in the `capReason`, the cycle's `err.txt` line and its console file.
+- A dispatcher poll that ends on comments, an edit record or pull requests it could not read now names that read, `ERROR: unreadable comments of #7`, and adds gh's own words when a gh call is what failed (`: gh api graphql failed: HTTP 502`). Before, it logged `ERROR: gh api graphql failed` even when no gh call had failed.
+- The dispatcher judges a quiet cycle (stop, ask again, or leave it to a person) on the poll's own clock in both halves of the poll, so a slow state store can no longer make it act on a different instant than the one it decided on.
+- The poll holds starts while the sandbox cannot push. While
+  `state/push-fault.json` is on record and younger than ten minutes the poll
+  starts no cycle and logs `holding: the sandbox cannot push: <git's line>
+  (<login>)` once, so every ready issue does not fail the same push check in
+  turn. Past ten minutes the poll starts as it did before, and a start whose
+  push check passes takes the fault off again. Running cycles, planning turns
+  and refreshes are not held by it (#2129).
+- `tehas-cycle finish` now reads every page of the open pull requests before it pushes, and refuses when the list cannot be read whole, so an issue's pull request past the first 100 no longer lets it open a second one.
+- `store load --from` no longer says a cycle is running when a cycle lock under `state/cycles` cannot be probed: it still refuses, and now says it cannot tell whether a cycle runs, with the probe's reason.
+- Removing a label no longer reports success when gh failed for another reason whose message happens to contain the words "not found": only an HTTP 404, or a reason that is exactly "Not Found", counts as the label already being gone.
+- The split of a container's words into its limits and its security options is made in one place, and a cycle whose limits are not the expected fourteen words now refuses to start (exit 78) instead of moving words between the two lists.
+- A running cycle whose lock file or `state/cycles` directory was removed is no longer shown as lost after two minutes of quiet; only a lock file found free marks it lost.
+- `tehas work` says again when the heartbeat or the publish of the live view fails in a new way or fails again after working, instead of once per cycle.
+- A cycle that did not start now says why, in the poll's log and in the comment on the issue: the exit code of the unit's start, a start that ran out of time, a state store that stayed busy or failed during the wait, or a unit that started and put no attempt on record.
+- A planning turn whose `systemctl` cannot be asked now counts as still running, so the dispatcher no longer reports it as cut off while it may be at work. A `state/cycles` that cannot be listed now counts as cycles that may be running: the code index is left alone and auto-finish holds its records.
+- `tehas update` now fails with exit 1 and names the file when it cannot remove the record of follow-up steps after the last one ran. It used to exit 0 and leave the record, so `install.sh --check` stayed red and the next update ran the same steps again.
+- A planning turn whose unit `systemd-run` accepted but which never took its lock or ended within the start wait is now logged as `could not start the planning turn` and its session ended as not started, instead of being reported as running.
+- When the poll cannot mark a pull request as refreshing, the ERROR line that refuses the start now ends with GitHub's reason (for example `HTTP 404` for a missing label, or a rate limit).
+- A status command run by the poll that fails or is killed at its bound now logs `WARN: the status command ... exited <n>` (or `was killed at its bound or did not start`) instead of passing in silence, and the health warning names the command and how it ended.
+- A cycle's history row and park record keep the pull request number when GitHub spells the repository's owner or name in another case than the settings, or the address ends in a slash. Before, the number was dropped without a word and the run showed no pull request.
+- The `verify` and `release-gate` workflows check the runner's cargo, rustc, rustfmt and clippy before the gate runs. A runner without them now fails with one error that names the runner and the missing tools, instead of a failure in every Rust test that reads as the change's.
+- The slots line of `tehas status` and the dispatcher's hold line no longer say `host-bound, no reading` for a host whose CPUs or slice answered but hold less than one cycle or two containers: they name the reading and say `at the floor`, and `room.slots.*.bound` is `cpu` or `memory` there instead of `host`.
+- `tehasbot store publish --health` no longer leaves the outage marker behind when a failing health report cannot be written, so `/health` keeps answering from the report that is on disk; a marker that cannot be removed is now reported as `remove live/health.down`, not as a write.
+- `tehas clean` reads the sizes and creation times of the images it weighs with one `docker image inspect` per step, instead of one or two per image.
+- The names of the issue lists in `live/status.json` are now defined once and shared by the writer, the health page, the analytics sampler and the MCP server, so a rename can no longer silently zero the queue counts.
+- `tehasbot clean` stops measuring one path after a million names or ten seconds, so a huge build tree no longer holds up the rest of the pass. A size cut short there is logged as `at least <n> bytes`, and so is the run's closing total; the path is still removed.
+- The gate now fails when a program of the Cargo workspace is missing from install.sh's list, the release build or the release tarball's flags, unless it is named as not installed with a reason. `tehas-merge` is named so: it is built and tested but not installed yet.
+- The gate's line for the workspace's tests now counts what ran, as in `ok    the workspace's tests (827 passed, 3 ignored, 41 test binaries)`, and the gate fails when `cargo test` exits 0 but prints no `test result:` line, so a green no longer hides a run in which no Rust test ran.
+- `scripts/test.sh` stops with exit 2 and `test.sh: cannot start <file>: <reason>`
+  when a test file's task process cannot be started, instead of skipping it and
+  letting a record already on disk for that file read as a pass.
+- `scripts/verify.sh --changed` prints a `skip` line for the shell tests when the change holds no test file and no shell script to lint, instead of an `ok` line for a step that ran nothing. `scripts/test.sh` given only such paths now exits 3 rather than 0.
+- `tehas update` from releases runs the new version's settings check under a limit of 120 seconds and reads at most 64 KiB of what it says; a check that runs out of time or says more stops the update with nothing switched, instead of waiting and growing without end.
+- A `TEHAS_` key that could not be searched for in the new version's tree is no longer reported as unknown to it; it gets a warning of its own.
+- `scripts/verify.sh --changed` now runs the shell tests that drive the built
+  programs for a change under `console/`, and every shell test for a change to
+  `console/core/` or a crate it reaches. The pick used to name only the files
+  holding `console/`, `t_store` or `t_attach`, so a change to the cycle, the
+  dispatcher or the console skipped the tests that run them through `t_cycle`,
+  `t_dispatch` or `t_console` (the headless runner, the container's argument
+  lists, the settings), and a change to the settings library reached only 68 of
+  the 160 shell tests. A cycle quotes this step as its proof, so a regression
+  there could pass it. (#1759)
+- `tehasbot health` no longer reads `state/industry/alerts.json`, the alerts
+  file tehas-industry wrote into a factory: `checks.industry` holds only
+  `version`, an industry alert no longer makes the health `warn`, and the MCP
+  `factory_status` answer drops `industry.alerts`, `alertsTime`,
+  `alertsStale` and `alertsUnreadable`. The schema and sample of the file are
+  gone from `api/` (#1972).
+- The banner at the top of the front pages shows only host messages, from
+  `tehas host-message` (#1972).
+- The host bridge has no `notices` field. An answer that still carries one is
+  read as before and the field is ignored (#1972).
+- `tehas store park-show` answers `cap`, the cap that stopped the parked run,
+  read from the same `cycle_history` row its `park_reason` already comes from.
+  A park with no history row answers `null`, as `park_reason` does (#2203).
+- A start that was refused before anything ran is no longer reported as a
+  failed cycle. `tehasbot cycle` ends such a start as `refused` instead of
+  `unknown`, and `/health` leaves a `refused` ending out of `checks.failed` and
+  says nothing of it as the last cycle's end. Nothing of the start ran, so
+  nothing of it failed: a host whose last start was refused reads `pass` again.
+  The park comment, its Retry boxes and the park's reason are unchanged, and
+  `cycles.end_reason` still holds `unknown`. (#2206)
+- A `Retry` box ticked on a park no longer starts a cycle that stops at
+  `existing-pr-detected`. When an open pull request closes the issue, the poll
+  holds the issue the way it holds a `tehas:ready`: nothing starts, the box is
+  unticked, and a note on the issue names the pull request and says to merge or
+  close it. (#2207)
+- When an issue carries `tehas:question` and none of the comments the poll read
+  carries the question it has on record, the poll now says what holds the issue
+  and what clears it: `skip #N: its question is not among the last 100
+  comments; tehas:question is set and no comment carries the question, so the
+  issue waits until its open points are answered or the label is taken off`.
+  The old line read as a comment-ordering problem, but the label is the hold
+  and a new comment does not lift it.
+  [troubleshooting](/troubleshooting#a-tick-in-the-park-comment-starts-nothing).
+  (#2208)
+- When `tehas-cycle finish` pushed `finish/issue-<n>` but could not open the draft pull request, or could not read its URL, the refusal now says the branch stands on the remote and that it must be given a pull request by hand or deleted before finish is asked again.
+- `tehas labels` now also makes `tehas:improvement` and `cross-project`, the two labels the improvement loop applies, with their colours and descriptions. A test fails when a program names a label that `host/labels.tsv` does not have.
+- The dispatcher reads the record that a refresh hold was said from the same path and at the same length its writer uses, so the two can no longer drift apart and a hold be said again on every poll.
+- `factory_issue`, `factory_sessions`, `factory_session` and `factory_failures` of the MCP server answer a tool error naming the file when `status.json`, `running.json` or `health.json` is there but cannot be read, instead of answering as if the issue were listed nowhere or had no links.
+- `factory_failures` counts runs with no outcome on record in `outcomesUnknown` rather than under an invented `unknown` outcome, and lists runs with a version missing after every pair that names both versions.
+- A cycle's scratch directory under `TEHAS_SCRATCH_DIR` is now named by one rule in the code, used by the mount, the disk watch and the cleanup, so the three can no longer point at different directories.
+- A cycle that hands off at the cap `lens-fix-reposition` with its review's findings still open now says why it parks, as one at `awaiting-human-merge` already did, instead of parking with no reason given.
+- `factory_disk` answers `stale` when the published reading is more than three hours old, and refuses a `disk.json` of another `api` or with no file system instead of answering it as a healthy host.
+- The egress proxy logs a connection it drops on its own side (a head that never came whole, a failed write, an accept that failed) and tells a name that does not resolve from one with no address.
+- `factory_log`: a plain read masks the log only as far as the piece it returns instead of the whole file, so `size` is given only by a read that reaches the end of the file. `factory_search` keeps only the lines that match while it reads, and checking a log's name no longer compiles a pattern on every call.
+- `tehasbot mcp serve` now reads `TEHAS_MCP_KEYS` and `TEHAS_MCP_DASHBOARD_KEYS` with the same rule as the MCP server before it starts the container: every line is read and any whitespace separates keys, so the check no longer passes a list the server then refuses, or refuses one the server would take.
+- The dispatcher and the dashboard now read `state/pause.json` through the same reader as `tehas pause` and the health page. A link at that name whose target is gone, or a flag that names a key twice, now holds every start instead of reading as no flag.
+- The keys and words of a poll's `slots` object are named once, in the shared core crate: the dispatcher writes them from that list, `tehas status` checks them against it, and a test holds `api/status.schema.json` to it. A bound word added in one place and not the others now fails the tests instead of dropping `room.slots` from `tehas status --json` without an error.
+- With `TEHAS_WORK_DESCRIBE=1`, `tehas work` now says which way the descriptions of the images went wrong: describe failed, describe could not be started (nothing was attempted), or its end could not be read (it is killed, and whether it wrote them is not known). It used to print "could not be written" for all three.
+- A planning turn whose container was killed or never started, before the runner wrote its session record, no longer deletes the record the previous turn kept. The retry the issue is offered now resumes the session instead of finding it gone.
+- The list of state labels that tidy takes off a closed issue is now checked against `host/labels.tsv`: a label added to the table must be declared either a state or one a closed issue keeps, or the tests fail.
+- The preview sweep lists containers by their whole id and removes one only by a 64-character id: a short hex word, which Docker would take as a prefix of some other container's id, is skipped.
+- `scripts/test.sh` given paths with no test file and no linted script among them now exits 3 instead of passing, and `scripts/verify.sh --changed` prints a `skip` line for the shell tests in that case instead of `ok`, so a green step always means checks ran.
+- The factory header of the default design shows the tehas logotype beside the logo mark, with FACTORY in small capitals next to it. The pixel design is unchanged.
+- The gate is green again: the label table test knows the improvement loop's two labels.
+- The pinned Pi moves from 1.5.0 to 1.5.2.
 
 ### Held back
 
@@ -612,6 +731,129 @@ None.
 If an instance sets `TEHAS_GITHUB_RENEW_EVERY`, make sure it is a whole number of seconds, such as `300`.
 
 None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None. An instance that raised `TEHAS_VERIFY_TIMEOUT` above 1800 now gets that bound on the combined tree too; check that `TEHAS_WORK_TIMEOUT` leaves room for it.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+Update the industry that runs the factory to a release that writes no alerts
+file before updating tehas. A `~/tehas/state/industry/alerts.json` left by an
+earlier industry is no longer read and may be deleted. A host that shows a
+message on the factory does it with `tehas host-message`.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None. The next `tehas update` runs the labels step, since the table changed.
+
+None.
+
+None.
+
+None.
+
+None.
+
+None.
+
+A client that reads `size` from a plain `factory_log` answer that has `next` takes it from the last piece or from a gzip read.
 
 None.
 

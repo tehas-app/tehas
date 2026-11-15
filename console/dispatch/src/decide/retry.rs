@@ -373,6 +373,23 @@ impl Poll<'_> {
         self.act(a);
     }
 
+    /// The hold of a ticked retry: the pull request of `holds_on_pr` read the
+    /// same way, and the box taken off with the note that names it. The issue
+    /// keeps `tehas:question` and stays parked, so the park's comment is still
+    /// there to tick once the pull request is gone.
+    pub(super) fn holds_on_pr_tick(&mut self, n: u64, ans: &Value, url: &str) {
+        self.log(format!(
+            "skip #{n}: pull request {url} is open and closes it"
+        ));
+        if self.dry {
+            return;
+        }
+        let note = format!(
+            "Retry was ticked and nothing was started: {url} is open and closes this issue. Merge or close that pull request, then tick Retry."
+        );
+        self.untick(n, ans, Some(&note));
+    }
+
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
     /// a parked cycle starts it, and the poll ends there. A list that cannot
     /// be read skips only this rule, as refreshing() does for the history of
@@ -438,7 +455,7 @@ impl Poll<'_> {
                 qkind.clear();
             }
             let Some(comments) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
-                return Err(self.fail("ERROR: gh api graphql failed", 1));
+                return Err(self.comments_unread(n));
             };
             let Some(mut ans) = questions::answer(
                 &comments,
@@ -457,8 +474,11 @@ impl Poll<'_> {
                         or_unknown(by)
                     ));
                 } else if !qid.is_empty() {
+                    // The line names the hold and what clears it: the label is
+                    // the hold, not the read's bound, and a new comment lifts
+                    // nothing while the question on record stays open.
                     self.log(format!(
-                        "skip #{n}: its question is not among the last 100 comments"
+                        "skip #{n}: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
                     ));
                 }
                 continue;
@@ -578,6 +598,18 @@ impl Poll<'_> {
                 &format!("{by} ticked retry"),
                 "untick the box and tick it again",
             )? {
+                continue;
+            }
+            // The same hold the `tehas:ready` path applies before it starts
+            // anything: while an open pull request closes the issue a cycle
+            // would only stop at `existing-pr-detected`, so the tick is held
+            // here. What comes off is the box, not a label.
+            let url = match self.open_pr(n)? {
+                Some(url) => Some(url),
+                None => self.named_pr(n),
+            };
+            if let Some(url) = url {
+                self.holds_on_pr_tick(n, &ans, &url);
                 continue;
             }
             if room.want == 0 {
@@ -1031,7 +1063,8 @@ impl Poll<'_> {
             return Ok(None);
         };
         if node.get("failed") == Some(&json!(true)) {
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+            let call = crate::snapshot::failed_line(Some(&node));
+            return Err(self.unreadable(&format!("pull request #{pr}"), call.as_deref()));
         }
         if !node.is_object() {
             return self.refresh_drop(n, &format!("pull request #{pr} cannot be read"));

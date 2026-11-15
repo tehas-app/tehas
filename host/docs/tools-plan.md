@@ -80,7 +80,9 @@ the issue as it is now; the commit the first turn's workspace was at;
 clone's git directory (plain files inside the clone only, none through a
 link, at most 1 MB each and 1024 files and 32 MB together); `exit`, the
 runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=1` the
-issue's images. Every later turn's workspace is at that commit and gets the
+issue's images. A turn that fails and leaves no record, its container killed
+or never started, leaves the record an earlier turn kept, so a retry goes on
+from it. Every later turn's workspace is at that commit and gets the
 record back. A later turn whose commit is missing or gone starts at the tip of
 the branch and says so. The answer reaches the runner as
 `.tehas/answer.md` in the workspace, which git ignores. The dispatcher keeps

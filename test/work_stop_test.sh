@@ -6,6 +6,10 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
+# A start that finds the host cannot push comments the issue, so the gh stub of
+# stub_github answers for every suite here: not every file of these tests reads
+# the issue itself.
+stub_github
 
 t_case "a runner that does not stop at its own limit is stopped after the grace, and not reported as killed"
 fresh
@@ -268,6 +272,75 @@ t_contains "$t_out" "the push check did not end within 1s"
 t_eq "$(cycle_args)" ""
 t_eq "$(($(date +%s) - began < 20))" 1
 T_ENV=("${env_ok[@]}")
+
+# A sandbox that cannot push is a fault of the factory: the host records it, the
+# start that found it ends as push-fault, and the issue gets the short comment
+# of a start that began nothing rather than a park with its retry boxes. The
+# labels of the issue are left alone, so tehas:ready stays on it. The docker
+# stub says what it says for a failed check, so what the fault names is read
+# from the file rather than repeated here.
+t_case "a push check the sandbox refused records the fault, ends the start as push-fault, and posts no retry boxes"
+fresh
+under_cycle
+# The store of the run takes the end, and records the call it was given.
+push_fault_store 0
+T_ENV=("${T_ENV[@]}" PUSH_RC=1)
+t_run "$work 7"
+t_eq "$t_rc" 3
+t_eq "$(cycle_args)" ""
+t_contains "$(t_store_lines)" "cycle-end 7 --attempt 1 --status push-fault"
+# The start's record is ended: the store closed the cycle, and it kept the word
+# of the end it was given. The store itself is not changed by this behaviour. `cycles.end_reason` keeps the word of an end it does not name as
+# `unknown`, while `endings.status` holds the word itself, which is what an_end
+# admits and what the readers of part 3 will name.
+t_eq "$(t_row cycle-show 7 -- '(.cycle.ended_at != null) | tostring')" "true"
+t_eq "$(t_row cycle-show 7 -- '.cycle.attempt')" 1
+t_eq "$(push_fault_ended "$T/home/tehas" 7)" push-fault
+# One host file, with the three fields and nothing else: the time of the fault,
+# the account the cycle pushes as, and git's own first line.
+t_eq "$(push_fault_parts | sed -n 1p)" "true"
+t_eq "$(push_fault_parts | sed -n 2p)" "$(cycle_account)"
+t_eq "$(push_fault_parts | sed -n 3p)" "$PUSH_SAYS"
+t_eq "$(jq -r 'keys | join(",")' "$T/home/tehas/state/push-fault.json")" "at,line,login"
+# The short comment of a start that began nothing, and no park: no retry box,
+# no question and no label change.
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the sandbox cannot push to the repository, which is a fault of this host. To retry, apply \`tehas:ready\`."
+t_eq "$(t_calls gh | grep -c 'issue edit')" 0
+t_lacks "$(t_calls gh)" "Retry with the issue"
+t_lacks "$(t_calls gh)" "tehas:question"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+
+# The fault is the host's own: a store that will not take the end does not stop
+# the start from saying it, and the issue is still told.
+t_case "a push fault is recorded even when the store will not take the end of the start"
+fresh
+under_cycle
+push_fault_store 1 'store: busy #7: the database is locked'
+T_ENV=("${T_ENV[@]}" PUSH_RC=1)
+t_run "$work 7"
+t_eq "$t_rc" 3
+t_eq "$(push_fault_parts | sed -n 3p)" "$PUSH_SAYS"
+t_contains "$t_out" "the push fault of #7 is not on its record"
+t_contains "$(t_calls gh)" "Tehas started no cycle: the sandbox cannot push to the repository"
+
+# A check that passes again takes the fault away: the host is not still unable
+# to push, and the next start is judged on its own check.
+t_case "a push check that passes after a refused one takes the fault off the host"
+fresh
+under_cycle
+push_fault_store 0
+T_ENV=("${T_ENV[@]}" PUSH_RC=1)
+t_run "$work 7"
+t_eq "$t_rc" 3
+t_eq "$(push_fault_parts | sed -n 3p)" "$PUSH_SAYS"
+# The next start of the same attempt, with the refusal taken away. An entry of
+# T_ENV is one assignment of env, so the filtered list is built by hand: a pair
+# that became empty would be an argument env cannot run.
+keep=()
+for e in "${T_ENV[@]}"; do [[ $e == PUSH_RC=1 || -z $e ]] || keep+=("$e"); done
+T_ENV=("${keep[@]}" "TEHAS_CYCLE_ATTEMPT=$(t_row cycle-show 7 -- .cycle.attempt)")
+t_run "$work 7"
+t_eq "$(push_fault_file)" ""
 
 # stop_in_prepare: TERM to the script once the stub of docker holds a step, then
 # wait for that step to see it.

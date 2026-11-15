@@ -99,9 +99,11 @@
 //!                installed, tehas.slice is not usable on this host, the
 //!                approval names a driver this tehas does not know, the image
 //!                does not support what the cycle is given (on driver lean
-//!                state/cycles/<issue>.lean-refused says so), or the
-//!                product names no gate in
-//!                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+//!                state/cycles/<issue>.lean-refused says so), the image gave
+//!                no capabilities answer or the workspaces' directory was not
+//!                made by tehas (these three say why in
+//!                state/cycles/<issue>.refused), or the product names no gate
+//!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
 //!                cycle is left where it is.
@@ -362,7 +364,7 @@
 //! dispatch-completed lines and a reason read from lines the runner marks
 //! unstable, which may be empty.
 
-use crate::gives::{self, Gap};
+use crate::gives::{self, Gap, NoAnswer};
 use crate::prepare::{self, Stop, STOPPED};
 use crate::relay;
 use crate::renew;
@@ -377,6 +379,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
 
@@ -457,43 +460,17 @@ fn branch() -> Option<String> {
 }
 
 /// Why the limits and security options a slice gave are not the documented
-/// ones: fourteen words of limits in tehas.slice, and the ten of "What a
-/// container may not do". A list that drifted starts nothing.
+/// ones. A list that drifted starts nothing.
 fn misshaped(limits: &[String], security: &[String]) -> Option<String> {
-    let (who, what) = ("tehas work", "a cycle");
-    let l = limits;
-    if l.len() != 14 || l[1] != "tehas.slice" || l[12] != "--cpu-shares" {
-        return Some(format!(
-            "{who}: the container limits could not be made, not starting"
-        ));
+    match sandbox::shape(limits, security).err()? {
+        Misshaped::Limits => {
+            Some("tehas work: the container limits could not be made, not starting".into())
+        }
+        Misshaped::Security => Some(format!(
+            "tehas work: tehas_sandbox_security gave {} words, wants 10: not starting a cycle",
+            security.len()
+        )),
     }
-    let s = security;
-    let tmpfs = s.get(9).and_then(|w| {
-        w.strip_prefix("/tmp:rw,exec,nosuid,nodev,size=")?
-            .strip_suffix("m,mode=1777")
-    });
-    let fixed = [
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "CHOWN",
-        "--cap-add",
-        "FOWNER",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--tmpfs",
-    ];
-    let shaped = s.len() == 10
-        && s[..9] == fixed
-        && tmpfs.is_some_and(|m| {
-            !m.is_empty() && m.bytes().all(|b| b.is_ascii_digit()) && !m.starts_with('0')
-        });
-    (!shaped).then(|| {
-        format!(
-            "{who}: tehas_sandbox_security gave {} words, wants 10: not starting {what}",
-            s.len()
-        )
-    })
 }
 
 /// The container's limits and security options, as the slice gives them.
@@ -626,16 +603,65 @@ fn reap(mut child: Child) {
 }
 
 /// A child to its end, or until a stop came: then it is left to finish on its
-/// own, as a step's command is, and None.
-fn until_stop(mut child: Child, stop: &Stop) -> Option<bool> {
+/// own, as a step's command is, and None. Err when its end could not be read:
+/// it is killed then, so it writes nothing once the cycle has begun.
+fn until_stop(mut child: Child, stop: &Stop) -> Option<Result<bool, std::io::Error>> {
     loop {
         match child.try_wait() {
-            Ok(Some(s)) => return Some(s.success()),
+            Ok(Some(s)) => return Some(Ok(s.success())),
             Ok(None) if stop.flag().load(std::sync::atomic::Ordering::SeqCst) => return None,
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(_) => return Some(false),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Some(Err(e));
+            }
         }
     }
+}
+
+/// How the descriptions of a start's images ended, when no stop came.
+#[derive(Debug, PartialEq)]
+enum Described {
+    Written,
+    /// describe ran and failed.
+    Failed,
+    /// describe could not be started: nothing was attempted.
+    Unstarted(String),
+    /// describe's end could not be read: whether it wrote them is not known.
+    Unread(String),
+}
+
+/// describe run on the images, as `me describe <dir> <issue>`. None when a
+/// stop came.
+fn describe(me: &Path, dir: &Path, issue: u64, stop: &Stop) -> Option<Described> {
+    let child = Command::new(me)
+        .arg("describe")
+        .arg(dir)
+        .arg(issue.to_string())
+        .stdin(Stdio::null())
+        .spawn();
+    let child = match child {
+        Ok(c) => c,
+        Err(e) => return Some(Described::Unstarted(format!("{}: {e}", me.display()))),
+    };
+    Some(match until_stop(child, stop)? {
+        Ok(true) => Described::Written,
+        Ok(false) => Described::Failed,
+        Err(e) => Described::Unread(e.to_string()),
+    })
+}
+
+/// The line that says how the descriptions ended, or None when they were
+/// written. Each says what happened, as a failure stops no start.
+fn described_line(d: &Described) -> Option<String> {
+    let line = match d {
+        Described::Written => return None,
+        Described::Failed => "describe failed: the descriptions of the images could not be written, the cycle goes on without them".to_string(),
+        Described::Unstarted(why) => format!("describe could not be started ({why}): no description of the images was attempted, the cycle goes on without them"),
+        Described::Unread(why) => format!("the end of describe could not be read ({why}), it was killed: whether the descriptions of the images were written is not known, the cycle goes on"),
+    };
+    Some(format!("tehas work: {line}"))
 }
 
 /// The comment of a start that could not get the issue's images or files.
@@ -745,25 +771,16 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
         // A program of its own, so a stop does not wait on the model.
         // The tehas-cycle beside the script, as a pinned cycle has it.
         let me = Path::new(console).with_file_name("tehas-cycle");
-        let described = {
-            Command::new(me)
-                .arg("describe")
-                .arg(f.dir)
-                .arg(n.to_string())
-                .stdin(Stdio::null())
-                .spawn()
-        };
-        let done = match described {
-            Ok(child) => until_stop(child, stop),
-            Err(_) => Some(false),
-        };
-        match done {
+        match describe(&me, f.dir, n, stop) {
             None => {
                 stop.came();
                 return Err(STOPPED);
             }
-            Some(false) => eprintln!("tehas work: the descriptions of the images could not be written, the cycle goes on without them"),
-            Some(true) => {}
+            Some(d) => {
+                if let Some(line) = described_line(&d) {
+                    eprintln!("{line}");
+                }
+            }
         }
     }
     let kept_new = f.kept.with_extension("json.new");
@@ -834,7 +851,8 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
 fn gap(home: &Path, issue: u64, kept: &Path, record: &str, log: &Path) -> String {
     let said = match gives::left_out(home, issue, kept, record) {
         Gap::Said(gap) => format!("tehas work: {gap}"),
-        Gap::Unread => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"),
+        Gap::Unread(no @ NoAnswer::Exited(_)) => format!("tehas work: the approval record of issue {issue}, or the manifest kept for it, could not be read ({}): nothing is said about what this cycle was not given", no.says("left-out")),
+        Gap::Unread(no) => format!("tehas work: what the cycle of issue {issue} was not given could not be asked ({}): nothing is said about what this cycle was not given", no.says("left-out")),
         Gap::Nothing => return String::new(),
     };
     eprintln!("{said}");
@@ -996,6 +1014,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         restart: g.restart,
         driver: recorded.driver,
         lean_note: home.join(format!("state/cycles/{n}.lean-refused")),
+        refused_note: home.join(format!("state/cycles/{n}.refused")),
         caps_wait,
         console: console.clone(),
         words,
@@ -1100,6 +1119,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &mut set,
     );
     if rc != 0 {
+        // A sandbox that cannot push is the factory's fault: the start says so
+        // on the host and on the issue, ends its own record as push-fault, and
+        // leaves the issue's labels alone. The park of a cycle that ran is the
+        // report's, and this arm never reaches it.
+        if rc == 3 {
+            prepare::push_fault(
+                home,
+                n,
+                &prepare::preflight_line(&prepare::preflight_of(&log)),
+            );
+        }
         return rc;
     }
     let gap = if give {
@@ -1187,6 +1217,42 @@ pub fn run(home: &Path, g: &Given) -> i32 {
 mod tests {
     use super::*;
     use tehas_core::text::has_marker;
+
+    #[test]
+    fn a_describe_that_never_started_is_not_said_to_have_failed() {
+        let stop = Stop::default();
+        let dir = Path::new("/nonexistent");
+        let gone = describe(Path::new("/nonexistent/tehas-cycle"), dir, 5, &stop);
+        let Some(Described::Unstarted(why)) = &gone else {
+            panic!("{gone:?}");
+        };
+        assert!(why.contains("/nonexistent/tehas-cycle"), "{why}");
+        let line = described_line(gone.as_ref().unwrap()).unwrap();
+        assert!(line.contains("could not be started"), "{line}");
+        assert!(
+            line.contains("no description of the images was attempted"),
+            "{line}"
+        );
+        assert!(!line.contains("could not be written"), "{line}");
+
+        assert_eq!(
+            describe(Path::new("false"), dir, 5, &stop),
+            Some(Described::Failed)
+        );
+        let line = described_line(&Described::Failed).unwrap();
+        assert!(line.contains("describe failed"), "{line}");
+        assert_eq!(
+            describe(Path::new("true"), dir, 5, &stop),
+            Some(Described::Written)
+        );
+        assert_eq!(described_line(&Described::Written), None);
+
+        let line = described_line(&Described::Unread("no child".into())).unwrap();
+        assert!(
+            line.contains("is not known") && line.contains("no child"),
+            "{line}"
+        );
+    }
 
     #[test]
     fn the_refusals_of_a_start_disarm_agent_text() {

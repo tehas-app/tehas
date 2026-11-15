@@ -97,9 +97,15 @@ case "$1 $2" in
     esac ;;
 esac'
 
+# A container's id as `docker ps --no-trunc` gives it: a short hex word with
+# zeros after it to 64, and the id the stub gives the container of a number.
+cid() { printf '%s%0*d' "$1" $((64 - ${#1})) 0; }
+sid() { printf 'ab%062d' "$1"; }
+
 # docker keeps what it was told in $T/fx/docker: container-<n> holds the
 # commit of a running preview, image-<n> the id of its image. The id of the
-# container of <n> is ab<n>, and abcafe for main. fx/extra-containers has more lines of a listing,
+# container of <n> is $(sid <n>), ab and <n> with zeros between to Docker's 64
+# hex, and $(cid abcafe) for main. fx/extra-containers has more lines of a listing,
 # fx/names-<n> is what Docker calls the container of <n> when that is not its
 # one name, an id in fx/rm-fails is a container Docker does not remove, and
 # fx/label-repo is how the tehas.repo label of the containers is written.
@@ -173,8 +179,8 @@ case "$1" in
       ! grep -q -x -e "$a" "$T/fx/rm-fails" 2>/dev/null || exit 1
       case "$a" in
         tehas-preview-*) rm -f "$d/container-${a#tehas-preview-}" ;;
-        abcafe) rm -f "$d/container-main" ;;
-        ab[0-9]*) rm -f "$d/container-${a#ab}" ;;
+        abcafe0*) rm -f "$d/container-main" ;;
+        ab[0-9]*) rm -f "$d/container-$((10#${a#ab}))" ;;
         -*) ;;
         *) [ ! -f "$T/fx/extra-containers" ] || sed -i "/^$a /d" "$T/fx/extra-containers" ;;
       esac
@@ -194,7 +200,7 @@ case "$1" in
           [ -f "$f" ] || continue
           n=${f##*/container-}; name=tehas-preview-$n
           [ ! -f "$T/fx/names-$n" ] || name=$(cat "$T/fx/names-$n")
-          id=ab$n; [ "$n" != main ] || id=abcafe
+          if [ "$n" = main ]; then id=abcafe$(printf "%058d" 0); else id=$(printf "ab%062d" "$n"); fi
           echo "$id $n $(cat "$T/fx/label-repo" 2>/dev/null || echo acme/widget) $name"
         done
         cat "$T/fx/extra-containers" 2>/dev/null ;;

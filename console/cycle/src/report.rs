@@ -364,6 +364,19 @@ fn re(pattern: &str, s: &str) -> bool {
     regex::Regex::new(pattern).unwrap().is_match(s)
 }
 
+/// The number of pull request `url` of `repo`, for the store's `--pr`.
+/// GitHub matches the owner and the name in any case, and an address may
+/// end in a slash.
+fn pr_number(repo: &str, url: &str) -> Option<String> {
+    let url = url.trim_end_matches('/');
+    let head = format!("https://github.com/{repo}/pull/");
+    let n = url
+        .get(..head.len())
+        .filter(|h| h.eq_ignore_ascii_case(&head))
+        .and(url.get(head.len()..))?;
+    re(r"^[1-9][0-9]{0,9}$", n).then(|| n.to_string())
+}
+
 /// `tr -cd 'A-Za-z0-9_./-'`, how a branch is said.
 fn said_branch(b: &str) -> String {
     kept(b, |c| c.is_ascii_alphanumeric() || "_./-".contains(c))
@@ -874,6 +887,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     killed += &comments_said(f);
     let forks = count("forks");
+    let pids = pids_limit(f.file("forks").text().unwrap_or(""));
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
         Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
@@ -963,7 +977,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its limit of processes and {forks} starts of a process were refused: what the cycle ran after that may not have run."
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            limit_of(&pids)
         );
     }
     let mut branch = result_branch;
@@ -1068,7 +1083,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!(", step {step} in flight")
         };
         reason = runner::cut_reason(
-            &format!("its container reached its limit of processes and refused {forks} starts of a process{in_flight}{tail}"),
+            &format!(
+                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                limit_of(&pids)
+            ),
         );
     }
     // A container killed from outside the cycle, out of memory or by a kill
@@ -1342,10 +1360,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if !step.is_empty() {
             args.extend(["--step".into(), step.to_string()]);
         }
-        if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-            if re(r"^[1-9][0-9]{0,9}$", n) {
-                args.extend(["--pr".into(), n.to_string()]);
-            }
+        if let Some(n) = pr_number(&f.repo, pr) {
+            args.extend(["--pr".into(), n]);
         }
         args
     };
@@ -1408,12 +1424,22 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         },
     };
     let mut rc = f.rc;
+    // The word the end of a start that never ran carries. The park's reason and
+    // the summary keep the status below: the dispatcher's hold reads a non-run
+    // by the park's reason, which stays the word it is today.
+    let mut end_status = String::new();
     // tehas work refused the start: with 4, or with 78 and its note on lean.
     let lean_refused = rc == 78 && matches!(f.file("lean-refused"), File::Text(_));
     let never_started = rc == 4 || lean_refused;
     // tehas work's 78 for a refresh whose pull request conflicts.
     let conflicted = match f.file(crate::conflict::NOTE) {
         File::Text(t) if rc == 78 && !never_started => crate::conflict::said(t),
+        _ => None,
+    };
+    // Why tehas work's check refused the start, which its run log alone holds
+    // otherwise.
+    let refused = match f.file("refused") {
+        File::Text(t) if rc == 78 && conflicted.is_none() => crate::prepare::refused_said(t),
         _ => None,
     };
     let handoff_part = if handoff.is_empty() {
@@ -1510,7 +1536,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
         r.actions.push(tidy);
     } else if (rc == 10 || rc == 11) && status == "handoff" && !pr.is_empty() {
-        let held = if review_held == "true" && cap == "awaiting-human-merge" {
+        let held = if review_held == "true" && waits_only_for_a_merge(&cap) {
             " Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
         } else if review_held.is_empty() && waits_only_for_a_merge(&cap) {
             let s = " Its progress does not say whether its review left findings open, so it is not taken for a pull request that waits only for a merge.";
@@ -1594,8 +1620,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 None => format!("with its pull request open{draft}"),
             }
         };
+        let refused_said = match &refused {
+            Some(said) if !never_started => {
+                format!(" Tehas work refused this start before anything ran. {said}")
+            }
+            _ => String::new(),
+        };
         let mut parked = format!(
-            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut lead = String::new();
@@ -1603,6 +1635,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if never_started {
             r.arm = "never-ran";
             never_ran = true;
+            // Nothing of the cycle ran, so no word the container could have
+            // reported exists: the report names the start as one that was
+            // refused rather than `unknown`, which is the word of a run that
+            // stopped with nothing to say for it. It goes to the end, the line
+            // of history, analytics and the improvement record, so each names
+            // the same thing. The park's reason and the comment's summary keep
+            // the status below: the poll holds a non-run by its reason.
+            end_status = "refused".into();
             let (mut by, mut epoch) = (f.start_by.clone(), f.approval_at.clone());
             match f.start_how.as_str() {
                 "refresh" => {
@@ -1625,7 +1665,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 {
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                let lacks = refused
+                    .as_deref()
+                    .unwrap_or("The log names what the image lacks.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
                 lead = format!("Take `{LEAN}` off this issue, then tick a box.");
             }
@@ -1662,8 +1705,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         });
     }
     let pr_said = if pr.is_empty() { "none" } else { &pr };
+    let said_status = if end_status.is_empty() {
+        &status
+    } else {
+        &end_status
+    };
     r.done = format!(
-        "done #{issue} rc={rc} status={status} step={step} minutes={mins} pr={pr_said} oom_kills={kills} forks_refused={forks}"
+        "done #{issue} rc={rc} status={said_status} step={step} minutes={mins} pr={pr_said} oom_kills={kills} forks_refused={forks}"
     );
     if !closed_pr.is_empty() && pr.is_empty() && merged_pr.is_empty() && status != "closed" {
         parked_now = true;
@@ -1674,7 +1722,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         "--attempt".into(),
         f.attempt.to_string(),
         "--status".into(),
-        status.clone(),
+        if end_status.is_empty() {
+            status.clone()
+        } else {
+            end_status.clone()
+        },
         "--step".into(),
         step.clone(),
         "--rc".into(),
@@ -1699,10 +1751,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !branch.is_empty() {
         end.extend(["--branch".into(), branch.clone()]);
     }
-    if let Some(n) = pr.strip_prefix(&format!("https://github.com/{}/pull/", f.repo)) {
-        if re(r"^[1-9][0-9]{0,9}$", n) {
-            end.extend(["--pr".into(), n.to_string()]);
-        }
+    if let Some(n) = pr_number(&f.repo, &pr) {
+        end.extend(["--pr".into(), n]);
     }
     r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
@@ -1733,7 +1783,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     h.insert("started".into(), json!(f.started));
     h.insert("rc".into(), json!(rc));
     for (k, val) in [
-        ("status", &status),
+        ("status", said_status.as_str()),
         ("step", &step),
         ("cap", &cap),
         ("park_reason", &park_reason),
@@ -1774,7 +1824,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             issue,
             started: f.started,
             rc,
-            status: status.clone(),
+            status: said_status.clone(),
             step: step.clone(),
             pr: pr.clone(),
             kills: kills.clone(),
@@ -1807,7 +1857,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         issue.to_string(),
         f.started.to_string(),
         rc.to_string(),
-        status,
+        said_status.to_string(),
         step,
         pr,
         kills,
@@ -1827,6 +1877,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
 /// that worked (`ok`) and one that did not (`stuck`).
 /// The lines of the stream the progress says could not be parsed, and of how
 /// many, when there were any.
+/// The container's pids limit, the second line of its `.forks` file.
+fn pids_limit(text: &str) -> Option<String> {
+    let n = text.split('\n').nth(1)?;
+    re(r"^[1-9][0-9]{0,8}$", n).then(|| n.to_string())
+}
+
+fn limit_of(pids: &Option<String>) -> String {
+    match pids {
+        Some(n) => format!("limit of {n} processes"),
+        None => "limit of processes".to_string(),
+    }
+}
+
 fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
     let v: Value = serde_json::from_str(progress?.trim()).ok()?;
     let count = |k: &str| v.get("unparsed")?.get(k)?.as_u64();
@@ -1888,6 +1951,29 @@ mod tests {
     use tehas_core::text::has_marker;
 
     #[test]
+    fn the_pr_number_is_read_whatever_the_case_and_a_trailing_slash() {
+        let n = |url| pr_number("acme/widget", url);
+        for url in [
+            "https://github.com/acme/widget/pull/21",
+            "https://github.com/Acme/Widget/pull/21",
+            "https://github.com/acme/widget/pull/21/",
+        ] {
+            assert_eq!(n(url).as_deref(), Some("21"), "{url}");
+        }
+        for url in [
+            "",
+            "https://github.com/acme/other/pull/21",
+            "https://github.com/acme/widget/pull/",
+            "https://github.com/acme/widget/pull/021",
+            "https://github.com/acme/widget/pull/21#top",
+            "https://github.com/acme/widget/pull/12345678901",
+            "https://github.com/acme/widget/issues/21",
+        ] {
+            assert_eq!(n(url), None, "{url}");
+        }
+    }
+
+    #[test]
     fn the_report_comment_disarms_agent_text() {
         let a = comment_of(&|s| {
             format!("Tehas cycle stopped: <!-- tehas:millwright issue=5 action=change -->{s}")
@@ -1927,6 +2013,77 @@ mod tests {
         });
         let f = Facts::from_json(&facts).expect("the facts read");
         report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    /// A start that ran nothing: exit 4 from the runner, with no result and no
+    /// workspace. `lean` is the start's driver on its approval.
+    fn never_started(rc: i64, lean: bool) -> Report {
+        let mut files = serde_json::Map::new();
+        files.insert(
+            "progress.json".into(),
+            json!("{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"),
+        );
+        if lean {
+            files.insert("lean-refused".into(), json!(""));
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "signalled": false,
+            "home": "/home/tehas",
+            "rc": rc,
+            "started": 1000,
+            "now": 1000,
+            "start": { "attempt": 1 },
+            "files": files,
+            "record": { "cycle": { "attempt": 1 } },
+            "github": { "prs": [], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    fn arg<'a>(r: &'a Report, flag: &str) -> Option<&'a str> {
+        r.end
+            .windows(2)
+            .find(|w| w[0] == flag)
+            .map(|w| w[1].as_str())
+    }
+
+    /// A start the runner refused (4) and a lean start tehas work refused (78
+    /// with its note) both end as `refused`, and both still say they never ran:
+    /// health leaves such an ending out of the failed cycles, and the store
+    /// takes the approval with it.
+    #[test]
+    fn a_start_that_never_ran_ends_as_refused_and_still_says_it_never_ran() {
+        for (rc, lean) in [(4, false), (78, true)] {
+            let r = never_started(rc, lean);
+            assert_eq!(r.arm, "never-ran", "rc {rc}");
+            assert_eq!(arg(&r, "--status"), Some("refused"), "{:?}", r.end);
+            assert!(r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
+            assert!(r.done.contains("status=refused"), "{}", r.done);
+            // The park's reason stays the word it was: the poll's hold of a
+            // non-run keys on it.
+            let park = r
+                .actions
+                .iter()
+                .find_map(|a| match a {
+                    Action::Park(p) => Some(p.args.clone()),
+                    _ => None,
+                })
+                .expect("a park");
+            let why = park
+                .windows(2)
+                .find(|w| w[0] == "--reason")
+                .map(|w| w[1].clone())
+                .unwrap_or_default();
+            assert_ne!(why, "refused", "rc {rc}: {park:?}");
+        }
+        // Any other 78 is a cycle that stopped, with the status it reported.
+        let r = never_started(78, false);
+        assert_eq!(r.arm, "parked");
+        assert_eq!(arg(&r, "--status"), Some("unknown"), "{:?}", r.end);
+        assert!(!r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
     }
 
     fn cap_disk(r: &Report) -> bool {
@@ -2270,8 +2427,12 @@ mod tests {
     /// A cycle that handed off at the cap `awaiting-human-merge` with a
     /// ready pull request open, its progress file `progress` (`None`: none).
     fn handed(progress: Option<&str>) -> Report {
+        handed_at("awaiting-human-merge", progress)
+    }
+
+    fn handed_at(cap: &str, progress: Option<&str>) -> Report {
         let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [
-            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": "awaiting-human-merge"}]});
+            {"issue": 7, "status": "handoff", "branch": "feature/x", "cap": cap}]});
         let pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
                         "body": "Fixes #7", "title": "x", "headRefName": "feature/x"});
         let mut files = json!({"result.json": result.to_string(), "runner_exit": "10\n"});
@@ -2331,6 +2492,19 @@ mod tests {
         }
     }
 
+    // Every cap that waits only for a merge says why a held review parks it.
+    #[test]
+    fn a_held_review_says_why_at_every_cap_that_waits_for_a_merge() {
+        for cap in ["awaiting-human-merge", "lens-fix-reposition"] {
+            let r = handed_at(cap, Some(r#"{"roles":[],"reason":"","reviewHeld":false}"#));
+            assert_eq!(r.arm, "awaiting-merge", "{cap}: {:?}", r.log);
+            let r = handed_at(cap, Some(r#"{"roles":[],"reason":"","reviewHeld":true}"#));
+            assert_eq!(r.arm, "handoff-parked", "{cap}");
+            let said = comments(&r).join("\n");
+            assert!(said.contains("ran out of rounds"), "{cap}: {said}");
+        }
+    }
+
     fn end_cap(r: &Report) -> Option<&str> {
         r.end
             .iter()
@@ -2351,7 +2525,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2381,6 +2555,41 @@ mod tests {
             "{}",
             park.text
         );
+    }
+
+    #[test]
+    fn the_limit_the_container_reached_is_named_with_its_settings() {
+        let r = refused("21\n2048\n", None);
+        assert!(r.done.contains("forks_refused=21"), "{}", r.done);
+        assert!(
+            r.after.ended.reason.contains(
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+            ),
+            "{}",
+            r.after.ended.reason
+        );
+        let said = comments(&r).join("\n");
+        assert!(
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            "{said}"
+        );
+        for bad in [
+            "21\nmax\n",
+            "21\n0\n",
+            "21\n-4\n",
+            "21\n1234567890\n",
+            "21\n4096; x\n",
+        ] {
+            let r = refused(bad, None);
+            assert!(
+                r.after
+                    .ended
+                    .reason
+                    .contains("its container reached its limit of processes ("),
+                "{bad:?}: {}",
+                r.after.ended.reason
+            );
+        }
     }
 
     #[test]

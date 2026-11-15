@@ -699,7 +699,7 @@ t_case "a start that never ran leaves no approval record, and its line of histor
 never_ran approved
 t_run "$cycle 7"
 t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" '[null,null]'
-t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .parked] | tostring')" '[4,"unknown","-","label",true]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .parked] | tostring')" '[4,"refused","-","label",true]'
 
 t_case "a cycle that ran keeps its approval record"
 reset

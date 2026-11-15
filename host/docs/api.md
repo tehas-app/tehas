@@ -241,20 +241,20 @@ tehas status --json
 | `room.slots.containersHow` | The same for the containers |
 | `room.slots.cycle` | How the cycles were derived; left out when `cyclesHow` is not `auto` |
 | `room.slots.container` | How the containers were derived; left out when `containersHow` is not `auto` |
-| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`. Treat it as an open list |
-| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered |
+| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`, which is for a host whose readings answered nothing. Treat it as an open list |
+| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered, or when the CPUs hold less than one cycle |
 | `room.slots.cycle.cpus` | The host's CPUs as `nproc` answered, `null` when it answered nothing |
 | `room.slots.cycle.cycleCpus` | `TEHAS_CYCLE_CPUS` as written: the CPUs one cycle is given |
 | `room.slots.cycle.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written: the memory one container is given |
 | `room.slots.cycle.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default: the most cycles the endpoint may serve |
-| `room.slots.cycle.floored` | `true` when no reading answered and the count is the floor of its setting: 1 cycle, 2 containers |
+| `room.slots.cycle.floored` | `true` when the count is the floor of its setting, 1 cycle: with `bound` `host` because no reading answered, with `cpu` because the CPUs hold less than one cycle |
 | `room.slots.container.bound` | The same for the containers: `memory`, `ceiling` or `host` |
 | `room.slots.container.slots` | The containers the slice's `MemoryMax` holds at `TEHAS_CONTAINER_MEMORY`, before the bounds |
 | `room.slots.container.cpus` | The host's CPUs, read for the line the two counts are shown in; `null` when `nproc` answered nothing |
 | `room.slots.container.cycleCpus` | `TEHAS_CYCLE_CPUS` as written, named beside the pair so a person reads both numbers of one derivation together |
 | `room.slots.container.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written |
 | `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
-| `room.slots.container.floored` | `true` when the memory or the size was no reading and 2 containers are in force |
+| `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
 | `versions.platform` | The tehas release: `release`, `latest` and `behind` |
@@ -502,36 +502,6 @@ running cycle, a freeze asked twice, or a thaw of a cycle that is not frozen.
 So a caller that asks every minute changes nothing by asking again. Exit 1
 when the request could not be written or removed; 64 on a bad argument; 78
 without an instance. `tehas api` lists the feature `freeze`.
-
-## Industry alerts
-
-```
-~/tehas/state/industry/alerts.json
-```
-
-```json
-{"time": "2026-10-17T14:00:00Z", "alerts": [{"kind": "paused", "since": "2026-10-17T10:00:00Z", "text": "Paused for 4 h: tehas:pause on the control issue.", "link": "https://tehas-industry.example/factories/tehas-tehas"}]}
-```
-
-The one file a program writes into the factory rather than a command it
-runs: tehas-industry writes it on each pass, atomically, with what it sees of
-the factory that the factory cannot see of itself. [`tehasbot
-health`](/tools-health#tehasbot-health) reads it when `TEHAS_INDUSTRY_VERSION` is
-set, into `checks.industry.alerts`, and the front pages show the current
-alerts as a banner. The source holds its JSON Schema,
-`api/industry-alerts.schema.json`, and a sample, `api/industry-alerts.sample.json`.
-
-| Field | Meaning |
-| --- | --- |
-| `time` | When the industry wrote the file, RFC 3339. Alerts more than five minutes old are not current |
-| `alerts` | The alerts that hold now; an empty list when there are none |
-| `alerts.kind` | `paused` (paused or drained for too long), `frozen` (nothing moves) or `held-by-one` (one ticket has held the factory still while work waits). A kind tehas does not know is shown by its word |
-| `alerts.since` | When it started, RFC 3339 |
-| `alerts.text` | The alert for a person, one line. Health keeps 200 characters of it |
-| `alerts.link` | Where the industry shows it, an `http` or `https` address |
-
-A file that is not this shape is unreadable: health says so and warns, and
-never reads it as no alerts.
 
 ## The finish ask
 
@@ -1289,7 +1259,7 @@ written, and still: treat all of it as public.
 | `endings.json` | the store's `publish` (`console/store/src/live.rs`) | `console/ops/src/health.rs`; the MCP server (`factory_endings`) |
 | `epics.json` | `console/src/epics.rs`, run by `tehasbot status` | `host/fun/epics-view.js`; `console/ops/src/health.rs` |
 | `health.json` | `console/ops/src/health.rs` run as `tehasbot health`, published by the store's `publish` ([tehasbot health](/tools-health#tehasbot-health)) | `/health` and `/healthz`, and `host/fun/versions.js`; `console/src/status.rs`, `console/ops/src/update/report.rs`; the MCP server (`factory_status`, `factory_issue`) |
-| `health.down` | the store's `publish`, which makes it before a `fail` health report and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
+| `health.down` | the store's `publish`, which makes it before a `fail` health report (and takes it back when that report cannot be written) and removes it after any other | the docs server's `/health` and `/healthz`, which answer 503 while it is there |
 | `dispatch.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, published by the store's `publish` ([tehas dispatch](/tools-dispatch#tehas-dispatch)) | `console/ops/src/health.rs`, `console/src/queue.rs`, `console/src/energy.rs`, `console/analytics/src/sample.rs`; the MCP server (`factory_status`) |
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
@@ -1316,7 +1286,7 @@ GET /host/bridge.json
 ```
 
 ```json
-{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "notices": [{"id": "n-1", "level": "info", "text": "Example notice.", "link": "/host/notice/n-1"}], "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
+{"bridge": 1, "host": "example-host", "time": "2026-11-08T12:00:00Z", "ticketLink": "/host/ticket/{n}", "ticketNotes": [{"issue": 42, "text": "Example note", "link": "/host/ticket/42"}], "menu": [{"id": "m-1", "label": "Example page", "url": "https://host.example/page"}]}
 ```
 
 A contract between the dashboard and a host that fronts the factory's domain.
@@ -1340,15 +1310,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
 | `host` | One line, at most 40 characters. Shown nowhere |
 | `time` | RFC 3339. An answer more than 5 minutes old, or as far ahead of the server's clock, is ignored whole |
 | `ticketLink` | Optional. Where a ticket of the factory's repository links, with `{n}` for its number once. Starts with `/host/`, at most 200 characters. Absent: tickets link to GitHub |
-| `notices` | Optional, at most 5. Lines at the top of the front pages |
-| `notices.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list |
-| `notices.level` | `info`, `warn` or `alert` |
-| `notices.text` | One line, 1 to 200 characters. Control characters become spaces |
-| `notices.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `ticketNotes` | Optional, at most 200. A short note on a ticket, wherever the dashboard draws that ticket |
 | `ticketNotes.issue` | 1 to 999999999. At most 3 notes per ticket; the rest are dropped |
 | `ticketNotes.text` | One line, 1 to 60 characters. Control characters become spaces |
-| `ticketNotes.link` | Optional, as `notices.link` |
+| `ticketNotes.link` | Optional. A path under `/host/`, or an `https://` address, at most 512 characters |
 | `menu` | Optional, at most 4. Items in the front pages' menu, each opening its page in the dock as a panel does |
 | `menu.id` | `a-z`, `0-9` and `-`, 1 to 32 characters, unique in the list. An item with the id of a panel takes that panel's place |
 | `menu.label` | One line, 1 to 24 characters. Control characters become spaces |
@@ -1358,8 +1323,10 @@ Schema, `api/host-bridge.schema.json`, a sample with every field,
   whole.
 - An element that breaks a rule is dropped alone; the rest is used. Past the
   limit of a list, the elements after it are dropped.
-- Unknown fields are ignored, at the top level and in each element. A
-  `tokens` field, which an earlier release drew, is one of them.
+- Unknown fields are ignored, at the top level and in each element. The
+  `tokens` and `notices` fields, which earlier releases drew, are among them.
+  A host shows a message on the factory with
+  [`tehas host-message`](#tehas-host-message).
 - Text goes into the page as text only, never as markup.
 - A link is used only if it passes its rule. A path under `/host/` opens in
   the same tab; an `https://` address in a new one.
@@ -1368,8 +1335,6 @@ How the dashboard draws it:
 
 - `ticketLink`: every link to an issue of the factory's repository goes there
   instead, in the same tab. Pull requests keep linking to GitHub.
-- `notices`: a line each at the top of both front pages, in the tone of its
-  level, beside the industry's alerts and drawn the same way.
 - `ticketNotes`: a small chip beside the ticket's number or title in every
   view that draws the ticket from the live queue, linked when it has a link.
 - `menu`: an item each in the menu of both front pages, after the panels of

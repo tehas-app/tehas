@@ -542,11 +542,10 @@ instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
 the tehas-industry that runs the factory from `checks.industry` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
-module shows a banner at the top of both pages while the industry has current
-alerts about the factory (`checks.industry.alerts`): each alert's kind as a
-word (Paused, Frozen, Held by one ticket, or the kind's own word for one this
-release does not know), its text, how long ago it started and its link. With
-no industry, or no current alert, there is no banner. A
+module shows a banner at the top of both pages while a host message is set
+(`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
+each message's level as a word (Alert, Warning or Notice), its text, when it
+was set and its link. With no message there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 
@@ -1239,7 +1238,10 @@ says the count, and the dispatcher's `done` line has it as `forks_refused`.
 When the run named no cap of its own and no person stopped it, the cycle goes
 on record with the cap `process-limit:<step>` (`process-limit` when no step
 is known) and a reason that carries the count, so `tehas history`, the park
-comment and the analytics row name it. A cap the run named stays.
+comment and the analytics row name it. A cap the run named stays. The comment
+and the reason also say the limit the container had, from its `pids.max`, and
+name the settings it follows, `TEHAS_TICKET_CONCURRENCY` and
+`TEHAS_SLICE_CONTAINERS`; both are among the settings on the cycle's record.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
@@ -1291,7 +1293,7 @@ hold a slot for ever:
 | A call of `~/tehas/libexec/analytics` from a cycle or a poll | 5 s, then a kill 1 s later | `WARN analytics <subcommand>: exit N`, and the cycle or the poll goes on as without it |
 | The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 277 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
-| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written` |
+| The status, tidy or health run by a poll | 120 s, then a kill 5 s later | The poll goes on. A health cut off leaves the health file as the last poll wrote it, and the poll says `WARN: the health file could not be written: <command> ...`. A status that did not end 0 leaves its files as they were, and the poll says `WARN: the status command <command> exited <n>: the status files may be stale` (or `was killed at its bound or did not start`) |
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
 | One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |
@@ -1346,7 +1348,10 @@ slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
 The same is in the [status object](/api#tehas-status--json) as `room.slots`.
 A host whose reading answers nothing (no `nproc`, a slice with no limit) would
 be held to one cycle and two containers rather than given the ceiling: the poll
-starts one cycle rather than what it cannot show room for. Set a number, which
+starts one cycle rather than what it cannot show room for, and the line says
+`host-bound, no reading`. A host that answered too little for one cycle, such
+as 4 CPUs at `TEHAS_CYCLE_CPUS=7`, is held the same way, and the line names the
+reading that held it: `cpu-bound, at the floor`. Set a number, which
 is also what an instance needs when it wants workstreams (see the axis below).
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
@@ -1998,7 +2003,7 @@ from the design's theme file, and the design also picks the page at `/`:
 
 | `TEHAS_DESIGN`             | The front page, `/` | Every page names        | Logo and share card             |
 | -------------------------- | ------------------- | ----------------------- | ------------------------------- |
-| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `share-logo.png` |
+| `beesknees26`, the default | The business page   | `theme-beesknees26.css` | `favicon.svg`, `tehas-logotype.svg`, `share-logo.png` |
 | `pixel`                    | The factory floor   | `theme-pixel.css`       | `factory.svg`, `share.png`      |
 
 `beesknees26` is ink and one muted green on a near-white ground, white panels

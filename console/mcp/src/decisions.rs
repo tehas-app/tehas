@@ -77,7 +77,7 @@ pub const DECISIONS: [DecisionKind; 6] = [
         logged: "skip",
         kind: "skip",
         style: ReasonStyle::Bare,
-        sample: "2026-10-29T16:23:14Z skip #316: its question is not among the last 100 comments",
+        sample: "2026-10-29T16:23:14Z skip #316: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off",
         number: 316,
     },
     DecisionKind {
@@ -398,13 +398,13 @@ mod tests {
         let t = "2026-10-29T16:23:14Z";
         assert_eq!(
             parse(&format!(
-                "{t} skip #316: its question is not among the last 100 comments"
+                "{t} skip #316: its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
             )),
             d(
                 t,
                 "skip",
                 316,
-                "its question is not among the last 100 comments"
+                "its question is not among the last 100 comments; tehas:question is set and no comment carries the question, so the issue waits until its open points are answered or the label is taken off"
             )
         );
         assert_eq!(
