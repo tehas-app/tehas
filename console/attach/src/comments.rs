@@ -33,8 +33,10 @@ pub struct Blob {
     pub dropped: usize,
 }
 
+/// The three spellings of an app's login are one account, so `""` and
+/// `"[bot]"` are kept whole and match no millwright.
 fn no_bot(login: &str) -> &str {
-    login.strip_suffix("[bot]").unwrap_or(login)
+    tehas_core::accounts::account(login)
 }
 
 fn is(v: &Value, re: &Regex) -> bool {

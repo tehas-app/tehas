@@ -646,6 +646,45 @@ fn only_the_two_kinds_of_event_carry_a_label() {
 }
 
 #[test]
+fn read_events_and_parse_refuse_the_same_numeric_stamp() {
+    // One rule for a label event's stamp, held by both readers: gh's answer
+    // and the dispatcher's. A numeric one is no time, and an answer that
+    // carries it says nothing of the issue's events.
+    let stamp = serde_json::json!(17);
+    let out = page(&[serde_json::json!({
+        "event": "labeled",
+        "label": {"name": APPROVAL_LABEL},
+        "actor": {"login": "mallory"},
+        "created_at": stamp,
+    })]);
+    let e = super::read_events(&out).expect_err("a numeric stamp was read as a time");
+    assert!(!e.is_empty(), "the refusal carried no reason");
+    assert_eq!(
+        crate::events::Events::parse(&serde_json::from_str::<Value>(&out).unwrap()),
+        crate::events::Events::Unreadable,
+    );
+    // What both readers refuse, both read: absent and null are the site's own
+    // ways of saying nothing of the time.
+    for at in [Value::Null, serde_json::json!("2026-01-01T00:00:00Z")] {
+        let out = page(&[serde_json::json!({
+            "event": "labeled",
+            "label": {"name": APPROVAL_LABEL},
+            "actor": {"login": "mallory"},
+            "created_at": at,
+        })]);
+        assert!(super::read_events(&out).is_ok(), "{at} was refused");
+        let v = serde_json::from_str::<Value>(&out).unwrap();
+        assert!(
+            matches!(
+                crate::events::Events::parse(&v),
+                crate::events::Events::Read(_)
+            ),
+            "{at} was not read"
+        );
+    }
+}
+
+#[test]
 fn an_event_whose_stamp_is_no_text_is_no_answer() {
     // A stamp that is there and is no text cannot be ordered: jq sorts a
     // number before every string, so reading it as no stamp would hand the
