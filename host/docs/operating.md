@@ -2249,7 +2249,11 @@ the new names.
   `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
   when the cycle had none. `provider` is 1 when a provider outage stopped
   it. `sig` is the sha256 of the history line's
-  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `step|cap|park_reason|failure_kind|failure_cause`, each field as the store
+  keeps it: its characters outside the field's set, then its first bytes up to
+  the field's bound (`step` 40 of `[A-Za-z0-9_.-]`, `cap` 80 of those and `:`,
+  `park_reason` and `failure_kind` 40 of `[a-z-]`, `failure_cause` 60 of the
+  set of `cap`). Two parks with the same
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.
