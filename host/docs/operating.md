@@ -1074,6 +1074,11 @@ dispatcher's log says so.
    agent asks more than one question in a turn, the comment lists them all,
    numbered, with their choices as text and no box for them: answer them in
    a reply.
+   A turn that ends on an issue a person closed in the meantime is dropped: the
+   poll reads the state before it posts, and a closed issue gets nothing of the
+   turn, its session closes, and one line in the log says
+   `planning #N dropped: the issue is closed`. A state the poll cannot read
+   holds the post to the next poll rather than close the session on no answer.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free
