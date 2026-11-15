@@ -606,15 +606,26 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         .create(true)
         .open(preflight)
         .and_then(|log| Ok((log.try_clone()?, log)));
-    let rc = match opened {
-        Ok((err, log)) => code(
-            bounded(10, install::WAIT, &words)
-                .stdout(log)
-                .stderr(err)
-                .status(),
-        ),
-        Err(_) => 127,
+    // A log that cannot be opened is said as that, with the fault of the
+    // system on it: it is not the install's own failure, and the lines of the
+    // step before it are not quoted as its output (#2227).
+    let (err, log) = match opened {
+        Ok(logs) => logs,
+        Err(e) => {
+            eprintln!(
+                "tehas work: the preflight log {} could not be opened for the product's install ({}), not starting a cycle",
+                preflight.display(),
+                tehas_core::mask::mask(&e.to_string())
+            );
+            return Some(78);
+        }
     };
+    let rc = code(
+        bounded(10, install::WAIT, &words)
+            .stdout(log)
+            .stderr(err)
+            .status(),
+    );
     if rc == 0 {
         return None;
     }
@@ -705,14 +716,27 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         tree,
         &image,
     );
-    let opened = fs::File::create(preflight).and_then(|log| Ok((log.try_clone()?, log)));
-    let Ok((err, log)) = opened else {
-        say("tehas work: the sandbox cannot push to origin, not starting a cycle:");
-        say(&format!(
-            "    the log of the push check could not be made at {}",
-            preflight.display()
-        ));
-        return Some(3);
+    // A name that cannot be opened for append is the host's fault, and no check
+    // that wrote no words of its own records a push fault, so the line names the
+    // file it was given: it is not the 3 of a sandbox that refused to push, and
+    // it is not told as one (#2227). The name is opened for append, and not
+    // made new: the lines the product's install wrote stand in the log of the
+    // start that wrote them, and a start that ran before wrote none.
+    let opened = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(preflight)
+        .and_then(|log| Ok((log.try_clone()?, log)));
+    let (err, log) = match opened {
+        Ok(logs) => logs,
+        Err(e) => {
+            eprintln!(
+                "tehas work: the preflight log {} could not be opened for the push check of the sandbox ({}), not starting a cycle",
+                preflight.display(),
+                tehas_core::mask::mask(&e.to_string())
+            );
+            return Some(78);
+        }
     };
     let rc = code(
         sandbox::give_cycle_token(&mut bounded(10, t.push_wait, &words))
@@ -825,21 +849,70 @@ fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
         .map(|()| words)
 }
 
+/// What to say of a refresh whose read of the conflict check cannot be judged:
+/// a record that holds no pull request, a head that is no commit, or a read of
+/// `merge-tree` that gave no answer. The words say which (#2227).
+pub fn unjudged(head: &str, pr: u64, said: Option<&str>) -> Option<String> {
+    if pr == 0 {
+        return Some("its record holds no pull request".to_string());
+    }
+    if !is_commit(head) {
+        return Some(format!(
+            "the head of the request is no commit ({})",
+            head.chars()
+                .filter(|c| !c.is_control() && !c.is_whitespace())
+                .take(20)
+                .collect::<String>()
+        ));
+    }
+    // The words of the read are the reason already: what it wrote of the sides
+    // it could not merge, or the fault of the read itself.
+    said.map(str::to_string)
+}
+
+/// Whether `head` is the 40 hexadecimal digits of a commit.
+pub fn is_commit(head: &str) -> bool {
+    tehas_core::grammar::is_hex(head, 40, 40)
+}
+
 /// A refresh the image cannot finish when it conflicts: Some(78) when it does,
-/// with the files in state/cycles/<issue>.refresh-conflict. A merge git
-/// cannot judge runs the refresh, as before.
+/// with the files in state/cycles/<issue>.refresh-conflict, and Some(78) for a
+/// record that holds no pull request, which starts no container
+/// either. A merge git cannot judge for a reason it cannot name runs the
+/// refresh, as before, with git's words in the log.
 fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<i32> {
     let of = state.get("refresh").filter(|v| v.is_object())?;
     let pr = of.get("pr").and_then(Value::as_u64).unwrap_or(0);
     let head = of.get("head").and_then(Value::as_str).unwrap_or("");
-    let Some(paths) = conflict::conflicts(tree, &t.branch, head) else {
-        say(&format!(
-            "tehas work: whether pull request #{pr} conflicts with origin/{} could not be read, the refresh runs",
-            t.branch
-        ));
-        return None;
+    // A record that holds no pull request is a record nobody read: an unjudged
+    // refresh is the run the note exists to prevent, and no note is written for
+    // a conflict nobody saw, so it starts no container. The head is left to
+    // git: a head the checkout does not hold is no fault of the record.
+    // A read that cannot be judged stops the start: an unjudged refresh is the
+    // run the note exists to prevent, and no note is written for a conflict
+    // nobody saw. The three ways a read judges nothing are named apart, so the
+    // line says which of them the host is in (#2227).
+    let judged = conflict::conflicts(tree, &t.branch, head);
+    let paths = match judged.paths() {
+        Some(paths) if !paths.is_empty() || judged.judged() => paths,
+        _ => {
+            let why = unjudged(head, pr, judged.said().as_deref()).unwrap_or_default();
+            eprintln!(
+                "tehas work: whether pull request #{pr} conflicts with origin/{} cannot be judged: {why}, not starting a cycle",
+                t.branch
+            );
+            return Some(78);
+        }
     };
     if paths.is_empty() {
+        // A git with no such read of its own is the shape of the host and no
+        // fault of the request: the refresh runs, as it did before a read that
+        // judged nothing could be told from one, and the log says what git said.
+        if let Some(why) = judged.said() {
+            say(&format!(
+                "tehas work: git has no conflict check of its own: {why}, the refresh runs",
+            ));
+        }
         return None;
     }
     let file = home.join(format!("state/cycles/{}.{}", t.issue, conflict::NOTE));
@@ -1189,6 +1262,67 @@ fn run_words(
 mod tests {
     use super::*;
 
+    /// A record that holds no pull request, a head that is no commit, and a
+    /// `merge-tree` that said nothing are each named as unjudged; a read that
+    /// judged a clean merge is not.
+    #[test]
+    fn a_refresh_whose_read_judged_nothing_is_named_by_what_it_lacked() {
+        let head = "a".repeat(40);
+        assert_eq!(
+            unjudged("", 0, None).unwrap(),
+            "its record holds no pull request",
+            "the pull request is named first"
+        );
+        assert_eq!(
+            unjudged("HEAD", 50, None).unwrap(),
+            "the head of the request is no commit (HEAD)"
+        );
+        assert_eq!(
+            unjudged(&head.to_uppercase(), 50, None).unwrap(),
+            format!(
+                "the head of the request is no commit ({})",
+                head.to_uppercase().chars().take(20).collect::<String>()
+            ),
+            "a head of 40 capitals is named by the first 20 of them"
+        );
+        // A read that said a reason of its own names it, whatever the head.
+        assert_eq!(
+            unjudged(&head, 50, Some("git did not answer within 120s")).unwrap(),
+            "git did not answer within 120s",
+            "the words of the read are the reason, said as git said them"
+        );
+        // A head git could not hold at all, and the head of a read that judged a
+        // clean merge, are both judged by the read: nothing to name of them.
+        assert_eq!(unjudged(&head, 50, None), None);
+        assert!(is_commit(&head));
+        assert!(!is_commit(&"a".repeat(41)));
+        assert!(!is_commit(&head[..39]));
+        assert!(!is_commit(&head.to_uppercase()));
+        assert!(!is_commit(""));
+    }
+
+    /// An install that cannot open its preflight log says that, with the path
+    /// and the fault of the system, and stops the start with 78: it is not the
+    /// exit 127 of a program that was not there, and the lines the step before
+    /// it wrote are not quoted as the install's own output (#2227). The words
+    /// of the message are read back by the case in test/work_caps_test.sh.
+    #[test]
+    fn an_install_whose_log_cannot_be_opened_stops_the_start() {
+        let d = tehas_core::testdir::TestDir::new("install-log");
+        // The log of the case is a directory: nothing opens it for append.
+        let preflight = d.join("work-7.jsonl.preflight");
+        fs::create_dir_all(&preflight).unwrap();
+        let step = Step {
+            dir: "extension".into(),
+            tool: "bun".into(),
+            command: "bun install --frozen-lockfile".into(),
+        };
+        assert_eq!(
+            install(&json!({}), "no-such-tree", &[step], &preflight),
+            Some(78)
+        );
+    }
+
     #[test]
     fn a_refusal_note_is_said_only_in_the_words_the_check_wrote() {
         assert_eq!(
@@ -1360,7 +1494,13 @@ mod tests {
             stop: Stop::default(),
         };
         let nowhere = Path::new("/nonexistent/tehas/work.jsonl.preflight");
-        assert_eq!(push_check(&t, &json!({}), "/nonexistent", nowhere), Some(3));
+        // A log that cannot be opened is the host's fault and said in its own
+        // words, with 78 like every other fault of the host: it is not told as a
+        // sandbox that refused to push, and it records no push fault (#2227).
+        assert_eq!(
+            push_check(&t, &json!({}), "/nonexistent", nowhere),
+            Some(78)
+        );
         // The log of a check the host could not run wrote no words of its own,
         // so it names no fault: a filesystem fault is no refusal of a push, and
         // no file is left to make the host look unable to push.
