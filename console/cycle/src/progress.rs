@@ -1,17 +1,26 @@
 //! What a cycle leaves in state/cycles/<issue>.progress.json, and whether a
-//! result is an error only. The file is read by [`crate::runner`].
+//! result is an error only. The watch writes the file at a cycle's end; the
+//! watch's end and the report read it through [`crate::runner::progress_fields`],
+//! and the analytics import (console/analytics/src/run.rs) reads it for the
+//! fields host/docs/analytics.md lists. A change to its shape reaches all three.
 //!
 //! roles and failure come from the issue's entry of a schema 5 result, in the
 //! order the result lists its roles. With no such entry they come from the
 //! progress: the stable dispatch-completed lines, each counted once by its
 //! key, and for the reason the lines the runner marks unstable, which may be
 //! empty. reviewHeld is a stable cap-hit that ended the review on its round cap
-//! and sent the cycle on to ci, so its findings were left open.
+//! and sent the cycle on to ci, so its findings were left open. It always
+//! comes from the progress lines, whatever `from` says of roles and failure.
+//! `from` is `result`, `progress` when there is no result (no file, or a file
+//! with nothing but white space in it, as a runner that printed nothing leaves
+//! the container's stdout), or `bad-result` when the file has something in it
+//! and gives no entry for the issue.
 
 use crate::runner::{self, kept, RESULT_SCHEMA};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 use tehas_core::jq::{obj, J};
 
@@ -32,6 +41,18 @@ fn stream(text: &str) -> Vec<Value> {
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter(|v| v.is_object() && v.get("v").and_then(Value::as_f64) == Some(1.0))
         .collect()
+}
+
+/// How many of the lines of a stream are no JSON, and of how many lines. A
+/// container killed mid-write leaves its last line cut; [`stream`] leaves such
+/// lines out, and this says that it did.
+fn unparsed(text: &str) -> (usize, usize) {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let bad = lines
+        .iter()
+        .filter(|l| serde_json::from_str::<Value>(l).is_err())
+        .count();
+    (bad, lines.len())
 }
 
 /// A number jq would print: whole ones without a point.
@@ -192,25 +213,33 @@ fn from_lines(text: &str) -> Lines {
 }
 
 /// The issue's entry of a schema 5 result. A file of more than one JSON value
-/// is none.
-fn entry(path: &Path, issue: u64) -> Option<J> {
-    if fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
-        return None;
+/// is none. Err(false) when there is no result: no file, or one of nothing but
+/// white space. Err(true) when there is a result and it gives no entry: a
+/// link, an unreadable file, no JSON value, another schema, no issues, or no
+/// entry for `issue`.
+fn entry(path: &Path, issue: u64) -> Result<J, bool> {
+    let m = fs::symlink_metadata(path).map_err(|e| e.kind() != ErrorKind::NotFound)?;
+    if m.file_type().is_symlink() {
+        return Err(true);
     }
-    let text = String::from_utf8_lossy(&fs::read(path).ok()?).into_owned();
-    let r = J::parse(&text)?;
+    let text = String::from_utf8_lossy(&fs::read(path).map_err(|_| true)?).into_owned();
+    if text.trim().is_empty() {
+        return Err(false);
+    }
+    let r = J::parse(&text).ok_or(true)?;
     if !is_number(r.get("schemaVersion"), RESULT_SCHEMA as f64) {
-        return None;
+        return Err(true);
     }
     let entries: Vec<&J> = match r.get("issues") {
         J::Arr(a) => a.iter().collect(),
         J::Obj(o) => o.iter().map(|(_, v)| v).collect(),
-        _ => return None,
+        _ => return Err(true),
     };
     entries
         .into_iter()
         .find(|e| matches!(**e, J::Obj(_)) && is_number(e.get("issue"), issue as f64))
         .cloned()
+        .ok_or(true)
 }
 
 fn is_number(v: &J, n: f64) -> bool {
@@ -266,8 +295,14 @@ fn result_roles(entry: &J) -> J {
 /// when the run has them.
 pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
     let text = fs::read(ndjson).unwrap_or_default();
-    let lines = from_lines(&String::from_utf8_lossy(&text));
-    let entry = result.and_then(|(path, issue)| entry(path, issue));
+    let text = String::from_utf8_lossy(&text);
+    let lines = from_lines(&text);
+    let (bad, of) = unparsed(&text);
+    let (entry, bad_result) = match result.map(|(path, issue)| entry(path, issue)) {
+        Some(Ok(e)) => (Some(e), false),
+        Some(Err(b)) => (None, b),
+        None => (None, false),
+    };
     // The failure of the entry, only when it is an object: a plain get of a
     // missing key is null, which is not a failure.
     let failure = entry
@@ -303,16 +338,24 @@ pub fn summary(ndjson: &Path, result: Option<(&Path, u64)>) -> String {
             },
             "result",
         ),
+        None if bad_result => (lines.roles, lines.reason, J::Null, "bad-result"),
         None => (lines.roles, lines.reason, J::Null, "progress"),
     };
-    obj(vec![
+    let mut fields = vec![
         ("roles", roles),
         ("reason", J::Str(why)),
         ("failure", fail),
         ("reviewHeld", J::Bool(lines.review_held)),
         ("from", from(word)),
-    ])
-    .dump()
+    ];
+    if bad > 0 {
+        let count = |n: usize| J::int(n as i64);
+        fields.push((
+            "unparsed",
+            obj(vec![("lines", count(bad)), ("of", count(of))]),
+        ));
+    }
+    obj(fields).dump()
 }
 
 /// Whether `text` is a schema 5 result with no issue entry at all, as a refusal
@@ -367,7 +410,39 @@ mod tests {
             concat!(
                 r#"{"roles":[{"role":"dev","dispatches":1,"turns":2,"input":3,"output":4,"cacheRead":0},"#,
                 r#"{"role":"driver","dispatches":1,"turns":0,"input":0,"output":0,"cacheRead":0}],"#,
-                r#""reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"}}"#
+                r#""reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"},"#,
+                r#""unparsed":{"lines":1,"of":5}}"#
+            )
+        );
+    }
+
+    #[test]
+    fn a_cut_line_is_counted_and_the_whole_lines_still_answer() {
+        let d = TestDir::new("progress");
+        let log = file(
+            &d,
+            "cut.jsonl",
+            concat!(
+                r#"{"v":1,"kind":"dispatch-completed","key":"k1","event":{"role":"dev","usage":{"turns":2}}}"#,
+                "\n",
+                r#"{"v":1,"unstable":true,"kind":"dispatch-failed","event":{"errorTail":"boom"}}"#,
+                "\n",
+                r#"{"v":1,"kind":"dispatch-comp"#,
+            ),
+        );
+        let s = summary(&log, None);
+        assert!(
+            s.contains(r#""role":"dev","dispatches":1,"turns":2"#),
+            "{s}"
+        );
+        assert!(s.contains(r#""reason":"boom""#), "{s}");
+        assert!(s.ends_with(r#""unparsed":{"lines":1,"of":3}}"#), "{s}");
+        let only = file(&d, "only.jsonl", r#"{"v":1,"kind":"disp"#);
+        assert_eq!(
+            summary(&only, None),
+            concat!(
+                r#"{"roles":[],"reason":"","failure":null,"reviewHeld":false,"#,
+                r#""from":{"roles":"progress","failure":"progress"},"unparsed":{"lines":1,"of":1}}"#
             )
         );
     }
@@ -453,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn another_issue_another_schema_a_link_and_no_file_are_no_result() {
+    fn a_result_that_gives_no_entry_is_a_bad_result_and_no_result_is_progress() {
         let d = TestDir::new("progress");
         let log = file(&d, "f.jsonl", "");
         let other = file(
@@ -471,20 +546,37 @@ mod tests {
             &link,
         )
         .unwrap();
-        for (path, issue) in [
-            (other.as_path(), 7),
-            (link.as_path(), 7),
-            (Path::new("/nothing/here"), 7),
-        ] {
-            assert!(summary(&log, Some((path, issue))).contains(r#""roles":"progress""#));
-        }
+        let two = file(&d, "t.json", "{} {}");
+        let garbage = file(&d, "g.json", "not json");
+        let no_issues = file(&d, "n.json", r#"{"schemaVersion":5,"issues":7}"#);
         let good = file(
             &d,
             "h.json",
             r#"{"schemaVersion":5,"issues":[{"issue":7}]}"#,
         );
-        assert!(summary(&log, Some((&good, 8))).contains(r#""roles":"progress""#));
-        assert!(summary(&log, Some((&good, 7))).contains(r#""roles":"result""#));
+        let from = |w: &str| format!(r#""from":{{"roles":"{w}","failure":"{w}"}}"#);
+        for (path, issue) in [
+            (other.as_path(), 7),
+            (link.as_path(), 7),
+            (two.as_path(), 7),
+            (garbage.as_path(), 7),
+            (no_issues.as_path(), 7),
+            (Path::new(&*d), 7),
+            (good.as_path(), 8),
+        ] {
+            let s = summary(&log, Some((path, issue)));
+            assert!(s.contains(&from("bad-result")), "{path:?} {s}");
+            assert!(s.contains(r#""failure":null"#), "{s}");
+        }
+        // A runner that printed nothing leaves the container's stdout empty.
+        let empty = file(&d, "e.json", "");
+        let blank = file(&d, "b.json", " \n\t\n");
+        for path in [Path::new("/nothing/here"), &empty, &blank] {
+            let s = summary(&log, Some((path, 7)));
+            assert!(s.contains(&from("progress")), "{path:?} {s}");
+        }
+        assert!(summary(&log, None).contains(&from("progress")));
+        assert!(summary(&log, Some((&good, 7))).contains(&from("result")));
     }
 
     #[test]

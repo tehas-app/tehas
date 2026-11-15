@@ -29,6 +29,7 @@ use super::cmd::{asked, dir_exists, Done, Host, Scratch};
 use super::plan::{body, branch_shaped, title, Finished, Plan};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use tehas_core::issue_pull::names_issue;
 
 /// Where the run's repository keeps the workspace's refs: its branches under
 /// `refs/kept/heads/` and its `HEAD` as `refs/kept/HEAD`.
@@ -65,6 +66,20 @@ impl Why {
             }
             self.said = w.chars().take(300).collect();
         }
+        self
+    }
+
+    /// A refusal after the push: the branch stands on the remote, and rule 4
+    /// refuses every later run while it does, so the refusal names it and what
+    /// clears it. The branch is not deleted: gh may have opened the pull request
+    /// even when it said nothing the run could read, and a deleted head would
+    /// close it.
+    fn stands(mut self, pushed: &str) -> Why {
+        self.why = format!(
+            "{}; {pushed} was pushed and stands on the remote: open its pull request \
+             by hand, or delete the branch before finish is asked again",
+            self.why
+        );
         self
     }
 
@@ -342,49 +357,85 @@ pub fn has_commits(count: &str) -> bool {
 /// Only the factory's own count, by the poll's rule: a branch of the repository
 /// that the bot or an allowed account opened. GraphQL is asked because that
 /// rule reads the author's user id, which `gh pr list` does not give.
+///
+/// The list is read to its last page. A page that says more follow but names
+/// no cursor, or more pages than [`PAGES_MAX`], refuses the run: a pull request
+/// beyond the first page names the issue just the same.
 fn open_pull(plan: &Plan, h: &mut dyn Host, pushed: &str) -> Result<Option<String>, Why> {
     let (owner, name) = plan.repo.split_once('/').unwrap_or_default();
-    let out = gh(
-        h,
-        &plan.home,
-        &[
-            "api",
-            "graphql",
-            "-f",
-            &format!("query={OPEN_PULLS}"),
-            "-f",
-            &format!("owner={owner}"),
-            "-f",
-            &format!("name={name}"),
-        ],
-    )
-    .let_say("the open pull requests could not be read")?;
-    let own = own_pulls(&out, plan);
-    Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
+    let mut own = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..PAGES_MAX {
+        let mut args = vec![
+            "api".to_string(),
+            "graphql".to_string(),
+            "-f".to_string(),
+            format!("query={OPEN_PULLS}"),
+            "-f".to_string(),
+            format!("owner={owner}"),
+            "-f".to_string(),
+            format!("name={name}"),
+        ];
+        if let Some(c) = &cursor {
+            args.extend(["-f".to_string(), format!("cursor={c}")]);
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = gh(h, &plan.home, &args).let_say(UNREAD)?;
+        let (mut some, next) = own_pulls(&out, plan).ok_or_else(|| Why::only(UNREAD))?;
+        own.append(&mut some);
+        match next {
+            None => {
+                return Ok(pull_named(&own, pushed).or_else(|| pull_for_issue(&own, plan.issue)))
+            }
+            Some(c) => cursor = Some(c),
+        }
+    }
+    Err(Why::only(format!(
+        "{UNREAD}: more than {PAGES_MAX} pages of them"
+    )))
 }
 
+const UNREAD: &str = "the open pull requests could not be read";
+
+/// The most pages of open pull requests one run reads, 100 to a page.
+pub const PAGES_MAX: usize = 10;
+
 /// The open pull requests, with what `tehas_core::accounts::own_pull` reads.
-const OPEN_PULLS: &str =
-    "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { \
-pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) { \
+const OPEN_PULLS: &str = "query($owner: String!, $name: String!, $cursor: String) { \
+repository(owner: $owner, name: $name) { \
+pullRequests(states: OPEN, first: 100, after: $cursor, \
+orderBy: {field: CREATED_AT, direction: DESC}) { \
+pageInfo { hasNextPage endCursor } \
 nodes { url headRefName body isCrossRepository \
 author { login ...on User { databaseId } ...on Bot { databaseId } } \
 headRepository { nameWithOwner } } } } }";
 
-/// The factory's own pull requests of a GraphQL answer, each account vouched
-/// for as the poll vouches. An answer of no such shape is nothing open: the
-/// call's own failure is what refuses the run.
-pub fn own_pulls(out: &str, plan: &Plan) -> Vec<Value> {
-    let mut v = serde_json::from_str::<Value>(out.trim()).unwrap_or_default();
+/// The factory's own pull requests of one page of a GraphQL answer, each
+/// account vouched for as the poll vouches, and the cursor of the next page
+/// when there is one. None is a page that cannot be read: no list of nodes, no
+/// word on whether more follow, or more said to follow with no cursor.
+pub fn own_pulls(out: &str, plan: &Plan) -> Option<(Vec<Value>, Option<String>)> {
+    let mut v = serde_json::from_str::<Value>(out.trim()).ok()?;
     tehas_core::accounts::vouch(&mut v);
+    let list = v.pointer("/data/repository/pullRequests")?;
     let allowed = |a: &str| plan.allowed.iter().any(|l| l == a);
-    v.pointer("/data/repository/pullRequests/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    let own = list
+        .get("nodes")?
+        .as_array()?
+        .iter()
         .filter(|p| tehas_core::accounts::own_pull(p, &plan.repo, &plan.bot, allowed))
         .cloned()
-        .collect()
+        .collect();
+    let next = match list.pointer("/pageInfo/hasNextPage")?.as_bool()? {
+        true => Some(
+            list.pointer("/pageInfo/endCursor")
+                .and_then(Value::as_str)
+                .filter(|c| !c.is_empty())?
+                .to_string(),
+        ),
+        false => None,
+    };
+    Some((own, next))
 }
 
 /// The URL of one pull request of an answer, when it is an https one.
@@ -402,119 +453,13 @@ pub fn pull_named(pulls: &[Value], branch: &str) -> Option<String> {
     })
 }
 
-/// The URL of the open pull request of issue `n`: one whose head is the issue's
-/// branch as pi-rukas names it, or whose body closes it. None is no such pull
-/// request in the answer.
+/// The URL of the open pull request of issue `n`, by the one rule of
+/// `tehas_core::issue_pull::names_issue`. None is no such pull request in the
+/// answer.
 pub fn pull_for_issue(pulls: &[Value], n: u64) -> Option<String> {
-    let head = format!("feature/issue-{n}");
-    let slug = format!("{head}-");
-    let reference = format!("#{n}");
-    pulls.iter().find_map(|p| {
-        let named = match p.get("headRefName").and_then(Value::as_str) {
-            Some(h) => h == head || (h.starts_with(&slug) && branch_shaped(h)),
-            None => false,
-        };
-        let closes = p
-            .get("body")
-            .and_then(Value::as_str)
-            .is_some_and(|b| closes_issue(b, &reference));
-        (named || closes).then(|| url_of(p)).flatten()
-    })
-}
-
-/// Whether a pull request's body closes the issue: a word of closing, the
-/// reference, and no longer number after it. The reading the shell gave a
-/// jq program, held to the ASCII words the factory's own bodies use. `#70` does
-/// not name 7, and a bare `#7` names nothing.
-pub fn closes_issue(text: &str, reference: &str) -> bool {
-    const WORDS: [&str; 8] = [
-        "closes", "close", "closed", "fixes", "fix", "fixed", "resolves", "resolve",
-    ];
-    let lower = text.to_ascii_lowercase();
-    let bytes = lower.as_bytes();
-    let at = reference.as_bytes();
-    // What may stand after the reference: white space, or the punctuation a body
-    // puts after it, `Fixes #7.` and `Closes #7)` among them. A digit would make
-    // the number longer, `#7` of `#70` being no reference to 7 at all.
-    let ends = |one: u8| {
-        one.is_ascii_whitespace() || matches!(one, b'.' | b',' | b';' | b':' | b')' | b']')
-    };
-    bytes
-        .windows(at.len())
-        .enumerate()
-        .filter(|(_, w)| *w == at)
-        .any(|(i, _)| {
-            if bytes.get(i + at.len()).is_some_and(|one| !ends(*one)) {
-                return false;
-            }
-            // The reference is a word of its own: white space, or one of the
-            // writer's marks, stands before its `#`. Where the `#` is written
-            // against a word, `Fixes#7`, the writer left the number no room and
-            // named nothing.
-            match lower[..i].chars().last() {
-                None => return false,
-                Some(one) if one.is_whitespace() || one == ':' || one == '.' => {}
-                Some(_) => return false,
-            }
-            // The body up to the reference, its trailing white space taken off:
-            // the words that came before the number.
-            let before = lower[..i].trim_end();
-            // The words before the one that closes. A body that negates the
-            // word names no pull request of the issue: `does not fix #7`,
-            // `no test fixes #7` and `never fixed #7` say the pull request does
-            // not close the issue, and one that does not close it is no reason
-            // to refuse a finish. `half-fixed #7` is refused another way: the
-            // word that closes is a word of its own, and what stands before it
-            // leaves no room for one.
-            if negated(before) {
-                return false;
-            }
-            // Where the last word of the body begins: just after the last white
-            // space, or at the body's own beginning.
-            let head = match before.rfind(char::is_whitespace) {
-                Some(k) => k + 1,
-                None => 0,
-            };
-            // A word of closing is a word of its own: only white space, or the
-            // body's own beginning, stands before it. `unfixes #7` is no word.
-            if !before[..head].is_empty() && !before[..head].ends_with(char::is_whitespace) {
-                return false;
-            }
-            // The word of closing, and the one mark a writer may leave on its end:
-            // the colon that sets the number off, `close: #7`, and the period that
-            // ends the body's sentence, `This fixes #7.`. Past the word and that
-            // mark the body goes into nothing else — a letter, `fixesx #7`, would
-            // make the word something the writer never wrote.
-            WORDS.iter().any(|word| {
-                let tail = &before[head..];
-                if !tail.starts_with(*word) {
-                    return false;
-                }
-                if tail.len() - word.len() > 1 {
-                    return false;
-                }
-                match tail[word.len()..].chars().next() {
-                    None => true,
-                    Some(one) => one == ':' || one == '.',
-                }
-            })
-        })
-}
-
-/// Whether the words a body puts before a closing word deny it. The word of
-/// negation is read where the closing word is read: the word before it, the one
-/// before that, or the end of the word before it when a writer wrote it with
-/// `not` contracted onto it. Two words are read because `no test fixes #7` denies the closing
-/// word with a noun of its own: the word of negation stands two back there, and
-/// the noun of its own stands between. A negation further back names another
-/// clause than the one that closes the issue, and leaves the reference standing
-/// — `nothing here, but it fixes #7` is the issue's pull request.
-pub fn negated(before: &str) -> bool {
-    const NO: [&str; 3] = ["not", "no", "never"];
-    before
-        .rsplit(char::is_whitespace)
-        .take(3)
-        .any(|word| NO.contains(&word) || word.ends_with("n't"))
+    pulls
+        .iter()
+        .find_map(|p| names_issue(p, n).then(|| url_of(p)).flatten())
 }
 
 /// Rules 5 and 6: the rebase, the count of what it left, the push, the draft.
@@ -562,7 +507,7 @@ fn rebase_push_open(
     if !push.ok() {
         return Err(Why::new(format!("{pushed} could not be pushed")).said(&push));
     }
-    draft(plan, h, pushed, scratch)
+    draft(plan, h, pushed, scratch).map_err(|w| w.stands(pushed))
 }
 
 /// The draft pull request, and the URL gh prints for it.

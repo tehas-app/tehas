@@ -374,6 +374,15 @@ pub fn order(calls: &mut Calls) -> Value {
     }
 }
 
+/// approval-hosts: the host's approvals that wait for a start, or
+/// `{"failed": true}`.
+pub fn hosts(calls: &mut Calls) -> Value {
+    match calls.store(&["approval-hosts"]) {
+        Ok(v) if v.get("waiting").is_some_and(Value::is_array) => get(&v, "waiting"),
+        _ => json!({"failed": true}),
+    }
+}
+
 /// cycle-show --running: each running cycle's record as running_starts
 /// reads it, Err with the store's failure.
 pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {
@@ -418,8 +427,9 @@ pub fn owed(calls: &mut Calls, which: &str) -> Value {
 }
 
 /// The shape of `store approval-view`: the approval of the issue's latest start as the
-/// readers of approval-view have it. Null for none.
-pub(crate) fn approval_shape(v: &Value) -> Option<Value> {
+/// readers of approval-view have it. Null for none. The dispatch tests read it
+/// too, so the world of a case shapes its approval as the poll's own read does.
+pub fn approval_shape(v: &Value) -> Option<Value> {
     let c = v.get("current")?;
     if c.is_null() {
         return Some(Value::Null);

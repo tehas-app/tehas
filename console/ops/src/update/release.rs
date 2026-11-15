@@ -30,6 +30,9 @@ const API_LIMIT: u32 = 60;
 const DOWNLOAD_LIMIT: u32 = 600;
 /// docker image inspect and docker tag.
 const DOCKER_LIMIT: u32 = 180;
+/// The target's own settings check, and how much of what it says is read.
+const SETTINGS_LIMIT: u32 = 120;
+const SETTINGS_SAID: usize = 64 * 1024;
 /// The name of the image a version ran with.
 const IMAGE_TAG: &str = "tehas/pi-rukas:release-";
 
@@ -617,24 +620,50 @@ fn not_set(said: &str) -> Vec<String> {
         .collect()
 }
 
+#[derive(Debug, PartialEq)]
+enum Held {
+    Yes,
+    Missing,
+    /// The check gave no answer in time, or said more than is read: what it
+    /// asks for is not known.
+    Unanswered,
+}
+
 /// The rules of the version about to run, not of the one running now: its own
 /// lib/config.sh, as a shell runs it. A setting it asks for that the instance
 /// lacks is named with the value the release's example gives it.
-fn settings_hold(tree: &Path) -> bool {
-    let (rc, said) = crate::store::merged(
-        Command::new("bash")
+fn settings_hold(tree: &Path, seconds: u32) -> Held {
+    let (rc, said, cut) = crate::store::merged_up_to(
+        timed(seconds, "bash")
             .args([
                 "-c",
                 ". \"$1/lib/config.sh\" && tehas_load && tehas_require_instance_settings",
                 "_",
             ])
             .arg(tree),
+        SETTINGS_SAID,
     );
-    if rc == 0 {
-        return true;
-    }
     let said = said.trim_end_matches('\n');
+    // A cut text may have lost the line that names a missing setting.
+    if cut {
+        tell(&format!(
+            "settings: {}/lib/config.sh said more than {} KiB; its check is taken as failed",
+            tree.display(),
+            SETTINGS_SAID / 1024
+        ));
+        return Held::Unanswered;
+    }
+    if rc == 0 {
+        return Held::Yes;
+    }
     tell(said);
+    if rc == 124 || rc == 137 {
+        tell(&format!(
+            "settings: {}/lib/config.sh gave no answer in {seconds}s",
+            tree.display()
+        ));
+        return Held::Unanswered;
+    }
     let example = fs::read(tree.join("instances/example/instance.env")).unwrap_or_default();
     let example = String::from_utf8_lossy(&example);
     for name in not_set(said) {
@@ -642,7 +671,7 @@ fn settings_hold(tree: &Path) -> bool {
             tell(&format!("  example: {line}"));
         }
     }
-    false
+    Held::Missing
 }
 
 /// The TEHAS_ keys an instance.env assigns, sorted, each once.
@@ -669,21 +698,35 @@ fn keys_of(text: &str) -> Vec<String> {
     keys
 }
 
-/// The TEHAS_ keys of instance.env that <tree> never names.
-fn unknown_keys(tree: &Path) -> Vec<String> {
-    let file = PathBuf::from(instance_dir()).join("instance.env");
-    let text = fs::read(file).unwrap_or_default();
-    keys_of(&String::from_utf8_lossy(&text))
-        .into_iter()
-        .filter(|key| {
-            let mut cmd = Command::new("grep");
-            cmd.args(["-rqsw", "--", key]);
-            for part in ["bin", "libexec", "lib", "host", "install.sh", "instances"] {
-                cmd.arg(tree.join(part));
-            }
-            !cmd.status().is_ok_and(|s| s.success())
-        })
-        .collect()
+/// The TEHAS_ keys of instance.env that <tree> never names, and those it
+/// could not be searched for: a grep that failed is not a key that is unknown.
+fn unknown_keys(tree: &Path, env_file: &Path) -> (Vec<String>, Vec<String>) {
+    let text = fs::read(env_file).unwrap_or_default();
+    // A part a release does not have is not searched, so it is no error.
+    let parts: Vec<PathBuf> = ["bin", "libexec", "lib", "host", "install.sh", "instances"]
+        .iter()
+        .map(|part| tree.join(part))
+        .filter(|path| fs::symlink_metadata(path).is_ok())
+        .collect();
+    let (mut unknown, mut unread) = (Vec::new(), Vec::new());
+    for key in keys_of(&String::from_utf8_lossy(&text)) {
+        if parts.is_empty() {
+            unread.push(key);
+            continue;
+        }
+        let status = Command::new("grep")
+            .args(["-rqsw", "--", &key])
+            .args(&parts)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match status.ok().and_then(|s| s.code()) {
+            Some(0) => {}
+            Some(1) => unknown.push(key),
+            _ => unread.push(key),
+        }
+    }
+    (unknown, unread)
 }
 
 /// A new link renamed over the old one, so current is never missing. The
@@ -961,16 +1004,34 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             return rc;
         }
     }
-    if !settings_hold(&tree) {
-        tell(&format!(
-            "settings: {target} asks for settings this instance does not have; nothing was switched"
-        ));
-        return 78;
+    match settings_hold(&tree, SETTINGS_LIMIT) {
+        Held::Yes => {}
+        Held::Missing => {
+            tell(&format!(
+                "settings: {target} asks for settings this instance does not have; nothing was switched"
+            ));
+            return 78;
+        }
+        Held::Unanswered => {
+            tell(&format!(
+                "settings: {target} did not say whether this instance has its settings; nothing was switched"
+            ));
+            return 1;
+        }
     }
-    for key in unknown_keys(&tree) {
+    let (unknown, unread) =
+        unknown_keys(&tree, &PathBuf::from(instance_dir()).join("instance.env"));
+    for key in unknown {
         tell(&format!(
             "WARN: {}/instance.env sets {key}, which {target} does not know",
             instance_dir()
+        ));
+    }
+    if !unread.is_empty() {
+        tell(&format!(
+            "WARN: {} could not be searched for {}; whether {target} knows them is not checked",
+            tree.display(),
+            unread.join(", ")
         ));
     }
     if !switch(host, &target) {
@@ -1462,6 +1523,65 @@ mod tests {
             Some("TEHAS_NEW_KNOB=1")
         );
         assert_eq!(example_line("TEHAS_NEW_KNOBS=1\n", "TEHAS_NEW_KNOB"), None);
+    }
+
+    fn config(d: &super::super::testing::Dir, body: &str) {
+        d.file(
+            "lib/config.sh",
+            &format!("tehas_load() {{ :; }}\ntehas_require_instance_settings() {{ {body}; }}\n"),
+        );
+    }
+
+    #[test]
+    fn the_targets_settings_check_holds_or_names_what_is_missing() {
+        let d = dir("settings-hold");
+        config(&d, "true");
+        assert_eq!(settings_hold(&d.0, 30), Held::Yes);
+        config(&d, "echo 'tehas: TEHAS_NEW_KNOB is not set' >&2; return 78");
+        assert_eq!(settings_hold(&d.0, 30), Held::Missing);
+    }
+
+    #[test]
+    fn a_settings_check_that_never_stops_talking_is_no_answer() {
+        let d = dir("settings-loud");
+        config(&d, "yes 'tehas: TEHAS_A is not set'");
+        let started = std::time::Instant::now();
+        assert_eq!(settings_hold(&d.0, 60), Held::Unanswered);
+        assert!(started.elapsed().as_secs() < 30, "{:?}", started.elapsed());
+        // Exiting 0 after too many words is no answer either.
+        config(&d, "head -c 100000 /dev/zero | tr '\\0' x; return 0");
+        assert_eq!(settings_hold(&d.0, 60), Held::Unanswered);
+    }
+
+    #[test]
+    fn a_settings_check_that_does_not_answer_in_time_is_no_answer() {
+        let d = dir("settings-slow");
+        config(&d, "sleep 30");
+        let started = std::time::Instant::now();
+        assert_eq!(settings_hold(&d.0, 1), Held::Unanswered);
+        assert!(started.elapsed().as_secs() < 20, "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn a_key_is_unknown_only_when_the_tree_could_be_searched() {
+        let d = dir("unknown-keys");
+        let env_file = d.file("instance.env", "TEHAS_KNOWN=1\nTEHAS_GONE=2\n");
+        // Only lib/ is there: the parts a release lacks are not an error.
+        d.file("tree/lib/config.sh", "TEHAS_KNOWN\n");
+        let tree = d.0.join("tree");
+        let found = unknown_keys(&tree, &env_file);
+        assert_eq!(found, (vec!["TEHAS_GONE".to_string()], vec![]));
+        // A tree with nothing to search is not read as every key unknown.
+        let empty = d.0.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let found = unknown_keys(&empty, &env_file);
+        assert_eq!(
+            found,
+            (
+                vec![],
+                vec!["TEHAS_GONE".to_string(), "TEHAS_KNOWN".to_string()]
+            )
+        );
     }
 
     #[test]

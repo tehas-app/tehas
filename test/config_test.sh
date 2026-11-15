@@ -26,11 +26,11 @@ t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENS
 t_eq "$t_out" "acme/widget test-model 1"
 
 t_case "a gate gets thirty minutes unless the instance says otherwise, and pi-rukas is told in milliseconds"
-t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
-t_eq "$t_out" "1800 1800000 1800000"
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS'"
+t_eq "$t_out" "1800 1800000 1800000 1800000"
 t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=600
-t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
-t_eq "$t_out" "600 600000 600000"
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS'"
+t_eq "$t_out" "600 600000 600000 600000"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a workaround is named with the release that fixes it, and only a setting the instance has"
@@ -497,14 +497,19 @@ for bad in "TEHAS_EASY_MERGE=yes" "TEHAS_EASY_MERGE=2"; do
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-t_case "the overlap hold is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
+t_case "the overlap hold is gone: its setting is refused unless blank, and says what holds an issue instead"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_OVERLAP_HOLD]\""
-t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OVERLAP_HOLD=2 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_OVERLAP_HOLD is not valid"
+t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
+t_eq "$t_out" "[unset]"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
+t_eq "$t_out" "[unset]"
+for v in 0 1; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$v" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_OVERLAP_HOLD is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out"
+done
 
 t_case "read-only is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1634,7 +1639,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "51a211b26d30b39ccb7b818a6717fed5633fdf2236bd119b6c20e18351d1b1cf"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "41b983b0bac937cb24a4f415288805a06d2bfd412b251939349d4d18220d7a6f"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

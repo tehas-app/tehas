@@ -258,6 +258,12 @@ compute on the issue.
 - To start it ahead of other ready issues, put it first in the start order:
   `tehas order set --issues N`. The order only sorts; the issue still needs
   its `tehas:ready`. See [tehas order](/api#tehas-order).
+- On the host, `tehas start N` approves issue N in place of the label, as
+  the host and not as a GitHub account. The next poll starts it under every
+  rule above and below, and the record, the start comment, `tehas history`
+  and `tehas status` say it was started from the host. `tehas start N
+  --clear` takes the approval back while no cycle has used it. See
+  [tehas start](/api#tehas-start).
 
 The factory works on open issues only. A closed issue is never taken, and the
 number of a pull request is never taken, open, merged or closed. A label does
@@ -325,7 +331,7 @@ The dispatcher takes the ready issues of the start order first, in the order giv
 
 An issue with an open native blocked-by link is not started, whatever label asks for it: add the link under the issue's **Relationships** on GitHub ("Mark as blocked by"). The page each poll reads carries the count of open blockers (`issueDependenciesSummary`), so the hold costs no call of its own, and the log says `wait #N: a blocked-by link holds it: 1 blocker is open`. A link only holds an issue back. It never starts one: once every blocker is closed the issue starts under the usual approval rules, so `tehas:ready` from an allowed labeller, or a `tehas:blocked` whose marked comment counts, is still needed. Apply `tehas:ready` with the link and the issue starts when its last blocker closes. A link and a marked comment both hold: the issue waits while either names an open blocker. A forge that answers no such field holds nothing by links, and the marked comment below is all that names blockers there.
 
-With `TEHAS_OVERLAP_HOLD=1` on the instance an issue also waits while a running cycle's branch changes a path its body names in a `[paths: ...]` list. A named file holds on a change to that file, and a named directory, one that ends in `/`, on a change to any file under it; a ` (new)` after a path is ignored. The branches are the running issue's `feature/issue-N`, `feature/issue-N-*` and `finish/issue-N` as the dispatcher's own checkout last fetched them, compared with the default branch there. Git is never run in a cycle's workspace, so a cycle's first run, which has pushed no branch yet, holds nothing. The log says `wait #N: a running cycle on #M changes lib/a.sh`, nothing is said on the issue, and the issue starts at the first poll after that cycle ends or its branch stops changing the path. A branch that cannot be read holds nothing, and the log says `#N starts unchecked for overlap: the changes of the running cycle on #M could not be read`; a body with no paths list holds nothing either. The setting is off unless the instance turns it on.
+To keep two issues that change the same files apart, hold one of them out of the start order: `tehas order set --only --issues 12,15` lets only #12 and #15 start and holds every other ready issue, #14 among them, so a host that runs the factory leaves #14 out until #12's pull request is merged and then names it again.
 
 The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
@@ -350,7 +356,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; `tehas tidy` and `tehasbot status` give it |
+| `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; the poll's tidy and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -606,7 +612,9 @@ record. A poll with no `starts` on its row is not one of them.
 `--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
 out, each figure a whole number of at most 9 digits: the answer gains `"over":
 [...]`, the names of the figures whose median was over its budget, and without
-`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`--budget` the answer has no `over`. When `over` is not empty the answer also
+has `"over_polls": {...}`, how many of those polls were over each of its
+figures on their own. `tehasbot health` calls the verb with
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see
 [`tehasbot health`](/tools-health#tehasbot-health).
@@ -652,26 +660,28 @@ Each finding of the six-pass review has a severity: CRITICAL, HIGH, MEDIUM or
 LOW. Which severity stops a cycle is the product's decision, not the reviewer's
 and not pi-rukas's. pi-rukas reads it from the product repository's doctrine
 (`AGENTS.md`, or `CLAUDE.md` when the product has one), at the commit the cycle
-started from, so a cycle cannot lower its own bar mid-run. For this repository
-the bar is MEDIUM and above, decided in the platform repository's
-`docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
-file on a host. A finding at the bar or above sends the change back to a fix
-step and the review runs again, up to two rounds from pi-rukas v0.14.49 (three
-before it). Only LOW findings may be
+started from, so a cycle cannot lower its own bar mid-run. Where the doctrine
+states none, pi-rukas takes its own default, which is HIGH from v0.14.50 and was
+MEDIUM up to v0.14.49. This repository's `AGENTS.md` states no bar, because rule
+7 gives that file to a person, so a cycle here blocks at HIGH: pi-rukas's
+default is what applies today. The bar the platform repository decided is
+recorded in `docs/adr/0002-review-severity-policy.md`, a record in the source
+rather than a file on a host; the ADR still names MEDIUM, the bar of the
+pi-rukas release that defaulted to it, so a person updating it to HIGH and
+adding the sentence below to `AGENTS.md` is what makes the decided bar the one a
+cycle reads. A finding at the bar or above sends the change
+back to a fix step and the review runs again, up to two rounds from pi-rukas
+v0.14.49 (three before it). Only LOW findings may be
 deferred: they are notes on the pull request and start no fix round. A CRITICAL
 finding blocks whatever the bar says.
 
-`AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
-that file to a person, so a cycle's log still records the verdict as `unstated`
-and takes pi-rukas's default. That default is MEDIUM up to pi-rukas v0.14.49 and
-HIGH from v0.14.50, so on v0.14.50 a cycle here blocks at HIGH, not at the
-MEDIUM the record decided, until a person adds the sentence. Once the sentence
-is there the log names the bar it quoted, whatever the release's default. The
-sentence has to be one pi-rukas can read: one sentence that names the bar with a
-relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
+The sentence `AGENTS.md` has to carry is one pi-rukas can read: one sentence
+that names the bar with a relation, `This repository blocks at HIGH severity and
+above.` pi-rukas takes
 the severity out of the sentence the judge quotes and checks that sentence
 against the file word for word, so a paraphrase that names the severities
 without the relation is a silent no-op and the cycle takes the default again.
+While the sentence is missing a cycle's log records the verdict as `unstated`.
 
 An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
 wins over what the product says (see [Commands](/tools#instance-settings)).
@@ -987,7 +997,14 @@ or the handoff comment, and whether the failure was GitHub's. GitHub's is an
 HTTP 5xx, a 429, a 403 that names a rate limit, a timeout or a connection
 error. Any other 4xx, such as a 422 or a 403 for a missing permission, is the
 request's own, and so is a failure that names none of these. A later cycle of
-the issue replaces the record, or removes it when its end failed nothing.
+the issue replaces the record, or removes it when its end failed nothing. A
+record with a field missing or of the wrong type does not read: the poll tries
+nothing on it and `tehas status` does not list it. A record the report cannot
+write, or an earlier one it cannot remove, is `ERROR: the failed end of #N is
+not on record: <why>` or `ERROR: the failed end of an earlier cycle of #N is
+still on record: <why>`, where the why names the file and the error, and the
+cycle ends with exit 70 rather than 0: without the record the poll tries
+nothing and `tehas status` shows nothing.
 
 The push and the pull request are made in the cycle's container, so the host
 knows of their failure only from the cycle's own result. The record says so
@@ -1057,6 +1074,11 @@ dispatcher's log says so.
    agent asks more than one question in a turn, the comment lists them all,
    numbered, with their choices as text and no box for them: answer them in
    a reply.
+   A turn that ends on an issue a person closed in the meantime is dropped: the
+   poll reads the state before it posts, and a closed issue gets nothing of the
+   turn, its session closes, and one line in the log says
+   `planning #N dropped: the issue is closed`. A state the poll cannot read
+   holds the post to the next poll rather than close the session on no answer.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free
@@ -1233,7 +1255,7 @@ store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
 or as not done, and never made again. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
-wait, at most six times a poll; `tehasbot status` and `tehas tidy` follow the
+wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
 error by words of a fixed list only (`HTTP 502`, `rate limit`, `timed out`),
 and goes on `~/tehas/state/github-failures`, the record of the last ten
@@ -1292,7 +1314,10 @@ block.
 the issue's text and the issue brief, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
 one issue that a single `/work` cycle finishes: one behaviour change, about one
-or two code files and one test file. A session files one issue, so for a larger request the planner files
+or two code files and one test file. When the refine brief is missing or
+cannot be read, no session starts and the dispatcher logs an ERROR line that
+names it; the next poll tries again. A session files one issue, so for a
+larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
@@ -1574,6 +1599,15 @@ recording, and both commands then say so and exit 69.
   nor does its backup where there is one. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back.
+- No new cycle while the sandbox cannot push. A start whose push check is
+  refused leaves `~/tehas/state/push-fault.json` (see
+  [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
+  while that file is younger than ten minutes the poll starts no cycle and
+  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
+  every ready issue does not fail the same check in turn. Past ten minutes the
+  poll starts as it does today, and the start whose check passes takes the
+  file off again. Running cycles, planning turns and refreshes are not held by
+  it: what a refresh pushes already stands on the remote.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
@@ -1649,7 +1683,8 @@ recording, and both commands then say so and exit 69.
   start as before, so an outage at GitHub does not stop the factory; the log
   says why it could not tell, once each time that changes.
 
-The review cap, the new pi-rukas, the room, the pressure and a red branch hold back cycles
+The review cap, the new pi-rukas, the room, the pressure, a red branch and a
+sandbox that cannot push hold back cycles
 only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
@@ -1658,8 +1693,10 @@ changes, and `released: cycles may start again` once when it ends.
 
 ### The gate's bound and the cycles at once
 
-`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, and how long a
-run takes depends on how many cycles share the host. Each container's quota
+`TEHAS_VERIFY_TIMEOUT` bounds one run of the product's gate, the whole gate
+on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
+which tehas sets from it). How long a run takes depends on how many cycles
+share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
 with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:
@@ -2217,7 +2254,11 @@ the new names.
   `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
   when the cycle had none. `provider` is 1 when a provider outage stopped
   it. `sig` is the sha256 of the history line's
-  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `step|cap|park_reason|failure_kind|failure_cause`, each field as the store
+  keeps it: its characters outside the field's set, then its first bytes up to
+  the field's bound (`step` 40 of `[A-Za-z0-9_.-]`, `cap` 80 of those and `:`,
+  `park_reason` and `failure_kind` 40 of `[a-z-]`, `failure_cause` 60 of the
+  set of `cap`). Two parks with the same
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.
@@ -2268,6 +2309,14 @@ such a request waits or a refresh runs. A request without
 written before it was turned off: the dispatcher's log says `hold refreshes:
 TEHAS_REFRESH_CONFLICTS is not 1` once, it is not counted in the demand, and
 the demand's `refreshHold` names the setting only while such a request waits.
+As the timed run is off then, the dispatcher sweeps such a request itself at
+each poll, whatever the room: it is dropped, with `drop the refresh of #N:
+<why>` in the log, once its request cannot be read, its issue is closed or
+no longer carries the labels below, or its pull request is not open, moved,
+no longer conflicts or is no longer one the rule keeps. One whose issue or
+pull request could not be read this poll stays. When the last such request
+goes, `refreshHold` clears in that poll. `tehas api` lists the feature
+`refresh-pr-sweep`.
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
@@ -2492,7 +2541,12 @@ its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
 Skips the queue, the labels and the comments:
 
 ```
-tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123            # exit 0 merged; 10, 11, 20, 21, 30 or 40 are the runner's own:
+                          # handoff, handoff for clarification, aborted, interrupted,
+                          # a crash or its time limit, refused to start. 2 means this
+                          # command stopped it as stalled or at the limit, or the runner
+                          # ended without a result
+                          # (see tehas work: console/cycle/src/work.rs)
 tehas work 123 --restart
 ```
 

@@ -19,7 +19,7 @@ check() { # <json file>: the lines test/schema.jq prints for it
 t_case "the schema is JSON Schema 2020-12 and allows unknown fields at the top and in each element"
 t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
 t_eq "$(jq -c '[.. | objects | select(has("additionalProperties"))] | length' "$schema")" 0
-jq '.later = 1 | .notices[0].later = 1 | .ticketNotes[0].later = {}' "$api/host-bridge.full.json" >"$T/more.json"
+jq '.later = 1 | .ticketNotes[0].later = 1 | .menu[0].later = {}' "$api/host-bridge.full.json" >"$T/more.json"
 t_eq "$(check "$T/more.json")" ""
 
 for name in full bare; do
@@ -57,25 +57,18 @@ jq '.host = "two\nlines"' "$api/host-bridge.full.json" >"$T/bad.json"
 t_contains "$(check "$T/bad.json")" '.host: "two\nlines" does not match'
 
 t_case "the check finds each element's breach"
-jq '.notices[0].id = "Big" | .notices[1].level = "loud" | .notices[2].text = ""
-    | .notices[0].link = "http://x.example/" | .ticketNotes[0].issue = 0
+jq '.ticketNotes[0].issue = 0
     | .ticketNotes[1].issue = 1000000000 | .ticketNotes[2].text = ("t" * 61)
     | .ticketNotes[2].link = "javascript:1"' "$api/host-bridge.full.json" >"$T/bad.json"
 out=$(check "$T/bad.json")
-t_contains "$out" '.notices[0].id: "Big" does not match'
-t_contains "$out" '.notices[1].level: "loud" is not one of'
-t_contains "$out" ".notices[2].text: shorter than 1"
-t_contains "$out" '.notices[0].link: "http://x.example/" does not match'
 t_contains "$out" ".ticketNotes[0].issue: 0 is under 1"
 t_contains "$out" ".ticketNotes[1].issue: 1000000000 is over 999999999"
 t_contains "$out" ".ticketNotes[2].text: longer than 60"
 t_contains "$out" '.ticketNotes[2].link: "javascript:1" does not match'
 
-t_case "the check finds more notices or notes than a list holds"
-jq '.notices = [range(6) | {id: "n-\(.)", level: "info", text: "x"}]
-    | .ticketNotes = [range(201) | {issue: (. + 1), text: "x"}]' "$api/host-bridge.full.json" >"$T/bad.json"
+t_case "the check finds more notes than a list holds"
+jq '.ticketNotes = [range(201) | {issue: (. + 1), text: "x"}]' "$api/host-bridge.full.json" >"$T/bad.json"
 out=$(check "$T/bad.json")
-t_contains "$out" ".notices: more than 5 items"
 t_contains "$out" ".ticketNotes: more than 200 items"
 
 t_case "an answer that still carries tokens fits the schema: the field is unknown now and ignored"
@@ -107,10 +100,11 @@ done
 t_eq "$(grep -l 'serviceWorker.register\|navigator.serviceWorker.register' "$T_ROOT"/host/fun/*.js "$T_ROOT"/host/fun/*.html | wc -l)" 0
 t_contains "$(cat "$T_ROOT/host/fun/host-bridge.js")" "r.unregister()"
 
-t_case "the notices sit beside the alerts banner on both front pages, hidden until there is one"
-for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
-  t_eq "$(grep -A1 'id="industry-alerts"' "$page" | grep -c 'id="host-notices"[^>]* hidden></section>')" 1
-done
+t_case "an answer that still carries notices fits the schema, and no page or module draws them"
+jq '.notices = [{id: "n-1", level: "loud", text: ""}]' "$api/host-bridge.full.json" >"$T/old.json"
+t_eq "$(check "$T/old.json")" ""
+t_eq "$(jq -c '.properties | has("notices")' "$schema")" false
+t_eq "$(grep -c 'host-notice\|drawNotices\|notices' "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html" "$T_ROOT/host/fun/host-bridge.js" "$T_ROOT/host/fun/panels.css" | awk -F: '{n += $2} END {print n}')" 0
 
 t_case "tehas api lists the feature host-bridge and no longer host-bridge-tokens, and the manual names it"
 t_contains "$(cat "$T_ROOT/console/src/api.rs")" '"host-bridge",'

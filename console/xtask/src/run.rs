@@ -723,7 +723,7 @@ impl Pool<'_> {
     }
 
     /// Start one check, recorded under <key>. Err is the message of a record
-    /// directory that cannot be made.
+    /// directory that cannot be made or of a task that cannot be started.
     fn run(&mut self, key: &Path, out: &Path, cmd: &[&std::ffi::OsStr]) -> Result<(), String> {
         if let Some(dir) = key.parent() {
             if fs::create_dir_all(dir).is_err() {
@@ -750,8 +750,14 @@ impl Pool<'_> {
             .args(cmd)
             .current_dir(self.root)
             .spawn();
-        if let Ok(c) = child {
-            self.running.push(c);
+        // A task that did not start wrote no record of its own, and a record
+        // already at <key> would read as its result: the run stops here instead.
+        match child {
+            Ok(c) => self.running.push(c),
+            Err(e) => {
+                let rel = key.strip_prefix(out).unwrap_or(key);
+                return Err(format!("test.sh: cannot start {}: {e}", rel.display()));
+            }
         }
         while self.running.len() as u128 >= self.jobs || (!self.running.is_empty() && self.busy()) {
             self.wait_one();
@@ -991,9 +997,10 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
         }
     }
 
+    // Not a pass: the caller says it ran nothing instead of "ok".
     if !ran && given.any() && skipped.is_empty() {
         putln("test.sh: no test file and no linted script among the paths given");
-        return 0;
+        return 3;
     }
     if !ran {
         eprintln!("test.sh: nothing could be checked");

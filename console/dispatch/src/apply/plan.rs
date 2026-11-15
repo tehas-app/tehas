@@ -701,10 +701,40 @@ impl Writer {
     /// reply-only question. The file needs no journal row because a document
     /// is written whole and renamed, so a reader sees one or the other, and
     /// what a half-written sibling leaves behind is not read at all.
+    ///
+    /// The issue's state is read first: a turn that ends on a closed issue is
+    /// dropped, since everything this function does is a write to an issue that
+    /// no longer takes one.
     pub(super) fn plan_post(&mut self, n: u64, log: &mut Vec<String>) -> bool {
         let Some((show, kept)) = self.plan_show(n, log) else {
             return false;
         };
+        // The issue is read before anything of the turn is written. A turn that
+        // ends after a person closed its issue would otherwise post its plan,
+        // its open points or its boxes onto a closed issue and put
+        // `tehas:question` back on it for the tidy to take off again. The
+        // session goes the way `plan_close` ends one whose record is gone: the
+        // issue holds nothing of the turn, and the files beside it go with it.
+        // A read that answers nothing holds the post rather than closing a
+        // session on an answer GitHub did not give.
+        match self.issue_state(n) {
+            Some(state) if state != "OPEN" => {
+                if !self.plan_close(n, log) {
+                    return false;
+                }
+                log.push(format!(
+                    "planning #{n} dropped: the issue is closed, so nothing of its turn was posted"
+                ));
+                return true;
+            }
+            Some(_) => {}
+            None => {
+                log.push(format!(
+                    "WARN: the state of #{n} could not be read before its planning turn was posted; the next poll tries again"
+                ));
+                return false;
+            }
+        }
         let p = show.get("planning").cloned().unwrap_or(Value::Null);
         let turns = p.get("turns").and_then(Value::as_u64).unwrap_or(0);
         let comment = match p.get("comment_id") {
@@ -1412,6 +1442,24 @@ impl Writer {
         self.say(n, &tehas_core::text::disarm(said), log);
         log.push(format!("planning #{n} ended"));
         true
+    }
+
+    /// The issue's state as `gh issue view` answers it, None when it did not
+    /// answer, or answered no state.
+    fn issue_state(&mut self, n: u64) -> Option<String> {
+        let repo = self.repo.clone();
+        self.calls
+            .gh(&[
+                "issue",
+                "view",
+                &n.to_string(),
+                "--repo",
+                &repo,
+                "--json",
+                "state",
+            ])
+            .ok()
+            .and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_string))
     }
 
     /// plan_close: the session ended on record, and its files gone.

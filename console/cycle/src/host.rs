@@ -30,13 +30,19 @@ use crate::runner;
 ///                 the cycle's start was written by this cycle. An older one is
 ///                 a cycle that never reported, and its log is read for nothing.
 ///   nostart       one line: the container's exit status, 1 to 999, plain
-///                 digits. Anything else is no note. Left only when the
+///                 digits. Other text, or a link, is no note, and tehasbot
+///                 cycle says so; a file that could not be read is the note
+///                 with its status not known. Left only when the
 ///                 container was watched to its end, wrote neither a result nor
 ///                 a line of its stream, and nobody stopped it. It says no runner
 ///                 started, as opposed to one that died part way; tehasbot cycle
 ///                 makes the cap runner-never-started of it. Memory kills are
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
+///   refused       why tehas work's check refused the start with 78: a first
+///                 line `caps-unreadable <exit>`, `caps-lacking` or
+///                 `tree-not-ours`, then for `caps-lacking` one line for each
+///                 thing the image lacks (src/prepare.rs).
 ///   refresh-conflict  tehas work's 78 was for a refresh whose pull request
 ///                 conflicts, on an image that cannot finish one: JSON naming
 ///                 the pull request, the branch and the files (src/conflict.rs).
@@ -50,13 +56,14 @@ use crate::runner;
 ///   disk          `cap <held> <max>` or `floor <held> <free> <floor>`, in
 ///                 bytes, then the step in flight: tehas work stopped the
 ///                 cycle for its scratch's disk (src/scratch.rs).
-pub const FILES: [&str; 16] = [
+pub const FILES: [&str; 17] = [
     "result.json",
     "progress.json",
     "runner_exit",
     "status",
     "nostart",
     "lean-refused",
+    "refused",
     "refresh-conflict",
     "comments",
     "oom",
@@ -88,7 +95,8 @@ pub struct Start {
     pub status_args: Vec<String>,
 }
 
-/// A file as the facts hold it: its text, {"link": true}, or nothing.
+/// A file as the facts hold it: its text, {"link": true}, {"unreadable": true}
+/// for a regular file whose read failed, or nothing.
 ///
 /// A protocol file is read whole, and its size decides nothing. A file is
 /// seen or not seen, as `[ -f ]` sees it: the result of a multi-issue run, with
@@ -104,8 +112,10 @@ fn file(p: &Path) -> Option<Value> {
     if !m.is_file() {
         return None;
     }
-    let b = fs::read(p).ok()?;
-    Some(Value::String(String::from_utf8_lossy(&b).into_owned()))
+    match fs::read(p) {
+        Ok(b) => Some(Value::String(String::from_utf8_lossy(&b).into_owned())),
+        Err(_) => Some(json!({"unreadable": true})),
+    }
 }
 
 /// A failed call of the store: its word, and its line for a log.
@@ -198,9 +208,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["history"] = store(home, &["history-show", &n]).unwrap_or_else(|w| json!({"error": w}));
-    if let Some(state) =
-        crate::last_attempt::state(Path::new(f["workdir"].as_str().unwrap_or("")), issue)
-    {
+    if let Some(state) = work_state(&workdir, issue) {
         f["work_state"] = state;
     }
     let (id, _) = crate::report::record_image(&f["record"], s.attempt);
@@ -208,6 +216,17 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         f["image_built"] = json!(built(&id));
     }
     f
+}
+
+/// The work state of the issue in the workspace `workdir`, read only when it
+/// is an absolute path: a relative one, as an unset TEHAS_WORK_DIR leaves,
+/// would read the current directory as if it were the workspace.
+fn work_state(workdir: &str, issue: u64) -> Option<Value> {
+    let w = Path::new(workdir);
+    if !w.is_absolute() {
+        return None;
+    }
+    crate::last_attempt::state(w, issue)
 }
 
 /// The newest run log as the facts hold it: its name and its text, of a log
@@ -263,6 +282,34 @@ mod tests {
     use tehas_core::testdir::TestDir;
 
     #[test]
+    fn the_work_state_is_read_only_from_an_absolute_workspace() {
+        let d = TestDir::new("host-work-state");
+        let ws = d.join("w-7");
+        fs::create_dir_all(ws.join(".pi/work-state")).unwrap();
+        fs::write(ws.join(".pi/work-state/7.json"), "{\"step\":\"ci\"}").unwrap();
+        let abs = ws.to_str().unwrap();
+        assert_eq!(work_state(abs, 7), Some(serde_json::json!({"step": "ci"})));
+        // The same tree named relative to the current directory, as an
+        // unset TEHAS_WORK_DIR gives "-7": refused, not read from the cwd.
+        let cwd = std::env::current_dir().unwrap();
+        let rel = pathdiff(&ws, &cwd);
+        assert!(Path::new(&cwd)
+            .join(&rel)
+            .join(".pi/work-state/7.json")
+            .is_file());
+        assert_eq!(work_state(&rel, 7), None);
+        assert_eq!(work_state("", 7), None);
+        assert_eq!(work_state("-7", 7), None);
+    }
+
+    /// `p` relative to `base`, by as many `..` as `base` is deep.
+    fn pathdiff(p: &Path, base: &Path) -> String {
+        let ups = base.components().count() - 1;
+        let back = "../".repeat(ups);
+        format!("{back}{}", p.strip_prefix("/").unwrap().display())
+    }
+
+    #[test]
     fn each_name_of_files_is_a_cycle_note() {
         for name in FILES {
             assert!(tehas_core::cycle_notes::is_note(name), "{name}");
@@ -294,6 +341,20 @@ mod tests {
             format!("{{\"handoffBody\":\"{body}\"}}\n")
         );
         assert_eq!(file(&d.join("7.stopped")), None);
+    }
+
+    #[test]
+    fn a_protocol_file_that_cannot_be_read_says_unreadable_not_absent() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = TestDir::new("host-file-unreadable");
+        let p = d.join("7.stalled");
+        fs::write(&p, "600\ndevelop\n").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads it anyway; there is nothing to see then.
+        if fs::read(&p).is_err() {
+            assert_eq!(file(&p), Some(json!({"unreadable": true})));
+        }
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]

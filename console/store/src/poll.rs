@@ -28,7 +28,9 @@
 //!     record. A row with no --starts on it is unknown and is left out.
 //!     --budget is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any key
 //!     left out, and the answer gains `"over": [...]`, the names whose median
-//!     is over its budget; with no --budget there is no `over`.
+//!     is over its budget; with no --budget there is no `over`. When `over`
+//!     is not empty, `"over_polls": {name: n}` says for each of its names how
+//!     many of those polls were over that budget on their own.
 
 use crate::verbs::{self, j, line, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
@@ -421,7 +423,14 @@ fn idle(home: &Path, i: &Idle, now: i64) -> Result<String, Fail> {
             pairs.push(("writes", j(median(&writes))));
             &writes[..]
         };
-        pairs.push(("over", j(over_of(i.budget.as_ref(), &[&cpu, &wall, kinds]))));
+        let figures: [&[i64]; 3] = [&cpu, &wall, kinds];
+        let over = over_of(i.budget.as_ref(), &figures);
+        pairs.push(("over", j(over.clone())));
+        if let (Some(b), Some(over)) = (i.budget.as_ref(), over) {
+            if !over.is_empty() {
+                pairs.push(("over_polls", over_polls(b, &over, &figures)));
+            }
+        }
         Ok(line("poll-idle", &pairs))
     })
 }
@@ -442,6 +451,21 @@ fn over_of(b: Option<&Budget>, figures: &[&[i64]]) -> Option<Vec<&'static str>> 
             .map(|((name, _, _), _)| *name)
             .collect(),
     )
+}
+
+/// For each name in `over`, how many of the idle polls were over that budget
+/// on their own. `figures` is in the order of [`BUDGETS`].
+fn over_polls(b: &Budget, over: &[&str], figures: &[&[i64]]) -> String {
+    let counts: Vec<(&str, String)> = BUDGETS
+        .iter()
+        .zip(figures)
+        .filter(|((name, _, _), _)| over.contains(name))
+        .filter_map(|((name, get, _), all)| {
+            let limit = (get)(b)?;
+            Some((*name, j(all.iter().filter(|v| **v > limit).count() as i64)))
+        })
+        .collect();
+    obj(&counts)
 }
 
 /// `ageMin` of the API's poll object: whole minutes since the poll ended,
