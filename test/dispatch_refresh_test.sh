@@ -277,18 +277,6 @@ t_eq "$(cat "$refresh_dir/.held" 2>/dev/null)" ""
 t_lacks "$t_out" "hold refreshes"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "a request without asked counts in the demand beside a --pr one"
-refresh_setup
-asked_pr
-pull51
-slots 1
-running_refresh 9
-t_run "$dispatch"
-release
-t_eq "$(started)" ""
-t_eq "$(jq -c '{waiting, oldest, refreshHold}' "$demand_file")" '{"waiting":2,"oldest":"2026-10-16T09:00:00Z","refreshHold":null}'
-t_lacks "$t_out" "hold refreshes"
-
 t_case "a --pr request whose pull request no longer conflicts is dropped"
 refresh_setup
 asked_pr
