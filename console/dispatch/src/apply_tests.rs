@@ -222,6 +222,7 @@ fn world() -> World {
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        looked: Default::default(),
     };
     World {
         dir,
@@ -608,7 +609,7 @@ fn a_pull_request_without_the_mark_is_unmarked_already() {
 }
 
 #[test]
-fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
+fn a_call_that_does_not_answer_in_its_bound_is_unknown() {
     let mut t = world();
     t.fail("gh", "slow");
     // Past it is the timeout the test asks for. The stub answers after the
@@ -616,8 +617,12 @@ fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
     t.w.bound = Duration::from_millis(200);
     t.slow_after(1);
     let a = t.apply(json!([{"issue": 7, "say": "slow words"}]));
-    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
-    assert!(t.calls().last().unwrap().ends_with("--result timed-out"));
+    // #1754: GitHub may have taken it, so it is read before it is sent again.
+    assert_eq!(
+        a.log,
+        vec!["WARN: the comment on #7 may have been posted; the next poll reads it before it is sent again"]
+    );
+    assert!(t.calls().last().unwrap().ends_with("--result unknown"));
 }
 
 #[test]
@@ -5039,6 +5044,103 @@ fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
     t.w.settle(1792000010, &mut log);
     assert!(log[0].contains("did not happen (no comment of the bot with its text is there)"));
     assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+}
+
+/// #1754: the park's tell as a poll sends it, and the row the store would keep
+/// for it once its post was answered with a 5xx: `unknown`, attempted, open.
+fn park_tell() -> Value {
+    json!([{"issue": 4, "park_told": true, "say": "Not started."}])
+}
+
+fn unknown_tell(id: u64) -> Value {
+    use sha2::{Digest, Sha256};
+    let sum: String = Sha256::digest(b"Not started.")
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    json!({"id": id, "kind": "comment-post", "issue": 4, "state": "unknown",
+        "intended_at": 1792000000, "attempted_at": 1792000000,
+        "args": {"repo": "example-owner/example-product",
+            "gh": ["issue", "comment", "4", "--repo", "example-owner/example-product", "--body-file", "-"],
+            "input": {"sha256": sum, "bytes": 12}}})
+}
+
+fn gh_comments(t: &World) -> usize {
+    t.calls()
+        .iter()
+        .filter(|c| c.starts_with("gh issue comment"))
+        .count()
+}
+
+#[test]
+fn a_write_github_took_but_answered_with_a_5xx_is_not_sent_again() {
+    let mut t = world();
+    t.fail("gh", "issue comment|HTTP 502");
+    let a = t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(
+        settled(&t)[0].ends_with("--result unknown"),
+        "{:?}",
+        settled(&t)
+    );
+    // Not told: the tell is not on record until a read says it was posted.
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
+    assert!(
+        a.log.iter().any(|l| l.contains("may have been posted")),
+        "{:?}",
+        a.log
+    );
+    // The next poll: GitHub had taken it. The read settles it done, and the
+    // poll that decides the tell again records it and sends nothing.
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    left_open(&t, json!([unknown_tell(1)]));
+    fs::write(
+        t.dir.join("comments"),
+        json!([{"id": 41, "body": "Not started.", "user": {"login": "tehas-bot"},
+        "created_at": "2026-10-15T00:00:00Z"}])
+        .to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 1 (comment-post on #4, 10s old) was done"]
+    );
+    t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
+}
+
+#[test]
+fn an_unknown_write_a_read_cannot_settle_is_not_sent() {
+    let mut t = world();
+    left_open(&t, json!([unknown_tell(1)]));
+    t.fail("gh", "comments");
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert!(log[0].contains("could not be settled"), "{log:?}");
+    assert!(settled(&t).is_empty());
+    let a = t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 0);
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
+    assert!(
+        a.log.iter().any(|l| l.contains("may have been posted")),
+        "{:?}",
+        a.log
+    );
+}
+
+#[test]
+fn an_unknown_write_a_read_finds_missing_is_sent_once() {
+    let mut t = world();
+    left_open(&t, json!([unknown_tell(1)]));
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(settled(&t), ["store journal-settle --action 1 --abandoned"]);
+    t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
 }
 
 #[test]

@@ -657,6 +657,15 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
+- A write that timed out or that GitHub answered with a 5xx may have reached
+  GitHub, so the report reads it back before it tries again: a comment by its
+  text, a label by name. Found, it is done. Not found, it is sent again with
+  the tries it has left; a park question that was not found gets the plain
+  park comment, as a refused one does. Only when that read fails too does the
+  write stay as it is: its row stays open as `unknown`, the report logs
+  `WARN: a write on #N may have been posted`, a park question is not followed
+  by the plain park comment, and a handoff comment is not recorded as a failed
+  end. The first poll after the cycle reads the row and settles it.
 - Bodies go to gh on standard input, not as an argument.
 - A call to GitHub has a bound of two minutes.
 
@@ -1268,7 +1277,14 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A read of GitHub that failed on a bad
+or as not done, and never made again. A write that timed out, or that GitHub
+answered with a 5xx, may have reached GitHub: its row is left open as
+`unknown`, the log says `may have been posted`, and the next poll reads it the
+same way before anything is sent again. What the read finds decides the write
+when the poll decides it again: found done, it is done and not sent (a park
+tell or a hold's note is then on record as said); not found, it is abandoned
+and the poll sends it once; a read that failed leaves the row open and the
+write is not sent that poll. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's

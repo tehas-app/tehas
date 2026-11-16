@@ -594,7 +594,7 @@ impl Writer {
             ];
             let why = match self.write(pr, "refresh-begin", args, None, None) {
                 Wrote::Done(_) => None,
-                Wrote::Failed(why) => Some(why),
+                Wrote::Failed(why) | Wrote::Unknown(why) => Some(why),
                 Wrote::Unrecorded => {
                     log.push(Writer::unrecorded(pr));
                     Some(String::new())

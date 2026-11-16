@@ -789,6 +789,9 @@ JSON answer:
   [`tehas order`](/api#tehas-order) sets; `store check` counts 24 tables
   after it. The step to 13 rebuilds `cycles` so its `how` may say `host`,
   a start [`tehas start`](/api#tehas-start) approved, and keeps every row.
+  The step to 16 rebuilds the action journal's `actions` so a write may be
+  kept as `unknown`, one GitHub may have taken that a poll reads before it
+  is sent again, and keeps every action.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
