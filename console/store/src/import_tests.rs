@@ -669,6 +669,53 @@ fn a_park_with_no_retry_owes_none_and_an_id_with_no_park_is_no_question() {
     assert!(moved(&h, "park-8.id"));
 }
 
+/// A park with no reason of its own takes the history status through
+/// `END_REASONS`, so it cannot hold a word the cycle row beside it rejects.
+fn park_reason_from_history(status: &str) -> (String, String) {
+    let h = host(&format!("park-reason-{status}"));
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    put(
+        &h,
+        "cycles/7.history.jsonl",
+        &line("2026-10-14T11:00:00Z", start + 1, status),
+        start + 3600,
+    );
+    put(
+        &h,
+        "cycles/7.park",
+        &format!(r#"{{"cap":"","provider":false,"retry":false,"started":{start}}}"#),
+        start + 3601,
+    );
+    import_ok(&h);
+    let reason = ok(&h, &["park-show", "7"])["park"]["reason"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let end_reason: String = conn(&h)
+        .query_row("SELECT end_reason FROM cycles WHERE issue = 7", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    (reason, end_reason)
+}
+
+#[test]
+fn a_park_with_no_reason_of_its_own_takes_unknown_from_a_status_beyond_the_words() {
+    assert_eq!(
+        park_reason_from_history("abort"),
+        ("unknown".to_string(), "unknown".to_string())
+    );
+}
+
+#[test]
+fn a_park_with_no_reason_of_its_own_keeps_a_status_that_is_an_end_reason() {
+    assert_eq!(
+        park_reason_from_history("stalled"),
+        ("stalled".to_string(), "stalled".to_string())
+    );
+}
+
 #[test]
 fn quiet_notes_and_secret_settings_move_without_rows() {
     let h = host("quiet");
