@@ -26,7 +26,8 @@ The pass is the console's (`~/tehas/libexec/console protolab run`,
 label, the downloads, the zips through `libexec/attach`, the pages and the
 dashboard's file. It escapes what came from GitHub, puts together every figure
 of a page, and reads the attachment links of a ticket, by the one regular
-expression of `console/attach/src/given.rs`. The command beside it keeps the settings and
+expression of `console/attach/src/link.rs`, the one the attachment checker and the
+dispatcher read links by. The command beside it keeps the settings and
 the GitHub App's token, and refuses with exit 78 when no console stands beside
 it. Each call of gh is held to 30 seconds. A console with other bytes builds
 every page once more.

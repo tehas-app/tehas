@@ -19,6 +19,7 @@
 //! literal, and so is short: what keeps it out of the pattern is its length.
 
 use crate::file::read_regular;
+use crate::secret::secret_name;
 use regex::{Captures, Regex};
 use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
@@ -32,8 +33,10 @@ fn regex(pattern: &str) -> Regex {
 
 static URL_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?i)([a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@"));
+// `NAME=value` where the name is secret by crate::secret::secret_name.
 static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-    regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL)[A-Z0-9_]*=)\S+")
+    let words = crate::secret::NAME_WORDS.join("|");
+    regex(&format!(r"(?-u:\b)([A-Z0-9_]*(?:{words})[A-Z0-9_]*=)\S+"))
 });
 // A name that ends in one of these words, in any case, then `=` or `:`, as in
 // a shell, a YAML file or JSON (`"apiKey": "..."`). The value ends where a
@@ -246,16 +249,6 @@ fn model_key_values(text: &str) -> Vec<String> {
 
 // A shorter value would mask ordinary words.
 const SHORTEST_SECRET: usize = 8;
-
-// The words an environment setting's name must hold for its value to count as
-// a secret. models.json gives the names of its keys itself, so the rule is
-// only the environment's.
-fn secret_name(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
-    ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"]
-        .iter()
-        .any(|w| name.contains(w))
-}
 
 /// The secret values: those of the environment whose names say they are
 /// secret, and the literals of models.json, which name themselves. Both are

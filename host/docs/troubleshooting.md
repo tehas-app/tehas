@@ -455,7 +455,7 @@ does: `. ~/tehas/env.sh; gh api repos/<owner>/<name> --jq .full_name`.
   were running keep their commits in `~/tehas/work/<name>-<n>` but could not
   push: apply `tehas:ready` to them again once the factory runs.
 - `Bad credentials` (401): the token in `~/.config/tehas/env` expired or was
-  revoked. With an app, run `tehasbot github-token --check`: it says whether
+  revoked. With an app, run `tehas github check`: it says whether
   the key, the installation and the repository are right.
 - With an app, `the GitHub App's key is not readable`: the key is not at
   `~/.config/tehas/github-app.pem`, or not readable by the tehas user.

@@ -91,6 +91,17 @@ fn inputs(caps: &Value) -> Vec<Regex> {
         .collect()
 }
 
+/// The names in `names` that are no input a host may set, families matched as
+/// `unsupported` matches them. Every name when the answer cannot be read.
+pub fn not_inputs<'a>(text: &str, names: &[&'a str]) -> Vec<&'a str> {
+    let ok = answer(text).map(|caps| inputs(&caps)).unwrap_or_default();
+    names
+        .iter()
+        .filter(|n| !ok.iter().any(|re| re.is_match(n)))
+        .copied()
+        .collect()
+}
+
 fn version(caps: &Value, path: &[&str], want: u64, what: &str) -> Option<Option<String>> {
     let got = dig(caps, path)?;
     if is_num(Some(got), want) {

@@ -30,6 +30,7 @@ tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
 tehas start <issue> [--clear]    # approve an issue for a start, from the host
+tehas refresh --pr N [--json]    # ask for the refresh of pull request N
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas freeze <issue> [--reason R]  # hold a running cycle still, its clocks stopped
 tehas thaw <issue>               # let a frozen cycle go on
@@ -42,6 +43,7 @@ tehas state load --from <file>   # fill a drained factory's empty store from one
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
 tehas mcp key                    # a new key for the read-only MCP server
+tehas github check|writes        # the GitHub App's token, its writes of the day
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -57,11 +59,12 @@ of `bootstrap.sh dev` runs the first) and the Rust programs it builds (the
 console, analytics, the MCP server, the state store, the attachment checker,
 `tehas-dispatch` and `tehas-cycle`). The two commands only choose one and run
 it, and exit with its status. `tehas status`, `tehas disk`, `tehas top`,
-`tehas dev` and `tehas mcp key` need no settings, and `tehasbot mcp key` and
-`tehasbot github-writes` are verbs too.
+`tehas dev`, `tehas mcp key` and `tehas github writes` need no settings, and
+`tehasbot mcp key` and `tehasbot github-writes` are verbs too.
 The verbs
 that do, `tehas state`, `limit`, `pause`, `analytics`, `stop`, `init-product` and
-`tehasbot health`, `clean`, `preview`, `protolab`, `refresh` among them, run
+`tehas refresh`, `tehas github check`, `tehasbot health`, `clean`, `preview`
+and `protolab` among them, run
 under `console run`, which checks the arguments, loads the settings, requires
 what the command cannot run without and runs it (`console/src/run.rs`), and so
 do `tehas dispatch`, `plan`, `check-product` and `tehasbot dispatch`, `review`
@@ -120,7 +123,7 @@ default, or an example where there is none.
 | `TEHAS_MILLWRIGHT_LOGIN`        | the app's login                          | Not a setting. The millwright is the bot, the login in `~/tehas/state/github/login`, or the app `TEHAS_MILLWRIGHT_APP` names, whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never one of `TEHAS_ALLOWED_LABELERS`, in either form. A line in `instance.env` prints a warning and is ignored |
 | `TEHAS_MILLWRIGHT_APP`          | empty                                    | Optional. The login of a second GitHub App, `<slug>[bot]`, that the factory trusts as [its millwright](/operating#the-millwrights-grant) in place of its own app. The factory still acts as its own app; only the millwright's grant moves. A value that is not `<slug>[bot]` stops every command with 78. Empty: the millwright is the factory's own app |
 | `TEHAS_CYCLE_LOGIN`             | refused                                  | Not a setting. The login of the account a cycle's token belonged to, which a host needed when a cycle ran as a second account with `GH_CYCLE_TOKEN`. The factory acts as one GitHub App and a cycle's pull requests are the app's own, so a line for this name stops every command with 78 and says `TEHAS_CYCLE_LOGIN is no longer used: the factory acts as a GitHub App.` Take the line out and run `tehas setup --new-app`. See [Moving a host that used a token](/github-app#moving-a-host-that-used-a-token) |
-| `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehasbot github-token](/tools-github#tehasbot-github-token)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` each print a warning and are ignored |
+| `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehas github check](/tools-github#tehas-github-check)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` each print a warning and are ignored |
 | `TEHAS_GITHUB_RENEW_EVERY`      | `300`                                    | Optional. How many seconds apart the app's tokens are renewed while a cycle, a planning turn or a session runs. A positive whole number of seconds: `5m` is refused, and more than `540` is taken as `540`, so a token is renewed before it has ten minutes left. A cycle whose renewer cannot start is not started |
 | `TEHAS_OWNER`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
@@ -579,7 +582,7 @@ hand)` and `## scripts/test.sh` stay here.
 | [tehasbot and tehasbot cycle](/tools-tehasbot) | The command the units run, and one cycle for one issue with its report. |
 | [The console, health, energy and top](/tools-health) | The files that feed the dashboard, and what watches the host's health, its models and its load. |
 | [The Protolab](/tools-protolab) | The page of a prototype. |
-| [The GitHub commands of tehasbot](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
+| [The GitHub commands](/tools-github) | Asking for refreshes, the App's tokens, and the writes of the last day. |
 | [tehasbot clean and tehasbot preview](/tools-clean) | What the cleaner removes and when, and the preview of every pull request. |
 | [tehas update, install.sh and bootstrap.sh](/tools-update) | Bringing a host up to date, installing one, and preparing a fresh one. |
 | [Releases and polyfills](/tools-releases) | The tarball, its notes, its pins and the workflow that makes it, and the polyfills of pi-rukas features. |

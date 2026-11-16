@@ -548,6 +548,28 @@ fn a_cut_never_splits_a_character() {
     assert_eq!(out["console"], "\nlast line\n");
 }
 
+// The console is masked as a log is, and a secret cut at the start of the
+// tail is masked with the line it is on before the cut.
+#[test]
+fn the_console_tail_is_masked() {
+    let c = copy("console-mask");
+    let tail = "0123456789abcdef\nlast line\n";
+    std::fs::write(
+        c.join("console-7.txt"),
+        format!("first\nexport DB_PASSWORD=zyxwvutsrq{tail}"),
+    )
+    .unwrap();
+    let out = call(&c, "factory_console", &json!({"issue": 7})).unwrap();
+    let text = out["console"].as_str().unwrap();
+    assert_eq!(text, "first\nexport DB_PASSWORD=***\nlast line\n");
+    let bytes = tail.len() as u64;
+    let out = call(&c, "factory_console", &json!({"issue": 7, "bytes": bytes})).unwrap();
+    let text = out["console"].as_str().unwrap();
+    assert!(text.len() <= tail.len(), "{text}");
+    assert!(!text.contains("0123"), "{text}");
+    assert!(text.ends_with("***\nlast line\n"), "{text}");
+}
+
 #[test]
 fn a_console_file_is_opened_only_by_its_own_name() {
     for name in [

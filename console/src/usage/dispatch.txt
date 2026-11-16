@@ -100,7 +100,7 @@ Rules, in order:
      start", the retry rule 4a makes and a park of a run by hand all start as
      they did.
   4b. A refresh request, state/refresh/<issue>.json from
-     tehasbot refresh --pr N, starts a cycle that merges the branch into the
+     tehas refresh --pr N, starts a cycle that merges the branch into the
      bot's pull request of that issue and pushes to the same branch, on the
      word of the person whose approval the pull request's cycle rests on.
      Only with a sandbox image whose pi-rukas takes --continue-pr; otherwise
