@@ -221,13 +221,18 @@ USER root
 COPY npm/playwright/package.json npm/playwright/package-lock.json /opt/pin/playwright/
 # Browsers live outside any home directory so every user can read them.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN cd /opt/pin/playwright \
+# The base sets HOME=/home/vscode and USER root keeps it, so npm's cache would
+# land in the cycle user's home owned by root, and the cycle's own npm would
+# fail on it with EACCES. It goes to /tmp and is removed with the step.
+RUN export npm_config_cache=/tmp/npm-cache \
+ && cd /opt/pin/playwright \
  && echo "${PLAYWRIGHT_LOCK_SHA256}  package-lock.json" | sha256sum -c - \
  && node -e 'const v=process.argv[1], p=require("./package.json"), l=require("./package-lock.json"); if (p.dependencies.playwright !== v || l.packages[""].dependencies.playwright !== v || l.packages["node_modules/playwright"].version !== v) { console.error("sandbox: the Playwright pin is not " + v); process.exit(1) }' "$PLAYWRIGHT_VERSION" \
  && npm ci --ignore-scripts --no-fund --no-audit \
  && ./node_modules/.bin/playwright install --with-deps --only-shell chromium \
  && chmod -R a+rX /opt/ms-playwright \
- && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
+ && rm -rf /var/lib/apt/lists/* /tmp/npm-cache /opt/pin \
+ && if [ -e /home/vscode/.npm ] && [ -n "$(find /home/vscode/.npm -user root -print -quit)" ]; then echo "sandbox: /home/vscode/.npm holds files of root" >&2; exit 1; fi
 
 # gh reads the GitHub App's token the host keeps fresh, when the host gives the
 # container that directory (host/sandbox/gh-shim). The image's own gh stays at
