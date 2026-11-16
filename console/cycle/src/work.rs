@@ -18,6 +18,8 @@
 //! lean the flags are the work-lean verb's, the features leanHandoffHost and
 //! leanDeadline, and workLeanResultSchema is 5; an image without them leaves
 //! state/cycles/<issue>.lean-refused and never runs classic in lean's place.
+//! A lean restart passes no --restart: work-lean takes none, and every cycle is
+//! a fresh clone with no lean state to discard.
 //! A refresh, a start whose approval record has how "refresh", passes
 //! --continue-pr (pi-rukas#1468): the cycle checks out the issue's open pull
 //! request, merges the branch into it and pushes to the same branch. An image
