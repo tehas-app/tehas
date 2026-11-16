@@ -321,8 +321,8 @@ longer the `image` the health read: an update built it after the last status
 run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
-`checks.industry` is `{version}` of the tehas-industry that runs this factory,
-from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
+`checks.industry` is `{version}` of the industry that runs this factory,
+from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which that industry writes.
 A factory that runs on its own has no `checks.industry`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.

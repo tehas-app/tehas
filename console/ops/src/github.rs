@@ -607,11 +607,39 @@ fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");
 }
 
-fn reaches(answer: &[u8], repo: &str) -> bool {
+/// Repositories asked for in one page of GET /installation/repositories.
+const PER_PAGE: usize = 100;
+/// Pages read before giving up: 10,000 repositories.
+const MAX_PAGES: usize = 100;
+
+/// What one page of the installation's repositories says: `Some(true)` when it
+/// names `repo`, `Some(false)` when it does not and no page follows, `None`
+/// when the next page has to be read.
+fn reaches(answer: &[u8], repo: &str) -> Option<bool> {
     let answer: Value = serde_json::from_slice(answer).unwrap_or_default();
-    answer["repositories"]
-        .as_array()
-        .is_some_and(|all| all.iter().any(|r| r["full_name"] == repo))
+    let all = answer["repositories"].as_array();
+    if all.is_some_and(|all| all.iter().any(|r| r["full_name"] == repo)) {
+        return Some(true);
+    }
+    match all {
+        Some(all) if all.len() >= PER_PAGE => None,
+        _ => Some(false),
+    }
+}
+
+/// Whether the token's installation reaches `repo`, read page by page; None
+/// when a page cannot be read.
+fn reaches_any(token: &str, repo: &str) -> Option<bool> {
+    for page in 1..=MAX_PAGES {
+        let url = format!(
+            "{}/installation/repositories?per_page={PER_PAGE}&page={page}",
+            api()
+        );
+        if let Some(said) = reaches(&curl(token, &[], &url)?, repo) {
+            return Some(said);
+        }
+    }
+    Some(false)
 }
 
 fn check(app: &App, dir: &Path, lookup: &Path, token: &str) -> u8 {
@@ -631,12 +659,11 @@ fn check(app: &App, dir: &Path, lookup: &Path, token: &str) -> u8 {
         .and_then(|until| until.parse().ok())
         .map_or_else(|| "an expiry that cannot be read".to_string(), time::iso);
     say(&format!("token good until {until}"));
-    let url = format!("{}/installation/repositories?per_page=100", api());
-    let Some(answer) = curl(token, &[], &url) else {
+    let Some(found) = reaches_any(token, &repo) else {
         eprintln!("tehas github-token: the token could not list its repositories");
         return 1;
     };
-    if !reaches(&answer, &repo) {
+    if !found {
         eprintln!(
             "tehas github-token: the app's installation does not reach {repo}; install the app on it"
         );
@@ -965,10 +992,23 @@ mod tests {
     #[test]
     fn the_repository_is_found_by_its_whole_name() {
         let answer = br#"{"repositories":[{"full_name":"acme/widget"}]}"#;
-        assert!(reaches(answer, "acme/widget"));
-        assert!(!reaches(answer, "acme/other"));
-        assert!(!reaches(br#"{"repositories":[]}"#, "acme/widget"));
-        assert!(!reaches(b"not json", "acme/widget"));
+        assert_eq!(reaches(answer, "acme/widget"), Some(true));
+        assert_eq!(reaches(answer, "acme/other"), Some(false));
+        assert_eq!(
+            reaches(br#"{"repositories":[]}"#, "acme/widget"),
+            Some(false)
+        );
+        assert_eq!(reaches(b"not json", "acme/widget"), Some(false));
+    }
+
+    #[test]
+    fn a_full_page_without_the_repository_asks_for_the_next() {
+        let names: Vec<_> = (0..PER_PAGE)
+            .map(|i| serde_json::json!({ "full_name": format!("acme/r{i}") }))
+            .collect();
+        let page = serde_json::to_vec(&serde_json::json!({ "repositories": names })).unwrap();
+        assert_eq!(reaches(&page, "acme/widget"), None);
+        assert_eq!(reaches(&page, "acme/r42"), Some(true));
     }
 
     #[test]

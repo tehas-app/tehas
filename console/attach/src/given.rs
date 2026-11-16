@@ -10,6 +10,7 @@
 //! change the bytes of every program of the workspace, so the entries a manifest
 //! keeps from an earlier one go through [`Ordered`].
 
+use crate::link::is_link;
 use regex::Regex;
 use serde::de::{DeserializeOwned, Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
@@ -23,18 +24,9 @@ use std::sync::LazyLock;
 pub type Refused = (&'static str, String);
 type Why = &'static str;
 
-/// Only GitHub's own storage: nothing else is ever fetched for an issue. The
-/// dispatcher reads links by the same rule, and a test holds the two the same.
-///
-/// No part of the path past the folder is `.` or `..`, nor holds an escaped
-/// `.`, `/` or `\`, so no link names a place outside the folder, however a
-/// client or GitHub reads it. A link that does ends before that part.
-pub const LINK_RULE: &str = r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*(?:/\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*)*";
-
 pub const CUT_LINK: usize = 512;
 pub const MOST_LEFT: usize = 100;
 
-static LINK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(LINK_RULE).unwrap());
 static AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9T:.Z-]+\z").unwrap());
 static BY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]+\z").unwrap());
 static HOW: LazyLock<Regex> =
@@ -110,24 +102,6 @@ fn shown(v: &Value) -> String {
 
 pub fn cut(s: &str, most: usize) -> String {
     s.chars().take(most).collect()
-}
-
-/// `links == [.]`: one link of GitHub's storage and nothing else.
-pub fn is_link(s: &str) -> bool {
-    LINK_RE
-        .find(s)
-        .is_some_and(|m| m.start() == 0 && m.end() == s.len())
-}
-
-/// The links of a text, each once, in the order written.
-pub fn text_links(text: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for m in LINK_RE.find_iter(text) {
-        if !out.iter().any(|have| have == m.as_str()) {
-            out.push(m.as_str().to_string());
-        }
-    }
-    out
 }
 
 fn matches(re: &Regex, v: &Value) -> bool {
@@ -630,7 +604,8 @@ pub fn left_out_manifest(
     let by = shown(&approval["by"]);
     let none = format!("gives a cycle none ({given}): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set");
     let manifest = format!(
-        r#"{{"issue":{issue},"images":{images},"approval":{{"at":{},"by":{},"how":{}}},"leftOut":[{left}],"leftOutMore":{more}{},"linksUnavailable":{}}}"#,
+        r#"{{"version":{},"issue":{issue},"images":{images},"approval":{{"at":{},"by":{},"how":{}}},"leftOut":[{left}],"leftOutMore":{more}{},"linksUnavailable":{}}}"#,
+        crate::manifest::VERSION,
         approval["at"],
         approval["by"],
         approval["how"],
