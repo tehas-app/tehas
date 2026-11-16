@@ -41,6 +41,7 @@ If you are here to do something, it is probably one of four things. Pick the
 section that fits.
 
 Every manual page is also served as Markdown: add `.md` to its address.
+The whole manual in one text is at {{ $base }}/llms-full.txt.
 Everything on this host is read-only. Nothing here changes a ticket or the
 factory.
 
