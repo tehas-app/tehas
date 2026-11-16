@@ -860,9 +860,10 @@ It refuses, in one line on standard error and with the store as it was:
 
 - a factory that is not drained, or where a cycle or a planning turn runs;
 - a store that holds history: a row of a cycle, a planning turn, an approval,
-  a park, a question, an ending or an action. The poll's samples and caches,
-  which a drained factory still writes, are not history, and the copy's
-  replace them;
+  a park, a question, an ending, an action or an outsourced job. The poll's
+  samples and caches, which a drained factory still writes, are not history,
+  and the copy's replace them, as its contractors and invite codes replace
+  the store's;
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
 - a copy of a newer schema than this release reads, naming both numbers.
@@ -870,7 +871,7 @@ It refuses, in one line on standard error and with the store as it was:
 A copy of an older schema is brought forward by the same steps an update runs
 on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
-transaction: the store's file is not replaced, because the readers of a
+transaction, the outsource tables and whether the feature is on with them: the store's file is not replaced, because the readers of a
 drained factory, the dashboard and the poll, hold it open. A failure rolls the
 transaction back.
 

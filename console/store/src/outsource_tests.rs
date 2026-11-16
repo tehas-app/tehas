@@ -1520,3 +1520,70 @@ fn a_job_refers_to_an_issue_the_store_holds_and_the_row_is_the_record() {
     }
     assert!(sql.contains("lost_reason"), "{sql}");
 }
+
+/// Every row of one table, in order, as text.
+fn dump(home: &Path, table: &str) -> Vec<String> {
+    let c = conn(home);
+    let mut q = c
+        .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+        .unwrap();
+    let n = q.column_count();
+    q.query_map([], |r| {
+        Ok((0..n)
+            .map(|i| format!("{:?}", r.get::<_, rusqlite::types::Value>(i).unwrap()))
+            .collect::<Vec<_>>()
+            .join("|"))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+#[test]
+fn a_copy_of_an_on_factory_loads_with_its_contractors_and_jobs() {
+    let from = on("outsource-load-from");
+    issue(&from, 7);
+    offered(&from, 7, "box1");
+    out(&from, &["invite-new", "--name", "box2", "--code", CODE]);
+    let copy = from.join("copy.db");
+    let made = ok(&from, &["copy", "--to", copy.to_str().unwrap()]);
+    let into = off("outsource-load-into");
+    conn(&into)
+        .execute_batch(
+            "INSERT INTO contractors (name, public_key, added_at) VALUES ('stale', 'k', 1);
+             INSERT INTO join_codes (name, code_sha256, created_at, expires_at) VALUES ('stale', 'h', 1, 2);",
+        )
+        .unwrap();
+    let v = call(&into, &["load", "--from", copy.to_str().unwrap()]).unwrap();
+    assert_eq!(v["rows"], made["rows"]);
+    assert!(on_in(&into));
+    for table in db::OUTSOURCE_TABLES {
+        assert_eq!(dump(&from, table), dump(&into, table), "{table}");
+    }
+    assert_eq!(count(&into, "jobs WHERE issue = 7"), 1);
+    assert_eq!(count(&into, "contractors WHERE name = 'stale'"), 0);
+    assert_eq!(count(&into, "join_codes WHERE name = 'stale'"), 0);
+}
+
+#[test]
+fn load_refuses_a_store_that_holds_a_job() {
+    let from = off("outsource-load-job-from");
+    let copy = from.join("copy.db");
+    ok(&from, &["copy", "--to", copy.to_str().unwrap()]);
+    let into = on("outsource-load-job-into");
+    conn(&into)
+        .execute_batch(
+            "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (9, 'issue', 1, 1);
+             INSERT INTO contractors (name, public_key, added_at) VALUES ('box1', 'k', 1);
+             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
+               VALUES (9, 'box1', 1, 'finished', 1, 2, 2);",
+        )
+        .unwrap();
+    let (code, why) =
+        call(&into, &["load", "--from", copy.to_str().unwrap()]).expect_err("refused");
+    assert_eq!(code, 1);
+    assert!(why.starts_with("history: "), "{why}");
+    assert!(why.contains("rows in jobs"), "{why}");
+    assert_eq!(count(&into, "jobs"), 1);
+    assert!(on_in(&into));
+}
