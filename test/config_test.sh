@@ -501,19 +501,18 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/inst
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[0]"
 
-t_case "the easy merge is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_EASY_MERGE]\""
-t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_EASY_MERGE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_EASY_MERGE]\""
-t_eq "$t_out" "[1]"
-for bad in "TEHAS_EASY_MERGE=yes" "TEHAS_EASY_MERGE=2"; do
-  t_case "loading rejects $bad"
-  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_case "the easy merge is gone: its setting loads blank or 0 and is refused otherwise"
+for line in "TEHAS_EASY_MERGE=" "TEHAS_EASY_MERGE=0"; do
+  printf '%s\n' "${T_MINIMAL[@]}" "$line" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\${TEHAS_EASY_MERGE-unset}]\""
+  t_eq "$t_out" "[unset]"
+done
+for bad in "TEHAS_EASY_MERGE=1" "TEHAS_EASY_MERGE=yes"; do
+  t_case "loading refuses $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "$bad" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+  t_contains "$t_out" "tehas: TEHAS_EASY_MERGE is no longer read: this version of tehas has no easy merge"
 done
 
 t_case "the overlap hold is gone: its setting is refused unless blank, and says what holds an issue instead"
@@ -1569,7 +1568,7 @@ names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_EN
   TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
   TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
-  TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_HOME
+  TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
@@ -1583,7 +1582,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "e3297f232d618674ea5999425ea5ed9906580de2c74741ae6e1ce6be565d0c8b"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "b3270ebdea29bd5a3f3df55c39fd230c72df972d86f5de7c056ca49b8c28ec53"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1681,7 +1680,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "ecfdba797ce40a47c00005cbbb23fea94c38b3ea16392e4264e93377d60ef71a"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "1808109e2364622c7a5ed57626d854eda4e1e07aa1bca401e67f4c5c4e184a54"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

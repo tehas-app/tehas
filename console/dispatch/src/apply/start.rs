@@ -583,16 +583,6 @@ impl Writer {
             None => format!("start #{n} ({} by {by})", text(a, "verb")),
         });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
-        // #1031: an easy start is a refresh the poll chose to run as an easy
-        // merge. Until part 3 the container still runs the full refresh, so
-        // what differs is this line and the mark on the approval record.
-        let easy = refresh_pr.is_some() && a.get("easy") == Some(&json!(true));
-        if easy {
-            log.push(format!(
-                "start #{n}: easy merge of PR #{pr}",
-                pr = refresh_pr.unwrap_or(0)
-            ));
-        }
         if let Some(pr) = refresh_pr {
             let args = vec![
                 "api".into(),
@@ -765,13 +755,7 @@ impl Writer {
             .pointer("/refresh_of/branch")
             .and_then(Value::as_str)
             .unwrap_or("");
-        // The line of an easy start: the issue is marked running and its unit
-        // is up, and the comment says what the cycle is for. Until part 3 the
-        // container still runs the full refresh, so the comment says that too.
-        if easy {
-            let url = text(a, "refresh_url");
-            self.say(n, &format!("Tehas chose the easy merge of this issue on `{host}` at {when} UTC: it merges `{branch}` into {url} with no model and no container. This cycle is the full refresh kept in reserve for what the easy merge cannot do. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
-        } else if refresh_pr.is_some() {
+        if refresh_pr.is_some() {
             let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
             let url = text(a, "refresh_url");
             self.say(n, &format!("Tehas refresh started on `{host}` at {when} UTC: {url} conflicts with `{branch}`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on {whose} {how}. This issue is owned by the cycle until `tehas:running` is removed."), log);
@@ -996,11 +980,6 @@ impl Writer {
                 "--refresh-head".into(),
                 head.into(),
             ]);
-            // The mark of the easy merge, so the store can answer next time
-            // whether this approval has had the one it is owed (#1031).
-            if a.get("easy") == Some(&json!(true)) {
-                args.push("--easy".into());
-            }
         }
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let r = self.calls.store(&refs);

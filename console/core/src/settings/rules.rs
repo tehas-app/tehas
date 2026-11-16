@@ -265,7 +265,6 @@ pub const TABLE: &[Setting] = &[
         Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
         "classic",
     ),
-    always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
     always("TEHAS_OUTSOURCE", SWITCH, "0"),
     always("TEHAS_OUTSOURCE_TIMEOUT", Rule::Count, "600"),
