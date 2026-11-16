@@ -1455,6 +1455,15 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
+    /// The tests that call `push_fault` read and set the process's
+    /// `TEHAS_CYCLE_ATTEMPT`, `TEHAS_FAULT_CALLS` and `TEHAS_REPO`: one at a time,
+    /// or a test that removes the attempt ends another's record for it.
+    static FAULT_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fault_env() -> std::sync::MutexGuard<'static, ()> {
+        FAULT_ENV.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn a_failed_move_aside_keeps_the_tree_already_there() {
         let d = tehas_core::testdir::TestDir::new("prepare-swap-fail");
@@ -1831,6 +1840,7 @@ mod tests {
     /// record is ended: a run by hand owns none.
     #[test]
     fn a_push_fault_ends_the_start_of_the_supervisor() {
+        let _env = fault_env();
         let d = tehas_core::testdir::TestDir::new("push-fault-store");
         fs::create_dir_all(d.join("libexec")).unwrap();
         tehas_core::testing::write_exe(
@@ -1869,6 +1879,7 @@ mod tests {
 
     #[test]
     fn a_push_log_that_cannot_be_made_is_no_pass() {
+        let _env = fault_env();
         let t = Tree {
             issue: 7,
             file: PathBuf::new(),
@@ -1905,6 +1916,7 @@ mod tests {
     /// `tehas_core::grammar::an_end` counts it an end.
     #[test]
     fn a_failed_push_check_records_the_fault_and_a_passing_one_removes_it() {
+        let _env = fault_env();
         use std::os::unix::fs::PermissionsExt;
         let d = tehas_core::testdir::TestDir::new("push-fault");
         let preflight = d.join("logs/work-7.preflight");
@@ -1941,6 +1953,7 @@ mod tests {
     /// run by hand records it as much as a start of the dispatch does.
     #[test]
     fn the_fault_of_a_run_by_hand_names_the_host_and_no_attempt() {
+        let _env = fault_env();
         std::env::set_var("TEHAS_REPO", "acme/widget");
         std::env::remove_var("TEHAS_CYCLE_ATTEMPT");
         let d = tehas_core::testdir::TestDir::new("push-fault-no-attempt");
