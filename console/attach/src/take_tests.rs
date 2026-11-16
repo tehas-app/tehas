@@ -735,6 +735,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
     assert_eq!(
         keys,
         [
+            "version",
             "images",
             "files",
             "leftOut",
@@ -756,7 +757,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
     );
     assert_eq!(
         small.pretty(),
-        "{\n  \"images\": [],\n  \"leftOut\": [],\n  \"issue\": 7,\n  \"approval\": null,\n  \"leftOutMore\": 0\n}\n"
+        "{\n  \"version\": 1,\n  \"images\": [],\n  \"leftOut\": [],\n  \"issue\": 7,\n  \"approval\": null,\n  \"leftOutMore\": 0\n}\n"
     );
 }
 

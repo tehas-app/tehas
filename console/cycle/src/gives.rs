@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(names, ["manifest.json"]);
         assert_eq!(
             manifest(&dir),
-            json!({"images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
+            json!({"version": 1, "images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
         );
         // An instance that gives files is given an empty list of them.
         gives_nothing(7, &dir, "", body, true).unwrap();
