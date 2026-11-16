@@ -280,6 +280,11 @@ runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
 consolidated tree and the base commit. So the whole gate still runs before a
 pull request opens, and CI runs it again.
 
+`.github/workflows/verify.yml` runs on every pull request into `main` and on
+every push to `main`. A pull request onto any other branch, such as a release
+train, runs no CI: its author quotes `scripts/verify.sh --changed` in it, and
+the train's own pull request into `main` runs the gate on the whole batch.
+
 CI adds two things of its own, as steps of
 `.github/workflows/verify.yml`. It installs shellcheck and jq at the versions
 `host/versions.env` pins, each checked against a published checksum before it
