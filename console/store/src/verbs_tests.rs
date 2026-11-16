@@ -38,6 +38,7 @@ pub fn home(name: &str) -> TestDir {
                 instance: "tehas-tehas".to_string(),
                 repo: "example-owner/example-product".to_string(),
             },
+            outsource: false,
         },
         NOW,
     )
@@ -51,12 +52,24 @@ pub fn strings(args: &[&str]) -> Vec<String> {
 
 /// A call as main() makes it: a usage error is 64 with its line.
 pub fn call_at(home: &Path, now: i64, args: &[&str]) -> Result<Value, (u8, String)> {
+    call_word_at(home, now, args, args[0])
+}
+
+/// `call_at` where the answer names its own verb, which the outsource verbs do:
+/// the word of what happened (`added`, `offered`, `stale`) is what the caller
+/// reads, and the argument's verb says only what was asked.
+pub fn call_word_at(
+    home: &Path,
+    now: i64,
+    args: &[&str],
+    word: &str,
+) -> Result<Value, (u8, String)> {
     match verbs::parse(&strings(args)) {
         Some(Ok(c)) => execute(home, &Verb::Record(c), now).map(|line| {
             assert_eq!(line.lines().count(), 1, "{line}");
             let v: Value = serde_json::from_str(&line).unwrap();
             assert_eq!(v["api"], 1);
-            assert_eq!(v["verb"], args[0]);
+            assert_eq!(v["verb"], word);
             assert_eq!(v["ok"], true);
             v
         }),
@@ -80,8 +93,13 @@ pub fn ok_at(home: &Path, now: i64, args: &[&str]) -> Value {
 /// The exit and the first word of the stderr line.
 pub fn refused(home: &Path, args: &[&str]) -> (u8, String) {
     let (code, line) = call(home, args).expect_err("the call was refused");
-    let word = line.split([' ', ':']).next().unwrap_or("").to_string();
-    (code, word)
+    (code, word(&line))
+}
+
+/// The first word of the line a refusal writes: the class of the failure, which
+/// is what a caller reads before it reads anything else.
+pub fn word(line: &str) -> String {
+    line.split([' ', ':']).next().unwrap_or("").to_string()
 }
 
 /// The 64 line of a call that stops at its arguments.
@@ -95,8 +113,15 @@ pub fn usage(args: &[&str]) -> String {
 pub fn conn(home: &Path) -> Connection {
     // The test's own connection, so it gets the wait of the test: SQLite's own
     // default of five seconds would otherwise be what a helper pays for a lock
-    // another test's thread holds.
-    let c = Connection::open(db::path(home)).unwrap();
+    // another test's thread holds. The flag is the store's own for a read: with
+    // WAL on, a connection that read the file alone would miss what a verb
+    // committed to the -wal and has not yet checkpointed, which is every row of
+    // a call the test has just made.
+    let c = Connection::open_with_flags(
+        db::path(home),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_FULL_MUTEX,
+    )
+    .unwrap();
     c.busy_timeout(db::read_bound()).unwrap();
     c
 }
