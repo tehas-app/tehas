@@ -83,7 +83,9 @@ again when fewer than 10 minutes are left; one command makes it at a time.
 The web token and the token go to curl on its standard input, never on its
 command line. Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
-installation reaches `TEHAS_REPO`, and never the token.
+installation reaches `TEHAS_REPO`, and never the token. It reads the
+installation's repositories a hundred at a time, page after page, until it
+finds `TEHAS_REPO` or a page is not full.
 
 `--cycle` makes the cycle's token instead (#1814): GitHub is asked for a token
 of the same installation for the repository of `TEHAS_REPO` alone, with
