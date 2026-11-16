@@ -223,7 +223,7 @@ As the tehas user. `tehas` is not on the `PATH` until the first install has
 put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
-~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labellers "janit" \
+~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labelers "janit" \
   --new-app --endpoint http://gb1:8086/v1
 ```
 
