@@ -20,9 +20,8 @@ limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for al
 Sets, shows or clears the limit in `~/tehas/state/limit.json` (mode 600). The
 dispatcher reads it on every poll: room for new cycles is the smaller of
 `--cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, and its
-hold is `limit`. With `--plan off` no new planning session starts, and
-[tehasbot improve](/tools-protolab#tehasbot-improve) waits; an answer to a planning question
-still runs. One that expired or cannot be read holds every start, answers and
+hold is `limit`. With `--plan off` no new planning session starts; an answer to a planning
+question still runs. One that expired or cannot be read holds every start, answers and
 retry ticks included, while the poll goes on cleaning up. See
 [Limit and drain](/operating#limit-and-drain) and
 [the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an

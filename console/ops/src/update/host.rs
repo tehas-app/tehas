@@ -161,9 +161,6 @@ pub fn units_verb(given: &[String]) -> u8 {
 fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> Vec<&'static str> {
     let set = |name: &str| get(name).filter(|v| !v.is_empty());
     let mut units = vec!["tehas-dispatch.timer", "tehas-dispatch.path"];
-    if set("TEHAS_IMPROVE_REPO").is_some() {
-        units.push("tehas-improve.timer");
-    }
     if set("TEHAS_DOMAIN").is_some() {
         units.push("tehas-protolab.timer");
     }
@@ -349,27 +346,19 @@ mod tests {
     fn a_first_install_enables_the_dispatcher_and_the_units_whose_setting_is_on() {
         assert_eq!(units(&[], None), "tehas-dispatch.timer tehas-dispatch.path");
         assert_eq!(
-            units(
-                &[
-                    ("TEHAS_IMPROVE_REPO", ""),
-                    ("TEHAS_DOMAIN", ""),
-                    ("TEHAS_PREVIEWS", "0")
-                ],
-                None
-            ),
+            units(&[("TEHAS_DOMAIN", ""), ("TEHAS_PREVIEWS", "0")], None),
             "tehas-dispatch.timer tehas-dispatch.path"
         );
         assert_eq!(
             units(
                 &[
-                    ("TEHAS_IMPROVE_REPO", "acme/tehas"),
                     ("TEHAS_DOMAIN", "example.org"),
                     ("TEHAS_PREVIEWS", "1"),
                     ("TEHAS_ENERGY", "viiwork"),
                 ],
                 None
             ),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-improve.timer tehas-protolab.timer \
+            "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
              tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
         );
     }

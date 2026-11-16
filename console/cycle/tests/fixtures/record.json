@@ -1,6 +1,6 @@
 [
  {
-  "case": "with the improvement loop on, a cycle that ended leaves its record",
+  "case": "a cycle that ended leaves its report",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",

@@ -350,7 +350,7 @@ pub fn killed_names(log: &str, id: &str) -> Vec<String> {
 /// The driver's own words for a refusal, as they stand in the cycle's stream:
 /// the warning, kill, failure and cancellation lines. The last 20, each cut to
 /// 1000 bytes, for a line of a stream can carry an error tail of any size and
-/// this goes into the record the analyst reads. Empty when there is none.
+/// this goes into the cycle's $log.err. Empty when there is none.
 pub fn diag(stream: &[u8]) -> Vec<u8> {
     let has = |l: &[u8], w: &[u8]| l.windows(w.len()).any(|x| x == w);
     let lines: Vec<&[u8]> = stream
@@ -1424,8 +1424,8 @@ fn end_reason(progress: &Path) -> Option<String> {
     Some(runner::progress_fields(text.as_deref())[1].clone())
 }
 
-/// What reaches err.txt of the cycle's improvement record for a cycle that ended
-/// at a cap or was aborted: an empty one there reads as nothing happened.
+/// What reaches the cycle's $log.err for a cycle that ended at a cap or was
+/// aborted: an empty one there reads as nothing happened.
 /// `wrote` is whether this command wrote the progress file: when it did not,
 /// a file left by an earlier run of the issue must not give this run's reason.
 fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {

@@ -16,7 +16,6 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
 | Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`, which the state store publishes from the cycle's heartbeats; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. A start that parked before the container ran puts the stopped workspace back at `tehas-<issue>` in place of its own clone, so a retry refused early loses nothing; when there was none to put back, it keeps the clone it made. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
-| What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
 | What did the previews do?        | `~/tehas/logs/preview.log`, and `~/tehas/logs/preview-<pr>.log` for one build |
 | What did the cleaner do?         | `~/tehas/logs/clean.log`; `journalctl --user -u tehas-clean` for a run that wrote nothing there |
@@ -32,13 +31,12 @@ jq -r 'select(.type=="extension_ui_request" and .method=="notify") | .message' \
 ## A cycle ran for hours and you cannot tell what its agents were doing
 
 A child of a cycle that runs a long time is reported by pi-rukas on the
-cycle's stream, and tehas keeps those lines in the cycle's record, so the
-record of a stuck cycle says what the child was doing without the console.
-The console is written inside the container and is swept with the workspace;
-the record is not.
+cycle's stream, so the stream of a stuck cycle says what the child was doing
+without the console, which is written inside the container and is swept with
+the workspace.
 
 ```
-jq -c . ~/tehas/tmp/improve/window/<issue>-<time>/slow.jsonl
+jq -c 'select(.kind == "dispatch-slow")' ~/tehas/logs/work-<issue>-<time>.jsonl
 ```
 
 One line per child that crossed the bound pi-rukas watches, with its step, its
@@ -52,12 +50,9 @@ fields means the child was going over the same ground, not working slowly.
 | --- | --- |
 | `turns` and `tokens` grow, no repeated command | Slow work. The child is doing something each turn; give it room, or split the issue |
 | `command`, `count` and `identicalResultCount` name one probe that answered the same thing 24 times | A child spinning. It has the evidence it needs and has not stopped; bound it, or tell it to report |
-| No `slow.jsonl` at all | No child crossed the bound. The time went on the driver's own steps, or on children that each finished inside it |
+| No such line at all | No child crossed the bound. The time went on the driver's own steps, or on children that each finished inside it |
 
-The record holds the last 20 of these lines of a cycle, and never more than
-64 KiB of them. The full stream, which holds every line the driver wrote, is
-`~/tehas/logs/work-<issue>-<time>.jsonl` for seven days; after that only the
-record is left.
+The stream is kept for seven days; after that the cleaner removes it.
 
 ## A command stops with `tehas: ... is not set` or `is not valid`
 
@@ -194,9 +189,17 @@ Run `tehas dispatch --dry-run` and read what it prints.
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
   blank value is ignored.
-- `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll or
-  `improve.log`) or `... maps prototype to ...` (the Protolab's log): the
-  owner of the repository has no issue type of that name. Nothing was
+- `TEHAS_IMPROVE_REPO is no longer read: this version of tehas has no
+  improvement loop, so take the line out` (the same for
+  `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and
+  `TEHAS_IMPROVE_MAX_OPEN`): every command stops with 78 while the instance
+  sets one of them to a value. Take the line out. A blank value, and
+  `TEHAS_IMPROVE_RUKAS_SKIP=0`, are ignored.
+- `TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so
+  take the line out`: every command stops with 78 while the instance sets it
+  to a value, `rust` too. Take the line out. A blank value is ignored.
+- `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
+  `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the
   organisation does, or leave the kind out of the setting for its label. See
   [Kinds as issue types](/operating#kinds-as-issue-types).
@@ -366,7 +369,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   without that issue or that field.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
-  `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
+  `TEHAS_REPO` to the new name, and `TEHAS_REVIEW_REPO` too if it named the
   same repository. Point the product checkout's `origin` at it, move the
   checkout if its directory was named after the old one, and run
   `install.sh`. When the product is tehas itself, point the platform
@@ -845,8 +848,8 @@ the pull request before you retry: while it is open, a new cycle stops at
 past its own run bound. pi-rukas told it to wrap up at the bound and ended it
 10 minutes later. Read the run log for what the child was doing. When it was
 progressing, split the issue; when it was stuck, find out why. The runner
-reports the end as `aborted`; the cycle's record for the improvement loop
-says `child-bound`, so it is not read as an abort.
+reports the end as `aborted`; the cap `child-timeout:<step>` beside it says it
+was a child's bound and not an abort.
 
 A `child-timeout:develop` leaves a note of the attempt at the end of the
 issue's body, which the next cycle reads. A second one on the same text offers
@@ -1100,48 +1103,6 @@ check is red, so new cycles wait for the fix instead of parking at
 When the gate stops on a shellcheck note, the severity floor the lint runs at
 and the one suppression it accepts (`SC2016`, for the line whose single quotes
 are the point) are under `scripts/test.sh` in [Tools](/tools).
-
-## The improvement loop files nothing
-
-Read the last lines of `~/tehas/logs/improve.log`.
-
-| The line says | What it means |
-| --- | --- |
-| Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
-| `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
-| `no console at <path>` | `~/tehas/libexec/console` is missing, and a run stops with exit 78. Run `install.sh`, which builds it. The records wait |
-| `the improvement loop files in <repo>, the product repository` | `TEHAS_IMPROVE_REPO` or `TEHAS_IMPROVE_RUKAS_REPO` names `TEHAS_REPO`. Name a private repository for the findings instead; every command stops with exit 78 until then |
-| `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
-| `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
-| `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
-| `invalid=` above 0 | Findings were dropped for not being the shape asked for |
-| `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
-| `stopped=124 returned=2` at the end of a line that filed | The analyst hit its bound of 60 minutes, and what its file held was filed. The records it did not name went back to the window, and the next run takes half as many as this one. What it printed is in the file `output=` names |
-| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given and left no file that passes the check; the line says which. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
-| `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
-| `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
-| `failed: GitHub refused an issue` | The bot (the app or bot account) cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
-
-A run that failed kept its records, and every later run reads them again until
-one succeeds or they are seven days old. A run reads at most five, the oldest
-first, and fewer after one was stopped at its bound; `left=` on a line says how
-many wait.
-
-## An improvement issue says a log was not uploaded
-
-The issue names the reason, and `improve.log` has it at the end of that run's
-line.
-
-- `secret-shape=<cycle>`: the log holds something shaped like a token, so it
-  was kept on the host. Read `~/tehas/logs/work-<cycle>.jsonl` there, and find
-  out how a secret got into a log.
-- `not-masked=<cycle>`: the masked copy of the log could not be written under
-  `~/tehas/tmp/improve`. See how full that disk is.
-- `not-uploaded=<cycle>`: GitHub refused the release or the upload. The bot
-  account needs write access to the repository.
-- `not-packed=<cycle>`: one line of the log is over 5 MB compressed.
-- "the log is no longer on the host": it was removed before the run, by hand
-  or by the seven day sweep.
 
 ## tehas update says the console does not answer
 

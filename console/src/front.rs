@@ -115,7 +115,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "improve" | "review" | "github-token" | "cycle",
+            | "review" | "github-token" | "cycle",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -247,7 +247,7 @@ mod tests {
             assert_eq!(t(&[c, "7"]), Go::Run, "{c}");
         }
         assert_eq!(t(&["dev", "--issue", "7"]), Go::Verb);
-        for c in ["dispatch", "improve", "review", "github-token"] {
+        for c in ["dispatch", "review", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
         for c in ["dev-login", "github-token", "review", "improve"] {
@@ -349,13 +349,14 @@ mod tests {
             "preview",
             "protolab",
             "dispatch",
-            "improve",
             "review",
             "github-token",
             "cycle",
         ] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
+        // The improvement loop is gone, and so is its command.
+        assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
         assert_eq!(b(&["github-writes"]), Go::Verb);
@@ -385,7 +386,7 @@ mod tests {
                 seen += 1;
             }
         }
-        assert!(seen >= 10, "{seen} units run tehasbot");
+        assert!(seen >= 9, "{seen} units run tehasbot");
     }
 
     #[test]

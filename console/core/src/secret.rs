@@ -1,8 +1,8 @@
 //! Logs should hold no secret. This is for the day one does: what has the shape
-//! of a token is not recorded and not uploaded. The store, the improvement loop
-//! and the mask share the one list of shapes, so what the mask hides and what
-//! the check refuses are the same tokens. The rule of which setting names hold
-//! a secret is here too, for the same reason.
+//! of a token is not recorded and not uploaded. The store and the mask share
+//! the one list of shapes, so what the mask hides and what the check refuses
+//! are the same tokens. The rule of which setting names hold a secret is here
+//! too, for the same reason.
 
 /// The words a setting's name holds, in any case, when its value is a secret.
 pub const NAME_WORDS: [&str; 6] = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"];

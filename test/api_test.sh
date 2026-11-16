@@ -26,12 +26,13 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '{api, tehas, commit, repo, millwright, fixer}' <<<"$t_out")" '{"api":1,"tehas":"v0.8.0","commit":"cb6912a","repo":"acme/widget","millwright":null,"fixer":null}'
+t_eq "$(jq -c '{api, tehas, commit, repo, millwright}' <<<"$t_out")" '{"api":1,"tehas":"v0.8.0","commit":"cb6912a","repo":"acme/widget","millwright":null}'
+t_eq "$(jq -r 'has("fixer")' <<<"$t_out")" false
 t_eq "$(jq -r '.features | type' <<<"$t_out")" array
 t_eq "$(jq -r '.features | all(type == "string")' <<<"$t_out")" true
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "millwright-grant"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "fixer-grant"
+t_eq "$(jq -r '.features | index("fixer-grant")' <<<"$t_out")" null
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "all-hands"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "limit"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "drain"
@@ -55,7 +56,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-lane"
 t_eq "$(jq -r '.features | last' <<<"$t_out")" "host-start"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 31
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
@@ -70,14 +71,14 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-json` ('
 t_eq "$(jq -r 'has("refreshScan")' <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
-t_case "api --json: the millwright and the old fixer field are the app's login when the factory has one"
+t_case "api --json: the millwright is the app's login when the factory has one"
 reset
 installed v0.8.0+cb6912a
 mkdir -p "$T/home/tehas/state/github"
 echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot[bot]","millbot[bot]"]'
+t_eq "$(jq -c '[.millwright, has("fixer")]' <<<"$t_out")" '["millbot[bot]",false]'
 
 t_case "api without --json prints the millwright's login"
 reset
@@ -86,7 +87,7 @@ mkdir -p "$T/home/tehas/state/github"
 echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 t_run "$api"
 t_contains "$t_out" "millwright  millbot[bot]"
-t_lacks "$t_out" "fixer "
+t_lacks "$t_out" "fixer"
 
 t_case "api --json: a checkout without a tag has a commit and no release"
 reset

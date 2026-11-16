@@ -37,7 +37,7 @@ instance
 t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer"
 t_eq "$(t_calls systemctl)" "--user daemon-reload"
 t_contains "$t_out" "the first install's labels or units are not done: systemctl --user enable failed"
 t_eq "$([ -e "$th/state/first-install" ] && echo owed)" owed
@@ -62,7 +62,7 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is missing from this checkout"
 t_lacks "$t_out" "next: "
-t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer
+t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -197,7 +197,7 @@ t_eq "$t_rc" 0
 # One object, one line, and valid JSON: what a program keeps is what it read.
 t_eq "$(printf '%s\n' "$json" | wc -l)" 1
 t_eq "$(printf '%s' "$json" | jq -e '.api == 1 and .repo == "acme/widget" and
-  .fixer == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
+  .millwright == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
 # A model token is named, never written: the file that carries these facts is
 # the one a person may put anywhere, so no value of a TEHAS_MODEL_KEY_ name
 # appears in it.
