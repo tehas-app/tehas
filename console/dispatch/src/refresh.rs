@@ -1,6 +1,6 @@
-//! tehasbot refresh --pr N: one of the factory's own pull requests that
-//! conflicts with the branch, asked of the dispatcher in a file under
-//! state/refresh. What a run does and its statuses are in
+//! tehas refresh --pr N, or tehasbot refresh: one of the factory's own pull
+//! requests that conflicts with the branch, asked of the dispatcher in a file
+//! under state/refresh. What a run does and its statuses are in
 //! src/usage/refresh.txt, this command's --help.
 
 use crate::decide::{hex40, iso_now, refresh_why};
@@ -187,7 +187,7 @@ impl Run {
             Err(why) => {
                 let (issue, head) = named(&node);
                 print(said(pr, issue, head, Some(&why)));
-                eprintln!("tehasbot refresh: pull request #{pr} is not refreshed: {why}");
+                eprintln!("tehas refresh: pull request #{pr} is not refreshed: {why}");
                 self.line(&format!(
                     "asked for pull request #{pr}: not refreshed: {why}"
                 ));
@@ -225,7 +225,7 @@ pub fn main(args: &[&str]) -> i32 {
             None | Some(&"--pr") => "--pr takes the number of one pull request".to_string(),
             Some(a) => format!("unknown argument: {a}"),
         };
-        eprintln!("tehasbot refresh: {why}\n{}", usage());
+        eprintln!("tehas refresh: {why}\n{}", usage());
         return 64;
     };
     let set = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -237,7 +237,7 @@ pub fn main(args: &[&str]) -> i32 {
         number("TEHAS_CONTROL_ISSUE"),
     ) else {
         eprintln!(
-            "tehas-dispatch: refresh needs the settings tehasbot refresh loads (lib/config.sh, tehas_load)"
+            "tehas-dispatch: refresh needs the settings tehas refresh loads (lib/config.sh, tehas_load)"
         );
         return 78;
     };
@@ -435,7 +435,7 @@ mod tests {
         let text = usage();
         assert!(text
             .starts_with("Ask the dispatcher to refresh one of the factory's own pull requests"));
-        assert!(text.contains("\n\nUsage:\n  tehasbot refresh "));
+        assert!(text.contains("\n\nUsage:\n  tehas refresh "));
         assert!(text.ends_with("written."));
     }
 }

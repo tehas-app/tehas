@@ -2178,8 +2178,8 @@ nothing and the dispatcher says so.
 
 **Who asks.** The factory does not look for conflicts on its own. What
 schedules its refreshes (an industry, an operator, a script) asks for one pull
-request at a time with `tehasbot refresh --pr N` (see
-[tehasbot refresh](/tools-github#tehasbot-refresh)). It reads that pull request
+request at a time with `tehas refresh --pr N` (see
+[tehas refresh](/tools-github#tehas-refresh)). It reads that pull request
 now and keeps it when it is the bot's, closes exactly one open issue carrying
 `tehas:awaiting-merge`, or `needs-human-attention` after a handoff that left
 the pull request open, without `tehas:running` and not the control issue, is
