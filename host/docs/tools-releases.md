@@ -233,8 +233,12 @@ above, its `.sha256` and `.minisig` beside it, and `install` with
 `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
-The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
-key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
+The signing key is the secret `MINISIGN_SECRET_KEY` of the repository's
+environment `release`, the whole secret key file, and its password, if it has
+one, is `MINISIGN_PASSWORD`. The environment takes only tags and waits for a
+required reviewer, so the job signs only after a person approves its run under
+"Review deployments". The repository holds no copy of the key outside that
+environment. `SECURITY.md` says how to report a vulnerability. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
 nothing.
 
