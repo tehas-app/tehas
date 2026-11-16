@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/github-app.sh`          | With a GitHub App: puts the `gh` shim first on `PATH` and gives git its credential helper; sourced by `env.sh` |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units, each a few lines that run the console's front (`console/src/front.rs`), which chooses the command. Without a console both stop with exit 78, except `tehas setup`, which builds one. Plus `gh` |
-| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher and the cycle supervisor. Every other command is a verb of one of those programs. Not on `PATH` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, and the programs they run. Three bash scripts (`dev-login`, `setup` and `update`) and the Rust programs `install.sh` builds: the console, analytics, the MCP server, the state store, the attachment checker, the dispatcher, the cycle supervisor and the model proxy of outsource. Every other command is a verb of one of those programs. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
@@ -547,17 +547,20 @@ was set and its link. With no message there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 
-Five installed files are compiled, not copied: the console of a running cycle,
-the analytics program, the MCP server, the state store and the attachment
-checker, Rust programs in the Cargo workspace `console/` (the others are in
-`console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
+Eight installed files are compiled, not copied: the console of a running cycle,
+the analytics program, the MCP server, the state store, the attachment checker,
+the dispatcher, the cycle's supervisor and the model proxy of outsource, Rust
+programs in the Cargo workspace `console/` (the others are in
+`console/analytics/`, `console/mcp/`, `console/store/`, `console/attach/`,
+`console/dispatch/`, `console/cycle/` and `console/proxy/`,
 and the library all but the attachment checker share is in `console/core/`,
 which holds the one probe of a lock file that the store, the dispatcher, the
 health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
-`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store`,
+`~/tehas/libexec/attach`, `~/tehas/libexec/tehas-dispatch`,
+`~/tehas/libexec/tehas-cycle` and `~/tehas/libexec/tehas-proxy`. The attachment checker fetches the files of an issue
 and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
@@ -585,7 +588,7 @@ with exit 1 before the settings are read. A program's source is read from the wo
 `console/` without the members' directories. So a change to one program alone
 builds that program alone, a change to `console/cycle/` builds the cycle's
 supervisor and the console, which links it, and a change to `console/core/`
-builds all seven. Each build asks `cargo` for
+builds all eight. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
 The build that fetches is the slow one and takes a minute or two: analytics
 compiles SQLite. When cargo says a crate is missing from its cache the build

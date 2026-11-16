@@ -12,61 +12,60 @@ use std::time::{Duration, Instant};
 
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::log::{Line, Sink};
-use tehas_proxy::records::Rows;
 use tehas_proxy::request::State;
 use tehas_proxy::serve::{self, Serve};
 
 mod common;
 use common::{prompt, read_some, request, rows_of, token_of, Endpoint, Plan, Records, BIND_WAIT};
 
-/// A free port of this host, for a listener of a case. The listener a case
-/// makes is dropped as soon as it answers one request, so the port is free
-/// again before the case that asked for it ends.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
-/// The proxy of a case, on a port of its own, answering requests until told to
-/// stop. One thread accepts and one answers each request, which is what the
-/// unit's process does. The parts the listener needs are made once, as they
-/// are when the unit starts: a case that changes what the records say writes
-/// them in place, since the proxy reads them again for every request.
+/// The proxy of a case: the unit's own hands, on a port of its own, and the
+/// three things a request is judged against: the factory's rows, the tokens of
+/// live jobs, and the journal of the lines.
+///
+/// The rows name the token of each job, as #2272's table will, and the proxy is
+/// the one holder of the tokens: the two are made together, in one table, which
+/// is what a revocation and the end of a job empty. A case asks the proxy
+/// through [`Proxy::job`] and [`Proxy::ask`], which is the contractor's side of
+/// the port.
 struct Proxy {
     at: String,
+    /// The tokens the proxy answers with, and the count of the requests that
+    /// carried them. A case takes one back for the job that ended.
     issuer: Issuer,
     /// The rows the proxy reads, held by the case too so it can say what they
     /// hold between two requests.
     factory: Records,
+    /// The journal, where the case reads back the one line of each request.
     lines: Arc<Mutex<Vec<String>>>,
-    stop: Arc<AtomicBool>,
+    /// How many requests of the case the proxy holds at the moment: the ones it
+    /// has taken in and not yet answered. The case ends only when it is none, so
+    /// no case leaves a request of its own being answered behind it.
     busy: Arc<AtomicUsize>,
+    /// Whether the thread that accepts is to end. It ends with the backlog it
+    /// holds, and the port goes with the backlog.
+    stop: Arc<AtomicBool>,
 }
 
 impl Proxy {
     /// A proxy that answers what the stub answers, of the jobs a case lists.
-    /// The parts of the unit's listener are the unit's own; the accepting
-    /// thread is the test's, since it must be able to give the port back and
-    /// `serve::listen` never returns while a proxy runs.
+    /// The port is bound before the thread that accepts starts, so the first
+    /// request of a case finds the accept loop in its accept rather than a port
+    /// nobody listens on yet.
     fn open(endpoint: &Endpoint, jobs: &[(&str, &str, State)]) -> Proxy {
         let (at, backlog) = bind();
+        let issuer = Issuer::new();
+        let rows = rows_of(jobs, token_of);
+        for row in &rows.jobs {
+            issuer.put(&row.token, row.job, row.attempt, &row.contractor);
+        }
         let proxy = Proxy {
             at: at.to_string(),
-            issuer: Issuer::new(),
-            factory: Records::empty(),
+            issuer: issuer.clone(),
+            factory: Records::of(rows, &issuer),
             lines: Arc::new(Mutex::new(Vec::new())),
-            stop: Arc::new(AtomicBool::new(false)),
             busy: Arc::new(AtomicUsize::new(0)),
+            stop: Arc::new(AtomicBool::new(false)),
         };
-        // The rows are the case's and the proxy's to read, and the tokens of
-        // those rows are this process's own, as they are on a host where the
-        // proxy minted them when the job was placed. The case and the threads
-        // that answer hold the one table, so what the case forgets is forgotten
-        // by the proxy that is asked.
-        proxy.load(rows_of(jobs), token_of);
         let serve: &'static Serve<'static> = Box::leak(Box::new(Serve {
             endpoint: endpoint.upstream(),
             key: "sk-the-factory-s-own-key".to_string(),
@@ -74,11 +73,13 @@ impl Proxy {
             sink: Box::leak(Box::new(Kept(Arc::clone(&proxy.lines)))),
             idle: Duration::from_secs(5),
         }));
-        // The unit's hands, and one thread to answer each request, which is
-        // what `serve::listen` does for the process.
-        let hands = Arc::new(AtomicUsize::new(serve::HANDS));
-        let (stop, busy) = (Arc::clone(&proxy.stop), Arc::clone(&proxy.busy));
+        // The unit's hands, the same bound of streams and the same one request
+        // per connection, on a thread of the case's. The case's Drop ends the
+        // thread, which ends the accept loop with the backlog it holds and gives
+        // the port back to the next case of the suite.
+        let (busy, stop) = (Arc::clone(&proxy.busy), Arc::clone(&proxy.stop));
         thread::spawn(move || {
+            let hands = Arc::new(AtomicUsize::new(serve::HANDS));
             for accepted in backlog.incoming() {
                 if stop.load(Ordering::SeqCst) {
                     break;
@@ -90,7 +91,6 @@ impl Proxy {
                 };
                 busy.fetch_add(1, Ordering::SeqCst);
                 let busy = Arc::clone(&busy);
-                let serve: &'static Serve<'static> = serve;
                 thread::Builder::new()
                     .stack_size(256 * 1024)
                     .spawn(move || {
@@ -105,10 +105,22 @@ impl Proxy {
         proxy
     }
 
-    /// Say what the factory's records hold, to the case and to the proxy that
-    /// reads them for every request.
-    fn load(&self, rows: Rows, mint: impl Fn(i64) -> String) {
-        self.factory.load(rows, mint);
+    /// What the proxy has counted of the requests it answered, per contractor
+    /// and per job: what the store would be given, and what a case waits on.
+    fn counted(&self) -> Vec<(String, i64, u64)> {
+        self.issuer.take_counts()
+    }
+
+    /// The token of a job of the case: the value the job's row names and the
+    /// proxy's table holds, which is what the contractor was given for the job.
+    fn token(&self, job: i64) -> String {
+        self.factory
+            .snapshot()
+            .jobs
+            .iter()
+            .find(|j| j.job == job)
+            .map(|j| j.token.clone())
+            .unwrap_or_else(|| panic!("job {job} of the case's records"))
     }
 
     /// One request on the port, and the answer as the contractor read it.
@@ -116,12 +128,16 @@ impl Proxy {
         self.raw(&request(token, path, body))
     }
 
+    /// One request of one job of the case, by its number.
+    fn job(&self, job: i64, path: &str, body: &str) -> (u16, String) {
+        self.ask(&self.token(job), path, body)
+    }
+
     fn raw(&self, bytes: &str) -> (u16, String) {
-        let mut client = TcpStream::connect(&self.at).expect("the proxy's port");
-        client.set_nodelay(true).unwrap();
-        client.write_all(bytes.as_bytes()).unwrap();
-        client.flush().unwrap();
-        read_some(client)
+        self.busy.fetch_add(1, Ordering::SeqCst);
+        let said = ask_of_the_port(&self.at, bytes);
+        self.busy.fetch_sub(1, Ordering::SeqCst);
+        said
     }
 
     /// The lines the proxy said, in order.
@@ -132,8 +148,8 @@ impl Proxy {
             .clone()
     }
 
-    /// Wait for the requests a case has sent to be answered: the log is what
-    /// says so, one line per request.
+    /// Wait until the proxy has said `of` lines, which is one per request it has
+    /// finished, and give back what it had said then.
     fn waited_for(&self, of: usize) -> Vec<String> {
         let deadline = Instant::now() + BIND_WAIT;
         while self.said().len() < of && Instant::now() < deadline {
@@ -145,15 +161,30 @@ impl Proxy {
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        // The accept thread is holding the port until a connect wakes it; a
-        // request still being answered holds it a little longer.
-        self.stop.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(&self.at);
+        // The requests of the case are answered before the case ends, and then
+        // the thread that accepts is ended with the backlog it holds, which
+        // gives the port back to the next case of the suite.
         let deadline = Instant::now() + Duration::from_secs(35);
         while self.busy.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
             thread::sleep(Duration::from_millis(20));
         }
+        self.stop.store(true, Ordering::SeqCst);
+        // The accept loop ends only when a connect wakes it out of its accept.
+        let _ = TcpStream::connect(&self.at);
     }
+}
+
+/// One thing to the port of a case: the answer read to its end, and the socket
+/// of the ask closed with it. The proxy answers one request per connection, so a
+/// socket a case kept open would hold a request of nobody.
+fn ask_of_the_port(at: &str, bytes: &str) -> (u16, String) {
+    let client = TcpStream::connect(at).expect("the proxy's port");
+    client.set_nodelay(true).unwrap();
+    let mut writer = client.try_clone().expect("a second handle of the socket");
+    writer.write_all(bytes.as_bytes()).unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    read_some(client)
 }
 
 /// A port of this host, bound and ready to answer: what the unit's listener
@@ -162,6 +193,16 @@ fn bind() -> (SocketAddr, TcpListener) {
     let backlog = TcpListener::bind("127.0.0.1:0").expect("a port of this host");
     let at = backlog.local_addr().unwrap();
     (at, backlog)
+}
+
+/// A port of this host that nothing listens on, for the case of the feature
+/// that is off: a port a case did not ask for, free to bind and dead to connect.
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 /// The sink of the unit's lines, kept where the case reads them back.
@@ -185,7 +226,7 @@ impl Sink for Kept {
 fn a_request_on_the_port_is_answered_and_the_prompt_reaches_the_endpoint() {
     let endpoint = Endpoint::open(Plan::json(200, 12, 30));
     let proxy = Proxy::open(&endpoint, &[("7", "gpu1", State::Running)]);
-    let (status, said) = proxy.ask(&token_of(7), "/v1/chat/completions", &prompt("SRC-MARKER"));
+    let (status, said) = proxy.job(7, "/v1/chat/completions", &prompt("SRC-MARKER"));
     assert_eq!(status, 200, "the answer was lost: {said}");
     assert!(
         said.contains("the answer"),
@@ -221,24 +262,28 @@ fn a_request_on_the_port_is_answered_and_the_prompt_reaches_the_endpoint() {
 fn a_connection_answers_one_request_and_a_new_connection_answers_the_next() {
     let endpoint = Endpoint::open(Plan::json(200, 1, 1));
     let proxy = Proxy::open(&endpoint, &[("7", "gpu1", State::Running)]);
-    let one = request(&token_of(7), "/v1/chat/completions", "{}");
-    let mut client = TcpStream::connect(&proxy.at).unwrap();
-    client.write_all(one.as_bytes()).unwrap();
-    client.flush().unwrap();
+    let one = request(&proxy.token(7), "/v1/chat/completions", "{}");
+    let client = TcpStream::connect(&proxy.at).unwrap();
+    client.set_nodelay(true).unwrap();
+    let mut writer = client.try_clone().unwrap();
+    writer.write_all(one.as_bytes()).unwrap();
+    writer.flush().unwrap();
     let (status, _) = read_some(client.try_clone().unwrap());
     assert_eq!(status, 200);
 
     // The same connection again: the proxy ended it, so the second ask of it
-    // is answered with nothing rather than a second forwarding.
-    client
+    // is answered with nothing rather than a second forwarding. The socket of
+    // the ask is closed with the answer, as a contractor's is.
+    writer
         .write_all(one.as_bytes())
         .expect("a socket that is closed for reading still takes bytes");
+    writer.flush().unwrap();
     let (again, _) = read_some(client);
     assert_eq!(again, 0, "a pipelined request was answered");
     assert_eq!(endpoint.calls(), 1, "the pipeline reached the model");
 
     // A new connection goes, which is what the agents do anyway.
-    let (status, _) = proxy.ask(&token_of(7), "/v1/chat/completions", "{}");
+    let (status, _) = proxy.job(7, "/v1/chat/completions", "{}");
     assert_eq!(status, 200);
     assert_eq!(endpoint.calls(), 2);
 }
@@ -258,7 +303,7 @@ fn the_requests_of_the_port_are_counted_per_contractor_and_job() {
         ],
     );
     for job in [7, 7, 8] {
-        let (status, _) = proxy.ask(&token_of(job), "/v1/chat/completions", "{}");
+        let (status, _) = proxy.job(job, "/v1/chat/completions", "{}");
         assert_eq!(status, 200, "job {job}");
     }
     let (status, _) = proxy.ask("a-token-of-no-job", "/v1/chat/completions", "{}");
@@ -266,7 +311,7 @@ fn the_requests_of_the_port_are_counted_per_contractor_and_job() {
     proxy.waited_for(4);
 
     // What the proxy would hand the store, one call per contractor and job.
-    let rows = serve::request_rows(&proxy.issuer.take_counts());
+    let rows = serve::request_rows(&proxy.counted());
     let said = rows
         .iter()
         .map(|r| r.join(" "))
@@ -288,7 +333,7 @@ fn the_requests_of_the_port_are_counted_per_contractor_and_job() {
     assert!(!said.contains("tok-"), "a row of a token: {said}");
     assert!(!said.contains("/v1"), "a row of a path: {said}");
     // The counts were spent, so the next call starts from nothing.
-    assert!(proxy.issuer.take_counts().is_empty(), "a count of twice");
+    assert!(proxy.counted().is_empty(), "a count of twice");
 }
 
 /// The feature off: no listener is made, nothing is bound, and the word that
@@ -422,35 +467,48 @@ fn a_token_forgotten_is_refused_from_then_on() {
         &endpoint,
         &[("7", "gpu1", State::Running), ("8", "gpu1", State::Running)],
     );
-    let (status, _) = proxy.ask(&token_of(7), "/v1/chat/completions", "{}");
+    let (status, _) = proxy.job(7, "/v1/chat/completions", "{}");
     assert_eq!(status, 200);
 
-    // The job is over: its token goes, which is what the proxy does when it is
-    // told, and the request that carries it is refused without a call.
-    eprintln!("holds before: {}", proxy.issuer.holds(&token_of(7)));
-    assert!(proxy.issuer.forget(&token_of(7)));
-    eprintln!(
-        "holds after: {}, rows {:?}",
-        proxy.issuer.holds(&token_of(7)),
+    // The job is over: the token it was given goes, which is what the proxy is
+    // told to do when a job ends. The proxy is the only holder of the token, so
+    // forgetting it at the proxy is what ends it: the factory's rows still name
+    // it, and a token is never looked up from what a contractor sends.
+    let token = proxy.token(7);
+    assert!(
+        proxy.issuer.holds(&token),
+        "the proxy never held its job's token"
+    );
+    assert!(proxy.issuer.forget(&token));
+    assert!(!proxy.issuer.holds(&token), "a forgotten token is held");
+    assert!(
         proxy
             .factory
             .snapshot()
             .jobs
             .iter()
-            .map(|j| (j.job, j.token.clone()))
-            .collect::<Vec<_>>()
+            .any(|j| j.job == 7 && j.token == token),
+        "the refused token is not the one the job's row names"
     );
-    let (status, _) = proxy.ask(&token_of(7), "/v1/chat/completions", "{}");
+    let (status, _) = proxy.ask(&token, "/v1/chat/completions", "{}");
     assert_eq!(status, 401, "a forgotten token was answered");
-    // The records say the same, and the log line of the two says which.
+    // Each of the two leaves one line, and the second says why. The second
+    // request is answered before the case opens a third connection, so the two
+    // lines are there when the order of them is read.
     let lines = proxy.waited_for(2);
     assert!(
-        lines[1].starts_with("refused ") && lines[1].contains("job 7 of contractor gpu1"),
+        lines[0].starts_with("POST "),
+        "the line of the answered request: {}\n",
+        lines[0]
+    );
+    assert!(
+        lines[1].starts_with("refused ")
+            && lines[1].contains("a token this factory issued for no job"),
         "{}\n",
         lines[1]
     );
     // The other job of the same contractor is untouched.
-    let (status, _) = proxy.ask(&token_of(8), "/v1/chat/completions", "{}");
+    let (status, _) = proxy.job(8, "/v1/chat/completions", "{}");
     assert_eq!(status, 200);
     assert_eq!(endpoint.calls(), 2, "a refusal called the endpoint");
 }
@@ -468,10 +526,16 @@ fn a_revoked_contractor_s_tokens_all_go_at_once() {
             ("9", "gpu2", State::Running),
         ],
     );
+    // The proxy holds the tokens of the live jobs before it is told: the rows
+    // and the tokens were made together when the case opened the proxy.
+    for job in [7, 8, 9] {
+        assert!(proxy.issuer.holds(&proxy.token(job)), "job {job}");
+    }
     assert_eq!(proxy.issuer.forget_contractor("gpu1"), 2);
     assert_eq!(proxy.issuer.forget_jobs(&[9]), 1);
+    assert!(proxy.issuer.is_empty(), "a token of the three left");
     for job in [7, 8, 9] {
-        let (status, _) = proxy.ask(&token_of(job), "/v1/chat/completions", "{}");
+        let (status, _) = proxy.job(job, "/v1/chat/completions", "{}");
         assert_eq!(status, 401, "the token of job {job} outlived its job");
     }
     assert_eq!(endpoint.calls(), 0, "a dead token reached the model");
@@ -485,50 +549,16 @@ fn a_revoked_contractor_s_tokens_all_go_at_once() {
 #[test]
 fn a_factory_that_reads_nothing_forwards_nothing_to_the_endpoint() {
     let endpoint = Endpoint::open(Plan::json(200, 1, 1));
-    let (at, backlog) = bind();
-    let lines = Arc::new(Mutex::new(Vec::new()));
-    let serve: &'static Serve<'static> = Box::leak(Box::new(Serve {
-        endpoint: endpoint.upstream(),
-        key: "sk-the-factory-s-own-key".to_string(),
-        // The records of an instance the day before #2272: nothing to read, so
-        // no contractor may work and no job is going.
-        records: Box::leak(Box::new(Records::empty())),
-        sink: Box::leak(Box::new(Kept(Arc::clone(&lines)))),
-        idle: Duration::from_secs(5),
-    }));
-    let at = at.to_string();
-    thread::spawn(move || {
-        for accepted in backlog.incoming() {
-            if let Ok(mut stream) = accepted {
-                thread::spawn(move || tehas_proxy::serve::one(&mut stream, serve));
-            }
-        }
-    });
-    // Give the accepting thread a moment to reach its first accept, so the
-    // request below is not the one that finds nobody listening.
-    thread::sleep(Duration::from_millis(50));
-    let mut client = TcpStream::connect(&at).expect("the port of an empty factory");
-    client
-        .write_all(request(&token_of(7), "/v1/chat/completions", "{}").as_bytes())
-        .unwrap();
-    client.flush().unwrap();
-    let (status, _) = read_some(client);
+    // The proxy of a factory with no outsource tables, on the unit's own
+    // listener: there are rows to read and they say nothing, which is the state
+    // of every instance the day before #2272's tables land.
+    let proxy = Proxy::open(&endpoint, &[]);
+    let (status, _) = proxy.ask("a-token-of-no-job", "/v1/chat/completions", "{}");
     assert_eq!(status, 401, "a model was reached with no records");
     assert_eq!(endpoint.calls(), 0);
-    // The refusal was said, and named a job of no records.
-    let deadline = Instant::now() + BIND_WAIT;
-    while lines
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .is_empty()
-        && Instant::now() < deadline
-    {
-        thread::sleep(Duration::from_millis(20));
-    }
-    let said = lines
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .join("\n");
+    // The refusal was said, and named no token: the ask of a token of no job is
+    // the one thing that was said of it, and it was said once.
+    let said = proxy.waited_for(1).join("\n");
     assert!(said.starts_with("refused "), "{said}");
     assert!(!said.contains("tok-"), "a refusal of a token: {said}");
 }
@@ -539,11 +569,7 @@ fn a_factory_that_reads_nothing_forwards_nothing_to_the_endpoint() {
 fn the_journal_of_the_port_holds_no_token_and_no_body() {
     let endpoint = Endpoint::open(Plan::json(200, 5, 6));
     let proxy = Proxy::open(&endpoint, &[("7", "gpu1", State::Running)]);
-    proxy.ask(
-        &token_of(7),
-        "/v1/chat/completions",
-        &prompt("SRC-MARKER-ON-THE-PORT"),
-    );
+    proxy.job(7, "/v1/chat/completions", &prompt("SRC-MARKER-ON-THE-PORT"));
     proxy.ask("a-token-of-no-job", "/v1/embeddings", "{}");
     let lines = proxy.waited_for(2);
     for line in &lines {

@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 pub const CONNECT_WAIT: Duration = Duration::from_secs(15);
 /// How long the endpoint has to start its answer.
 pub const HEAD_WAIT: Duration = Duration::from_secs(30);
+/// How long one write to the endpoint may take, including the copy of a
+/// contractor's prompt on to it. The prompt is the body of a cycle's ask, and a
+/// model that reads it before it answers is no slower than this.
+pub const BODY_WAIT: Duration = Duration::from_secs(120);
 /// The longest response head the proxy reads. A completion's body is not part
 /// of a head, and a head of more than this is no answer a server means.
 pub const HEAD_MAX: usize = 64 * 1024;
@@ -47,20 +51,36 @@ pub struct Ask {
     /// of the endpoint unchanged, so an endpoint that decides a stream from the
     /// fields it is given decides it as the contractor meant.
     pub head: Vec<u8>,
-    /// What came after the blank line: the ask's JSON, sent as the body.
+    /// What came after the blank line: the start of the ask's JSON, the part of
+    /// the body that had already left the contractor's socket when the proxy
+    /// read its head. The rest of the body is copied from that socket straight
+    /// to the endpoint's by [`ask`], so the prompt of a cycle is never a buffer
+    /// of the proxy's.
     pub body: Vec<u8>,
+    /// The whole length of the body, as the contractor's own content-length
+    /// named it: what the endpoint is told to expect, and what the copy of the
+    /// body ends at.
+    pub length: usize,
     /// Whether the contractor asked for a stream, which says how the answer
     /// must be carried back.
     pub streaming: bool,
 }
 
 impl Ask {
-    pub fn new(method: &str, path: &str, head: &[u8], body: &[u8], streaming: bool) -> Ask {
+    pub fn new(
+        method: &str,
+        path: &str,
+        head: &[u8],
+        body: &[u8],
+        length: usize,
+        streaming: bool,
+    ) -> Ask {
         Ask {
             method: method.to_string(),
             path: path.to_string(),
             head: head.to_vec(),
             body: body.to_vec(),
+            length,
             streaming,
         }
     }
@@ -225,20 +245,28 @@ pub fn status_of(head: &[u8]) -> Option<u16> {
 }
 
 /// One connection to the endpoint: the request written on it and the head of
-/// the answer read, with the body that came with it. `beyond` is what arrived
-/// after the contractor's head, the start of its body, which goes on as it is;
-/// the rest of the body is copied from the contractor's socket by the caller,
-/// between this and [`pipe`], so the proxy holds no bound on how long a
-/// contractor takes to send a prompt.
-pub fn ask(endpoint: &Upstream, key: &str, idle: Duration, ask: &Ask) -> Result<Answer, String> {
+/// the answer read, with the body that came with it. `ask.body` is what had
+/// already come off the contractor's socket when the proxy read its head; the
+/// rest of the body goes on from that socket to this one by [`relay`], before
+/// the endpoint is asked for its answer, so the proxy holds no bound on how
+/// long a contractor takes to send a prompt and keeps none of the prompt.
+pub fn ask(
+    endpoint: &Upstream,
+    key: &str,
+    idle: Duration,
+    ask: &Ask,
+    client: &mut TcpStream,
+) -> Result<Answer, String> {
     let began = Instant::now();
     let mut upstream = endpoint.reach()?;
     // The contractor's own request line goes, which asks the endpoint for a
     // stream, and the proxy's fields come first so they are the ones an
     // endpoint reads. What the contractor sent for `Host` and `Authorization`
-    // is dropped, and its `content-length` is left to the proxy's own.
+    // is dropped, and its `content-length` is left to the proxy's own, which
+    // is the length the contractor named rather than the part of it that had
+    // arrived.
     let sent = [
-        self::head(&ask.method, &ask.path, endpoint, key, Some(ask.body.len())).into_bytes(),
+        self::head(&ask.method, &ask.path, endpoint, key, Some(ask.length)).into_bytes(),
         client_head(&ask.head),
         ask.body.to_vec(),
     ]
@@ -249,6 +277,13 @@ pub fn ask(endpoint: &Upstream, key: &str, idle: Duration, ask: &Ask) -> Result<
     upstream
         .write_all(&sent)
         .map_err(|e| format!("the request could not be sent on: {e}"))?;
+    // The rest of the prompt, from the contractor's socket to this one, as it
+    // arrives. An endpoint that reads the body it was promised before it
+    // answers is answered here: a proxy that asked and then waited on a socket
+    // it had not drained would hold every hand it has.
+    let left = ask.length.saturating_sub(ask.body.len());
+    relay(client, &mut upstream, left)
+        .map_err(|e| format!("the prompt could not be sent on: {e}"))?;
     // The reads that follow are of an answer that is coming, not of a client
     // that must be cut off: the instance's idle bound, so a model that thinks
     // a while before its first token is no stalled connection.
@@ -304,6 +339,36 @@ pub fn ask(endpoint: &Upstream, key: &str, idle: Duration, ask: &Ask) -> Result<
             Ok(n) => got.extend_from_slice(&one[..n]),
         }
     }
+}
+
+/// The rest of a contractor's prompt, from its socket to the endpoint's, as it
+/// arrives: `want` bytes of it, which is what the contractor's own
+/// content-length promised and the head's copy did not cover. Nothing of it is
+/// kept, and no wait is longer than [`BODY_WAIT`] between two reads, so a slow
+/// contractor makes a slow request and never a proxy that holds one back or
+/// fills its memory with a prompt.
+fn relay(client: &mut TcpStream, upstream: &mut TcpStream, want: usize) -> io::Result<()> {
+    let _ = client.set_read_timeout(Some(BODY_WAIT));
+    let mut left = want;
+    let mut chunk = [0u8; 8192];
+    while left > 0 {
+        let take = left.min(chunk.len());
+        match client.read(&mut chunk[..take]) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("{left} bytes of it never came"),
+                ))
+            }
+            Err(e) => return Err(e),
+            Ok(n) => {
+                upstream.write_all(&chunk[..n])?;
+                left -= n;
+            }
+        }
+    }
+    upstream.flush()?;
+    Ok(())
 }
 
 /// The bytes of a body whose length the head names, which is the whole of a
@@ -381,9 +446,20 @@ pub fn pipe(upstream: &mut TcpStream, client: &mut TcpStream, from: &[u8]) -> io
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, Mutex, PoisonError};
     use std::thread::{self, Builder};
+
+    /// A connected pair of sockets, the one end a contractor's: what the proxy
+    /// of a test copies a prompt's rest from.
+    fn pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let client = TcpStream::connect(at).unwrap();
+        let (other, _) = listener.accept().unwrap();
+        drop(listener);
+        (other, client)
+    }
 
     #[test]
     fn an_http_address_of_a_host_and_a_port_is_an_endpoint() {
@@ -696,6 +772,10 @@ mod tests {
     }
 
     fn ask_of(stub: &Stub, idle: Duration, streaming: bool) -> Result<Answer, String> {
+        // The ask's body is whole and its length is the body's own, so the copy
+        // of the rest has nothing to read and the proxy asks at once. The
+        // contractor's socket is a pair's end that sends nothing more.
+        let (_kept, client) = pair();
         super::ask(
             &stub.upstream(),
             "sk-upstream",
@@ -705,8 +785,10 @@ mod tests {
                 "/chat/completions",
                 b"POST /v1/chat/completions HTTP/1.1\r\n",
                 b"content-type: application/json\r\ncontent-length: 5\r\n\r\nhello",
+                5,
                 streaming,
             ),
+            &mut client.try_clone().unwrap(),
         )
     }
 
@@ -861,6 +943,7 @@ mod tests {
             base: String::new(),
         };
         drop(listener);
+        let (_, mut client) = pair();
         let why = super::ask(
             &up,
             "zebra",
@@ -870,8 +953,10 @@ mod tests {
                 "/models",
                 b"GET /v1/models HTTP/1.1\r\n",
                 b"content-length: 0\r\n\r\n",
+                0,
                 false,
             ),
+            &mut client,
         )
         .unwrap_err();
         assert!(why.contains("could not be reached"), "{why}");

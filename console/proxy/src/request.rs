@@ -171,6 +171,10 @@ pub struct Live {
 /// wrote, and `state_of` and `allowed` read the factory's own records again
 /// on every request, so a job that ended or a contractor revoked mid-stream
 /// is refused by the next request and not remembered wrongly.
+/// A request is counted once. [`Records::asked`] is the ask of rule 5, and a
+/// request that names a live job was already counted by the reading that
+/// named it ([`Records::live`]), so it is said again only for a request whose
+/// token names no job at all.
 pub trait Records {
     /// The job and contractor this token was issued for, None for a token
     /// this process never issued or one whose job has been cleaned up.
@@ -180,9 +184,10 @@ pub trait Records {
     fn state_of(&self, job: i64) -> Option<State>;
     /// Whether the contractor may work at all: not revoked, and known.
     fn allowed(&self, contractor: &str) -> bool;
-    /// One request carried this token, counted for its job: what a refusal of
-    /// a live job's token counts too, since the factory was asked. A token of
-    /// no job counts for nobody.
+    /// One request carried this token, counted for its job: the ask of a
+    /// request whose token names no job, since a request that names a live job
+    /// was counted by [`Self::live`] and is never counted twice. A token of no
+    /// job counts for nobody.
     fn asked(&self, token: &str);
 }
 

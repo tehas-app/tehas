@@ -35,7 +35,7 @@ pub const HEAD_WAIT: Duration = Duration::from_secs(20);
 /// How long one read of a contractor's body may take. The body is copied to the
 /// endpoint as it arrives, so a prompt that is sent slowly costs the proxy
 /// nothing; a connection that stops sending at all is cut at this bound.
-pub const BODY_WAIT: Duration = Duration::from_secs(60);
+pub const BODY_WAIT: Duration = Duration::from_secs(120);
 /// How long the proxy's answer may take to be written to the contractor. A
 /// contractor that stops reading a stream is cut at this bound, and its job
 /// goes to a check-in timeout rather than to a stuck proxy.
@@ -110,7 +110,7 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
     let _ = client.set_read_timeout(Some(HEAD_WAIT));
     let _ = client.set_write_timeout(Some(WRITE_WAIT));
     let _ = client.set_nodelay(true);
-    let Some((method, path, head)) = read_request(client) else {
+    let Some((method, path, head, length)) = read_request(client) else {
         serve.sink.line(&Line(NO_REQUEST.to_string()));
         return refuse(client, 400, None);
     };
@@ -137,9 +137,14 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
             // A request of a token this process issued counts for its job,
             // even a refused one: a contractor refused for the state of its
             // job asked the factory all the same, and the count of rule 5 is
-            // of asks, not of answers.
-            if let Some(token) = token.as_deref() {
-                read.asked(token);
+            // of asks, not of answers. The ask is counted once: a token of a
+            // job the proxy still holds was already counted by the reading
+            // that named who was refused, so only the reading that named no
+            // job says it here.
+            if live.is_none() {
+                if let Some(token) = token.as_deref() {
+                    read.asked(token);
+                }
             }
             return refused(client, &why, live);
         }
@@ -150,8 +155,8 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
     let head_end = forward::head_end(&head).unwrap_or(head.len());
     let (fields, body) = head.split_at(head_end);
     let streaming = asks_for_a_stream(body);
-    let asked = forward::Ask::new(method, ask.path, fields, body, streaming);
-    let answer = match forward::ask(&serve.endpoint, &serve.key, serve.idle, &asked) {
+    let asked = forward::Ask::new(method, ask.path, fields, body, length, streaming);
+    let answer = match forward::ask(&serve.endpoint, &serve.key, serve.idle, &asked, client) {
         Ok(answer) => answer,
         Err(why) => {
             // The endpoint could not be reached, or answered nothing it meant:
@@ -165,8 +170,13 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
                 live.contractor
             )));
             // The factory was asked and the endpoint was silent, which is a
-            // request of the job all the same: the count is of asks.
-            read.asked(token.as_deref().unwrap_or_default());
+            // request of the job all the same: the count is of asks. The
+            // reading that named the job counted it already, so the ask is
+            // said again only when no reading named a job, which is a token
+            // of none.
+            if token.is_none() {
+                read.asked("");
+            }
             return refuse(client, 502, Some(live));
         }
     };
@@ -304,7 +314,7 @@ fn reason(status: u16) -> &'static str {
 /// The request line, the head, and everything of it that arrived: None for a
 /// head that never ends, is over the bound, or carries no request line the
 /// proxy can read.
-fn read_request(client: &mut TcpStream) -> Option<(String, String, Vec<u8>)> {
+fn read_request(client: &mut TcpStream) -> Option<(String, String, Vec<u8>, usize)> {
     let mut head = Vec::new();
     let mut one = [0u8; 1];
     loop {
@@ -323,22 +333,23 @@ fn read_request(client: &mut TcpStream) -> Option<(String, String, Vec<u8>)> {
         let (m, p) = request_line(&head)?;
         (m.to_string(), p.to_string())
     };
-    // The body, which the proxy forwards without reading it beyond the one word
-    // of the ask. The contractor's own content-length is the endpoint's rule
-    // about it, so it is read to that length: a prompt of a cycle is one body,
-    // and a proxy that forwarded a head and none of its body would be a proxy no
-    // endpoint answers at all.
+    // The body, of which the proxy keeps only the part that had already come.
+    // The rest goes from the contractor's socket to the endpoint's in
+    // [`forward::ask`], as the contractor sends it: a prompt of a cycle is a
+    // body of no bound, and a proxy that read it whole before it asked the
+    // endpoint would be a proxy that an endpoint which reads its body first
+    // never answers.
     let head_end = forward::head_end(&head).unwrap_or(0);
     let want = forward::content_length(&head[..head_end]).unwrap_or(0);
     let _ = client.set_read_timeout(Some(BODY_WAIT));
     let mut chunk = [0u8; 8192];
-    while head.len() < head_end + want {
+    while head.len() < head_end + want.min(STORED_BODY) {
         match client.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(n) => head.extend_from_slice(&chunk[..n]),
         }
     }
-    Some((method, path, head))
+    Some((method, path, head, want))
 }
 
 /// The method and the path of a request line, the only part of a head the proxy
@@ -364,6 +375,12 @@ fn request_line(head: &[u8]) -> Option<(&str, &str)> {
 /// The methods of a model ask. A proxy that forwarded any word would let a
 /// contractor ask an endpoint to delete its models.
 const METHODS: [&str; 4] = ["GET", "POST", "PUT", "PATCH"];
+
+/// How much of a contractor's body the proxy keeps to itself before it asks the
+/// endpoint. A prompt is copied on as it arrives; this is only the part read in
+/// the same breath as the head, which is the whole of a small ask and nothing
+/// more than this of a large one.
+const STORED_BODY: usize = 64 * 1024;
 
 /// Whether what the contractor sent asks for a stream. Only the word of the ask
 /// is read; a body that is not JSON asks for nothing, and the endpoint's answer
@@ -393,9 +410,10 @@ impl WithTotal for Option<count::Usage> {
     }
 }
 
-/// The listener: answer until the process ends. A request over [`HANDS`] is
-/// ended rather than queued, which is what a cycle retries as it retries a busy
-/// model; the count is one atomic and holds no lock over a request.
+/// The listener: answer until the thread that called this ends, which on a host
+/// is the process. A request over [`HANDS`] is ended rather than queued, which
+/// is what a cycle retries as it retries a busy model; the count is one atomic
+/// and holds no lock over a request.
 pub fn listen(serve: &Serve<'static>, at: &str) -> Result<TcpListener, String> {
     let listener =
         TcpListener::bind(at).map_err(|e| format!("the model proxy cannot listen on {at}: {e}"))?;
