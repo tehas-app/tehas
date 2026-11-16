@@ -2376,7 +2376,8 @@ updates to a v0.30 release first: the store refuses an older database, and the
 record files a tehas before the state store kept are no longer imported. While
 such a file is still in `state/`, every poll stops with exit 78 and logs
 `ERROR: records of an older tehas at <path>; this release does not import them`:
-install a v0.30 release to import it, or move it out of `state/`. How it works is in
+move it out of `state/`. A v0.30 release cannot import it either once this
+release has migrated the store, as it refuses the newer schema. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).

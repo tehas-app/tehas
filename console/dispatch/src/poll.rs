@@ -610,7 +610,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     }
     if let Some(old) = old_record(home) {
         say(&format!(
-            "ERROR: records of an older tehas at {}/{old}; this release does not import them: install a v0.30 release to import them, or move them out of state/",
+            "ERROR: records of an older tehas at {}/{old}; this release does not import them: move them out of state/",
             home.display()
         ));
         return 78;
