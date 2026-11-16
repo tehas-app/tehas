@@ -914,6 +914,38 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
 }
 
 #[test]
+fn every_outcome_of_a_run_is_an_outcome_word() {
+    use tehas_core::outcome::{OUTCOMES, STATUSES};
+    let statuses = STATUSES.iter().map(|s| Some(s.to_string())).chain([None]);
+    for status in statuses {
+        for exit_code in [None, Some(0), Some(3), Some(30)] {
+            for pr in [None, Some(4)] {
+                for kind in [None, Some("cap"), Some("model")] {
+                    for parked in [false, true] {
+                        let r = run::Run {
+                            status: status.clone(),
+                            exit_code,
+                            pr,
+                            failure_kind: kind.map(str::to_string),
+                            ..run::Run::default()
+                        };
+                        let o = run::outcome(&r, parked);
+                        assert!(OUTCOMES.contains(&o), "{o} from {status:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn every_failed_status_is_a_cycle_status() {
+    for s in run::FAILED {
+        assert!(tehas_core::outcome::STATUSES.contains(&s), "{s}");
+    }
+}
+
+#[test]
 fn outcomes_follow_how_the_cycle_ended() {
     let home = scratch("outcomes");
     let t = 1_792_000_000;

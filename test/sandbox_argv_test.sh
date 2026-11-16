@@ -84,7 +84,6 @@ for a in "$@"; do
   esac
   case $a in
     *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
-    *:/improve/out) out=${a%%:/improve/out} ;;
   esac
   prev=$a
 done
@@ -100,7 +99,6 @@ case " $* " in
   *" index_repository "*)
     echo index >"$written/widget.db"
     echo "{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7}" ;;
-  *" /improve "*) echo "{\"findings\":[]}" >"$out/findings.json" ;;
 esac'
 # Only what the runs here ask of GitHub, so that no run reaches the real one.
 t_stub gh 'case "$1 $2" in "issue list") echo "[]" ;; esac'
@@ -110,15 +108,13 @@ echo '{"subcommand":"plan","mode":"turn","exitCode":11,"status":"question","sess
 echo '{"verdict":"APPROVED","exitCode":0}' >"$fx/review.json"
 printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 printf 'yes\n' >"$T/answer.md"
-# One record for the improvement loop to read.
-rec=7-261010-200140
 # Two tokens by name, as a host's models.json has them, so their order is pinned.
 # No backupBaseUrl, so no run asks an endpoint.
 echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupApiKey":"$TEHAS_MODEL_KEY_FLEET"}}}' >"$T/home/.pi/agent/models.json"
 
 # The instance of every case, and the tokens of the host's environment: all a
 # container can be given by name. A container that takes no token shows it too.
-all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_IMPROVE_REPO=acme/factory)
+all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1)
 clean() {
   fresh
   rm -f "$T/docker.n"
@@ -226,16 +222,5 @@ t_run "$shim/bin/tehas check-product --sandbox"
 git -C "$checkout" config remote.origin.url "$upstream"
 t_eq "$t_rc" 0
 compare check-product
-
-t_case "the improvement loop's analyst"
-clean
-rm -f "$TEHAS_INSTANCE_DIR/models.json"
-mkdir -p "$T/home/tehas/tmp/improve/window/$rec"
-echo '{"issue":7}' >"$T/home/tehas/tmp/improve/window/$rec/cycle.json"
-mkdir -p "$T/home/tehas/logs"
-echo '{"type":"agent_end"}' >"$T/home/tehas/logs/work-$rec.jsonl"
-t_run "$shim/bin/tehasbot improve"
-t_eq "$t_rc" 0
-compare improve
 
 t_done

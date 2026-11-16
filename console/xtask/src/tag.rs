@@ -20,6 +20,7 @@ use crate::pack::{is_exec, logical, Stage};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::version::{self, Stage as Pre};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Part {
@@ -31,6 +32,8 @@ pub enum Part {
 #[derive(Debug, PartialEq)]
 pub struct Args {
     pub part: Part,
+    /// A prerelease of the next version, at this stage, instead of the release.
+    pub pre: Option<Pre>,
     pub dry: bool,
     pub verify: bool,
     /// The tag's message; empty takes the head's subject.
@@ -49,6 +52,7 @@ impl Default for Args {
     fn default() -> Args {
         Args {
             part: Part::Patch,
+            pre: None,
             dry: false,
             verify: true,
             message: String::new(),
@@ -78,6 +82,13 @@ pub fn parse(args: &[String], pwd: &Path) -> Result<Parsed, String> {
             "--patch" => a.part = Part::Patch,
             "--minor" => a.part = Part::Minor,
             "--major" => a.part = Part::Major,
+            "--pre" => {
+                a.pre = Some(
+                    it.next()
+                        .and_then(|v| Pre::parse(v))
+                        .ok_or("--pre needs alpha, beta or rc")?,
+                )
+            }
             "--dry-run" => a.dry = true,
             "--no-verify" => a.verify = false,
             "--no-pins" => a.pins = false,
@@ -139,15 +150,53 @@ pub fn remote_head(text: &str) -> Option<(String, String)> {
     }
 }
 
-/// vX.Y.Z, each part one or more digits.
-fn is_release(tag: &str) -> bool {
-    crate::pack::is_tag(tag)
+/// The newest release among tags `git tag --sort=-v:refname` listed, newest
+/// first: the first that is vX.Y.Z, no prerelease.
+pub fn newest(tags: &str) -> Option<String> {
+    tags.lines()
+        .find(|t| version::is_release(t))
+        .map(str::to_string)
 }
 
-/// The newest release among tags `git tag --sort=-v:refname` listed, newest
-/// first: the first that is vX.Y.Z.
-pub fn newest(tags: &str) -> Option<String> {
-    tags.lines().find(|t| is_release(t)).map(str::to_string)
+/// The next prerelease of `base` at `stage`, N one past the highest of that
+/// stage among `tags`, and that highest one, if any. A stage does not go
+/// back: no alpha once a beta of `base` is out.
+pub fn next_prerelease(
+    tags: &str,
+    base: &str,
+    stage: Pre,
+) -> Result<(String, Option<String>), String> {
+    let mut highest: Option<(Pre, u64, &str)> = None;
+    let mut same: Option<(u64, &str)> = None;
+    for tag in tags.lines().filter(|t| version::is_prerelease(t)) {
+        let Some((b, st, n)) = version::prerelease(tag) else {
+            continue;
+        };
+        let Ok(n) = n.parse::<u64>() else {
+            continue;
+        };
+        if b != base {
+            continue;
+        }
+        if highest.is_none_or(|(hs, hn, _)| (st, n) > (hs, hn)) {
+            highest = Some((st, n, tag));
+        }
+        if st == stage && same.is_none_or(|(sn, _)| n > sn) {
+            same = Some((n, tag));
+        }
+    }
+    if let Some((_, _, tag)) = highest.filter(|(hs, _, _)| *hs > stage) {
+        let an = if stage == Pre::Alpha { "an" } else { "a" };
+        return Err(format!(
+            "{tag} is out; {an} {} of {base} cannot come after it",
+            stage.name()
+        ));
+    }
+    let n = same.map_or(1, |(n, _)| n + 1);
+    Ok((
+        format!("{base}-{}.{n}", stage.name()),
+        same.map(|(_, t)| t.to_string()),
+    ))
 }
 
 /// The tag after `latest` (none: v0.0.0), with `part` raised and the parts
@@ -478,7 +527,8 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             eprintln!("tag-release: {latest} names no commit");
             return 1;
         };
-        if latest_commit == head {
+        // A prerelease of the next version may sit on the newest release.
+        if latest_commit == head && a.pre.is_none() {
             eprintln!(
                 "tag-release: {branch} at {} is already {latest}",
                 short(&head)
@@ -494,7 +544,30 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             return 1;
         }
     }
-    let next = next_version(latest.as_deref(), a.part);
+    let mut next = next_version(latest.as_deref(), a.part);
+    if let Some(stage) = a.pre {
+        let (pre, same) = match next_prerelease(&tags, &next, stage) {
+            Ok(found) => found,
+            Err(m) => {
+                eprintln!("tag-release: {m}; nothing was tagged");
+                return 1;
+            }
+        };
+        if let Some(same) = same {
+            let rev = format!("{same}^{{commit}}");
+            if ok_out(git().args(["rev-parse", "--verify", "--quiet", &rev])).as_deref()
+                == Some(head.as_str())
+            {
+                eprintln!(
+                    "tag-release: {branch} at {} is already {same}",
+                    short(&head)
+                );
+                tehas_core::outln!("{same}");
+                return 0;
+            }
+        }
+        next = pre;
+    }
 
     // An adopter reads what to do after an update from the release's section
     // of CHANGELOG.md, read from the commit that is tagged.

@@ -23,7 +23,7 @@ cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
 # tehas-cycle stands for itself: tehasbot cycle, tehas work and tehas index are
 # its verbs, which the console runs under the settings.
-for name in cycle work index setup update dispatch plan dev improve review check-product github-token tehas-cycle; do
+for name in cycle work index setup update dispatch plan dev review check-product github-token tehas-cycle; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -90,7 +90,7 @@ t_no_instance
 t_case "the commands the console runs itself run no script of libexec"
 reset
 for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
-  "tehasbot dispatch" "tehasbot improve" "tehasbot review" "tehasbot github-token --check"; do
+  "tehasbot dispatch" "tehasbot review" "tehasbot github-token --check"; do
   t_run "$tree/bin/$words"
 done
 t_eq "$(ran)" ""

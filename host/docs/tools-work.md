@@ -341,8 +341,7 @@ when every link is listed; the manifest of a cycle given nothing names the
 settings there instead. The manifest is kept as
 `~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
 `comments.json` beside it as `<issue>.images.md` and
-`<issue>.comments.json` when the cycle has them, for the improvement
-loop's record. When the next fetch is for the
+`<issue>.comments.json` when the cycle has them. When the next fetch is for the
 same approval, a restart of the same cycle, a link that gives other bytes than
 the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
@@ -487,18 +486,17 @@ for nothing at all. When the dispatcher's approval record lists
 attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
-`~/tehas/logs/work-<issue>-<stamp>.jsonl.err`, which the improvement loop
-copies into the record as `err.txt` (this line, the line of a container that
-never came up and a failure to write either one ever reach that file; the file
-is removed when `tehas work` clears the cycle's other files, so what it holds is
-this command's own), and keeps a manifest at
+`~/tehas/logs/work-<issue>-<stamp>.jsonl.err` (this line, the line of a
+container that never came up and a failure to write either one ever reach that
+file; the file is removed when `tehas work` clears the cycle's other files, so
+what it holds is this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
 approval it did count. A record written while
 the instance took links from comments keeps them, each with its own `source`.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
-are none, so the file stays small enough for the improvement loop to copy. An
+are none, so the file stays small. An
 issue the dispatcher never started has no approval record, and then nothing of
 that gap is said and nothing is kept; the run says on its error stream that no
 approval is recorded on this host for the issue and that a run by hand is its

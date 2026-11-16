@@ -212,7 +212,7 @@
 //! remade for every cycle. The manifest is kept as
 //! state/cycles/<issue>.manifest.json, with images.md and comments.json
 //! beside it as <issue>.images.md and <issue>.comments.json when the cycle
-//! has them, for the improvement loop's record, and a later fetch of the same
+//! has them, and a later fetch of the same
 //! approval whose link gives other bytes stops the start. An image that is left
 //! out is said in a comment on the issue, and each one given with its sha256.
 //! That comment says whether the cycle was shown them, which is what the sandbox
@@ -258,7 +258,7 @@
 //! When the dispatcher's approval record lists attachment links, the gap is said
 //! rather than left for an agent to find from a file that is not there: one line
 //! naming how many links and which approval it read, on this command's error
-//! stream and in $log.err, which is err.txt of the cycle's improvement record, and
+//! stream and in $log.err, and
 //! a manifest kept as state/cycles/<issue>.manifest.json. What the line and the
 //! manifest say, and why, is console/attach's (src/gives.rs, left_out).
 //!
@@ -301,7 +301,7 @@
 //! tehas.rukas go on the cycle's record on the state store (cycle-image), for
 //! the cycle's report. So do the PI_ENSEMBLE_* values the container is given,
 //! the TEHAS_* settings that shape a cycle and how many cycles hold their lock,
-//! this one with them (console/cycle/src/improve.rs). Only under tehasbot cycle: a run on its
+//! this one with them (console/cycle/src/ran_with.rs). Only under tehasbot cycle: a run on its
 //! own has no attempt to put them on.
 //!
 //! What the steps before the container work out for each other is in
@@ -802,8 +802,8 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
     Ok(mounted(f))
 }
 
-/// Kept beside the manifest for the improvement loop's record: the directory
-/// is removed when the cycle ends. Only this cycle's: an earlier one's would
+/// Kept beside the manifest, which outlives the directory: the directory is
+/// removed when the cycle ends. Only this cycle's: an earlier one's would
 /// mislead.
 fn keep_beside(f: &Files) {
     let stem = f.home.join(format!("state/cycles/{}", f.issue));
@@ -934,8 +934,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // The issue's images on the host, and where the container has them.
     let images = PathBuf::from(format!("{work_dir}-{n}.images"));
     let images_inside = format!("{work_dir}.images");
-    // The runner's NDJSON progress, which it writes to its error stream. Named as
-    // the improvement loop looks for it.
+    // The runner's NDJSON progress, which it writes to its error stream.
     let log = home.join(format!("logs/work-{n}-{}.jsonl", time::stamp(time::now())));
     let name = format!("tehas-work-{n}");
     let runs = PathBuf::from(format!("{}/.pi/agent/ensemble-runs/issue-{n}", env("HOME")));

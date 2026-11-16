@@ -72,7 +72,7 @@ pub(crate) fn opt_out(lean_default: bool) -> &'static str {
 /// it cannot drift apart.
 pub(crate) const BLOCKED: &str = "tehas:blocked";
 
-/// The kind of a proposal of the improvement loop. With TEHAS_ISSUE_TYPES
+/// The kind of a proposal the factory files. With TEHAS_ISSUE_TYPES
 /// mapping improvement, an issue of that type carries it in the snapshot.
 pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 
@@ -248,9 +248,8 @@ struct EpicGrant {
 
 /// The labels that keep the millwright from starting an issue on no
 /// approval of the issue itself.
-const MILLWRIGHT_HELD: [&str; 4] = [
+const MILLWRIGHT_HELD: [&str; 3] = [
     IMPROVEMENT,
-    "cross-project",
     "needs-human-attention",
     "tehas:millwright-escalated",
 ];
@@ -2245,6 +2244,17 @@ impl<'a> Poll<'a> {
         let bot = account(&self.d.bot).to_string();
         let ours = |w: &str| c.allowed(w) || (!bot.is_empty() && account(w) == bot);
         let t = self.text(n);
+        // GitHub answers null for a text never edited. A record without the
+        // field, or with something else in it, was not read and grants nothing.
+        let edited = match t.get("lastEditedAt") {
+            Some(Value::Null) => false,
+            Some(Value::String(_)) => true,
+            _ => {
+                return refuse(
+                    "whether its text was changed since it was written could not be read".into(),
+                )
+            }
+        };
         let login = |k: &str| {
             t.pointer(&format!("/{k}/login"))
                 .and_then(Value::as_str)
@@ -2258,7 +2268,6 @@ impl<'a> Poll<'a> {
                 or_unknown(&author)
             ));
         }
-        let edited = t.get("lastEditedAt").is_some_and(|v| !v.is_null());
         let editor = login("editor");
         if edited && !ours(&editor) {
             return refuse(format!(
@@ -2971,10 +2980,6 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if !self.epic_ok(n, ask, &labels) {
-                continue;
-            }
-            if has(&labels, "cross-project") && has(&labels, IMPROVEMENT) {
-                self.log(format!("skip #{n}: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"));
                 continue;
             }
             if !self.size_ok(n, ask, &labels)? {

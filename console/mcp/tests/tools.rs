@@ -1190,3 +1190,74 @@ fn snapshot_sessions_skip_bad_lines_and_the_old() {
         .collect();
     assert_eq!(ids, [1, 3, 6]);
 }
+
+// The schema of every cycle status: exactly the words of the core's
+// vocabulary, in the tools that serve one.
+#[test]
+fn every_cycle_status_enum_is_the_core_vocabulary() {
+    let catalog = list_scoped(Scope::Full);
+    let schema = |name: &str| -> Value {
+        catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is listed"))["outputSchema"]
+            .clone()
+    };
+    let want: Vec<Value> = tehas_core::outcome::STATUSES
+        .iter()
+        .map(|w| json!(w))
+        .collect();
+    let st = schema("factory_status");
+    let en = schema("factory_endings");
+    let issue = schema("factory_issue");
+    let enums = [
+        &st["properties"]["cycles"]["items"]["properties"]["status"],
+        &en["properties"]["endings"]["items"]["properties"]["status"],
+        &en["properties"]["failed"]["items"]["properties"]["status"],
+        &schema("factory_console")["properties"]["status"],
+        &issue["properties"]["running"]["properties"]["status"],
+    ];
+    for e in enums {
+        assert_eq!(e["enum"].as_array(), Some(&want), "{e}");
+    }
+}
+
+// A status word no writer of the vocabulary says is served as `unknown`, so
+// an answer never holds a word its schema does not list; a known one is kept.
+#[test]
+fn a_status_outside_the_vocabulary_is_served_as_unknown() {
+    let c = copy("status-words");
+    let edit = |file: &str, f: &dyn Fn(&mut Value)| {
+        let p = c.join(file);
+        let mut v: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        f(&mut v);
+        std::fs::write(&p, v.to_string()).unwrap();
+    };
+    edit("endings.json", &|v| v[0]["status"] = json!("landed"));
+    edit("health.json", &|v| {
+        v["checks"]["failed"][0]["status"] = json!("not an end");
+        v["checks"]["cycles"][0]["status"] = json!("verifying");
+    });
+    edit("running.json", &|v| {
+        v["cycles"][0]["status"] = json!("Running")
+    });
+
+    let ends = call(&c, "factory_endings", &json!({})).unwrap();
+    assert_eq!(ends["endings"][0]["status"], "unknown");
+    assert_eq!(ends["endings"][1]["status"], "merged");
+    assert_eq!(ends["failed"][0]["status"], "unknown");
+    let st = call(&c, "factory_status", &json!({})).unwrap();
+    assert_eq!(st["cycles"][0]["status"], "unknown");
+    let con = call(&c, "factory_console", &json!({"issue": 7})).unwrap();
+    assert_eq!(con["status"], "unknown");
+    let one = call(&c, "factory_issue", &json!({"issue": 7})).unwrap();
+    assert_eq!(one["running"]["status"], "unknown");
+
+    // The fixtures' own words are words of the vocabulary and stay.
+    let ends = call(&live(), "factory_endings", &json!({})).unwrap();
+    assert_eq!(ends["endings"][0]["status"], "interrupted");
+    let con = call(&live(), "factory_console", &json!({"issue": 7})).unwrap();
+    assert_eq!(con["status"], "running");
+}

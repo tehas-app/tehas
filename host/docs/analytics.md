@@ -177,7 +177,7 @@ The outcome of a work run:
 | `refused` | No cycle ran: the runner refused, or `tehas work` started none |
 | `pr` | It left an open pull request and was not parked |
 | `handoff` | The runner handed off to a person |
-| `failed` | tehas stopped or lost it, the runner crashed or aborted, or a failure other than a cap stopped it |
+| `failed` | tehas stopped it, the runner aborted, or a failure other than a cap stopped it |
 | `parked` | Any other end that needs a person, such as a cap |
 
 A planning turn is `handoff` when it asked its question, `stopped` when Pi no

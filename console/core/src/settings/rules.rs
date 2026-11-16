@@ -260,7 +260,6 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
-    always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_CONCURRENCY", Rule::Count, "1"),
     row(
@@ -316,16 +315,9 @@ pub const TABLE: &[Setting] = &[
     ),
     given("TEHAS_RELEASE_REPO", Rule::Repo),
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
-    given(
-        "TEHAS_CYCLE_REPORT",
-        Rule::OneOf(&["rust"], "expected rust: the report in bash is gone"),
-    ),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
     given_or("TEHAS_ANALYTICS_SRC", Rule::ScriptAddress, ""),
     given_or("TEHAS_ANALYTICS_SITE", Rule::SiteName, ""),
-    given_or("TEHAS_IMPROVE_REPO", Rule::Repo, ""),
-    given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
-    given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
     given("TEHAS_GITHUB_RENEW_EVERY", Rule::Count),
     given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
@@ -792,14 +784,6 @@ mod tests {
         }
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");
-        takes("TEHAS_CYCLE_REPORT", "rust");
-        for v in ["perl", "bash"] {
-            refuses(
-                "TEHAS_CYCLE_REPORT",
-                v,
-                "expected rust: the report in bash is gone",
-            );
-        }
     }
 
     #[test]

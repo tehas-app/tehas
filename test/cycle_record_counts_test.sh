@@ -50,14 +50,13 @@ t_contains "$t_out" "forks_refused=0"
 t_case "a count file with letters counts as nothing"
 for bad in 'three' '3 processes' '3; reboot' '`id`' '-3' '03' '12345678901234567890' ''; do
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-  printf '%s\n' "$bad" >"$fx/oom"
+    printf '%s\n' "$bad" >"$fx/oom"
   echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cp "$T/fx/oom" "$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
   t_run "$cycle 7"
   t_lacks "$(t_calls gh)" "killed for memory"
   t_lacks "$(t_calls gh)" "reboot"
   t_contains "$t_out" "oom_kills=0"
-  t_eq "$(jq -c .oomKills "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 0
+  t_eq "$(t_row cycle-show 7 -- .cycle.oom_kills)" 0
   t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
 done
 
@@ -72,13 +71,12 @@ t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
 
 t_case "the appended log is not where the count comes from"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
 echo "tehas work: 5 processes in this cycle'"'"'s container were killed for memory"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$(cat "$T/home/tehas/logs/dispatch-work-7.log")" "5 processes"
 t_lacks "$(t_calls gh)" "killed for memory"
-t_eq "$(jq -c .oomKills "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.oom_kills)" 0
 
 t_case "a count left by an earlier cycle of the issue is not this cycle's"
 reset

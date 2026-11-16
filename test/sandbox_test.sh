@@ -1192,7 +1192,7 @@ cat >"$T/scan/two-in-one-statement" <<'EOF'
 image=/opt/fixture/sandbox:tag
 docker run --rm "$image" one; docker run --rm "$image" two
 EOF
-# improve runs its container behind timeout and that program's own options.
+# A container run behind timeout and that program's own options.
 cat >"$T/scan/behind-timeout" <<'EOF'
 image=/opt/fixture/sandbox:tag
 runner=/opt/fixture/bin/runner
@@ -1248,7 +1248,8 @@ timeout -k 9 docker run --rm --init \
   --entrypoint "$runner_two" "$image" \
   sub --dry-run
 EOF
-# improve names pi on a line of its own, continued from the run above it.
+# A run that names its program on a line of its own, continued from the run
+# above it.
 cat >"$T/scan/continued-line" <<'EOF'
 image=/opt/fixture/sandbox:tag
 timeout -k 30 90 docker run --rm --init \
@@ -1397,7 +1398,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"
@@ -1407,7 +1408,6 @@ done <<<"$program_runs"
 t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
 check-product	PI_ENSEMBLE_IMAGE	bash
 dev	PI_ENSEMBLE_IMAGE	pi
-improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless

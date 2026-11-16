@@ -23,7 +23,7 @@
 //! has touched.
 
 use crate::start::{self, is_record, record_value, Driver};
-use crate::{caps, conflict, host, improve};
+use crate::{caps, conflict, host, ran_with};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -469,8 +469,7 @@ fn on(path: &Path, end: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// The log of the push check, beside the cycle's own log. `work` names it the
-/// same way when it reads it for the improvement record.
+/// The log of the push check, beside the cycle's own log.
 pub fn preflight_of(log: &Path) -> PathBuf {
     on(log, ".preflight")
 }
@@ -1209,7 +1208,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     }
     let mut options = list(state, "env");
     options.extend_from_slice(&r.images);
-    let text = improve::settings(&running(home).to_string(), &options);
+    let text = ran_with::settings(&running(home).to_string(), &options);
     let settings = start::private_file(home, "settings", format!("{text}\n").as_bytes());
     let path = settings.as_ref().map(|p| p.to_string_lossy().into_owned());
     match &path {
@@ -1454,6 +1453,15 @@ fn run_words(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    /// The tests that call `push_fault` read and set the process's
+    /// `TEHAS_CYCLE_ATTEMPT`, `TEHAS_FAULT_CALLS` and `TEHAS_REPO`: one at a time,
+    /// or a test that removes the attempt ends another's record for it.
+    static FAULT_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn fault_env() -> std::sync::MutexGuard<'static, ()> {
+        FAULT_ENV.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn a_failed_move_aside_keeps_the_tree_already_there() {
@@ -1831,6 +1839,7 @@ mod tests {
     /// record is ended: a run by hand owns none.
     #[test]
     fn a_push_fault_ends_the_start_of_the_supervisor() {
+        let _env = fault_env();
         let d = tehas_core::testdir::TestDir::new("push-fault-store");
         fs::create_dir_all(d.join("libexec")).unwrap();
         tehas_core::testing::write_exe(
@@ -1869,6 +1878,7 @@ mod tests {
 
     #[test]
     fn a_push_log_that_cannot_be_made_is_no_pass() {
+        let _env = fault_env();
         let t = Tree {
             issue: 7,
             file: PathBuf::new(),
@@ -1905,6 +1915,7 @@ mod tests {
     /// `tehas_core::grammar::an_end` counts it an end.
     #[test]
     fn a_failed_push_check_records_the_fault_and_a_passing_one_removes_it() {
+        let _env = fault_env();
         use std::os::unix::fs::PermissionsExt;
         let d = tehas_core::testdir::TestDir::new("push-fault");
         let preflight = d.join("logs/work-7.preflight");
@@ -1941,6 +1952,7 @@ mod tests {
     /// run by hand records it as much as a start of the dispatch does.
     #[test]
     fn the_fault_of_a_run_by_hand_names_the_host_and_no_attempt() {
+        let _env = fault_env();
         std::env::set_var("TEHAS_REPO", "acme/widget");
         std::env::remove_var("TEHAS_CYCLE_ATTEMPT");
         let d = tehas_core::testdir::TestDir::new("push-fault-no-attempt");

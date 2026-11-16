@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
+use tehas_core::outcome;
 use tehas_core::queue_lists;
 
 /// The most of a console a call returns, and the default.
@@ -77,23 +78,9 @@ const STAGES: [&str; 6] = [
     queue_lists::COMPLETED,
 ];
 
-/// A status word a cycle can carry. The runner's own words, tehas's own for a
-/// cycle it stopped, and `unknown` when nothing was reported.
-const CYCLE_STATUSES: [&str; 13] = [
-    "running",
-    "merged",
-    "handoff",
-    "aborted",
-    "interrupted",
-    "refused",
-    "killed",
-    "stalled",
-    "timeout",
-    "lost",
-    "closed",
-    "completed",
-    "unknown",
-];
+/// A status word a cycle can carry: the core's one vocabulary. An answer
+/// serves a word outside it as `unknown` (`cycle_status`).
+const CYCLE_STATUSES: [&str; 16] = outcome::STATUSES;
 /// The overall state of a health check.
 const CHECK_STATES: [&str; 3] = ["pass", "warn", "fail"];
 /// The state of the limit, as `tehas limit` reports it.
@@ -1389,6 +1376,23 @@ pub(crate) fn merge(out: &mut Map<String, Value>, v: Option<Value>) {
     }
 }
 
+/// The `status` of a cycle, or of each cycle of a list, as a word of the
+/// vocabulary its schema lists: a word the files hold that is no word of it is
+/// served as `unknown`.
+pub(crate) fn cycle_status(v: &mut Value) {
+    match v {
+        Value::Array(a) => a.iter_mut().for_each(cycle_status),
+        Value::Object(m) => cycle_status_in(m),
+        _ => {}
+    }
+}
+
+pub(crate) fn cycle_status_in(m: &mut Map<String, Value>) {
+    if let Some(Value::String(w)) = m.get_mut("status") {
+        *w = outcome::status(w).to_string();
+    }
+}
+
 fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     let health = read(live, "health.json")?;
     let st = read(live, "status.json")?;
@@ -1424,7 +1428,14 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     }
     put(&mut out, "limit", pick(&checks["limit"], &spec["limit"]));
     put(&mut out, "queue", pick(&checks["queue"], &spec["queue"]));
-    put(&mut out, "cycles", pick(&checks["cycles"], &spec["cycles"]));
+    put(
+        &mut out,
+        "cycles",
+        pick(&checks["cycles"], &spec["cycles"]).map(|mut c| {
+            cycle_status(&mut c);
+            c
+        }),
+    );
     put(&mut out, "demand", pick(&checks["demand"], &spec["demand"]));
     put(
         &mut out,
@@ -1581,6 +1592,9 @@ fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
         "failed",
         pick(&health["checks"]["failed"], &spec["failed"]),
     );
+    for list in out.values_mut() {
+        cycle_status(list);
+    }
     Ok(out)
 }
 
@@ -1619,6 +1633,7 @@ fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
             ]),
         ),
     );
+    cycle_status_in(&mut out);
     // The only file name this opens, and only when running.json gives it.
     let name = format!("console-{issue}.txt");
     if cycle["console"].as_str() == Some(name.as_str()) {
