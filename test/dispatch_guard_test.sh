@@ -781,7 +781,7 @@ for old in "${old_records[@]}"; do
   esac
   t_run "$dispatch"
   t_eq "$t_rc" 78
-  t_contains "$t_out" "ERROR: records of an older tehas at $T/home/tehas/${old%/}; run install.sh again"
+  t_contains "$t_out" "ERROR: records of an older tehas at $T/home/tehas/${old%/}; this release does not import them: move them out of state/"
   t_eq "$(t_calls gh)" ""
   t_eq "$(t_calls fake-start)" ""
   t_run "$dispatch --dry-run"
