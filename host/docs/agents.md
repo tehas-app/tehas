@@ -54,7 +54,7 @@ one. A request without a key gets 401.
 - `factory_status`: whether the factory works, the queue, the running cycles, whether it is paused
 - `factory_issues`: the issues in one stage, such as `queued`, `running` or `stopped`
 - `factory_endings`: the cycles that ended last, and the failed ones among them
-- `factory_console`: the tail of one running cycle's console
+- `factory_console`: the tail of one running cycle's console, masked
 - `factory_stats`: the ten-day report the dashboard shows
 - `factory_issue`: one issue's story: its stage, its title, the running cycle and every run of the last 30 days
 - `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
