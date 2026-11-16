@@ -548,13 +548,25 @@ fn tar_words(args: &[&str], archive: &Path) -> Vec<String> {
         .collect()
 }
 
+/// What a failed tar is refused with: its words of the failure, which it puts
+/// on standard error. Standard output is added after it, as the unbounded call
+/// of `unpack` still does for `tar refused the archive`: `call` keeps the two
+/// streams apart, and a refusal that dropped what the program printed on
+/// standard output would say less than it used to.
+fn tar_why(ran: &tehas_core::call::Ran) -> String {
+    format!("{} {}", ran.err.trim(), ran.out.trim())
+        .trim()
+        .to_string()
+}
+
 /// The first line of a `tar -t` listing, read as it comes and not held whole:
 /// the first entry is all the caller looks at, and a listing of a large archive
 /// must not be kept in memory to name it. None when tar gave no answer or did
-/// not answer in time; the empty string when the archive holds nothing.
-fn tar_first_line(args: &[&str], archive: &Path) -> Result<Option<String>, Fail> {
+/// not answer in time; None when the archive holds nothing, which is what the
+/// empty listing of the unbounded call gave.
+fn tar_first_line(program: &str, args: &[&str], archive: &Path) -> Result<Option<String>, Fail> {
     let ran = tehas_core::call::run_input_bounded(
-        "tar",
+        program,
         &tar_words(args, archive),
         None,
         Duration::from_secs(TAR_SECS),
@@ -564,7 +576,7 @@ fn tar_first_line(args: &[&str], archive: &Path) -> Result<Option<String>, Fail>
     if !ran.ok() {
         return Err((
             1,
-            format!("the archive does not read as a tar: {}", ran.err.trim()),
+            format!("the archive does not read as a tar: {}", tar_why(&ran)),
         ));
     }
     Ok(ran.out.lines().next().map(str::to_string))
@@ -575,14 +587,19 @@ fn tar_first_line(args: &[&str], archive: &Path) -> Result<Option<String>, Fail>
 const ONE_LINE: u64 = 4096;
 
 fn tar_out(args: &[&str], archive: &Path) -> Result<Vec<u8>, Fail> {
+    tar_out_of("tar", args, archive)
+}
+
+/// tar_out with the program named, so a case can give it a stub.
+fn tar_out_of(program: &str, args: &[&str], archive: &Path) -> Result<Vec<u8>, Fail> {
     if args == ["-t"] {
         // The listing is read for its first line alone.
-        return Ok(tar_first_line(args, archive)?
+        return Ok(tar_first_line(program, args, archive)?
             .map(|l| (l + "\n").into_bytes())
             .unwrap_or_default());
     }
     let ran = tehas_core::call::run_input_env(
-        "tar",
+        program,
         &tar_words(args, archive),
         None,
         Duration::from_secs(TAR_SECS),
@@ -593,7 +610,7 @@ fn tar_out(args: &[&str], archive: &Path) -> Result<Vec<u8>, Fail> {
     } else {
         Err((
             1,
-            format!("the archive does not read as a tar: {}", ran.err.trim()),
+            format!("the archive does not read as a tar: {}", tar_why(&ran)),
         ))
     }
 }
@@ -994,11 +1011,54 @@ mod tests {
             .status()
             .unwrap();
         assert!(made.success(), "the archive is made");
-        let first = tar_first_line(&["-t"], &archive).unwrap();
+        let first = tar_first_line("tar", &["-t"], &archive).unwrap();
         // A name of the archive, and only one line: the whole listing is not
         // held.
         assert!(first.is_some(), "the first entry is read");
         assert_eq!(first.as_deref().unwrap().lines().count(), 1);
+    }
+
+    /// A tar that refuses is refused with its own words, whichever stream it
+    /// put them on: `call` keeps the two apart, and what follows the colon of
+    /// the refusal is what the program printed, as it was before the bound.
+    #[test]
+    fn a_tar_that_refuses_is_refused_with_its_words_from_either_stream() {
+        for (name, body) in [
+            ("err", "#!/bin/sh\necho 'tar: truncated archive' >&2\nexit 2\n"),
+            ("out", "#!/bin/sh\necho 'tar: truncated archive'\nexit 2\n"),
+            (
+                "both",
+                "#!/bin/sh\necho 'tar: truncated archive' >&2\necho 'tar: partial listing'\nexit 2\n",
+            ),
+        ] {
+            let d = tehas_core::testdir::TestDir::new(&format!("state-tar-refusal-{name}"));
+            let tar = d.join("tar");
+            fs::write(&tar, body).unwrap();
+            fs::set_permissions(&tar, fs::Permissions::from_mode(0o755)).unwrap();
+            let archive = d.join("a.tar");
+            fs::write(&archive, "bytes").unwrap();
+            for args in [&["-t"][..], &["-x", "-O", MANIFEST][..]] {
+                let got = tar_out_of(&tar.to_string_lossy(), args, &archive)
+                    .err()
+                    .unwrap_or_else(|| panic!("a tar that exits 2 is a refusal: {name} {args:?}"));
+                assert_eq!(got.0, 1, "the exit status of a refusal");
+                let want = if name == "both" {
+                    "tar: truncated archive tar: partial listing"
+                } else {
+                    "tar: truncated archive"
+                };
+                assert_eq!(
+                    got.1,
+                    format!("the archive does not read as a tar: {want}"),
+                    "{} of {args:?}",
+                    if name == "both" {
+                        "both streams"
+                    } else {
+                        name
+                    }
+                );
+            }
+        }
     }
 
     #[test]
