@@ -1232,7 +1232,7 @@ fresh
 fake a_test.sh 0
 t_run "cd '$repo' && bash runner/runner.sh host/docs/x.md"
 t_eq "$t_rc" 3
-t_contains "$t_out" "no test file and no linted script among the paths given"
+t_contains "$t_out" "no test file and no linted script among the paths given: host/docs/x.md"
 t_lacks "$t_out" "ran a_test.sh"
 
 # What a test file prints, one 'leaked <name>' line for each of the settings it
