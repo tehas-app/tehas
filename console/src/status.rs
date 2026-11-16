@@ -731,7 +731,9 @@ fn text_or_null(v: &J) -> J {
 }
 
 /// `versions`: the platform and the pi-rukas, as health read them (#1534),
-/// each value null when it cannot be read and never left out (#1680).
+/// each value null when it cannot be read and never left out (#1680). The
+/// platform's commit is the one its release was built from, or the
+/// checkout's.
 fn versions(checks: &J) -> J {
     let p = checks.get("platform");
     let release = text_or_null(p.get("release"));
@@ -754,6 +756,7 @@ fn versions(checks: &J) -> J {
             "platform",
             obj(vec![
                 ("release", release),
+                ("commit", text_or_null(p.get("commit"))),
                 ("latest", latest),
                 ("behind", behind),
             ]),
@@ -1296,14 +1299,14 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
         );
     }
 
     #[test]
     fn the_versions_are_what_health_read_and_null_where_it_read_nothing() {
         let v = |checks: &str| versions(&h(checks)).dump();
-        let none = r#"{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#;
+        let none = r#"{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#;
         assert_eq!(v("{}"), none);
         assert_eq!(v(r#"{"platform":null,"rukas":null}"#), none);
         assert_eq!(
@@ -1312,7 +1315,7 @@ mod tests {
                  "rukas":{"follow":"release:0","target":"abc1234","targetVersion":"v0.14.54",
                           "image":"def5678","imageVersion":"v0.14.53","clone":"abc1234","behind":true}}"#
             ),
-            r#"{"platform":{"release":"v0.24.0","latest":"v0.25.0","behind":true},"rukas":{"version":"v0.14.53","latest":"v0.14.54","behind":true}}"#
+            r#"{"platform":{"release":"v0.24.0","commit":null,"latest":"v0.25.0","behind":true},"rukas":{"version":"v0.14.53","latest":"v0.14.54","behind":true}}"#
         );
         // A release with no newest known; a pi-rukas with commits and no
         // versions, as on a host that follows a branch.
@@ -1321,21 +1324,34 @@ mod tests {
                 r#"{"platform":{"release":"v0.25.0","newest":null,"behind":0},
                  "rukas":{"target":"abc1234","targetVersion":null,"image":"abc1234","imageVersion":null,"behind":false}}"#
             ),
-            r#"{"platform":{"release":"v0.25.0","latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":false}}"#
+            r#"{"platform":{"release":"v0.25.0","commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":false}}"#
         );
-        // A candidate ahead of the newest release is not behind.
+        // A prerelease ahead of the newest release is not behind, and the
+        // commit it was built from is named.
+        assert_eq!(
+            v(
+                r#"{"platform":{"release":"v1.0.0-alpha.1","commit":"0123456789abcdef0123456789abcdef01234567","newest":"v0.30.7"}}"#
+            ),
+            r#"{"platform":{"release":"v1.0.0-alpha.1","commit":"0123456789abcdef0123456789abcdef01234567","latest":"v0.30.7","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        // A commit that is no text is null.
+        assert_eq!(
+            v(r#"{"platform":{"release":"v0.25.0","commit":7}}"#),
+            r#"{"platform":{"release":"v0.25.0","commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        // A prerelease ahead of the newest release is not behind.
         assert_eq!(
             v(r#"{"platform":{"release":"v0.26.0-rc.1","newest":"v0.25.0"}}"#),
-            r#"{"platform":{"release":"v0.26.0-rc.1","latest":"v0.25.0","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":"v0.26.0-rc.1","commit":null,"latest":"v0.25.0","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
         // A checkout host: no release, behind by its commit count.
         assert_eq!(
             v(r#"{"platform":{"commit":"cb6912a0","behind":19,"upstream":"origin/main"}}"#),
-            r#"{"platform":{"release":null,"latest":null,"behind":true},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":null,"commit":"cb6912a0","latest":null,"behind":true},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
         assert_eq!(
             v(r#"{"platform":{"commit":"cb6912a0","behind":0,"upstream":"origin/main"}}"#),
-            r#"{"platform":{"release":null,"latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":null,"commit":"cb6912a0","latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
     }
 

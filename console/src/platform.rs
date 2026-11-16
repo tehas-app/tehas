@@ -166,8 +166,10 @@ fn put(live: &Path, file: &J) {
 /// A host that runs a release: the version current points at, the newest
 /// there is, and nothing of a checkout it may still hold. A cached newest
 /// that is no version, or older than the installed one, or beside an installed
-/// version that is none, goes, and the next read asks again. A candidate is
-/// ahead of the newest release, so an older newest stays beside one.
+/// version that is none, goes, and the next read asks again. A prerelease is
+/// ahead of the newest release, so an older newest stays beside one. The
+/// commit is the one the release was built from, from its COMMIT file, and is
+/// left out when the release has none.
 fn release(home: &Path, live: &Path, installed: &str) {
     let stamp = home.join("state/platform-fetch");
     let cache = home.join("state/platform-newest");
@@ -193,24 +195,36 @@ fn release(home: &Path, live: &Path, installed: &str) {
             stamp_write(&stamp, now, &fetched);
         }
     }
-    put(
-        live,
-        &obj(vec![
-            ("generatedAt", J::str(time::iso(time::now()))),
-            ("release", J::str(installed)),
-            (
-                "newest",
-                if tag_ok(&newest) {
-                    J::str(newest)
-                } else {
-                    J::Null
-                },
-            ),
-            ("behind", J::num(0.0)),
-            ("upstream", J::str("releases")),
-            ("fetchedAt", time_of(&fetched)),
-        ]),
-    );
+    let mut fields = vec![
+        ("generatedAt", J::str(time::iso(time::now()))),
+        ("release", J::str(installed)),
+    ];
+    if let Some(commit) = built_from(home) {
+        fields.push(("commit", J::str(commit)));
+    }
+    fields.extend([
+        (
+            "newest",
+            if tag_ok(&newest) {
+                J::str(newest)
+            } else {
+                J::Null
+            },
+        ),
+        ("behind", J::num(0.0)),
+        ("upstream", J::str("releases")),
+        ("fetchedAt", time_of(&fetched)),
+    ]);
+    put(live, &obj(fields));
+}
+
+/// The commit the installed release was built from: the first line of
+/// current/COMMIT, when it is 40 hex digits.
+fn built_from(home: &Path) -> Option<String> {
+    let text = fs::read_to_string(home.join("current/COMMIT")).ok()?;
+    let line = text.lines().next()?.trim();
+    let hex = line.len() == 40 && line.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    hex.then(|| line.to_string())
 }
 
 fn git(co: &Path, args: &[&str]) -> Option<String> {
@@ -364,6 +378,33 @@ mod tests {
         release(&home, &live, "v0.23.0");
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert!(file.get("newest").is_null());
+    }
+
+    #[test]
+    fn a_release_names_the_commit_it_was_built_from() {
+        let home = tehas_core::testdir::TestDir::new("commit");
+        let live = home.join("live");
+        fs::create_dir_all(home.join("state")).unwrap();
+        fs::create_dir_all(home.join("versions/v1.0.0-alpha.1")).unwrap();
+        fs::create_dir_all(&live).unwrap();
+        std::os::unix::fs::symlink("versions/v1.0.0-alpha.1", home.join("current")).unwrap();
+        let now = time::now();
+        fs::write(home.join("state/platform-fetch"), format!("{now} {now}\n")).unwrap();
+        let commit = |text: &str| {
+            fs::write(home.join("current/COMMIT"), text).unwrap();
+            release(&home, &live, "v1.0.0-alpha.1");
+            let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+            assert_eq!(file.get("release").as_str(), Some("v1.0.0-alpha.1"));
+            file.get("commit").as_str().map(str::to_string)
+        };
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(commit(&format!("{sha}\n")).as_deref(), Some(sha));
+        assert_eq!(commit("not a commit\n"), None);
+        assert_eq!(commit(&sha[..39]), None);
+        fs::remove_file(home.join("current/COMMIT")).unwrap();
+        release(&home, &live, "v1.0.0-alpha.1");
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert!(matches!(file.get("commit"), J::Null));
     }
 
     #[test]
