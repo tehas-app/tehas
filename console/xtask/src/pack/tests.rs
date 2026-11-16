@@ -540,7 +540,13 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 
 /// The packages of the workspace that build a program and that no host is given,
 /// each with why. Every other program is in each list below.
-const NOT_INSTALLED: &[(&str, &str)] = &[("tehas-xtask", "the development tasks of scripts/")];
+const NOT_INSTALLED: &[(&str, &str)] = &[
+    ("tehas-xtask", "the development tasks of scripts/"),
+    (
+        "tehas-proxy",
+        "built and tested; install.sh and the release take it with #2278",
+    ),
+];
 
 /// The name of `[package]` in a manifest.
 fn package_name(manifest: &str) -> String {
