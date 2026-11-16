@@ -798,6 +798,16 @@ fn integer(r: &rusqlite::Row<'_>, n: usize) -> Option<i64> {
     }
 }
 
+/// One column of the samples table as a word: only a TEXT cell is one, so a
+/// number left in `held` names no hold. As with `integer`, a cell of another
+/// type leaves its figure absent rather than ending the report.
+fn word(r: &rusqlite::Row<'_>, n: usize) -> Option<String> {
+    match r.get_ref(n) {
+        Ok(rusqlite::types::ValueRef::Text(v)) => Some(String::from_utf8_lossy(v).into_owned()),
+        _ => None,
+    }
+}
+
 fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<WorkRun>> {
     let mut q = conn.prepare(
         "SELECT id, started, ended, seconds, coalesce(outcome, 'failed'), input, output, cache_read,
@@ -877,11 +887,11 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
          WHERE at >= ?1 AND at <= ?2 ORDER BY at",
     )?;
     let rows = q.query_map(params![from, to], |r| {
-        let in_line: Option<i64> = r.get(1)?;
-        let planning: Option<i64> = r.get(2)?;
-        let paused: Option<i64> = r.get(3)?;
-        let held: Option<String> = r.get(4)?;
-        let running: Option<i64> = r.get(6)?;
+        let in_line = integer(r, 1);
+        let planning = integer(r, 2);
+        let paused = integer(r, 3);
+        let held = word(r, 4);
+        let running = integer(r, 6);
         Ok(Sample {
             at: r.get(0)?,
             planned: in_line.map(|n| (n, planning)),
