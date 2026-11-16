@@ -608,7 +608,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .find(|s| !s.is_empty())
         .unwrap_or("-")));
     let result_branch = v(&text(&outcome, "branch"));
-    let build = v(&text(&outcome, "buildCommit"));
     let (handoff, lean_posted) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
@@ -992,11 +991,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if branch.is_empty() && lean {
         branch = format!("lean/issue-{issue}");
     }
-    let build = if re(r"^[0-9a-f]{40}$", &build) {
-        build
-    } else {
-        String::new()
-    };
     let [review_held, mut reason, failure_from, failure_kind, failure_role, failure_cause] =
         runner::progress_fields(progress);
     let provider = failure_from == "result" && failure_kind == "provider";
@@ -1842,7 +1836,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             rukas: image_rukas.clone(),
             cap: cap.clone(),
             reason: reason.clone(),
-            build: build.clone(),
             // The writes say whether one of them carried it.
             handoff_delivered: if lean_posted {
                 Some(true)

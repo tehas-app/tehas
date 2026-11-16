@@ -26,14 +26,15 @@
 //!       --parked true|false --pr <url> --by <login> --how <how>
 //!       --approved <json> --image <id> --image-built <time>
 //!       --rukas-image <commit> --oom <n> --forks <n> --reason <text>
-//!       --build <commit> --handoff-delivered true|false --signalled 0|1
+//!       --handoff-delivered true|false --signalled 0|1
 //!       --workdir <dir> --console <path>
 //!       --status-cmd <path>
 //!                                     what follows a cycle's record, each
 //!                                     step's failure a WARN line: the live
 //!                                     view, the run and its end in the
-//!                                     analytics, the workspace's build output, the status
-//!                                     unless a signal stopped the cycle, and
+//!                                     analytics, the workspace's build
+//!                                     output, the status unless a signal
+//!                                     stopped the cycle, and
 //!                                     the next poll (src/after.rs). A flag
 //!                                     with nothing to say may be left out
 //!   tehas-cycle last-attempt <issue> <result.json> <workspace>
@@ -248,7 +249,7 @@
 //! store.
 //!
 //! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
-//! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
+//! TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
 //!
 //! Exit: 0 it printed or kept its answer; 70 report: the end of the cycle, or
 //! the record of its failed GitHub step, is not on record; 1 what it reads could not be
@@ -648,7 +649,6 @@ fn after_verb(home: &Path, n: u64, args: &[String]) {
             "--oom" => e.kills = v,
             "--forks" => a.forks = v,
             "--reason" => e.reason = v,
-            "--build" => e.build = v,
             "--handoff-delivered" => e.handoff_delivered = Some(v == "true"),
             "--signalled" => a.signalled = v == "1",
             "--workdir" => a.workdir = v,
