@@ -81,6 +81,8 @@ fn the_store_says_who_may_work_and_where_each_held_job_is() {
     assert_eq!(records.state_of(7), Some(State::Running));
     assert_eq!(records.state_of(8), Some(State::Lost));
     assert_eq!(records.state_of(9), None, "a job of no held token was read");
+    assert_eq!(records.holder(7), Some((1, "gpu1".to_string())));
+    assert_eq!(records.holder(8), Some((1, "gpu3".to_string())));
     assert!(records.allowed("gpu1"));
     assert!(!records.allowed("gpu2"));
     assert!(!records.allowed("nobody"));
