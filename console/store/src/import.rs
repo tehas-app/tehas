@@ -1721,7 +1721,7 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Group) -> Re
                 reason: p
                     .reason
                     .clone()
-                    .or_else(|| line.map(|l| l.status.clone()))
+                    .or_else(|| line.map(|l| l.reason().to_string()))
                     .unwrap_or_else(|| "unknown".to_string()),
                 step: line.and_then(|l| l.step.clone()),
                 pr: line.and_then(|l| l.pr),
