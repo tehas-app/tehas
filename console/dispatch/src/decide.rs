@@ -14,6 +14,7 @@ use tehas_core::events::{
     sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
+use tehas_core::kinds::Kind;
 
 mod clean;
 mod epic;
@@ -58,7 +59,7 @@ pub(crate) const BLOCKED: &str = "tehas:blocked";
 
 /// The kind of a proposal of the improvement loop. With TEHAS_ISSUE_TYPES
 /// mapping improvement, an issue of that type carries it in the snapshot.
-pub(crate) const IMPROVEMENT: &str = "tehas:improvement";
+pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 
 /// What asks for the start of an issue `tehas start` approved (#1967), where a
 /// label would: no label, so nothing comes off the issue when a rule holds it.
@@ -2875,7 +2876,7 @@ impl<'a> Poll<'a> {
             if !self.epic_ok(n, ask, &labels) {
                 continue;
             }
-            if has(&labels, "cross-project") && has(&labels, "tehas:improvement") {
+            if has(&labels, "cross-project") && has(&labels, IMPROVEMENT) {
                 self.log(format!("skip #{n}: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"));
                 continue;
             }
@@ -3187,6 +3188,16 @@ fn blockers(body: &str) -> Option<Vec<u64>> {
         return Some(out);
     }
     None
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::IMPROVEMENT;
+
+    #[test]
+    fn the_improvement_constant_keeps_its_spelling() {
+        assert_eq!(IMPROVEMENT, "tehas:improvement");
+    }
 }
 
 #[cfg(test)]
