@@ -188,15 +188,13 @@ t_eq "$t_out" "1
 number"
 lib 'view 7 1 | jq -c "{how, fixer_starts}"'
 t_eq "$t_out" '{"how":"fixer","fixer_starts":1}'
-# plan-show answers each answer's mark under both names: a store that answered
-# only one key breaks here.
+# plan-show answers each answer's mark as millwright alone: the old key is gone.
 printf '# The brief\n' >"$T/plan-brief.md"
 TEHAS_HOME=$home "$T_STORE" plan-begin 8 --by alice --label tehas:plan --brief-file "$T/plan-brief.md" >/dev/null
 TEHAS_HOME=$home "$T_STORE" plan-end 8 --turn 1 --outcome finished --rc 0 --session s1 >/dev/null
 TEHAS_HOME=$home "$T_STORE" plan-answer 8 --turn 2 --by tehas-fixer --millwright --text-file "$T/plan-brief.md" >/dev/null
-lib 'st plan-show 8 | jq -r ".planning.answers[0].millwright, .planning.answers[0].fixer, (.planning.answers[0].fixer | type)"'
+lib 'st plan-show 8 | jq -r ".planning.answers[0].millwright, (.planning.answers[0] | has(\"fixer\"))"'
 t_eq "$t_out" "true
-true
-boolean"
+false"
 
 t_done

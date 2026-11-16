@@ -2032,8 +2032,12 @@ what the account may do, and this section is that.
 The millwright was called the fixer. Its old names are no longer read: a
 `TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
 and the label `tehas:fixer-escalated` and the marker
-`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
-written as `how: "fixer"` still counts as the millwright's. [`tehas
+`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. The state
+store's schema 16 writes `millwright` in every row that still said `fixer`
+(a start, a line of history, an approval, a refused note), so `tehas history`
+and `tehas export` name the millwright one way, and the MCP session tools
+answer `millwright` for a run recorded under the old word. The `plan.json` of
+`tehas export` lists an answer's mark as `millwright` alone. [`tehas
 api`](/api#tehas-api) lists only the new names: `millwright-grant` and
 `millwright`.
 
