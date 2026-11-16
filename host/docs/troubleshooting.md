@@ -198,6 +198,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so
   take the line out`: every command stops with 78 while the instance sets it
   to a value, `rust` too. Take the line out. A blank value is ignored.
+- `TEHAS_EASY_MERGE is no longer read: this version of tehas has no easy
+  merge, every refresh is the full refresh cycle, so take the line out`: every
+  command stops with 78 while the instance sets it to 1 or any value but 0.
+  Take the line out. A blank value and `TEHAS_EASY_MERGE=0` are ignored.
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the
