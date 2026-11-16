@@ -260,3 +260,36 @@ fn the_kinds_of_a_planning_sessions_end_are_taken() {
     }
     assert_eq!(count(&home, "actions"), 3);
 }
+
+#[test]
+fn open_marks_a_row_whose_arguments_are_not_an_object() {
+    // The write path takes only a JSON object, so such a row comes from a
+    // directly-written or older store. It is said, not read as null: a reader
+    // cannot tell an unreadable blob from an action that took no arguments.
+    let home = home("journal-args-unreadable");
+    ok_at(&home, 8000, &["poll-begin"]);
+    let readable = intend(&home, 8000, "7");
+    for (i, body) in ["not JSON", "[1,2]", "null", r#""a string""#]
+        .into_iter()
+        .enumerate()
+    {
+        conn(&home)
+            .execute(
+                "INSERT INTO actions (poll_at, kind, issue, args_json, before_snapshot,
+                    state, intended_at)
+                 VALUES (8000, 'comment-post', 7, ?1, 7990, 'intended', ?2)",
+                rusqlite::params![body, 8001 + i as i64],
+            )
+            .unwrap();
+    }
+    let open = ok(&home, &["journal-open"]);
+    let actions = open["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), 5);
+    let good = actions.iter().find(|a| a["id"] == readable).unwrap();
+    assert_eq!(good["args"]["repo"], "example-owner/example-product");
+    assert_eq!(good["args_unreadable"], serde_json::Value::Null);
+    for a in actions.iter().filter(|a| a["id"] != readable) {
+        assert_eq!(a["args_unreadable"], json!(true), "{a}");
+        assert_eq!(a["args"], serde_json::Value::Null, "{a} has args");
+    }
+}

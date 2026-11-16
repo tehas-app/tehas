@@ -285,6 +285,36 @@ for word in 'tehas tidy' 'tehasbot work'; do
 done
 
 # ---------------------------------------------------------------------------
+# What the manual says about the two reads that used to guess. The importer of
+# an older tehas's records now holds a file whose value its own verbs would
+# refuse, and `store journal-open` marks a row whose arguments are not an
+# object. Each statement below is one a person reads before moving a file out
+# of `state/`, so the case asks for the words the run prints, not a paraphrase.
+update="$docs/tools-update.md"
+
+# t_says <page> <text>: the page holds the text somewhere, or the case fails.
+# Plain substring, not a pattern: what is asked for is the wording a person reads.
+t_says() { # <page> <text>
+  grep -qF -- "$2" "$1" || t_bad "$(basename "$1") says nothing of: $2"
+}
+
+t_case "the update page says what the importer refuses instead of dropping"
+t_says "$update" '**The records of an older tehas.**'
+t_says "$update" "takes nothing on trust"
+for value in 'is not an issue URL' 'a negative `rc`' 'a negative `turns`' \
+  'than the 20 `plan-end` keeps' 'no branch of'; do
+  t_says "$update" "$value"
+done
+
+t_case "the update page says what journal-open marks"
+t_says "$update" 'store journal-open'
+t_says "$update" '"args_unreadable": true'
+
+t_case "the commands page says the planning settings' bound is refused, not read as a default"
+t_says "$docs/tools.md" 'TEHAS_PLAN_MAX_TURNS'
+t_says "$docs/tools.md" 'refuses a `turns` that is negative'
+
+# ---------------------------------------------------------------------------
 # The compose lines of the manual, and the environment they are run in. The two
 # files of host/edge read TEHAS_DESIGN, TEHAS_INDEXING, TEHAS_ANALYTICS_* and
 # TEHAS_HOST_ADDR from the shell that starts them, so a line that runs compose
