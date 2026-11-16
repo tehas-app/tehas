@@ -37,6 +37,25 @@
   <meta property="og:image:alt" content="The tehas logo, a white factory on a green square, beside the word TEHAS">
   {{- end }}
   <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Tehas",
+    "alternateName": "Tehas, an open source Pi software factory",
+    "url": "{{ $base }}/",
+    "description": "A software factory powered by the Pi coding agent and pi-rukas. A GitHub issue goes in and a reviewed pull request comes out, built in a sandbox on self-hosted models. A person merges.",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "softwareRequirements": "Pi coding agent, pi-rukas, Docker, an OpenAI-compatible model endpoint",
+    "softwareHelp": "{{ $base }}/pi-software-factory",
+    "sameAs": "https://github.com/tehas-app/tehas",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "author": {"@type": "Organization", "name": "tehas-app", "url": "https://github.com/tehas-app"},
+    "isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas", "license": "https://www.apache.org/licenses/LICENSE-2.0"},
+    "keywords": "Pi software factory, Pi coding agent, pi-rukas, software factory, coding agents, self-hosted models, GitHub issues"
+  }
+  </script>
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
   <link rel="stylesheet" href="/fun/business.css">

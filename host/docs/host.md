@@ -1987,6 +1987,12 @@ under `/live/` stays unlisted either way. The server reads the setting when its
 container is created, so run the `docker compose ... up -d` line again after
 changing it.
 
+Every page carries structured data (JSON-LD) for search and answer engines,
+whatever `TEHAS_INDEXING` says: the front page describes tehas as software,
+with its licence, author and source repository; each manual page is an article
+under the front page; and a page whose front matter names a section in `faq:`
+has the `###` questions of that section as an FAQ, read from the text.
+
 Visitor analytics are optional and off by default. With `TEHAS_ANALYTICS_SRC`
 (the https address of a script) and `TEHAS_ANALYTICS_SITE` (the name it reports
 under) in `instance.env`, every page of the dashboard and the manual loads that

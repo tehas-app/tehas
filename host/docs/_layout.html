@@ -14,6 +14,9 @@
 {{- $title := "Dashboard" -}}
 {{- $description := "The queue and the running cycle of a tehas software factory, as plain lists." -}}
 {{- $body := "" -}}
+{{- /* A page whose front matter names a section in faq: has that section's
+       ### questions as an FAQ in its structured data, read from the text. */ -}}
+{{- $faq := "" -}}
 {{- if $isFrag -}}
 {{- $body = readFile $frag -}}
 {{- else -}}
@@ -21,6 +24,11 @@
 {{- $title = $doc.Meta.title -}}
 {{- $description = default "The operating manual of tehas, a software factory powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
 {{- $body = markdown $doc.Body | replace "<table>" "<div class=\"tablewrap\"><table>" | replace "</table>" "</table></div>" -}}
+{{- with $doc.Meta.faq -}}
+{{- $heading := printf "\n## %s\n" . -}}
+{{- $text := printf "\n%s" $doc.Body -}}
+{{- if contains $heading $text }}{{ $faq = (splitn "\n## " 2 (splitn $heading 2 $text)._1)._0 }}{{ end -}}
+{{- end -}}
 {{- end -}}
 {{- /* The public address of this host, for the absolute links that share
        previews need. Behind a TLS proxy the scheme is the forwarded one. */ -}}
@@ -59,6 +67,28 @@
     <meta property="og:image:alt" content="The tehas logo, a white factory on a green square, beside the word TEHAS">
     {{- end }}
     <meta name="twitter:card" content="summary_large_image">
+    {{- /* Structured data for a manual page: the page as an article, where it
+           sits under the front page, and its FAQ if it has one. toJson escapes
+           <, > and &, so no text closes the script. */}}
+    {{- if not $isFrag }}
+    {{- $url := printf "%s/%s" $base $path -}}
+    {{- $home := printf "%s/" $base -}}
+    {{- $graph := list
+      (dict "@type" "TechArticle" "headline" $title "description" $description "url" $url "inLanguage" "en" "isPartOf" (dict "@type" "WebSite" "name" "Tehas" "url" $home))
+      (dict "@type" "BreadcrumbList" "itemListElement" (list
+        (dict "@type" "ListItem" "position" 1 "name" "Tehas" "item" $home)
+        (dict "@type" "ListItem" "position" 2 "name" $title "item" $url))) -}}
+    {{- if $faq -}}
+    {{- $items := list -}}
+    {{- range rest (splitList "\n### " $faq) -}}
+    {{- $qa := splitn "\n" 2 . -}}
+    {{- $answer := markdown (default "" $qa._1) | trim | replace "href=\"/" (printf "href=\"%s/" $base) -}}
+    {{- $items = append $items (dict "@type" "Question" "name" (trim $qa._0) "acceptedAnswer" (dict "@type" "Answer" "text" $answer)) -}}
+    {{- end -}}
+    {{- $graph = append $graph (dict "@type" "FAQPage" "url" $url "mainEntity" $items) -}}
+    {{- end }}
+    <script type="application/ld+json">{{ dict "@context" "https://schema.org" "@graph" $graph | toJson }}</script>
+    {{- end }}
     <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
     <link rel="stylesheet" href="/fun/theme-{{ $design }}.css">
     <link rel="stylesheet" href="/fun/game-view.css">

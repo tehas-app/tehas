@@ -1,5 +1,6 @@
 ---
 title: Pi software factory
+faq: Questions
 description: "Tehas is a software factory powered by the Pi coding agent and pi-rukas: a GitHub issue goes in, a reviewed pull request comes out, on self-hosted models."
 ---
 
