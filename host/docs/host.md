@@ -1982,7 +1982,10 @@ still running: [Resize or restart the host](/resize).
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns
 that off for an instance that is published and meant to be found, and adds
-`/sitemap.xml` with the front page and the manual; the live data
+`/sitemap.xml` with the front page and the manual, each page dated by when its
+file last changed on this host (an update leaves a page with the same bytes as
+it was) and the front page by the last update that brought a new version; the
+live data
 under `/live/` stays unlisted either way. The server reads the setting when its
 container is created, so run the `docker compose ... up -d` line again after
 changing it.

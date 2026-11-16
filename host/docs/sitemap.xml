@@ -2,10 +2,14 @@
        directory. Only for an instance that lets search engines in. */ -}}
 {{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}
 {{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
+{{- /* A page is dated by its file: install.sh leaves a page whose bytes did
+       not change as it was, so the time is when it last changed on this
+       host. The front page, in another directory, by version.txt, which
+       install.sh rewrites only for a new version. */ -}}
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>{{ $base }}/</loc></url>
+  <url><loc>{{ $base }}/</loc>{{ if fileExists "/version.txt" }}<lastmod>{{ (fileStat "/version.txt").ModTime.UTC.Format "2006-01-02" }}</lastmod>{{ end }}</url>
 {{- range listFiles "/" }}{{ if hasSuffix ".md" . }}
-  <url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc></url>
+  <url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc><lastmod>{{ (fileStat .).ModTime.UTC.Format "2006-01-02" }}</lastmod></url>
 {{- end }}{{ end }}
 </urlset>
