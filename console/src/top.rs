@@ -240,19 +240,23 @@ fn publish_once(home: &str) -> u8 {
 // once an install has replaced the file. tehasbot stands before the console so
 // that each mark reads the settings, as each run of the command does.
 fn publish_every(home: &str) -> u8 {
+    publish_loop(
+        home,
+        Duration::from_secs(MARK_WAIT_SECS),
+        Duration::from_secs(5),
+    )
+}
+
+/// The publisher's loop with the child's bound and its grace named, so a case
+/// can drive the loop itself rather than the helper under bounds of its own.
+fn publish_loop(home: &str, bound: Duration, grace: Duration) -> u8 {
     let tehasbot = format!("{home}/bin/tehasbot");
     loop {
         // One child per mark, under a bound that stops it (TERM, then KILL)
         // when it never ends: a hung child is one missed mark, not a loop that
         // waits for it forever.
         let args = vec!["top".to_string()];
-        let done = tehas_core::call::run_grace(
-            &tehasbot,
-            &args,
-            None,
-            Duration::from_secs(MARK_WAIT_SECS),
-            Duration::from_secs(5),
-        );
+        let done = tehas_core::call::run_grace(&tehasbot, &args, None, bound, grace);
         if done == Some(78) {
             return 78;
         }
@@ -780,61 +784,51 @@ mod tests {
     #[cfg(test)]
     use std::os::unix::fs::PermissionsExt;
 
-    /// The publisher's loop with a `tehasbot` child that never ends: the mark
-    /// ends at the bound and the loop goes on, so one hung child is not a
-    /// publisher that waits for it forever.
+    /// The publisher's loop at the bound it gives its own child: a child that
+    /// never ends is stopped at that bound and costs one mark, and the 78 of the
+    /// next ends the loop. The child sleeps far past MARK_WAIT_SECS, so a bound
+    /// that went away would take this case with it.
     #[test]
-    fn a_publisher_whose_child_never_ends_goes_on_after_the_bound() {
-        let d = tehas_core::testdir::TestDir::new("top-publish-hang");
+    fn the_publisher_bounds_its_child_and_ends_only_on_78() {
+        let d = tehas_core::testdir::TestDir::new("top-publish-bound");
         let bin = d.join("bin");
         fs::create_dir_all(&bin).unwrap();
         let tehasbot = bin.join("tehasbot");
-        // A child that runs on past the bound. The shell execs sleep, so the
-        // group's TERM ends it: as a hung child of the publisher must be ended
-        // at the bound and not hold the mark open.
-        fs::write(&tehasbot, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        // The child of the first mark runs on far past the publisher's bound,
+        // the child of the next answers 78: the loop is not ended by the hung
+        // one and is ended by the second, so it stops of its own accord and
+        // leaves no child - the bound's TERM ends the hung one, and its grace
+        // bounds how long the wait for that takes.
+        fs::write(
+            &tehasbot,
+            "#!/bin/sh\nif [ -f \"$TEHAS_PUBLISH_MARK\" ]; then exit 78; fi\n\
+             : >\"$TEHAS_PUBLISH_MARK\"\nexec sleep 600\n",
+        )
+        .unwrap();
         fs::set_permissions(&tehasbot, fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("TEHAS_PUBLISH_MARK", d.join("mark"));
         let began = Instant::now();
-        let args = vec!["top".to_string()];
-        // The child runs under a bound of its own (the publisher's MARK_WAIT_SECS
-        // on a host). A child that never ends is stopped at the bound, and the
-        // loop is free to go on to the next mark.
-        let status = tehas_core::call::run_grace(
-            &tehasbot.to_string_lossy(),
-            &args,
-            None,
-            Duration::from_secs(3),
-            Duration::from_secs(1),
+        let ended = std::panic::catch_unwind(|| {
+            publish_loop(
+                &d.to_string_lossy(),
+                Duration::from_secs(MARK_WAIT_SECS),
+                Duration::from_secs(1),
+            )
+        });
+        std::env::remove_var("TEHAS_PUBLISH_MARK");
+        assert_eq!(
+            ended.ok(),
+            Some(78),
+            "the loop goes on past a hung child and ends on 78"
         );
-        // Out of time and ended by the bound's TERM: no status, as for any call
-        // that does not answer its bound, and never 78, so the loop does not end
-        // on it.
-        assert_eq!(status, None, "a child past its bound gives no status");
+        // The hung child ran 600 s of its own; the bound is MARK_WAIT_SECS, so
+        // the loop was at the next mark within a little over a minute of it.
+        // Without the bound the first child alone would hold this for 600 s.
         assert!(
-            began.elapsed() < Duration::from_secs(6),
-            "the mark ended at the bound, not when the child's sleep did"
+            began.elapsed() < Duration::from_secs(70),
+            "the hung child was stopped at its bound, not when its sleep did: {}s",
+            began.elapsed().as_secs()
         );
-    }
-
-    /// A `tehasbot` that answers 78 ends the loop; the bound leaves that as it
-    /// was.
-    #[test]
-    fn a_publisher_child_that_refuses_ends_the_loop() {
-        let d = tehas_core::testdir::TestDir::new("top-publish-78");
-        let bin = d.join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        let tehasbot = bin.join("tehasbot");
-        fs::write(&tehasbot, "#!/bin/sh\nexit 78\n").unwrap();
-        fs::set_permissions(&tehasbot, fs::Permissions::from_mode(0o755)).unwrap();
-        let args = vec!["top".to_string()];
-        let status = tehas_core::call::run_grace(
-            &tehasbot.to_string_lossy(),
-            &args,
-            None,
-            Duration::from_secs(MARK_WAIT_SECS),
-            Duration::from_secs(1),
-        );
-        assert_eq!(status, Some(78));
     }
 
     fn reading(clock: f64, all: u64, idle: u64, procs: Value) -> Value {
