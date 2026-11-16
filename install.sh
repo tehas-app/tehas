@@ -52,8 +52,9 @@
 # what a release carries. A tree with neither is refused before anything is
 # written, and a store that fails stops the run with exit 1 and its own line.
 #
-# A store older than v0.30.0 wrote is refused by the store with a line that
-# says to update to a v0.30 release first. A real run holds state/dispatch.lock
+# A store older than v0.30.0 wrote is refused before the first copy: the store
+# this run installs judges it (`store migrate --dry-run`) and says to update to
+# a v0.30 release first, and nothing is installed (exit 78). A real run holds state/dispatch.lock
 # from before the first copy until the old files are removed, so no poll starts
 # anything in between; a poll that holds it longer than the update lock's wait
 # stops the run (exit 1, nothing installed). A planning session's kept directory
@@ -749,9 +750,11 @@ login_fix=$("$loaded_console" update login "$root" "$login_bin" "${BOOTSTRAP_ETC
 
 # --- 3. Install ---------------------------------------------------------------
 # The programs are built first and copied only once the dispatcher's lock is
-# held (3a): program_puts and program_stamps hold what is due.
+# held and the store is judged (3a): program_puts and program_stamps hold what
+# is due. gate_store is the store this run installs, the one that judges it.
 program_puts=()
 program_stamps=()
+gate_store=$TEHAS_HOME/libexec/store
 compiled=(console analytics tehas-mcp store attach tehas-dispatch tehas-cycle)
 # The compiled programs first, the console, analytics, the MCP server, the
 # store and the attachment checker, the members of the Cargo workspace in
@@ -776,6 +779,7 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
     fi
     store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
   fi
+  [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
   programs_console=${steps_console:-$root/libexec/console}
   programs=$("$programs_console" update programs "$TEHAS_HOME" release "$root" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not judge the programs of this release" >&2; exit 1; }
@@ -817,6 +821,7 @@ for entry in "${due[@]}"; do
   if [ "$stamp" != release ]; then
     triple=$(program_triple "$prog")
     from=$target/${triple:+$triple/}release/$prog
+    [ "$prog" != store ] || gate_store=$from
   fi
   program_puts+=("$from|$TEHAS_HOME/libexec/$prog|755")
   program_stamps+=("$stamp")
@@ -848,7 +853,9 @@ fi
 # state/dispatch.lock, so no poll starts a cycle or a planning turn in between.
 # A poll that holds it now is waited for up to TEHAS_DISPATCH_LOCK_WAIT seconds
 # (900), then nothing is installed. home_refusal has proved the home by now, so
-# a home without the marker gets it here.
+# a home without the marker gets it here. Then, before the first copy, the store
+# this run installs judges the database there with a dry run that reads only: a
+# store it would not migrate stops the run with exit 78.
 dispatch_held=0
 dispatch_hold() {
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
@@ -860,6 +867,17 @@ dispatch_hold() {
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
     printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
+  [ -e "$TEHAS_HOME/state/tehas.db" ] || [ -L "$TEHAS_HOME/state/tehas.db" ] || return 0
+  if [ ! -x "$gate_store" ]; then
+    echo "tehas: there is no store to judge $TEHAS_HOME/state/tehas.db with ($gate_store); nothing was installed" >&2
+    exit 78
+  fi
+  # The store says its refusal itself, exit 78; any other status is a store
+  # that could not say.
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run >/dev/null && return 0
+  [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
+  echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
+  exit 78
 }
 # Given back before the first index, which takes the lock itself.
 dispatch_release() {

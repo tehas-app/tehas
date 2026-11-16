@@ -720,10 +720,9 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 11 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 16 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
-for which instance and repository, and when records were last imported
-(`imported_at`); and the cycles' records: the approval
+and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
 image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
@@ -768,8 +767,11 @@ JSON answer:
   lets the action journal keep a write as `unknown` and writes `millwright`
   in every row that still said `fixer`. Every step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
-  as it was: `store: unreadable ... is at schema <n>, older than v0.30.0
-  wrote: update to a v0.30 release first, then to this one`. Install any
+  as it was, with no backup written: `store: unreadable ... is at schema <n>,
+  older than v0.30.0 wrote: update to a v0.30 release first, then to this
+  one`. `install.sh` asks the store it installs first, with `store migrate
+  --dry-run`, which reads only, so such a host stops with exit 78 before any
+  file is copied and keeps the release it runs. Install any
   v0.30 release on the host first, then this one. The records an older tehas
   kept as files under `state/` are no longer imported: v0.30 imported them.
 
