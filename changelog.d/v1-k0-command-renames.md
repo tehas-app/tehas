@@ -10,6 +10,9 @@
   names the new one.
 - `tehas pause` takes its reason as `--reason TEXT`, as `tehas freeze` and
   `tehas limit set` do. A bare reason exits 64 and names the flag.
+- `tehas update` keeps no internal exit status 99. Its console verbs `args`,
+  `gate` and `prepare`, used only by the updater of releases before 0.25, are
+  gone; 1.0 updates from 0.30.x.
 
 ### Adopter action
 
