@@ -701,10 +701,11 @@ fn migrate(
     if target != from {
         db::backup(&conn, &copies, from, now).map_err(line)?;
     }
-    // The step is its own transaction and its own lock, and it is the only one:
-    // a database already at the version this binary writes has no step to run,
-    // so nothing asks for the lock again and the file is not opened for writing
-    // at all. Both copies are on disk by now, so a step that fails halfway
+    // The step is its own transaction and its own lock: a database already at
+    // the version this binary writes has no step to run. Every migrate then
+    // writes the feature row of meta in a transaction of its own, so a store
+    // can reach the new version and fail to set it, which leaves it off. Both
+    // copies are on disk by now, so a step that fails halfway
     // leaves a store nobody was told to open and a copy a person can restore
     // from, rather than a migrated store behind a name that was never written.
     if from < db::SCHEMA_VERSION {

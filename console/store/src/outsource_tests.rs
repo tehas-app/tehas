@@ -87,9 +87,6 @@ fn off_at(name: &str, now: i64) -> TestDir {
     home
 }
 
-/// `store migrate` as the command that loaded the instance's settings runs it.
-/// The store of a host is made before it is brought forward, so the verb is
-/// asked of a home that holds one.
 /// `store migrate` as the command that loaded the instance's settings runs it:
 /// `--outsource` when the instance has TEHAS_OUTSOURCE=1, and nothing when it
 /// has not. `now` is the second of the call, which the verb puts in the name of
@@ -117,8 +114,8 @@ fn add(home: &Path, name: &str) -> Value {
 /// The words the verbs of outsource.rs answer with: what happened, which a
 /// person or a later part reads, rather than the verb that was asked. A verb
 /// that writes has its own word for each outcome, and every verb of the module
-/// answers `refused` too, which is the one word of a store that holds no table
-/// of the feature.
+/// answers `refused` too, which is the one word of a store with the feature
+/// off.
 const SAID: &[(&str, &[&str])] = &[
     ("contractor-add", &["added", "used"]),
     ("contractor-list", &["contractors"]),
@@ -154,7 +151,7 @@ fn said_of(verb: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// The one word of a store that holds no table of the feature.
+/// The one word of every verb of a store with the feature off.
 const REFUSED: &str = "refused";
 
 /// A call of one of these verbs: the answer is one of the words the verb
