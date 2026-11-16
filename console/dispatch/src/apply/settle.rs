@@ -7,7 +7,7 @@
 //! a cycle whose lock is held is that cycle's own, and is left alone: a poll
 //! that abandoned it would have the cycle's write refused.
 
-use super::{text, word, Writer};
+use super::{looked_key, text, word, Looked, Writer};
 use serde_json::{json, Value};
 use tehas_core::lock::{probe, Probe};
 
@@ -78,7 +78,8 @@ impl Row {
 }
 
 /// The state the store gives a row whose write has not been answered: it has
-/// no time and no read to make. The other open state is 'attempted'.
+/// no time and no read to make. The other open states are 'attempted' and
+/// 'unknown', a write GitHub may have taken (#1754): both are read.
 fn intended(a: &Value) -> bool {
     text(a, "state") == "intended"
 }
@@ -183,6 +184,28 @@ impl Writer {
             } else {
                 self.found(&a, &kind, n, row.attempted_at)
             };
+            // What the read found, for a write this poll decides again: done
+            // is not sent twice, unread is not sent at all.
+            let key = looked_key(
+                n,
+                &kind,
+                a.pointer("/args/gh").unwrap_or(&Value::Null),
+                a.pointer("/args/input").unwrap_or(&Value::Null),
+            );
+            match &found {
+                Found::Done(e) => {
+                    let out = e
+                        .get("comment")
+                        .filter(|c| !c.is_null())
+                        .map(Value::to_string)
+                        .unwrap_or_default();
+                    self.looked.insert(key, Looked::Done(out));
+                }
+                Found::Unread(why) => {
+                    self.looked.insert(key, Looked::Unread(why.clone()));
+                }
+                Found::Abandoned(_) => {}
+            }
             let settled = match &found {
                 Found::Done(evidence) => {
                     let e = evidence.to_string();

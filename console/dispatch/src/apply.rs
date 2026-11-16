@@ -22,6 +22,7 @@ mod turn;
 
 use crate::read::run::{run, Calls};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::call::{self, GRACE};
@@ -68,6 +69,26 @@ pub struct Writer {
     /// The checkout was refreshed this poll by the index's gate, so the
     /// starts do not refresh it again.
     pub fetched: bool,
+    /// What this poll's settle read of the writes left open, by the write
+    /// (`looked_key`): one found done is not sent again, and one no read
+    /// could settle is not sent at all (#1754).
+    pub looked: HashMap<String, Looked>,
+}
+
+/// What the settle's read found of an open write that this poll may decide
+/// to make again.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Looked {
+    /// It is on GitHub: what gh would have printed (a comment's id).
+    Done(String),
+    /// The read failed: the write stays open and is not sent.
+    Unread(String),
+}
+
+/// One write as the journal keeps it: its issue, its kind, the gh call and
+/// the body by its sum. Two writes with the same key are the same write.
+pub fn looked_key(issue: u64, kind: &str, gh: &Value, input: &Value) -> String {
+    format!("{issue} {kind} {gh} {input}")
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -262,6 +283,19 @@ impl Writer {
         input: Option<&str>,
         done_if: Option<&str>,
     ) -> Wrote {
+        // The settle read this write's earlier try: done is not sent again,
+        // unread is not sent until a read settles it.
+        let input_sum = tehas_core::journal::summed(&args, input).unwrap_or(Value::Null);
+        let key = looked_key(issue, kind, &json!(args), &input_sum);
+        match self.looked.get(&key) {
+            Some(Looked::Done(out)) => {
+                let out = out.clone();
+                self.looked.remove(&key);
+                return Wrote::Done(out);
+            }
+            Some(Looked::Unread(why)) => return Wrote::Unknown(format!(": {why}")),
+            None => {}
+        }
         let token = self.calls.gh_token.clone();
         let mut journal = Journal {
             repo: &self.repo,
@@ -311,6 +345,11 @@ impl Writer {
         call::store_try(tries, wait, || self.calls.store(args))
     }
 
+    /// A write GitHub may have taken: it is read before it is sent again.
+    fn unknown(n: u64, what: &str, why: &str) -> String {
+        format!("WARN: the {what} on #{n} may have been posted{why}; the next poll reads it before it is sent again")
+    }
+
     fn unrecorded(n: u64) -> String {
         format!("WARN: the journal could not record a write on #{n}, so it was not made")
     }
@@ -333,6 +372,10 @@ impl Writer {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => {
                 log.push(format!("WARN: comment on #{n} failed"));
+                false
+            }
+            Wrote::Unknown(why) => {
+                log.push(Self::unknown(n, "comment", &why));
                 false
             }
             Wrote::Unrecorded => {
@@ -407,6 +450,10 @@ impl Writer {
                 log.push(format!("{}{why}", text(a, "fail")));
                 return;
             }
+            Wrote::Unknown(why) => {
+                log.push(Self::unknown(n, "label change", &why));
+                return;
+            }
             Wrote::Unrecorded => {
                 log.push(Self::unrecorded(n));
                 return;
@@ -467,6 +514,7 @@ impl Writer {
                 }
             }
             Wrote::Failed(_) => log.push(text(a, "fail").to_string()),
+            Wrote::Unknown(why) => log.push(Self::unknown(n, "edit of a comment", &why)),
             Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
     }
@@ -483,6 +531,10 @@ impl Writer {
         let worked = match self.write(pr, "refresh-end", args, None, Some("Not Found")) {
             Wrote::Done(_) => true,
             Wrote::Failed(_) => false,
+            Wrote::Unknown(why) => {
+                log.push(Self::unknown(pr, "label change", &why));
+                return;
+            }
             Wrote::Unrecorded => {
                 log.push(Self::unrecorded(pr));
                 return;

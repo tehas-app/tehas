@@ -110,7 +110,24 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$bot refresh"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehasbot refresh: --pr takes the number of one pull request"
+t_contains "$t_out" "tehas refresh: --pr takes the number of one pull request"
+t_lacks "$t_out" "settings were read"
+untouched
+
+t_case "tehas refresh, the public name, is 64 before the settings are read too"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas refresh"
+t_eq "$t_rc" 64
+t_contains "$t_out" "tehas refresh: --pr takes the number of one pull request"
+t_lacks "$t_out" "settings were read"
+untouched
+
+t_case "tehas github check with another word is 64 before the settings are read"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas github check --print"
+t_eq "$t_rc" 64
 t_lacks "$t_out" "settings were read"
 untouched
 

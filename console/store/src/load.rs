@@ -151,6 +151,14 @@ fn ready(from: &str, side: &Path, now: i64) -> Result<(i64, i64), Fail> {
     if schema < 1 {
         return Err(bad(from, "holds no schema"));
     }
+    if schema < db::OLDEST {
+        return Err(bad(
+            from,
+            format!(
+                "holds schema {schema}, older than v0.30.0 wrote; load it into a v0.30 release first"
+            ),
+        ));
+    }
     // The installation's values are written only by a migration from 0, which
     // was refused above.
     let unused = db::Settings {

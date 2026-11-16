@@ -10,7 +10,7 @@
 //!   tehas-dispatch poll [--dry-run]     one poll, as tehasbot dispatch runs it:
 //!                                       it acts. 78 before it when models.json
 //!                                       names a bad or unset key
-//!   tehas-dispatch refresh              one run of tehasbot refresh: it
+//!   tehas-dispatch refresh              one run of tehas refresh: it
 //!                                       writes the refresh requests
 //!   tehas-dispatch -h|--help            print this text
 //!
@@ -21,7 +21,7 @@
 //! Exit: 0 it printed its answer, whatever the decision says; 1 a
 //! read it cannot do without failed, said on standard error; 64 an argument
 //! it does not know; 78 a setting tehas_load always leaves set is not set.
-//! refresh has its own text and statuses: tehasbot refresh --help.
+//! refresh has its own text and statuses: tehas refresh --help.
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};

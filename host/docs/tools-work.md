@@ -338,7 +338,9 @@ fetched for (`at`, `by` and `how` of the record, or null by hand), and every
 link that was left out with the reason. `linksUnavailable` says why the
 lists are empty when the text links no file of GitHub's storage, and is null
 when every link is listed; the manifest of a cycle given nothing names the
-settings there instead. The manifest is kept as
+settings there instead. Every manifest starts with `version`, the format it
+is written in: 1, the format `PI_ENSEMBLE_ISSUE_IMAGES` names. A field is only
+added within a version. The manifest is kept as
 `~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
 `comments.json` beside it as `<issue>.images.md` and
 `<issue>.comments.json` when the cycle has them. When the next fetch is for the

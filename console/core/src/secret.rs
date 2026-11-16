@@ -1,7 +1,18 @@
 //! Logs should hold no secret. This is for the day one does: what has the shape
 //! of a token is not recorded and not uploaded. The store and the mask share
 //! the one list of shapes, so what the mask hides and what the check refuses
-//! are the same tokens.
+//! are the same tokens. The rule of which setting names hold a secret is here
+//! too, for the same reason.
+
+/// The words a setting's name holds, in any case, when its value is a secret.
+pub const NAME_WORDS: [&str; 6] = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"];
+
+/// Whether a setting's name says its value is a secret. The one rule: the
+/// mask, the review's input check and anything else that asks use this.
+pub fn secret_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    NAME_WORDS.iter().any(|w| name.contains(w))
+}
 
 fn run_of(b: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
     b.get(from..)
@@ -195,5 +206,30 @@ mod tests {
         let hidden = hide(&text);
         assert_eq!(hidden, "a ghp_*** b sk-*** c AKIA*** d");
         assert!(!secret(hidden.as_bytes()));
+    }
+
+    #[test]
+    fn a_setting_name_says_whether_its_value_is_secret() {
+        for name in [
+            "GH_TOKEN",
+            "TEHAS_MCP_KEYS",
+            "PI_ENSEMBLE_API_KEY",
+            "PI_ENSEMBLE_API_KEY_MAIN",
+            "TEHAS_MODEL_KEY_B200",
+            "db_password",
+            "SMTP_PASSWD",
+            "AWS_SECRET_ACCESS_KEY",
+            "PI_ENSEMBLE_CREDENTIALS",
+        ] {
+            assert!(secret_name(name), "{name}");
+        }
+        for name in [
+            "PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST",
+            "TEHAS_REPO",
+            "HOME",
+            "",
+        ] {
+            assert!(!secret_name(name), "{name}");
+        }
     }
 }

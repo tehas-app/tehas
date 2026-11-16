@@ -221,7 +221,7 @@ named in the line that says so.
 | 10, 20 | findings, or serious findings: the status the runner gave |
 | 2 | the runner failed, ran out of time, or its record could not be written down |
 | 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
-| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
+| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, the image's runner has no `lens-review` verb in its `--capabilities`, or the review would be given a `PI_ENSEMBLE_*` setting that answer does not list as an input. A family such as `PI_ENSEMBLE_MODEL_<ROLE>` takes its listed members, and a setting whose name says it is secret (it holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case) is not checked. Nothing was cloned and nothing ran |
 
 ### What a review files
 

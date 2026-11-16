@@ -41,7 +41,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.comments.json` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The two files `tehasbot status` asks `analytics` to write for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`, each with a `.stamp` line beside it that says why it need not be written again. Mode 700: the snapshot holds what the agents saw, and neither is published |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
-| `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
+| `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that a v0.30 `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them, and this release imports nothing; remove the directory once satisfied. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
@@ -145,8 +145,8 @@ person pulls `~/tehas/platform` and runs `install.sh`.
 
 A factory is one machine. Nothing of it is shared with another factory: not
 the Docker daemon, not the ports the edge publishes, not the Unix user, not
-the name it is known by. A program that creates factories, such as
-[tehas-industry](/api), gets one machine per factory and runs the same two
+the name it is known by. A program that creates factories, such as an
+[industry of factories](/api), gets one machine per factory and runs the same two
 commands a person does.
 
 | Needs                                          | Why                                                                                                                    |
@@ -216,8 +216,8 @@ The lines it prints and what each one reports are in
 [Configuration comes from git](#configuration-comes-from-git).
 
 Whether this really works on a machine no one has prepared by hand is proven
-on the [features page](/features); the test there is industry's first
-acceptance test, and what it finds broken is fixed here.
+on the [features page](/features); the test there is the first
+acceptance test of a program that creates factories, and what it finds broken is fixed here.
 
 `install.sh` refuses a `TEHAS_HOME` it cannot prove is tehas's, because it
 removes what it takes for stale under it: the home carries the marker
@@ -538,7 +538,7 @@ footer of every manual page shows it. `--check` does not look at it. The
 footers of the two front pages read their versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
-the tehas-industry that runs the factory from `checks.industry` when there is
+the industry that runs the factory from `checks.industry` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
 module shows a banner at the top of both pages while a host message is set
 (`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
@@ -547,17 +547,21 @@ was set and its link. With no message there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 
-Five installed files are compiled, not copied: the console of a running cycle,
-the analytics program, the MCP server, the state store and the attachment
-checker, Rust programs in the Cargo workspace `console/` (the others are in
-`console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
+Seven installed files are compiled, not copied: the console of a running cycle,
+the analytics program, the MCP server, the state store, the attachment checker,
+the dispatcher and the cycle's supervisor, Rust programs in the Cargo workspace
+`console/` (the others are in `console/analytics/`, `console/mcp/`,
+`console/store/`, `console/attach/`, `console/dispatch/` and `console/cycle/`,
 and the library all but the attachment checker share is in `console/core/`,
 which holds the one probe of a lock file that the store, the dispatcher, the
 health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
-`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store`,
+`~/tehas/libexec/attach`, `~/tehas/libexec/tehas-dispatch`,
+and `~/tehas/libexec/tehas-cycle`. The model proxy of outsource,
+`console/proxy/`, is a member of the workspace too, but `install.sh` and the
+release do not build or install it yet (#2278). The attachment checker fetches the files of an issue
 and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
@@ -720,10 +724,9 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 11 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 16 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
-for which instance and repository, and when records were last imported
-(`imported_at`); and the cycles' records: the approval
+and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
 image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
@@ -756,45 +759,25 @@ JSON answer:
   removes old copies yet; remove them by hand when there are too many. A
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
-  the name of the version it came with, such as `tehas-1-<time>.db`, beside the
-  copy the answer names, `tehas-8-<time>.db`. A run that stopped between two
-  steps leaves the store at the last one with its rows; the next install goes
-  on from there. The step to 4 lets a cycle's start say `millwright` beside
-  `fixer` and a planning note `millwright-refused` beside `fixer-refused`,
-  renames the column of a planning answer from `fixer` to `millwright`, and
-  keeps every row. It rebuilds the two tables whose lists changed and then
-  compacts the file. If the compaction fails, the store is at 4 with its rows
-  and passes `store check`. The verbs now write the new words and accept the
-  old ones; the release note in `CHANGELOG.md` names each pair and says which
-  answers carry both spellings, so the shell keeps reading what it always read.
-  The step to 5 adds a mark to each planning session and each of its turns:
-  a refine the poll started on its own for a parked cycle. Every older row
-  is a refine a person asked for. The step to 6 numbers each line of history,
-  cycles and planning turns in one sequence, in the order they ended, which
-  is what a `tehas history` cursor names now; a line written later takes the
-  next number. The step to 7 adds a table for what each poll cost
-  ([What a poll costs](/operating#what-a-poll-costs)). The step to 11 drops
-  eighteen tables no verb wrote and nothing read, with their rows:
-  `branch_checks`, `check_product`, `cycle_locks`, `edge_takeover`,
-  `endpoints`, `energy_samples`, `health_samples`, `improve_cap`,
-  `index_state`, `limits`, `pause_flag`, `platform_state`, `poll_demand`,
-  `queue_snapshot`, `refresh_hold`, `refresh_requests`, `refined` and
-  `release_history`. The pause, the limit and refresh requests stay in files
-  under `state/`. The step then compacts the file, so the migrate rewrites
-  it. The step to 12 adds `start_order`, the order
-  [`tehas order`](/api#tehas-order) sets; `store check` counts 24 tables
-  after it. The step to 13 rebuilds `cycles` so its `how` may say `host`,
-  a start [`tehas start`](/api#tehas-start) approved, and keeps every row.
-- Then it runs `store import`: the records an older tehas kept as files (the
-  cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
-  session's `state/plan-<n>.json` with its brief, answer and history) become
-  rows, and the files move to `state/imported-<YYYYMMDD>/`, under their paths
-  in `state/`, an issue's files together once all their rows read back. Nothing
-  is deleted. Each history keeps an issue's 50 newest rows, as the store does
-  for new ones. The files a cycle hands to the next step (`result.json`,
-  `progress.json`, a plan's `.out` and the rest) and `state/refined.jsonl` stay
-  where they are. A run again changes nothing that is in the store already, and
-  finishes a run that stopped partway.
+  the name of the version it came with, such as `tehas-12-<time>.db`, beside
+  the copy the answer names, `tehas-16-<time>.db`. A run that stopped between
+  two steps leaves the store at the last one with its rows; the next install
+  goes on from there.
+- The oldest store it brings forward is the one v0.30.0 wrote, at schema 12.
+  v0.30.1 wrote 13 and v0.30.2 to v0.30.6 wrote 14. The step to 13 keeps on
+  each approval what its start was, the step to 14 rebuilds `cycles` so its
+  `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
+  the step to 15 adds the five outsource tables, empty, and the step to 16
+  lets the action journal keep a write as `unknown` and writes `millwright`
+  in every row that still said `fixer`. Every step keeps every row.
+- A store older than that, from a release before v0.30, is refused and left
+  as it was, with no backup written: `store: unreadable ... is at schema <n>,
+  older than v0.30.0 wrote: update to a v0.30 release first, then to this
+  one`. `install.sh` asks the store it installs first, with `store migrate
+  --dry-run`, which reads only, so such a host stops with exit 78 before any
+  file is copied and keeps the release it runs. Install any
+  v0.30 release on the host first, then this one. The records an older tehas
+  kept as files under `state/` are no longer imported: v0.30 imported them.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from
@@ -924,7 +907,9 @@ While the backup is in use, each poll logs
 `tehas work`, `tehas plan` and `tehas dev` ask again when they start a
 container. They give it a `models.json` of its own,
 `<state directory>/models.json`, on the endpoint that answered and without
-the backup keys, and the tokens it names as variables, by name. `tehas work`
+the backup keys, and the tokens it names as variables, by name. A contractor's container of [outsource](/outsource) gets the same file
+with every provider on the model proxy and its key named as
+`${PI_ENSEMBLE_API_KEY_<PROVIDER>}`; no endpoint is asked for it. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
@@ -1530,7 +1515,10 @@ tehas's jq (ahead of the base image's, the version the host runs), Rust at
 fonts, `file`, and a Python image library. The last two are in the container only: `bootstrap.sh` installs
 neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
-crates; they go with the container. The base is pinned by digest in
+crates; they go with the container. The Playwright install runs npm as root with the
+cycle user's home, so its npm cache goes to `/tmp` and is removed in the same
+step; the build stops when root owns anything in `/home/vscode/.npm`, where a
+cycle's own npm would fail with `EACCES`. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree

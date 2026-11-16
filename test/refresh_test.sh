@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for tehasbot refresh: which of the bot's pull requests get a refresh
-# request, against a stub gh.
+# Tests for tehas refresh, and tehasbot refresh, its old name: which of the
+# bot's pull requests get a refresh request, against a stub gh.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -10,8 +10,10 @@ t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$(dirname "$T_DISPATCH")/../bin"
 cp "$T_ROOT/bin/tehasbot" "$(dirname "$T_DISPATCH")/../bin/tehasbot"
+cp "$T_ROOT/bin/tehas" "$(dirname "$T_DISPATCH")/../bin/tehas"
 cp "$T_CONSOLE" "$(dirname "$T_DISPATCH")/console"
-refresh="$(dirname "$T_DISPATCH")/../bin/tehasbot refresh"
+refresh="$(dirname "$T_DISPATCH")/../bin/tehas refresh"
+alias_refresh="$(dirname "$T_DISPATCH")/../bin/tehasbot refresh"
 fx=$T/fx
 dir=$T/home/tehas/state/refresh
 logfile=$T/home/tehas/logs/refresh.log
@@ -60,7 +62,7 @@ t_case "with no --pr N it is refused with 64 and calls and writes nothing"
 reset
 t_run "$refresh"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehasbot refresh: --pr takes the number of one pull request"
+t_contains "$t_out" "tehas refresh: --pr takes the number of one pull request"
 t_eq "$(t_calls gh)" ""
 t_eq "$(written)" 0
 
@@ -113,14 +115,14 @@ t_eq "$t_rc" 64
 t_eq "$(t_calls gh)" ""
 t_run "$refresh --help"
 t_eq "$t_rc" 0
-t_contains "$t_out" "tehasbot refresh"
+t_contains "$t_out" "tehas refresh"
 
 t_case "--help and an unknown argument need no settings"
 reset
 t_no_instance
 t_run "$refresh --now"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehasbot refresh: unknown argument: --now"
+t_contains "$t_out" "tehas refresh: unknown argument: --now"
 t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"
@@ -128,10 +130,10 @@ t_contains "$t_out" "Usage:"
 # What --help prints is the text file of the dispatcher's own package, which is
 # the one `console update sources` counts in its sum. An edit of the help is the
 # only way to change it, and such an edit changes this line on purpose: the last
-# was the end of the timed scan.
+# was the move to tehas refresh.
 t_case "the refresh text is the words it has"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "e49d21dde977d6a43525b9712f3164b2f2b75cbe756d2f9c7dd0d67bed68f7ac"
+  "c56569eba9a5a2d4c6c45ec0d6ae3cadf57c6abf4399ce5b046010a3c7c90f61"
 
 t_case "the refresh text says drafts are kept, as the rule keeps them"
 t_lacks "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")" "no draft"
@@ -268,7 +270,31 @@ t_eq "$(requests)" ""
 t_case "refresh --help names --pr N and exit 3"
 reset
 t_run "$refresh --help"
-t_contains "$t_out" "tehasbot refresh --pr N"
+t_contains "$t_out" "tehas refresh --pr N"
 t_contains "$t_out" "; 3 N is not"
+t_contains "$t_out" "tehasbot refresh is the same command"
+
+t_case "tehasbot refresh, the old name, asks for the same refresh and prints the same object"
+reset
+one "$(pr 50 7)"
+t_run "$alias_refresh --pr 50 --json 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" "{\"asked\":true,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":null}"
+t_eq "$(jq -r .pr "$dir/7.json")" 50
+t_run "$alias_refresh --help"
+t_eq "$t_out" "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")"
+t_run "$alias_refresh"
+t_eq "$t_rc" 64
+
+t_case "with no login PATH it reads GitHub through the gh of the home's shim"
+reset
+one "$(pr 50 7)"
+mkdir -p "$T/home/tehas/shim"
+mv "$T/bin/gh" "$T/home/tehas/shim/gh"
+t_run "PATH=/usr/bin:/bin $refresh --pr 50"
+mv "$T/home/tehas/shim/gh" "$T/bin/gh"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .pr "$dir/7.json")" 50
+t_contains "$(t_calls gh)" "number=50"
 
 t_done
