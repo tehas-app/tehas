@@ -58,14 +58,16 @@ With `--json` it also prints one object on standard output on exit 0, 3 and
 1, so a caller does not read standard error for the reason:
 
 ```
-{"asked": true, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": null}
-{"asked": false, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
+{"api": 1, "asked": true, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": null}
+{"api": 1, "asked": false, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
 ```
 
-`asked` is `true` when the request was written, and `why` is then `null`;
-otherwise `why` holds the same words as standard error. `issue` and
-`head_sha` are `null` when GitHub did not name them, as when its read
-failed. Exit 64 and 78 print no object.
+`api` is the version of the object, 1, as in every `--json` object of the
+[factory API](/api). `asked` is `true` when the request was written, and `why`
+is then `null`; otherwise `why` holds the same words as standard error.
+`issue` and `headSha`, the head commit of the pull request, are `null` when
+GitHub did not name them, as when its read failed. Exit 64 and 78 print no
+object. The old name `tehasbot refresh --pr N --json` prints the same object.
 
 ## tehas github check
 
