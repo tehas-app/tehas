@@ -44,6 +44,13 @@ fails() {
   fi
   [ ! -e "$T/fx/$1" ] || exit 1
 }
+# taken <fixture>: when the fixture is there, the body of this call is a
+# comment of the issue now, as GitHub keeps one it answered 5xx for.
+taken() {
+  [ -e "$T/fx/$1" ] || return 0
+  jq -n --arg b "$body" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "[{id: 4002, body: \$b, created_at: \$t}]" >"$T/fx/comments.json"
+}
 # not_found: say what GitHub says for a path it does not have, and fail.
 not_found() { echo "message: Not Found" >&2; exit 1; }
 # api_rest <verb> <path-glob>: a call of gh api -X that changes one label of a
@@ -114,17 +121,27 @@ case "$1 $2" in
     fi ;;
   # The park question, posted through the API so that its id comes back.
   # post-fails holds what gh says when it fails, which may be nothing.
-  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || { cat "$T/fx/post-fails" >&2; exit 1; }; echo 4002 ;;
+  # A failed post that GitHub took all the same, when post-taken is there, is
+  # in the comments the report reads back (comments.json).
+  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || { taken post-taken; cat "$T/fx/post-fails" >&2; exit 1; }; echo 4002 ;;
+  # The comments of the issue, as a report reads back a post GitHub may have
+  # taken. No comments.json fails the read.
+  "api repos/acme/widget/issues/"*"/comments?per_page=100") cat "$T/fx/comments.json" 2>/dev/null || exit 1 ;;
   # The comment the cycle posts on the issue. The first ones fail, as many as
   # comment-fails-times says, and any comment fails at once when
   # comment-fails is there: the two arms of the edits above.
+  # What a counted failure says is in comment-says, when it is there.
   "issue comment")
     if [ -s "$T/fx/comment-fails-times" ]; then
       left=$(cat "$T/fx/comment-fails-times")
-      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/comment-fails-times"; exit 1; fi
+      if [ "$left" -gt 0 ]; then
+        echo $((left - 1)) >"$T/fx/comment-fails-times"
+        cat "$T/fx/comment-says" >&2 2>/dev/null
+        exit 1
+      fi
     fi
     # comment-fails holds what gh says when it fails, which may be nothing.
-    [ ! -e "$T/fx/comment-fails" ] || { cat "$T/fx/comment-fails" >&2; exit 1; } ;;
+    [ ! -e "$T/fx/comment-fails" ] || { taken comment-taken; cat "$T/fx/comment-fails" >&2; exit 1; } ;;
   # What the number is. An open issue, unless a case writes the fixture.
   "api repos/acme/widget/issues/"[0-9]*)
     n=${2#repos/acme/widget/issues/}
