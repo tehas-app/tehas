@@ -580,8 +580,7 @@ fn read_settings(path: &Path) -> SettingsIn {
     settings_of(&bytes)
 }
 
-/// The settings a file's bytes hold, judged as `cycle-image` judges them. The
-/// import reads `state/cycles/<n>.settings` with it.
+/// The settings a file's bytes hold, judged as `cycle-image` judges them.
 pub fn settings_of(bytes: &[u8]) -> SettingsIn {
     if bytes.len() as u64 > SETTINGS_BOUND {
         return SettingsIn::Refused;
