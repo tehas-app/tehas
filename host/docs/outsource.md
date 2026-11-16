@@ -15,6 +15,12 @@ Outsource is off until you switch it on. Off, `tehas-proxy` says the word that
 says why and ends 0: no listener, no new port, nothing in `live/` and no new
 line in `tehas status`.
 
+In this release outsource is a feature still being built. It cannot be
+switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
+that `outsource` is still being built, and `tehas api --json` lists it in
+`flags` as `false`. This page says what the proxy does once the feature
+ships.
+
 The rest of [outsource](#what-is-not-here-yet) is not built yet: the
 contractor's program and the job channel. The state store holds the
 contractors and the jobs. This page is the factory's half, the proxy, and what
@@ -53,7 +59,7 @@ job's token is written to `~/tehas/state/outsource/jobs/<job>/job-token`.
 
 | Setting | Default | What it is |
 | --- | --- | --- |
-| `TEHAS_OUTSOURCE` | `0` | `1` runs the proxy. Anything else stops every command with 78 |
+| `TEHAS_OUTSOURCE` | `off` | `on` runs the proxy, once the feature ships. While it is being built, `on` stops every command with 78, and so does any value but `on`, `off`, `1` or `0` |
 | `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
 | `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
 | `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
@@ -153,7 +159,7 @@ token count, and an answer it could not finish writing gives no figures.
 
 ## Off means off
 
-`TEHAS_OUTSOURCE` not `1`: `tehas-proxy` says `outsource is off: no model proxy
+Outsource not on: `tehas-proxy` says `outsource is off: no model proxy
 is listening` and ends 0. Nothing binds a port, nothing is written under the
 state, `tehas status` says no word about the feature, and the rest of the suite
 is as it was.

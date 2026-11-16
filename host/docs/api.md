@@ -1366,7 +1366,7 @@ console settings rules --json
   "required": ["TEHAS_REPO", "TEHAS_CONTROL_ISSUE", "TEHAS_ALLOWED_LABELERS", "PI_ENSEMBLE_SUBAGENT_MODEL", "PI_ENSEMBLE_SUBAGENT_PROVIDER"],
   "roles": ["DEVELOPER", "OPS", "EXPLORE", "ADVERSARIAL_DEVELOPER", "CODE_REVIEW_SPECIALIST"],
   "settings": [
-    {"name": "TEHAS_INDEXING", "rule": "one-of", "when": "always", "default": "0", "words": ["0", "1"], "reason": "expected 0 or 1"},
+    {"name": "TEHAS_INDEXING", "rule": "one-of", "when": "always", "default": "0", "words": ["on", "off", "1", "0"], "reason": "expected on or off"},
     {"name": "TEHAS_REPO", "rule": "repo", "when": "required", "default": null, "reason": "expected owner/name"}
   ]
 }

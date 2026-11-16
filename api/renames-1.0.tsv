@@ -5,3 +5,4 @@ value	mcp.factory_sessions.how=fixer	millwright	the runs and their how say millw
 command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an alias through 1.x; it prints the same words and object
 command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
 command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias
+value	TEHAS_ENERGY=<word>	on	TEHAS_ENERGY takes on, off, 1 or 0 like every switch; any other word stops every command with 78

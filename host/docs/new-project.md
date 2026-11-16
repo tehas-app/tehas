@@ -418,8 +418,9 @@ command; see [tehas update](/tools-update#tehas-update).
 
 ## Optional parts
 
-`tehas-energy.service` is optional: set `TEHAS_ENERGY` only when your model
-endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. With any other
+`tehas-energy.service` is optional: set `TEHAS_ENERGY=on` only when your model
+endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. It is a switch,
+`on` or `off`, and any other value stops every command with 78. With any other
 endpoint leave it unset: an update restarts a unit only where it already runs.
 See [the energy sampler](/tools).
 
