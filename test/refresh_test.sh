@@ -130,10 +130,10 @@ t_contains "$t_out" "Usage:"
 # What --help prints is the text file of the dispatcher's own package, which is
 # the one `console update sources` counts in its sum. An edit of the help is the
 # only way to change it, and such an edit changes this line on purpose: the last
-# was the move to tehas refresh.
+# was the camelCase head and api of --json.
 t_case "the refresh text is the words it has"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "c56569eba9a5a2d4c6c45ec0d6ae3cadf57c6abf4399ce5b046010a3c7c90f61"
+  "ac94b82be1c38e5efd549cc2f72f79e079af2dc31fcd64cb953bf8e9a359eed7"
 
 t_case "the refresh text says drafts are kept, as the rule keeps them"
 t_lacks "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")" "no draft"
@@ -235,7 +235,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=0
 one "$(pr 50 7)"
 t_run "$refresh --pr 50 --json 2>/dev/null"
 t_eq "$t_rc" 0
-t_eq "$t_out" "{\"asked\":true,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":null}"
+t_eq "$t_out" "{\"api\":1,\"asked\":true,\"pr\":50,\"issue\":7,\"headSha\":\"$head_a\",\"why\":null}"
 t_eq "$(jq -r .asked "$dir/7.json")" "pr"
 t_contains "$(cat "$logfile")" "asked for pull request #50: wrote the request of #7"
 
@@ -244,7 +244,7 @@ reset
 one "$(pr 50 7 '.mergeable = "MERGEABLE"')"
 t_run "$refresh --pr 50 --json 2>/dev/null"
 t_eq "$t_rc" 3
-t_eq "$(jq -c . <<<"$t_out")" "{\"asked\":false,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":\"it does not conflict: GitHub says MERGEABLE\"}"
+t_eq "$(jq -c . <<<"$t_out")" "{\"api\":1,\"asked\":false,\"pr\":50,\"issue\":7,\"headSha\":\"$head_a\",\"why\":\"it does not conflict: GitHub says MERGEABLE\"}"
 t_eq "$(requests)" ""
 t_run "$refresh --pr 50 --json 2>&1 >/dev/null"
 t_contains "$t_out" "is not refreshed: it does not conflict"
@@ -254,7 +254,7 @@ reset
 : >"$fx/pr-fails"
 t_run "$refresh --pr 50 --json 2>/dev/null"
 t_eq "$t_rc" 1
-t_eq "$(jq -c '[.asked, .pr, .issue, .head_sha]' <<<"$t_out")" '[false,50,null,null]'
+t_eq "$(jq -c '[.api, .asked, .pr, .issue, .headSha]' <<<"$t_out")" '[1,false,50,null,null]'
 t_contains "$(jq -r .why <<<"$t_out")" "GitHub did not answer for pull request #50"
 t_eq "$(requests)" ""
 
@@ -279,7 +279,7 @@ reset
 one "$(pr 50 7)"
 t_run "$alias_refresh --pr 50 --json 2>/dev/null"
 t_eq "$t_rc" 0
-t_eq "$t_out" "{\"asked\":true,\"pr\":50,\"issue\":7,\"head_sha\":\"$head_a\",\"why\":null}"
+t_eq "$t_out" "{\"api\":1,\"asked\":true,\"pr\":50,\"issue\":7,\"headSha\":\"$head_a\",\"why\":null}"
 t_eq "$(jq -r .pr "$dir/7.json")" 50
 t_run "$alias_refresh --help"
 t_eq "$t_out" "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")"
