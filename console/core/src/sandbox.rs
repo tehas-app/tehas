@@ -136,6 +136,85 @@ pub struct Identity<'a> {
     pub email: &'a str,
 }
 
+/// The git configuration of a container as environment-level config: the pair
+/// of each key, and `GIT_CONFIG_COUNT`, which says how many there are. Counting
+/// them in one place is the point: git reads no `GIT_CONFIG_KEY_<i>` at or
+/// above the count it is given, so a guard key added without the count would be
+/// dropped and nothing would say so — the read-only guard of #608 would simply
+/// not apply, and silently (#2247).
+///
+/// git takes the pairs as `GIT_CONFIG_KEY_<i>` and `GIT_CONFIG_VALUE_<i>`. A
+/// pair is added only through [`GitConfig::add`], which gives it the index after
+/// the last one, and [`GitConfig::count`] is how many are held: no index and no
+/// count is a number typed beside a key, so a key cannot be added where the
+/// count does not reach it. A test of what this keeps is
+/// `the_count_is_the_number_of_keys_and_values`, below the tests of
+/// [`env_options`].
+#[derive(Default)]
+pub struct GitConfig {
+    pairs: Vec<(String, String)>,
+}
+
+impl GitConfig {
+    /// The git configuration of a container: the pair of each key it is given.
+    /// The four every container has: the credential helper of the image's taken
+    /// away, then the helper that hands git the bot's token through gh
+    /// (`GH_TOKEN`, which the caller gives by name), and the identity of <who>.
+    /// On a read-only instance (#608) the two keys that keep its pushes inside
+    /// the workspace follow them, at the indexes the four leave.
+    pub fn of(who: &Identity, read_only: bool) -> Self {
+        let mut c = GitConfig::default();
+        c.add(HELPER_KEY, "");
+        c.add(HELPER_KEY, HELPER);
+        c.add("user.name", who.name);
+        c.add("user.email", who.email);
+        if read_only {
+            // A push to origin lands in the workspace's own repository, which is
+            // where the cycle's branch stays, and a push that names a URL of
+            // github.com fails before it leaves the container.
+            c.add("remote.origin.pushurl", who.tree);
+            c.add(
+                &format!("url.{NO_PUSH}.pushInsteadOf"),
+                "https://github.com/",
+            );
+        }
+        c
+    }
+
+    /// The pair of one key, at the index after the last one held.
+    fn add(&mut self, key: &str, value: &str) {
+        self.pairs.push((key.to_string(), value.to_string()));
+    }
+
+    /// How many keys git is told it has: the count it is given, and the number
+    /// of pairs below it.
+    pub fn count(&self) -> usize {
+        self.pairs.len()
+    }
+
+    /// The key of index <n>, or none when the count does not reach it.
+    pub fn key(&self, n: usize) -> Option<&str> {
+        self.pairs.get(n).map(|(k, _)| k.as_str())
+    }
+
+    /// The value of index <n>, or none when the count does not reach it.
+    pub fn value(&self, n: usize) -> Option<&str> {
+        self.pairs.get(n).map(|(_, v)| v.as_str())
+    }
+}
+
+/// The words of one config: the count, then the key and value of every index
+/// below it, in the order they were added. The count goes first, as the argv
+/// goldens and the shell tests of the docker line read it.
+fn git_config_words(c: &GitConfig) -> Vec<String> {
+    let mut v = vec![format!("GIT_CONFIG_COUNT={}", c.count())];
+    for (i, (k, val)) in c.pairs.iter().enumerate() {
+        v.push(format!("GIT_CONFIG_KEY_{i}={k}"));
+        v.push(format!("GIT_CONFIG_VALUE_{i}={val}"));
+    }
+    v
+}
+
 /// The -e options. The same variables as the pi-rukas wrapper sets, without the
 /// host's whole environment: the bot token by name, the PI_ENSEMBLE_* settings
 /// in `ensemble`, git's configuration, and in `tokens` the model endpoints'
@@ -162,19 +241,14 @@ pub fn env_options(
         "PI_ENSEMBLE_SANDBOX_MODE=1".to_string(),
         format!("PI_ENSEMBLE_WORKSPACE_ROOT={}", who.tree),
         format!("CBM_CACHE_DIR={CACHE_DIR}"),
-        format!("GIT_CONFIG_COUNT={}", if read_only { 6 } else { 4 }),
-        format!("GIT_CONFIG_KEY_0={HELPER_KEY}"),
-        "GIT_CONFIG_VALUE_0=".to_string(),
-        format!("GIT_CONFIG_KEY_1={HELPER_KEY}"),
-        format!("GIT_CONFIG_VALUE_1={HELPER}"),
-        "GIT_CONFIG_KEY_2=user.name".to_string(),
-        format!("GIT_CONFIG_VALUE_2={}", who.name),
-        "GIT_CONFIG_KEY_3=user.email".to_string(),
-        format!("GIT_CONFIG_VALUE_3={}", who.email),
-        "GIT_TERMINAL_PROMPT=0".to_string(),
     ]);
+    vars.extend(git_config_words(&GitConfig::of(who, read_only)));
+    vars.push("GIT_TERMINAL_PROMPT=0".to_string());
     if read_only {
-        vars.extend(read_only_variables(who.tree));
+        // The setting itself: the image's gh refuses every call that may write
+        // when its container is told it runs on a read-only instance
+        // (host/sandbox/gh-shim).
+        vars.push(format!("{}=1", crate::read_only::NAME));
     }
     vars.extend_from_slice(ensemble);
     vars.extend_from_slice(tokens);
@@ -187,22 +261,6 @@ pub fn env_options(
 /// Where a push to a URL of github.com goes on a read-only instance: nowhere a
 /// push can land, so it fails before it leaves the container.
 const NO_PUSH: &str = "file:///nonexistent/tehas-read-only/";
-
-/// What a container of a read-only instance (TEHAS_READ_ONLY=1, #608) is given
-/// besides: git's pushes to origin land in the workspace's own repository,
-/// which is where the cycle's branch stays, and a push that names a URL of
-/// github.com fails. TEHAS_READ_ONLY=1 has the image's gh refuse every call
-/// that may write (host/sandbox/gh-shim). The keys follow the four of
-/// [`env_options`], whose GIT_CONFIG_COUNT counts them.
-pub fn read_only_variables(tree: &str) -> Vec<String> {
-    vec![
-        "GIT_CONFIG_KEY_4=remote.origin.pushurl".to_string(),
-        format!("GIT_CONFIG_VALUE_4={tree}"),
-        format!("GIT_CONFIG_KEY_5=url.{NO_PUSH}.pushInsteadOf"),
-        "GIT_CONFIG_VALUE_5=https://github.com/".to_string(),
-        "TEHAS_READ_ONLY=1".to_string(),
-    ]
-}
 
 /// The PI_ENSEMBLE_* the host has set, in the order of its environment. Not the
 /// settings of pi-rukas's own docker wrapper, which no container runs: the
@@ -961,12 +1019,37 @@ mod tests {
     /// The read-only variables as a container's git takes them: a push to
     /// origin, whose URL is GitHub's, lands in the repository itself, with no
     /// network (a push that left would fail offline), and a push to a URL of
-    /// github.com fails.
+    /// github.com fails. The four keys are this git's own and the two guards are
+    /// the container's, and the count is the number of pairs handed to git —
+    /// derived, never typed, so a count too small for the keys is answered for
+    /// by the pushes below instead of passed over (#2247).
     #[test]
     fn a_read_only_push_to_origin_stays_in_the_workspace_and_one_to_github_fails() {
         let d = crate::testdir::TestDir::new("read-only-push");
         let tree = d.join("widget");
         let t = tree.to_str().unwrap();
+        let own: Vec<(String, String)> = [
+            ("user.name", "A Bot"),
+            ("user.email", "bot@example.org"),
+            ("core.hooksPath", "/dev/null"),
+            ("init.defaultBranch", "main"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        // What the container's git is given: its own four keys, then the two
+        // guards. The test hands git the four of its own tree in their place and
+        // the guards as the container is given them, at the indexes and with the
+        // count that config says, so no index and no number is typed here.
+        let container = GitConfig::of(
+            &Identity {
+                tree: t,
+                name: WHO.name,
+                email: WHO.email,
+            },
+            true,
+        );
+        let count = container.count();
         let git = |args: &[&str]| {
             let mut c = Command::new("git");
             c.args(["-C", t]).args(args);
@@ -975,26 +1058,14 @@ mod tests {
             c.env("HOME", d.join("home"))
                 .env("GIT_TERMINAL_PROMPT", "0");
             c.env("GIT_CONFIG_NOSYSTEM", "1");
-            c.env("GIT_CONFIG_COUNT", "6");
-            for (i, w) in [
-                "user.name=A Bot".to_string(),
-                "user.email=bot@example.org".to_string(),
-                "core.hooksPath=/dev/null".to_string(),
-                "init.defaultBranch=main".to_string(),
-            ]
-            .iter()
-            .enumerate()
-            {
-                let (k, v) = w.split_once('=').unwrap();
-                c.env(format!("GIT_CONFIG_KEY_{i}"), k)
-                    .env(format!("GIT_CONFIG_VALUE_{i}"), v);
+            c.env("GIT_CONFIG_COUNT", count.to_string());
+            for (i, (k, v)) in own.iter().enumerate() {
+                c.env(format!("GIT_CONFIG_KEY_{i}"), k.as_str())
+                    .env(format!("GIT_CONFIG_VALUE_{i}"), v.as_str());
             }
-            for w in read_only_variables(t) {
-                if let Some((k, v)) = w.split_once('=') {
-                    if k.starts_with("GIT_CONFIG_") {
-                        c.env(k, v);
-                    }
-                }
+            for i in own.len()..count {
+                c.env(format!("GIT_CONFIG_KEY_{i}"), container.key(i).unwrap())
+                    .env(format!("GIT_CONFIG_VALUE_{i}"), container.value(i).unwrap());
             }
             c.output().unwrap()
         };
@@ -1037,14 +1108,125 @@ mod tests {
         assert!(String::from_utf8_lossy(&url.stderr).contains("nonexistent/tehas-read-only"));
     }
 
+    /// The words a read-only container is given besides: the two guards after
+    /// the four keys, at indexes 4 and 5, and the setting that names the mode.
+    /// An `-e` option is two words, so the value of a name is the word after it.
     #[test]
     fn the_read_only_variables_follow_the_four_keys_and_name_the_setting() {
-        let v = read_only_variables("/w/widget");
-        assert_eq!(v[0], "GIT_CONFIG_KEY_4=remote.origin.pushurl");
-        assert_eq!(v[1], "GIT_CONFIG_VALUE_4=/w/widget");
-        assert!(v[2].starts_with("GIT_CONFIG_KEY_5=url.file:///nonexistent/"));
-        assert_eq!(v[3], "GIT_CONFIG_VALUE_5=https://github.com/");
-        assert_eq!(v[4], "TEHAS_READ_ONLY=1");
+        assert_eq!(
+            GitConfig::of(&WHO, false).count(),
+            4,
+            "the four keys a container always has"
+        );
+        let env = env_of(Kind::Cycle);
+        let read_only = with_read_only(true, || env_of(Kind::Cycle));
+        let at = |name: &str| {
+            env_word(&read_only, name)
+                .unwrap_or_else(|| panic!("no {name} in a read-only container"))
+        };
+        assert_eq!(at("GIT_CONFIG_KEY_4"), "remote.origin.pushurl");
+        assert_eq!(at("GIT_CONFIG_VALUE_4"), WHO.tree);
+        assert!(at("GIT_CONFIG_KEY_5").starts_with("url.file:///nonexistent/"));
+        assert_eq!(at("GIT_CONFIG_VALUE_5"), "https://github.com/");
+        assert_eq!(at(crate::read_only::NAME), "1");
+        // A container of an instance that writes has none of them.
+        assert!(!env.iter().any(|w| w.contains("pushurl")));
+    }
+
+    /// The value a container is given for <name>, read the way docker reads an
+    /// `-e` option: the word after `-e name=`.
+    fn env_word<'a>(env: &'a [String], name: &str) -> Option<&'a str> {
+        let at = format!("{name}=");
+        env.iter()
+            .enumerate()
+            .find(|(i, w)| **w == "-e" && env.get(i + 1).is_some_and(|v| v.starts_with(&at)))
+            .and_then(|(i, _)| env.get(i + 1))
+            .map(|w| w.strip_prefix(&at).unwrap())
+    }
+
+    /// The invariant of `GIT_CONFIG_COUNT` (#2247): git reads no
+    /// `GIT_CONFIG_KEY_<i>` at or above the count it is given, so a count one
+    /// too small drops a guard key and says nothing. A container's count is the
+    /// number of keys and of values it is given, in both modes, and every index
+    /// below it has both a key and a value while the index at the count has
+    /// neither. The count and the names are read back from the words the
+    /// container is given, so nothing here retypes them.
+    #[test]
+    fn the_count_is_the_number_of_keys_and_values() {
+        for read_only in [false, true] {
+            let env = with_read_only(read_only, || env_of(Kind::Cycle));
+            // The name of every `-e` option, each of its two words.
+            let names: Vec<&str> = env
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| **w == "-e")
+                .filter_map(|(i, _)| env.get(i + 1))
+                .map(|w| w.split_once('=').map_or(w.as_str(), |(n, _)| n))
+                .collect();
+            let given = |name: &str| names.iter().filter(|n| **n == name).count();
+            let keys = || {
+                names
+                    .iter()
+                    .filter(|n| n.starts_with("GIT_CONFIG_KEY_"))
+                    .count()
+            };
+            let values = || {
+                names
+                    .iter()
+                    .filter(|n| n.starts_with("GIT_CONFIG_VALUE_"))
+                    .count()
+            };
+            let count: usize = env_word(&env, "GIT_CONFIG_COUNT")
+                .and_then(|n| n.parse().ok())
+                .expect("a container is given a count");
+            assert_eq!(
+                count,
+                keys(),
+                "read_only {read_only}: the count is not the number of keys"
+            );
+            assert_eq!(
+                count,
+                values(),
+                "read_only {read_only}: the count is not the number of values"
+            );
+            for i in 0..count {
+                assert!(
+                    names.contains(&format!("GIT_CONFIG_KEY_{i}").as_str()),
+                    "read_only {read_only}: no key {i} below the count"
+                );
+                assert!(
+                    names.contains(&format!("GIT_CONFIG_VALUE_{i}").as_str()),
+                    "read_only {read_only}: no value {i} below the count"
+                );
+            }
+            // A pair at the index of the count is a pair git would never read.
+            assert_eq!(given(&format!("GIT_CONFIG_KEY_{count}")), 0);
+            assert_eq!(given(&format!("GIT_CONFIG_VALUE_{count}")), 0);
+        }
+    }
+
+    /// What the host's setting says while <what> runs, and is put back after.
+    /// A container's git is the read-only one only when the host's instance is,
+    /// so a case that asks for one mode gets that mode and no other.
+    fn with_read_only<T>(on: bool, what: impl FnOnce() -> T) -> T {
+        let name = crate::read_only::NAME;
+        let was = std::env::var_os(name);
+        // Safety: the setting is set for the moment of one call and its old
+        // value is put back after it, and no other test of the workspace reads
+        // the environment of the host.
+        unsafe {
+            if on {
+                std::env::set_var(name, "1");
+            } else {
+                std::env::remove_var(name);
+            }
+            let got = what();
+            match &was {
+                Some(v) => std::env::set_var(name, v),
+                None => std::env::remove_var(name),
+            }
+            got
+        }
     }
 
     const WHO: Identity = Identity {
