@@ -9,3 +9,4 @@ command	tehas setup --labellers	tehas setup --labelers	spelled as TEHAS_ALLOWED_
 command	tehas setup --token-file		refused since the GitHub App; now an unknown option (64)
 command	tehas setup --app-installation		was ignored; now an unknown option (64)
 command	tehas analytics export	tehas analytics copy --to	same copy and the same --json object; the old form exits 64 and names the new one
+command	tehas pause <reason>	tehas pause --reason	a bare reason is refused with 64 and names --reason

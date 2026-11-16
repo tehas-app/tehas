@@ -44,7 +44,7 @@ tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|copy      # the factory's last 365 days of runs
 tehas mcp key                    # a new key for the read-only MCP server
 tehas github check|writes        # the GitHub App's token, its writes of the day
-tehas pause [reason]             # stop this host from starting new work
+tehas pause [--reason TEXT]      # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
 tehas help [command]             # this list, or the text of one command
