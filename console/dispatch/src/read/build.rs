@@ -523,7 +523,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     // blocked batch is decided once, in `blocked_list`, and of the lifting
     // batch once, in `lifting_parks`, and the rule's own tests are those two
     // predicates, so the batches and the rule cannot disagree about an issue.
-    for n in candidates {
+    for &n in &candidates {
         let park = store::park(&asked, n);
         let (shaped, _) = store::approval(&asked, n);
         let i = entry(&mut issues, n);
@@ -563,6 +563,18 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
                 })
                 .collect(),
         );
+    }
+    // A page cut right after the label the last start used still ends on an
+    // application of it, which the guard above cannot tell from a whole one.
+    let behind: Vec<u64> = q
+        .open
+        .iter()
+        .filter(|o| candidates.contains(&o.number) && !dropped.contains(&o.number))
+        .filter(|o| behind_last_start(&issues[&o.number.to_string()], &o.labels))
+        .map(|o| o.number)
+        .collect();
+    for (n, r) in behind.iter().zip(events_all(calls, &c.repo, &behind)) {
+        issues[&n.to_string()]["events"] = r;
     }
 
     // The parks owed a retry or a refine, and what they read of the issue.
@@ -779,6 +791,30 @@ pub fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
     calls
         .gh(&["api", &path, "--paginate"])
         .unwrap_or_else(|_| json!({"failed": true}))
+}
+
+/// Whether the newest application of a start label the issue carries is no
+/// newer than the approval its last start used. That start took the label off,
+/// so the label on the issue was applied again since, and the timeline that
+/// does not show it was cut.
+fn behind_last_start(issue: &Value, labels: &[String]) -> bool {
+    let Some(used) = issue
+        .pointer("/approval/at")
+        .and_then(Value::as_str)
+        .and_then(tehas_core::time::from_iso)
+    else {
+        return false;
+    };
+    let Events::Read(ev) = Events::parse(&issue["events"]) else {
+        return false;
+    };
+    ["tehas:ready", crate::decide::BLOCKED]
+        .iter()
+        .filter(|l| has(labels, l))
+        .any(|l| {
+            let (_, at) = tehas_core::events::label_actor(&ev, l);
+            tehas_core::time::from_iso(&at).is_some_and(|t| t <= used)
+        })
 }
 
 /// `rest_events` for several issues or pull requests, read side by side through
@@ -1058,6 +1094,14 @@ mod tests {
             std::fs::write(
                 dir.join(format!(".approval-current-{n}")),
                 approval_answer(at, &sum),
+            )
+            .unwrap();
+        }
+        // `approvals`: the store's answer of `approval-current <n>`, as its line.
+        for (n, said) in world["approvals"].as_object().into_iter().flatten() {
+            std::fs::write(
+                dir.join(format!(".approval-current-{n}")),
+                said.as_str().unwrap_or(""),
             )
             .unwrap();
         }
@@ -1416,9 +1460,11 @@ esac"#,
     /// The store's answer of one `approval-current <n>`: the fixer's start on
     /// the text `sum` of the issue, resting on alice's approval of the same
     /// text, with a start left to the fixer. `at` is the instant the millwright
-    /// applied the label, so the label and the approval cover one text.
+    /// applied the label again, an hour after that start, so the label and the
+    /// approval cover one text and the label is newer than the start that took
+    /// the last one off.
     fn approval_answer(at: &str, sum: &str) -> String {
-        let at = tehas_core::time::from_iso(at).unwrap_or_default();
+        let at = tehas_core::time::from_iso(at).unwrap_or_default() - 3600;
         format!(
 "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":{{\"at\":{at},\"by\":\"tehas-fixer\",\"how\":\"millwright\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\"}},\"millwright_starts\":1,\"fixer_starts\":1}}"
         )
@@ -1762,6 +1808,101 @@ esac"#,
             assert_eq!(read, usize::from(n == 30), "#{n}: {calls:?}");
         }
         assert_eq!(snap["issues"]["30"]["events"], w["events"]["30"]);
+    }
+
+    /// A ready issue whose page timeline was cut right after the `tehas:ready`
+    /// its last cycle started on: the newest application on the page is that
+    /// used approval, so the guard sees nothing wrong, and every start would be
+    /// refused as an approval that started a cycle already. The events are read
+    /// whole, and the person's newer label is what the rules see. An issue whose
+    /// page shows a label newer than its last start costs no read.
+    #[test]
+    fn a_ready_label_no_newer_than_the_last_start_reads_the_events_whole() {
+        let mut w = world();
+        let ev = |kind: &str, at: &str, label: &str, who: &str| {
+            json!({"__typename": kind, "createdAt": at, "actor": {"login": who},
+                "label": {"name": label}})
+        };
+        let rest = |e: &Value| {
+            let kind = if e["__typename"] == "LabeledEvent" {
+                "labeled"
+            } else {
+                "unlabeled"
+            };
+            json!({"event": kind, "label": {"name": e["label"]["name"]},
+                "actor": e["actor"], "created_at": e["createdAt"]})
+        };
+        let whole: Vec<Value> = [
+            (
+                "LabeledEvent",
+                "2026-10-02T22:13:03Z",
+                "tehas:ready",
+                "alice",
+            ),
+            (
+                "UnlabeledEvent",
+                "2026-10-03T02:30:05Z",
+                "tehas:ready",
+                "tehas-bot",
+            ),
+            (
+                "LabeledEvent",
+                "2026-10-03T03:00:07Z",
+                "tehas:question",
+                "tehas-bot",
+            ),
+            (
+                "UnlabeledEvent",
+                "2026-10-03T12:26:07Z",
+                "tehas:question",
+                "alice",
+            ),
+            (
+                "LabeledEvent",
+                "2026-10-03T12:26:07Z",
+                "tehas:ready",
+                "alice",
+            ),
+        ]
+        .iter()
+        .map(|(k, at, l, who)| ev(k, at, l, who))
+        .collect();
+        let issue = |n: u64, timeline: &[Value]| {
+            json!({"number": n, "title": format!("issue {n}"), "body": "Words.",
+                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
+                "lastEditedAt": null, "editor": null,
+                "labels": {"nodes": [{"name": "tehas:ready"}]},
+                "timelineItems": {"nodes": timeline},
+                "closedByPullRequestsReferences": {"nodes": []}})
+        };
+        let nodes = w["queue"]["data"]["repository"]["issues"]["nodes"]
+            .as_array_mut()
+            .unwrap();
+        // #50 is cut after its first event, #51 is whole.
+        nodes.push(issue(50, &whole[..1]));
+        nodes.push(issue(51, &whole));
+        let sum = tehas_core::approval::body_sha256(&json!({"body": "Words."}));
+        let at = tehas_core::time::from_iso("2026-10-02T22:13:03Z").unwrap();
+        let said = format!(
+            "{{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"approval\":null,\"current\":{{\"at\":{at},\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"{sum}\",\"input\":{{}}}},\"rests_on\":null,\"millwright_starts\":0,\"fixer_starts\":0}}"
+        );
+        w["approvals"] = json!({"50": said, "51": said});
+        let full: Vec<Value> = whole.iter().map(rest).collect();
+        w["events"]["50"] = json!(full);
+        w["events"]["51"] = json!(full);
+        let (snap, calls, _, _) = poll(&w, &[]);
+        for n in [50, 51] {
+            let read = calls
+                .iter()
+                .filter(|c| c.contains(&format!("issues/{n}/events?")))
+                .count();
+            assert_eq!(read, usize::from(n == 50), "#{n}: {calls:?}");
+        }
+        assert_eq!(snap["issues"]["50"]["events"], json!(full));
+        assert_eq!(
+            snap["issues"]["50"]["approval"]["at"],
+            json!("2026-10-02T22:13:03Z")
+        );
     }
 
     /// The refreshing sweep reads the events of its pull requests side by side,
