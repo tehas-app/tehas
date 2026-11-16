@@ -473,16 +473,20 @@ A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
 `TEHAS_DRIVER` in the instance sets the default: `classic`, the default, or
-`lean`. With `TEHAS_DRIVER=lean` every approved start runs lean unless a person
-chooses classic for that issue with `tehas:classic`, which is then read as
-`tehas:lean` is under the classic default: from an allowed account only, read
-from the label's events, and the rules below hold with the two labels and the
-two drivers swapped. `tehas:lean` then agrees with the default and chooses
-nothing, and `tehas:classic` does the same under the classic default. An issue
-that carries both labels starts nothing, whatever the default: the poll takes
-`tehas:ready` off, says why once, and an allowed account takes one of them
-off. Each approval record binds the driver its start ran, so changing the
-setting changes no retry of a start already on record.
+`lean`. With `TEHAS_DRIVER=lean` an approved start with no driver label runs
+lean when the issue's text holds a `pi-spec v1` block (the same check as
+below: one fence of valid JSON), and classic when it does not, since lean
+declines an issue without one. The poll logs which it chose and why:
+`start #N on lean: TEHAS_DRIVER=lean and its text holds a pi-spec v1 block`,
+or `start #N on classic: ...`. A person still chooses for one issue:
+`tehas:classic` runs it on classic, and `tehas:lean` on lean, block or not (a
+new lean start without the block is still refused, as below). Both labels are
+read as `tehas:lean` is under the classic default: from an allowed account
+only, read from the label's events, and the rules below hold for either. Under
+the classic default `tehas:classic` agrees with it and chooses nothing. An
+issue that carries both labels starts nothing, whatever the default: the poll
+takes `tehas:ready` off, says why once, and an allowed account takes one of
+them off. Each approval record binds the driver its start ran.
 
 A lean start runs `pi-rukas-headless work-lean` in the same container classic
 `work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later

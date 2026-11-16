@@ -432,12 +432,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)]),
     );
     // The driver of a retry is on its record, whichever rule starts it. Only an
-    // issue that carries the label choosing against the default costs a read.
-    let opt_out = crate::decide::opt_out(c.lean_default);
+    // issue that carries a label that chooses the driver costs a read.
+    let read = crate::decide::driver_labels(c.lean_default);
     let lean: Vec<u64> = q
         .open
         .iter()
-        .filter(|o| has(&o.labels, opt_out))
+        .filter(|o| read.iter().any(|l| has(&o.labels, l)))
         .map(|o| o.number)
         .collect();
     want(

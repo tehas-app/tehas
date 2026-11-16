@@ -2997,7 +2997,7 @@
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: no label gives a start with driver lean",
+   "case": "TEHAS_DRIVER=lean: no label and a pi-spec v1 block gives a start with driver lean",
    "settings": {
     "TEHAS_DRIVER": "lean"
    },
@@ -3018,11 +3018,14 @@
       "given": "label",
       "driver": "lean"
      }
+    ],
+    "log": [
+     "start #7 on lean: TEHAS_DRIVER=lean and its text holds a pi-spec v1 block"
     ]
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: no label and no pi-spec v1 block starts nothing and asks for the block",
+   "case": "TEHAS_DRIVER=lean: no label and no pi-spec v1 block gives a classic start",
    "settings": {
     "TEHAS_DRIVER": "lean"
    },
@@ -3034,10 +3037,13 @@
    },
    "expect": {
     "exit": 0,
-    "picked": [],
+    "picked": [
+     7
+    ],
     "actions": [
      {
-      "issue": 7,
+      "start": 7,
+      "given": "label",
       "remove": [
        "tehas:ready"
       ]
@@ -3045,8 +3051,11 @@
     ],
     "no_actions": [
      {
-      "start": 7
+      "driver": "lean"
      }
+    ],
+    "log": [
+     "start #7 on classic: TEHAS_DRIVER=lean and its text holds no pi-spec v1 block lean can read"
     ]
    }
   },
@@ -3220,7 +3229,7 @@
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: tehas:lean agrees with the default, whoever applied it",
+   "case": "TEHAS_DRIVER=lean: tehas:lean from an allowed account with no pi-spec v1 block is lean: nothing starts, classic included, and the block is asked for",
    "settings": {
     "TEHAS_DRIVER": "lean"
    },
@@ -3229,22 +3238,30 @@
    ],
    "label_events": {
     "7": [
-     "tehas:lean=mallory"
+     "tehas:lean=alice"
     ]
    },
    "spec": {
-    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+    "7": "Words."
    },
    "expect": {
     "exit": 0,
-    "picked": [
-     7
-    ],
+    "picked": [],
     "actions": [
      {
-      "start": 7,
-      "driver": "lean"
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
      }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ],
+    "log_lacks": [
+     "start #7 on classic"
     ]
    }
   },
@@ -3553,7 +3570,7 @@
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: a retry tick with no tehas:classic is lean, whatever the last start ran",
+   "case": "TEHAS_DRIVER=lean: a retry tick with no label and a pi-spec v1 block is lean, whatever the last start ran",
    "world": "parked",
    "park_q": [
     "x",
@@ -3603,6 +3620,9 @@
    },
    "settings": {
     "TEHAS_DRIVER": "lean"
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    }
   },
   {
@@ -4005,7 +4025,7 @@
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: an outage retry with no tehas:classic is lean and takes needs-human-attention off",
+   "case": "TEHAS_DRIVER=lean: an outage retry with no label and a pi-spec v1 block is lean and takes needs-human-attention off",
    "world": "parked",
    "park_q": [
     " ",
@@ -4014,7 +4034,7 @@
     ""
    ],
    "body": {
-    "7": "Words."
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
    },
    "snapshot": {
     "endpoint": {
@@ -4046,7 +4066,7 @@
    "parked": {
     "7": {
      "reason": "provider-outage",
-     "body": "Words."
+     "body": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
     }
    },
    "expect": {
@@ -4095,7 +4115,393 @@
    }
   },
   {
-   "case": "TEHAS_DRIVER=lean: a refresh with no tehas:classic is lean",
+   "case": "TEHAS_DRIVER=lean: a refresh with no label and a pi-spec v1 block is lean",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_DRIVER": "lean"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "68a4d922128ed44ad7c7103b2763ea9832c18cd1dad0ed0bc180d81533bdc4d1",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: a pi-spec v1 block that is no JSON gives a classic start",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7"
+   ],
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\nnot json\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:classic from an allowed account over a pi-spec v1 block is classic",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:classic"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=alice"
+    ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ],
+    "log_lacks": [
+     "start #7 on"
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:lean from an allowed account with a pi-spec v1 block is lean",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:lean from another account starts nothing, and the text does not choose in its place",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=mallory"
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run the driver its text would choose in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for the driver its text would choose, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:lean an allowed account applied and another account took off starts nothing",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=mallory"
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was taken off by 'mallory', not an allowed account"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the classic default asks nothing of the text: a pi-spec v1 block with no label is classic",
+   "queue": [
+    "7"
+   ],
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ],
+    "log_lacks": [
+     "start #7 on"
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: a retry tick with no label and no pi-spec v1 block is classic, whatever the last start ran",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "retry-tick",
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "spec": {
+    "7": "Words."
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: a refresh with no label and no pi-spec v1 block is classic",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
     "TEHAS_DRIVER": "lean"
@@ -4199,7 +4605,11 @@
     "actions": [
      {
       "start": 7,
-      "given": "refresh",
+      "given": "refresh"
+     }
+    ],
+    "no_actions": [
+     {
       "driver": "lean"
      }
     ]
