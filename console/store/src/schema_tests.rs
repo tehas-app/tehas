@@ -472,13 +472,17 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
     assert_eq!(after, before);
     assert!(before.iter().all(|&n| n > 0), "{before:?}");
     assert_eq!(count(&home, "cycles"), 2);
-    assert_eq!(count(&home, "cycles WHERE issue = 8 AND how = 'fixer'"), 1);
+    // The step to 16 names the millwright in the rows the fixer left.
+    assert_eq!(
+        count(&home, "cycles WHERE issue = 8 AND how = 'millwright'"),
+        1
+    );
     assert_eq!(
         count(&home, "planning_answers WHERE turn = 3 AND millwright = 1"),
         1
     );
     assert_eq!(
-        count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
+        count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
         1
     );
     // The pages of the dropped tables are given back.
@@ -492,10 +496,11 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
             .unwrap();
         assert_eq!(at, 3, "{}", copy.display());
     }
-    // The verbs read the renamed column and keep the key `fixer`.
+    // The verbs read the renamed column under its own name.
     let p = ok(&home, &["plan-show", "7"])["planning"].clone();
     assert_eq!(p["answers"][1]["by"], "tehas-fixer");
-    assert_eq!(p["answers"][1]["fixer"], true);
+    assert_eq!(p["answers"][1]["millwright"], true);
+    assert!(p["answers"][1].get("fixer").is_none(), "{p}");
     // The new words are accepted.
     let c = conn(&home);
     c.execute_batch(
@@ -503,12 +508,12 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
          INSERT INTO cycles (issue, started_at, started_by, how)
            VALUES (9, 400, 'tehas-millwright', 'millwright');
          INSERT INTO planning_notes (issue, kind, comment_id, at)
-           VALUES (7, 'millwright-refused', 56, 401);",
+           VALUES (7, 'millwright-refused', 57, 401);",
     )
     .unwrap();
     assert!(c
         .execute(
-            "INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'other', 57, 402)",
+            "INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'other', 58, 402)",
             [],
         )
         .is_err());
@@ -761,6 +766,55 @@ fn the_step_from_15_keeps_the_journal_and_takes_unknown() {
     assert_eq!(count(&home, "journal"), journal);
     conn(&home).execute_batch(unknown).unwrap();
     assert_eq!(count(&home, "actions WHERE state = 'unknown'"), 1);
+}
+
+/// The step to 16 writes the millwright's old word as its name in every row
+/// that kept it, so no answer of the store says `fixer` again.
+#[test]
+fn the_step_from_15_names_the_millwright_in_every_old_row() {
+    let home = old_home(
+        "step-16-words",
+        15,
+        V1_ROWS,
+        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (8, 'issue', 1, 1);
+         INSERT INTO cycles (issue, started_at, started_by, how) VALUES (8, 300, 'tehas-fixer', 'fixer');
+         INSERT INTO cycle_history (issue, attempt, at, status, how) VALUES (8, 1, 301, 'failed', 'fixer');
+         INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, started_how)
+           VALUES (8, 302, 'tehas-fixer', 'fixer', 'tehas:ready',
+                   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'fixer');
+         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 55, 303);
+         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 56, 304);
+         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'millwright-refused', 56, 305);",
+    );
+    let rows: Vec<i64> = ["cycles", "cycle_history", "approvals"]
+        .iter()
+        .map(|t| count(&home, t))
+        .collect();
+    migrate(&home).unwrap();
+    for (t, n) in ["cycles", "cycle_history", "approvals"].iter().zip(rows) {
+        assert_eq!(count(&home, t), n, "{t}");
+        assert_eq!(count(&home, &format!("{t} WHERE how = 'fixer'")), 0, "{t}");
+    }
+    assert_eq!(count(&home, "cycles WHERE how = 'millwright'"), 1);
+    assert_eq!(count(&home, "cycle_history WHERE how = 'millwright'"), 1);
+    assert_eq!(
+        count(
+            &home,
+            "approvals WHERE how = 'millwright' AND started_how = 'millwright'"
+        ),
+        1
+    );
+    // One note a comment: a comment noted under both words is kept once.
+    assert_eq!(
+        count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
+        0
+    );
+    assert_eq!(
+        count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
+        2
+    );
+    let v = ok(&home, &["history-show", "8", "--kind", "cycle"]);
+    assert_eq!(v["rows"][0]["how"], "millwright", "{v}");
 }
 
 #[test]
