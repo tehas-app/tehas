@@ -8,6 +8,8 @@
 - `tehas analytics export <file>` is now `tehas analytics copy --to <file>`,
   with the same copy and the same `--json` object. The old form exits 64 and
   names the new one.
+- `tehas pause` takes its reason as `--reason TEXT`, as `tehas freeze` and
+  `tehas limit set` do. A bare reason exits 64 and names the flag.
 
 ### Adopter action
 
@@ -16,4 +18,5 @@ forms:
 
 - `tehas setup --labellers "a b"` to `tehas setup --labelers "a b"`
 - `tehas analytics export <file>` to `tehas analytics copy --to <file>`
+- `tehas pause <reason>` to `tehas pause --reason "<reason>"`
 - drop `--token-file` and `--app-installation` from `tehas setup`
