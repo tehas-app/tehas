@@ -1429,7 +1429,7 @@ in the dispatcher's log. On its own it changes nothing in this factory: no
 cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
 its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
-tehas-industry. Take the label off to end it.
+an industry of factories. Take the label off to end it.
 
 ## Read-only
 

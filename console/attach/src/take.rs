@@ -11,12 +11,14 @@
 //! of a closed list. Nothing of a link names a place on the disk.
 
 use crate::comments;
+use crate::fetch::{self, Full};
 use crate::given::{self, Linked, Ordered};
+use crate::link;
 use crate::manifest::{self, Given};
 use crate::unpack;
 use serde_json::Value;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -203,39 +205,6 @@ pub trait Net {
     fn attach(&self, verb: &str, args: &[String]) -> Result<Value, Failure>;
 }
 
-/// curl's arguments, and whether it is given the token on standard input. The
-/// token goes only to a whole link of an attachment folder on github.com and
-/// never on the command line; curl does not pass it on when GitHub redirects to
-/// its storage. curl sends the path as written, so what the rule checked is
-/// what GitHub is asked for.
-pub fn curl_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>, bool) {
-    let mut args: Vec<String> = [
-        "-sSfL",
-        "--path-as-is",
-        "--proto",
-        "=https",
-        "--proto-redir",
-        "=https",
-        "--max-redirs",
-        "3",
-        "--max-time",
-        "120",
-        "--max-filesize",
-    ]
-    .map(String::from)
-    .to_vec();
-    args.push(most.to_string());
-    args.extend(["-o".to_string(), file.to_string()]);
-    args.extend(["-w".to_string(), "%{content_type}".to_string()]);
-    let with_token =
-        link.starts_with("https://github.com/") && given::is_link(link) && !token.is_empty();
-    if with_token {
-        args.extend(["-H".to_string(), "@-".to_string()]);
-    }
-    args.push(link.to_string());
-    (args, with_token)
-}
-
 /// curl and this program as children.
 pub struct Children<'a> {
     pub token: &'a str,
@@ -244,25 +213,7 @@ pub struct Children<'a> {
 
 impl Net for Children<'_> {
     fn fetch(&self, link: &str, file: &str, most: i64) -> i32 {
-        let (args, with_token) = curl_args(link, file, most, self.token);
-        let mut curl = Command::new("curl");
-        curl.args(args).stdout(Stdio::null());
-        curl.stdin(if with_token {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        });
-        let Ok(mut child) = curl.spawn() else {
-            return 127;
-        };
-        if let Some(mut stdin) = child.stdin.take() {
-            // A curl that went without reading it fails on its own.
-            let _ = writeln!(stdin, "Authorization: Bearer {}", self.token);
-        }
-        match child.wait() {
-            Ok(status) => status.code().unwrap_or(1),
-            Err(_) => 1,
-        }
+        fetch::fetch(link, Path::new(file), most, self.token).code
     }
 
     fn attach(&self, verb: &str, args: &[String]) -> Result<Value, Failure> {
@@ -472,18 +423,20 @@ impl Take<'_> {
 
     fn image(&mut self, l: &Linked) -> Result<(), String> {
         let other = self.wants.other();
-        if self.n.count >= MOST_IMAGES {
-            self.leave(l, &format!("More than {MOST_IMAGES} images."), None);
-            return Ok(());
-        }
-        let left = LIMIT - self.n.used;
-        if left <= 0 {
-            self.leave(l, OVER, None);
-            return Ok(());
-        }
+        let left = match fetch::room(self.n.count, MOST_IMAGES, self.n.used, LIMIT) {
+            Ok(left) => left,
+            Err(Full::Count) => {
+                self.leave(l, &format!("More than {MOST_IMAGES} images."), None);
+                return Ok(());
+            }
+            Err(Full::Bytes) => {
+                self.leave(l, OVER, None);
+                return Ok(());
+            }
+        };
         match self.fetch(&l.link, left) {
             0 => {}
-            63 => {
+            fetch::TOO_BIG => {
                 self.leave(l, OVER, None);
                 return Ok(());
             }
@@ -517,20 +470,22 @@ impl Take<'_> {
     }
 
     fn text(&mut self, l: &Linked, ext: &str, kind: &str) -> Result<(), String> {
-        if self.n.fcount >= MOST_FILES {
-            self.leave(l, &format!("More than {MOST_FILES} files."), None);
-            return Ok(());
-        }
-        let room = FLIMIT - self.n.fused;
-        if room <= 0 {
-            self.leave(l, FOVER, None);
-            return Ok(());
-        }
+        let room = match fetch::room(self.n.fcount, MOST_FILES, self.n.fused, FLIMIT) {
+            Ok(room) => room,
+            Err(Full::Count) => {
+                self.leave(l, &format!("More than {MOST_FILES} files."), None);
+                return Ok(());
+            }
+            Err(Full::Bytes) => {
+                self.leave(l, FOVER, None);
+                return Ok(());
+            }
+        };
         let left = room.min(ONE_FILE);
         let over = if left == ONE_FILE { FBIG } else { FOVER };
         match self.fetch(&l.link, left) {
             0 => {}
-            63 => {
+            fetch::TOO_BIG => {
                 self.leave(l, over, None);
                 return Ok(());
             }
@@ -568,18 +523,20 @@ impl Take<'_> {
     /// left of the 4 MB of an issue's files, and no more than the 4 MB of one
     /// download. What is unpacked from it is paid for file by file.
     fn archive(&mut self, l: &Linked) -> Result<(), String> {
-        if self.n.zcount >= MOST_ZIPS {
-            self.leave(l, &format!("More than {MOST_ZIPS} archives."), None);
-            return Ok(());
-        }
-        let room = FLIMIT - self.n.fused;
-        if room <= 0 {
-            self.leave(l, FOVER, None);
-            return Ok(());
-        }
+        let room = match fetch::room(self.n.zcount, MOST_ZIPS, self.n.fused, FLIMIT) {
+            Ok(room) => room,
+            Err(Full::Count) => {
+                self.leave(l, &format!("More than {MOST_ZIPS} archives."), None);
+                return Ok(());
+            }
+            Err(Full::Bytes) => {
+                self.leave(l, FOVER, None);
+                return Ok(());
+            }
+        };
         match self.fetch(&l.link, room.min(ZLIMIT)) {
             0 => {}
-            63 => {
+            fetch::TOO_BIG => {
                 let mb = ZLIMIT / 1024 / 1024;
                 let why = format!(
                     "A zip of more than {mb} MB, or of more than is left of the 4 MB of an issue's files."
@@ -837,7 +794,7 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
             by: String::new(),
         };
         let body = answer["body"].as_str().unwrap_or_default();
-        let links = given::text_links(body).into_iter().map(source).collect();
+        let links = link::links(body).into_iter().map(source).collect();
         (Ordered::Plain(Value::Null), links)
     } else {
         let values = given::values_of(run.record).map_err(|_| not_read())?;
@@ -1053,7 +1010,7 @@ pub fn answer(run: &AnswerRun, net: &dyn Net) -> Result<(String, String), String
         .filter_map(|e| e["link"].as_str())
         .collect();
     let reply = given::read(run.text).unwrap_or_default();
-    let links: Vec<Linked> = given::text_links(&reply)
+    let links: Vec<Linked> = link::links(&reply)
         .into_iter()
         .filter(|l| !have.contains(&l.as_str()))
         .map(|link| Linked {

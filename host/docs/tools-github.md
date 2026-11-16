@@ -75,8 +75,9 @@ tehas github check              # when the app's token runs out, and whether it 
 
 Makes one token of the app and prints the app, the installation, the bot's
 login, when the token runs out and whether the installation reaches
-`TEHAS_REPO`, and never the token. It is `tehasbot github-token --check`
-under its public name; the old form stays through 1.x. Exit 0 the check
+`TEHAS_REPO`, and never the token. It reads the installation's repositories a
+hundred at a time, page after page, until it finds `TEHAS_REPO` or a page is
+not full. It is `tehasbot github-token --check` under its public name; the old form stays through 1.x. Exit 0 the check
 passed; 1 no token could be had, or it does not reach `TEHAS_REPO`; 64 an
 argument it does not know; 78 settings that are missing, malformed or name no
 app.
