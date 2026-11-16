@@ -79,10 +79,6 @@
 //! The sandbox build's check and cut of its recipe, and whether the image is
 //! on the commit followed, see ops/src/sandbox.rs.
 //!
-//!   console improve due|run <prompt file> | table
-//!
-//! One run of the improvement loop, see src/improve/mod.rs.
-//!
 //!   console disk <home> [--full] [--json] [--publish]
 //!
 //! How full this host is and what fills it, for tehas disk and the MCP tool
@@ -209,7 +205,6 @@ mod front;
 mod gh_shim;
 mod gh_writes;
 mod history;
-mod improve;
 mod label;
 mod labels;
 mod models;
@@ -471,7 +466,6 @@ fn main() -> ExitCode {
             Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
-            Some("improve") => return ExitCode::from(improve::main(&given[1..])),
             Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
             Some("models") => return ExitCode::from(models::main(&given[1..])),

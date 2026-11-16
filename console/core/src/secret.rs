@@ -1,7 +1,7 @@
 //! Logs should hold no secret. This is for the day one does: what has the shape
-//! of a token is not recorded and not uploaded. The store, the improvement loop
-//! and the mask share the one list of shapes, so what the mask hides and what
-//! the check refuses are the same tokens.
+//! of a token is not recorded and not uploaded. The store and the mask share
+//! the one list of shapes, so what the mask hides and what the check refuses
+//! are the same tokens.
 
 fn run_of(b: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
     b.get(from..)

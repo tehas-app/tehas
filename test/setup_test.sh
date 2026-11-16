@@ -468,11 +468,11 @@ t_lacks "$(t_calls gh)" "issue create"
 t_case "another repository the instance names that the app does not reach is named with the link"
 fresh
 mkdir -p "$cfg"
-printf 'TEHAS_REVIEW_REPO=acme/reviews\nTEHAS_IMPROVE_REPO=acme/other\n' >"$cfg/instance.env"
+printf 'TEHAS_REVIEW_REPO=acme/reviews\nTEHAS_RELEASE_REPO=acme/other\n' >"$cfg/instance.env"
 run_setup "${app_args[@]}" --no-build
 t_eq "$t_rc" 0
 t_contains "$t_out" "the app does not reach acme/reviews (TEHAS_REVIEW_REPO: HTTP 404); install it there at https://github.com/apps/tehas-app/installations/new"
-t_contains "$t_out" "the app reaches acme/other (TEHAS_IMPROVE_REPO)"
+t_contains "$t_out" "the app reaches acme/other (TEHAS_RELEASE_REPO)"
 
 t_case "an installation without write on contents, issues or pull requests stops with 1 and writes nothing"
 for p in contents issues pull_requests; do

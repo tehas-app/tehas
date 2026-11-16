@@ -14,8 +14,8 @@ use tehas_core::mask::mask;
 use tehas_core::question::park_sig;
 
 /// The outcomes of a run that stopped for a person: the ones a park comment
-/// follows.
-pub const STOPS: [&str; 4] = ["handoff", "parked", "failed", "refused"];
+/// follows, from the core's vocabulary.
+pub const STOPS: [&str; 4] = tehas_core::outcome::STOPS;
 /// The largest issue number: the most digits a session id holds.
 const ISSUE_MAX: u64 = 999_999_999;
 /// A larger result log is not read. A real one is some kilobytes.

@@ -212,17 +212,6 @@
       "reason": "expected a positive whole number"
     },
     {
-      "name": "TEHAS_IMPROVE_RUKAS_SKIP",
-      "rule": "one-of",
-      "when": "always",
-      "default": "0",
-      "words": [
-        "0",
-        "1"
-      ],
-      "reason": "expected 0 or 1"
-    },
-    {
       "name": "TEHAS_REVIEW",
       "rule": "one-of",
       "when": "always",
@@ -548,16 +537,6 @@
       "reason": "expected a positive whole number"
     },
     {
-      "name": "TEHAS_CYCLE_REPORT",
-      "rule": "one-of",
-      "when": "given",
-      "default": null,
-      "words": [
-        "rust"
-      ],
-      "reason": "expected rust: the report in bash is gone"
-    },
-    {
       "name": "TEHAS_SCRATCH_DIR",
       "rule": "scratch-dir",
       "when": "given",
@@ -577,27 +556,6 @@
       "when": "given",
       "default": "",
       "reason": "expected one word of letters, digits, dots and dashes"
-    },
-    {
-      "name": "TEHAS_IMPROVE_REPO",
-      "rule": "repo",
-      "when": "given",
-      "default": "",
-      "reason": "expected owner/name"
-    },
-    {
-      "name": "TEHAS_IMPROVE_RUKAS_REPO",
-      "rule": "repo",
-      "when": "given",
-      "default": "",
-      "reason": "expected owner/name"
-    },
-    {
-      "name": "TEHAS_IMPROVE_MAX_OPEN",
-      "rule": "count",
-      "when": "given",
-      "default": "10",
-      "reason": "expected a positive whole number"
     },
     {
       "name": "TEHAS_GITHUB_APP_ID",

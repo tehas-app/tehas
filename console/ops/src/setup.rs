@@ -548,12 +548,7 @@ const INSTALL_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 const INSTALL_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The settings besides TEHAS_REPO that name a repository the factory works in.
-const OTHER_REPOS: [&str; 4] = [
-    "TEHAS_IMPROVE_REPO",
-    "TEHAS_IMPROVE_RUKAS_REPO",
-    "TEHAS_REVIEW_REPO",
-    "TEHAS_RELEASE_REPO",
-];
+const OTHER_REPOS: [&str; 2] = ["TEHAS_REVIEW_REPO", "TEHAS_RELEASE_REPO"];
 
 /// The app is installed on the repository and may write what the factory
 /// writes; the other repositories the instance names are reached or named.

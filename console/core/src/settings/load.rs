@@ -8,11 +8,9 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is none.
-//!   TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
-//!   Neither is TEHAS_REPO: a person triages findings before they are tickets.
-//!   TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
-//!   review exits at once and calls nothing.
+//! - TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
+//!   review exits at once and calls nothing. TEHAS_REVIEW_REPO is never
+//!   TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -105,7 +103,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 15] = [
+const RETIRED: [&str; 20] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -121,6 +119,11 @@ const RETIRED: [&str; 15] = [
     "TEHAS_REFRESH_CONFLICTS",
     "TEHAS_REFRESH_EVERY",
     "TEHAS_OVERLAP_HOLD",
+    "TEHAS_IMPROVE_REPO",
+    "TEHAS_IMPROVE_RUKAS_REPO",
+    "TEHAS_IMPROVE_RUKAS_SKIP",
+    "TEHAS_IMPROVE_MAX_OPEN",
+    "TEHAS_CYCLE_REPORT",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -414,10 +417,11 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         }
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
-        // the Rust poll, and beesknees26 and business are the default design,
-        // so the line stays loadable. A value the timed refresh scan took is
-        // dropped: refreshes are asked for with --pr now, and the line is
-        // left to the operator to take out.
+        // the Rust poll, beesknees26 and business are the default design, and
+        // a skip of 0 asks nothing of a loop that is gone, so the line stays
+        // loadable. A value the timed refresh scan took is dropped: refreshes
+        // are asked for with --pr now, and the line is left to the operator
+        // to take out.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
@@ -427,11 +431,16 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_LAYOUT", "business" | "")
                 | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | ("TEHAS_REFRESH_EVERY", "")
+                | ("TEHAS_IMPROVE_RUKAS_SKIP", "0" | "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
                         | "TEHAS_PRIORITY_FIELD"
-                        | "TEHAS_OVERLAP_HOLD",
+                        | "TEHAS_OVERLAP_HOLD"
+                        | "TEHAS_IMPROVE_REPO"
+                        | "TEHAS_IMPROVE_RUKAS_REPO"
+                        | "TEHAS_IMPROVE_MAX_OPEN"
+                        | "TEHAS_CYCLE_REPORT",
                     ""
                 )
         ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
@@ -454,6 +463,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
             "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
+            "TEHAS_IMPROVE_REPO" | "TEHAS_IMPROVE_RUKAS_REPO" | "TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_IMPROVE_MAX_OPEN" => "is no longer read: this version of tehas has no improvement loop, so take the line out".to_string(),
+            "TEHAS_CYCLE_REPORT" => "is no longer read: the cycle's report has one form, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -618,30 +629,14 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see {file})"
         ));
     }
-    if some("TEHAS_IMPROVE_RUKAS_REPO") && !some("TEHAS_IMPROVE_REPO") {
-        return Err(format!(
-            "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see {file})"
-        ));
-    }
-    if some("TEHAS_IMPROVE_RUKAS_REPO") && on("TEHAS_IMPROVE_RUKAS_SKIP") {
-        return Err(format!(
-            "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see {file})"
-        ));
-    }
     // A model's findings go to a repository of their own, where a person
     // triages them into tickets of the product: filing them in the product is
-    // the one setting that cannot be allowed, for the loop and for the review.
+    // the one setting that cannot be allowed.
     let repo = vars.text("TEHAS_REPO");
-    for name in [
-        "TEHAS_IMPROVE_REPO",
-        "TEHAS_IMPROVE_RUKAS_REPO",
-        "TEHAS_REVIEW_REPO",
-    ] {
-        if !repo.is_empty() && vars.text(name).to_lowercase() == repo.to_lowercase() {
-            return Err(format!(
-                "the improvement loop files in {repo}, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see {file})"
-            ));
-        }
+    if !repo.is_empty() && vars.text("TEHAS_REVIEW_REPO").to_lowercase() == repo.to_lowercase() {
+        return Err(format!(
+            "the review files in {repo}, the product repository: a model writes its findings, so they go to a repository of their own where a person triages them (see {file})"
+        ));
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
@@ -1344,6 +1339,9 @@ mod tests {
         );
     }
 
+    const GONE_LOOP: &str =
+        "is no longer read: this version of tehas has no improvement loop, so take the line out";
+
     #[test]
     fn a_retired_name_is_refused_or_taken_as_what_it_asked_for() {
         assert_eq!(
@@ -1378,6 +1376,12 @@ mod tests {
             "TEHAS_REFRESH_EVERY=1",
             "TEHAS_REFRESH_EVERY=1440",
             "TEHAS_OVERLAP_HOLD=",
+            "TEHAS_IMPROVE_REPO=",
+            "TEHAS_IMPROVE_RUKAS_REPO=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=0",
+            "TEHAS_IMPROVE_MAX_OPEN=",
+            "TEHAS_CYCLE_REPORT=",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1422,6 +1426,14 @@ mod tests {
             (
                 "TEHAS_LAYOUT=floor",
                 "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
+            ),
+            ("TEHAS_IMPROVE_REPO=acme/backlog", GONE_LOOP),
+            ("TEHAS_IMPROVE_RUKAS_REPO=acme/rukas", GONE_LOOP),
+            ("TEHAS_IMPROVE_RUKAS_SKIP=1", GONE_LOOP),
+            ("TEHAS_IMPROVE_MAX_OPEN=30", GONE_LOOP),
+            (
+                "TEHAS_CYCLE_REPORT=rust",
+                "is no longer read: the cycle's report has one form, so take the line out",
             ),
         ] {
             assert_eq!(
@@ -1486,20 +1498,8 @@ mod tests {
                 "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is",
             ),
             (
-                &["TEHAS_IMPROVE_RUKAS_REPO=a/b"][..],
-                "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is",
-            ),
-            (
-                &[
-                    "TEHAS_IMPROVE_REPO=a/b",
-                    "TEHAS_IMPROVE_RUKAS_REPO=a/c",
-                    "TEHAS_IMPROVE_RUKAS_SKIP=1",
-                ][..],
-                "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set",
-            ),
-            (
                 &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
-                "the improvement loop files in acme/widget, the product repository",
+                "the review files in acme/widget, the product repository",
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],

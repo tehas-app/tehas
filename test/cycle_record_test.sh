@@ -1,29 +1,24 @@
 #!/usr/bin/env bash
 # Tests for libexec/cycle: the report a cycle leaves with GitHub, the poll it
-# starts, and the record it keeps off the runner when it ends.
+# starts, and what it puts on record when it ends.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
 . "$(dirname "$0")/cycle_lib.sh" || exit 1
 
-t_case "with the improvement loop on, a cycle that ended leaves its record"
+t_case "a cycle that ended is on record with its end"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 echo 'echo "{\"type\":\"agent_start\"}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-rec=$T/home/tehas/tmp/improve/window/7-261011-120000
-t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log]' "$rec/cycle.json")" \
-  '[7,"handoff","commit-pr",0,"https://github.com/acme/widget/pull/9","work-7-261011-120000.jsonl"]'
-t_eq "$(cat "$rec/stream.jsonl")" '{"type":"agent_start"}'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .step, .rc, .pr] | tostring')" '["handoff","commit-pr",0,9]'
 t_eq "$(t_calls fake-status | wc -l)" 1
 
 t_case "the record names the image and the pi-rukas commit tehas work saw as the container started"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
 image_id=sha256:$(printf 'e%.0s' {1..64})
 # What tehas work puts on the cycle's record as the container starts.
@@ -33,41 +28,34 @@ image_work() { # <image> [<pi-rukas commit>]
 }
 image_work "$image_id" 0123456789abcdef0123456789abcdef01234567
 t_run "$cycle 7"
-t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  "[\"$image_id\",\"0123456789abcdef0123456789abcdef01234567\"]"
 t_eq "$(t_row cycle-show 7 -- .cycle.image)" "$image_id"
+t_eq "$(t_row cycle-show 7 -- .cycle.rukas_commit)" 0123456789abcdef0123456789abcdef01234567
 
-t_case "without an image on record the record falls back, and an earlier cycle's is not this cycle's"
+t_case "an earlier cycle's image is not this cycle's"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
 image_work "$image_id" 0123456789abcdef0123456789abcdef01234567
 t_run "$cycle 7"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  "[null,\"$(printf 'c%.0s' {1..40})\"]"
 t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.image] | tostring')" '[2,null]'
 
 t_case "an image that is no image id is not on record"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
 image_work "sha256:short"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "[null,\"$(printf 'c%.0s' {1..40})\"]"
+t_eq "$(t_row cycle-show 7 -- '.cycle.image | tostring')" null
 rm -f "$fx/image.label"
 
 t_case "the record names the runner's exit when there is no pull request"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.status, .rc, .pr]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["unknown",2,null]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .rc, .pr] | tostring')" '["unknown",2,null]'
 
 t_case "runner exit 137 with no end state is status killed in the comment and the record"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 137' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
@@ -76,7 +64,7 @@ t_contains "$(t_calls gh)" 'Tehas cycle stopped without a pull request: status `
 t_contains "$(t_calls gh)" "(runner exit 137)"
 t_lacks "$(t_calls gh)" "killed for memory"
 t_contains "$t_out" "done #7 rc=137 status=killed"
-t_eq "$(jq -c '[.status, .rc, .pr, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,null,0]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .rc, .pr] | tostring')" '["killed",137,null]'
 
 t_case "runner exit 137 with a state that still says running is killed too"
 reset
@@ -106,83 +94,26 @@ t_contains "$t_out" "status=unknown"
 
 t_case "the oom count file is read as digits, said in the comment, put in the record and removed"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 137' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
 t_contains "$t_out" "oom_kills=3"
-t_eq "$(jq -c '[.status, .rc, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,3]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .rc] | tostring')" '["killed",137]'
+t_eq "$(t_row cycle-show 7 -- .cycle.oom_kills)" 3
 t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
-
-# A reason that only repeats the cap word is no evidence: the record says so,
-# and says the memory kill beside it, so a memory plan that is too tight is not
-# read as a change that failed its gate.
-t_case "a cap the driver only named is on record as no evidence, with its memory kill"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff develop feature/x verify-failed:develop
-echo '{"roles":[],"reason":"verify-failed:develop"}' >"$fx/progress.json"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 1 >"$TEHAS_HOME/state/cycles/7.oom"' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$(jq -c '[.cap, .capReason, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["verify-failed:develop","no evidence from the driver; 1 process in its container was killed for memory",1]'
-
-t_case "a cap with no reason at all is on record as no evidence, never as the bare cap"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff develop feature/x round-cap
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$(jq -c '[.cap, .capReason, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["round-cap","no evidence from the driver",0]'
 
 t_case "a stalled cycle is reported as stalled with how long nothing moved, parked, and the file removed"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 ended running lens-fix
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$t_out" "status=stalled"
 t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
 t_contains "$(t_calls gh)" "needs-human-attention"
-t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .rc] | tostring')" '["stalled",2]'
 t_eq "$(park_of .reason)" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
-
-t_case "the record keeps the cycle's dispatch-slow lines, so a stuck child reads without the console"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff commit-pr feature/x
-echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
-# The lines the driver of pi-rukas writes when a child crosses the bound it
-# watches, one of them with the repeat fields the issue asks for. The runner of
-# the case writes them into its own stream, as the driver does.
-printf '%s\n' \
-  '{"v":1,"kind":"dispatch-slow","issue":7,"step":"lens-review","role":"code-review-specialist-p","elapsedMs":400257,"turns":257,"tokens":40009732}' \
-  '{"v":1,"kind":"dispatch-slow","step":"lens-review","role":"code-review-specialist-p","command":"bash -c probe","count":24,"identicalResultCount":24}' \
-  >"$fx/slow.lines"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
-cat "$T/fx/slow.lines" >>"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$t_rc" 0
-rec=$T/home/tehas/tmp/improve/window/7-261011-120000
-t_eq "$(jq -c -s '[.[].role]' "$rec/slow.jsonl")" '["code-review-specialist-p","code-review-specialist-p"]'
-t_eq "$(sed -n '$p' "$rec/slow.jsonl" | jq -c '[.step, .command, .count, .identicalResultCount]')" \
-  '["lens-review","bash -c probe",24,24]'
-
-t_case "a cycle whose stream holds no slow line leaves no slow.jsonl"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff commit-pr feature/x
-echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
-echo 'echo "{\"type\":\"agent_start\"}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$t_rc" 0
-rec=$T/home/tehas/tmp/improve/window/7-261011-120000
-t_eq "$(find "$rec" -name slow.jsonl | wc -l)" 0
-t_eq "$(cd "$rec" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
-  "./console.txt ./cycle.json ./err.txt ./preflight.txt ./stream.jsonl "
 
 # The three cases below are the shape of the two cycles of tehas-org/tehas#110:
 # a container that ended with nothing in its record, no step and no cap. The
@@ -192,13 +123,11 @@ t_eq "$(cd "$rec" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
 # reads a planning turn's rc for.
 t_case "a container that ended before the driver wrote an event is on record as runner-never-started, with its exit status, and no step"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 rm -f "$fx/result.json"
 nostart 1
 echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["unknown","no-step","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .step, .cap] | tostring')" '["unknown","no-step","runner-never-started"]'
 t_eq "$(park_of .reason)" runner-never-started
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `runner-never-started`.'
 t_contains "$(t_calls gh)" "no step started, the container of the cycle ended before the driver wrote an event"
@@ -210,20 +139,16 @@ t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
 # is the one that leaves it, as tehas work does.
 t_case "the memory kills of a runner that never started are said once, from the oom file"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 rm -f "$fx/result.json"
 nostart 1
 echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -r '.capReason' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  "the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started; 3 processes in its container were killed for memory"
 t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
 t_lacks "$(t_calls gh)" "processes in its container were killed for memory"
 t_eq "$(find "$state/7.nostart" "$state/7.oom" 2>/dev/null | wc -l)" 0
 
 t_case "the note of a runner that never started is read for nothing when the cycle wrote a result, and one of an earlier cycle is not this cycle's"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 # The note of an earlier cycle, when tehas work of this one died mid-cycle and
@@ -234,8 +159,7 @@ nostart 1
 cp "$fx/nostart" "$state/7.nostart"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 10' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.status, .step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["handoff","commit-pr","awaiting-human-merge"]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .step, .cap] | tostring')" '["handoff","commit-pr","awaiting-human-merge"]'
 t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
 
 # A note the reader cannot believe is no note: the cycle is reported the way it
@@ -244,8 +168,7 @@ t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
 for note in "" "x" "0" "-1" "1000" "01"; do
   t_case "a note that holds '$note' is no note: the cycle is reported as one that died part way through"
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-  rm -f "$fx/result.json"
+    rm -f "$fx/result.json"
   nostart "$note"
   # A watched run that wrote no result, made the way the helper makes one: the
   # runner_exit file says the run was watched, the progress summary says the log
@@ -255,11 +178,7 @@ for note in "" "x" "0" "-1" "1000" "01"; do
   died explore
   echo 'mkdir -p "$TEHAS_HOME/state/cycles"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >>"$fx/work.sh"
   t_run "$cycle 7"
-  # The log the report reads is named for the second of the cycle's start, which
-  # is the moment the case takes it: the helper names it so, and the record of
-  # the cycle carries that same name. A fixed stamp would look for a record of a
-  # run that never was.
-  t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/$(ls "$T/home/tehas/tmp/improve/window")/cycle.json")" '["explore",null]'
+  t_eq "$(t_row history-show 7 -- '.rows[0] | [.step, .cap] | tostring')" '["explore",null]'
   t_lacks "$(t_calls gh)" 'runner-never-started'
   t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
 done
@@ -270,26 +189,24 @@ done
 # used, not read for what they say.
 t_case "a second field of the note is read for nothing: the cap stands and the count of the oom file is the one said"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 rm -f "$fx/result.json"
 nostart "1 007"
 echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["no-step","runner-never-started"]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.step, .cap] | tostring')" '["no-step","runner-never-started"]'
 t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
 
 # A note that is a link is no note, as every other file of the cycle's: the
 # report reads nothing through it.
 t_case "a note that is a link is not read"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 rm -f "$fx/result.json"
 echo 1 >"$T/elsewhere"
 mkdir -p "$state"
 ln -sf "$T/elsewhere" "$state/7.nostart"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["-",null]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.step, .cap] | tostring')" '["-",null]'
 t_lacks "$(t_calls gh)" "runner-never-started"
 t_eq "$(cat "$T/elsewhere")" 1
 
@@ -434,23 +351,12 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9 2 processes were killed for memory in its container."
 t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
 
-t_case "with the loop off a cycle leaves no record"
+t_case "a cycle leaves nothing under tmp"
 reset
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(find "$T/home/tehas/tmp" -type f 2>/dev/null | wc -l)" 0
-
-t_case "a record that cannot be written changes nothing about the cycle's report"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-t_run "$cycle 7"
-t_eq "$t_rc" 0
-t_contains "$t_out" "improve: no log of issue 7"
-t_contains "$t_out" "done #7 rc=0 status=unknown"
-t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_eq "$(t_calls fake-status | wc -l)" 1
-t_eq "$(find "$T/home/tehas/tmp/improve/window" -mindepth 1 2>/dev/null | wc -l)" 0
 
 # Outside the tests nothing names the two scripts: the cycle runs the ones in
 # its own directory, whatever PATH holds.

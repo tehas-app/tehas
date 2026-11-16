@@ -1,7 +1,7 @@
 tehas limit: an outside cap on what this factory starts.
 
-A limit caps the cycles running at once and may turn off planning turns and
-improvement runs, until it expires or is cleared. A person uses it to keep a
+A limit caps the cycles running at once and may turn off planning turns,
+until it expires or is cleared. A person uses it to keep a
 host quiet for a weekend; a program uses it to share model time between
 factories. Running cycles are never stopped: a lower limit only holds new
 starts. A limit that has expired, or a file that cannot be read, holds every
@@ -19,7 +19,7 @@ Usage:
                  cycle is the smaller of N and TEHAS_TICKET_CONCURRENCY,
                  less the cycles running, then the slice and
                  TEHAS_MAX_AWAITING as always
-  --plan off     no new planning turn and no improvement run; an answer to a
+  --plan off     no new planning turn; an answer to a
                  planning question still runs [on]
   --for SECONDS  expire that long from now
   --until TIME   expire then, as 2026-10-17T14:05:00Z

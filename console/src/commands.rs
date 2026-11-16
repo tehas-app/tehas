@@ -257,14 +257,6 @@ fn preview_words(given: &[String]) -> Result<(), u8> {
     }
 }
 
-fn improve_words(given: &[String]) -> Result<(), u8> {
-    if given.is_empty() {
-        return Ok(());
-    }
-    eprintln!("usage: tehasbot improve");
-    Err(64)
-}
-
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
 pub fn check(given: &[String]) -> u8 {
@@ -320,7 +312,6 @@ pub fn check(given: &[String]) -> u8 {
         ["tehasbot", "clean"] => clean_words(rest),
         ["tehasbot", "dispatch"] => dispatch_words(rest),
         ["tehasbot", "github-token"] => github::words(rest).map(|_| ()),
-        ["tehasbot", "improve"] => improve_words(rest),
         ["tehasbot", "preview"] => preview_words(rest),
         ["tehasbot", "review"] => review::words(rest, include_str!("usage/review.txt")),
         _ => Ok(()),
@@ -352,7 +343,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_ALLOWED_LABELERS",
         ],
         ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE_SETTINGS,
-        ["tehas", "plan" | "work"] | ["tehasbot", "improve"] => &[
+        ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
@@ -561,7 +552,6 @@ mod tests {
             &["tehasbot", "clean", "--dry-run"],
             &["tehasbot", "dispatch"],
             &["tehasbot", "dispatch", "--dry-run"],
-            &["tehasbot", "improve"],
             &["tehasbot", "preview"],
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
@@ -584,7 +574,6 @@ mod tests {
             &["tehasbot", "dispatch", "--dryrun"],
             &["tehasbot", "dispatch", "--dry-run", "--help"],
             &["tehasbot", "dispatch", "--help", "--dry-run"],
-            &["tehasbot", "improve", "x"],
             &["tehasbot", "preview", "--help"],
         ] {
             assert_eq!(says(bad), 64, "{bad:?}");
@@ -638,13 +627,6 @@ mod tests {
             required(&words(&["tehasbot", "protolab"])),
             ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
         );
-        assert_eq!(required(&words(&["tehasbot", "improve"])), {
-            [
-                "TEHAS_REPO",
-                "PI_ENSEMBLE_SUBAGENT_MODEL",
-                "PI_ENSEMBLE_SUBAGENT_PROVIDER",
-            ]
-        });
     }
 
     #[test]
