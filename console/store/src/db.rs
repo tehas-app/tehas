@@ -18,8 +18,71 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 pub const SCHEMA: &str = include_str!("schema.sql");
+
+/// The five tables of section 3.15, the outsource state. Every store of this
+/// schema holds them: `write_schema` and `step_15` lay them whether or not the
+/// instance outsources. What the feature decides is whether a verb writes a
+/// row of them; see [`has_outsource`].
+pub const OUTSOURCE_TABLES: [&str; 5] = [
+    "contractors",
+    "join_codes",
+    "jobs",
+    "job_history",
+    "issue_attempts",
+];
+
+/// The DDL of the five outsource tables, kept in `outsource.sql` beside
+/// schema.sql. It is the DDL of the step to 15 as well, so `init` and
+/// `migrate` lay the same tables.
+pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
+
+/// The key of `meta` whose value `1` says the instance outsources.
+const OUTSOURCE_KEY: &str = "outsource";
+
+/// Whether the instance has the feature on, as the last `init` or `migrate`
+/// was told by `--outsource`. The store reads no setting of a host
+/// (src/main.rs), so the command that loaded the instance's settings passes the
+/// word down and the store keeps it in `meta`. A store with no such row has the
+/// feature off, which is the safe answer: its verbs write nothing.
+pub fn has_outsource(conn: &Connection) -> Result<bool, DbError> {
+    let n: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM meta WHERE key = ?1 AND value = '1'",
+            [OUTSOURCE_KEY],
+            |r| r.get(0),
+        )
+        .map_err(classify)?;
+    Ok(n == 1)
+}
+
+/// [`has_outsource`] on a connection whose write lock is held and whose
+/// transaction has begun, so the answer is the one the write of the same
+/// transaction sees.
+pub fn has_outsource_held(conn: &Connection) -> Result<bool, DbError> {
+    has_outsource(conn)
+}
+
+/// Writes the feature as the caller said it: the row of `meta` when on, no row
+/// when off. Turning it off keeps every row of the five tables; the verbs stop
+/// writing them until a later call says on again.
+pub fn set_outsource(conn: &mut Connection, on: bool) -> Result<(), DbError> {
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    if on {
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, '1') \
+             ON CONFLICT (key) DO UPDATE SET value = '1'",
+            [OUTSOURCE_KEY],
+        )
+    } else {
+        tx.execute("DELETE FROM meta WHERE key = ?1", [OUTSOURCE_KEY])
+    }
+    .map_err(classify)?;
+    tx.commit().map_err(classify)
+}
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
 /// nothing changed or removed, so no row of an older store can be lost. Each
@@ -253,6 +316,14 @@ DROP TABLE cycles;
 ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
+
+/// The step from 14 to 15: the five outsource tables of section 3.15. It
+/// creates them on every store, empty; whether a verb writes them is the
+/// feature's, which the step does not decide. Nothing is rebuilt, so no row can
+/// be lost.
+fn step_15(c: &mut Connection) -> Result<(), DbError> {
+    step(c, 15, OUTSOURCE_SCHEMA)
+}
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -539,7 +610,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 14] = [
+pub const COUNTED_INDEXES: [&str; 19] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -554,11 +625,17 @@ pub const COUNTED_INDEXES: [&str; 14] = [
     "poll_cost_at",
     "actions_open",
     "journal_action",
+    "join_codes_code",
+    "jobs_issue",
+    "jobs_open",
+    "jobs_check_in",
+    "job_history_job",
 ];
 
-/// The tables `check` counts. Every table of schema.sql appears here exactly
-/// once, which the test every_counted_table_exists pins, so a table that goes
-/// missing from the schema cannot go missing from the report too.
+/// The tables of schema.sql, each exactly once, which the test
+/// every_counted_table_exists pins, so a table that goes missing from the
+/// schema cannot go missing from the report too. `check` counts these and
+/// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
 pub const COUNTED_TABLES: [&str; 24] = [
     "actions",
     "approvals",
@@ -1138,6 +1215,7 @@ pub fn write_schema(
         ));
     }
     tx.execute_batch(SCHEMA).map_err(classify)?;
+    tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1256,6 +1334,8 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 13 is one this binary wrote before `cycles.how` took 'host':
     // the step to 14 is all it needs.
     (14, step_14),
+    // A store at 14 is one this binary wrote before the outsource tables.
+    (15, step_15),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1446,14 +1526,18 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
         let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
         let mut rows = 0;
-        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
+        for table in COUNTED_TABLES
+            .iter()
+            .chain(&OUTSOURCE_TABLES)
+            .filter(|t| **t != "meta")
+        {
             let there: bool = c.query_row(
                 "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
                 [table],
                 |r| r.get(0),
             )?;
             if there {
-                // The name is one of COUNTED_TABLES, never a caller's word.
+                // The name is one of the store's own tables, never a caller's word.
                 rows += c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
                     r.get::<_, i64>(0)
                 })?;
@@ -1574,8 +1658,8 @@ pub fn check(conn: &Connection) -> Result<Report, DbError> {
         [only] if only == "ok" => "ok".to_string(),
         others => others.join("; "),
     };
-    let mut counts = Vec::with_capacity(COUNTED_TABLES.len());
-    for table in COUNTED_TABLES {
+    let mut counts = Vec::with_capacity(COUNTED_TABLES.len() + OUTSOURCE_TABLES.len());
+    for table in COUNTED_TABLES.iter().chain(&OUTSOURCE_TABLES).copied() {
         // A store not yet migrated lacks the tables of the later versions; it
         // is reported as it is. At the version this binary writes, a missing
         // table is the error the count below gives.
