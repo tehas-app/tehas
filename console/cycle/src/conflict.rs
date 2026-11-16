@@ -380,7 +380,11 @@ mod tests {
     }
 
     /// A clone as `tehas work` makes one: origin/main is the branch's tip, and
-    /// the pull request's head is a commit the clone holds.
+    /// the pull request's head is a commit the clone holds. The fetch names the
+    /// two branches the fixture makes, as `tehas_core::sandbox::clone` names the
+    /// refs it is asked for: the default branch, the issue's own branches, and
+    /// nothing of another issue (#1789). A third name would be the whole
+    /// repository fetched again.
     struct Repo {
         _dir: TestDir,
         tree: String,
@@ -425,7 +429,8 @@ mod tests {
                     "-q",
                     "--no-tags",
                     &src.display().to_string(),
-                    "+refs/heads/*:refs/remotes/origin/*",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                    "+refs/heads/feature:refs/remotes/origin/feature",
                 ],
             );
             git(&tree, &["checkout", "-q", "-B", "main", "origin/main"]);
