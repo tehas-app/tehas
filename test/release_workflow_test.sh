@@ -88,6 +88,9 @@ t_case "the release job runs on a clean GitHub-hosted runner, not on a self-host
 t_eq "$(grep -E '^    runs-on:' "$workflow")" "    runs-on: ubuntu-24.04"
 t_lacks "$(cat "$workflow")" 'self-hosted'
 
+t_case "the signing key comes from the release environment, which waits for a reviewer"
+t_eq "$(grep -E '^    environment:' "$workflow")" "    environment: release"
+
 t_case "each tool the job calls is installed by the job, after the check and before the build"
 build=$(pos 'build the console, the analytics program, the MCP server, the store, the attachment checker and the two shadows')
 for step in 'minisign at a pinned version' 'jq at the pinned version' 'rust at the pinned version'; do

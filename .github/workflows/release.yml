@@ -12,8 +12,10 @@
 #   install, install.minisig                   the installer, when the tag
 #                                              has host/release/install
 #
-# Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
-# its password, only when the key has one.
+# Secrets, in the environment `release` and nowhere else: MINISIGN_SECRET_KEY,
+# the whole secret key file; MINISIGN_PASSWORD, its password, only when the key
+# has one. The environment takes only tags and waits for a reviewer, so a tag
+# is signed only after a person approves its run.
 name: release
 on:
   push:
@@ -34,6 +36,7 @@ jobs:
     # bundled SQLite, and the jq of the first step, which runs before anything
     # of the tagged tree is read.
     runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 45
     env:
       TAG: ${{ github.ref_name }}
