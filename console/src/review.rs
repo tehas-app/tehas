@@ -360,7 +360,10 @@ fn review() -> u8 {
         && fs::write(works.join(".tehas-workspaces"), "").is_ok()
         && gone(&tree)
         && gone(&container)
-        && sandbox::clone(&src, &tree, &branch);
+        // What a review reads is the default branch alone, which is where the
+        // commits of the window are; nothing of another issue's work is read
+        // (#1789).
+        && sandbox::clone(&src, &tree, &branch, &sandbox::Refs::DefaultBranch);
     if !made {
         return refuse(format!(
             "tehas review: could not make the workspace {tree}, not starting a review"

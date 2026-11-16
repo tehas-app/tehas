@@ -245,6 +245,22 @@ and every `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
+The clone holds the default branch and the branches of its own issue, and
+nothing else. What `origin` holds of every other issue the product checkout has
+fetched stays out of the workspace, because an agent reads what its tree holds
+whatever its prompt says, and a finished branch of another issue beside the one
+being worked is an answer one command away. The names it takes are
+`origin/<default branch>`, `origin/feature/issue-<issue>`,
+`origin/feature/issue-<issue>-<slug>` and `origin/finish/issue-<issue>`: the
+branches of the issue itself, and the branch the factory pushes when it finishes
+one. A start that continues an issue therefore finds its own earlier work, and a
+branch of number 7 is never read as one of 70. A cycle, a planning turn and a
+review are each asked of one issue; the clone of `tehas dev`, kept between
+sessions and read by a person at a terminal, asks for every branch and is the one
+clone that holds them. The head of a pull request is no branch of the issue, so a
+refresh fetches it by its commit, under `refs/tehas/pull/<pr>`, before the merge
+of the request is judged of it.
+
 Beside the workspace is `~/tehas/work/<name>-<issue>.state`, a directory of
 this cycle's own: `cache` holds its copy of the code index the host built, and
 the agents are told where they have it with `CBM_CACHE_DIR`; `memory` is what

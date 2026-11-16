@@ -525,7 +525,7 @@ fn in_sandbox(
     let path = format!("{}/clone", dir.0);
     let path = path.as_str();
     let worktree = format!("{}/tree", dir.0);
-    if !(sandbox::clone(repo, path, branch)
+    if !(sandbox::clone(repo, path, branch, &sandbox::Refs::DefaultBranch)
         && ran(git(path).args(["checkout", "-q", "-b", "tehas/check-product"]))
         && ran(git(path).args([
             "-c",

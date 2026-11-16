@@ -412,6 +412,25 @@ t_eq "$(find "$note7" 2>/dev/null)" ""
 t_store_db "$T/home/tehas"
 caps_good
 
+# A pull request's head is no branch of the issue, so it is no name the clone is
+# given: the refresh fetches it by its commit before the merge is judged of it
+# (#1789). The file is the one the branch moved away from, so a head the clone did
+# not hold would be judged nothing and stop the start at 78.
+t_case "a refresh fetches the head of its pull request, which is no branch of the issue"
+caps_fresh
+caps_continue
+head=$(pr_branch feature/three late.txt "a line the branch wrote")
+# The checkout forgets it again, as a checkout that never polled the request would:
+# the fetch below is the clone's own, and no other case of this file reads it.
+git -C "$checkout" update-ref -d refs/remotes/origin/feature/three
+refresh_at "$head"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(git -C "$ws" rev-parse --quiet --verify "refs/tehas/pull/50")" "$head"
+t_eq "$(git -C "$ws" cat-file -e "$head^{commit}" && echo held)" held
+t_store_db "$T/home/tehas"
+caps_good
+
 for how in label retry-tick outage-retry fixer host; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
   caps_fresh

@@ -199,6 +199,36 @@ t_eq "$(git -C "$ws" branch --show-current)" main
 t_eq "$(git -C "$ws" config --get remote.origin.url)" "$(git -C "$checkout" config --get remote.origin.url)"
 t_eq "$(git -C "$ws" symbolic-ref --short refs/remotes/origin/HEAD)" origin/main
 
+# What the clone holds of the remote. The product checkout is a person's tree
+# that has fetched the whole repository, so it holds the finished work of every
+# issue it ever saw; a cycle of one issue is given the default branch and that
+# issue's own names and nothing else, because an agent reads what its workspace
+# holds whatever its prompt says (#1789).
+product_branches
+rm -rf "$ws"
+t_run "$work 7"
+
+# The refs of the clone, one case each: the branch of the run and the names of
+# its own issue, and nothing of the others the fixture put on the product. The
+# clone is made again just above, because a case of a setting earlier in this
+# file made one of a product that held nothing of the kind.
+for pair in \
+  'refs/remotes/origin/HEAD               1' \
+  'refs/remotes/origin/main               1' \
+  'refs/remotes/origin/feature/issue-7    1' \
+  'refs/remotes/origin/feature/issue-7-flaky-gate 1' \
+  'refs/remotes/origin/finish/issue-7     1' \
+  'refs/remotes/origin/feature/issue-8    0' \
+  'refs/remotes/origin/feature/issue-70   0' \
+  'refs/remotes/origin/feature/issue-70-default 0' \
+  'refs/remotes/origin/finish/issue-70    0' \
+  'refs/remotes/origin/feature/next-release 0'; do
+  ref=${pair%% *}
+  want=${pair##* }
+  t_case "the clone of issue 7 holds ${ref#refs/remotes/} $want"
+  t_eq "$(git -C "$ws" rev-parse --verify --quiet "$ref" | wc -l)" "$want"
+done
+
 t_case "the product checkout is not mounted anywhere"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$checkout"
 

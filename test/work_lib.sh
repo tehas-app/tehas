@@ -155,6 +155,35 @@ git clone -q "$upstream" "$checkout"
 # cycle's clone is made at, not this worktree.
 printf 'placeholder\n' >"$checkout/one.txt"
 
+# A product whose remote holds the branches of a busy repository, fetched into
+# the host's checkout, which is what the cycle's clone is made from. Issue 7 is
+# the issue of every case of this suite, so its own names come with it: the
+# branch of its work, the same with a slug, and the branch the factory pushes
+# when it finishes one. The rest stand for what a checkout accumulates - another
+# issue's finished work, an issue whose number only begins with 7, and a branch
+# of no issue at all - and are what a cycle of one issue is not given. Each is
+# the default branch under another name, so one commit carries them all and no
+# case needs a history of its own.
+product_branches() {
+  local b
+  for b in feature/issue-7 feature/issue-7-flaky-gate finish/issue-7 \
+    feature/issue-8 feature/issue-70 feature/issue-70-default finish/issue-70 \
+    feature/next-release; do
+    git -C "$upstream" -c user.name=t -c user.email=t@example.com \
+      branch -f "$b" main
+  done
+  # The checkout is what the clone is fetched from, so it is the one tree that
+  # has to hold them. Only the remote-tracking names are written: a fetch into a
+  # branch the checkout has open is refused, and the suite says the host's own
+  # worktree decides nothing, so nothing is written there. The fetch is of the
+  # same shape the units poll the product with (host/tehas-poll), a wildcard of
+  # the heads and no list of names. The branches are made in the upstream after
+  # the checkout was cloned, so origin is named by its path: that is the url the
+  # cycle's clone is given, and a fetch of a name would ask the file's own remote
+  # of the upstream, which has none.
+  git -C "$checkout" fetch -q "$upstream" '+refs/heads/*:refs/remotes/origin/*'
+}
+
 # docker answers the slice's question from a file and, like docker, refuses to
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes. The
