@@ -109,6 +109,10 @@ pub enum Rule {
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
+    /// outsource model proxy listens on exactly this: no port means a proxy
+    /// with no port to listen on, which is no proxy.
+    ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
 }
@@ -149,6 +153,7 @@ impl Rule {
             Rule::Repos => "repos",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
+            Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
         }
     }
@@ -189,6 +194,7 @@ impl Rule {
             Rule::Repos => "acme/widget  other/widget",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
+            Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
         }
     }
@@ -274,6 +280,10 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
     given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
     always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
+    // The model proxy. Its idle bound is checked against the check-in timeout
+    // by the load: a stream must outlive the job that waits on it.
+    always("TEHAS_OUTSOURCE_ADDR", Rule::ListenAddress, "127.0.0.1:8090"),
+    always("TEHAS_OUTSOURCE_IDLE", Rule::Count, "3600"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_CONCURRENCY", Rule::Count, "1"),
     row(
@@ -439,6 +449,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected a size of at least 6m, such as 512m or 2g",
         ),
         Rule::HostAddress => refuse(all(v, class(".:-")), "expected an address or host name"),
+        Rule::ListenAddress => refuse(listen_address(v), LISTEN_WHY),
         Rule::LabAddress => {
             let rest = v
                 .strip_prefix("https://")
@@ -518,6 +529,19 @@ fn class(more: &'static str) -> impl Fn(char) -> bool + Copy {
 fn digits(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit())
 }
+/// The address the outsource model proxy listens on: an address of
+/// [`Rule::HostAddress`] and a port, split at the last colon. A port is a
+/// number from 1 to 65535 with no leading zero; an IPv6 address keeps its own
+/// colons, so the last one is the only separator.
+fn listen_address(v: &str) -> bool {
+    let Some((addr, port)) = v.rsplit_once(':') else {
+        return false;
+    };
+    all(addr, class(".:-")) && leading(port, 5) && port.parse::<u32>().is_ok_and(|p| p <= 65535)
+}
+
+const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.0.1:8090";
+
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
     digits(s) && !s.starts_with('0') && s.len() <= max
@@ -909,6 +933,39 @@ mod tests {
             "not an address",
             "expected an address or host name",
         );
+    }
+
+    #[test]
+    fn a_listen_address_is_an_address_and_a_port() {
+        takes("TEHAS_OUTSOURCE_ADDR", "127.0.0.1:8090");
+        takes("TEHAS_OUTSOURCE_ADDR", "0.0.0.0:1");
+        takes("TEHAS_OUTSOURCE_ADDR", "tehas.example:8090");
+        takes("TEHAS_OUTSOURCE_ADDR", "192.0.2.7:65535");
+        // An IPv6 address keeps its own colons: the last one is the port's.
+        takes("TEHAS_OUTSOURCE_ADDR", "fe80::1:8090");
+        let why = "expected an address or host name and a port, as 127.0.0.1:8090";
+        for bad in [
+            "127.0.0.1",
+            "127.0.0.1:",
+            ":8090",
+            "127.0.0.1:0",
+            "127.0.0.1:08090",
+            "127.0.0.1:65536",
+            "127.0.0.1:8090 ",
+            "127.0.0.1:8090/x",
+            "127.0.0.1:notaport",
+            "not an address:8090",
+            "",
+        ] {
+            refuses("TEHAS_OUTSOURCE_ADDR", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_outsource_switch_takes_only_0_and_1() {
+        takes("TEHAS_OUTSOURCE", "1");
+        takes("TEHAS_OUTSOURCE", "0");
+        refuses("TEHAS_OUTSOURCE", "on", "expected 0 or 1");
     }
 
     #[test]
