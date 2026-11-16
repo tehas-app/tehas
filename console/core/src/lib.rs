@@ -56,3 +56,4 @@ pub mod testing;
 pub mod text;
 pub mod textcheck;
 pub mod time;
+pub mod version;

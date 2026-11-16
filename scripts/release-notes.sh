@@ -12,7 +12,8 @@
 # tagged release is read from the file alone.
 #
 # Usage: scripts/release-notes.sh <tag> [<file>]
-#   <tag>    a vX.Y.Z tag, or Unreleased for the section at the top
+#   <tag>    a vX.Y.Z tag, or vX.Y.Z-alpha.N, -beta.N or -rc.N for a
+#            prerelease, or Unreleased for the section at the top
 #   <file>   the changelog to read, default the CHANGELOG.md beside scripts/;
 #            - reads standard input, with no fragments
 #
@@ -29,8 +30,8 @@ esac
 [ "$#" -ge 1 ] && [ "$#" -le 2 ] || { echo "release-notes: usage: release-notes.sh <tag> [<file>]" >&2; exit 64; }
 name=$1
 file=${2:-$(dirname "${BASH_SOURCE[0]}")/../CHANGELOG.md}
-[[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$name" = Unreleased ] || {
-  echo "release-notes: the tag must be vX.Y.Z or Unreleased, got: $name" >&2
+[[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || [ "$name" = Unreleased ] || {
+  echo "release-notes: the tag must be vX.Y.Z, vX.Y.Z-alpha.N, -beta.N, -rc.N or Unreleased, got: $name" >&2
   exit 64
 }
 where=$file

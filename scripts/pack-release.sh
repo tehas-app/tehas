@@ -30,7 +30,8 @@
 #                               [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
-#   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
+#   <tag>        the release tag, vX.Y.Z or a prerelease vX.Y.Z-alpha.N,
+#                -beta.N or -rc.N, as tag-release.sh makes them
 #   <out dir>    where the tarball and its .sha256 go; it is created
 #   --arch       the architecture the release is for, x86_64 (the default) or
 #                aarch64: it names the tarball and says which e_machine every
@@ -76,7 +77,7 @@
 #   scripts/pack-release.sh v0.7.6 dist --console console/target/release/console
 #
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
-#       64 a bad argument (the tag is not vX.Y.Z, --arch names neither
+#       64 a bad argument (the tag is not vX.Y.Z or a prerelease, --arch names neither
 #       architecture, --console is missing, is not a file or is the tree's own
 #       build, --analytics, --mcp, --store, --attach, --dispatch or --cycle names no program, only one of the
 #       two pins is given, the tree does not answer to TEHAS_PACK_ROOT, or an
