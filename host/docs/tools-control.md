@@ -44,6 +44,15 @@ end. Exit 0 when none is running, 1 when some still are or a poll held its
 lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
 exit 0 or 1 prints the answer. `tehas limit clear` ends it.
 
+While the factory stands drained the dispatcher's hold line names the way out:
+it ends `; tehas limit clear starts the factory`, after the words a limit of no
+cycles at once has always said (`holding: the limit allows 0 cycles at once and
+0 are running: draining`). The suffix comes only when nothing runs, planning is
+off and the limit carries no time that has run out; a limit that merely holds
+every slot, or one that expired, keeps its words. `tehas update` on such a
+factory ends with the same command in a line of its own (see
+[tehas update](/tools-update#from-a-release)).
+
 ## tehas history
 
 ```

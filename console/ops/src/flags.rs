@@ -777,11 +777,21 @@ pub fn drain(given: &[String]) -> u8 {
     u8::from(!passed || !running.is_empty())
 }
 
+/// The name the commands which honour a limit read it by: what `tehas drain`
+/// writes and what every reader of the drained state opens.
+pub const LIMIT_FILE: &str = "state/limit.json";
+
 /// Whether the limit in force holds every start, as `tehas drain` set it: no
 /// cycle at once and planning off.
 pub fn drained(file: &Path) -> bool {
     let r = read(file, now());
     r.state() == "ok" && r.json_of("cycles") == Some("0") && r.json_of("plan") == Some("false")
+}
+
+/// Whether the factory stands drained as `tehas drain` left it, by the file at
+/// `LIMIT_FILE` of a home.
+pub fn home_drained(home: &Path) -> bool {
+    drained(&home.join(LIMIT_FILE))
 }
 
 /// `tehas_pause_read`: the flag as every command which honours it reads it.
@@ -1474,6 +1484,71 @@ mod tests {
             of(r#"{"reason":"r","plan":false,"cycles":0,"v":1,"until":"2036-01-01T00:00:00Z"}"#),
             r#"{"state":"ok","cycles":0,"plan":false,"until":"2036-01-01T00:00:00Z","reason":"r"}"#
         );
+    }
+
+    /// The drained state read from bytes written straight to the file: a
+    /// reading of a number which is no whole 0, or of a plan which is no
+    /// boolean, is never drained.
+    fn drained_of(doc: &str) -> bool {
+        let d = dir("drained");
+        let file = written(&d);
+        fs::write(&file, doc).unwrap();
+        drained(&file)
+    }
+
+    #[test]
+    fn a_drain_is_drained_and_everything_else_is_not() {
+        // What tehas drain writes.
+        assert!(drained_of(
+            r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}"#
+        ));
+        // The reason of no drain, and the plan of one. A limit of no cycles
+        // that carries a future `until` is still a drained factory: the clock
+        // ends nothing that `tehas limit clear` does not.
+        assert!(drained_of(r#"{"v":1,"cycles":0,"plan":false}"#));
+        assert!(drained_of(
+            r#"{"v":1,"cycles":0,"plan":false,"until":"2036-01-01T00:00:00Z"}"#
+        ));
+        for not in [
+            // No file at all is no limit, which is work allowed.
+            r#"{}"#,
+            r#"not json"#,
+            r#"{"v":1,"cycles":1,"plan":false,"until":null}"#,
+            r#"{"v":1,"cycles":0,"plan":true,"until":null}"#,
+            // A limit of no cycles whose clock has run out is held by the clock
+            // as expired, which is another state than the one a drain leaves.
+            r#"{"v":1,"cycles":0,"plan":false,"until":"2000-01-01T00:00:00Z"}"#,
+        ] {
+            assert!(!drained_of(not), "{not} read as drained");
+        }
+        // A limit that has expired holds every start and is not the state a
+        // drain leaves: tehas limit clear frees it too, but the factory was
+        // never drained.
+        let d = dir("drained-expired");
+        let file = written(&d);
+        fs::write(
+            &file,
+            r#"{"v":1,"cycles":0,"plan":false,"until":"2020-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+        assert!(!drained(&file));
+    }
+
+    #[test]
+    fn a_drained_factory_is_named_at_the_home_s_own_file() {
+        let d = dir("drained-home");
+        assert!(!home_drained(d.path()));
+        let file = written(&d);
+        fs::write(
+            &file,
+            r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}"#,
+        )
+        .unwrap();
+        assert!(home_drained(d.path()));
+        fs::remove_file(&file).unwrap();
+        assert!(!home_drained(d.path()));
+        // The name the readers share.
+        assert_eq!(file, d.join(LIMIT_FILE));
     }
 
     #[test]

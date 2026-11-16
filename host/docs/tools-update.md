@@ -351,6 +351,13 @@ user`. The pins moved, and the tools on the host, pi-rukas among them, follow
 them only when that runs; until then `--check` says `Dependencies: NOT OK`. It
 is no step of `tehas update`, because it fetches from the network.
 
+A real run that ended well on a factory `tehas drain` stopped prints one more
+line last: `the factory is drained: tehas limit clear starts the factory, and
+this version has run no cycle yet`. A drain has no clock and nothing clears it,
+so the version that was just installed has run nothing and is proven only when
+`tehas limit clear` runs. The line changes no exit status, and `--check` and
+`--pending` print nothing new.
+
 It also removes the commands of the earlier layout from `~/tehas/bin`, once
 systemd has reloaded the units that name them. See [The host](/host).
 
