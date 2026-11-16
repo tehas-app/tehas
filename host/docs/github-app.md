@@ -243,8 +243,8 @@ granting label, as the next section says.
 ## Label pins
 
 The dispatcher keeps the GitHub node id of each label whose application
-grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish` and
-`tehas:lean`) in `~/tehas/state/labels`,
+grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
+`tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
 one `<name><tab><id>` line each. The first page of each poll reads the
 repository's `tehas:` labels with their ids, and the label events read from
 GraphQL carry the id of their label:

@@ -253,6 +253,11 @@ pub const TABLE: &[Setting] = &[
         "beesknees26",
     ),
     always("TEHAS_TOP", SWITCH, "0"),
+    always(
+        "TEHAS_DRIVER",
+        Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
+        "classic",
+    ),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
     always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),

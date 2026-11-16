@@ -71,7 +71,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:lean`,
-`tehas:prototype`). It is one console verb
+`tehas:classic`, `tehas:prototype`). It is one console verb
 (`console/ops/src/tidy.rs`), with the settings of the poll's environment: the list,
 the searches, the decision of what comes off which issue and the edits are all
 there. It makes one search,
