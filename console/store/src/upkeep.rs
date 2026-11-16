@@ -560,9 +560,9 @@ fn locks_held(home: &Path) -> Result<String, Fail> {
 // --- upkeep -------------------------------------------------------------------
 
 /// The logs upkeep removes: a cycle's, a planning turn's, an index run's, a
-/// review's, and the analyst's an earlier version left. The four long-lived logs are not among them:
-/// `roll` keeps those under the cap by copy and truncate instead, because the
-/// units hold them open for append.
+/// review's, and the analyst's an earlier version left. The four long-lived
+/// logs are not among them: `roll` keeps those under the cap by copy and
+/// truncate instead, because the units hold them open for append.
 fn old_log(name: &str) -> bool {
     name.starts_with("work-")
         || name.starts_with("dispatch-work-")
