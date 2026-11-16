@@ -117,13 +117,9 @@ pub fn help(script: &str) -> String {
     out
 }
 
-/// vX.Y.Z, each part one or more digits.
+/// vX.Y.Z, or a prerelease of one: vX.Y.Z-alpha.N, -beta.N or -rc.N.
 pub fn is_tag(tag: &str) -> bool {
-    let Some(rest) = tag.strip_prefix('v') else {
-        return false;
-    };
-    let parts: Vec<&str> = rest.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| is_digits(p, |c| c.is_ascii_digit()))
+    tehas_core::version::is_tag(tag)
 }
 
 fn is_digits(s: &str, ok: impl Fn(char) -> bool) -> bool {
@@ -339,7 +335,13 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
         return fail(64, "name the tag");
     }
     if !is_tag(&a.tag) {
-        return fail(64, format!("the tag must be vX.Y.Z, got: {}", a.tag));
+        return fail(
+            64,
+            format!(
+                "the tag must be vX.Y.Z or vX.Y.Z-alpha.N, -beta.N or -rc.N, got: {}",
+                a.tag
+            ),
+        );
     }
     if a.out_dir.is_empty() {
         return fail(64, "name the output directory");

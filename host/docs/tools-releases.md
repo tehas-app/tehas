@@ -214,7 +214,8 @@ tools when its tag moves, on its next `bootstrap.sh user`.
 
 ### The release workflow
 
-`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on a clean
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, or of a
+prerelease tag (below), on a clean
 GitHub-hosted runner (`ubuntu-24.04`), not on the organisation's own runners
 that pull requests run on. The job installs what it builds and signs with:
 minisign at a pinned version and hash, jq and rustup at the versions and
@@ -241,6 +242,28 @@ required reviewer, so the job signs only after a person approves its run under
 environment. `SECURITY.md` says how to report a vulnerability. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
 nothing.
+
+### Prereleases
+
+A prerelease is a release of a version before it is final: `vX.Y.Z-alpha.N`,
+then `vX.Y.Z-beta.N`, then `vX.Y.Z-rc.N`, then `vX.Y.Z`. The release workflow
+builds, signs and publishes a prerelease tag from its one commit exactly as it
+does a release, and marks it a prerelease on GitHub, never the latest release.
+Its notes are its own section of `CHANGELOG.md`, or else `Unreleased`.
+
+`scripts/tag-release.sh --pre <alpha|beta|rc>` tags the next prerelease of the
+version `--patch`, `--minor` or `--major` names: from `v0.30.7`,
+`--major --pre alpha` tags `v1.0.0-alpha.1`, and the next run on a newer head
+`v1.0.0-alpha.2`. A stage does not go back: once a beta of a version is out, it
+refuses an alpha of it. A head that already carries the newest prerelease of
+that stage is left as it is. The next version is still counted from the newest
+release, never from a prerelease, and the rest of the run (the changelog
+checks, the fragments, the polyfills, the pins and the release gate) is the
+same as for a release.
+
+`tehas update` passes over prereleases: a host installs one only when it is
+named, `tehas update --to v1.0.0-alpha.1`. A host on a prerelease stays on it
+through a plain `tehas update` until a newer release is out.
 
 ### The installer
 

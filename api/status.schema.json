@@ -155,10 +155,11 @@
       "properties": {
         "platform": {
           "type": "object",
-          "required": ["release", "latest", "behind"],
+          "required": ["release", "commit", "latest", "behind"],
           "additionalProperties": false,
           "properties": {
             "release": {"type": ["string", "null"]},
+            "commit": {"type": ["string", "null"]},
             "latest": {"type": ["string", "null"]},
             "behind": {"type": ["boolean", "null"]}
           }
