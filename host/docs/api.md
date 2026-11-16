@@ -382,7 +382,7 @@ tehas start <issue> --clear [--json]
 ```
 
 ```json
-{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}
+{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "bodySha256": "...", "titleSha256": "..."}, "cleared": false}
 ```
 
 Approves an open issue for a start, from the host, in place of a
@@ -405,7 +405,7 @@ it, or `null` with `cleared: false` when none waited.
 | Field | Meaning |
 | --- | --- |
 | `issue` | The issue |
-| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and the sums of the text and the title. `null` from a `--clear` that found none |
+| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and `bodySha256` and `titleSha256`, the SHA-256 sums of the text and the title. `null` from a `--clear` that found none |
 | `cleared` | `true` when `--clear` took an approval back |
 
 The start comment on the issue, [`tehas history`](#tehas-history) (`"how":

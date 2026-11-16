@@ -3,6 +3,7 @@
 - `tehas status --json`: where a running cycle's step is moves into one object, `running[].progress` (`step`, `stepNumber`, `stepTotal`, `round`, `roundLimit`, `stepSince`). It is driver-specific and may change in a minor release. The schema now names `readOnly`, which the object already printed, and a third sample, `api/status.readonly.json`, shows it.
 - `tehas history --json`: the list is `runs`, not `cycles`: it holds cycles and planning turns. Where the step a cycle ended in was moves into `runs[].progress` (`step`, `stepNumber`, `stepTotal`, `round`), driver-specific like the one of status. `tehas export --json` prints `runs` too, and each `history.json` of an export directory carries `progress`.
 - `tehas export` writes `export.json` at the top of the export directory, `{"version": 1}`, the layout of the directory, and `tehas export --json` gains the same `version`.
+- `tehas start --json`: the approval's sums are `bodySha256` and `titleSha256`, camelCase like every other `--json` object.
 
 ### Adopter action
 
@@ -10,3 +11,4 @@ A program that reads `--json` objects of tehas reads the new names. Every rename
 
 - `tehas status --json`: read `running[].progress.step` and the other step fields under `progress`, not on `running[]` itself.
 - `tehas history --json` and `tehas export --json`: read `runs`, not `cycles`, and the step of a line under `runs[].progress`.
+- `tehas start --json`: read `approval.bodySha256` and `approval.titleSha256`.
