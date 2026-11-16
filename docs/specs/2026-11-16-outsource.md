@@ -1,6 +1,7 @@
 # Spec: outsource, cycles run on contractors
 
-**Status**: Draft 2026-11-16, for the owner's review. Nothing is built.
+**Status**: Draft 2026-11-16, corrected the same day with the owner's
+decisions on the open points. Nothing is built.
 
 ## Purpose
 
@@ -55,7 +56,7 @@ the only holder of state.
 
 ## Goals
 
-1. **One API for both.** Everything industry or any other program does to
+1. **One API for both.** Everything a program that manages factories does to
    contractors, a person can do with the same command and flags.
 2. **Stamp who built it.** Tickets, pull requests and history say which
    contractor built a change.
@@ -88,17 +89,20 @@ HTTPS, on the factory's own address.
 2. The contractor asks for a job. The factory answers with a job or with
    nothing.
 3. A job carries the issue, the driver, the timeout, the attempt number, the
-   settings for the container and a job token.
+   settings for the container that may leave the factory (see "Settings and
+   the model") and a job token.
 4. The contractor runs the same container as `libexec/work` runs, with the
    same pinned mounts and variables.
 5. The contractor checks in while it runs and streams the cycle's progress.
+   It renews the cycle's GitHub token and relays the cycle's issue writes
+   over the same channel. See "The job channel".
 6. The contractor posts the result JSON. The code reaches GitHub by the
    branch the cycle pushes, as today. The factory reads no workspace.
 
 The dispatcher decides where a cycle starts. It starts in-house unless the
 feature is on, the repository allows it, and a contractor fits: it is idle, the
 image digest matches, it has the room the cycle needs, and it is not
-resting. Among those, the one with the most room.
+resting. A cycle that needs a polyfill's token stays in-house. Among those, the one with the most room.
 
 ### Job states
 
@@ -117,6 +121,37 @@ offered -> running -> finished
 
 Each state change is a row in the store. The factory reads the store on
 start and sorts out the jobs that expired while it was down.
+
+### The job channel
+
+Everything a running job needs from the factory goes over one channel: the
+contractor calls the factory with the job token. The factory answers only for
+a job that is `running`, from the issue's current attempt, on a contractor
+that is not revoked. Anything else is refused and the contractor treats it as
+a revoked job.
+
+| Call | What it does |
+| --- | --- |
+| check-in | "still here", with the cycle's progress |
+| token renewal | asks for a fresh GitHub token for the cycle |
+| issue relay | asks the factory to make one issue write for the cycle |
+| result | posts the result JSON |
+
+- **Token renewal.** A local cycle's GitHub token is renewed on the host
+  while the cycle runs (`TEHAS_GITHUB_RENEW_EVERY`). On a contractor the
+  renewer asks the factory instead, with its job token. The factory makes
+  the same narrowed cycle token a local cycle gets and hands it back. The
+  contractor writes it where the container reads it, so the container sees
+  no difference.
+- **Issue relay.** A cycle's token reads issues and cannot write them, so a
+  local cycle's issue writes go to the host's issue relay. On a contractor
+  the container leaves the same requests, and the contractor sends each one
+  to the factory as a relay request. The factory reads it as hostile and runs
+  the same checks as the local relay, then writes with its own token and
+  sends the answer back.
+- **The App's key stays on the factory.** The contractor never holds it, nor
+  any token that can write issues. A stolen running box gets at most the
+  current cycle token, which dies with the job.
 
 ## Durability
 
@@ -186,21 +221,31 @@ A contractor holds its identity (a revocable key that can only ask for jobs)
 and the factory's address. It has no endpoint, no model, no provider and no
 key of its own. `tehas-contractor doctor` flags any it finds.
 
-Each job carries the same `PI_ENSEMBLE_*` values the cycle would get in-house.
-The contractor only passes them on. The container's mounts and variables stay
+A job carries only the `PI_ENSEMBLE_*` names on an allow list, with the values
+the cycle would get in-house. The allow list is part of the release, not a
+setting. Everything else stays on the factory:
+
+- A name not on the allow list, even one the cycle would get in-house.
+- The model's base URL and key. The job carries the model proxy's address and
+  the job token in their place.
+- A token or key a polyfill needs. A cycle that cannot run without one runs
+  in-house.
+
+The contractor only passes on what the job carries. The container's mounts and variables stay
 the ones `test/work_test.sh` pins, for the remote path too.
 
 All outsource settings are instance settings, loaded like every other one:
 
-| Setting | Meaning |
-| --- | --- |
-| `TEHAS_OUTSOURCE` | on or off; unset is off |
-| `TEHAS_OUTSOURCE_TIMEOUT` | how long without a check-in before a job is lost |
-| `TEHAS_OUTSOURCE_RETRIES` | lost jobs per issue before it runs in-house |
-| `TEHAS_OUTSOURCE_REST` | rest period of a contractor that lost a job |
-| `TEHAS_OUTSOURCE_REPOS` | repositories that may outsource; default none |
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `TEHAS_OUTSOURCE` | off | on or off; unset is off |
+| `TEHAS_OUTSOURCE_TIMEOUT` | `600` | seconds without a check-in before a job is lost |
+| `TEHAS_OUTSOURCE_RETRIES` | `2` | lost jobs per issue before it runs in-house |
+| `TEHAS_OUTSOURCE_REST` | `1800` | seconds a contractor that lost a job rests |
+| `TEHAS_OUTSOURCE_REPOS` | none | repositories that may outsource |
 
-Names and defaults are for review. Loading them has no side effects, and a
+These names and defaults are final for 1.0. Times are whole seconds, as the
+other duration settings are. Loading them has no side effects, and a
 malformed one stops the command with exit 78 before anything is written.
 
 ### The model proxy
@@ -233,8 +278,9 @@ those registries.
 ### What a contractor holds
 
 - At rest: its identity key and the factory's address. Nothing else.
-- Per job: the settings, a GitHub token for the repository, and a model
-  proxy token. All die with the job.
+- Per job: the allow-listed settings, the cycle's GitHub token, which reads
+  issues and cannot write them and is renewed over the job channel, and the
+  job token for the model proxy and the channel. All die with the job.
 - The workspace is a RAM disk or a per-job directory. It is wiped when a job
   ends and when the program starts. No source stays in layers or caches.
 
@@ -282,7 +328,13 @@ manual says how, and `tehas-contractor doctor` checks it.
 - **MCP:** `factory_contractors`, read only, behind the dashboard keys.
 - **Status contract:** `tehas status --json` gains an optional `contractors`
   object, with `api/` schema and samples, as the status contract spec
-  requires. The factory's feature list says whether outsource is on.
+  requires. `running` and `room` count outsourced cycles as they count
+  local ones: a cycle on a contractor is a running cycle of the factory.
+- **Features and flags:** `features` keeps its meaning, what the release has.
+  The `flags` object, named in `features`, maps each feature name to whether
+  this instance has it on. Outsource on is `"flags": {"outsource": true}`.
+  While outsource is still being built, it is in `flags` as `false` and not in
+  `features`.
 - **Analytics:** `contractor_id` on cycles.
 
 ## Programs that manage factories
@@ -368,8 +420,16 @@ The gate needs no network and no sandbox image. Stub the outside world with
     refused; a path outside the model paths is refused; no body is logged.
 11. **Secrets:** a scan of the contractor's directories finds no GitHub or
     model credential at rest; the workspace is wiped at start and end.
-12. **Contract:** the `contractors` field matches its schema and samples.
-13. **Generic:** `scripts/check-generic.sh` covers the new files.
+12. **Contract:** the `contractors` field matches its schema and samples;
+    `running` and `room` count an outsourced cycle; `flags` says whether
+    outsource is on.
+13. **Job channel:** a renewal, a relay request and a result from a stale
+    attempt, an ended job or a revoked contractor are refused; a relay request
+    the local relay would refuse is refused; no reply carries the App's key.
+14. **Allow list:** a job carries only allow-listed `PI_ENSEMBLE_*` names; the
+    model's base URL and key are replaced by the proxy's address and the job
+    token; a polyfill's token never leaves.
+15. **Generic:** `scripts/check-generic.sh` covers the new files.
 
 ## Order of work
 
@@ -385,11 +445,19 @@ The gate needs no network and no sandbox image. Stub the outside world with
 
 ## Open points
 
-1. **Trust scope.** Version 1 is for hosts the owner trusts. Whether other
-   people's hosts are ever allowed is the owner's call, and it changes the
-   threat model.
-2. **Timeout values.** The default timeout, grace and rest period.
-3. **pi-rukas base URL.** Not yet checked. See step 1.
-4. **The names of the settings** above.
-5. **One factory per contractor.** Sharing a pool across factories would need a
+Decided:
+
+1. **Trust scope.** 1.0 is for hosts the owner trusts only. Allowing other
+   people's hosts would change the threat model and is not planned for 1.0.
+2. **Timeout values.** Timeout 600 seconds, rest 1800 seconds, 2 retries.
+   The grace period is `TEHAS_WORK_GRACE`, as for a local cycle.
+3. **The names of the settings** are the ones in the table above.
+4. **Relay and token renewal** go over the job channel. The contractor never
+   holds the App's key.
+5. **What leaves the factory:** only allow-listed `PI_ENSEMBLE_*` names.
+
+Still open:
+
+1. **pi-rukas base URL.** See step 1 of the order of work (tehas#2271).
+2. **One factory per contractor.** Sharing a pool across factories would need a
    broker and is not planned.
