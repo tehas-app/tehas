@@ -455,8 +455,8 @@ check_sources() { # <lines of source paths>: each has to be covered by the lists
         # install.sh looks for a bare name under host/ when the tree's own top
         # level does not hold it; either way one of the two lists has to name it
         # or the file has to be in the host/ that is packed whole.
-        printf '%s\n' "${want_plain[@]}" | grep -qx "host/$src" ||
-          printf '%s\n' "${want_plain[@]}" | grep -qx "$src" ||
+        grep -qx "host/$src" < <(printf '%s\n' "${want_plain[@]}") ||
+          grep -qx "$src" < <(printf '%s\n' "${want_plain[@]}") ||
           [ -f "$T_ROOT/host/$src" ] ||
           t_bad "$src: install.sh reads it and neither list of lib/release.list has it"
         ;;

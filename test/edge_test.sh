@@ -141,7 +141,7 @@ for want in /status.json /running.json /endings.json /epics.json /health.json /h
   /dispatch.json /demand.json /energy.json /analytics.json /top.json \
   /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
-  printf '%s\n' "$table" | grep -qxF -- "$want" || t_bad "the list does not name $want"
+  grep -qxF -- "$want" <<<"$table" || t_bad "the list does not name $want"
 done
 
 t_case "a new file under live/ is served only once both lists name it"
@@ -306,7 +306,7 @@ encode=$(awk '/^[[:space:]]*@compress not path / {print}' "$docs_caddy")
 # the three the console and the health page are read from.
 paths=$(printf '%s\n' "$encode" | tr -s '[:space:]' '\n' | grep '^/')
 for want in '/live/*' '/health' '/healthz'; do
-  printf '%s\n' "$paths" | grep -qxF -- "$want" ||
+  grep -qxF -- "$want" <<<"$paths" ||
     t_bad "@compress does not leave out $want: $encode"
 done
 # The matcher names nothing else: a path taken out of it is a file that is
