@@ -72,7 +72,7 @@ pub(crate) fn opt_out(lean_default: bool) -> &'static str {
 /// it cannot drift apart.
 pub(crate) const BLOCKED: &str = "tehas:blocked";
 
-/// The kind of a proposal of the improvement loop. With TEHAS_ISSUE_TYPES
+/// The kind of a proposal the factory files. With TEHAS_ISSUE_TYPES
 /// mapping improvement, an issue of that type carries it in the snapshot.
 pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 
@@ -248,9 +248,8 @@ struct EpicGrant {
 
 /// The labels that keep the millwright from starting an issue on no
 /// approval of the issue itself.
-const MILLWRIGHT_HELD: [&str; 4] = [
+const MILLWRIGHT_HELD: [&str; 3] = [
     IMPROVEMENT,
-    "cross-project",
     "needs-human-attention",
     "tehas:millwright-escalated",
 ];
@@ -2971,10 +2970,6 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if !self.epic_ok(n, ask, &labels) {
-                continue;
-            }
-            if has(&labels, "cross-project") && has(&labels, IMPROVEMENT) {
-                self.log(format!("skip #{n}: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"));
                 continue;
             }
             if !self.size_ok(n, ask, &labels)? {

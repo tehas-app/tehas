@@ -134,8 +134,7 @@ impl Host {
             .env("TEHAS_WORK_DIR", self.dir.join("work/widget"))
             .env("TEHAS_CYCLE_RETRY_WAIT", "0")
             .env("TEHAS_CYCLE_STOP_GH_WAIT", "1")
-            .env("TEHAS_ANALYTICS", "off")
-            .env_remove("TEHAS_IMPROVE_REPO");
+            .env("TEHAS_ANALYTICS", "off");
         c
     }
 
@@ -155,7 +154,6 @@ impl Host {
             .env("HOME", self.dir.path())
             .env("TEHAS_ANALYTICS", "on")
             .env("TEHAS_ANALYTICS_WAIT", "60")
-            .env_remove("TEHAS_IMPROVE_REPO")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

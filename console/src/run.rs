@@ -17,7 +17,6 @@
 //! So a bad setting is 78 before GitHub, Docker or git and before any write
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
-//!   improve   exit 0 before step 3 when TEHAS_IMPROVE_REPO is unset, the loop is off
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
 //!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
@@ -34,7 +33,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, improve, plan, preview, product, protolab, review, settings};
+use crate::{clean, disk, github, plan, preview, product, protolab, review, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -44,7 +43,6 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use tehas_core::settings as core_settings;
-use tehas_core::slice::{self, Host, Load};
 
 /// bash, not an exec of this program: glibc's exec gives a file the kernel
 /// refuses to /bin/sh, and a poll that is no program has to end 78.
@@ -127,24 +125,6 @@ fn protolab_run() -> u8 {
         }
     }
     protolab::main(&["run".to_string()])
-}
-
-/// A run with nothing to read starts no container and asks no slice; one without
-/// a usable slice stops before the console calls GitHub, and its records wait.
-fn improve_run(libexec: &str) -> u8 {
-    let prompt = format!("{libexec}/../lib/improve-prompt.md");
-    let words = |verb: &str| [verb.to_string(), prompt.clone()];
-    match improve::main(&words("due")) {
-        0 => {}
-        10 => return 0,
-        rc => return rc,
-    }
-    let load = Load::from_env();
-    if let Err(why) = slice::usable(&Host::here(), &load.reserve, &load.containers) {
-        eprintln!("tehas improve: {why}");
-        return 78;
-    }
-    improve::main(&words("run"))
 }
 
 /// A free figure that cannot be read changes nothing.
@@ -266,15 +246,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     // The load drops every TEHAS_ name it does not keep.
     let settle = env::var_os("TEHAS_PREVIEW_SETTLE").unwrap_or_default();
     let vars = settings::load_here(uid, bash)?;
-    match name[..] {
-        ["tehasbot", "improve"] if var("TEHAS_IMPROVE_REPO").is_empty() => {
-            tehas_core::outln!(
-                "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
-            );
-            return Ok(0);
-        }
-        _ => {}
-    }
     settings::require(commands::required(words), &vars)?;
     Ok(match name[..] {
         ["tehas", "check-product"] => product::check(rest),
@@ -297,7 +268,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
-        ["tehasbot", "improve"] => improve_run(libexec),
         ["tehasbot", "preview"] => preview_run(rest, settle),
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {

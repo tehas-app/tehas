@@ -44,6 +44,7 @@ lib/limit.sh
 lib/live.sh
 lib/headless.sh
 lib/improve.sh
+lib/improve-prompt.md
 lib/planning.sh
 lib/refresh.sh
 lib/status.sh

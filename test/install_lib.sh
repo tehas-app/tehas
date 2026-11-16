@@ -101,8 +101,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
-./.config/systemd/user/tehas-improve.service
-./.config/systemd/user/tehas-improve.timer
 ./.config/systemd/user/tehas-mcp.service
 ./.config/systemd/user/tehas-preview-sweep.service
 ./.config/systemd/user/tehas-preview-sweep.timer
@@ -125,7 +123,6 @@ files="./.bashrc
 ./tehas/env.sh
 ./tehas/lib/config.sh
 ./tehas/lib/github-app.sh
-./tehas/lib/improve-prompt.md
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.tsv
 ./tehas/lib/paths.sh
@@ -185,7 +182,7 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 next_steps() {
   "$T_CONSOLE" update steps for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
-    systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
+    systemd/tehas-energy.service \
     systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-review.service systemd/tehas-review.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json \

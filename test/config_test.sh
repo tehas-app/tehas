@@ -369,9 +369,7 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" "TEHAS_EGRESS=yes" "TEHAS_EGRESS_HOSTS=*.example.org" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" "TEHAS_CLEAN_MIN_FREE=lots" \
-  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
-  "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" "TEHAS_IMPROVE_RUKAS_SKIP=yes" \
-  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" "TEHAS_OWNER=acme-app[bot]" "TEHAS_OWNER=alice bob" \
+  "TEHAS_OWNER=acme-app[bot]" "TEHAS_OWNER=alice bob" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1" \
   "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b"; do
@@ -392,60 +390,32 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OWNER=alice >"$TEHAS_INSTANCE_DIR/instance
 t_run "$load && echo \"[\$TEHAS_OWNER]\""
 t_eq "$t_out" "[alice]"
 
-t_case "the improvement loop is off unless the instance names a repository"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_IMPROVE_REPO]\""
-t_eq "$t_out" "[]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
-t_eq "$t_out" "[acme/factory]"
-
-t_case "a repository for pi-rukas findings is optional, and needs the loop's own"
-t_run "$load && set -u && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
-t_eq "$t_out" "[]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
-  >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
-t_eq "$t_out" "[acme/rukas]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_RUKAS_REPO=acme/rukas >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is"
-
-t_case "findings about pi-rukas are filed unless the instance skips them, and never both"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_SKIP]\""
-t_eq "$t_out" "[0]"
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_SKIP=1
-t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_SKIP]\""
-t_eq "$t_out" "[1]"
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
-  TEHAS_IMPROVE_RUKAS_SKIP=1
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set"
-
-t_case "the loop and the review never file in the product repository, whatever its case"
-for v in TEHAS_IMPROVE_REPO=acme/widget TEHAS_IMPROVE_REPO=Acme/Widget \
-  "TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/widget" \
-  TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
-  # shellcheck disable=SC2086  # $v is one or two settings
-  printf '%s\n' "${T_MINIMAL[@]}" $v >"$TEHAS_INSTANCE_DIR/instance.env"
+t_case "a setting of the improvement loop, gone, stops the load with 78 and names itself"
+for v in TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
+  TEHAS_IMPROVE_RUKAS_SKIP=1 TEHAS_IMPROVE_MAX_OPEN=30; do
+  printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "the improvement loop files in acme/widget, the product repository"
+  t_contains "$t_out" "${v%%=*} is no longer read: this version of tehas has no improvement loop, so take the line out"
 done
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
-t_eq "$t_out" "[acme/backlog]"
 
-t_case "the loop's limit of open issues is 10 unless the instance says otherwise"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
-t_eq "$t_out" "[10]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
-t_eq "$t_out" "[30]"
+t_case "a blank setting of the gone loop or report, and a skip of 0, load as if left out"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO= TEHAS_IMPROVE_RUKAS_REPO= TEHAS_IMPROVE_RUKAS_SKIP=0 \
+  TEHAS_IMPROVE_MAX_OPEN= TEHAS_CYCLE_REPORT= >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_lacks "$t_out" "no longer read"
+
+t_case "the review never files in the product repository, whatever its case"
+for v in TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
+  printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "the review files in acme/widget, the product repository"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REVIEW_REPO]\""
+t_eq "$t_out" "[acme/backlog]"
 
 t_case "the millwright may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1552,9 +1522,9 @@ values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 100000000
 names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_RUKAS_FOLLOW
   TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
-  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_REPORT
+  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_EASY_MERGE TEHAS_GITHUB_APP_ID TEHAS_HOME
-  TEHAS_HOST_ADDR TEHAS_IMPROVE_MAX_OPEN TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_RUKAS_SKIP
+  TEHAS_HOST_ADDR
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
@@ -1567,7 +1537,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "b135a681a4503342a2d5ca7719ea4cbb8e6f05057bfe5f14ff285e2bc763cf2f"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "e3297f232d618674ea5999425ea5ed9906580de2c74741ae6e1ce6be565d0c8b"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1636,9 +1606,6 @@ TEHAS_TOP=1|TEHAS_RUKAS_WORKAROUNDS=TEHAS_TOP@1.2
 TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
 TEHAS_ANALYTICS_SRC=https://a.example/x.js
-TEHAS_IMPROVE_RUKAS_REPO=a/b
-TEHAS_IMPROVE_REPO=a/b|TEHAS_IMPROVE_RUKAS_REPO=a/c|TEHAS_IMPROVE_RUKAS_SKIP=1
-TEHAS_IMPROVE_REPO=ACME/widget
 TEHAS_REVIEW_REPO=Acme/Widget
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
@@ -1668,7 +1635,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "49e5fb2c33264c6968bcea3c311aa8bfd07902f020569436a9451ebb6a170769"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "3d4c5abb1bb1eaf4ffcf43895b491d1c478afbab6ef80065ba5a284bf436347e"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
