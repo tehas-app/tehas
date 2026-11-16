@@ -138,7 +138,7 @@ make or give the app as above, and run any command again.
 `TEHAS_GITHUB_APP_INSTALLATION`, `TEHAS_BOT_LOGIN` and
 `TEHAS_MILLWRIGHT_LOGIN` in `instance.env` print one warning each and are
 ignored once `~/tehas/state/github/login` exists; take them out too.
-`tehas setup --token-file` is refused, and `--app-installation` is ignored.
+`tehas setup --token-file` and `--app-installation` are unknown options (exit 64).
 
 ## What tehas does with it
 
