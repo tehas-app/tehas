@@ -1,6 +1,7 @@
-//! `tehasbot github-writes`: what the gh shim's write log says of the last
+//! `tehas github writes` (`tehasbot github-writes`): what the gh shim's write log says of the last
 //! day (#649 part 1), against GitHub's limits for writes.
 //!
+//!   console tehas github writes
 //!   console tehasbot github-writes
 //!
 //! The log is $TEHAS_HOME/state/github-writes.log (TEHAS_GITHUB_WRITES_LOG, as
@@ -125,11 +126,11 @@ fn log_path() -> Option<PathBuf> {
 
 pub fn main(given: &[String]) -> u8 {
     if !given.is_empty() {
-        eprintln!("usage: tehasbot github-writes");
+        eprintln!("usage: tehas github writes");
         return 64;
     }
     let Some(path) = log_path() else {
-        eprintln!("tehasbot github-writes: neither TEHAS_HOME nor HOME is set");
+        eprintln!("tehas github writes: neither TEHAS_HOME nor HOME is set");
         return 1;
     };
     let bytes = std::fs::read(&path).unwrap_or_default();

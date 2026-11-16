@@ -90,7 +90,8 @@ t_no_instance
 t_case "the commands the console runs itself run no script of libexec"
 reset
 for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
-  "tehasbot dispatch" "tehasbot review" "tehasbot github-token --check"; do
+  "tehasbot dispatch" "tehasbot review" "tehasbot github-token --check" "tehas github check" \
+  "tehas github writes" "tehas refresh --pr 7"; do
   t_run "$tree/bin/$words"
 done
 t_eq "$(ran)" ""
@@ -132,7 +133,7 @@ t_eq "$t_out" "$("$T_CONSOLE" usage limit)"
 
 t_case "tehas <command> --help and -h print its text and run nothing"
 reset
-for name in dispatch work plan dev index setup update labels status disk state api limit drain top analytics pause resume stop; do
+for name in dispatch work plan dev index setup update labels status disk state api limit drain top analytics pause resume stop refresh github; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -185,6 +186,27 @@ for name in work plan dev index update labels summary bogus "''"; do
 done
 t_run "$bot bogus"
 t_contains "$t_out" "tehasbot: unknown command: bogus"
+t_eq "$(ran)" ""
+
+t_case "tehas github writes is tehasbot github-writes, and needs no settings"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas github writes"
+t_eq "$t_rc" 0
+public=$t_out
+t_lacks "$t_out" "settings were read"
+t_run "$bot github-writes"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$public"
+t_eq "$(ran)" ""
+
+t_case "tehas github with no verb, another verb or another word is 64 with its text"
+reset
+for arg in "" bogus "writes x" "check --cycle" "check --print"; do
+  t_run "$tehas github $arg"
+  t_eq "$arg $t_rc" "$arg 64"
+  t_contains "$t_out" "tehas github check"
+done
 t_eq "$(ran)" ""
 
 t_case "neither command reads the instance settings to choose"
@@ -241,12 +263,27 @@ t_case "every command in the usage of tehas has a text that says how to use it"
 reset
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order start drain history export state top analytics mcp pause resume stop freeze thaw "
+t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order start refresh drain history export state top analytics mcp github pause resume stop freeze thaw "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
   t_contains "$t_out" "tehas $name"
 done
+
+t_case "each command renamed for 1.0 is a tehas command, and its old name still runs"
+reset
+rows=0
+while IFS=$'\t' read -r kind old new _; do
+  [ "$kind" = command ] || continue
+  rows=$((rows + 1))
+  read -r _ verb _ <<<"$new"
+  t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $verb"
+  t_eq "$new: $t_rc" "$new: 0"
+  read -r cmd word _ <<<"$old"
+  t_eq "$old: $cmd" "$old: tehasbot"
+  t_contains "$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)" "  tehasbot $word"
+done <"$T_ROOT/api/renames-1.0.tsv"
+[ "$rows" -ge 3 ] || t_bad "api/renames-1.0.tsv has $rows command rows"
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "
