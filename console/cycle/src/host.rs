@@ -200,6 +200,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         "start": {"attempt": s.attempt, "by": s.by, "how": s.how,
                   "approval_at": s.approval_at.parse::<i64>().ok(), "requeued": s.requeued},
         "files": files,
+        "driver_default": env("TEHAS_DRIVER"),
     });
     if let Some(log) = newest_log(&home.join("logs"), issue) {
         f["run_log"] = run_log(&log);

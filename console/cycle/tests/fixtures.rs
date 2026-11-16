@@ -269,6 +269,41 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
     }
 }
 
+/// Under `TEHAS_DRIVER=lean` the label that runs classic is `tehas:classic`,
+/// so the park of a refused lean start asks for it rather than for
+/// `tehas:lean` to come off.
+#[test]
+fn under_a_lean_default_the_park_of_a_refused_lean_start_asks_for_tehas_classic() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases.into_iter().find(|c| c["facts"]["rc"] == 4).unwrap();
+    c["facts"]["rc"] = 78.into();
+    c["facts"]["driver_default"] = "lean".into();
+    c["facts"]["approval"]["current"]["input"] = serde_json::json!({"driver": "lean"});
+    c["facts"]["files"]["lean-refused"] = "".into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    let p = r
+        .actions
+        .into_iter()
+        .find_map(|a| match a {
+            Action::Park(p) => Some(*p),
+            _ => None,
+        })
+        .unwrap();
+    let said = format!("{p:?}");
+    assert!(
+        said.contains("To run it on classic, apply `tehas:classic`, then retry"),
+        "{said}"
+    );
+    assert!(!said.contains("take `tehas:lean` off"), "{said}");
+    let (_, body) = p.question(7, false);
+    assert!(
+        body.contains("Apply `tehas:classic` to this issue, then tick a box."),
+        "{body}"
+    );
+}
+
 #[test]
 fn another_78_on_a_lean_start_is_a_cycle_that_stopped() {
     let (end, said) = refused(78, false);

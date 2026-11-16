@@ -5,7 +5,7 @@
 use super::clean::iso;
 use super::{
     base_stands, fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step,
-    IMPROVEMENT, LEAN,
+    CLASSIC, IMPROVEMENT, LEAN,
 };
 use crate::questions;
 use crate::text;
@@ -571,11 +571,16 @@ impl Poll<'_> {
             }
             // The park of a lean start tehas work refused: the same start
             // would be refused again. The tick stays, and starts classic once
-            // the label is off.
-            if has(&have, LEAN)
-                && q.get("reason").and_then(Value::as_str)
-                    == Some(tehas_core::question::LEAN_REFUSED)
-            {
+            // the label is off, or under a lean default once `tehas:classic`
+            // is on. That label is then a person's new choice, read as one
+            // and not against the record of the refused lean start.
+            let lean_refused =
+                q.get("reason").and_then(Value::as_str) == Some(tehas_core::question::LEAN_REFUSED);
+            if lean_refused && self.c.lean_default && !has(&have, CLASSIC) {
+                self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the tick then starts it on classic"));
+                continue;
+            }
+            if lean_refused && !self.c.lean_default && has(&have, LEAN) {
                 self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; take {LEAN} off first, and the tick then starts it on classic"));
                 continue;
             }
@@ -624,7 +629,8 @@ impl Poll<'_> {
                 let ev = self.events(n)?;
                 self.c.allowed(&label_actor(&ev, "tehas:ready").0)
             };
-            let driver = match self.driver(n, &have, !held)? {
+            let follows = !held && !(lean_refused && self.c.lean_default);
+            let driver = match self.driver(n, &have, follows)? {
                 Driver::Wait => continue,
                 Driver::Stranger(s) => {
                     self.lean_deny(n, &s);
@@ -655,7 +661,7 @@ impl Poll<'_> {
             if issue_alone {
                 extra.insert("issue_alone".into(), json!(true));
             }
-            driver.bind(&mut extra);
+            driver.bind(&mut extra, &mut remove, &have);
             self.d.picked.push(n);
             self.act_gates(n);
             self.act_start(
@@ -786,7 +792,7 @@ impl Poll<'_> {
                 ));
                 return Err(End(0));
             }
-            let remove = if has(&have, "tehas:question") {
+            let mut remove = if has(&have, "tehas:question") {
                 vec!["tehas:question".to_string()]
             } else {
                 Vec::new()
@@ -795,7 +801,7 @@ impl Poll<'_> {
             self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
             self.d.picked.push(n);
             let mut extra = Map::new();
-            driver.bind(&mut extra);
+            driver.bind(&mut extra, &mut remove, &have);
             self.act_start(
                 n,
                 Start {
@@ -1091,7 +1097,7 @@ impl Poll<'_> {
         } else {
             "refresh"
         };
-        driver.bind(&mut extra);
+        driver.bind(&mut extra, &mut remove, &have);
         Ok(Some(Start {
             starter: by,
             verb: verb.into(),
