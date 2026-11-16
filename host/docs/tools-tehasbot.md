@@ -32,6 +32,7 @@ tehasbot clean                # remove what the host can make again; what tehas-
 tehasbot github-token         # the GitHub App's token; what the gh shim runs
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
+tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 
