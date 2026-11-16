@@ -189,6 +189,15 @@ Run `tehas dispatch --dry-run` and read what it prints.
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
   blank value is ignored.
+- `TEHAS_IMPROVE_REPO is no longer read: this version of tehas has no
+  improvement loop, so take the line out` (the same for
+  `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and
+  `TEHAS_IMPROVE_MAX_OPEN`): every command stops with 78 while the instance
+  sets one of them to a value. Take the line out. A blank value, and
+  `TEHAS_IMPROVE_RUKAS_SKIP=0`, are ignored.
+- `TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so
+  take the line out`: every command stops with 78 while the instance sets it
+  to a value, `rust` too. Take the line out. A blank value is ignored.
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the

@@ -391,13 +391,20 @@ t_run "$load && echo \"[\$TEHAS_OWNER]\""
 t_eq "$t_out" "[alice]"
 
 t_case "a setting of the improvement loop, gone, stops the load with 78 and names itself"
-for v in TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_REPO= TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
+for v in TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
   TEHAS_IMPROVE_RUKAS_SKIP=1 TEHAS_IMPROVE_MAX_OPEN=30; do
   printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "${v%%=*} is no longer read: this version of tehas has no improvement loop, so take the line out"
 done
+
+t_case "a blank setting of the gone loop or report, and a skip of 0, load as if left out"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO= TEHAS_IMPROVE_RUKAS_REPO= TEHAS_IMPROVE_RUKAS_SKIP=0 \
+  TEHAS_IMPROVE_MAX_OPEN= TEHAS_CYCLE_REPORT= >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_lacks "$t_out" "no longer read"
 
 t_case "the review never files in the product repository, whatever its case"
 for v in TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
