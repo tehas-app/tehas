@@ -102,7 +102,12 @@ HTTPS, on the factory's own address.
 The dispatcher decides where a cycle starts. It starts in-house unless the
 feature is on, the repository allows it, and a contractor fits: it is idle, the
 image digest matches, it has the room the cycle needs, and it is not
-resting. A cycle that needs a polyfill's token stays in-house. Among those, the one with the most room.
+resting. Among those, the one with the most room.
+
+A cycle that needs a polyfill's token stays in-house, whatever else allows
+it. The dispatcher reads the need from the polyfills the cycle would load:
+each polyfill declares the settings it needs that are secret, and a cycle
+with any such polyfill is not outsourced. No polyfill declares one today.
 
 ### Job states
 
@@ -117,7 +122,9 @@ offered -> running -> finished
 - `finished`: the result came in from the current attempt.
 - `stopping`: the contractor is ending the job. See "Dying gracefully".
 - `released`: the contractor handed it back on purpose. Not a failure.
-- `lost`: the timeout passed with no check-in, or the job was revoked.
+- `lost`: the timeout passed with no check-in, or the job was revoked. A
+  result or "stopped" report from a lost job that was not revoked is still
+  taken until the issue's next attempt is given out.
 
 Each state change is a row in the store. The factory reads the store on
 start and sorts out the jobs that expired while it was down.
@@ -125,10 +132,19 @@ start and sorts out the jobs that expired while it was down.
 ### The job channel
 
 Everything a running job needs from the factory goes over one channel: the
-contractor calls the factory with the job token. The factory answers only for
-a job that is `running`, from the issue's current attempt, on a contractor
-that is not revoked. Anything else is refused and the contractor treats it as
-a revoked job.
+contractor calls the factory with the job token. What the factory requires
+depends on the call:
+
+- Check-in, token renewal and relay: the job is `running`, from the issue's
+  current attempt, on a contractor that is not revoked.
+- Result and "stopped" report: the job is from the issue's current attempt,
+  on a contractor that is not revoked. It may be `running`, `stopping` or
+  `lost`, so a report sent while stopping or after a blip is still taken.
+  A job that was replaced by a newer attempt is refused.
+
+Only an explicit "revoked" answer means the job is revoked. A refusal for a
+lost job, or a factory that does not answer, takes the salvage path of
+"Dying gracefully": the contractor pushes the branch and reports.
 
 | Call | What it does |
 | --- | --- |
@@ -150,8 +166,11 @@ a revoked job.
   the same checks as the local relay, then writes with its own token and
   sends the answer back.
 - **The App's key stays on the factory.** The contractor never holds it, nor
-  any token that can write issues. A stolen running box gets at most the
-  current cycle token, which dies with the job.
+  any token that can write issues. A stolen running box still holds the
+  cycle token and the job token. With them the thief can push to the
+  repository and write pull requests (the cycle token has contents and pull
+  request write), renew the cycle token and send relay requests, until the
+  job ends or `tehas outsource revoke` runs.
 
 ## Durability
 
@@ -231,22 +250,27 @@ setting. Everything else stays on the factory:
 - A token or key a polyfill needs. A cycle that cannot run without one runs
   in-house.
 
-The contractor only passes on what the job carries. The container's mounts and variables stay
-the ones `test/work_test.sh` pins, for the remote path too.
+The contractor only passes on what the job carries. The container's mounts
+and variables stay the ones `test/work_test.sh` pins, for the remote path
+too.
 
 All outsource settings are instance settings, loaded like every other one:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `TEHAS_OUTSOURCE` | off | on or off; unset is off |
+| `TEHAS_OUTSOURCE` | `0` | `1` turns the feature on; `0` or unset is off, as for every switch |
 | `TEHAS_OUTSOURCE_TIMEOUT` | `600` | seconds without a check-in before a job is lost |
 | `TEHAS_OUTSOURCE_RETRIES` | `2` | lost jobs per issue before it runs in-house |
 | `TEHAS_OUTSOURCE_REST` | `1800` | seconds a contractor that lost a job rests |
 | `TEHAS_OUTSOURCE_REPOS` | none | repositories that may outsource |
+| `TEHAS_OUTSOURCE_CONTRACTORS` | none | contractor names allowed to call the factory, space separated like `TEHAS_ALLOWED_LABELERS`; empty refuses every contractor |
+| `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | seconds the model proxy waits on a quiet stream; must be longer than `TEHAS_OUTSOURCE_TIMEOUT` |
 
 These names and defaults are final for 1.0. Times are whole seconds, as the
 other duration settings are. Loading them has no side effects, and a
-malformed one stops the command with exit 78 before anything is written.
+malformed one stops the command with exit 78 before anything is written. So
+does a `TEHAS_OUTSOURCE_PROXY_IDLE` that is not longer than
+`TEHAS_OUTSOURCE_TIMEOUT`.
 
 ### The model proxy
 
@@ -259,8 +283,8 @@ Contractors get the model through the factory, and only through it.
 - The contractor never holds the real key. The job token dies with the job and
   with revocation.
 - The proxy passes streamed replies as they arrive and does not buffer a
-  reply. Its idle timeout is a setting and is longer than the check-in
-  timeout.
+  reply. Its idle timeout is `TEHAS_OUTSOURCE_PROXY_IDLE`, longer than the
+  check-in timeout.
 - It forwards only the model paths a cycle needs.
 - It counts tokens per contractor and per job. It never logs bodies, because
   they hold source code.
@@ -290,7 +314,7 @@ those registries.
 | --- | --- | --- |
 | Stolen idle box, disk encrypted | Nothing | Disk encryption (below) |
 | Stolen idle box, not encrypted | The identity key and the public image | `tehas outsource revoke` ends it. No source, no GitHub or model credential at rest |
-| Stolen running box | The running job's source and live tokens, if the thief has root | Revocation and the short job life. Not preventable |
+| Stolen running box | The running job's source, the cycle token and the job token: pushes, pull request writes, token renewal and relay requests until the job ends | `tehas outsource revoke` and the short job life. Not preventable |
 | Malicious owner | What a job gives | Allowlist, per-repository permission, review of the result |
 | Network lost | Nothing | The timeout and graceful death |
 
@@ -309,8 +333,9 @@ manual says how, and `tehas-contractor doctor` checks it.
 
 ### Controls
 
-- An allowlist of contractors in the instance directory, like the labeller
-  list. A contractor outside it is refused.
+- An allowlist of contractors in the instance directory,
+  `TEHAS_OUTSOURCE_CONTRACTORS`, like the labeller list. A contractor
+  outside it is refused.
 - `tehas outsource revoke <contractor>` ends a contractor at once: its check-ins,
   its model proxy access and its results are refused.
 - A result from a contractor is untrusted. It goes through pull request review
@@ -403,7 +428,8 @@ The gate needs no network and no sandbox image. Stub the outside world with
 2. **Settings:** a malformed `TEHAS_OUTSOURCE_*` exits 78 before any write;
    loading has no side effects.
 3. **Placement:** in-house by default; a contractor is picked only when the
-   feature and the repository allow it; no fit means in-house.
+   feature and the repository allow it; no fit means in-house; a cycle whose
+   polyfill declares a secret setting stays in-house with a contractor free.
 4. **Job states:** each transition, and the factory restart in each state.
 5. **Loss:** a silent contractor; a late result is rejected by attempt number;
    the retry cap; the rest period; a moved branch means a refresh.
@@ -423,9 +449,13 @@ The gate needs no network and no sandbox image. Stub the outside world with
 12. **Contract:** the `contractors` field matches its schema and samples;
     `running` and `room` count an outsourced cycle; `flags` says whether
     outsource is on.
-13. **Job channel:** a renewal, a relay request and a result from a stale
-    attempt, an ended job or a revoked contractor are refused; a relay request
-    the local relay would refuse is refused; no reply carries the App's key.
+13. **Job channel:** a check-in, a renewal and a relay request for a job
+    that is not `running` are refused; a result from a stale attempt or a
+    revoked contractor is refused; a result posted while the job is
+    `stopping` is taken; a result after the job is `lost` but its attempt is
+    still current is taken; a refusal for a lost job leads to salvage, only
+    "revoked" to no push; a relay request the local relay would refuse is
+    refused; no reply carries the App's key.
 14. **Allow list:** a job carries only allow-listed `PI_ENSEMBLE_*` names; the
     model's base URL and key are replaced by the proxy's address and the job
     token; a polyfill's token never leaves.
