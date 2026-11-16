@@ -453,6 +453,12 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
     }
 }
 
+/// The one place the drained state is turned into words: the line `tehas update`
+/// ends with, the line a shell test compares it against, and the `later:` the
+/// manual names.
+pub(super) const DRAINED_LINE: &str =
+    "the factory is drained: tehas limit clear starts the factory, and this version has run no cycle yet";
+
 /// The follow-ups of a run: the lines install.sh printed and the ones its record
 /// holds, which are not the same list, since a run that died partway records
 /// what it copied and prints no report.
@@ -531,6 +537,12 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     {
         run.rukas_later(&plan.tree);
     }
+    // The last line of a real update: a version installed into a factory that
+    // `tehas drain` stopped is installed but never proven, because nothing
+    // starts while the drain holds. --check and --pending say nothing new.
+    if status == 0 && plan.mode == Mode::Update && crate::flags::home_drained(&run.host.home) {
+        say(DRAINED_LINE);
+    }
     if status == 0 && plan.from == "release" {
         release::keep(run.host);
     }
@@ -594,12 +606,58 @@ pub fn main(given: &[String]) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::testing::dir;
     use super::*;
 
     #[test]
     fn the_script_and_this_console_agree() {
         let script = include_str!("../../../../libexec/update");
         assert!(script.contains(r#"exec "$console" update run "$console" "$@""#));
+    }
+
+    #[test]
+    fn the_drained_line_names_the_command_that_frees_the_factory() {
+        assert!(DRAINED_LINE.starts_with("the factory is drained: "));
+        assert!(DRAINED_LINE.contains("tehas limit clear"));
+        // The line says the new version has run nothing yet.
+        assert!(DRAINED_LINE.contains("this version has run no cycle yet"));
+    }
+
+    /// The bytes at the name every reader of the drained state opens.
+    fn limit_at(home: &Path, doc: &str) {
+        let file = home.join(crate::flags::LIMIT_FILE);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, doc).unwrap();
+    }
+
+    #[test]
+    fn only_the_limit_of_a_drain_is_read_as_drained() {
+        let d = dir("drained");
+        let home = d.0.path();
+        // Nothing at the name is no drain.
+        assert!(!crate::flags::home_drained(home));
+        // What tehas drain writes, and the same limit with a future `until`: a
+        // clock which has not run out ends no drain.
+        limit_at(
+            home,
+            r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}"#,
+        );
+        assert!(crate::flags::home_drained(home));
+        limit_at(
+            home,
+            r#"{"v":1,"cycles":0,"plan":false,"until":"2036-01-01T00:00:00Z"}"#,
+        );
+        assert!(crate::flags::home_drained(home));
+        // A limit that lets a cycle run, and one whose clock has run out.
+        for not in [
+            r#"{"v":1,"cycles":1,"plan":false,"until":null}"#,
+            r#"{"v":1,"cycles":0,"plan":true,"until":null}"#,
+            r#"{"v":1,"cycles":0,"plan":false,"until":"2000-01-01T00:00:00Z"}"#,
+            r#"not json"#,
+        ] {
+            limit_at(home, not);
+            assert!(!crate::flags::home_drained(home), "{not} read as drained");
+        }
     }
 
     #[test]
