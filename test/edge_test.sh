@@ -352,4 +352,16 @@ layout=$(awk '/^        rewrite \* \/_layout\.html$/ {on = 1} on {print} on && /
 t_eq "$(printf '%s\n' "$layout" | grep -c -F 'header Cache-Control "no-cache"')" 1
 t_eq "$(printf '%s\n' "$layout" | grep -c 'rewrite \* /_layout.html')" 1
 
+t_case "the docs server answers /favicon.ico with the icon the pages link"
+favicon=$(awk '/^[[:space:]]*handle \/favicon.ico \{/ {on = 1} on {print} on && /^[[:space:]]*\}/ {exit}' "$docs_caddy")
+[ -n "$favicon" ] || t_bad "no handle /favicon.ico in the docs server's Caddyfile"
+t_contains "$favicon" "root * /srv/fun"
+t_contains "$favicon" "rewrite * /favicon.svg"
+t_contains "$favicon" 'Cache-Control "public, max-age=86400"'
+t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">'
+[ -f "$T_ROOT/host/fun/favicon.svg" ] || t_bad "host/fun/favicon.svg is missing"
+# The final rewrite sends every other path to the layout, so the handle has to
+# come before it.
+t_eq "$(awk '/handle \/favicon.ico \{/ {f = NR} /rewrite \* \/_layout.html/ {l = NR} END {print (f && f < l) ? "before" : "after"}' "$docs_caddy")" before
+
 t_done
