@@ -328,7 +328,11 @@ fn step_15(c: &mut Connection) -> Result<(), DbError> {
 /// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
 /// taken that a read has still to settle (#1754). `actions` is rebuilt as
 /// schema.sql writes it, with foreign keys off (`step_16`): `journal` refers to
-/// it. Every row is copied.
+/// it. Every row is copied. And the millwright's old word goes from the rows
+/// that kept it: a start, a line of history or an approval that says `fixer`
+/// says `millwright`, and a refused note `fixer-refused` is
+/// `millwright-refused`, once a comment. The verbs have written only the new
+/// words since schema 4, so every answer then names the millwright one way.
 pub(crate) const STEP_16: &str = "
 CREATE TABLE actions_new (
   id          INTEGER PRIMARY KEY,
@@ -348,6 +352,12 @@ INSERT INTO actions_new SELECT * FROM actions;
 DROP TABLE actions;
 ALTER TABLE actions_new RENAME TO actions;
 CREATE INDEX actions_open ON actions (state, intended_at);
+UPDATE cycles SET how = 'millwright' WHERE how = 'fixer';
+UPDATE cycle_history SET how = 'millwright' WHERE how = 'fixer';
+UPDATE approvals SET how = 'millwright' WHERE how = 'fixer';
+UPDATE approvals SET started_how = 'millwright' WHERE started_how = 'fixer';
+UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fixer-refused';
+DELETE FROM planning_notes WHERE kind = 'fixer-refused';
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving

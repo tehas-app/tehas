@@ -658,7 +658,9 @@ The copy a person reads afterwards. For every line `tehas history` gives after
 (`plan-show`), with `issue`, `session`, `turns`, `options`, `pending`,
 `pending_outcome`, `failed`, `running`, `started_at`, `comment_id`, `lost`,
 `by`, `label`, `brief`, `turn_rc`, `opened_at`, `ended_at` (times in Unix
-seconds), `answers`, `filed`, `answer` and `notes`. A session that ended stays
+seconds), `answers` (each `turn`, `by` and `millwright`, whether the millwright
+answered it; the old duplicate `fixer` is gone), `filed`, `answer` and `notes`
+(`millwright_refused` and `held`). A session that ended stays
 on the store until the next `tehas:plan` of the issue replaces it, so a turn
 that never made a session still brings the one it ended; a turn whose session
 was replaced since, by one opened after the turn ended, brings no `plan.json`. A planning session the store did not

@@ -402,7 +402,7 @@ fn a_millwright_record_imports_under_the_new_names() {
     let p = &ok(&h, &["plan-show", "7"])["planning"];
     assert_eq!(
         p["answers"],
-        serde_json::json!([{"turn":2,"by":"tehas-millwright","millwright":true,"fixer":true}])
+        serde_json::json!([{"turn":2,"by":"tehas-millwright","millwright":true}])
     );
     assert_eq!(p["notes"]["millwright_refused"], serde_json::json!([55]));
     assert_eq!(
