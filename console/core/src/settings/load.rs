@@ -103,7 +103,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 20] = [
+const RETIRED: [&str; 21] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -124,6 +124,7 @@ const RETIRED: [&str; 20] = [
     "TEHAS_IMPROVE_RUKAS_SKIP",
     "TEHAS_IMPROVE_MAX_OPEN",
     "TEHAS_CYCLE_REPORT",
+    "TEHAS_EASY_MERGE",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -418,7 +419,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
         // the Rust poll, beesknees26 and business are the default design, and
-        // a skip of 0 asks nothing of a loop that is gone, so the line stays
+        // a skip of 0 asks nothing of a loop that is gone, and an easy merge of
+        // 0 asks for the full refresh every refresh is now, so the line stays
         // loadable. A value the timed refresh scan took is dropped: refreshes
         // are asked for with --pr now, and the line is left to the operator
         // to take out.
@@ -432,6 +434,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | ("TEHAS_REFRESH_EVERY", "")
                 | ("TEHAS_IMPROVE_RUKAS_SKIP", "0" | "")
+                | ("TEHAS_EASY_MERGE", "0" | "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
@@ -465,6 +468,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             "TEHAS_IMPROVE_REPO" | "TEHAS_IMPROVE_RUKAS_REPO" | "TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_IMPROVE_MAX_OPEN" => "is no longer read: this version of tehas has no improvement loop, so take the line out".to_string(),
             "TEHAS_CYCLE_REPORT" => "is no longer read: the cycle's report has one form, so take the line out".to_string(),
+            "TEHAS_EASY_MERGE" => GONE_EASY.to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -474,6 +478,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+const GONE_EASY: &str = "is no longer read: this version of tehas has no easy merge, every refresh is the full refresh cycle, so take the line out";
 
 /// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
 /// leading 0. The digits check matters: u32's parse also takes a leading '+'.
@@ -702,6 +708,19 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
             "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
+        ));
+    }
+    // The model proxy of outsource (#2273) is the one place a contractor's
+    // cycle waits on the factory. Its idle bound must outlast the check-in
+    // timeout, or a job is lost while its stream is still alive. With outsource
+    // off nothing listens, so the bound is not checked.
+    let (check_in, idle) = (
+        number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
+        number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
+    );
+    if on("TEHAS_OUTSOURCE") && idle <= check_in {
+        return Err(format!(
+            "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
         ));
     }
     Ok(())
@@ -1011,6 +1030,24 @@ mod tests {
         assert_eq!(vars.text("TEHAS_PLAN_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_CHILD_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+    }
+
+    #[test]
+    fn the_model_proxy_listens_on_its_address_with_a_longer_idle_bound() {
+        let vars = loads(&[]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
+        let vars = loads(&[
+            "TEHAS_OUTSOURCE=1",
+            "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
+            "TEHAS_OUTSOURCE_TIMEOUT=1800",
+            "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
+        ]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
+        // With outsource off nothing listens, and the bound is not checked.
+        let vars = loads(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
     }
 
     #[test]
@@ -1382,6 +1419,8 @@ mod tests {
             "TEHAS_IMPROVE_RUKAS_SKIP=0",
             "TEHAS_IMPROVE_MAX_OPEN=",
             "TEHAS_CYCLE_REPORT=",
+            "TEHAS_EASY_MERGE=",
+            "TEHAS_EASY_MERGE=0",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1435,6 +1474,8 @@ mod tests {
                 "TEHAS_CYCLE_REPORT=rust",
                 "is no longer read: the cycle's report has one form, so take the line out",
             ),
+            ("TEHAS_EASY_MERGE=1", GONE_EASY),
+            ("TEHAS_EASY_MERGE=yes", GONE_EASY),
         ] {
             assert_eq!(
                 refused(&[line]),
@@ -1536,6 +1577,18 @@ mod tests {
             (
                 &["TEHAS_PREVIEWS=1"][..],
                 "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
+            ),
+            (
+                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
+            ),
+            (
+                &[
+                    "TEHAS_OUTSOURCE=1",
+                    "TEHAS_OUTSOURCE_PROXY_IDLE=60",
+                    "TEHAS_OUTSOURCE_TIMEOUT=61",
+                ][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
             let got = refused(lines);
