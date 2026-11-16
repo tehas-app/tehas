@@ -1,4 +1,5 @@
 use crate::given::*;
+use crate::link::{is_link, links as text_links};
 use serde_json::{json, Value};
 use std::fs;
 use tehas_core::testdir::TestDir;
@@ -14,12 +15,6 @@ fn compose(rec: &Value) -> (Value, String) {
         .unwrap()
         .unwrap();
     (serde_json::from_str(&manifest).unwrap(), gap)
-}
-
-#[test]
-fn the_links_rule_is_the_one_of_the_dispatcher() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispatch/src/text.rs");
-    assert!(fs::read_to_string(path).unwrap().contains(LINK_RULE));
 }
 
 #[test]

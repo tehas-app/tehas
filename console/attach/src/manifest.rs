@@ -97,3 +97,31 @@ pub fn of_issue(
     m.set("leftOutMore", Ordered::Plain(more.into()));
     m
 }
+
+/// The manifest of a directory given nothing, from a text that links nothing.
+/// `issue` and `approval` are JSON; `files` is whether the instance gives a
+/// cycle files, so the list is there.
+pub fn nothing(issue: &str, approval: &str, files: bool) -> String {
+    let files = if files { "  \"files\": [],\n" } else { "" };
+    format!(
+        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"linksUnavailable\": {},\n  \"issue\": {issue},\n  \"approval\": {approval},\n  \"leftOutMore\": 0\n}}\n",
+        Value::from(NO_LINKS)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_manifest_given_nothing_names_files_only_when_files_are_on() {
+        let doc: Value = serde_json::from_str(&nothing("7", "null", false)).unwrap();
+        assert_eq!(
+            doc,
+            serde_json::json!({"images": [], "leftOut": [], "linksUnavailable": NO_LINKS, "issue": 7, "approval": null, "leftOutMore": 0})
+        );
+        let doc: Value = serde_json::from_str(&nothing("7", r#"{"at":"a"}"#, true)).unwrap();
+        assert_eq!(doc["files"], serde_json::json!([]));
+        assert_eq!(doc["approval"]["at"], "a");
+    }
+}
