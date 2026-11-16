@@ -18,6 +18,155 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+### Changes
+
+- `scripts/verify.sh` says what a step did not check: the name lint with no
+  `scripts/check-generic.names` reads `skip  the names in platform files
+  (no names list)` instead of `ok`, and the shell step reads `skip` with the
+  reasons its runner gave when the runner reported checks it did not run, as
+  it does for a missing shellcheck. A step that checked everything still
+  reads `ok`, and one that failed still reads `FAIL`.
+- The pass the gate keeps per tree now knows what the run could see. The
+  private names list is hashed as itself, which `git add -A` cannot do
+  because git ignores the file, and so is `CI`: a pass made without the list
+  is not replayed once the list is there, and a plain pass is not replayed
+  under CI. `cargo fmt --version` and `cargo clippy --version` join the tools
+  the key holds, so a pass made on a toolchain without rustfmt or clippy is
+  not replayed on one that has them.
+- The timed refresh scan is gone. `tehasbot refresh` runs only as
+  `tehasbot refresh --pr N`, which asks for the refresh of one pull request;
+  without `--pr N` it exits 64. `tehas-refresh.timer` and its service are no
+  longer installed, and `install.sh` stops, disables and removes them on a host
+  that has them. `TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY` are no
+  longer settings. `tehas api` no longer lists the features `refresh-conflicts`
+  and `refresh-pr-sweep`, no longer has `refreshScan`, and its text no longer
+  has the `refresh     scan` line (#1977).
+- The dispatcher starts every refresh request it finds, with or without
+  `"asked": "pr"`, after the same start checks. Nothing holds a request for a
+  setting any more, so `refreshHold` names only an image that cannot refresh.
+  The refresh lane keeps its room while a request waits or a refresh runs, and
+  each container's CPU share and pids limit now count the lane's slots on every
+  host, not only on one with the scan turned on (#1977).
+- A planning turn that ends after a person closed its issue is dropped: the
+  poll reads the issue's state before it posts, and a closed issue gets none of
+  the turn — no plan, no boxes, no question — with its session closed and one
+  line in the log saying so. A state that cannot be read holds the post to the
+  next poll rather than closing the session on an answer GitHub did not give
+  (#2214).
+- The cycle end, the attachment fetch, the top view and the state move run their
+  programs and reads under a bound. The cycle end reads only the tail of the run
+  log for its diagnostics. The fetcher child, the `gh` reads of the issue, the
+  `tehasbot top` publisher's child, the `stty`/`getconf` helpers of the view, and
+  the `systemctl --user` and `tar` calls of `tehas state pack` and `unpack` each
+  run within a time bound that stops them when they never answer, so one hung
+  program no longer waits forever. What pack and unpack refuse, and the output
+  and exit statuses of the answering programs, are unchanged (#2228).
+- The importer of an older tehas's records no longer reads a value it cannot
+  read as a plausible one. A `filed` entry that is not a string or not an issue
+  URL, an `rc` or `turns` that is negative, an `options` list of more than the
+  20 `plan-end` keeps, and a branch that is not a branch of that issue each hold
+  the file with a line naming the value, as a record with a malformed `answers`
+  list already did. Before, such an entry was dropped, a negative number became
+  no number, a long list was cut, and a bad branch became no branch (#2234).
+- `store journal-open` answers a row whose stored action arguments are not a
+  JSON object with `"args_unreadable": true` and no `args`, so a reader cannot
+  take an unreadable action for one that took no arguments. A readable row is
+  unchanged (#2234).
+- `analytics report` reads the counted columns of the `samples` table
+  carefully, so one cell of the wrong type leaves its own figure out instead
+  of ending the report. A REAL in `paused` is no pause, a cell that is not
+  text in `held` names no hold, and a word in `in_line`, `planning` or
+  `running` is no count: the sample is then not counted for the availability
+  or the planned line that depends on it, and the report publishes. Before,
+  such a cell ended the whole report: `analytics report` and
+  `analytics report --json` both failed with an error and exited 70. The `at`
+  and `watts` columns are read as they were, so a bad cell in either of them
+  still ends the report (#2243).
+- The git configuration a cycle's container is given now counts its own keys.
+  `GIT_CONFIG_COUNT` is the number of `GIT_CONFIG_KEY_<i>` entries the container
+  is given, built in one place, so a guard key added later cannot be dropped by
+  git because its number was not raised. The variables a container is given are
+  the same as before, in the same order (#2247).
+- The two `tehas:` kind labels are spelled in one place. `Kind::label` is a
+  `const fn` and the constants that name the improvement and prototype labels
+  are built from it, so a rename reaches every command at once (#2250).
+- The MCP server reads the header line of its two published snapshots,
+  `sessions.jsonl` and `outcomes.jsonl`, under the crate's read bound. A file
+  whose first line is longer than the bound is answered `could not be read`
+  with no path and no content in it, instead of that line being buffered
+  first. The bound is the header's alone: the entry lines of the same files
+  are still read without one (#2252).
+- An imported park whose own record gives no reason takes the reason of its
+  cycle's history line through the list of end reasons, so a status the store
+  does not know is recorded as `unknown` in the park as it is in the cycle
+  (#2257).
+- The planning polls write and read the outcome of a turn carefully. The
+  document is written to a sibling of `state/plan-N.json.out` and renamed into
+  place, and the sibling is now made new rather than opened over what already
+  holds its name: a leftover of a turn that died between the write and the
+  rename is taken away first, so the document a later poll reads is the one
+  this keep wrote and not the leftover's bytes. A link or a directory under
+  the sibling's name is left where it stands and the keep fails naming the
+  file, since to follow it would write through a name the run does not own;
+  the poll then says so and the next poll tries again. Reading the outcome is
+  guarded the same way: the file is taken as a regular file under the size the
+  console shares with its readers, so a link, a directory, or a file that grew
+  past that bound is no outcome, which is the answer the poll already gives for
+  a turn that left no words of its own (#2259).
+- The manual pages carry structured data for search and answer engines: each page as an article with a breadcrumb, and the questions on the Pi software factory page as an FAQ. The front page names the licence, the author and the source repository (#2288).
+- `/sitemap.xml` gives each page a `<lastmod>` date: when its file last changed on the host, and for the front page the last update to a new version (#2289).
+- `/llms-full.txt` serves `llms.txt` and the whole manual as Markdown in one text, for agents that read a site in one fetch (#2290).
+- `/favicon.ico` serves the site icon instead of a 404 (#2291).
+- A call whose output could not be read (a failed or panicked pipe reader) is no longer taken for a program that printed nothing: the poll's line says the answer could not be read and the call is asked again, instead of a "garbled" store answer or a gh read settled with no retry. Output with a byte that is not UTF-8 is kept, with the byte replaced, rather than lost whole.
+- When the state store is busy as a cycle's container starts, `tehas work` asks it once more a second later before it lets the cycle run without the image on the cycle's record, and its line now names the image id the container runs.
+- A start no longer deletes the workspace kept beside it before the newer one is in its place, and says when it replaces one; it names what a killed cycle left (container id, kill counts, signal, an outlived container) before it clears it, and says when a log it writes cannot be written.
+- A drained factory says what frees it. While `tehas drain` holds the factory,
+  the dispatcher's hold line ends `; tehas limit clear starts the factory`, and
+  `tehas update` that ended well on such a factory prints one line last naming
+  the same command and saying this version has run no cycle yet. A limit that
+  merely holds every slot, and one that expired, keep their words; the new line
+  of an update changes no exit status, and `--check` and `--pending` print
+  nothing new (#2229).
+- The front page title and heading say tehas is open source.
+- A refresh whose conflict check judged nothing no longer runs: when the read of
+  the merge runs out of time, when git cannot be started, when the request's
+  record holds no pull request or a head that is no commit, when git writes no
+  tree object, or when it answers a status that is no answer, `tehas work` exits
+  78, says which of them in the cycle log and writes no note, so no container
+  starts. A merge that is clean runs as before, and so does one made by a git
+  that has no such read of its own, with what git said in the log (#2227).
+- A product's install, or the sandbox's push check, that cannot open its
+  preflight log says that, with the path of the log and the fault of the system,
+  and stops the start with 78. Neither ends as exit 127, with the lines of the
+  step before it quoted as its own output, and the install's fault is no longer
+  told as a sandbox that refused to push (#2227).
+- `scripts/test.sh` names the paths it was given when none of them holds a test file or a script to lint, so a runner probe such as the lean driver's can see which path it refused. The exit status stays 3.
+- Who may authorise work no longer depends on how GitHub spelled the account.
+  One rule reads a login everywhere: gh's `app/<slug>`, REST's `<slug>[bot]`
+  and GraphQL's `<slug>` are the same account when the poll weighs a start, a
+  millwright's comment or the factory's own pull requests, and one rule reads
+  `TEHAS_ALLOWED_LABELERS` wherever it is read, so a name is matched the same
+  way by `tehasbot status`, `tehasbot pause` and `tehasbot protolab` as by the
+  poll. A label event whose `created_at` is there but is no text is now read
+  the strict way everywhere: the answer says it cannot be read and the poll
+  holds the start, instead of reading the event as one with no time and
+  ordering it ahead of the stamped ones (#2230).
+
+### Adopter action
+
+None.
+
+If the scan was on, make sure something else asks for refreshes with
+`tehasbot refresh --pr N`, such as the industry that runs the factory: after
+the update nothing looks for conflicts on its own. Take the
+`TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY` lines out of
+`instance.env`. A value they took before still loads and does nothing; any
+other value stops every command with 78.
+
+None.
+
+None.
+
 ## v0.30.6 (2026-11-15)
 
 ### Changes
