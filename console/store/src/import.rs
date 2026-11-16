@@ -537,6 +537,23 @@ impl CycleLine {
     }
 }
 
+/// The URL of an issue a planning turn filed, or the reason the entry is not
+/// one. A record that lists something else says the turn filed a thing the
+/// import cannot name, so the file is held rather than the entry dropped.
+fn filed_url(v: &Value) -> Result<String, String> {
+    let s = v
+        .as_str()
+        .ok_or_else(|| "has a filed entry that is not a string".to_string())?;
+    if plan::filed_issue(s).is_some() {
+        Ok(s.to_string())
+    } else {
+        Err(format!(
+            "has a filed entry that is not an issue URL: {}",
+            verbs::shown(s)
+        ))
+    }
+}
+
 fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
     let mut out = Vec::new();
     for (i, l) in text(g)?.lines().enumerate() {
@@ -548,12 +565,15 @@ fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
         let s = |k: &str| opt_str(&m, k).map_err(|e| format!("line {}: {e}", i + 1));
         let started = opt_int(&m, "started").map_err(|e| format!("line {}: {e}", i + 1))?;
         let rc = opt_int(&m, "rc").map_err(|e| format!("line {}: {e}", i + 1))?;
+        if rc.is_some_and(|n| n < 0) {
+            return Err(format!("line {}: has an rc that is negative", i + 1));
+        }
         out.push(CycleLine {
             at,
             started,
             status: clean(s("status")?, word_char, 40).unwrap_or_else(|| "unknown".to_string()),
             step: clean(s("step")?, word_char, 40),
-            rc: rc.filter(|n| *n >= 0),
+            rc,
             cap: clean(s("cap")?, cap_char, 80),
             park_reason: clean(s("park_reason")?, kebab_char, 40),
             failure_kind: clean(s("failure_kind")?, kebab_char, 40),
@@ -618,12 +638,7 @@ fn plan_lines(g: &Got) -> Result<Vec<PlanLine>, String> {
         };
         let filed = match m.get("filed") {
             None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(a)) => a
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|u| plan::filed_issue(u).is_some())
-                .map(str::to_string)
-                .collect(),
+            Some(Value::Array(a)) => a.iter().map(filed_url).collect::<Result<_, String>>()?,
             Some(_) => return Err(at_line("has a filed that is not a list".to_string())),
         };
         let label = opt_str(&m, "label")
@@ -841,12 +856,20 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
     let options = match m.get("options") {
         None | Some(Value::Null) => Vec::new(),
         // Labels the runner wrote, kept as plan-end keeps them; one that is not
-        // text is `-`.
-        Some(Value::Array(a)) => a
-            .iter()
-            .take(plan::MAX_OPTIONS)
-            .map(|v| plan::option_label(v.as_str().unwrap_or("")))
-            .collect(),
+        // text is `-`. A list longer than plan-end would keep is the record the
+        // import cannot account for, so it is refused, not cut.
+        Some(Value::Array(a)) => {
+            if a.len() > plan::MAX_OPTIONS {
+                return Err(format!(
+                    "has {} options, more than the {} plan-end keeps",
+                    a.len(),
+                    plan::MAX_OPTIONS
+                ));
+            }
+            a.iter()
+                .map(|v| plan::option_label(v.as_str().unwrap_or("")))
+                .collect()
+        }
         Some(_) => return Err("has options that are not a list".to_string()),
     };
     let answers = match m.get("answers") {
@@ -883,10 +906,8 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(a)) => a
             .iter()
-            .filter_map(Value::as_str)
-            .filter(|u| plan::filed_issue(u).is_some())
-            .map(str::to_string)
-            .collect::<BTreeSet<_>>()
+            .map(filed_url)
+            .collect::<Result<BTreeSet<_>, String>>()?
             .into_iter()
             .collect(),
         Some(_) => return Err("has a filed that is not a list".to_string()),
@@ -920,7 +941,13 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
         session: opt_str(&m, "session")?
             .filter(|s| plan::session_ok(s))
             .map(str::to_string),
-        turns: opt_int(&m, "turns")?.unwrap_or(0).max(0),
+        turns: {
+            let turns = opt_int(&m, "turns")?.unwrap_or(0);
+            if turns < 0 {
+                return Err("has a turns that is negative".to_string());
+            }
+            turns
+        },
         options,
         pending: opt_bool(&m, "pending")?,
         failed: opt_bool(&m, "failed")?,
@@ -1470,9 +1497,14 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Group) -> Re
         None => None,
     };
     let branch_v = match &branch {
-        Some((_, g)) => first_line(g)
-            .map_err(|e| wrap(&branch, e))?
-            .filter(|b| cycle::branch(issue, b)),
+        Some((_, g)) => match first_line(g).map_err(|e| wrap(&branch, e))? {
+            None => None,
+            Some(s) => Some(
+                cycle::branch(issue, &s)
+                    .then_some(s)
+                    .ok_or_else(|| wrap(&branch, "is not a branch of this issue".into()))?,
+            ),
+        },
         None => None,
     };
     let settings_v = match &settings {

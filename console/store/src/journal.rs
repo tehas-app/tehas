@@ -18,7 +18,10 @@
 //!     failed. --abandoned is the settling poll's word for an action whose
 //!     fresh read says it did not happen and need not.
 //!   store journal-open
-//!     The actions intended or attempted and not settled, oldest first.
+//!     The actions intended or attempted and not settled, oldest first. A row
+//!     whose stored args do not read as a JSON object carries
+//!     `"args_unreadable": true` and no `args`, so a reader cannot take the
+//!     absent arguments for empty ones.
 
 use crate::verbs::{self, j, line, list, obj, refuse, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
@@ -307,22 +310,26 @@ fn open(home: &Path) -> Result<String, Fail> {
         let rows = q
             .query_map([], |r| {
                 let args: String = r.get(4)?;
-                Ok(obj(&[
+                let mut row = vec![
                     ("id", j(r.get::<_, i64>(0)?)),
                     ("poll_at", j(r.get::<_, i64>(1)?)),
                     ("kind", j(r.get::<_, String>(2)?)),
                     ("issue", j(r.get::<_, i64>(3)?)),
-                    (
-                        "args",
-                        serde_json::from_str::<Value>(&args)
-                            .unwrap_or(Value::Null)
-                            .to_string(),
-                    ),
+                ];
+                // An argument blob that is not a JSON object is said, not read
+                // as null: the caller that settles cannot tell an unreadable
+                // row from one whose action took no arguments.
+                match serde_json::from_str::<Value>(&args) {
+                    Ok(v @ Value::Object(_)) => row.push(("args", v.to_string())),
+                    _ => row.push(("args_unreadable", "true".to_string())),
+                }
+                row.extend([
                     ("before", j(r.get::<_, i64>(5)?)),
                     ("state", j(r.get::<_, String>(6)?)),
                     ("intended_at", j(r.get::<_, i64>(7)?)),
                     ("attempted_at", j(r.get::<_, Option<i64>>(8)?)),
-                ]))
+                ]);
+                Ok(obj(&row))
             })
             .q()?
             .collect::<Result<Vec<_>, _>>()
