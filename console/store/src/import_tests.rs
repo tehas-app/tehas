@@ -684,7 +684,7 @@ fn park_reason_from_history(status: &str) -> (String, String) {
     put(
         &h,
         "cycles/7.park",
-        &format!(r#"{{"cap":"","reason":"","provider":false,"retry":false,"started":{start}}}"#),
+        &format!(r#"{{"cap":"","provider":false,"retry":false,"started":{start}}}"#),
         start + 3601,
     );
     import_ok(&h);
