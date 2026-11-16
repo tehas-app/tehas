@@ -52,15 +52,13 @@
 # what a release carries. A tree with neither is refused before anything is
 # written, and a store that fails stops the run with exit 1 and its own line.
 #
-# The records an older tehas kept as files under state/ are then imported
-# (`store import`): made rows, each file moved to state/imported-<YYYYMMDD>/,
-# nothing deleted. A real run holds state/dispatch.lock from before the first
-# copy until after the import, so no poll starts anything in between; a poll
-# that holds it longer than the update lock's wait stops the run (exit 1,
-# nothing installed). Before the first copy the store judges the old files
-# (`store import --dry-run`): while one is there, a running cycle or planning
-# turn, or a file the import would hold, stops the run the same way. A planning
-# session's kept directory moves from state/ to $TEHAS_WORK_DIR-plan-<n>.keep.
+# A store older than v0.30.0 wrote is refused before the first copy: the store
+# this run installs judges it (`store migrate --dry-run`) and says to update to
+# a v0.30 release first, and nothing is installed (exit 78). A real run holds state/dispatch.lock
+# from before the first copy until the old files are removed, so no poll starts
+# anything in between; a poll that holds it longer than the update lock's wait
+# stops the run (exit 1, nothing installed). A planning session's kept directory
+# moves from state/ to $TEHAS_WORK_DIR-plan-<n>.keep.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
@@ -384,13 +382,8 @@ home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
     [ "$part" != ".." ] || { echo "TEHAS_HOME names a parent directory: $path"; return; }
   done
   [ -d "$path" ] || return
+  # Every install since v0.30.0 leaves the marker.
   [ -e "$path/$home_marker" ] && return
-  # An existing host has no marker yet, so the home of an earlier install has to
-  # be known another way: env.sh beside libexec/dispatch, and the manual and the
-  # front page beside the rest, are what an install of tehas leaves and nothing
-  # else puts there.
-  if [ -f "$path/env.sh" ] && [ -f "$path/libexec/dispatch" ]; then return; fi
-  if [ -f "$path/docs/host.md" ] && [ -f "$path/fun/index.html" ]; then return; fi
   while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     case " ${home_dirs[*]} " in *" $entry "*) continue ;; esac
@@ -756,9 +749,9 @@ login_bin=${BOOTSTRAP_BIN:-/usr/local/bin}/tehas
 login_fix=$("$loaded_console" update login "$root" "$login_bin" "${BOOTSTRAP_ETC:-/etc}/tehas/manager") || exit 1
 
 # --- 3. Install ---------------------------------------------------------------
-# The programs are built first and copied only after the old records are judged
-# (3a): program_puts and program_stamps hold what is due. gate_store is the
-# store this run installs, the one that judges them.
+# The programs are built first and copied only once the dispatcher's lock is
+# held and the store is judged (3a): program_puts and program_stamps hold what
+# is due. gate_store is the store this run installs, the one that judges it.
 program_puts=()
 program_stamps=()
 gate_store=$TEHAS_HOME/libexec/store
@@ -855,21 +848,16 @@ if [ "$check" != 1 ]; then
   "$steps_console" ids record || { echo "tehas: nothing was installed" >&2; exit 78; }
 fi
 
-# --- 3a. The old records and the dispatcher's lock ----------------------------
-# The store keeps the host's records; an older tehas kept them as files under
-# state/, and store_db below imports them (store import). From here until after
-# that import this run holds state/dispatch.lock, so no poll starts a cycle or a
-# planning turn in between. A poll that holds it now is waited for up to
-# TEHAS_DISPATCH_LOCK_WAIT seconds (900), then nothing is installed.
-#
-# Before the first copy the store this run installs judges the old files with
-# a dry run, which reads files only. A cycle or planning turn that runs while
-# old files are there would write more of them after the import, so it stops
-# the install; so does a file the import would hold (a link, too large, or
-# unreadable). home_refusal has proved the home by now, so a home installed
-# before the marker came in gets it here, and its old records are judged too.
+# --- 3a. The dispatcher's lock ------------------------------------------------
+# From the first copy until the old files are removed this run holds
+# state/dispatch.lock, so no poll starts a cycle or a planning turn in between.
+# A poll that holds it now is waited for up to TEHAS_DISPATCH_LOCK_WAIT seconds
+# (900), then nothing is installed. home_refusal has proved the home by now, so
+# a home without the marker gets it here. Then, before the first copy, the store
+# this run installs judges the database there with a dry run that reads only: a
+# store it would not migrate stops the run with exit 78.
 dispatch_held=0
-store_gate() {
+dispatch_hold() {
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
   if ! flock -w "$dispatch_wait" 9; then
     echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
@@ -879,16 +867,17 @@ store_gate() {
   if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
     printf 'tehas\n' | "$steps_console" update files write "$TEHAS_HOME/$home_marker" || exit 1
   fi
-  [ -f "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ] || return 0
+  [ -e "$TEHAS_HOME/state/tehas.db" ] || [ -L "$TEHAS_HOME/state/tehas.db" ] || return 0
   if [ ! -x "$gate_store" ]; then
-    echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2
-    exit 1
+    echo "tehas: there is no store to judge $TEHAS_HOME/state/tehas.db with ($gate_store); nothing was installed" >&2
+    exit 78
   fi
-  # The store says its own refusals, each exit 1; any other status is a store
+  # The store says its refusal itself, exit 78; any other status is a store
   # that could not say.
-  TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run --say && return 0
-  [ $? = 1 ] || echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
-  exit 1
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run >/dev/null && return 0
+  [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
+  echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
+  exit 78
 }
 # Given back before the first index, which takes the lock itself.
 dispatch_release() {
@@ -896,7 +885,7 @@ dispatch_release() {
   dispatch_held=0
 }
 if [ "$check" != 1 ]; then
-  store_gate
+  dispatch_hold
   for i in "${!program_puts[@]}"; do
     copy_files <<<"${program_puts[$i]}"
     to=${program_puts[$i]#*|}
@@ -1132,13 +1121,6 @@ store_db() {
   if ! TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
     --instance "$name" --repo "$TEHAS_REPO" --say; then
     echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
-    exit 1
-  fi
-  # The records an older tehas kept as files, made rows; each file is moved to
-  # state/imported-<day>/ once its rows read back, and nothing is deleted. A run
-  # again is safe: what is in the store already is not written twice.
-  if ! TEHAS_HOME=$TEHAS_HOME "$store" import --say; then
-    echo "tehas: the store could not import the old records under $TEHAS_HOME/state; the files are installed, the database holds what was imported, and install.sh can run again" >&2
     exit 1
   fi
 }
