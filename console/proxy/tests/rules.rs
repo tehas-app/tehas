@@ -37,7 +37,7 @@ impl Proxy {
     /// tokens of the rows are issued by this proxy, which is the one holder of
     /// them and of the count of the requests that carry them.
     fn new(endpoint: Endpoint, jobs: &[(&str, &str, State)]) -> Proxy {
-        // The rows name the token of each job, as #2272's table will, and the
+        // The rows name the token of each job, as a test mints it, and the
         // proxy is the one holder of the tokens: the two are made together.
         let issuer = Issuer::new();
         let rows = rows_of(jobs, token_of);
@@ -55,7 +55,7 @@ impl Proxy {
         }
     }
 
-    /// A proxy whose factory reads nothing: an instance of #2272's day before.
+    /// A proxy whose factory reads nothing: a store it cannot read.
     fn of_no_records(endpoint: Endpoint) -> Proxy {
         Proxy {
             factory: Records::empty(),
@@ -623,7 +623,7 @@ fn an_endpoint_that_answers_nothing_is_a_502_and_no_invented_answer() {
 }
 
 /// A factory whose records read nothing forwards nothing: the fail-closed half
-/// of the proxy, and the state of every instance until #2272's tables are read.
+/// of the proxy, and the state of a store it cannot read.
 #[test]
 fn a_factory_of_no_records_answers_only_refusals() {
     let endpoint = Endpoint::open(Plan::json(200, 1, 1));

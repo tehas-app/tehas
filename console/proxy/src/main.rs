@@ -13,6 +13,7 @@
 //! word that says why and ends 0, and no port is opened.
 //!
 //! The settings are read as tehas_load leaves them in the environment:
+//! TEHAS_HOME, whose state store holds the contractors and the jobs;
 //! TEHAS_OUTSOURCE, the switch; TEHAS_OUTSOURCE_ADDR, the address and port to
 //! listen on, never the dashboard's; TEHAS_OUTSOURCE_TIMEOUT, how long a job
 //! may go without a contractor's check-in; TEHAS_OUTSOURCE_IDLE, how long one
@@ -44,7 +45,7 @@ use tehas_core::{out, outln};
 use tehas_proxy::forward::Upstream;
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::log;
-use tehas_proxy::records::{self, Reader, Rows};
+use tehas_proxy::records;
 use tehas_proxy::serve::{self, Serve};
 
 fn env(key: &str) -> String {
@@ -59,16 +60,23 @@ fn seconds(key: &str, fallback: u64) -> u64 {
     env(key).trim().parse().unwrap_or(fallback)
 }
 
-/// The state directory, as the instance's settings name it. Nothing here
-/// invents a default: tehas_load has refused a missing one already.
-fn state() -> PathBuf {
-    PathBuf::from(env("TEHAS_STATE"))
+/// The tehas home, whose state store holds the factory's records. tehas_load
+/// exports it; a proxy started without it stops rather than guess one.
+fn home() -> PathBuf {
+    let home = env("TEHAS_HOME");
+    if home.is_empty() {
+        stop(
+            "TEHAS_HOME is not set: the proxy has no state store to read",
+            78,
+        );
+    }
+    PathBuf::from(home)
 }
 
 /// Where the proxy keeps its own things in the state: the socket of its control
 /// line, and the directory a job's token is written into.
 fn outsource() -> PathBuf {
-    state().join("outsource")
+    home().join("state").join("outsource")
 }
 
 /// The control socket: this user's own, in the state directory, and the only
@@ -148,7 +156,7 @@ fn listen() -> ! {
         stop(&why, if on() { 78 } else { 0 });
     }
     let issuer = Box::leak(Box::new(Issuer::new()));
-    let store = Box::leak(Box::new(Store));
+    let store = Box::leak(Box::new(records::OfStore::at(&home(), issuer)));
     // The two lists of the factory and this process's own tokens, asked
     // together for every request.
     let records = Box::leak(Box::new(records::OfProxy::of(store, issuer)));
@@ -169,9 +177,25 @@ fn listen() -> ! {
         Err(why) => stop(&why, 1),
     };
     eprintln!("{}", serve::started(&at, Duration::from_secs(idle)));
-    // The control line and the listener are both the proxy's own, and the
-    // listener holds the process: it is what makes the proxy a task of its own
-    // rather than a step of a poll.
+    // The control line runs on a thread of its own and the listener holds the
+    // process: it is what makes the proxy a task of its own rather than a step
+    // of a poll.
+    let control_issuer = issuer.shared();
+    let spawned = Builder::new()
+        .stack_size(128 * 1024)
+        .spawn(move || control_loop(socket, &control_issuer));
+    if let Err(e) = spawned {
+        stop(&format!("the proxy cannot start its control line: {e}"), 1);
+    }
+    if let Err(why) = serve::listen(proxy, &at) {
+        stop(&why, 1);
+    }
+    std::process::exit(0)
+}
+
+/// Answer the control socket, a few lines at a time, for the life of the
+/// process.
+fn control_loop(socket: UnixListener, issuer: &Issuer) {
     let line = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(CONTROL_HANDS));
     for accepted in socket.incoming() {
         let Ok(stream) = accepted else { continue };
@@ -198,8 +222,6 @@ fn listen() -> ! {
             })
             .ok();
     }
-    let _ = serve::listen(proxy, &at);
-    std::process::exit(0)
 }
 
 /// How many lines of the control line the proxy answers at once.
@@ -336,19 +358,4 @@ fn exchange(path: &PathBuf, line: &str) -> std::io::Result<String> {
     let mut said = String::new();
     BufReader::new(socket).read_line(&mut said)?;
     Ok(said)
-}
-
-/// The proxy's reading of the factory's records: #2272's two lists, which
-/// contractors may work and which jobs are going. The proxy never decides from
-/// what a contractor sends. The read lives in `tehas_proxy::records`, so a
-/// factory whose tables are not there yet reads nothing and forwards nothing.
-struct Store;
-
-impl Reader for Store {
-    /// #2272's tables. Nothing of them can be read today, so nothing may work:
-    /// the fail-closed half of rule 4, and the paragraph in the pull request
-    /// that names what the wiring needs.
-    fn rows(&self) -> Rows {
-        records::NoneAtAll.rows()
-    }
 }
