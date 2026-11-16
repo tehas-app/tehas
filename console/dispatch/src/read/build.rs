@@ -13,7 +13,6 @@ use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use tehas_core::driver::Driver;
 use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
@@ -436,12 +435,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)]),
     );
     // The driver of a retry is on its record, whichever rule starts it. Only an
-    // issue that carries the label choosing against the default costs a read.
-    let opt_out = Driver::opt_out(c.driver_default);
+    // issue that carries a label that chooses the driver costs a read.
+    let read = crate::decide::driver_labels(c.driver_default);
     let lean: Vec<u64> = q
         .open
         .iter()
-        .filter(|o| has(&o.labels, opt_out))
+        .filter(|o| read.iter().any(|l| has(&o.labels, l)))
         .map(|o| o.number)
         .collect();
     want(

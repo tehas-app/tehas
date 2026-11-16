@@ -551,7 +551,8 @@ A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
 taken off by another account is no park: the choice of driver was not an allowed account's.
 The comment says `` `tehas:lean` was applied by `<login>`, an account that may
 not choose the driver in this factory ``.
-Under `TEHAS_DRIVER=lean` the same holds for `tehas:classic`, and a comment
+Under `TEHAS_DRIVER=lean` the same holds for `tehas:classic`, and for a
+`tehas:lean` that another account took off, and a comment
 that the issue carries both `tehas:lean` and `tehas:classic` asks an allowed
 account to take one of them off.
 See [choosing the driver](/operating#choosing-the-driver).
