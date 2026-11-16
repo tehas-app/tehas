@@ -573,7 +573,6 @@ What a lean run does, as pi-rukas's `docs/lean.md` describes it:
   builds once more, and a second red hands back. A pull request that conflicts
   or falls behind after the run is tehas's, not lean's, and it is never
   refreshed with `--continue-pr`: a lean refresh is refused with 78 as above.
-  The [easy merge](#refreshes) is meant for it, and it runs on no host yet.
 - The cycle's time limit, `TEHAS_WORK_TIMEOUT`, covers the whole run, the wait
   for the pull request's checks included.
 
