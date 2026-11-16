@@ -4,8 +4,8 @@
 //!
 //! This process holds GH_TOKEN, so it reads no hostile bytes. curl and gh are
 //! child processes. What was fetched is read by this program run again as a
-//! child: no token and no other environment, the 60 seconds of a read, so a
-//! panic or a hang is the archive's fault and leaves it out.
+//! child: no token and no other environment, and the same 60 seconds of a read
+//! or a fetch, so a panic or a hang is the archive's fault and leaves it out.
 //!
 //! Every name a file is given here is made here, from a count and an extension
 //! of a closed list. Nothing of a link names a place on the disk.
@@ -21,6 +21,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 const LIMIT: i64 = 10 * 1024 * 1024;
 const MOST_IMAGES: i64 = 8;
@@ -38,6 +39,7 @@ const FBIG: &str = "Over the 1 MB limit of a file.";
 const NOTEXT: &str = "Not valid UTF-8 text, or it holds a NUL byte.";
 const TOOBIG: &str = "Over the 10 MB limit of a ticket.";
 const NOT_FILE: &str = "Not a text file a cycle is given, and not an image.";
+const NOT_READ: &str = "the issue could not be read for its images";
 const OUTSIDE: &str = "A path outside the archive.";
 const NOT_WRITTEN: &str = "the issue's images could not be written";
 
@@ -790,38 +792,40 @@ pub struct IssueRun<'a> {
     pub data: &'a str,
 }
 
-fn read_issue(repo: &str, issue: &str) -> Option<String> {
-    let out = Command::new("gh")
-        .args(["api", &format!("repos/{repo}/issues/{issue}")])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+/// The seconds a `gh api` of the issue is given before it is stopped.
+pub const READ_SECS: u64 = 60;
+
+pub(crate) fn run_issue_read(program: &str, repo: &str, issue: &str, secs: u64) -> Option<String> {
+    let ran = tehas_core::call::run(
+        program,
+        &["api".to_string(), format!("repos/{repo}/issues/{issue}")],
+        Duration::from_secs(secs),
+    );
+    ran.ok().then_some(ran.out)
 }
 
 /// Remake the directory from the issue's text, with a manifest.json. Err, with
 /// the reason, when the issue's images cannot be given and nothing may start.
 pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
-    const NOT_READ: &str = "the issue could not be read for its images";
+    // The reason of a read that gave no answer: the same words as ever.
+    let not_read = || NOT_READ.to_string();
     let dir = run.dir;
     rm_rf(dir)
         .and_then(|()| fs::create_dir_all(dir))
         .map_err(|_| "the directory for the issue's images could not be made".to_string())?;
 
-    // One start asks GitHub for the issue once, whatever it is asked for.
+    // One start asks GitHub for the issue once, whatever it is asked for. When
+    // the read gives nothing the directory is left as the empty one made above.
     let read;
     let data = if run.data.trim_end_matches('\n').is_empty() {
-        read = read_issue(run.repo, run.issue).ok_or(NOT_READ)?;
+        read = run_issue_read("gh", run.repo, run.issue, READ_SECS).ok_or_else(not_read)?;
         read.as_str()
     } else {
         run.data
     };
-    let answer: Value = serde_json::from_str(data).map_err(|_| NOT_READ)?;
+    let answer: Value = serde_json::from_str(data).map_err(|_| not_read())?;
     if !answer.is_object() || !(answer["body"].is_null() || answer["body"].is_string()) {
-        return Err(NOT_READ.to_string());
+        return Err(not_read());
     }
 
     // The links as the approval saw them, with a record: no record of which
@@ -836,8 +840,11 @@ pub fn issue(run: &IssueRun, net: &dyn Net) -> Result<(), String> {
         let links = given::text_links(body).into_iter().map(source).collect();
         (Ordered::Plain(Value::Null), links)
     } else {
-        let values = given::values_of(run.record).map_err(|_| NOT_READ)?;
-        let record = values.first().filter(|r| r.is_object()).ok_or(NOT_READ)?;
+        let values = given::values_of(run.record).map_err(|_| not_read())?;
+        let record = values
+            .first()
+            .filter(|r| r.is_object())
+            .ok_or_else(not_read)?;
         let plain = |key: &str| Ordered::Plain(record[key].clone());
         let approval = Ordered::map([
             ("at", plain("at")),

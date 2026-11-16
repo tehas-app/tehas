@@ -157,17 +157,11 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "host      2 cpus, load ?, cpu ?%, mem ? of ? MB"
 
 
-# A sleep that records that it was asked and does nothing, in a directory of its
-# own: only a case that puts it first on PATH gets it, so every other case in
-# this file still sleeps for real.
-nosleep() {
-  mkdir -p "$T/nosleep"
-  cat >"$T/nosleep/sleep" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$T/calls/sleep"
-EOF
-  chmod +x "$T/nosleep/sleep"
-}
+# The wait between two readings is a wait on the clock, not a `sleep` child, so
+# it leaves nothing to record. To keep the case quick it runs against a tree
+# whose two readings give the same figures, and the wall time of one snapshot
+# that waits is bounded below: a call that takes no wait ends in well under a
+# second, a call that waits for a second reading takes about a second.
 
 # The same tree five seconds on: tehas-cycle used 5 s of CPU in the window, and
 # the aggregate line moved by 1000 ticks of which 500 were idle - 50% over the
@@ -197,21 +191,26 @@ T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 t_case "a snapshot given the reading of the frame before does not wait for a second one"
 reset
 files
-nosleep
-T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
+began=$SECONDS
 t_run '"$TEHAS_CONSOLE" top snapshot 16 >"$T/one"'
 t_eq "$t_rc" 0
 # Nothing to compare with: a pair of readings, and the second one a second on.
-t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+# The wait is on the clock, so it takes a second of wall time and starts no
+# child.
+elapsed=$((SECONDS - began))
+t_eq "$elapsed" 1
 t_eq "$(jq -r '.reading.clock' "$T/one")" "1000.00"
 t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
   '[null,null,null,null,null]'
 # Time passes, as it does between two frames of a view. The reading of the frame
-# before is handed to the next one, and that call takes no sleep at all.
+# before is handed to the next one, and that call takes no wait at all.
 proc_ahead "$proc1"
+began=$SECONDS
 t_run '"$TEHAS_CONSOLE" top snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
 t_eq "$t_rc" 0
-t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+elapsed=$((SECONDS - began))
+t_eq "$elapsed" 0
 t_eq "$(jq -r '.reading.clock' "$T/two")" "1005.00"
 # Measured over the five seconds between the two readings: 50% for the host, and
 # 100% for the process that used them.

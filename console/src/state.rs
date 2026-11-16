@@ -70,9 +70,11 @@ use signal_hook::iterator::Signals;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// The directories under the home that hold a live token and its lookup
 /// files. None is packed, and unpack keeps the target's own.
@@ -293,28 +295,43 @@ fn person(v: &Value) -> Vec<String> {
     out
 }
 
+/// The seconds one `systemctl --user` of pack is given. A bus that does not
+/// answer is refused, so a hung bus fails the no-active-unit check closed
+/// rather than packing over a running factory.
+const SYSTEMCTL_SECS: u64 = 5;
+/// The seconds a `tar` of pack or unpack is given. Generous: an archive of the
+/// whole state is large, but a tar that never ends is still stopped.
+const TAR_SECS: u64 = 600;
+
 /// The tehas-* units `systemctl --user` reports as running or on their way.
 fn active_units() -> Result<Vec<String>, Fail> {
-    let out = Command::new("systemctl")
-        .args([
-            "--user",
-            "list-units",
-            "--plain",
-            "--no-legend",
-            ACTIVE,
-            "tehas-*",
-        ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(io_fail("could not ask systemctl"))?;
-    if !out.status.success() {
+    active_units_of("systemctl", SYSTEMCTL_SECS)
+}
+
+/// active_units with the program and its bound named, so a case can give it a
+/// stub that hangs. A call that outlived its bound gives no status and is a
+/// refusal, so a hung bus fails the no-active-unit check closed.
+fn active_units_of(program: &str, secs: u64) -> Result<Vec<String>, Fail> {
+    let ran = tehas_core::call::run(
+        program,
+        &[
+            "--user".to_string(),
+            "list-units".to_string(),
+            "--plain".to_string(),
+            "--no-legend".to_string(),
+            ACTIVE.to_string(),
+            "tehas-*".to_string(),
+        ],
+        Duration::from_secs(secs),
+    );
+    if !ran.ok() {
         return Err((
             1,
             "could not ask systemctl which units are active".to_string(),
         ));
     }
-    Ok(String::from_utf8_lossy(&out.stdout)
+    Ok(ran
+        .out
         .lines()
         .filter_map(|l| l.split_whitespace().next())
         .filter(|u| u.starts_with("tehas-"))
@@ -496,37 +513,87 @@ fn pack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     }
     tar.arg("-C").arg(&scratch.dir).arg("tehas.db.copy");
     // The tar is finished before a byte of it is sent, so a tar that failed
-    // never reaches the other end looking whole.
-    let status = tar
+    // never reaches the other end looking whole. It runs in a group of its own
+    // under a bound that stops it (TERM, then KILL) when it never ends.
+    let mut child = tar
         .stdin(Stdio::null())
-        .status()
+        .process_group(0)
+        .spawn()
         .map_err(io_fail("could not run tar"))?;
-    if !(status.success() || (rehearse && status.code() == Some(1))) {
-        return Err((1, format!("tar failed: {status}")));
+    let status = tehas_core::call::wait(
+        &mut child,
+        Duration::from_secs(TAR_SECS),
+        tehas_core::call::GRACE,
+        true,
+    );
+    // A call that ran out of time was stopped by the bound: no status, and pack
+    // refuses as it would a tar that failed.
+    let ended = status.is_some_and(|s| ExitStatus::from_raw(s).success() || (rehearse && s == 1));
+    if !ended {
+        return Err((
+            1,
+            "tar failed or gave no answer within its bound".to_string(),
+        ));
     }
     let mut made = fs::File::open(&whole).map_err(io_fail("could not read the tar"))?;
     io::copy(&mut made, &mut io::stdout().lock()).map_err(io_fail("could not write the tar"))?;
     Ok(())
 }
 
+/// tar's arguments of one call, with the LC_ALL that keeps its words steady.
+fn tar_words(args: &[&str], archive: &Path) -> Vec<String> {
+    args.iter()
+        .map(|a| a.to_string())
+        .chain(["-f".to_string(), archive.to_string_lossy().into_owned()])
+        .collect()
+}
+
+/// The first line of a `tar -t` listing, read as it comes and not held whole:
+/// the first entry is all the caller looks at, and a listing of a large archive
+/// must not be kept in memory to name it. None when tar gave no answer or did
+/// not answer in time; the empty string when the archive holds nothing.
+fn tar_first_line(args: &[&str], archive: &Path) -> Result<Option<String>, Fail> {
+    let ran = tehas_core::call::run_input_bounded(
+        "tar",
+        &tar_words(args, archive),
+        None,
+        Duration::from_secs(TAR_SECS),
+        &[("LC_ALL", "C")],
+        ONE_LINE,
+    );
+    if !ran.ok() {
+        return Err((
+            1,
+            format!("the archive does not read as a tar: {}", ran.err.trim()),
+        ));
+    }
+    Ok(ran.out.lines().next().map(str::to_string))
+}
+
+/// One more than a line long enough for the manifest's name: what a listing is
+/// cut to, so the `-t` listing is not held whole.
+const ONE_LINE: u64 = 4096;
+
 fn tar_out(args: &[&str], archive: &Path) -> Result<Vec<u8>, Fail> {
-    let out = Command::new("tar")
-        .env("LC_ALL", "C")
-        .args(args)
-        .arg("-f")
-        .arg(archive)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(io_fail("could not run tar"))?;
-    if out.status.success() {
-        Ok(out.stdout)
+    if args == ["-t"] {
+        // The listing is read for its first line alone.
+        return Ok(tar_first_line(args, archive)?
+            .map(|l| (l + "\n").into_bytes())
+            .unwrap_or_default());
+    }
+    let ran = tehas_core::call::run_input_env(
+        "tar",
+        &tar_words(args, archive),
+        None,
+        Duration::from_secs(TAR_SECS),
+        &[("LC_ALL", "C")],
+    );
+    if ran.ok() {
+        Ok(ran.out.into_bytes())
     } else {
         Err((
             1,
-            format!(
-                "the archive does not read as a tar: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
+            format!("the archive does not read as a tar: {}", ran.err.trim()),
         ))
     }
 }
@@ -884,6 +951,54 @@ mod tests {
                 "{place} {target}"
             );
         }
+    }
+
+    #[test]
+    fn a_hung_systemctl_makes_pack_refuse_the_no_active_unit_check() {
+        let d = tehas_core::testdir::TestDir::new("state-hung-systemctl");
+        let systemctl = d.join("systemctl");
+        fs::write(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        let began = std::time::Instant::now();
+        // A bus that never answers is refused, not read as no unit at all: the
+        // check fails closed, so pack does not go on over a running factory.
+        let got = active_units_of(&systemctl.to_string_lossy(), 1);
+        assert_eq!(
+            got.err().map(|(rc, _)| rc),
+            Some(1),
+            "a hung systemctl is a refusal"
+        );
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(4),
+            "the call ended at its bound, not when the sleep did"
+        );
+    }
+
+    #[test]
+    fn a_tar_listing_of_many_lines_is_not_held_whole() {
+        let d = tehas_core::testdir::TestDir::new("state-tar-listing");
+        // A directory of many files, so the archive has a listing of many lines
+        // to read and tar does not fail on an entry that cannot be stated.
+        let many = d.join("many");
+        fs::create_dir_all(&many).unwrap();
+        for n in 0..2000 {
+            fs::write(many.join(format!("entry{n}")), "x").unwrap();
+        }
+        let archive = d.join("a.tar");
+        let made = Command::new("tar")
+            .env("LC_ALL", "C")
+            .args(["-cf"])
+            .arg(&archive)
+            .arg(&many)
+            .stdin(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(made.success(), "the archive is made");
+        let first = tar_first_line(&["-t"], &archive).unwrap();
+        // A name of the archive, and only one line: the whole listing is not
+        // held.
+        assert!(first.is_some(), "the first entry is read");
+        assert_eq!(first.as_deref().unwrap().lines().count(), 1);
     }
 
     #[test]

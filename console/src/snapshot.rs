@@ -13,7 +13,7 @@ use crate::top;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::time::Duration;
 use tehas_core::queue_lists::{AWAITING, QUEUED, RUNNING, STOPPED};
 use tehas_core::time;
 
@@ -277,17 +277,23 @@ fn energy(path: &Path, now: i64, max_age: i64) -> Value {
     })
 }
 
+/// The seconds one `systemctl --user` of the units section is given. A bus
+/// that does not answer gives the same answer as no user bus at all: nothing.
+const SYSTEMCTL_SECS: u64 = 5;
+
 fn systemctl(args: &[&str]) -> Option<String> {
-    let out = Command::new("systemctl")
-        .arg("--user")
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    systemctl_at("systemctl", args, SYSTEMCTL_SECS)
+}
+
+/// systemctl named by `program`, under `secs` of a bound. A program split from
+/// the verb lets a case name a stub.
+fn systemctl_at(program: &str, args: &[&str], secs: u64) -> Option<String> {
+    let words: Vec<String> = ["--user".to_string()]
+        .into_iter()
+        .chain(args.iter().map(|a| a.to_string()))
+        .collect();
+    let ran = tehas_core::call::run(program, &words, Duration::from_secs(secs));
+    ran.ok().then_some(ran.out)
 }
 
 /// Every tehas-* timer and service of the user's systemd. Nothing when
@@ -374,6 +380,7 @@ fn clock_in(v: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     // The queue reads the lists under the core's names, the names the writer
     // puts them under.
@@ -432,5 +439,22 @@ mod tests {
             Some("10:00:00".to_string())
         );
         assert_eq!(clock_in("n/a"), None);
+    }
+
+    /// A systemctl that never answers gives no status and no answer, as no
+    /// user bus at all would. The units section is then null.
+    #[test]
+    fn a_hung_systemctl_is_no_units_section() {
+        let d = tehas_core::testdir::TestDir::new("snapshot-hung-systemctl");
+        let systemctl = d.join("systemctl");
+        fs::write(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        let began = std::time::Instant::now();
+        let got = systemctl_at(&systemctl.to_string_lossy(), &["list-units"], 1);
+        assert_eq!(got, None, "a bus that never answers gives no answer");
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(4),
+            "the call ended at its bound, not when the sleep did"
+        );
     }
 }

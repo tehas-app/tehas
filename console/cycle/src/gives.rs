@@ -11,11 +11,13 @@ use crate::runner;
 use crate::start::{is_record, record_value};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
+use tehas_core::call;
 use tehas_core::events;
 
 /// Why nothing can be checked without the program.
@@ -142,38 +144,63 @@ fn word(v: &Value, key: &str) -> String {
     }
 }
 
-/// One verb that fetches, the issue on standard input. No bound of its own:
-/// curl has one. What curl says goes to the cycle's log. Err is why nothing may
-/// start, and a program that gives no answer is a reason too.
-fn take(bin: &Path, verb: &str, args: &[String], input: &str) -> Result<(), String> {
-    let child = Command::new(bin)
-        .arg(verb)
-        .args(args)
-        .arg("--attach")
-        .arg(bin)
-        .args(["--images", &env_or("TEHAS_WORK_IMAGES", "1")])
-        .args(["--files", &env_or("TEHAS_WORK_FILES", "0")])
-        .args(["--zips", &env_or("TEHAS_WORK_ZIPS", "0")])
-        .env("GH_TOKEN", env("GH_TOKEN"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn();
+/// One verb that fetches, the issue on standard input, within a bound that
+/// stops the child (TERM, then KILL) when it never answers. What curl says goes
+/// to the cycle's log. Err is why nothing may start, and a program that gives
+/// no answer is a reason too.
+fn take(bin: &Path, verb: &str, args: &[&str], input: &str) -> Result<(), String> {
+    let wants = [
+        env_or("TEHAS_WORK_IMAGES", "1"),
+        env_or("TEHAS_WORK_FILES", "0"),
+        env_or("TEHAS_WORK_ZIPS", "0"),
+    ];
+    take_within(bin, verb, args, input, &wants, ASK_SECS)
+}
+
+/// take with the seconds of its bound and the three wants (`--images`,
+/// `--files`, `--zips`) given to the child, so a case can name a bound shorter
+/// than the one of a start.
+fn take_within(
+    bin: &Path,
+    verb: &str,
+    args: &[&str],
+    input: &str,
+    wants: &[String; 3],
+    secs: u64,
+) -> Result<(), String> {
+    let repo = env("TEHAS_REPO");
     let unchecked =
         |rc: i32| format!("the issue's files could not be checked (attach: {verb} exited {rc})");
-    let Ok(mut child) = child else {
-        return Err(unchecked(127));
-    };
-    if let Some(mut w) = child.stdin.take() {
-        let input = input.to_string();
-        std::thread::spawn(move || {
-            let _ = w.write_all(input.as_bytes());
-        });
+    let mut child_args: Vec<String> = vec![
+        verb.to_string(),
+        "--attach".into(),
+        bin.to_string_lossy().into_owned(),
+        "--images".into(),
+        wants[0].clone(),
+        "--files".into(),
+        wants[1].clone(),
+        "--zips".into(),
+        wants[2].clone(),
+    ];
+    child_args.splice(1..1, args.iter().map(|a| a.to_string()));
+    let token = env("GH_TOKEN");
+    let ran = call::run_input_env(
+        &bin.to_string_lossy(),
+        &child_args,
+        Some(input),
+        Duration::from_secs(secs),
+        &[("GH_TOKEN", token.as_str())],
+    );
+    // A call that outlived its bound was stopped by it: the refusal names the
+    // repository, the verb and the seconds waited on.
+    if ran.status.is_none() {
+        return Err(format!(
+            "the issue's files could not be checked (attach: {verb} of {repo} gave no answer \
+             within {secs} seconds)"
+        ));
     }
-    let Ok(out) = child.wait_with_output() else {
-        return Err(unchecked(127));
-    };
-    let rc = status_of(out.status);
-    let answer = runner::values(&String::from_utf8_lossy(&out.stdout)).unwrap_or_default();
+    let rc = ran.status.unwrap_or(127);
+    let answer = runner::values(&ran.out).unwrap_or_default();
     let said = answer.iter().rev().find(|v| {
         v.get("api").and_then(Value::as_f64) == Some(1.0)
             && v.get("ok") == Some(&Value::Bool(true))
@@ -278,21 +305,27 @@ pub fn issue_images(
     let Some(bin) = attach(home) else {
         return gives_nothing(issue, dir, record, data, env("TEHAS_WORK_FILES") == "1");
     };
-    let args: Vec<String> = [
-        issue.to_string(),
-        dir.to_string_lossy().into_owned(),
-        "--approved".into(),
-        approved.into(),
-        "--record".into(),
-        record.into(),
-        "--repo".into(),
-        env("TEHAS_REPO"),
-        "--comments".into(),
+    let (issue_str, repo, dir_str) = (issue.to_string(), env("TEHAS_REPO"), dir.to_string_lossy());
+    let (comments, allowed, millwright) = (
         env_or("TEHAS_WORK_COMMENTS", "0"),
-        "--allowed".into(),
         env("TEHAS_ALLOWED_LABELERS"),
-        "--millwright".into(),
         env("TEHAS_MILLWRIGHT_LOGIN"),
+    );
+    let args: Vec<&str> = [
+        issue_str.as_str(),
+        dir_str.as_ref(),
+        "--approved",
+        approved,
+        "--record",
+        record,
+        "--repo",
+        &repo,
+        "--comments",
+        &comments,
+        "--allowed",
+        &allowed,
+        "--millwright",
+        &millwright,
     ]
     .to_vec();
     take(&bin, "issue", &args, &format!("{data}\n"))
@@ -837,6 +870,11 @@ mod tests {
         ));
     }
 
+    /// The wants of a fetch of a case: images only, as a start defaults to.
+    fn wants() -> [String; 3] {
+        ["1", "0", "0"].map(str::to_string)
+    }
+
     /// A home whose libexec/attach is the shell script <body>.
     fn with_program(name: &str, body: &str) -> TestDir {
         let d = scratch(name);
@@ -874,6 +912,63 @@ mod tests {
         }
         let d = with_program("right", r#"echo '{"api":1,"ok":true,"verb":"changed"}'"#);
         assert!(ask(&d, "changed", &[]).is_ok());
+    }
+
+    #[test]
+    fn a_fetcher_that_never_answers_is_refused_with_the_bound_named() {
+        let d = with_program("fetch-hang", "sleep 30");
+        std::env::set_var("TEHAS_REPO", "acme/widget");
+        let got = take_within(
+            &d.join("libexec/attach"),
+            "issue",
+            &["7", "dir"],
+            r#"{"body":"https://github.com/user-attachments/assets/1"}"#,
+            &wants(),
+            1,
+        )
+        .unwrap_err();
+        assert_eq!(
+            got,
+            "the issue's files could not be checked (attach: issue of acme/widget gave no answer \
+             within 1 seconds)"
+        );
+        // The reason names no path of the host, as every reason here may be
+        // put on the issue.
+        assert!(!got.contains(&*d.to_string_lossy()), "{got}");
+    }
+
+    #[test]
+    fn a_fetcher_that_answers_with_why_is_the_reason_of_no_start() {
+        let d = with_program(
+            "fetch-why",
+            r#"echo '{"api":1,"ok":true,"verb":"issue","why":"no link"}'"#,
+        );
+        let got = take_within(
+            &d.join("libexec/attach"),
+            "issue",
+            &["7", "dir"],
+            "{}",
+            &wants(),
+            30,
+        )
+        .unwrap_err();
+        assert_eq!(got, "no link");
+    }
+
+    #[test]
+    fn a_fetcher_that_answers_without_a_why_lets_the_start_go_on() {
+        let d = with_program("fetch-ok", r#"echo '{"api":1,"ok":true,"verb":"issue"}'"#);
+        assert_eq!(
+            take_within(
+                &d.join("libexec/attach"),
+                "issue",
+                &["7", "dir"],
+                "{}",
+                &wants(),
+                30,
+            ),
+            Ok(())
+        );
     }
 
     #[test]
