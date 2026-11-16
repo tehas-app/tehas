@@ -40,7 +40,8 @@ a run's own endpoint and key and keeps the key out of every log and file. An
 image that follows `release:0` today has it.
 
 The job token is a secret of the proxy's own. It lives in the proxy's memory,
-is written once to a file of mode 0600 in the job's directory under the state,
+is written once to a file made with mode 0600 in a job directory of mode 0700
+under the state,
 and dies with the job and with revocation. It is never in a command line, never
 in a log and never in the store.
 
@@ -97,6 +98,7 @@ no byte of a body.
 | --- | --- | --- |
 | No bearer word, or one the proxy never issued | 401 | `refused no job: a token this factory issued for no job` |
 | A job whose record says `finished`, `released` or `lost`, or that the records do not know | 403 | `refused job <n> of contractor <name>: a job whose record says <state>` |
+| A job whose record names another attempt or another contractor than the token was issued for | 403 | `refused job <n> of contractor <name>: a job whose record names another attempt or contractor` |
 | A contractor that is revoked, or has no record | 403 | `refused job <n> of contractor <name>: a contractor that is revoked or unknown` |
 | A path outside the table | 404 | `refused no job: the path <path>` |
 | An endpoint that cannot be reached or answers nothing | 502 | the words of the failure, which name the host and not the key it was to send |
@@ -125,13 +127,14 @@ holds the factory's model key.
 
 ## What it counts
 
-The endpoint's own figures, `usage` of an answer or of the last chunk of a
-stream, and the requests each token carried are counted per contractor and per
-job. `tehas-proxy --counts` prints the request counts and clears them. They
-reach the state store, `tehas status` and the dashboard with #2277. A
-proxy that could not finish writing an answer counts nothing: an answer no one
-read is no answer to price. The proxy never guesses a token count, and a row
+The requests each token carried are counted per contractor and per job, in the
+proxy's memory. `tehas-proxy --counts` prints them and clears them. A count
 names no token, no path and no byte of a body.
+
+The endpoint's own token figures, `usage` of an answer or of the last chunk of
+a stream, are read of each answer but not kept yet: they reach the state
+store, `tehas status` and the dashboard with #2277. The proxy never guesses a
+token count, and an answer it could not finish writing gives no figures.
 
 ## What it never does
 

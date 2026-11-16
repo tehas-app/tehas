@@ -9,9 +9,10 @@
 //! of another shape, counts nothing: the proxy never guesses a token count,
 //! and never keeps a body to look for one later.
 //!
-//! The rows are written to the store, which is the only place the factory
-//! keeps a number of its own. The store's rows are what `tehas status` and
-//! the dashboard read; nothing here holds a total in memory between calls.
+//! The figures are parsed for each answer and put on its [`crate::serve::Outcome`],
+//! but nothing keeps them yet: the store verb [`VERB`] and its rows come with
+//! #2277. Until then only the count of requests per contractor and per job is
+//! kept, in the proxy's memory, and `tehas-proxy --counts` reads it.
 
 /// The three figures of one request, as the endpoint answered them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
