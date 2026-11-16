@@ -1,0 +1,21 @@
+# The model proxy of outsource (#2273): the one way a contractor's cycle
+# reaches the factory's model. A library of rules and one program, the two
+# sharing them; the program is installed as ~/tehas/libexec/tehas-proxy by
+# install.sh, which #2278 owns. A member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-proxy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "tehas_proxy"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tehas-proxy"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+tehas-core = { path = "../core", features = ["mask"] }

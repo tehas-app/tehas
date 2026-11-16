@@ -4,11 +4,12 @@
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
 # the dispatcher's decisions in dispatch/, a cycle's report in cycle/, the
-# easy merge of a pull request in merge/, the operations modules in ops/ and
-# the development tasks behind scripts/ in xtask/ as well.
+# easy merge of a pull request in merge/, the operations modules in ops/, the
+# model proxy of outsource in proxy/ and the development tasks behind
+# scripts/ in xtask/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "store", "xtask"]
-default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "store", "xtask"]
+members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "proxy", "store", "xtask"]
+default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "ops", "proxy", "store", "xtask"]
 
 [package]
 name = "console"
