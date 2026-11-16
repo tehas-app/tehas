@@ -5,6 +5,7 @@
 //!   tehas-proxy --issue <job> <attempt> <contractor>
 //!   tehas-proxy --revoke <contractor>
 //!   tehas-proxy --forget <job>...
+//!   tehas-proxy --counts
 //!   tehas-proxy --stop
 //!
 //! The listener is the one thing this program does, and it is the only place
@@ -32,7 +33,7 @@
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
 //! malformed, or the endpoint is no address this proxy can speak to; 1 it
-//! cannot listen, or the proxy it asked is not there.
+//! cannot listen, the proxy it asked is not there, or no token could be made.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -224,6 +225,9 @@ fn control_loop(socket: UnixListener, issuer: &Issuer) {
     }
 }
 
+/// The control line's answer when no token could be made.
+const NO_TOKEN: &str = "failed: no randomness to make a token of";
+
 /// How many lines of the control line the proxy answers at once.
 const CONTROL_HANDS: usize = 4;
 
@@ -261,10 +265,14 @@ fn control_one(stream: UnixStream, issuer: &Issuer) {
                 let _ = writeln!(writer, "issue wants a job, an attempt and a contractor");
                 return;
             };
-            let token = issuer.issue(job, attempt, contractor, &mut || {
-                tehas_proxy::jobs::random().unwrap_or_default()
-            });
-            let _ = writeln!(writer, "{token}");
+            match issuer.issue(job, attempt, contractor, &mut tehas_proxy::jobs::random) {
+                Some(token) => {
+                    let _ = writeln!(writer, "{token}");
+                }
+                None => {
+                    let _ = writeln!(writer, "{NO_TOKEN}");
+                }
+            }
         }
         "forget" => {
             let jobs: Vec<i64> = words.filter_map(|w| w.parse().ok()).collect();
@@ -323,6 +331,9 @@ fn ask(args: &[String]) -> ! {
     });
     if said.contains("no word of") || said.contains("wants") {
         stop(&said, 78);
+    }
+    if said.starts_with("failed:") {
+        stop(said.trim(), 1);
     }
     if let Some(token) = word.strip_prefix("issue ") {
         // The token came back: write it where the container's models.json will
