@@ -5,6 +5,10 @@
 # it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
 # gate; this file is not.
 #
+# A prerelease tag, vX.Y.Z-alpha.N, -beta.N or -rc.N, is built, signed and
+# published the same way, marked as a GitHub prerelease and never as the
+# latest release: tehas update installs one only when it is named.
+#
 # Assets of a release vX.Y.Z:
 #   tehas-vX.Y.Z-linux-x86_64.tar.gz           the tarball
 #   tehas-vX.Y.Z-linux-x86_64.tar.gz.sha256    its hash, for sha256sum -c
@@ -19,7 +23,11 @@
 name: release
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
 permissions:
   contents: write
 defaults:
@@ -64,7 +72,7 @@ jobs:
       - name: the runner builds for linux x86_64
         run: |
           [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
-          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
           # The runner context is not available in the job's env, so DIST is set here.
           echo "DIST=$RUNNER_TEMP/dist" >>"$GITHUB_ENV"
       - name: minisign at a pinned version
@@ -158,8 +166,10 @@ jobs:
           }
           api=https://api.github.com/repos/$REPO
           auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
-          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" \
-            '{tag_name: $tag, name: $tag, body: $notes, draft: true}')
+          pre=false latest=true
+          if [[ $TAG == *-* ]]; then pre=true latest=false; fi
+          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" --argjson pre "$pre" \
+            '{tag_name: $tag, name: $tag, body: $notes, draft: true, prerelease: $pre}')
           # Made a draft and published only once every asset is on it, so no
           # one downloads a release that is missing its signature.
           release=$(curl -fsS "${auth[@]}" -X POST "$api/releases" -d "$body") || {
@@ -172,5 +182,5 @@ jobs:
               "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")" >/dev/null
             echo "uploaded $(basename "$f")"
           done
-          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d '{"draft": false, "make_latest": "true"}' |
+          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d "{\"draft\": false, \"make_latest\": \"$latest\"}" |
             jq -r .html_url

@@ -1118,7 +1118,7 @@ mod tests {
             4,
             "the four keys a container always has"
         );
-        let env = env_of(Kind::Cycle);
+        let env = with_read_only(false, || env_of(Kind::Cycle));
         let read_only = with_read_only(true, || env_of(Kind::Cycle));
         let at = |name: &str| {
             env_word(&read_only, name)
@@ -1209,6 +1209,10 @@ mod tests {
     /// A container's git is the read-only one only when the host's instance is,
     /// so a case that asks for one mode gets that mode and no other.
     fn with_read_only<T>(on: bool, what: impl FnOnce() -> T) -> T {
+        // One at a time: the setting is the process's, and a case beside this
+        // one that turns it on would change what this one reads.
+        static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _held = SETTING.lock().unwrap_or_else(|e| e.into_inner());
         let name = crate::read_only::NAME;
         let was = std::env::var_os(name);
         // Safety: the setting is set for the moment of one call and its old

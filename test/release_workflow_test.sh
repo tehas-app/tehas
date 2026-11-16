@@ -197,4 +197,31 @@ t_stub sha256sum 'exit 0'
 jqstep 'JQ_FAKE=1.7.1'
 t_eq "$t_rc" 1
 
+t_case "a prerelease tag starts the release, and is published as a prerelease, never the latest"
+on=$(sed -n '/^on:/,/^permissions:/p' "$workflow")
+for stage in alpha beta rc; do
+  t_contains "$on" "- 'v[0-9]+.[0-9]+.[0-9]+-$stage.[0-9]+'"
+done
+t_contains "$on" "- 'v[0-9]+.[0-9]+.[0-9]+'"
+# The tag check of the build step and the marking of the publish step, run
+# for each kind of tag.
+check=$(grep -F 'not a release tag' "$workflow" | sed 's/^ *//')
+# shellcheck disable=SC2016  # the workflow's own text, not to expand here
+mark=$(grep -E '^ *(pre=false latest=true|if \[\[ \$TAG == )' "$workflow" | sed 's/^ *//')
+t_eq "$(wc -l <<<"$mark")" 2
+for tag in v1.0.0 v1.0.0-alpha.1 v1.0.0-beta.2 v1.0.0-rc.3 v1.0.0-gamma.1 v1.0.0-rc1 v1.0; do
+  # shellcheck disable=SC2016  # the workflow's own text, not to expand here
+  printf '%s\n' "TAG=$tag" "$check" "$mark" 'echo "$pre $latest"' >"$T/mark.sh"
+  t_run "bash '$T/mark.sh'"
+  case $tag in
+    v1.0.0) t_eq "$t_rc $t_out" "0 false true" ;;
+    *-alpha.* | *-beta.* | *-rc.*) t_eq "$t_rc $t_out" "0 true false" ;;
+    *) t_eq "$t_rc" 1 ;;
+  esac
+done
+# shellcheck disable=SC2016  # the workflow's own text, not to expand here
+t_contains "$(cat "$workflow")" 'prerelease: $pre}'
+# shellcheck disable=SC2016  # the workflow's own text, not to expand here
+t_contains "$(cat "$workflow")" '\"make_latest\": \"$latest\"'
+
 t_done
