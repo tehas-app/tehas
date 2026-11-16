@@ -71,6 +71,8 @@
 
 mod build;
 
+// The links of a ticket: only GitHub's own attachment storage, by the one rule.
+use attach::link::links;
 use serde_json::{Map, Value};
 
 pub fn main(given: &[String]) -> u8 {
@@ -562,142 +564,6 @@ fn live_file(tickets: &[Value], now: &str, url: &str, domain: &str, limit: i64) 
     format!("{}\n", Value::Object(root))
 }
 
-// --- The links of a ticket --------------------------------------------------
-
-/// Every link of GitHub's own attachment storage in a text, in the order it was
-/// written: the same shapes as LINK_RULE of console/attach/src/given.rs, which
-/// are the only addresses the lab ever fetches.
-///
-/// The scan walks the text a byte at a time and asks each position whether a
-/// scan of that regular expression may begin there, which is what the
-/// leftmost-match rule of Oniguruma does.
-fn links(text: &str) -> Vec<String> {
-    let bytes = text.as_bytes();
-    let mut found = Vec::new();
-    let mut at = 0;
-    while at < bytes.len() {
-        match address(bytes, at) {
-            Some(end) if end > at => {
-                let link = &text[at..end];
-                if !found.iter().any(|seen| seen == link) {
-                    found.push(link.to_string());
-                }
-                at = end;
-            }
-            _ => at += 1,
-        }
-    }
-    found
-}
-
-const ATTACHMENTS: &str = "https://github.com/user-attachments/";
-const IMAGES: &str = "https://user-images.githubusercontent.com/";
-const GITHUB: &str = "https://github.com/";
-
-/// The byte one past the link that begins at `at`, or None when no branch of
-/// the regular expression of console/attach matches there. Each branch is
-/// the host, the folders that say the file is GitHub's own, and then the path
-/// that holds the file.
-fn address(bytes: &[u8], at: usize) -> Option<usize> {
-    if let Some(tail) = rest(bytes, at).strip_prefix(ATTACHMENTS) {
-        // An attachment of the issue: assets/ or files/, and the file.
-        let folder = ["assets/", "files/"]
-            .into_iter()
-            .find(|folder| tail.starts_with(folder))?;
-        return path(bytes, at + ATTACHMENTS.len() + folder.len());
-    }
-    if rest(bytes, at).starts_with(IMAGES) {
-        // A pasted image: the host says it all, the name of the file follows.
-        return path(bytes, at + IMAGES.len());
-    }
-    if rest(bytes, at).starts_with(GITHUB) {
-        // A file of a repository: the owner, the repository, the folder and
-        // the number that holds it.
-        let (_, tail) = name(&rest(bytes, at)[GITHUB.len()..])?;
-        let (_, tail) = name(tail)?;
-        let tail = tail
-            .strip_prefix("assets/")
-            .or_else(|| tail.strip_prefix("files/"))?;
-        let held = tail.find('/')?;
-        if held == 0 || !tail[..held].bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        // The file begins past the number.
-        let past = rest(bytes, at).len() - tail.len() + held + 1;
-        return path(bytes, at + past);
-    }
-    None
-}
-
-/// Whether a link is one whole address of GitHub's attachment folders.
-fn is_attachment(link: &str) -> bool {
-    address(link.as_bytes(), 0) == Some(link.len())
-}
-
-/// The rest of the text from `at`, empty when nothing is there.
-fn rest(bytes: &[u8], at: usize) -> &str {
-    std::str::from_utf8(bytes.get(at..).unwrap_or(b"")).unwrap_or_default()
-}
-
-/// A repository or an owner's name at the front of `tail`: letters, digits and
-/// . _ -, not dots alone, then the slash that ends it. The name and what
-/// follows the slash.
-fn name(tail: &str) -> Option<(&str, &str)> {
-    let cut = tail.find('/')?;
-    let (seen, after) = (&tail[..cut], &tail[cut + 1..]);
-    (seen.bytes().any(|b| b != b'.')
-        && seen
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-')))
-    .then_some((seen, after))
-}
-
-/// The byte one past the path at `at`: parts parted by '/', ending before the
-/// first that is not one. None when the first is not.
-fn path(bytes: &[u8], at: usize) -> Option<usize> {
-    let mut end = part(bytes, at)?;
-    while bytes.get(end) == Some(&b'/') {
-        match part(bytes, end + 1) {
-            Some(next) => end = next,
-            None => break,
-        }
-    }
-    Some(end)
-}
-
-/// One part of a path: dots, then a URL character that is neither '.' nor
-/// '?', then URL characters. Never `.` or `..`. A fragment is no part of where
-/// GitHub holds a file, so a part stops at one.
-fn part(bytes: &[u8], at: usize) -> Option<usize> {
-    let mut end = at;
-    while bytes.get(end) == Some(&b'.') {
-        end += 1;
-    }
-    end = unit(bytes, end, false)?;
-    while let Some(next) = unit(bytes, end, true) {
-        end = next;
-    }
-    Some(end)
-}
-
-/// The byte past one URL character at `at`, an escape being one. An escaped
-/// '.', '/' or '\' is none, and '.' and '?' are one only when `later`.
-fn unit(bytes: &[u8], at: usize, later: bool) -> Option<usize> {
-    let b = *bytes.get(at)?;
-    if b == b'%' {
-        let (hi, lo) = (*bytes.get(at + 1)?, *bytes.get(at + 2)?);
-        let refused = matches!(
-            (hi, lo.to_ascii_lowercase()),
-            (b'2', b'e' | b'f') | (b'5', b'c')
-        );
-        return (hi.is_ascii_hexdigit() && lo.is_ascii_hexdigit() && !refused).then_some(at + 3);
-    }
-    let plain = b.is_ascii_alphanumeric()
-        || matches!(b, b'_' | b'~' | b'&' | b'=' | b'+' | b'-')
-        || (later && matches!(b, b'.' | b'?'));
-    plain.then_some(at + 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,18 +584,18 @@ mod tests {
     }
 
     /// The links of `text` as jq reads them with the rule of
-    /// console/attach/src/given.rs. The rule is read from that file when the
+    /// console/attach/src/link.rs. The rule is read from that file when the
     /// test runs, so this compares two readings and not two copies of one. With
     /// no jq on the host there is nothing to compare, and the Rust side is
     /// pinned by every other case of links here.
     fn links_of_the_rule(text: &str) -> Vec<String> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/attach/src/given.rs");
-        let source = fs::read_to_string(path).expect("console/attach/src/given.rs is there");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/attach/src/link.rs");
+        let source = fs::read_to_string(path).expect("console/attach/src/link.rs is there");
         let rule = source
             .lines()
             .find_map(|line| line.strip_prefix("pub const LINK_RULE: &str = r\""))
             .and_then(|tail| tail.strip_suffix("\";"))
-            .expect("the rule of the links is in console/attach/src/given.rs");
+            .expect("the rule of the links is in console/attach/src/link.rs");
         let program = format!("def links: [scan({})];", Value::from(rule));
         let Ok(answered) = std::process::Command::new("jq")
             .args(["-Rs", "--arg", "t", text])
@@ -1150,7 +1016,7 @@ mod tests {
             ]
         );
         for link in &cases[..12] {
-            assert!(!is_attachment(link), "{link}");
+            assert!(!attach::link::is_link(link), "{link}");
         }
         // jq's scan lists a link each time it is found.
         let mut said = links_of_the_rule(&text);

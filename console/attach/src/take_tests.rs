@@ -1,3 +1,4 @@
+use crate::fetch::curl_args;
 use crate::given::{Linked, Ordered};
 use crate::sniff::Sniffer;
 use crate::take::*;

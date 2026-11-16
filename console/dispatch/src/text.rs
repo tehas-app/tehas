@@ -22,19 +22,10 @@ pub fn links(text: &str) -> usize {
     link_list(text).len()
 }
 
-/// The attachment links, each once, in the order the text has them.
+/// The attachment links, each once, in the order the text has them, by the
+/// one link rule of console/attach.
 pub fn link_list(text: &str) -> Vec<String> {
-    static LINKS: OnceLock<Regex> = OnceLock::new();
-    let re = LINKS.get_or_init(|| {
-        Regex::new(r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/\.*[A-Za-z0-9_-][A-Za-z0-9_.-]*/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*(?:/\.*(?:[A-Za-z0-9_~&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))(?:[A-Za-z0-9._~?&=+-]|%(?:[013-46-9A-Fa-f][0-9A-Fa-f]|2[0-9A-Da-d]|5[0-9ABabD-Fd-f]))*)*").unwrap()
-    });
-    let mut out: Vec<String> = Vec::new();
-    for m in re.find_iter(text) {
-        if !out.iter().any(|l| l == m.as_str()) {
-            out.push(m.as_str().to_string());
-        }
-    }
-    out
+    attach::link::links(text)
 }
 
 /// The `pi-spec v1` block a lean start needs, asked of an issue's body. The
