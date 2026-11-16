@@ -284,6 +284,14 @@ answer for has changed (see [Sessions](/analytics#sessions)); `stale` is true
 when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
 
+A cycle's `status`, in `factory_status`, `factory_endings`, `factory_console`
+and `factory_issue`, is one of these words and no other: the runner's
+`running`, `merged`, `handoff`, `aborted`, `interrupted` and `not-started`;
+tehas's `killed`, `stalled`, `timeout`, `stopped`, `closed`, `refused` and
+`lost`; the store's end reasons `parked` and `failed`; and `unknown`. A word
+the live files hold that is not one of them, such as a word a newer runner
+says, is served as `unknown`. The schemas list the same words.
+
 `factory_status` is built from three writes, and is as old as the oldest of
 them: `time` is when the health file was written, `queue.time` when the queue
 snapshot it counted `queue` from was written, and `generatedAt` when the
