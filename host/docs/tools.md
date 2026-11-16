@@ -282,8 +282,11 @@ pull request opens, and CI runs it again.
 
 `.github/workflows/verify.yml` runs on every pull request into `main` and on
 every push to `main`. A pull request onto any other branch, such as a release
-train, runs no CI: its author quotes `scripts/verify.sh --changed` in it, and
+train, runs no gate: its author quotes `scripts/verify.sh --changed` in it, and
 the train's own pull request into `main` runs the gate on the whole batch.
+`.github/workflows/sandbox-base.yml` still builds the sandbox base image on a
+pull request into any branch that changes its Dockerfile, `host/versions.env`
+or the workflow itself.
 
 CI adds two things of its own, as steps of
 `.github/workflows/verify.yml`. It installs shellcheck and jq at the versions

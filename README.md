@@ -154,8 +154,11 @@ TMPDIR. Their line counts the tests that passed, and the gate fails when
 `cargo test` printed no `test result:` line. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
-and on every push to main: the `verify` check, from
-[`.github/workflows/verify.yml`](.github/workflows/verify.yml). It runs on the
+into main and on every push to main: the `verify` check, from
+[`.github/workflows/verify.yml`](.github/workflows/verify.yml). A pull request
+onto another branch, such as a release train, runs no gate: its author quotes
+`scripts/verify.sh --changed` in it, and the train's pull request into main
+gates the batch. It runs on the
 organisation's own runner, installs shellcheck and jq at the versions in
 `host/versions.env` and checks each against a published checksum, scans the
 repository's lockfiles against published advisories with OSV-Scanner at its

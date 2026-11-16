@@ -2504,7 +2504,7 @@ Two things run there:
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
   into main and every push to main runs where it always has. A pull request
-  onto another branch runs no CI.
+  onto another branch runs no gate.
 
 ### How a release is gated and tagged
 
