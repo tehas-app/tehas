@@ -50,8 +50,8 @@ pub fn left(link: &str, reason: &str, source: &str, path: Option<&str>) -> Order
 }
 
 /// At most 100 left-out entries, each link cut at 512 characters, and how many
-/// more there were: an issue dense with attachments leaves a record the
-/// improvement loop can copy rather than none.
+/// more there were: an issue dense with attachments still leaves a manifest of
+/// a bounded size.
 fn capped(mut left: Vec<Ordered>) -> (Vec<Ordered>, usize) {
     let more = left.len().saturating_sub(MOST_LEFT);
     left.truncate(MOST_LEFT);

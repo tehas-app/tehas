@@ -1,7 +1,7 @@
 tehas drain: start no new work, and wait for the running cycles to end.
 
-The same as `tehas limit set --cycles 0 --plan off --reason draining`: no cycle,
-planning turn or improvement run starts until tehas limit clear, and the limit
+The same as `tehas limit set --cycles 0 --plan off --reason draining`: no cycle
+or planning turn starts until tehas limit clear, and the limit
 does not expire. Running cycles are not stopped, and with --wait it waits up to
 that many seconds for them to end. Drained means no poll can start a cycle
 either: the poll's lock is taken before the count, so a poll already past its

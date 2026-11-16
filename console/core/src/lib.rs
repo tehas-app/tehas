@@ -49,7 +49,6 @@ pub mod settings;
 #[cfg(feature = "mask")]
 pub mod size;
 pub mod slice;
-pub mod slow;
 pub mod snapshot;
 pub mod testdir;
 pub mod testing;

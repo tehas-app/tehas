@@ -336,12 +336,12 @@ t_lacks "$t_out" "first install"
 
 t_case "the optional units are enabled on a first install only when their setting is on"
 fresh
-instance TEHAS_IMPROVE_REPO=acme/improve TEHAS_DOMAIN=widget.test TEHAS_PREVIEWS=1
+instance TEHAS_DOMAIN=widget.test TEHAS_PREVIEWS=1
 mkdir -p "$home/.config/tehas" && echo TEHAS_ENERGY=on >"$home/.config/tehas/env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(sed -n 2p "$T/calls/systemctl")" \
-  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-improve.timer tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
+  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
 
 t_case "a domain without previews enables the Protolab and not the previews"
 fresh

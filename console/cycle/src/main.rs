@@ -32,8 +32,7 @@
 //!                                     what follows a cycle's record, each
 //!                                     step's failure a WARN line: the live
 //!                                     view, the run and its end in the
-//!                                     analytics, the improvement record, the
-//!                                     workspace's build output, the status
+//!                                     analytics, the workspace's build output, the status
 //!                                     unless a signal stopped the cycle, and
 //!                                     the next poll (src/after.rs). A flag
 //!                                     with nothing to say may be left out
@@ -271,7 +270,7 @@ use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, improve, index, runner, sandbox, start, supervise, work, Facts};
+use tehas_cycle::{caps, clock, index, ran_with, runner, sandbox, start, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -434,7 +433,7 @@ fn main() {
         ["work", n, rest @ ..] => work_verb(&home, issue(n, &args), &args, rest),
         ["settings", file, count, options @ ..] => {
             let words: Vec<String> = options.iter().map(|w| w.to_string()).collect();
-            let text = improve::settings(count, &words);
+            let text = ran_with::settings(count, &words);
             if std::fs::write(file, format!("{text}\n")).is_err() {
                 fail(format!("{file} cannot be written"));
             }

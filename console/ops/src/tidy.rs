@@ -542,7 +542,7 @@ mod tests {
 
     /// The labels of the table a closed issue keeps, each with why. Together
     /// with `STATES` they are the whole table, and no name is in both.
-    const KEPT: [(&str, &str); 14] = [
+    const KEPT: [(&str, &str); 13] = [
         (SHIPPED, "the mark of a merge, given by tidy itself"),
         ("tehas:pause", "a setting of the control issue, not of work"),
         (
@@ -575,9 +575,8 @@ mod tests {
         ),
         (
             "tehas:improvement",
-            "a mark the improvement loop puts on what it files",
+            "a mark the factory puts on a proposal it files",
         ),
-        ("cross-project", "a kind of issue, not a state of work"),
     ];
 
     /// The names of a table of labels: the first column of every line that is
@@ -697,7 +696,7 @@ mod tests {
                     "tehas:ready",
                     "tehas:plan",
                     "tehas:refine",
-                    "cross-project",
+                    "epic",
                     "bug",
                 ],
             )],
