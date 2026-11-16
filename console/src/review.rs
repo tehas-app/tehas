@@ -28,6 +28,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::models::{self, host_path};
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::secret::secret_name;
 use tehas_core::slice::{Host, Load};
 use tehas_core::{mask, settings, time};
 
@@ -603,34 +604,19 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
 }
 
 /// The variables, by name, that the image does not list as an input a host
-/// may set. A name that is neither wanted nor of the PI_ENSEMBLE_* family is
-/// not the runner's to refuse; nor are secrets and the inputs of a cycle or a
-/// planning turn, which a container of the review kind is not given.
+/// may set, a family such as PI_ENSEMBLE_MODEL_<ROLE> by its members. A name
+/// that is neither wanted nor of the PI_ENSEMBLE_* family is not the runner's
+/// to refuse; nor are secrets, by the one rule of tehas_core::secret, and the
+/// inputs of a cycle or a planning turn, which a container of the review kind
+/// is not given.
 fn refused(caps: &str, names: &[String]) -> Vec<String> {
-    let caps = serde_json::from_str::<Value>(caps).unwrap_or(Value::Null);
-    let inputs: Vec<&str> = caps
-        .get("inputs")
-        .and_then(Value::as_array)
-        .map(|inputs| {
-            inputs
-                .iter()
-                .filter(|i| {
-                    matches!(
-                        i.get("scope").and_then(Value::as_str),
-                        Some("cycle" | "sandbox")
-                    )
-                })
-                .filter_map(|i| i.get("name").and_then(Value::as_str))
-                .collect()
-        })
-        .unwrap_or_default();
     let wanted = wanted();
-    names
+    let asked: Vec<&str> = names
         .iter()
         .map(|n| n.split('=').next().unwrap_or(""))
         .filter(|n| *n != "-e" && !n.is_empty())
         .filter(|n| !wanted.iter().any(|w| w == n))
-        .filter(|n| !(n.contains("TOKEN") || n.contains("SECRET") || n.ends_with("KEY")))
+        .filter(|n| !secret_name(n))
         .filter(|n| {
             !(n.starts_with("PI_ENSEMBLE_PLAN_")
                 || n.starts_with("PI_ENSEMBLE_HANDOFF_")
@@ -642,7 +628,9 @@ fn refused(caps: &str, names: &[String]) -> Vec<String> {
                 ))
         })
         .filter(|n| n.starts_with("PI_ENSEMBLE_"))
-        .filter(|n| !inputs.contains(n))
+        .collect();
+    tehas_cycle::caps::not_inputs(caps, &asked)
+        .into_iter()
         .map(str::to_string)
         .collect()
 }
@@ -1004,6 +992,34 @@ mod tests {
             "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
             "-e",
             "HOME=/x",
+        ]);
+        assert!(refused(CAPS, &given).is_empty());
+    }
+
+    const FAMILY: &str = r#"{"inputs":[
+        {"name":"PI_ENSEMBLE_MODEL_<ROLE>","scope":"cycle","members":["CODE_REVIEW_SPECIALIST"]},
+        {"name":"PI_ENSEMBLE_BASE_URL_<PROVIDER>","scope":"cycle"}]}"#;
+
+    #[test]
+    fn a_family_input_takes_its_members() {
+        let given = names(&[
+            "-e",
+            "PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST",
+            "-e",
+            "PI_ENSEMBLE_BASE_URL_MAIN",
+            "-e",
+            "PI_ENSEMBLE_MODEL_NOBODY",
+        ]);
+        assert_eq!(refused(FAMILY, &given), ["PI_ENSEMBLE_MODEL_NOBODY"]);
+    }
+
+    #[test]
+    fn a_secret_by_the_one_rule_is_not_the_runners_to_refuse() {
+        let given = names(&[
+            "-e",
+            "PI_ENSEMBLE_API_KEY_MAIN",
+            "-e",
+            "PI_ENSEMBLE_DB_PASSWORD",
         ]);
         assert!(refused(CAPS, &given).is_empty());
     }

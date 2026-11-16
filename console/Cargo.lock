@@ -90,6 +90,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "console"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "libc",
  "rustix",
  "serde_json",
@@ -574,6 +575,7 @@ dependencies = [
 name = "tehas-cycle"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "regex",
  "rustix",
  "serde_json",
@@ -586,6 +588,7 @@ dependencies = [
 name = "tehas-dispatch"
 version = "0.1.0"
 dependencies = [
+ "attach",
  "regex",
  "serde_json",
  "sha2 0.10.9",
@@ -604,14 +607,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tehas-merge"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tehas-core",
-]
-
-[[package]]
 name = "tehas-ops"
 version = "0.1.0"
 dependencies = [
@@ -623,6 +618,16 @@ dependencies = [
  "tehas-core",
  "tehas-cycle",
  "tehas-dispatch",
+]
+
+[[package]]
+name = "tehas-proxy"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+ "store",
+ "tehas-core",
 ]
 
 [[package]]

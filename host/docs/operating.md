@@ -573,7 +573,6 @@ What a lean run does, as pi-rukas's `docs/lean.md` describes it:
   builds once more, and a second red hands back. A pull request that conflicts
   or falls behind after the run is tehas's, not lean's, and it is never
   refreshed with `--continue-pr`: a lean refresh is refused with 78 as above.
-  The [easy merge](#refreshes) is meant for it, and it runs on no host yet.
 - The cycle's time limit, `TEHAS_WORK_TIMEOUT`, covers the whole run, the wait
   for the pull request's checks included.
 
@@ -1445,7 +1444,7 @@ in the dispatcher's log. On its own it changes nothing in this factory: no
 cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
 its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
-tehas-industry. Take the label off to end it.
+an industry of factories. Take the label off to end it.
 
 ## Read-only
 
@@ -2198,8 +2197,8 @@ nothing and the dispatcher says so.
 
 **Who asks.** The factory does not look for conflicts on its own. What
 schedules its refreshes (an industry, an operator, a script) asks for one pull
-request at a time with `tehasbot refresh --pr N` (see
-[tehasbot refresh](/tools-github#tehasbot-refresh)). It reads that pull request
+request at a time with `tehas refresh --pr N` (see
+[tehas refresh](/tools-github#tehas-refresh)). It reads that pull request
 now and keeps it when it is the bot's, closes exactly one open issue carrying
 `tehas:awaiting-merge`, or `needs-human-attention` after a handoff that left
 the pull request open, without `tehas:running` and not the control issue, is

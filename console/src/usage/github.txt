@@ -1,0 +1,21 @@
+The factory's GitHub App, for a person: is its token good, and how many
+writes has it made.
+
+check makes one installation token of the app named by TEHAS_GITHUB_APP_ID,
+looks up its login, and says when the token runs out and whether it reaches
+TEHAS_REPO. It prints no token. writes reads state/github-writes.log and
+prints the writes and the refused writes (403 or 429) of the last 24 hours,
+the busiest minute and hour beside GitHub's limits, and one row per clock
+hour. It needs no settings and changes nothing.
+
+tehasbot github-token --check and tehasbot github-writes are the same
+commands under their old names, kept through 1.x.
+
+Usage:
+  tehas github check     the app's token: when it runs out, whether it reaches TEHAS_REPO
+  tehas github writes    the GitHub writes of the last day, by hour
+
+Exit: 0 the check passed, or the writes were printed; 1 no token could be
+had, it does not reach TEHAS_REPO, or no home is set; 64 an argument this
+command does not know; 78 settings that are missing, malformed or name no
+app.

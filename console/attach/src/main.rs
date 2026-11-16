@@ -52,27 +52,14 @@
 //!
 //! The rules of said, changed and left-out are in src/given.rs, those of
 //! issue and answer in src/take.rs, and those of comments.json in
-//! src/comments.rs. Each answers one line on
+//! src/comments.rs, all in the library of src/lib.rs with the link rule and
+//! the fetch. Each answers one line on
 //! standard output. Exit: 0 the answer; 64 an argument the verb does not know;
 //! 1 the file cannot be read (`attach: unreadable: ...`, which for unpack is an
 //! archive it cannot read and nothing was written) or <dir> or <file> cannot be
 //! written (`attach: unwritable: ...`).
 
-mod comments;
-mod given;
-mod manifest;
-mod sniff;
-mod take;
-mod unpack;
-mod zip;
-
-#[cfg(test)]
-mod given_tests;
-#[cfg(test)]
-mod take_tests;
-#[cfg(test)]
-mod tests;
-
+use attach::{given, sniff, take, unpack, zip};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Read;
