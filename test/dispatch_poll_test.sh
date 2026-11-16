@@ -52,7 +52,7 @@ mkdir -p "$home/state/cycles"
 : >"$home/state/cycles/7.approved.json"
 t_run "$rpoll"
 t_eq "$t_rc" 78
-t_contains "$t_out" "ERROR: records of an older tehas at $home/state/cycles/7.approved.json; this release does not import them: install a v0.30 release to import them, or move them out of state/"
+t_contains "$t_out" "ERROR: records of an older tehas at $home/state/cycles/7.approved.json; this release does not import them: move them out of state/"
 rm -f "$home/state/cycles/7.approved.json"
 
 t_case "a dry run logs what a poll would do"
