@@ -4,8 +4,10 @@
 use crate::tools::{epoch, ToolError, STALE_SECS};
 use serde_json::Value;
 use std::fs::File;
+use std::io::Read;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use tehas_core::file::READ_BOUND;
 use tehas_core::snapshot::API;
 
 pub const FILE: &str = "sessions.jsonl";
@@ -38,9 +40,15 @@ impl Snapshot {
             }
         })?;
         let mut first = String::new();
-        BufReader::new(f)
+        // The header is read under the crate's bound: a first line of more
+        // than it is refused, never buffered, and the answer is the fixed one
+        // that names no path and no content.
+        BufReader::new(f.take(READ_BOUND + 1))
             .read_line(&mut first)
             .map_err(|_| bad("could not be read"))?;
+        if first.len() as u64 > READ_BOUND {
+            return Err(bad("could not be read"));
+        }
         let head: Value = serde_json::from_str(&first).map_err(|_| bad("has no header"))?;
         if head["api"] != API {
             return Err(bad("has a header of another api"));
