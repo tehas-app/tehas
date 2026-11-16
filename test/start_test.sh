@@ -51,10 +51,11 @@ t_case "--json answers with what was recorded"
 reset
 t_run "$start_cmd 12 --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.api, .issue, .cleared, .approval.by, .approval.how, .approval.body_sha256]' <<<"$t_out")" \
+t_eq "$(jq -c '[.api, .issue, .cleared, .approval.by, .approval.how, .approval.bodySha256]' <<<"$t_out")" \
   "[1,12,false,\"host\",\"host\",\"$T_WSUM\"]"
 matches "$(jq -r '.approval.at' <<<"$t_out")" "$ISO"
-t_eq "$(jq -r '.approval.title_sha256 | length' <<<"$t_out")" 64
+t_eq "$(jq -r '.approval.titleSha256 | length' <<<"$t_out")" 64
+t_eq "$(jq -r '.approval | keys_unsorted | join(" ")' <<<"$t_out")" "at bodySha256 by how titleSha256"
 
 t_case "an unknown issue is refused with a clear message and nothing is recorded"
 reset
