@@ -32,6 +32,16 @@ pub struct Rows {
     pub jobs: Vec<Job>,
 }
 
+impl Rows {
+    /// The attempt and the contractor of a job's record.
+    pub fn holder(&self, job: i64) -> Option<(i64, String)> {
+        self.jobs
+            .iter()
+            .find(|j| j.job == job)
+            .map(|j| (j.attempt, j.contractor.clone()))
+    }
+}
+
 /// One job's record, as far as the proxy asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
@@ -99,6 +109,10 @@ impl Records for OfProxy<'_> {
             .and_then(|j| State::of(&j.state))
     }
 
+    fn holder(&self, job: i64) -> Option<(i64, String)> {
+        self.factory.rows().holder(job)
+    }
+
     fn allowed(&self, contractor: &str) -> bool {
         self.factory
             .rows()
@@ -119,6 +133,9 @@ impl Records for NoneAtAll {
         None
     }
     fn state_of(&self, _job: i64) -> Option<State> {
+        None
+    }
+    fn holder(&self, _job: i64) -> Option<(i64, String)> {
         None
     }
     fn allowed(&self, _contractor: &str) -> bool {
@@ -257,6 +274,10 @@ impl Records for Of {
             .and_then(|j| State::of(&j.state))
     }
 
+    fn holder(&self, job: i64) -> Option<(i64, String)> {
+        self.rows.holder(job)
+    }
+
     fn allowed(&self, contractor: &str) -> bool {
         self.rows.contractors.iter().any(|c| c == contractor)
     }
@@ -294,6 +315,7 @@ mod tests {
         let none = NoneAtAll;
         assert_eq!(none.live("token-of-7"), None);
         assert_eq!(none.state_of(7), None);
+        assert_eq!(none.holder(7), None);
         assert!(!none.allowed("gpu1"));
         assert!(none.rows().contractors.is_empty());
         assert!(none.rows().jobs.is_empty());
@@ -332,6 +354,8 @@ mod tests {
         assert_eq!(records.live("token-of-8"), None);
         assert_eq!(records.state_of(8), None);
         assert!(!records.allowed("gpu2"));
+        assert_eq!(records.holder(7), Some((1, "gpu1".to_string())));
+        assert_eq!(records.holder(8), None);
     }
 
     #[test]

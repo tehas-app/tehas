@@ -94,6 +94,9 @@ pub enum Refused {
     /// The token was issued for a job that is no longer going. The word is
     /// the state the factory's record holds.
     JobOver(&'static str),
+    /// The job's record names another attempt or another contractor than the
+    /// token was issued for.
+    Elsewhere,
     /// The contractor of the job is revoked, or has no record at all.
     Revoked,
     /// The path is outside [`PATHS`].
@@ -108,7 +111,7 @@ impl Refused {
     pub fn status(&self) -> u16 {
         match self {
             Refused::UnknownToken => 401,
-            Refused::JobOver(_) | Refused::Revoked => 403,
+            Refused::JobOver(_) | Refused::Elsewhere | Refused::Revoked => 403,
             Refused::Path(_) => 404,
         }
     }
@@ -125,6 +128,9 @@ impl Refused {
         let what = match self {
             Refused::UnknownToken => "a token this factory issued for no job".to_string(),
             Refused::JobOver(state) => format!("a job whose record says {state}"),
+            Refused::Elsewhere => {
+                "a job whose record names another attempt or contractor".to_string()
+            }
             Refused::Revoked => "a contractor that is revoked or unknown".to_string(),
             Refused::Path(path) => format!("the path {path}"),
         };
@@ -148,6 +154,9 @@ pub fn judge(token: Option<&str>, ask: &Ask<'_>, records: &dyn Records) -> Resul
         Some(state) if state.ends() => return Err(Refused::JobOver(state.word())),
         None => return Err(Refused::JobOver("absent")),
         _ => {}
+    }
+    if records.holder(live.job) != Some((live.attempt, live.contractor.clone())) {
+        return Err(Refused::Elsewhere);
     }
     if !records.allowed(&live.contractor) {
         return Err(Refused::Revoked);
@@ -182,6 +191,9 @@ pub trait Records {
     /// The state of a job as the factory's record has it. None for a job the
     /// records do not know: the proxy refuses it as one that is over.
     fn state_of(&self, job: i64) -> Option<State>;
+    /// The attempt and the contractor the job's record names. A token issued
+    /// for another attempt or another contractor is refused.
+    fn holder(&self, job: i64) -> Option<(i64, String)>;
     /// Whether the contractor may work at all: not revoked, and known.
     fn allowed(&self, contractor: &str) -> bool;
     /// One request carried this token, counted for its job: the ask of a
@@ -265,6 +277,7 @@ mod tests {
     pub struct Table {
         pub issued: HashMap<String, Live>,
         pub states: HashMap<i64, State>,
+        pub holders: HashMap<i64, (i64, String)>,
         pub allowed: Vec<String>,
     }
 
@@ -273,6 +286,7 @@ mod tests {
             Table {
                 issued: HashMap::new(),
                 states: HashMap::new(),
+                holders: HashMap::new(),
                 allowed: Vec::new(),
             }
         }
@@ -286,6 +300,7 @@ mod tests {
                 },
             );
             self.states.insert(job, state);
+            self.holders.insert(job, (1, contractor.to_string()));
             self
         }
         pub fn allow(mut self, name: &str) -> Table {
@@ -300,6 +315,9 @@ mod tests {
         }
         fn state_of(&self, job: i64) -> Option<State> {
             self.states.get(&job).copied()
+        }
+        fn holder(&self, job: i64) -> Option<(i64, String)> {
+            self.holders.get(&job).cloned()
         }
         fn allowed(&self, contractor: &str) -> bool {
             self.allowed.iter().any(|c| c == contractor)
@@ -479,6 +497,21 @@ mod tests {
             judge(Some("tok-1"), &ask("/v1/chat/completions"), &table),
             Err(Refused::JobOver("absent"))
         );
+    }
+
+    #[test]
+    fn a_token_of_another_attempt_or_contractor_is_refused() {
+        for holder in [(2, "gpu1"), (1, "gpu2")] {
+            let mut table = ready();
+            table.holders.insert(7, (holder.0, holder.1.to_string()));
+            assert_eq!(
+                judge(Some("tok-1"), &ask("/v1/chat/completions"), &table),
+                Err(Refused::Elsewhere),
+                "{holder:?}"
+            );
+            assert_eq!(Refused::Elsewhere.status(), 403);
+        }
+        assert!(judge(Some("tok-1"), &ask("/v1/chat/completions"), &ready()).is_ok());
     }
 
     #[test]
