@@ -137,8 +137,8 @@ pub enum Verb {
         settings: Settings,
         /// Whether the instance has the feature on, as the command that loaded
         /// its settings said: `--outsource`, which the store cannot read for
-        /// itself. It decides only whether the five tables of section 3.15 are
-        /// laid beside the schema; see `db::outsource_schema`.
+        /// itself. It decides whether the verbs of the feature write; see
+        /// `db::has_outsource`.
         outsource: bool,
     },
     Migrate {
@@ -708,14 +708,11 @@ fn migrate(
     // leaves a store nobody was told to open and a copy a person can restore
     // from, rather than a migrated store behind a name that was never written.
     if from < db::SCHEMA_VERSION {
-        db::migrate(&mut conn, file, from, now, settings, outsource).map_err(line)?;
-    } else if outsource {
-        // A store at the version this binary writes still gains the five
-        // tables when the command says the instance outsources: the feature is
-        // a setting, and a person turning it on runs the same install that
-        // migrates.
-        db::outsource_schema(&mut conn, file).map_err(line)?;
+        db::migrate(&mut conn, file, from, now, settings).map_err(line)?;
     }
+    // Every migrate says the feature, so the store follows the setting of the
+    // install that ran it.
+    db::set_outsource(&mut conn, outsource).map_err(line)?;
     // Read back, not assumed: the answer reports the version the file holds,
     // and a step that left it anywhere else is reported as what it did.
     let to: i64 = conn
@@ -837,11 +834,8 @@ fn init(
         &settings.repo,
     )
     .and_then(|()| {
-        // The five tables of the feature, in the same call as the schema: an
-        // instance that runs with TEHAS_OUTSOURCE=1 gains them the day it is
-        // installed, and one that does not is never given a table of them.
         if outsource {
-            db::outsource_schema(&mut conn, file)
+            db::set_outsource(&mut conn, true)
         } else {
             Ok(())
         }

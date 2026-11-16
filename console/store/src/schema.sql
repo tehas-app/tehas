@@ -10,10 +10,9 @@
 -- than rebuilt. Schema 12 adds start_order (db::STEP_12). Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
 -- 'host', a start `tehas start` approved (db::STEP_14). Schema 15 adds the
--- five outsource tables (db::STEP_15), section 3.15 below. They exist only
--- where the instance has TEHAS_OUTSOURCE=1: a factory with the feature off
--- holds no table of them at all, so a store of this version has 24 tables
--- off and 29 on. No secret is in them: an invite code is kept only as the
+-- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
+-- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
+-- them. No secret is in them: an invite code is kept only as the
 -- sha256 of what was printed, and a contractor gives only its public key, so
 -- there is no private key of any kind in the file.
 -- Within one version columns are only added; a change of meaning raises the

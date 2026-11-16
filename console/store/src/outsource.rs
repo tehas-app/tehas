@@ -1,12 +1,9 @@
 //! The outsource state: the contractors, the one-time invite codes, and the
 //! job state machine of the spec's "Job states".
 //!
-//! The five tables of section 3.15 exist only where the instance has
-//! `TEHAS_OUTSOURCE=1`; see `db::outsource_schema` for who creates them and
-//! `db::has_outsource` for how a call learns the answer. Every verb here asks
-//! that first and answers `refused` when the store holds no table of the
-//! feature, so an off factory's store is not merely quiet about outsourcing:
-//! it has nothing to read.
+//! The five tables of section 3.15 are in every store of schema 15. Every verb
+//! here asks `db::has_outsource` first and answers `refused` when the feature
+//! is off, so an off factory's tables stay empty.
 //!
 //!   store contractor-add --name <name> --key <hex> [--by <who>]
 //!     One contractor and the public key it joined with. The registered keys
@@ -505,8 +502,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     }
 }
 
-/// Whether the store holds the five tables, read without the write lock. The
-/// one place a call learns the feature is on.
+/// Whether the feature is on, read without the write lock.
 fn available(home: &Path) -> Result<bool, Fail> {
     let file = db::path(home);
     verbs::not_empty(&file)?;

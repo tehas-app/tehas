@@ -1,7 +1,6 @@
--- 3.15 outsource: the whole of it is created only where the instance has
--- TEHAS_OUTSOURCE=1 (db::outsource_schema, and db::STEP_15 of the migration). A factory with the
--- feature off has no table of these: no verb reads one, and no reader tells
--- an off factory's store from one that predates the feature. Times are UTC
+-- 3.15 outsource: laid in every store by init and by the step to 15. Rows
+-- are written only where the instance has TEHAS_OUTSOURCE=1, which the store
+-- keeps as the meta row outsource = 1 (db::has_outsource). Times are UTC
 -- Unix seconds, as everywhere here. The table of record is jobs, whose one
 -- row is one cycle the factory gave to a contractor; every change of its
 -- state leaves a row of job_history beside it, so a restart replays what

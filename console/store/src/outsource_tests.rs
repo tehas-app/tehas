@@ -1,7 +1,7 @@
 //! The outsource state: the job machine of "Job states", its history rows, the
 //! three losses of "Durability", the attempt number, the retry record, the
-//! one-time codes, and the guarantee that a factory with the feature off has
-//! no table of it.
+//! one-time codes, and the guarantee that a factory with the feature off
+//! writes no row of it.
 
 use crate::db;
 use crate::verbs_tests::*;
@@ -40,12 +40,9 @@ fn on(name: &str) -> TestDir {
     made(name, true)
 }
 
-/// Whether a home's store holds the five tables, read the way every read verb
-/// of the store reads it. A test that opened the file itself with the plain
-/// `Connection::open` would read only the file: with WAL on, the master record
-/// of a store that was just widened is in the -wal beside it, and the plain
-/// open says the tables are not there when they are.
-fn holds(home: &Path) -> bool {
+/// Whether a home's store has the feature on, read the way every read verb of
+/// the store reads it, through the -wal.
+fn on_in(home: &Path) -> bool {
     let conn = db::open_read_only(&db::path(home)).unwrap();
     db::has_outsource(&conn).unwrap()
 }
@@ -68,7 +65,7 @@ fn made(name: &str, outsource: bool) -> TestDir {
 }
 
 /// A store made by a command that loaded nothing: the store of a factory that
-/// does not outsource, which holds no table of the feature.
+/// does not outsource, which holds the empty tables of the feature.
 fn off(name: &str) -> TestDir {
     off_at(name, NOW)
 }
@@ -369,16 +366,16 @@ fn tables(home: &Path) -> Vec<String> {
 // --- the feature's tables ----------------------------------------------------
 
 #[test]
-fn a_store_with_the_feature_off_holds_no_table_of_it_and_refuses_its_verbs() {
+fn a_store_with_the_feature_off_holds_the_empty_tables_and_refuses_its_verbs() {
     let home = off("off");
     for table in db::OUTSOURCE_TABLES {
         assert!(
-            !tables(&home).iter().any(|n| n == table),
-            "{table} is there"
+            tables(&home).iter().any(|n| n == table),
+            "{table} is missing"
         );
+        assert_eq!(held(&home, table), 0, "{table}");
     }
-    // The verbs answer the one refusal, and write nothing: the store is not
-    // even opened for a row.
+    assert!(!on_in(&home));
     let v = out(&home, &["contractor-add", "--name", "box1", "--key", KEY]);
     assert_eq!(v["verb"], "refused");
     assert_eq!(v["said"], "outsource is off");
@@ -392,58 +389,25 @@ fn a_store_with_the_feature_off_holds_no_table_of_it_and_refuses_its_verbs() {
     ] {
         assert_eq!(out(&home, &args)["verb"], "refused", "{args:?}");
     }
-    // The counts of `check` name the same tables they named before the feature.
     let report = crate::execute(&home, &crate::Verb::Check, NOW)
         .unwrap()
         .parse::<Value>()
         .unwrap();
     for table in db::OUTSOURCE_TABLES {
-        assert!(report["rows"].get(table).is_none(), "{table} is counted");
+        assert_eq!(report["rows"][table], 0, "{table}");
     }
-    assert_eq!(
-        report["rows"].as_object().unwrap().len(),
-        db::COUNTED_TABLES.len()
-    );
     assert_eq!(report["schema"], db::SCHEMA_VERSION);
 }
 
 #[test]
-fn the_init_of_an_off_call_writes_no_word_of_the_feature_to_the_file() {
-    // The store's one guard is the tables, and a row cannot exist without one,
-    // but a call of this issue's guarantee is made against the bytes as well:
-    // a store made by an init that says the instance does not outsource holds
-    // no name of the feature at all, so a reader of a host's file cannot tell
-    // it from a store that predates the feature.
+fn a_refused_call_of_an_off_store_writes_no_row() {
     let home = off("off-quiet");
-    for file in ["", "-wal"] {
-        let name = db::side_file(&db::path(&home), file);
-        if !name.exists() {
-            continue;
-        }
-        let text = String::from_utf8_lossy(&std::fs::read(&name).unwrap()).to_lowercase();
-        for word in [
-            "contractor",
-            "join_codes",
-            "job_",
-            "jobs",
-            "issue_attempts",
-            "outsource",
-        ] {
-            assert!(!text.contains(word), "{name:?} says {word}");
-        }
-    }
-    // The counts of `check` are the 24 of the release before the feature, and
-    // no call of the feature adds one: it is refused before it reads a row.
-    let report = crate::execute(&home, &crate::Verb::Check, NOW)
+    let before = crate::execute(&home, &crate::Verb::Check, NOW)
         .unwrap()
         .parse::<Value>()
         .unwrap();
-    assert_eq!(
-        report["rows"].as_object().unwrap().len(),
-        db::COUNTED_TABLES.len()
-    );
-    let before = report["rows"].clone();
     out(&home, &["contractor-add", "--name", "box1", "--key", KEY]);
+    out(&home, &["invite-new", "--name", "box1", "--code", CODE]);
     out(
         &home,
         &["job-offer", "--issue", "1", "--contractor", "box1"],
@@ -452,18 +416,13 @@ fn the_init_of_an_off_call_writes_no_word_of_the_feature_to_the_file() {
         .unwrap()
         .parse::<Value>()
         .unwrap();
-    assert_eq!(after["rows"], before, "a refused call wrote a row");
+    assert_eq!(after["rows"], before["rows"], "a refused call wrote a row");
 }
 
 #[test]
 fn a_store_with_the_feature_on_holds_the_five_tables_and_counts_them() {
     let home = on("on");
-    for table in db::OUTSOURCE_TABLES {
-        assert!(
-            tables(&home).iter().any(|n| n == table),
-            "{table} is missing"
-        );
-    }
+    assert!(on_in(&home));
     assert_eq!(
         tables(&home).len(),
         db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
@@ -482,37 +441,43 @@ fn a_store_with_the_feature_on_holds_the_five_tables_and_counts_them() {
 }
 
 #[test]
-fn a_migrate_lays_the_tables_for_an_on_call_and_never_for_an_off_one() {
+fn a_migrate_turns_the_feature_as_its_call_says_and_keeps_the_rows() {
     let home = made("migrate-on", true);
-    assert!(holds(&home), "init with the feature on made no table");
+    assert!(on_in(&home), "init with the feature on left it off");
+    add(&home, "box1");
+    // Off: the rows stay, the verbs stop writing.
     migrate_at(&home, false, NOW);
-    // A store that holds them keeps them: a migrate that says the feature off
-    // does not take the feature away, which would be a person's rows.
-    assert!(holds(&home));
-    // And a store that does not hold them is not widened by a call that says
-    // nothing, nor by a second call; a call that says the feature on lays them.
+    assert!(!on_in(&home));
+    assert_eq!(held(&home, "contractors"), 1);
+    assert_eq!(
+        out(&home, &["contractor-add", "--name", "box2", "--key", KEY_B])["verb"],
+        "refused"
+    );
+    assert_eq!(held(&home, "contractors"), 1);
+    // On again: the same rows are read.
+    migrate_at(&home, true, NOW + 1);
+    assert!(on_in(&home));
+    let list = out(&home, &["contractor-list"]);
+    assert_eq!(list["verb"], "contractors", "{list}");
+    assert_eq!(list["rows"].as_array().map(Vec::len), Some(1), "{list}");
+    // A store made off is turned on by a migrate that says so, and only then.
     let off = off_at("migrate-off", NOW - 100);
-    assert!(!holds(&off), "init with the feature off made a table");
+    assert!(!on_in(&off), "init with the feature off turned it on");
     migrate_at(&off, false, NOW);
-    assert!(!holds(&off));
-    migrate_at(&off, false, NOW + 1);
-    assert!(!holds(&off));
+    assert!(!on_in(&off));
     migrate_at(&off, true, NOW + 2);
-    assert!(holds(&off));
+    assert!(on_in(&off));
 }
 
 #[test]
-fn a_store_brought_forward_from_the_release_before_keeps_its_rows_and_gains_the_tables() {
-    // The tables arrive with the step to 15, so a store of the release before
-    // them comes forward with every row it holds. The store of 14 is the one
-    // of the release before this binary: made without the tables, which is
-    // what a host that never turned the feature on holds today.
+fn a_store_made_off_keeps_its_rows_when_the_feature_is_turned_on() {
+    // The step from a store of 14 is schema_tests'.
     let home = off_at("forward", NOW - 100);
     let (_lock, attempt) = start(&home, 4);
     end(&home, 4, attempt, "closed");
     let before = count(&home, "cycle_history");
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert!(!holds(&home));
+    assert!(!on_in(&home));
 
     migrate_at(&home, true, NOW);
 

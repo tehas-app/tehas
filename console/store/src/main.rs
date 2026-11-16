@@ -17,11 +17,11 @@
 //!     Answers
 //!     {"api":1,"verb":"init","ok":true,"schema":2,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
-//!     --outsource lays the five tables of the outsource feature beside the
-//!     schema. The store reads no setting of a host, so the command that
-//!     loaded the instance's settings says whether TEHAS_OUTSOURCE is 1; a
-//!     store made without the flag holds no table of the feature at all, and
-//!     the verbs of outsource.rs answer `refused` against it.
+//!     --outsource turns the outsource feature on. The store reads no setting
+//!     of a host, so the command that loaded the instance's settings says
+//!     whether TEHAS_OUTSOURCE is 1, and the store keeps the word in meta.
+//!     The five tables are laid either way; without the flag the verbs of
+//!     outsource.rs answer `refused` and write nothing.
 //!   store migrate --backup <dir> [--outsource] [--json]
 //!     Backs the database up and then brings it forward, in that order: a
 //!     consistent copy of the store as it stands is written to
