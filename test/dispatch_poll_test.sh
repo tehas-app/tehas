@@ -55,6 +55,69 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: records of an older tehas at $home/state/cycles/7.approved.json; run install.sh again"
 rm -f "$home/state/cycles/7.approved.json"
 
+t_case "a poll handed a turns bound no rule read ends with 78 and no call"
+# The poll reads TEHAS_PLAN_MAX_TURNS itself, so it reads it the way the
+# settings load does, and refuses what the load refuses: a value that is set
+# and is no count of 1 or more. The load of the run says the same words first
+# (test/config_test.sh holds the rule); the poll's own read is the one that
+# stands for a poll whose load gave no answer, which is what a stray
+# `tehas-dispatch poll` under systemd or a person at a shell meets. Before
+# this, the poll's `parse().unwrap_or(20)` ran 20 turns for an instance that
+# asked for something else, and said nothing.
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_MAX_TURNS=two
+t_run "$rpoll"
+t_eq "$t_rc" 78
+t_eq "${t_out#*Z }" "tehas: TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number (see $TEHAS_INSTANCE_DIR/instance.env)"
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+reset
+# The poll's own read, under an environment the load made its own: the value
+# is set and no rule read it.
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_PLAN_MAX_TURNS=two TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number"
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+reset
+# 0 is no count either, and the same rule refuses it.
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_PLAN_MAX_TURNS=0 TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number"
+t_eq "$(t_calls gh)" ""
+reset
+# A good value the poll reads for itself, past what the instance file holds:
+# the ceiling of 7200 for a turn's timeout, and the cycle starts. The values go
+# into the file the load reads, which is where an instance sets them.
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200 TEHAS_PLAN_MAX_TURNS=5
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls fake-start)" "7"
+
+t_case "a poll handed a turn's timeout no rule read ends with 78 and no call"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1h
+t_run "$rpoll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: TEHAS_PLAN_TIMEOUT is not valid: expected a positive whole number"
+t_eq "$(t_calls gh)" ""
+reset
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_PLAN_TIMEOUT=1h TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_TIMEOUT is not valid: expected a positive whole number"
+t_eq "$(t_calls gh)" ""
+reset
+# Past the ceiling of 7200 the load gives, and past the digits a count takes.
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_PLAN_TIMEOUT=10000000 TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_TIMEOUT (10000000) is more than 7200"
+t_eq "$(t_calls gh)" ""
+reset
+# The ceiling itself starts a cycle: what the load takes, the poll takes.
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_PLAN_TIMEOUT=7200 TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls fake-start)" "7"
+
 t_case "a dry run logs what a poll would do"
 reset
 echo '[]' >"$fx/ready.json"

@@ -21,9 +21,11 @@ Usage:
 
 Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 does not know, which starts no poll; 78 instance settings are missing or
-malformed, tehas-dispatch is not installed or cannot run, or the state store
-is not installed or cannot be used (before any call to GitHub when it is not
-installed); 1 a call to GitHub failed or its
+malformed, one of TEHAS_PLAN_TIMEOUT or TEHAS_PLAN_MAX_TURNS is set and is no
+whole number of at least 1 (or a timeout over 7200), tehas-dispatch is not
+installed or cannot run, or the state store
+is not installed or cannot be used (the settings and the store are refused
+before any call to GitHub); 1 a call to GitHub failed or its
 answer could not be read, the state store could not be read, systemd cannot
 load the cycle unit (before any label changes), or a cycle could not be
 started.
@@ -237,8 +239,12 @@ Instance settings (lib/config.sh; defaults in brackets):
                             slice's room is counted in [2g]
   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
-  TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
-  TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
+  TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]; unset or
+                            empty is that default, any other text is refused
+                            with 78, as the settings load refuses it
+  TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]; unset or
+                            empty is that default, any other text is refused
+                            with 78, and so is a timeout over 7200
   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
                             record [0]
   TEHAS_MILLWRIGHT_LOGIN         the millwright's account, none when unset

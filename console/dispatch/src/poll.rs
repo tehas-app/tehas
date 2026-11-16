@@ -247,6 +247,46 @@ fn own_words(hook: bool, words: &[&str]) -> Vec<String> {
     }
 }
 
+/// The bound of one planning turn, read the way the settings load reads it.
+///
+/// The poll hands both bounds to the unit of a turn, so it reads them itself
+/// rather than trust the environment it was given: `parse().unwrap_or(..)`
+/// turned `TEHAS_PLAN_TIMEOUT=1h` into 3600 and the instance's own words back
+/// into a `1h` the loader refuses (console/core/src/settings/rules.rs holds
+/// both rules). Unset or empty is the default the load gives; anything else
+/// that is no count of 1 or more, or a timeout over the ceiling of 7200, is
+/// the line the load would have said. `trees` are the load's, so a rule that
+/// reads a path reads the same one.
+fn planning_bounds(trees: &tehas_core::settings::rules::Trees) -> Result<(u64, u64), String> {
+    let read = |name: &str, default: u64, ceiling: Option<u64>| -> Result<u64, String> {
+        let given = env(name);
+        if given.is_empty() {
+            return Ok(default);
+        }
+        tehas_core::settings::rules::check(name, &given, trees)
+            .map_err(|why| format!("{name} is not valid: {why}"))?;
+        let n = given
+            .parse::<u64>()
+            .map_err(|_| format!("{name} is more than this program can count"))?;
+        if let Some(max) = ceiling {
+            if n > max {
+                return Err(format!(
+                    "{name} ({n}) is more than {max}: a planning turn may take at most two hours, and while one runs no other planning turn starts"
+                ));
+            }
+        }
+        Ok(n)
+    };
+    Ok((
+        read(
+            "TEHAS_PLAN_TIMEOUT",
+            3600,
+            Some(tehas_core::settings::rules::PLAN_TIMEOUT_MAX),
+        )?,
+        read("TEHAS_PLAN_MAX_TURNS", 20, None)?,
+    ))
+}
+
 fn writer(
     home: &Path,
     settings: &Settings,
@@ -254,6 +294,7 @@ fn writer(
     poll_at: i64,
     before: i64,
     retry: &RetryPolicy,
+    plan: (u64, u64),
 ) -> Writer {
     let libexec = home.join("libexec");
     let opt = |k: &str| Some(env(k)).filter(|v| !v.is_empty());
@@ -336,8 +377,8 @@ fn writer(
             pin_cmd: Some(here.join("tehas-cycle"))
                 .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
                 .map(|p| p.to_string_lossy().into_owned()),
-            plan_timeout: env("TEHAS_PLAN_TIMEOUT").parse().unwrap_or(3600),
-            plan_max_turns: env("TEHAS_PLAN_MAX_TURNS").parse().unwrap_or(20),
+            plan_timeout: plan.0,
+            plan_max_turns: plan.1,
             systemd_run: "systemd-run".into(),
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
@@ -549,6 +590,27 @@ fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
 
 /// One poll. The exit status the bash poll would end with.
 pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
+    // The two bounds of a planning turn are read before the lock is opened and
+    // before anything reads GitHub, Docker or git: a poll of an instance whose
+    // settings are unreadable stops as one whose store is not installed does,
+    // with no call behind it and nothing on disk but the directories below.
+    let (home_dir, instance_dir, work_repo) = (
+        home.to_string_lossy().into_owned(),
+        settings.instance_dir.clone(),
+        env("TEHAS_WORK_REPO"),
+    );
+    let trees = tehas_core::settings::rules::Trees {
+        home: &home_dir,
+        instance: &instance_dir,
+        work_repo: &work_repo,
+    };
+    let plan = match planning_bounds(&trees) {
+        Ok(plan) => plan,
+        Err(why) => {
+            say(&format!("ERROR: {why}"));
+            return 78;
+        }
+    };
     let state = home.join("state");
     for d in ["state/cycles", "logs", "live"] {
         let _ = std::fs::create_dir_all(home.join(d));
@@ -625,7 +687,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let first_token = token.get(home);
     let adopted = adopt_login(home, settings);
     let settings = adopted.as_ref().unwrap_or(settings);
-    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry);
+    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry, plan);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -1380,8 +1442,142 @@ mod tests {
         held
     }
 
+    /// The trees of a rule that reads one of the three paths, of a test's home.
+    fn trees_of(home: &Path) -> tehas_core::settings::rules::Trees<'static> {
+        tehas_core::settings::rules::Trees {
+            home: Box::leak(home.to_string_lossy().into_owned().into_boxed_str()),
+            instance: "",
+            work_repo: "",
+        }
+    }
+
+    /// The two names of a planning turn, held for one test at a time: both
+    /// `planning_bounds` and `run_poll` read them from the environment, as a
+    /// poll of the host does, and the tests of a crate run side by side in one
+    /// process.
+    struct Bounds {
+        _held: std::sync::MutexGuard<'static, ()>,
+        kept: [(&'static str, Option<std::ffi::OsString>); 2],
+    }
+
+    impl Bounds {
+        fn take() -> Bounds {
+            static LOCK: Mutex<()> = Mutex::new(());
+            let held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let names = ["TEHAS_PLAN_TIMEOUT", "TEHAS_PLAN_MAX_TURNS"];
+            let kept = names.map(|n| (n, std::env::var_os(n)));
+            for n in names {
+                std::env::remove_var(n);
+            }
+            Bounds { _held: held, kept }
+        }
+    }
+
+    impl Drop for Bounds {
+        fn drop(&mut self) {
+            for (name, value) in &self.kept {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    /// A value of one of the two bounds, of a test's own process. Call it under
+    /// a `Bounds`.
+    fn bounds(timeout: &str, turns: &str) {
+        std::env::set_var("TEHAS_PLAN_TIMEOUT", timeout);
+        std::env::set_var("TEHAS_PLAN_MAX_TURNS", turns);
+    }
+
+    #[test]
+    fn the_planning_bounds_are_the_defaults_or_the_words_of_the_rules() {
+        let _held = Bounds::take();
+        let home = home_of("bounds");
+        let trees = trees_of(&home);
+        // Unset or empty is the default the load gives: the poll hands the unit
+        // a number of its own either way.
+        bounds("", "");
+        assert_eq!(super::planning_bounds(&trees), Ok((3600, 20)));
+        // The ceiling itself and any count below it are taken as they are.
+        bounds("7200", "5");
+        assert_eq!(super::planning_bounds(&trees), Ok((7200, 5)));
+        bounds("90", "1");
+        assert_eq!(super::planning_bounds(&trees), Ok((90, 1)));
+        // What the load refuses, the poll refuses, in the load's own words.
+        for (name, value) in [
+            ("TEHAS_PLAN_TIMEOUT", "1h"),
+            ("TEHAS_PLAN_TIMEOUT", "0"),
+            ("TEHAS_PLAN_TIMEOUT", "07200"),
+            ("TEHAS_PLAN_MAX_TURNS", "two"),
+            ("TEHAS_PLAN_MAX_TURNS", "-1"),
+        ] {
+            bounds(
+                if name == "TEHAS_PLAN_TIMEOUT" {
+                    value
+                } else {
+                    ""
+                },
+                if name == "TEHAS_PLAN_MAX_TURNS" {
+                    value
+                } else {
+                    ""
+                },
+            );
+            assert_eq!(
+                super::planning_bounds(&trees),
+                Err(format!(
+                    "{name} is not valid: expected a positive whole number"
+                )),
+                "{name}={value}"
+            );
+        }
+        // A timeout over the ceiling is refused for the reason the load gives,
+        // and a value past the digits a count takes is refused rather than
+        // wrapped.
+        bounds("7201", "");
+        assert_eq!(
+            super::planning_bounds(&trees),
+            Err(
+                "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: a planning turn may take at most two hours, and while one runs no other planning turn starts"
+                    .to_string()
+            )
+        );
+        bounds("99999999999999999999999", "");
+        assert_eq!(
+            super::planning_bounds(&trees),
+            Err("TEHAS_PLAN_TIMEOUT is not valid: expected at most 9 digits".to_string())
+        );
+    }
+
+    #[test]
+    fn a_poll_handed_no_planning_bound_ends_with_78() {
+        // The same two texts the load refuses. The home's lock is held by this
+        // test, so a pair the rules take ends 0 and none of the refusals below
+        // is another poll's or the store's 78. What the poll says and calls
+        // before it ends is the shell's case of the same rule:
+        // test/dispatch_poll_test.sh reads the log and the record of calls, and
+        // finds neither a line of the poll nor a call behind it.
+        let _held = Bounds::take();
+        let home = poll_home("bounds-refused");
+        let lock = held_lock(&home);
+        for (timeout, turns) in [("", "two"), ("7201", ""), ("1h", "20"), ("60", "0")] {
+            bounds(timeout, turns);
+            assert_eq!(
+                run_poll(&home, &Settings::parse(&json!({})), false),
+                78,
+                "{timeout}/{turns}"
+            );
+        }
+        bounds("7200", "1");
+        assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        drop(lock);
+    }
+
     #[test]
     fn a_poll_that_finds_the_lock_held_leaves_the_ask_for_the_next_poll() {
+        let _bounds = Bounds::take();
         let home = poll_home("again-held");
         let again = home.join("state/dispatch.again");
         std::fs::write(&again, "").unwrap();
@@ -1396,6 +1592,7 @@ mod tests {
 
     #[test]
     fn a_poll_that_takes_the_lock_takes_the_ask_with_it() {
+        let _bounds = Bounds::take();
         let home = poll_home("again-taken");
         let again = home.join("state/dispatch.again");
         std::fs::write(&again, "").unwrap();

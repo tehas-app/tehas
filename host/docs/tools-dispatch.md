@@ -437,7 +437,20 @@ still stays on record, the poll stops `tehas-cycle@N.service` before it
 labels the issue, so a unit that comes up late cannot use it.
 A state store that is not installed stops the poll before it asks GitHub
 anything: `ERROR: the state store is not installed (run install.sh)`, exit
-78. An answer that names no title records no
+78. The two bounds of a planning turn stop it the same way, before the lock and
+before any call: the poll reads `TEHAS_PLAN_TIMEOUT` and `TEHAS_PLAN_MAX_TURNS`
+itself, since it hands both to the unit of a turn, and it reads them by the
+rules of the settings load. Unset or empty is the default the load gives, 3600
+and 20; a value that is set and is no whole number of at least 1, or a timeout
+over the ceiling of 7200, ends the poll with `ERROR: TEHAS_PLAN_TIMEOUT is not
+valid: expected a positive whole number`, or
+`ERROR: TEHAS_PLAN_TIMEOUT (10000000) is more than 7200: ...`, or the same two
+lines for `TEHAS_PLAN_MAX_TURNS`, and exit 78. The load of the run says the
+same words for an instance that sets them, so on a host this is the reading
+that stands when no load ran: `tehas-dispatch poll` under systemd, from
+`tehas-dispatch.path`, or at a shell. Before this the poll's own read turned
+any such text into its default and the instance's words went unheard.
+An answer that names no title records no
 `title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
 issue's comments and adds `comment_links`: the links of each comment an
 allowed account wrote whose `created_at` and `updated_at` are at or before

@@ -1237,7 +1237,12 @@ Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `console 
 has checked the settings and the checkout. A file that is no program counts as
 not installed, so an empty one is not a poll that exits 0, and either way
 `tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
-acts. `tehas help dispatch` is the whole of the rules. A poll
+acts, and reads the two bounds of a planning turn for itself, since it hands
+both to the unit of a turn: unset or empty `TEHAS_PLAN_TIMEOUT` and
+`TEHAS_PLAN_MAX_TURNS` are the defaults of the settings load, 3600 and 20, and
+a value that is set and is no whole number of at least 1, or a timeout over
+7200, stops the poll with exit 78 and one ERROR line before the lock is opened
+and before any call to GitHub, Docker or git. `tehas help dispatch` is the whole of the rules. A poll
 is, in order: the lock, the
 snapshot of the queue (one GraphQL query in pages of 25;
 GitHub can answer a large page with an issue's
