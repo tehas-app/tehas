@@ -33,6 +33,7 @@ fn init(home: &Path, force: bool) -> Result<String, (u8, String)> {
         &Verb::Init {
             force,
             settings: settings(),
+            outsource: false,
         },
         1_792_000_000,
     )
@@ -2001,6 +2002,7 @@ fn the_arguments_migrate_accepts_are_the_ones_it_states() {
         Some(Verb::Migrate {
             backup: PathBuf::from(dir),
             settings: settings(),
+            outsource: false,
         })
     );
     let mut jsoned = vec!["--json"];
@@ -2043,6 +2045,7 @@ fn migrate_at(home: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)>
         &Verb::Migrate {
             backup: dir.to_path_buf(),
             settings: settings(),
+            outsource: false,
         },
         now,
     )
@@ -2107,7 +2110,8 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         parse(&init_args(full)),
         Some(Verb::Init {
             force: false,
-            settings: settings()
+            settings: settings(),
+            outsource: false,
         })
     );
     let mut forced = vec!["--force", "--json"];
@@ -2116,7 +2120,8 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         parse(&init_args(&forced)),
         Some(Verb::Init {
             force: true,
-            settings: settings()
+            settings: settings(),
+            outsource: false,
         })
     );
     assert_eq!(parse(&init_args(&["--json"])), None);
