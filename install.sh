@@ -15,8 +15,8 @@
 #                           which has a time limit, leaves them out
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the edge router, the Protolab, the
-# improvement loop and the manual, plus Pi's model list and settings, made from
+# sandbox files, the docs server, the edge router, the Protolab and the
+# manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
 # It copies files, and compiles seven: the console of a running cycle, the
@@ -598,7 +598,6 @@ files=(
   "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
-  "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
@@ -633,8 +632,6 @@ files=(
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
-  "systemd/tehas-improve.service|$units/tehas-improve.service|644"
-  "systemd/tehas-improve.timer|$units/tehas-improve.timer|644"
   "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
@@ -1065,12 +1062,13 @@ while IFS= read -r f; do
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done <<<"$retired"
 
-# The units of the timed refresh scan, which this version does not have:
-# refreshes are asked for one pull request at a time. Found here; in step 5
-# the timer is stopped and disabled and both files go.
+# The units of features this version does not have: the timed refresh scan
+# (refreshes are asked for one pull request at a time) and the improvement
+# loop. Found here; in step 5 each timer is stopped and disabled and its files
+# go.
 old_units=()
 scan_units=$units
-for unit in tehas-refresh.timer tehas-refresh.service; do
+for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-improve.service; do
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
@@ -1262,20 +1260,22 @@ report_login() {
   fi
 }
 
-# The scan's timer is stopped before its files go, so systemd holds no
-# timer whose unit file is gone. A unit systemd cannot let go of is left,
-# and the next run tries again.
+# A timer is stopped before its files go, so systemd holds no timer whose
+# unit file is gone. A unit systemd cannot let go of is left, and the next run
+# tries again. The timer comes first in the list, so its service follows it.
 if [ "${#old_units[@]}" -gt 0 ]; then
-  if [ ! -e "$scan_units/tehas-refresh.timer" ] ||
-    systemctl --user disable --now tehas-refresh.timer >/dev/null 2>&1; then
-    for unit in "${old_units[@]}"; do
-      rm -f "$scan_units/$unit" && echo "removed: $scan_units/$unit"
-    done
-    systemctl --user daemon-reload >/dev/null 2>&1 ||
-      echo "later: systemctl --user daemon-reload   (the refresh scan's units are removed)"
-  else
-    echo "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed, so the refresh scan's units were left)"
-  fi
+  gone=0
+  for unit in "${old_units[@]}"; do
+    timer=${unit%.*}.timer
+    if [ -e "$scan_units/$timer" ] && ! systemctl --user disable --now "$timer" >/dev/null 2>&1; then
+      [ "$unit" != "$timer" ] ||
+        echo "later: ./install.sh again   (systemctl --user disable --now $timer failed, so its units were left)"
+      continue
+    fi
+    rm -f "$scan_units/$unit" && echo "removed: $scan_units/$unit" && gone=1
+  done
+  [ "$gone" = 0 ] || systemctl --user daemon-reload >/dev/null 2>&1 ||
+    echo "later: systemctl --user daemon-reload   (units of a retired feature are removed)"
 fi
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then

@@ -167,7 +167,7 @@ echo "/dev/x 60000000 1 $answer 1% /"'
 
 reset() {
   rm -rf "$T"/calls/* "$T"/fx/* "$th"
-  mkdir -p "$cycles" "$logs" "$tmp/dl" "$tmp/node-compile-cache" "$tmp/improve" "$workdir" "$fx"
+  mkdir -p "$cycles" "$logs" "$tmp/dl" "$tmp/node-compile-cache" "$tmp/other" "$workdir" "$fx"
   mkdir -p "$th/lib"
   printf '%s\n' "${pins[@]}" >"$th/versions.env"
   t_instance "${T_MINIMAL[@]}"
@@ -552,17 +552,17 @@ t_case "the host scratch of that age goes, and nothing else under tmp"
 reset
 echo old >"$tmp/dl/tool.tar.gz"
 echo old >"$tmp/node-compile-cache/blob"
-echo keep >"$tmp/improve/record.json"
+echo keep >"$tmp/other/record.json"
 mkdir -p "$tmp/tehas-test.OLD"
 echo old >"$tmp/tehas-test.OLD/x"
-age "$tmp/dl/tool.tar.gz" "$tmp/node-compile-cache/blob" "$tmp/improve/record.json" \
+age "$tmp/dl/tool.tar.gz" "$tmp/node-compile-cache/blob" "$tmp/other/record.json" \
   "$tmp/tehas-test.OLD" "$tmp/tehas-test.OLD/x"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
 t_eq "$([ -e "$tmp/node-compile-cache/blob" ] && echo there)" ""
 t_eq "$([ -e "$tmp/tehas-test.OLD" ] && echo there)" ""
-t_eq "$([ -e "$tmp/improve/record.json" ] && echo there)" "there"
+t_eq "$([ -e "$tmp/other/record.json" ] && echo there)" "there"
 
 t_case "an analytics facts file of that age goes, a young one and other names stay"
 # A call's facts file outlives it only when the caller was killed during it.
@@ -2079,7 +2079,7 @@ t_contains "$(cat "$log_file")" "WARN: clean: docker builder prune failed"
 t_contains "$t_out" "removed $workdir-7/target: build output of #7"
 t_eq "$(grep -c "removed $workdir-7/target: build output of #7" "$log_file")" 1
 
-t_case "step 6: logs of cycles, planning turns and index runs over 7 days go, whatever the improvement loop does"
+t_case "step 6: logs of cycles, planning turns and index runs over 7 days go, and an analyst log an earlier version left"
 reset
 for f in work-3-261001-000000.jsonl work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log \
   improve-analyst-261001-000000.log plan-4-261001-000000.jsonl dispatch-plan-4.log dispatch.log clean.log; do

@@ -27,7 +27,7 @@ cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 
 A cycle with no logs, no transcripts or no Protolab page is not an error:
-those directories are simply not there. The improvement loop removes logs
+those directories are simply not there. tehasbot clean removes logs
 after seven days, and a planning turn has no result file at all.
 
 Usage: tehas export [--json] --after CURSOR <dir>

@@ -281,7 +281,7 @@
    }
   },
   {
-   "case": "an issue the loop labelled cross-project starts no cycle, and its labels stay",
+   "case": "cross-project is no hold any more: an issue that carries it beside tehas:improvement starts",
    "snapshot": {
     "ready": [
      {
@@ -304,32 +304,6 @@
     "7": [
      "alice",
      "2026-10-01T00:00:00Z"
-    ]
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "nothing": true,
-    "log": [
-     "skip #7: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"
-    ]
-   }
-  },
-  {
-   "case": "cross-project alone is no hold: the issue of a person starts as any other",
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "cross-project"
-       }
-      ]
-     }
     ]
    },
    "expect": {
@@ -364,88 +338,6 @@
     ],
     "log_lacks": [
      "another repository"
-    ]
-   }
-  },
-  {
-   "case": "the other issue of the queue still starts beside a held one",
-   "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "tehas:improvement"
-       },
-       {
-        "name": "cross-project"
-       }
-      ]
-     },
-     {
-      "number": 8,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       }
-      ]
-     }
-    ]
-   },
-   "ready_at": {
-    "7": [
-     "alice",
-     "2026-10-01T00:00:00Z"
-    ],
-    "8": [
-     "alice",
-     "2026-10-01T00:00:00Z"
-    ]
-   },
-   "expect": {
-    "picked": [
-     8
-    ],
-    "log": [
-     "skip #7: it carries cross-project"
-    ]
-   }
-  },
-  {
-   "case": "a dry run of a held issue says it and changes nothing",
-   "dry": true,
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "tehas:improvement"
-       },
-       {
-        "name": "cross-project"
-       }
-      ]
-     }
-    ]
-   },
-   "expect": {
-    "picked": [],
-    "nothing": true,
-    "log": [
-     "skip #7: it carries cross-project and tehas:improvement"
-    ],
-    "log_lacks": [
-     "would run a cycle"
     ]
    }
   },
@@ -949,7 +841,7 @@
    }
   },
   {
-   "case": "a planning session on such an issue is allowed: deciding where the fix lives is its work",
+   "case": "a planning session on a proposal of the factory is allowed",
    "snapshot": {
     "ready": [],
     "endpoint": {
@@ -964,9 +856,6 @@
        },
        {
         "name": "tehas:improvement"
-       },
-       {
-        "name": "cross-project"
        }
       ]
      }

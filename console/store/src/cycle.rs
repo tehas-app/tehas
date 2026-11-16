@@ -1063,7 +1063,7 @@ fn settings_view(home: &Path, issue: i64, want: Option<i64>) -> Result<String, F
     })
 }
 
-/// A cycle's settings as the improvement record has them, null when it has
+/// A cycle's settings as the analytics read them, null when it has
 /// none. The prefix of a name says which half it came from (cycle-image).
 pub fn settings_view_of(cycle: &Value) -> String {
     let Some(s) = cycle["settings"].as_object().filter(|s| !s.is_empty()) else {

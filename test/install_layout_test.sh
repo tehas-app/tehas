@@ -35,7 +35,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
@@ -114,6 +114,37 @@ t_stub systemctl 'exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed"
+t_eq "$([ -e "$units/tehas-refresh.timer" ] && echo there)" "there"
+t_stub systemctl
+t_run "$install"
+t_contains "$t_out" "removed: $units/tehas-refresh.timer"
+
+t_case "the units of the improvement loop are named, then stopped and removed"
+echo "[Timer]" >"$units/tehas-improve.timer"
+echo "[Service]" >"$units/tehas-improve.service"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $units/tehas-improve.timer"
+t_contains "$t_out" "stale: $units/tehas-improve.service"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $units/tehas-improve.timer"
+t_contains "$t_out" "removed: $units/tehas-improve.service"
+t_eq "$(t_calls systemctl | head -n 2)" "--user disable --now tehas-improve.timer
+--user daemon-reload"
+t_eq "$([ -e "$units/tehas-improve.timer" ] || [ -e "$units/tehas-improve.service" ] || echo gone)" "gone"
+
+t_case "one retired timer systemd cannot disable leaves its units and not the other's"
+echo "[Timer]" >"$units/tehas-refresh.timer"
+echo "[Timer]" >"$units/tehas-improve.timer"
+echo "[Service]" >"$units/tehas-improve.service"
+t_stub systemctl '[ "$4" != tehas-refresh.timer ]'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again   (systemctl --user disable --now tehas-refresh.timer failed"
+t_contains "$t_out" "removed: $units/tehas-improve.timer"
+t_contains "$t_out" "removed: $units/tehas-improve.service"
 t_eq "$([ -e "$units/tehas-refresh.timer" ] && echo there)" "there"
 t_stub systemctl
 t_run "$install"

@@ -315,12 +315,12 @@ and `state`.
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
 | `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
-| `plan` | `false`: no new planning session and no improvement run. An answer to a planning question still runs: someone is waiting on it |
+| `plan` | `false`: no new planning session. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
 
 - **An expired or unreadable limit holds every start**: no cycle, planning
-  turn, answer or improvement run. `tehas status` warns and says why. A file
+  turn or answer. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
 - **One reading.** `tehas status`, the dispatcher and the health page read the
   file the same way. A file that names a key twice is `unreadable`.
@@ -442,7 +442,7 @@ running, and one cycle's still running.
 | `limit` | The limit the command set, as [`tehas limit --json`](#tehas-limit) prints it but for `api`, which the object above already carries. `drain` always sets no cycles, no planning and no expiry |
 | `limit.state` | `ok` for the limit `drain` writes; the other three states only when the file it just wrote cannot be read back |
 | `limit.cycles` | `0`: no cycle starts |
-| `limit.plan` | `false`: no new planning session and no improvement run |
+| `limit.plan` | `false`: no new planning session |
 | `limit.until` | Left out: a drain's limit lasts until `tehas limit clear` |
 | `limit.reason` | `draining` |
 
@@ -665,7 +665,7 @@ on the store until the next `tehas:plan` of the issue replaces it, so a turn
 that never made a session still brings the one it ended; a turn whose session
 was replaced since, by one opened after the turn ended, brings no `plan.json`. A planning session the store did not
 give is a cycle not written, and so is one with a file that cannot be read:
-the others are copied, and the command exits 1. A cycle whose logs the improvement loop has already removed is not an
+the others are copied, and the command exits 1. A cycle whose logs the cleaner has already removed is not an
 error: those files are simply not there.
 
 The console does the copying, and every file goes through its mask, the one

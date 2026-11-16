@@ -17,7 +17,7 @@
 //! mode 0600, holding `{v: 1, cycles, plan, until, reason}` written whole:
 //!
 //! - `cycles`: the most cycles running at once, a whole number 0 to 9999
-//! - `plan`: false holds a new planning turn and an improvement run
+//! - `plan`: false holds a new planning turn
 //! - `until`: when it expires, `2026-10-17T14:05:00Z`, or null while it lasts
 //!   until cleared
 //! - `reason`: one line of at most 200 characters, shown as the hold's reason
