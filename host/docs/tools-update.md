@@ -376,6 +376,15 @@ reads the files only and prints the lines below itself), and the run stops with 
   line per file, which stays where it is with the other files of its issue. Move
   each one out of `state/` or mend it, then run again.
 
+The importer takes nothing on trust. Where an older record holds a value the
+store's own verbs would refuse, the file is held with a line that says which
+value it was, rather than the value being dropped, clamped or cut. These are:
+a `filed` entry of a planning record or of its history that is not an issue URL
+or not a string; a negative `rc`; a negative `turns`; an `options` list longer
+than the 20 `plan-end` keeps; and a `cycles/<n>.branch` naming no branch of
+that issue, refused as `by`, `rukas` and `image` already refuse what they cannot
+read.
+
 After the database is made or migrated, `store import --say` makes the files rows and
 moves them to `state/imported-<YYYYMMDD>/`, under their paths in `state/`, an
 issue's files together once all their rows read back; nothing is deleted. The run prints `store: imported <table>
@@ -385,6 +394,13 @@ imported, and running `install.sh` again finishes it. Each
 `state/plan-<n>.json.keep` directory then moves to
 `$TEHAS_WORK_DIR-plan-<n>.keep` while no planning turn holds its lock; one held
 stays, with a `later:` line. See [The state store](/host#the-state-store).
+
+One read says what it cannot read: `store journal-open` answers each open action
+with the `args` object it recorded, and with `"args_unreadable": true` and no
+`args` for a row whose stored arguments are not a JSON object. Such a row comes
+from a store written by hand or from an older release: `journal-record` refuses
+an `--args` that is not one. The marker keeps a reader from taking the arguments
+of an unreadable action for an action that took none.
 
 One file it reports and never touches: `/usr/local/bin/tehas`, the command an
 account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts
