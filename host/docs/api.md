@@ -193,7 +193,7 @@ tehas status --json
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
   "held": [],
   "room": {"cycles": 0, "slice": 2},
-  "versions": {"platform": {"release": "v0.25.0", "latest": "v0.26.0", "behind": true},
+  "versions": {"platform": {"release": "v0.25.0", "commit": "0123456789abcdef0123456789abcdef01234567", "latest": "v0.26.0", "behind": true},
                "rukas": {"version": "v0.14.54", "latest": "v0.14.54", "behind": false}},
   "prototypes": [{"issue": 21, "builtAt": "2026-10-17T09:12:00Z"}]
 }
@@ -255,9 +255,10 @@ tehas status --json
 | `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
-| `versions.platform` | The tehas release: `release`, `latest` and `behind` |
-| `versions.platform.release` | The release the host runs, such as `v0.25.0`; `null` on a host that runs a checkout, or with no platform reading |
-| `versions.platform.latest` | The newest published release, without release candidates; `null` when it is not known, and on a checkout host |
+| `versions.platform` | The tehas release: `release`, `commit`, `latest` and `behind` |
+| `versions.platform.release` | The release the host runs, such as `v0.25.0` or a prerelease such as `v1.0.0-alpha.1`; `null` on a host that runs a checkout, or with no platform reading |
+| `versions.platform.commit` | The commit the release was built from (its `COMMIT` file), or the commit of the checkout; `null` when it is not known |
+| `versions.platform.latest` | The newest published release, without prereleases; `null` when it is not known, and on a checkout host |
 | `versions.platform.behind` | `true` when `latest` is newer than `release`; on a checkout host, `true` when the checkout is behind its upstream. `null` when it cannot be told |
 | `versions.rukas` | The pi-rukas cycles run: `version`, `latest` and `behind`. All three `null` on a host with no pi-rukas reading |
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |
