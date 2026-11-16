@@ -230,29 +230,12 @@ fn checks(c: &Connection, table: &str) -> Vec<String> {
 }
 
 fn migrate(home: &Path) -> Result<String, (u8, String)> {
-    migrate_with(home, false)
+    migrate_with(home, false, NOW)
 }
 
-/// A store made by an init that says the instance outsources.
-fn home_on(name: &str) -> TestDir {
-    short_bounds();
-    let home = scratch(name);
-    execute(
-        &home,
-        &Verb::Init {
-            force: false,
-            settings: settings(),
-            outsource: true,
-        },
-        NOW,
-    )
-    .unwrap();
-    home
-}
-
-/// `store migrate` as a command that has read the instance says it, which is
-/// one word: whether the instance outsources.
-fn migrate_with(home: &Path, outsource: bool) -> Result<String, (u8, String)> {
+/// `store migrate` with or without `--outsource`, at `now`: two migrations of
+/// one store in one second would name the same copy.
+fn migrate_with(home: &Path, outsource: bool, now: i64) -> Result<String, (u8, String)> {
     execute(
         home,
         &Verb::Migrate {
@@ -260,7 +243,7 @@ fn migrate_with(home: &Path, outsource: bool) -> Result<String, (u8, String)> {
             settings: settings(),
             outsource,
         },
-        NOW,
+        now,
     )
 }
 
@@ -328,14 +311,13 @@ fn init_writes_schema_15() {
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
         "15"
     );
-    // The five tables of the feature are not part of the schema a factory
-    // without it writes; outsource_tests says who lays them.
+    // The five tables of the feature are laid by every init, and stay empty
+    // while it is off.
     for t in db::OUTSOURCE_TABLES {
-        assert!(
-            !tables(&conn(&home)).iter().any(|n| n == t),
-            "{t} of a store made without the feature"
-        );
+        assert!(tables(&conn(&home)).iter().any(|n| n == t), "{t}");
+        assert_eq!(count(&home, t), 0, "{t}");
     }
+    assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
     assert_eq!(count(&home, "planning_notes"), 0);
     let c = conn(&home);
     assert!(columns(&c, "heartbeats").contains(&"text".to_string()));
@@ -622,10 +604,7 @@ fn the_step_from_5_numbers_the_ends_in_the_order_they_were_listed() {
 
 #[test]
 fn a_migrated_store_has_the_schema_init_writes() {
-    // The shape of the feature is compared with the shape of the same call: a
-    // store made by an init that says the instance outsources, which is the
-    // only init that lays the five tables.
-    let made = home_on("init-shape");
+    let made = home("init-shape");
     let b = conn(&made);
     let index_sql = |c: &Connection| -> Vec<Option<String>> {
         let mut q = c
@@ -642,10 +621,7 @@ fn a_migrated_store_has_the_schema_init_writes() {
     // previous release sits at 14, which is the last one a host can arrive with.
     for from in 1..db::SCHEMA_VERSION {
         let migrated = old_home(&format!("step-shape-{from}"), from, "", "");
-        // The feature of the call is the feature of the shape compared with:
-        // a store migrated by a call that says the instance outsources holds
-        // the five tables, and so does the init of the same call.
-        migrate_with(&migrated, true).unwrap();
+        migrate(&migrated).unwrap();
         let a = conn(&migrated);
         assert_eq!(tables(&a), tables(&b), "from {from}");
         for t in tables(&b) {
@@ -819,6 +795,64 @@ fn load_brings_a_copy_of_an_older_schema_forward_as_migrate_does() {
         assert_eq!(one::<i64>(&old, "PRAGMA user_version"), from);
     }
 }
+
+/// Rows of schema 1 that every later step keeps.
+const RELEASE_ROWS: &str = "
+INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (21, 'issue', 1, 1);
+INSERT INTO cycles (issue, started_at, started_by, how) VALUES (21, 300, 'janit', 'label');
+";
+
+#[test]
+fn a_store_of_a_0_30_release_comes_to_15_with_the_tables_and_the_feature_off() {
+    // v0.30.0 wrote schema 12, v0.30.1 13, and v0.30.2 to v0.30.6 14.
+    for from in [12, 13, 14] {
+        let home = old_home(&format!("release-{from}"), from, RELEASE_ROWS, "");
+        let before: Vec<i64> = ["issues", "cycles", "meta"]
+            .iter()
+            .map(|t| count(&home, t))
+            .collect();
+        let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
+        assert_eq!(
+            (v["from"].as_i64(), v["to"].as_i64()),
+            (Some(from), Some(15)),
+            "from {from}"
+        );
+        let after: Vec<i64> = ["issues", "cycles", "meta"]
+            .iter()
+            .map(|t| count(&home, t))
+            .collect();
+        assert_eq!(after, before, "from {from}");
+        for t in db::OUTSOURCE_TABLES {
+            assert!(
+                tables(&conn(&home)).iter().any(|n| n == t),
+                "{t} from {from}"
+            );
+            assert_eq!(count(&home, t), 0, "{t} from {from}");
+        }
+        assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
+        let args = ["contractor-add", "--name", "box1", "--key", KEY];
+        call_word_at(&home, NOW, &args, "refused").unwrap();
+        assert_eq!(count(&home, "contractors"), 0, "from {from}");
+    }
+}
+
+#[test]
+fn a_store_of_14_migrated_with_the_feature_on_takes_its_writes() {
+    let home = old_home("release-14-on", 14, RELEASE_ROWS, "");
+    migrate_with(&home, true, NOW).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 15);
+    assert_eq!(
+        count(&home, "meta WHERE key = 'outsource' AND value = '1'"),
+        1
+    );
+    let args = ["contractor-add", "--name", "box1", "--key", KEY];
+    call_word_at(&home, NOW, &args, "added").unwrap();
+    assert_eq!(count(&home, "contractors"), 1);
+    assert_eq!(count(&home, "cycles"), 1);
+}
+
+/// A public key as a contractor gives it.
+const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
 const VERB_SOURCES: [(&str, &str); 23] = [

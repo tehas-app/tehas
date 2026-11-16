@@ -16,7 +16,7 @@
 //! took. The refusals are 1 with a word: `no-copy`, `bad-copy`, `newer-copy`,
 //! `running` and `history`.
 
-use crate::db::{self, has_outsource, COUNTED_TABLES, SCHEMA_VERSION};
+use crate::db::{self, COUNTED_TABLES, SCHEMA_VERSION};
 use crate::lock;
 use crate::verbs::{self, j, line, Fail, Q};
 use rusqlite::{Connection, OpenFlags};
@@ -148,20 +148,7 @@ fn ready(from: &str, side: &Path, now: i64) -> Result<(i64, i64), Fail> {
         instance: "load".to_string(),
         repo: "load".to_string(),
     };
-    // The feature travels with the copy: a store of a factory that outsources
-    // is loaded into a store that outsources, and one that does not gains no
-    // table of it. A copy below this binary's schema is stepped by the
-    // migration below, which lays the tables for a copy that holds them.
-    let on = has_outsource(&c).map_err(|e| {
-        bad(
-            from,
-            format!(
-                "cannot be read: {}",
-                e.detail().unwrap_or_else(|| e.word().to_string())
-            ),
-        )
-    })?;
-    db::migrate(&mut c, side, schema, now, &unused, on).map_err(|e| {
+    db::migrate(&mut c, side, schema, now, &unused).map_err(|e| {
         let why = e.detail().unwrap_or_else(|| e.word().to_string());
         bad(from, format!("did not migrate from schema {schema}: {why}"))
     })?;

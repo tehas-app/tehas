@@ -27,7 +27,7 @@ if real_store "a first install makes state/tehas.db 0600 in a 0700 state/"; then
   t_eq "$(stat -c %a "$th/state/tehas.db")" 600
   t_run "TEHAS_HOME='$th' '$th/libexec/store' check"
   t_eq "$t_rc" 0
-  t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "14 ok"
+  t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "15 ok"
   t_eq "$([ -e "$th/state/backup" ] && echo there)" ""
 fi
 

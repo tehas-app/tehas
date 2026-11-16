@@ -355,9 +355,12 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
     assert_eq!(value["verb"], "check");
     assert_eq!(value["ok"], true);
     let rows = value["rows"].as_object().unwrap();
-    assert_eq!(rows.len(), db::COUNTED_TABLES.len());
-    for table in db::COUNTED_TABLES {
-        assert!(rows.contains_key(table), "{table} is not counted");
+    assert_eq!(
+        rows.len(),
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
+    );
+    for table in db::COUNTED_TABLES.iter().chain(&db::OUTSOURCE_TABLES) {
+        assert!(rows.contains_key(*table), "{table} is not counted");
     }
 }
 
@@ -375,13 +378,14 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
         .map(|r| r.unwrap())
         .collect();
     let mut counted: Vec<&str> = db::COUNTED_TABLES.to_vec();
+    counted.extend(db::OUTSOURCE_TABLES);
     counted.sort_unstable();
     let mut counted: Vec<String> = counted.iter().map(|s| s.to_string()).collect();
     counted.sort_unstable();
     assert_eq!(names, counted, "the schema and the counts have diverged");
     assert_eq!(
         counted.len(),
-        db::COUNTED_TABLES.len(),
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len(),
         "a table is counted twice"
     );
     // The indexes by name too, so the test that damages one of them names a
@@ -1640,7 +1644,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     assert_eq!(report["integrity"], "ok");
     assert_eq!(
         report["rows"].as_object().unwrap().len(),
-        db::COUNTED_TABLES.len()
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
     );
     let conn = db::open_read_only(&file).unwrap();
     let tables: i64 = one(
@@ -1652,7 +1656,10 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
     );
     drop(conn);
-    assert_eq!(tables, db::COUNTED_TABLES.len() as i64);
+    assert_eq!(
+        tables,
+        (db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()) as i64
+    );
     assert_eq!(indexes, db::COUNTED_INDEXES.len() as i64);
     // What a migration leaves in `state/`, and what each of the two copies
     // holds. A verb that changed the version leaves two files: the copy the
