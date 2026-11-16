@@ -9,9 +9,10 @@ use crate::tools::{self, bad, word, Dirs, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::file::READ_BOUND;
 use tehas_core::snapshot::{API, OUTCOMES_SHAPE};
 use tehas_core::time::{civil_from_days, days_from_civil, week_start_of_day};
 
@@ -123,9 +124,15 @@ impl File_ {
             }
         })?;
         let mut first = String::new();
-        BufReader::new(f)
+        // The header is read under the crate's bound: a first line of more
+        // than it is refused, never buffered, and the answer is the fixed one
+        // that names no path and no content.
+        BufReader::new(f.take(READ_BOUND + 1))
             .read_line(&mut first)
             .map_err(|_| bad_file("could not be read"))?;
+        if first.len() as u64 > READ_BOUND {
+            return Err(bad_file("could not be read"));
+        }
         let head: Value = serde_json::from_str(&first).map_err(|_| bad_file("has no header"))?;
         if head["api"] != API {
             return Err(bad_file("has a header of another api"));

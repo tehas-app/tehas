@@ -7,6 +7,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+use tehas_core::file::READ_BOUND_LEN;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -246,6 +247,28 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
         other => panic!("not a file error: {other:?}"),
     };
     assert!(why.contains("another file"), "{why}");
+}
+
+#[test]
+fn a_header_over_the_read_bound_is_refused_as_unreadable() {
+    let (_root, dir) = dirs("big-header");
+    std::fs::create_dir_all(&dir.sessions).unwrap();
+    // The fixed answer, with nothing of the file in it: no path, and none of
+    // the line that made it too big to read.
+    let over = |n: usize| {
+        let mut text = "x".repeat(n);
+        text.push('\n');
+        std::fs::write(dir.sessions.join("outcomes.jsonl"), &text).unwrap();
+        match call(&dir, json!({})) {
+            Err(ToolError::File { file, why }) => {
+                assert_eq!(file, "outcomes.jsonl");
+                assert_eq!(why, "could not be read");
+            }
+            other => panic!("{n} bytes gave {other:?}"),
+        }
+    };
+    over(READ_BOUND_LEN + 1);
+    over(READ_BOUND_LEN * 3);
     // Nothing written at all: the tool says so, rather than answering nothing.
     std::fs::remove_file(dir.sessions.join("outcomes.jsonl")).unwrap();
     let why = match call(&dir, json!({})) {
