@@ -98,12 +98,11 @@ for m in ${MODELS:-m1}; do printf "%s{\"id\":\"%s\"}" "$sep" "$m"; sep=,; done
 printf "]}\n"'
 }
 stub_all() {
-  rm -rf "$T/calls" "$T/image-there" && mkdir -p "$T/calls"
+  rm -rf "$T/calls" && mkdir -p "$T/calls"
   stub_gh
   stub_curl
   t_stub systemctl
   t_stub openssl 'case "$1" in dgst) cat >/dev/null; printf signature ;; esac'
-  t_stub docker 'case "$1 $2" in "image inspect") [ -e "$T/image-there" ] ;; esac'
 }
 fresh() {
   rm -rf "$cfg" "$T/home/.gitconfig" "$T/home/tehas/repos" "$T/home/tehas/state"
@@ -148,7 +147,7 @@ t_eq "$(git config -f "$T/home/.gitconfig" user.email)" "9191+tehas-app[bot]@use
 t_eq "$([ -d "$T/home/tehas/repos/widget/.git" ] && echo cloned)" cloned
 t_eq "$(t_calls steps)" "install.sh
 labels
-build"
+build --if-moved"
 t_eq "$(t_calls tehasbot)" "github-token --check"
 t_contains "$(t_calls systemctl)" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
 t_contains "$t_out" "the app tehas-app is installed on acme/widget and may write to it"
@@ -169,24 +168,20 @@ t_lacks "$(cat "$cfg/instance.env")" "TEHAS_BOT_LOGIN"
 t_case "a second run changes nothing and makes no issue"
 before=$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)
 stub_all
-: >"$T/image-there"
 run_setup "${args[@]}"
 t_eq "$t_rc" 0
 t_eq "$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)" "$before"
 t_lacks "$(t_calls gh)" "issue create"
-t_lacks "$(t_calls steps)" "build"
-t_contains "$t_out" "the sandbox image is there"
+t_contains "$(t_calls steps)" "build --if-moved"
 
 t_case "the settings and the app already there fill what the command line leaves out"
 stub_all
-: >"$T/image-there"
 run_setup --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 0
 t_eq "$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)" "$before"
 
 t_case "an owner GitHub assigns is taken; one it does not is 78 before the clone"
 stub_all
-: >"$T/image-there"
 cp "$cfg/instance.env" "$T/instance.env.kept"
 echo TEHAS_OWNER=alice >>"$cfg/instance.env"
 run_setup --endpoint http://gb1:8086/v1
@@ -369,7 +364,6 @@ t_lacks "$(t_calls gh)" "repo clone"
 
 t_case "a second setup on a current checkout changes nothing and makes no commit"
 stub_all
-: >"$T/image-there"
 refs=$(git -C "$work" for-each-ref; git -C "$work" rev-list --count --all; git -C "$work" status --porcelain)
 run_setup "${args[@]}"
 t_eq "$t_rc" 0
