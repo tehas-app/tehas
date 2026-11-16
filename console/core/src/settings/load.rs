@@ -706,12 +706,13 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     // The model proxy of outsource (#2273) is the one place a contractor's
     // cycle waits on the factory. Its idle bound must outlast the check-in
-    // timeout, or a job is lost while its stream is still alive.
+    // timeout, or a job is lost while its stream is still alive. With outsource
+    // off nothing listens, so the bound is not checked.
     let (check_in, idle) = (
         number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
         number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
     );
-    if idle <= check_in {
+    if on("TEHAS_OUTSOURCE") && idle <= check_in {
         return Err(format!(
             "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
         ));
@@ -1038,6 +1039,9 @@ mod tests {
         ]);
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
+        // With outsource off nothing listens, and the bound is not checked.
+        let vars = loads(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
     }
 
     #[test]
@@ -1570,6 +1574,7 @@ mod tests {
             ),
             (
                 &[
+                    "TEHAS_OUTSOURCE=1",
                     "TEHAS_OUTSOURCE_PROXY_IDLE=60",
                     "TEHAS_OUTSOURCE_TIMEOUT=61",
                 ][..],

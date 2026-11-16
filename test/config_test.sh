@@ -1466,12 +1466,17 @@ done
 t_case "an idle bound not longer than the check-in timeout is refused"
 for pair in "TEHAS_OUTSOURCE_PROXY_IDLE=600" "TEHAS_OUTSOURCE_PROXY_IDLE=60 TEHAS_OUTSOURCE_TIMEOUT=61"; do
   # shellcheck disable=SC2086 # two settings in one word, split on purpose
-  t_instance "${T_MINIMAL[@]}" $pair
+  t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 $pair
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "is not longer than TEHAS_OUTSOURCE_TIMEOUT"
 done
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
+t_run "$load && echo ok"
+t_eq "$t_out" "ok"
+
+t_case "with outsource off the idle bound is not checked"
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
 t_run "$load && echo ok"
 t_eq "$t_out" "ok"
 t_instance "${T_MINIMAL[@]}"
