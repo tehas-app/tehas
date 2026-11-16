@@ -2193,7 +2193,8 @@ the new names.
   since the millwright's label, and the issue carries none of
   `tehas:improvement`, `cross-project`, `needs-human-attention` and
   `tehas:millwright-escalated`. Otherwise the label comes off and the issue
-  says why. The start is recorded as the person's label on the epic, `how:
+  says why. An issue whose edit record could not be read is refused the
+  same way: it is not taken as never edited. The start is recorded as the person's label on the epic, `how:
   "label"` by that person, and the session as theirs, so the millwright
   answers its questions within its grant and retries the cycle as it would
   any a person approved. These starts are not fed cycles: they do not count
