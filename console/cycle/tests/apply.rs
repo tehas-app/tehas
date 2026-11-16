@@ -35,7 +35,7 @@ case " $* " in *" --body-file - "* | *" --input - "*) body=$(cat) ;; esac
 printf 'gh %s%s\n' "$*" "${body:+ <<< $body}" >>"$d/../calls.log"
 if [ -f "$d/../gh-hangs" ]; then exec sleep 30; fi
 if [ -f "$d/../gh-fail" ]; then
-  while IFS= read -r p; do case "$*" in *"$p"*) echo "gh: HTTP 502" >&2; exit 1 ;; esac; done <"$d/../gh-fail"
+  while IFS= read -r p; do case "$*" in *"$p"*) cat "$d/../gh-says" >&2 2>/dev/null || echo "gh: HTTP 422" >&2; exit 1 ;; esac; done <"$d/../gh-fail"
 fi
 case "$1 $2" in
   "pr list") cat "$d/../prs.json" 2>/dev/null || echo '[]' ;;
@@ -407,6 +407,26 @@ fn a_write_the_journal_cannot_record_is_made_with_no_row() {
         // spend what a stop leaves.
         assert_eq!(h.count(&format!("store {verb}")), 1, "{:#?}", h.calls());
     }
+}
+
+/// #1754: a write GitHub answered with a 5xx may be there. The report does not
+/// send it again; its row stays open as unknown for the poll's read.
+#[test]
+fn a_write_github_answered_with_a_5xx_is_tried_once_and_left_unknown() {
+    let h = Host::new("tries-5xx");
+    h.result("aborted", "develop", "", "");
+    fs::write(h.dir.join("gh-fail"), "--add-label needs-human-attention\n").unwrap();
+    fs::write(h.dir.join("gh-says"), "gh: HTTP 502\n").unwrap();
+    let o = h.report(20, false);
+    assert!(o.status.success(), "{}", out(&o));
+    assert_eq!(h.count("gh issue edit 7 --repo a/b --remove-label"), 1);
+    assert!(out(&o).contains("may have been posted"), "{}", out(&o));
+    let settles: Vec<String> = h
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("store journal-settle") && c.contains("--result unknown"))
+        .collect();
+    assert_eq!(settles.len(), 1, "{:#?}", h.calls());
 }
 
 #[test]
