@@ -88,7 +88,8 @@ t_case "the real workspace: a store change selects the crates that run the store
 t_eq "$(real_pick console/store/src/db.rs)" "crate console
 crate store
 crate tehas-dispatch
-crate tehas-ops"
+crate tehas-ops
+crate tehas-proxy"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"

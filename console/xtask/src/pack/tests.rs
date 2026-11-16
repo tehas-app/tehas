@@ -546,6 +546,10 @@ const NOT_INSTALLED: &[(&str, &str)] = &[
         "tehas-merge",
         "built and tested, but no installed command starts it yet",
     ),
+    (
+        "tehas-proxy",
+        "built and tested; install.sh and the release take it with #2278",
+    ),
 ];
 
 /// The name of `[package]` in a manifest.
