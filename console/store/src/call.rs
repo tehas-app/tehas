@@ -108,7 +108,7 @@ pub fn said(home: &Path, args: &[String]) -> say::Said {
         Ok(t) => t,
         Err(why) => return refused(78, format!("store: {why}")),
     };
-    say::say(home, &verb, execute(home, &verb, now), now)
+    say::say(home, &verb, execute(home, &verb, now))
 }
 
 /// The home of a call: the same rule for every verb, judged before anything
