@@ -24,6 +24,10 @@ const USAGE: &str = "usage: tehas export [--json] --after CURSOR <dir>";
 
 const BIGGEST: u64 = 32 * 1024 * 1024;
 
+/// The layout of an export directory. `<dir>/export.json` and `--json` say
+/// it, so a reader can tell a later layout from this one.
+const VERSION: u32 = 1;
+
 /// What the arguments ask.
 #[derive(Debug, PartialEq)]
 pub struct Asked {
@@ -215,6 +219,13 @@ pub fn main(given: &[String]) -> u8 {
     let lines: Vec<String> = listing.runs.iter().map(J::dump).collect();
     let mut printed = String::new();
     let mut ok = make_dir(&to) && make_dir(&run.cycles);
+    if ok && !stamp(&to) {
+        eprintln!(
+            "tehas export: could not write {}",
+            to.join("export.json").display()
+        );
+        ok = false;
+    }
     if ok {
         let (copied, every) = run.all(&lines);
         ok = every;
@@ -227,6 +238,7 @@ pub fn main(given: &[String]) -> u8 {
     if asked.json {
         let mut object = listing.object();
         if let J::Obj(fields) = &mut object {
+            fields.insert(1, ("version".to_string(), J::Num(VERSION.to_string())));
             fields.push(("to".to_string(), J::str(to.to_string_lossy())));
         }
         printed = object.dump() + "\n";
@@ -290,6 +302,13 @@ fn make_dir(d: &Path) -> bool {
     }
     (fs::create_dir(d).is_ok() || d.is_dir())
         && fs::set_permissions(d, fs::Permissions::from_mode(0o755)).is_ok()
+}
+
+/// `<dir>/export.json`: the layout's version, readable by anyone.
+fn stamp(to: &Path) -> bool {
+    let file = to.join("export.json");
+    fs::write(&file, format!("{{\"version\":{VERSION}}}\n")).is_ok()
+        && fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).is_ok()
 }
 
 fn plain_file(p: &Path) -> bool {

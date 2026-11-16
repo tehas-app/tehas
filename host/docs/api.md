@@ -651,10 +651,17 @@ tehas export [--json] --after CURSOR <dir>
 ```
 
 ```json
-{"api": 1, "runs": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
+{"api": 1, "version": 1, "runs": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
   "ended": "2026-10-17T13:20:00Z", "status": 0, "outcome": "merged"}],
  "next": "1760700000-12-41", "to": "/home/boss/archive"}
 ```
+
+`version` is the layout of the export directory, 1 today. The directory says it
+too, in `<dir>/export.json`: `{"version": 1}`, written on every export. A
+program that reads an archive reads that file first, and a later layout comes
+with a higher number. The rest of the object is the one
+[`tehas history --json`](#tehas-history) prints for what was copied, and `to`,
+the directory.
 
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
