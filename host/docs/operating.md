@@ -2136,9 +2136,9 @@ The millwright was called the fixer. Its old names are no longer read: a
 `TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
 and the label `tehas:fixer-escalated` and the marker
 `<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
-written as `how: "fixer"` still counts as the millwright's, and
-[`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
-the new names.
+written as `how: "fixer"` still counts as the millwright's. [`tehas
+api`](/api#tehas-api) lists only the new names: `millwright-grant` and
+`millwright`.
 
 - **It is the bot.** The millwright is the factory's GitHub App, the login in
   `~/tehas/state/github/login`; it is not a setting. `tehasbot github-token
