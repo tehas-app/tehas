@@ -500,6 +500,10 @@ pub fn refuse(word: &str, issue: i64, why: &str) -> Fail {
 fn no_schema(held: i64) -> Fail {
     let why = if held == 0 {
         "the store holds no schema; run store migrate".to_string()
+    } else if held < db::OLDEST {
+        format!(
+            "the store is at schema {held}, older than v0.30.0 wrote; update to a v0.30 release first, then to this one"
+        )
     } else {
         format!(
             "the store is at schema {held}, this store writes {}; run store migrate",

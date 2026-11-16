@@ -11,7 +11,6 @@ mod db;
 #[cfg(debug_assertions)]
 mod exercise;
 mod history;
-mod import;
 mod journal;
 mod live;
 mod load;
@@ -34,8 +33,6 @@ mod call_tests;
 mod cycle_tests;
 #[cfg(test)]
 mod history_tests;
-#[cfg(test)]
-mod import_tests;
 #[cfg(test)]
 mod journal_tests;
 #[cfg(test)]
@@ -147,9 +144,6 @@ pub enum Verb {
         outsource: bool,
     },
     Check,
-    Import {
-        dry_run: bool,
-    },
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
     ReviewIssue(ReviewIssue),
@@ -304,12 +298,6 @@ fn parse(args: &[String]) -> Option<Verb> {
                 private,
                 gh: PathBuf::from(gh.unwrap_or_else(|| "gh".to_string())),
             }))
-        }
-        [verb, rest @ ..] if verb == "import" => {
-            flags(rest, &["--json", "--dry-run"])?;
-            Some(Verb::Import {
-                dry_run: rest.iter().any(|a| a == "--dry-run"),
-            })
         }
         [verb, rest @ ..] if verb == "migrate" => {
             let mut backup: Option<String> = None;
@@ -567,7 +555,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
             settings,
             outsource,
         } => init(&file, *force, settings, *outsource, now),
-        Verb::Import { dry_run } => import::run(home, *dry_run, now),
         Verb::Migrate {
             backup,
             settings,

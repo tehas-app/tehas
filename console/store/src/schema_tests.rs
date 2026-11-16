@@ -1,6 +1,7 @@
-//! Schema 4: what init writes, and the steps from an older store, which must
-//! keep every row. The v1 DDL is kept as it was released to main, in
-//! tests/schema_v1.sql.
+//! The schema this binary writes, and the steps from the stores of the v0.30
+//! releases, which must keep every row. A store older than v0.30.0 wrote is
+//! refused. The stores are the ones those releases made, kept as SQL in
+//! tests/fixtures/store-v0.30.<n>.sql.
 
 use crate::db;
 use crate::verbs_tests::*;
@@ -11,67 +12,37 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
-const V1: &str = include_str!("../tests/schema_v1.sql");
-
-/// A row in every table of schema 1, so the step is seen to keep each.
-const V1_ROWS: &str = "
-INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
-INSERT INTO cycles (issue, attempt, started_at, started_by, how) VALUES (7, 2, 100, 'alice', 'label');
-INSERT INTO cycle_locks (issue, held, seen_at, probe_rc) VALUES (7, 1, 100, 1);
-INSERT INTO heartbeats (issue, at, running) VALUES (7, 100, 1);
-INSERT INTO endings (issue, started_at, ended_at, status) VALUES (7, 90, 95, 'closed');
-INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, used_at, used_by)
-  VALUES (7, 50, 'alice', 'label', 'tehas:ready',
-          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 60, 2);
-INSERT INTO planning (issue, session, turns, running, pending, label, opened_at)
-  VALUES (7, 's1', 1, 1, 0, 'tehas:plan', 80);
-INSERT INTO planning_answers (issue, turn, by_account) VALUES (7, 2, 'bob');
-INSERT INTO planning_filed (issue, url, filed_issue, at)
-  VALUES (7, 'https://github.com/o/r/issues/9', 9, 81);
-INSERT INTO cycle_settings (issue, key, value) VALUES (7, 'K', 'V');
-INSERT INTO cycle_notes (issue, kind, said_for, at) VALUES (7, 'quiet', 'x', 85);
-INSERT INTO cycle_results (issue, received_at, schema_version, payload) VALUES (7, 101, 5, '{}');
-INSERT INTO cycle_progress (issue, received_at, written_at) VALUES (7, 101, 100);
-INSERT INTO parks (issue, attempt, at, reason) VALUES (7, 2, 102, 'failed');
-INSERT INTO questions (id, issue, attempt, kind, posted_at) VALUES (900, 7, 2, 'park', 103);
-INSERT INTO cycle_history (issue, attempt, at, status) VALUES (7, 1, 70, 'failed');
-INSERT INTO plan_history (issue, turn, at, outcome, filed_json) VALUES (7, 1, 71, 'finished', '[]');
-INSERT INTO refined (issue, at) VALUES (7, 72);
-INSERT INTO polls (at, lock_taken_at) VALUES (200, 199);
-INSERT INTO poll_demand (at, waiting) VALUES (200, 0);
-INSERT INTO queue_snapshot (at) VALUES (200);
-INSERT INTO health_samples (at, ok) VALUES (200, 1);
-INSERT INTO energy_samples (at, ok) VALUES (200, 1);
-INSERT INTO platform_state (key, value) VALUES ('k', 'v');
-INSERT INTO pause_flag (id, at, reason, by_account) VALUES (1, 200, 'r', 'alice');
-INSERT INTO limits (id, set_at) VALUES (1, 200);
-INSERT INTO branch_checks (name, head_sha, at, state) VALUES ('main', 'abc', 200, 'done');
-INSERT INTO check_product (at, ok) VALUES (200, 1);
-INSERT INTO refresh_requests (issue, at, head_sha, pr, by_account) VALUES (7, 200, 'abc', 4, 'alice');
-INSERT INTO refresh_hold (id, reason, since_at) VALUES (1, 'r', 200);
-INSERT INTO endpoints (id, main, settled_at) VALUES (1, 'main', 200);
-INSERT INTO index_state (\"commit\", state) VALUES ('abc', 'current');
-INSERT INTO release_history (tag, at) VALUES ('v1', 200);
-INSERT INTO edge_takeover (id, made_at) VALUES (1, 200);
-INSERT INTO improve_cap (id, cap, set_at) VALUES (1, 3, 200);
-INSERT INTO sweep_log (issue, at, action, what, reason) VALUES (7, 200, 'kept', 'ws', 'r');
-INSERT INTO actions (id, poll_at, kind, issue, args_json, before_snapshot, state, intended_at)
-  VALUES (1, 200, 'k', 7, '{}', 0, 'done', 200);
-INSERT INTO journal (action, at, step) VALUES (1, 200, 's');
-";
+/// The store each tagged v0.30 release makes, by the schema it is at: v0.30.0
+/// wrote 12, v0.30.1 13, and v0.30.2 to v0.30.6 14, with one schema.sql.
+const RELEASES: [(&str, i64, &str); 3] = [
+    (
+        "v0.30.0",
+        12,
+        include_str!("../tests/fixtures/store-v0.30.0.sql"),
+    ),
+    (
+        "v0.30.1",
+        13,
+        include_str!("../tests/fixtures/store-v0.30.1.sql"),
+    ),
+    (
+        "v0.30.2",
+        14,
+        include_str!("../tests/fixtures/store-v0.30.2.sql"),
+    ),
+];
 
 fn settings() -> Settings {
     Settings {
-        version: "v0.11.0".to_string(),
+        version: "v1.0.0".to_string(),
         commit: "cb6912a".to_string(),
         instance: "tehas-tehas".to_string(),
         repo: "example-owner/example-product".to_string(),
     }
 }
 
-/// A home whose store is the one main's install.sh made: schema 1, with
-/// `rows` written into it.
-fn v1_home(name: &str, rows: &str) -> TestDir {
+/// A home whose store is the one a release made, from its SQL.
+fn release_home(name: &str, sql: &str) -> TestDir {
     let home = scratch(name);
     let state = home.join("state");
     fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
@@ -83,119 +54,52 @@ fn v1_home(name: &str, rows: &str) -> TestDir {
         .unwrap();
     let c = Connection::open(db::path(&home)).unwrap();
     c.pragma_update(None, "journal_mode", "WAL").unwrap();
-    c.execute_batch(V1).unwrap();
-    c.execute_batch(
-        "INSERT INTO meta (key, value) VALUES ('schema', '1'), ('created_at', '1791000000'),
-           ('tehas_version', 'v0.11.0'), ('tehas_commit', 'cb6912a'),
-           ('instance', 'tehas-tehas'), ('repo', 'example-owner/example-product');",
-    )
-    .unwrap();
-    c.execute_batch(rows).unwrap();
-    c.pragma_update(None, "user_version", 1).unwrap();
+    c.execute_batch(sql).unwrap();
     home
 }
 
-/// The DDL of the released steps to 2 and to 3, as a store at that version holds
-/// them.
-const TO_2: &str = "
-ALTER TABLE approvals ADD COLUMN input_json TEXT;
-ALTER TABLE parks ADD COLUMN told_at INTEGER;
-ALTER TABLE planning_answers ADD COLUMN text TEXT;
-CREATE TABLE planning_notes (
-  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
-  comment_id INTEGER NOT NULL,
-  at INTEGER NOT NULL,
-  PRIMARY KEY (issue, kind, comment_id)
-);
-";
-const TO_3: &str = "ALTER TABLE heartbeats ADD COLUMN text TEXT;";
-// The step to 4 is the rebuild db.rs runs, as released.
-const TO_4: &str = db::STEP_4;
-const TO_5: &str = "
-ALTER TABLE planning ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE plan_history ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
-";
-const TO_6: &str = db::STEP_6;
-// The steps from 6 on are the ones db.rs runs. A store of the previous release
-// sits at 13, so a fixture at 13 lays the step to 13 and no further.
-const TO_7: &str = db::STEP_7;
-const TO_8: &str = db::STEP_8;
-const TO_9: &str = db::STEP_9;
-const TO_10: &str = db::STEP_10;
-const TO_11: &str = db::STEP_11;
-const TO_12: &str = db::STEP_12;
-const TO_13: &str = db::STEP_13;
-const TO_14: &str = db::STEP_14;
-const TO_15: &str = db::OUTSOURCE_SCHEMA;
+/// The store of a release at `schema`, and that schema.
+fn release(name: &str, schema: i64) -> TestDir {
+    let (_, _, sql) = RELEASES.iter().find(|r| r.1 == schema).unwrap();
+    release_home(name, sql)
+}
 
-/// The tables schema 11 drops (#1770): no verb wrote them and nothing read them.
-const DROPPED: [&str; 18] = [
-    "branch_checks",
-    "check_product",
-    "cycle_locks",
-    "edge_takeover",
-    "endpoints",
-    "energy_samples",
-    "health_samples",
-    "improve_cap",
-    "index_state",
-    "limits",
-    "pause_flag",
-    "platform_state",
-    "poll_demand",
-    "queue_snapshot",
-    "refresh_hold",
-    "refresh_requests",
-    "refined",
-    "release_history",
-];
-
-/// A home whose store is at schema `at`: 1 to 9, or 10, the version the previous
-/// release wrote, built by laying the steps to it as the released binaries did.
-/// `rows` are rows of schema 1 written into it and `later` is written after the
-/// steps.
-fn old_home(name: &str, at: i64, rows: &str, later: &str) -> TestDir {
-    let home = v1_home(name, rows);
-    let c = conn(&home);
-    for (to, sql) in [
-        (2, TO_2),
-        (3, TO_3),
-        (4, TO_4),
-        (5, TO_5),
-        (6, TO_6),
-        (7, TO_7),
-        (8, TO_8),
-        (9, TO_9),
-        (10, TO_10),
-        (11, TO_11),
-        (12, TO_12),
-        (13, TO_13),
-        (14, TO_14),
-        (15, TO_15),
-    ] {
-        if to <= at {
-            c.execute_batch(sql).unwrap();
+/// A store at 15: the last release's, brought forward by this binary's steps
+/// to 15 and no further, as a host on a pre-release of 1.0 holds it.
+fn at_15(name: &str) -> TestDir {
+    let home = release(name, 14);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if *to == 15 {
+            run(&mut c).unwrap();
         }
     }
-    c.execute_batch(later).unwrap();
-    c.execute(
-        "UPDATE meta SET value = ?1 WHERE key = 'schema'",
-        [at.to_string()],
-    )
-    .unwrap();
-    c.pragma_update(None, "user_version", at).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 15);
     home
 }
 
-/// The words of the fixer as a store at 3 holds them: a start, an answer and a
-/// note.
-const FIXER_ROWS: &str = "
-INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (8, 'issue', 1, 1);
-INSERT INTO cycles (issue, started_at, started_by, how) VALUES (8, 300, 'tehas-fixer', 'fixer');
-INSERT INTO planning_answers (issue, turn, by_account, fixer, text) VALUES (7, 3, 'tehas-fixer', 1, 'b');
-INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 55, 301);
-";
+/// The SQL of the step to `to`, as one transaction runs it.
+fn step_sql(to: i64) -> &'static str {
+    match to {
+        13 => db::STEP_13,
+        14 => db::STEP_14,
+        15 => db::OUTSOURCE_SCHEMA,
+        16 => db::STEP_16,
+        _ => unreachable!("no step to {to}"),
+    }
+}
+
+/// Every table but meta, with its rows, in rowid order.
+fn rows(c: &Connection) -> Vec<(String, usize)> {
+    tables(c)
+        .into_iter()
+        .filter(|t| t != "meta")
+        .map(|t| {
+            let n = dump(c, &t, &columns(c, &t)).len();
+            (t, n)
+        })
+        .collect()
+}
 
 /// The CHECK clauses of a table's CREATE, in order: a rebuilt table's text is
 /// quoted differently, and ADD COLUMN changes its spacing, but its CHECKs are
@@ -334,285 +238,9 @@ fn init_writes_schema_16() {
     }
 }
 
-#[test]
-fn the_step_from_1_keeps_every_row_of_every_table() {
-    let home = v1_home("step-rows", V1_ROWS);
-    let before = conn(&home);
-    let names = tables(&before);
-    // Schema 1 has neither planning_notes, sweep_log nor start_order, and has
-    // the eighteen.
-    assert_eq!(names.len(), db::COUNTED_TABLES.len() - 3 + DROPPED.len());
-    let meta = dump(&before, "meta", &columns(&before, "meta"));
-    let mut held = Vec::new();
-    for t in &names {
-        if t == "meta" {
-            continue;
-        }
-        let cols = columns(&before, t);
-        let rows = dump(&before, t, &cols);
-        assert!(!rows.is_empty(), "the fixture has no row in {t}");
-        if DROPPED.contains(&t.as_str()) {
-            continue;
-        }
-        held.push((t.clone(), cols, rows));
-    }
-    drop(before);
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(1), Some(db::SCHEMA_VERSION))
-    );
-    let after = conn(&home);
-    let left = tables(&after);
-    for t in DROPPED {
-        assert!(!left.contains(&t.to_string()), "{t}");
-    }
-    for (t, cols, rows) in &held {
-        // The one column the steps rename.
-        let cols: Vec<String> = cols
-            .iter()
-            .map(|c| match (t.as_str(), c.as_str()) {
-                ("planning_answers", "fixer") => "millwright".to_string(),
-                _ => c.clone(),
-            })
-            .collect();
-        assert_eq!(&dump(&after, t, &cols), rows, "{t}");
-    }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(
-        one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        db::SCHEMA_VERSION.to_string()
-    );
-    // meta keeps its rows; only `schema` moves with the version.
-    let meta_after = dump(&after, "meta", &columns(&after, "meta"));
-    assert_eq!(meta_after.len(), meta.len());
-    for (was, is) in meta.iter().zip(&meta_after) {
-        if was[0] == Sql::Text("schema".to_string()) {
-            assert_eq!(is[1], Sql::Text(db::SCHEMA_VERSION.to_string()));
-        } else {
-            assert_eq!(was, is);
-        }
-    }
-    // The new columns are empty on the old rows, and the new table is there.
-    assert_eq!(count(&home, "approvals WHERE input_json IS NULL"), 1);
-    assert_eq!(count(&home, "parks WHERE told_at IS NULL"), 1);
-    assert_eq!(count(&home, "planning_answers WHERE text IS NULL"), 1);
-    assert_eq!(count(&home, "planning_notes"), 0);
-    assert_eq!(
-        count(&home, "heartbeats WHERE text IS NULL"),
-        count(&home, "heartbeats")
-    );
-    assert_eq!(
-        count(&home, "planning WHERE auto = 0"),
-        count(&home, "planning")
-    );
-    assert_eq!(
-        count(&home, "plan_history WHERE auto = 0"),
-        count(&home, "plan_history")
-    );
-    // Both copies: the one the answer names and the store as it was found.
-    let found = home.join("state/backup").join(format!("tehas-1-{NOW}.db"));
-    let reported = home
-        .join("state/backup")
-        .join(format!("tehas-{}-{NOW}.db", db::SCHEMA_VERSION));
-    assert_eq!(v["backup"], reported.to_str().unwrap());
-    for copy in [&found, &reported] {
-        let c = Connection::open(copy).unwrap();
-        let v: i64 = c
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(v, 1, "{}", copy.display());
-    }
-    let report = execute(&home, &Verb::Check, NOW).unwrap();
-    assert!(
-        report.contains(&format!(
-            "\"schema\":{},\"integrity\":\"ok\"",
-            db::SCHEMA_VERSION
-        )),
-        "{report}"
-    );
-}
-
-#[test]
-fn the_steps_from_2_add_the_heartbeat_s_text() {
-    let home = old_home("step-from-2", 2, V1_ROWS, "");
-    let rows = count(&home, "heartbeats");
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(2), Some(db::SCHEMA_VERSION))
-    );
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(count(&home, "heartbeats WHERE text IS NULL"), rows);
-}
-
-#[test]
-fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
-    let home = old_home("step-from-3", 3, V1_ROWS, FIXER_ROWS);
-    // cycle_locks was a child too; schema 11 drops it.
-    let children = [
-        "heartbeats",
-        "cycle_settings",
-        "cycle_notes",
-        "cycle_results",
-        "cycle_progress",
-    ];
-    let before: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(3), Some(db::SCHEMA_VERSION))
-    );
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    // Dropping `cycles` deletes nothing that references it.
-    let after: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
-    assert_eq!(after, before);
-    assert!(before.iter().all(|&n| n > 0), "{before:?}");
-    assert_eq!(count(&home, "cycles"), 2);
-    // The step to 16 names the millwright in the rows the fixer left.
-    assert_eq!(
-        count(&home, "cycles WHERE issue = 8 AND how = 'millwright'"),
-        1
-    );
-    assert_eq!(
-        count(&home, "planning_answers WHERE turn = 3 AND millwright = 1"),
-        1
-    );
-    assert_eq!(
-        count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
-        1
-    );
-    // The pages of the dropped tables are given back.
-    assert_eq!(one::<i64>(&home, "PRAGMA freelist_count"), 0);
-    // Both copies are of the store at 3.
-    for v in [3, db::SCHEMA_VERSION] {
-        let copy = home.join(format!("state/backup/tehas-{v}-{NOW}.db"));
-        let c = Connection::open(&copy).unwrap();
-        let at: i64 = c
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(at, 3, "{}", copy.display());
-    }
-    // The verbs read the renamed column under its own name.
-    let p = ok(&home, &["plan-show", "7"])["planning"].clone();
-    assert_eq!(p["answers"][1]["by"], "tehas-fixer");
-    assert_eq!(p["answers"][1]["millwright"], true);
-    assert!(p["answers"][1].get("fixer").is_none(), "{p}");
-    // The new words are accepted.
-    let c = conn(&home);
-    c.execute_batch(
-        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (9, 'issue', 1, 1);
-         INSERT INTO cycles (issue, started_at, started_by, how)
-           VALUES (9, 400, 'tehas-millwright', 'millwright');
-         INSERT INTO planning_notes (issue, kind, comment_id, at)
-           VALUES (7, 'millwright-refused', 57, 401);",
-    )
-    .unwrap();
-    assert!(c
-        .execute(
-            "INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'other', 58, 402)",
-            [],
-        )
-        .is_err());
-}
-
-#[test]
-fn a_step_to_4_that_fails_leaves_the_store_at_3_with_its_rows() {
-    // A table of the step's own name already there: the step's CREATE fails
-    // and nothing of it is kept.
-    let home = old_home(
-        "step-4-fails",
-        3,
-        V1_ROWS,
-        "CREATE TABLE planning_notes_new (a);",
-    );
-    let (code, line) = migrate(&home).unwrap_err();
-    assert_eq!(code, 78, "{line}");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 3);
-    assert_eq!(
-        one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "3"
-    );
-    let c = conn(&home);
-    assert!(columns(&c, "planning_answers").contains(&"fixer".to_string()));
-    assert!(!checks(&c, "cycles")[0].contains("millwright"));
-    assert_eq!(count(&home, "cycles"), 1);
-    assert_eq!(count(&home, "heartbeats"), 1);
-}
-
-#[test]
-fn the_step_from_4_adds_auto_to_planning() {
-    let home = old_home("step-from-4", 4, V1_ROWS, "");
-    let (sessions, turns) = (count(&home, "planning"), count(&home, "plan_history"));
-    assert!(sessions > 0 && turns > 0);
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(4), Some(db::SCHEMA_VERSION))
-    );
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(count(&home, "planning WHERE auto = 0"), sessions);
-    assert_eq!(count(&home, "plan_history WHERE auto = 0"), turns);
-}
-
-#[test]
-fn the_step_from_5_numbers_the_ends_in_the_order_they_were_listed() {
-    let home = old_home(
-        "step-from-5",
-        5,
-        "",
-        "INSERT INTO cycle_history (issue, attempt, at, status) VALUES (7, 1, 70, 'failed');
-         INSERT INTO plan_history (issue, turn, at, outcome) VALUES (7, 1, 70, 'finished');
-         INSERT INTO cycle_history (issue, attempt, at, status) VALUES (3, 1, 70, 'failed');
-         INSERT INTO plan_history (issue, turn, at, outcome) VALUES (2, 1, 69, 'finished');",
-    );
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(5), Some(db::SCHEMA_VERSION))
-    );
-    let order = |c: &Connection| -> Vec<(String, i64, i64)> {
-        let mut q = c
-            .prepare(
-                "SELECT 'cycle', issue, seq FROM cycle_history
-                 UNION ALL SELECT 'plan', issue, seq FROM plan_history ORDER BY 3",
-            )
-            .unwrap();
-        q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
-    };
-    let c = conn(&home);
-    // The end, then the issue, then a cycle before a planning turn.
-    let s = |k: &str, i, n| (k.to_string(), i, n);
-    assert_eq!(
-        order(&c),
-        vec![
-            s("plan", 2, 1),
-            s("cycle", 3, 2),
-            s("cycle", 7, 3),
-            s("plan", 7, 4)
-        ]
-    );
-    // A row written after the step takes the next number, whatever its table.
-    c.execute_batch(
-        "INSERT INTO plan_history (issue, turn, at, outcome) VALUES (1, 2, 10, 'finished');
-         INSERT INTO cycle_history (issue, attempt, at, status) VALUES (1, 2, 10, 'failed');",
-    )
-    .unwrap();
-    assert_eq!(order(&c)[4..], [s("plan", 1, 5), s("cycle", 1, 6)]);
-}
-
-#[test]
-fn a_migrated_store_has_the_schema_init_writes() {
-    let made = home("init-shape");
-    let b = conn(&made);
+/// What a store migrated here must be: the schema init writes, table for
+/// table, index for index and CHECK for CHECK.
+fn same_shape_as_init(migrated: &Path, made: &Connection, from: &str) {
     let index_sql = |c: &Connection| -> Vec<Option<String>> {
         let mut q = c
             .prepare(
@@ -624,95 +252,254 @@ fn a_migrated_store_has_the_schema_init_writes() {
             .collect::<Result<_, _>>()
             .unwrap()
     };
-    // Every version this binary migrates from, 1 through 14: the store of the
-    // previous release sits at 14, which is the last one a host can arrive with.
-    for from in 1..db::SCHEMA_VERSION {
-        let migrated = old_home(&format!("step-shape-{from}"), from, "", "");
-        migrate(&migrated).unwrap();
-        let a = conn(&migrated);
-        assert_eq!(tables(&a), tables(&b), "from {from}");
-        for t in tables(&b) {
-            for pragma in ["table_info", "index_list", "foreign_key_list"] {
-                assert_eq!(
-                    described(&a, pragma, &t),
-                    described(&b, pragma, &t),
-                    "{pragma} of {t} from {from}"
-                );
-            }
-            assert_eq!(checks(&a, &t), checks(&b, &t), "CHECKs of {t} from {from}");
+    let a = conn(migrated);
+    assert_eq!(tables(&a), tables(made), "from {from}");
+    for t in tables(made) {
+        for pragma in ["table_info", "index_list", "foreign_key_list"] {
+            assert_eq!(
+                described(&a, pragma, &t),
+                described(made, pragma, &t),
+                "{pragma} of {t} from {from}"
+            );
         }
-        assert_eq!(index_sql(&a), index_sql(&b), "from {from}");
+        assert_eq!(
+            checks(&a, &t),
+            checks(made, &t),
+            "CHECKs of {t} from {from}"
+        );
+    }
+    assert_eq!(index_sql(&a), index_sql(made), "from {from}");
+}
+
+#[test]
+fn the_fixtures_are_the_stores_of_the_releases() {
+    for (version, schema, _) in RELEASES {
+        let home = release(&format!("fixture-{version}"), schema);
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
+        assert_eq!(
+            one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
+            schema.to_string()
+        );
+        assert_eq!(
+            one::<String>(&home, "SELECT value FROM meta WHERE key = 'tehas_version'"),
+            version
+        );
+        // A row in every table a host writes, so a step is seen to keep each.
+        for (t, n) in rows(&conn(&home)) {
+            if !db::OUTSOURCE_TABLES.contains(&t.as_str()) {
+                assert!(n > 0, "{version} has no row in {t}");
+            }
+        }
     }
 }
 
 #[test]
-fn a_step_that_fails_leaves_the_store_at_1_with_its_rows() {
-    // A table of the step's own name already there: the step's CREATE fails
-    // after its ALTERs ran, and the transaction takes them back.
-    let home = v1_home(
-        "step-fails",
-        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
-         CREATE TABLE planning_notes (a);",
-    );
-    let (code, line) = migrate(&home).unwrap_err();
-    assert_eq!(code, 78, "{line}");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 1);
-    assert_eq!(
-        one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "1"
-    );
-    assert!(!columns(&conn(&home), "approvals").contains(&"input_json".to_string()));
-    assert_eq!(count(&home, "issues"), 1);
+fn a_store_of_each_0_30_release_comes_to_16_with_every_row() {
+    let made = home("init-shape");
+    let b = conn(&made);
+    for (version, schema, _) in RELEASES {
+        let home = release(&format!("release-{version}"), schema);
+        let before = rows(&conn(&home));
+        let meta = count(&home, "meta");
+        let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
+        assert_eq!(
+            (v["from"].as_i64(), v["to"].as_i64()),
+            (Some(schema), Some(db::SCHEMA_VERSION)),
+            "{version}"
+        );
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+        assert_eq!(
+            one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
+            db::SCHEMA_VERSION.to_string()
+        );
+        assert_eq!(count(&home, "meta"), meta, "{version}");
+        // Every row kept; the outsource tables are new and empty.
+        let after: Vec<(String, usize)> = rows(&conn(&home))
+            .into_iter()
+            .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
+            .collect();
+        assert_eq!(after, before, "{version}");
+        for t in db::OUTSOURCE_TABLES {
+            assert_eq!(count(&home, t), 0, "{t} of {version}");
+        }
+        assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
+        same_shape_as_init(&home, &b, version);
+        // The millwright's old word is gone from the rows (schema 16).
+        assert_eq!(count(&home, "cycles WHERE how = 'fixer'"), 0);
+        assert_eq!(count(&home, "cycles WHERE how = 'millwright'"), 1);
+        assert_eq!(
+            count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
+            0
+        );
+        // The verbs read what the release wrote.
+        assert_eq!(
+            ok(&home, &["approval-current", "7"])["current"]["by"],
+            "alice"
+        );
+        let p = ok(&home, &["plan-show", "7"])["planning"].clone();
+        assert_eq!(p["answers"][0]["by"], "bob", "{version}");
+        assert_eq!(p["notes"]["millwright_refused"], serde_json::json!([55]));
+        let h = ok(&home, &["history-show", "8", "--kind", "cycle"]);
+        assert_eq!(h["rows"][0]["how"], "millwright", "{version}");
+        let open = ok(&home, &["journal-open"]);
+        assert_eq!(open["actions"][0]["state"], "attempted", "{version}");
+        // The copy the migrate took is the store as the release left it.
+        let copy = home
+            .join("state/backup")
+            .join(format!("tehas-{schema}-{NOW}.db"));
+        let c = Connection::open(&copy).unwrap();
+        let at: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(at, schema, "{}", copy.display());
+        let report = execute(&home, &Verb::Check, NOW).unwrap();
+        assert!(
+            report.contains(&format!(
+                "\"schema\":{},\"integrity\":\"ok\"",
+                db::SCHEMA_VERSION
+            )),
+            "{report}"
+        );
+    }
+    let home = at_15("release-15");
+    migrate(&home).unwrap();
+    same_shape_as_init(&home, &b, "15");
+}
+
+/// Plan 6.7: an update stopped at any step, then run again. A step is one
+/// transaction, so a stop between two steps leaves the store at the last one,
+/// and a stop inside a step leaves it where the step began. Either way the
+/// next migrate goes on from there to the schema init writes, with every row.
+#[test]
+fn a_migrate_stopped_at_any_step_comes_to_16_when_it_runs_again() {
+    let made = home("stopped-shape");
+    let b = conn(&made);
+    for (version, schema, _) in RELEASES {
+        for stop in schema + 1..=db::SCHEMA_VERSION {
+            let name = format!("stopped-{version}-at-{stop}");
+            let home = release(&name, schema);
+            let before = rows(&conn(&home));
+            let mut c = conn(&home);
+            for (to, run) in db::STEPS {
+                if *to > schema && *to < stop {
+                    run(&mut c).unwrap();
+                }
+            }
+            // The step to `stop` begun and its work done, then the process
+            // gone before the commit.
+            {
+                c.pragma_update(None, "foreign_keys", "OFF").unwrap();
+                let tx = c.transaction().unwrap();
+                tx.execute_batch(step_sql(stop)).unwrap();
+                drop(tx);
+                c.pragma_update(None, "foreign_keys", "ON").unwrap();
+            }
+            drop(c);
+            assert_eq!(one::<i64>(&home, "PRAGMA user_version"), stop - 1, "{name}");
+            assert_eq!(
+                one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
+                (stop - 1).to_string(),
+                "{name}"
+            );
+            let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
+            assert_eq!(
+                (v["from"].as_i64(), v["to"].as_i64()),
+                (Some(stop - 1), Some(db::SCHEMA_VERSION)),
+                "{name}"
+            );
+            let after: Vec<(String, usize)> = rows(&conn(&home))
+                .into_iter()
+                .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
+                .collect();
+            assert_eq!(after, before, "{name}");
+            same_shape_as_init(&home, &b, &name);
+        }
+    }
 }
 
 #[test]
-fn the_verbs_refuse_a_store_at_1_until_it_is_migrated() {
-    let home = v1_home("verbs-at-1", V1_ROWS);
+fn a_step_that_fails_leaves_the_store_where_it_was_with_its_rows() {
+    // A table of the step's own name already there: the step to 15 fails, and
+    // the store is at 14 with every row, ready for a migrate once it is gone.
+    let home = release("step-fails", 14);
+    conn(&home)
+        .execute_batch("CREATE TABLE contractors (a);")
+        .unwrap();
+    let before = rows(&conn(&home));
+    let (code, line) = migrate(&home).unwrap_err();
+    assert_eq!(code, 78, "{line}");
+    assert!(
+        line.contains("the step from schema 14 to 15 failed"),
+        "{line}"
+    );
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 14);
+    assert_eq!(rows(&conn(&home)), before);
+    conn(&home)
+        .execute_batch("DROP TABLE contractors;")
+        .unwrap();
+    migrate_with(&home, false, NOW + 1).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+/// A store older than v0.30.0 wrote: an earlier release's. Its rows are those
+/// of the v0.30.0 store, and its version an older one.
+fn pre_0_30(name: &str, schema: i64) -> TestDir {
+    let home = release(name, 12);
+    let c = conn(&home);
+    c.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema'",
+        [schema.to_string()],
+    )
+    .unwrap();
+    c.pragma_update(None, "user_version", schema).unwrap();
+    home
+}
+
+#[test]
+fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
+    for schema in [1, 6, 10, 11] {
+        let home = pre_0_30(&format!("pre-0.30-{schema}"), schema);
+        let before = rows(&conn(&home));
+        let (code, line) = migrate(&home).unwrap_err();
+        assert_eq!(code, 78, "{line}");
+        assert!(line.starts_with("unreadable "), "{line}");
+        assert!(
+            line.contains(&format!(
+                "is at schema {schema}, older than v0.30.0 wrote: update to a v0.30 release first, then to this one"
+            )),
+            "{line}"
+        );
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
+        assert_eq!(rows(&conn(&home)), before);
+        // The verbs say the same.
+        let (code, line) = call(&home, &["plan-show", "7"]).unwrap_err();
+        assert_eq!(code, 78);
+        assert!(line.contains("update to a v0.30 release first"), "{line}");
+        // A copy of it does not load either.
+        let into = crate::verbs_tests::home(&format!("pre-0.30-into-{schema}"));
+        let copy = db::path(&home);
+        let (code, line) = call(&into, &["load", "--from", copy.to_str().unwrap()]).unwrap_err();
+        assert_eq!(code, 1, "{line}");
+        assert!(line.contains("older than v0.30.0 wrote"), "{line}");
+    }
+}
+
+#[test]
+fn the_verbs_refuse_a_store_of_a_0_30_release_until_it_is_migrated() {
+    let home = release("verbs-at-12", 12);
     let (code, line) = call(&home, &["plan-show", "7"]).unwrap_err();
     assert_eq!(code, 78);
-    assert!(line.starts_with("unreadable "), "{line}");
     assert!(
         line.contains(&format!(
-            "the store is at schema 1, this store writes {}; run store migrate",
+            "the store is at schema 12, this store writes {}; run store migrate",
             db::SCHEMA_VERSION
         )),
         "{line}"
     );
-    assert_eq!(refused(&home, &["park-told", "7"]).0, 78);
-    let report = execute(&home, &Verb::Check, NOW).unwrap();
-    assert!(
-        report.contains("\"schema\":1,\"integrity\":\"ok\""),
-        "{report}"
-    );
-    assert!(!report.contains("planning_notes"), "{report}");
     migrate(&home).unwrap();
-    // The rows of schema 1 read and write as rows of schema 8.
-    let v = ok(&home, &["approval-current", "7"]);
-    assert_eq!(v["current"]["used_by"], 2);
-    assert_eq!(v["current"]["input"], serde_json::Value::Null);
-    let v = ok(&home, &["park-told", "7"]);
-    assert_eq!(v["said"], true);
-    assert_eq!(v["park"]["body_sha256"], SHA);
-    let p = ok(&home, &["plan-show", "7"])["planning"].clone();
-    assert_eq!(p["answer"], serde_json::Value::Null);
-    assert_eq!(p["answers"][0]["by"], "bob");
-    assert_eq!(p["auto"], false);
-}
-
-#[test]
-fn the_step_from_6_adds_the_cost_of_a_poll() {
-    let home = old_home("step-from-6", 6, V1_ROWS, "");
-    assert!(!tables(&conn(&home)).contains(&"poll_cost".to_string()));
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(6), Some(db::SCHEMA_VERSION))
-    );
-    assert_eq!(count(&home, "poll_cost"), 0);
-    assert_eq!(
-        count(&home, "cycle_history WHERE seq IS NOT NULL"),
-        count(&home, "cycle_history")
+        ok(&home, &["approval-current", "7"])["current"]["used_by"],
+        2
     );
 }
 
@@ -720,26 +507,15 @@ fn the_step_from_6_adds_the_cost_of_a_poll() {
 /// and a cycle may then say it was started from the host.
 #[test]
 fn the_step_from_13_keeps_the_cycles_and_takes_host() {
-    let home = old_home("step-from-13", 13, V1_ROWS, "");
-    let children = [
-        "heartbeats",
-        "cycle_settings",
-        "cycle_notes",
-        "cycle_results",
-        "cycle_progress",
-    ];
+    let home = release("step-from-13", 13);
+    let children = ["heartbeats", "cycle_settings", "cycle_notes"];
     let before: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
+    assert!(before.iter().all(|&n| n > 0), "{before:?}");
     let cycles = count(&home, "cycles");
-    assert!(cycles > 0);
     let insert = "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (90, 'issue', 1, 1);
          INSERT INTO cycles (issue, started_at, started_by, how) VALUES (90, 400, 'host', 'host');";
     assert!(conn(&home).execute_batch(insert).is_err());
-    let line = migrate(&home).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(13), Some(db::SCHEMA_VERSION))
-    );
+    migrate(&home).unwrap();
     let after: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     assert_eq!(after, before);
     assert_eq!(count(&home, "cycles"), cycles);
@@ -751,17 +527,14 @@ fn the_step_from_13_keeps_the_cycles_and_takes_host() {
 /// may then be `unknown`.
 #[test]
 fn the_step_from_15_keeps_the_journal_and_takes_unknown() {
-    let home = old_home("step-from-15", 15, V1_ROWS, "");
-    let unknown = "INSERT INTO actions (id, poll_at, kind, issue, args_json, before_snapshot, state, intended_at)
-         VALUES (2, 200, 'comment-post', 7, '{}', 0, 'unknown', 200);";
+    let home = at_15("step-from-15");
+    let unknown =
+        "INSERT INTO actions (poll_at, kind, issue, args_json, before_snapshot, state, intended_at)
+         VALUES (1790000300, 'comment-post', 7, '{}', 0, 'unknown', 200);";
     assert!(conn(&home).execute_batch(unknown).is_err());
     let (actions, journal) = (count(&home, "actions"), count(&home, "journal"));
     assert!(actions > 0 && journal > 0);
-    let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
-    assert_eq!(
-        (v["from"].as_i64(), v["to"].as_i64()),
-        (Some(15), Some(db::SCHEMA_VERSION))
-    );
+    migrate(&home).unwrap();
     assert_eq!(count(&home, "actions"), actions);
     assert_eq!(count(&home, "journal"), journal);
     conn(&home).execute_batch(unknown).unwrap();
@@ -772,30 +545,25 @@ fn the_step_from_15_keeps_the_journal_and_takes_unknown() {
 /// that kept it, so no answer of the store says `fixer` again.
 #[test]
 fn the_step_from_15_names_the_millwright_in_every_old_row() {
-    let home = old_home(
-        "step-16-words",
-        15,
-        V1_ROWS,
-        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (8, 'issue', 1, 1);
-         INSERT INTO cycles (issue, started_at, started_by, how) VALUES (8, 300, 'tehas-fixer', 'fixer');
-         INSERT INTO cycle_history (issue, attempt, at, status, how) VALUES (8, 1, 301, 'failed', 'fixer');
-         INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, started_how)
-           VALUES (8, 302, 'tehas-fixer', 'fixer', 'tehas:ready',
-                   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'fixer');
-         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 55, 303);
-         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 56, 304);
-         INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'millwright-refused', 56, 305);",
-    );
-    let rows: Vec<i64> = ["cycles", "cycle_history", "approvals"]
+    let home = at_15("step-16-words");
+    conn(&home)
+        .execute_batch(
+            "INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, started_how)
+               VALUES (8, 1790000600, 'tehas-fixer', 'fixer', 'tehas:ready',
+                       'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', 'fixer');
+             INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refused', 57, 1789999700);
+             INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'millwright-refused', 57, 1789999800);",
+        )
+        .unwrap();
+    let kept: Vec<i64> = ["cycles", "cycle_history", "approvals"]
         .iter()
         .map(|t| count(&home, t))
         .collect();
     migrate(&home).unwrap();
-    for (t, n) in ["cycles", "cycle_history", "approvals"].iter().zip(rows) {
+    for (t, n) in ["cycles", "cycle_history", "approvals"].iter().zip(kept) {
         assert_eq!(count(&home, t), n, "{t}");
         assert_eq!(count(&home, &format!("{t} WHERE how = 'fixer'")), 0, "{t}");
     }
-    assert_eq!(count(&home, "cycles WHERE how = 'millwright'"), 1);
     assert_eq!(count(&home, "cycle_history WHERE how = 'millwright'"), 1);
     assert_eq!(
         count(
@@ -813,21 +581,23 @@ fn the_step_from_15_names_the_millwright_in_every_old_row() {
         count(&home, "planning_notes WHERE kind = 'millwright-refused'"),
         2
     );
-    let v = ok(&home, &["history-show", "8", "--kind", "cycle"]);
-    assert_eq!(v["rows"][0]["how"], "millwright", "{v}");
 }
 
 #[test]
-fn the_steps_are_the_ladder_up_to_the_schema_this_binary_writes() {
+fn the_steps_are_the_ladder_from_v0_30_up_to_the_schema_this_binary_writes() {
     // The list migrate walks is one entry per schema, in order, each once: a
     // step put after a later one, or left out, or doubled, is caught here.
     let targets: Vec<i64> = db::STEPS.iter().map(|(to, _)| *to).collect();
-    assert_eq!(targets, (2..=db::SCHEMA_VERSION).collect::<Vec<_>>());
+    assert_eq!(
+        targets,
+        (db::OLDEST + 1..=db::SCHEMA_VERSION).collect::<Vec<_>>()
+    );
+    assert_eq!(db::OLDEST, RELEASES[0].1);
 }
 
 #[test]
-fn a_store_above_7_is_future() {
-    let home = home("schema-8");
+fn a_store_above_this_schema_is_future() {
+    let home = home("schema-future");
     conn(&home)
         .pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
         .unwrap();
@@ -853,19 +623,18 @@ fn the_test_clock_is_read_from_its_variable() {
 }
 
 #[test]
-fn load_brings_a_copy_of_an_older_schema_forward_as_migrate_does() {
-    for from in [1, db::SCHEMA_VERSION - 1] {
-        let old = old_home(&format!("load-old-{from}"), from, V1_ROWS, "");
-        let into = home(&format!("load-old-into-{from}"));
+fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
+    for (name, old) in [
+        ("12", release("load-old-12", 12)),
+        ("15", at_15("load-old-15")),
+    ] {
+        let from = one::<i64>(&old, "PRAGMA user_version");
+        let into = home(&format!("load-old-into-{name}"));
         let copy = db::path(&old);
         let v = call(&into, &["load", "--from", copy.to_str().unwrap()]).unwrap();
         assert_eq!(v["schema"], from, "{v}");
         assert!(v["rows"].as_i64().unwrap() > 0, "{v}");
         assert_eq!(one::<i64>(&into, "PRAGMA user_version"), db::SCHEMA_VERSION);
-        assert_eq!(
-            one::<String>(&into, "SELECT value FROM meta WHERE key = 'schema'"),
-            db::SCHEMA_VERSION.to_string()
-        );
         assert_eq!(count(&into, "cycles WHERE issue = 7"), 1);
         assert_eq!(count(&into, "plan_history WHERE issue = 7"), 1);
         // The copy itself is read, never changed.
@@ -873,49 +642,10 @@ fn load_brings_a_copy_of_an_older_schema_forward_as_migrate_does() {
     }
 }
 
-/// Rows of schema 1 that every later step keeps.
-const RELEASE_ROWS: &str = "
-INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (21, 'issue', 1, 1);
-INSERT INTO cycles (issue, started_at, started_by, how) VALUES (21, 300, 'janit', 'label');
-";
-
-#[test]
-fn a_store_of_a_0_30_release_comes_to_16_with_the_tables_and_the_feature_off() {
-    // v0.30.0 wrote schema 12, v0.30.1 13, and v0.30.2 to v0.30.6 14.
-    for from in [12, 13, 14] {
-        let home = old_home(&format!("release-{from}"), from, RELEASE_ROWS, "");
-        let before: Vec<i64> = ["issues", "cycles", "meta"]
-            .iter()
-            .map(|t| count(&home, t))
-            .collect();
-        let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
-        assert_eq!(
-            (v["from"].as_i64(), v["to"].as_i64()),
-            (Some(from), Some(db::SCHEMA_VERSION)),
-            "from {from}"
-        );
-        let after: Vec<i64> = ["issues", "cycles", "meta"]
-            .iter()
-            .map(|t| count(&home, t))
-            .collect();
-        assert_eq!(after, before, "from {from}");
-        for t in db::OUTSOURCE_TABLES {
-            assert!(
-                tables(&conn(&home)).iter().any(|n| n == t),
-                "{t} from {from}"
-            );
-            assert_eq!(count(&home, t), 0, "{t} from {from}");
-        }
-        assert_eq!(count(&home, "meta WHERE key = 'outsource'"), 0);
-        let args = ["contractor-add", "--name", "box1", "--key", KEY];
-        call_word_at(&home, NOW, &args, "refused").unwrap();
-        assert_eq!(count(&home, "contractors"), 0, "from {from}");
-    }
-}
-
 #[test]
 fn a_store_of_14_migrated_with_the_feature_on_takes_its_writes() {
-    let home = old_home("release-14-on", 14, RELEASE_ROWS, "");
+    let home = release("release-14-on", 14);
+    let cycles = count(&home, "cycles");
     migrate_with(&home, true, NOW).unwrap();
     assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(
@@ -925,21 +655,29 @@ fn a_store_of_14_migrated_with_the_feature_on_takes_its_writes() {
     let args = ["contractor-add", "--name", "box1", "--key", KEY];
     call_word_at(&home, NOW, &args, "added").unwrap();
     assert_eq!(count(&home, "contractors"), 1);
-    assert_eq!(count(&home, "cycles"), 1);
+    assert_eq!(count(&home, "cycles"), cycles);
+}
+
+#[test]
+fn a_migrated_store_with_the_feature_off_writes_no_outsource_row() {
+    let home = release("release-14-off", 14);
+    migrate(&home).unwrap();
+    let args = ["contractor-add", "--name", "box1", "--key", KEY];
+    call_word_at(&home, NOW, &args, "refused").unwrap();
+    assert_eq!(count(&home, "contractors"), 0);
 }
 
 /// A public key as a contractor gives it.
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The sources of the verbs, without their tests.
-const VERB_SOURCES: [(&str, &str); 22] = [
+const VERB_SOURCES: [(&str, &str); 21] = [
     ("approval.rs", include_str!("approval.rs")),
     ("batch.rs", include_str!("batch.rs")),
     ("call.rs", include_str!("call.rs")),
     ("cycle.rs", include_str!("cycle.rs")),
     ("db.rs", include_str!("db.rs")),
     ("history.rs", include_str!("history.rs")),
-    ("import.rs", include_str!("import.rs")),
     ("journal.rs", include_str!("journal.rs")),
     ("lib.rs", include_str!("lib.rs")),
     ("live.rs", include_str!("live.rs")),
@@ -1002,12 +740,34 @@ fn the_writer_test_sees_every_verb_source() {
     assert_eq!(files, named);
 }
 
-/// A dropped table stays dropped: no step after 11 and no init brings it back.
+/// The tables schema 11 drops (#1770): no verb wrote them and nothing read them.
+const DROPPED: [&str; 18] = [
+    "branch_checks",
+    "check_product",
+    "cycle_locks",
+    "edge_takeover",
+    "endpoints",
+    "energy_samples",
+    "health_samples",
+    "improve_cap",
+    "index_state",
+    "limits",
+    "pause_flag",
+    "platform_state",
+    "poll_demand",
+    "queue_snapshot",
+    "refresh_hold",
+    "refresh_requests",
+    "refined",
+    "release_history",
+];
+
+/// No dropped table comes back: no step and no init lays one.
 #[test]
 fn the_dropped_tables_stay_dropped_after_a_migrate() {
-    let home = old_home("dropped-stay", 10, "", "");
+    let home = release("dropped-stay", 12);
     migrate(&home).unwrap();
-    migrate(&home).unwrap();
+    migrate_with(&home, false, NOW + 1).unwrap();
     let left = tables(&conn(&home));
     for t in DROPPED {
         assert!(!left.contains(&t.to_string()), "{t}");

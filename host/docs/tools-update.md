@@ -370,44 +370,25 @@ so the version that was just installed has run nothing and is proven only when
 It also removes the commands of the earlier layout from `~/tehas/bin`, once
 systemd has reloaded the units that name them. See [The host](/host).
 
-**The records of an older tehas.** A real run holds `state/dispatch.lock` from
-before its first copy until after the store has imported the old records, so no
-poll starts a cycle or a planning turn in between. A poll holds that lock for
-its whole run, so the run waits for it up to `TEHAS_DISPATCH_LOCK_WAIT` seconds:
-a whole number, 900 by default, 0 to refuse at once, at most 3600; anything else
-is the default. It is read from the environment and asked of the console
-(`console update wait dispatch`); a first install from a checkout has no console
-yet and waits 900. A poll that holds the lock
-longer stops the run with exit 1 and `a poll is running ...; nothing was
-installed`. A home installed before the marker `.tehas-home` came in gets it
-here, so its old records are judged too. Before the first copy the store the run installs judges the record
-files an older tehas kept under `state/` (`store import --dry-run --say`, which
-reads the files only and prints the lines below itself), and the run stops with exit 1 and `nothing was installed` when:
+**The dispatcher's lock.** A real run holds `state/dispatch.lock` from before
+its first copy until the old files are removed, so no poll starts a cycle or a
+planning turn in between. A poll holds that lock for its whole run, so the run
+waits for it up to `TEHAS_DISPATCH_LOCK_WAIT` seconds: a whole number, 900 by
+default, 0 to refuse at once, at most 3600; anything else is the default. It is
+read from the environment and asked of the console (`console update wait
+dispatch`); a first install from a checkout has no console yet and waits 900. A
+poll that holds the lock longer stops the run with exit 1 and `a poll is running
+...; nothing was installed`. A home without the marker `.tehas-home` gets it
+here once the home is proved tehas's.
 
-- a cycle or planning turn runs while such a file is there: `a cycle or planning
-  turn runs (#N); run tehas drain --wait and let it end, then install again`.
-  It would write more of them after the import;
-- a file would be held, because it is a link, larger than 1 MiB, or does not
-  parse, or a time in it is not `%FT%TZ`: the store's `store: held` line and one
-  line per file, which stays where it is with the other files of its issue. Move
-  each one out of `state/` or mend it, then run again.
-
-The importer takes nothing on trust. Where an older record holds a value the
-store's own verbs would refuse, the file is held with a line that says which
-value it was, rather than the value being dropped, clamped or cut. These are:
-a `filed` entry of a planning record or of its history that is not an issue URL
-or not a string; a negative `rc`; a negative `turns`; an `options` list longer
-than the 20 `plan-end` keeps; and a `cycles/<n>.branch` naming no branch of
-that issue, refused as `by`, `rukas` and `image` already refuse what they cannot
-read.
-
-After the database is made or migrated, `store import --say` makes the files rows and
-moves them to `state/imported-<YYYYMMDD>/`, under their paths in `state/`, an
-issue's files together once all their rows read back; nothing is deleted. The run prints `store: imported <table>
-<rows>, ...; moved <n> files to ...` when it moved any. An import that fails
-stops the run with exit 1: the files are installed, the database holds what was
-imported, and running `install.sh` again finishes it. Each
-`state/plan-<n>.json.keep` directory then moves to
+**From v0.30 only.** This release migrates a store that v0.30.0 or a later
+release wrote, at schema 12 or newer. An older store stops the run with the
+store's line, `... older than v0.30.0 wrote: update to a v0.30 release first,
+then to this one`, and the database is left as it was. The record files a
+tehas before the state store kept under `state/` are no longer imported: a
+v0.30 install imported them. A home with no marker `.tehas-home` and other
+files in it is refused, as any home that is not tehas's is: every install since
+v0.30.0 leaves the marker. Each `state/plan-<n>.json.keep` directory moves to
 `$TEHAS_WORK_DIR-plan-<n>.keep` while no planning turn holds its lock; one held
 stays, with a `later:` line. See [The state store](/host#the-state-store).
 

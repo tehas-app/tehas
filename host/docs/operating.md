@@ -2370,17 +2370,13 @@ the `Adopter action` of each release between, do what they ask, then run
 [Rolling back tehas](/host#rolling-back-tehas)). An update does not wait for
 the running cycles and needs no drain: each cycle and planning turn runs from
 its own copy of the code, so it ends on the version it began on, and the next
-one starts on the new version (see [Updating tehas](/host#updating-tehas)). The
-one exception is a host that still has record files of a tehas from before the
-state store: that update moves them into the store, refuses while a cycle or a
-planning turn runs, and installs nothing. Drain it first with
-`tehas drain --wait 3600`, let planning turns end, update, then
-`tehas limit clear` (see [tehas drain](/tools-control#tehas-drain), and `install.sh` in
-[the tools](/tools)). The update moves each old record file it imported to
-`~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
-While a record file of the older tehas is still in `state/`, every poll stops
-with exit 78 and logs `ERROR: records of an older tehas at <path>; run
-install.sh again`: run `install.sh` again, and it imports what is left. How it works is in
+one starts on the new version (see [Updating tehas](/host#updating-tehas)).
+This release updates a host on v0.30.0 or later. A host on an older release
+updates to a v0.30 release first: the store refuses an older database, and the
+record files a tehas before the state store kept are no longer imported. While
+such a file is still in `state/`, every poll stops with exit 78 and logs
+`ERROR: records of an older tehas at <path>; this release does not import them`:
+install a v0.30 release to import it, or move it out of `state/`. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
