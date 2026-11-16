@@ -19,7 +19,8 @@
 //!    the list each end the request with one line in the log and no upstream
 //!    call, judged by what the factory's records say and never by a field the
 //!    contractor sent.
-//! 5. Tokens are counted per contractor and per job.
+//! 5. Requests are counted per contractor and per job. The endpoint's token
+//!    figures are read of each answer, and are kept from #2277 on.
 //! 6. A body is never logged: it holds source code.
 //! 7. A busy upstream's answer goes back as it is, status and body, so the
 //!    agents' retry of a busy model (#215) works unchanged.

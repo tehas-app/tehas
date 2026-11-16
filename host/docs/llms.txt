@@ -109,6 +109,7 @@ Protolab are optional and can be ignored for a first install.
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 - [Analytics]({{ $base }}/analytics.md): the factory's 365 days of runs in SQLite, its schema, and how to fetch a copy
 - [The MCP server]({{ $base }}/mcp-server.md): a read-only view of the factory for agents outside the host, behind API keys
+- [Outsource, the model proxy]({{ $base }}/outsource.md): the one way a contractor's cycle reaches the factory's model, and what it refuses
 
 ## Ask this factory over MCP
 
