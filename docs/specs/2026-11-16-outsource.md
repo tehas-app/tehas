@@ -263,8 +263,9 @@ manual says how, and `tehas-contractor doctor` checks it.
 
 ### Controls
 
-- An allowlist of contractors in the instance directory, like the labeller
-  list. A contractor outside it is refused.
+- The registered public keys are the allowlist. A request from a contractor
+  with no registered key, or an unsigned or replayed one, is refused. See
+  "Joining".
 - `tehas outsource revoke <contractor>` ends a contractor at once: its check-ins,
   its model proxy access and its results are refused.
 - A result from a contractor is untrusted. It goes through pull request review
@@ -297,18 +298,83 @@ the instance settings, `tehas outsource invite`, `list`, `revoke`, `drain` and
 - The tehas side has no setting, endpoint or key type that exists only for
   such a program. A standalone install uses the same commands.
 
+## Joining
+
+Joining is one line on each side, with nothing else to type.
+
+The owner runs `tehas outsource invite gaming-rig-2` on the factory. It
+prints one line:
+
+```
+curl -fsSL https://factory.example.com/join/K7M4QX9T | sudo sh
+```
+
+A person pastes it on the host. The script, which the factory serves:
+
+1. Downloads the contractor release and checks its checksum and minisign
+   signature against the key written in the script, never one from the
+   download, as `host/release/install` does.
+2. Prepares the host: the user and the container engine.
+3. Joins. It makes a key pair on the host, sends the public key with the
+   one-time code, and pins the factory's TLS fingerprint.
+4. Runs `doctor` and stops with a plain sentence if anything is wrong.
+5. Enables and starts `tehas-outsource-contractor.service`.
+6. Prints that the contractor joined and is idle.
+
+The line holds the factory's address, its fingerprint, the code and the
+release version. There is no config file and no flag to set.
+
+### Keys
+
+- **The invite code** is random. The factory stores only its hash, with the
+  name and an expiry. It works once. Using it or letting it expire ends it,
+  so the line is safe to paste into a chat.
+- **The contractor's key** is an ed25519 pair made on the host. The private
+  key stays in a file only the contractor's user can read. The factory stores
+  the public key against the name. That list of keys is the allowlist.
+- **Every request** to the factory is signed with the key and carries a
+  timestamp, so a captured request cannot be replayed.
+- The factory holds no secret about a contractor. A stolen factory database
+  gives public keys and nothing to impersonate with.
+- The key can only ask for jobs and report on them. Repository, GitHub and
+  model access come from the per-job tokens.
+
+### Leaving and revoking
+
+`tehas outsource revoke <name>` deletes the public key. The next request is
+refused, and so is the model proxy. `tehas-contractor leave` on the host
+stops the unit, wipes the workspace and the key, and removes the install. A
+revoked or lost key is replaced by a new invite, never restored.
+
+`tehas outsource invite <name> --print` prints the steps instead of a pipe
+into a shell, for a person who wants to read them first.
+
+### Updates and the image
+
+The program updates by running the join line's installer again with a newer
+version. It does not update itself. The factory refuses a contractor on a
+version it does not speak, and can ask it to drain first. A job names an
+image digest. The contractor pulls it if it lacks it and refuses a job whose
+image does not match.
+
+### Hosts
+
+Version 1 is Linux on x86_64, like the rest of tehas. A Windows host runs it
+in WSL2 or a Linux VM. Native Windows and macOS are a separate decision.
+
 ## Commands
 
 All take `--json` and exit 78 when the feature is off or a setting is
 malformed.
 
 ```
-tehas outsource invite [--name <name>]   print the command a host runs to join
+tehas outsource invite <name> [--print]  print the line a host runs to join
 tehas outsource list
 tehas outsource status
 tehas outsource revoke <contractor>
 tehas outsource drain <contractor>
 tehas-contractor join <invite>
+tehas-contractor leave
 tehas-contractor run
 tehas-contractor drain
 tehas-contractor doctor
@@ -370,6 +436,10 @@ The gate needs no network and no sandbox image. Stub the outside world with
     model credential at rest; the workspace is wiped at start and end.
 12. **Contract:** the `contractors` field matches its schema and samples.
 13. **Generic:** `scripts/check-generic.sh` covers the new files.
+14. **Joining:** an invite code works once and expires; a used, expired or
+    wrong code is refused; the factory stores only the code's hash and the
+    public key; a request that is unsigned, replayed or from a revoked key is
+    refused; `leave` removes the key, the workspace and the unit.
 
 ## Order of work
 
@@ -391,5 +461,9 @@ The gate needs no network and no sandbox image. Stub the outside world with
 2. **Timeout values.** The default timeout, grace and rest period.
 3. **pi-rukas base URL.** Not yet checked. See step 1.
 4. **The names of the settings** above.
+6. **Join script as root.** The join line pipes a script into a shell, as the
+   factory install does, with the signature check inside it. `--print` shows
+   the steps instead. Whether to keep the pipe as the default is the owner's
+   call.
 5. **One factory per contractor.** Sharing a pool across factories would need a
    broker and is not planned.
