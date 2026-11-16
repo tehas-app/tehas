@@ -16,8 +16,10 @@
 #   install, install.minisig                   the installer, when the tag
 #                                              has host/release/install
 #
-# Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
-# its password, only when the key has one.
+# Secrets, in the environment `release` and nowhere else: MINISIGN_SECRET_KEY,
+# the whole secret key file; MINISIGN_PASSWORD, its password, only when the key
+# has one. The environment takes only tags and waits for a reviewer, so a tag
+# is signed only after a person approves its run.
 name: release
 on:
   push:
@@ -36,9 +38,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    # tehas-runner, as in verify.yml: it holds cargo at RUST_VERSION, bash,
-    # git, jq and curl, and gives the job no sudo.
-    runs-on: [self-hosted, tehas]
+    # A clean GitHub-hosted runner, gone after the job: not the runners pull
+    # requests run on. The job installs its own minisign, jq and Rust at
+    # pinned versions; the image gives bash, git, curl, tar, gcc for the
+    # bundled SQLite, and the jq of the first step, which runs before anything
+    # of the tagged tree is read.
+    runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 45
     env:
       TAG: ${{ github.ref_name }}
@@ -77,6 +83,34 @@ jobs:
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign 2>/dev/null
           echo "$RUNNER_TEMP/minisign-linux/x86_64" >> "$GITHUB_PATH"
+      - name: jq at the pinned version
+        run: |
+          . host/versions.env
+          mkdir -p "$RUNNER_TEMP/jq"
+          curl -fsSL -o "$RUNNER_TEMP/jq/jq" \
+            "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
+          echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -
+          chmod 755 "$RUNNER_TEMP/jq/jq"
+          echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
+      - name: rust at the pinned version
+        run: |
+          # rustup at its pinned version and hash, in homes of the job's own,
+          # so the image's toolchain is not the one that builds.
+          . host/versions.env
+          export RUSTUP_HOME=$RUNNER_TEMP/rustup CARGO_HOME=$RUNNER_TEMP/cargo
+          curl -fsSL -o "$RUNNER_TEMP/rustup-init" \
+            "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/x86_64-unknown-linux-gnu/rustup-init"
+          echo "$RUSTUP_SHA256  $RUNNER_TEMP/rustup-init" | sha256sum -c -
+          chmod 755 "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_VERSION" --target x86_64-unknown-linux-musl
+          { echo "RUSTUP_HOME=$RUSTUP_HOME"; echo "CARGO_HOME=$CARGO_HOME"; } >> "$GITHUB_ENV"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          version=$("$CARGO_HOME/bin/cargo" --version)
+          [[ $version == "cargo $RUST_VERSION "* ]] || { echo "not cargo $RUST_VERSION: $version" >&2; exit 1; }
+          # scripts/pack-release.sh builds its task offline.
+          "$CARGO_HOME/bin/cargo" fetch --locked --manifest-path console/Cargo.toml
       - name: build the console, the analytics program, the MCP server, the store, the attachment checker and the two shadows
         run: |
           . host/versions.env

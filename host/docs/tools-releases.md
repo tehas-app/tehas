@@ -215,8 +215,12 @@ tools when its tag moves, on its next `bootstrap.sh user`.
 ### The release workflow
 
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, or of a
-prerelease tag (below), on the
-organisation's own runner as the gate does. Before it runs anything of the
+prerelease tag (below), on a clean
+GitHub-hosted runner (`ubuntu-24.04`), not on the organisation's own runners
+that pull requests run on. The job installs what it builds and signs with:
+minisign at a pinned version and hash, jq and rustup at the versions and
+hashes `host/versions.env` pins, and Rust at its `RUST_VERSION` with the musl
+target. The first step's jq is the image's. Before it runs anything of the
 tagged tree it checks that the tagged commit is on the default branch `main`
 and that the account that pushed the tag is an admin of the repository, not a
 bot; a tag that fails either check publishes nothing. It builds the console, the
@@ -230,8 +234,12 @@ above, its `.sha256` and `.minisig` beside it, and `install` with
 `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
-The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
-key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
+The signing key is the secret `MINISIGN_SECRET_KEY` of the repository's
+environment `release`, the whole secret key file, and its password, if it has
+one, is `MINISIGN_PASSWORD`. The environment takes only tags and waits for a
+required reviewer, so the job signs only after a person approves its run under
+"Review deployments". The repository holds no copy of the key outside that
+environment. `SECURITY.md` says how to report a vulnerability. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
 nothing.
 

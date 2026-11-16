@@ -2503,7 +2503,8 @@ Two things run there:
   run's title is `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
-  and every push to main runs where it always has.
+  into main and every push to main runs where it always has. A pull request
+  onto another branch runs no gate.
 
 ### How a release is gated and tagged
 
