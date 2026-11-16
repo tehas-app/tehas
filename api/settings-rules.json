@@ -212,6 +212,20 @@
       "reason": "expected a positive whole number"
     },
     {
+      "name": "TEHAS_OUTSOURCE_ADDR",
+      "rule": "listen-address",
+      "when": "always",
+      "default": "127.0.0.1:8090",
+      "reason": "expected an address or host name and a port, as 127.0.0.1:8090"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_IDLE",
+      "rule": "count",
+      "when": "always",
+      "default": "3600",
+      "reason": "expected a positive whole number"
+    },
+    {
       "name": "TEHAS_REVIEW",
       "rule": "one-of",
       "when": "always",
