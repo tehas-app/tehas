@@ -25,7 +25,7 @@ Usage:
   tehas export --after C <dir>     copy them elsewhere, masked
   tehas state pack|unpack -|check  move a factory's state, or check its store
   tehas top [--once|--json]        one screen of what the factory is doing
-  tehas analytics report|export    the factory's last 365 days of runs
+  tehas analytics report|copy      the factory's last 365 days of runs
   tehas mcp key                    a new key for the read-only MCP server
   tehas github check|writes        the GitHub App's token, its writes of the day
   tehas pause [reason]             stop this host from starting new work

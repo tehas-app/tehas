@@ -6,7 +6,7 @@
 //!   console tehas state pack|unpack ... | check [--json]
 //!   console tehas limit [--json] | set ... | clear
 //!   console tehas pause [reason]
-//!   console tehas analytics report | export <file> [--json]
+//!   console tehas analytics report | copy --to <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
@@ -90,15 +90,23 @@ fn pause_words(given: &[String]) -> Result<Vec<String>, u8> {
 }
 
 fn analytics_words(given: &[String]) -> Result<(), u8> {
-    let file_ok = |f: &String| !f.is_empty() && !f.starts_with('-');
-    let good = match given {
-        [verb] => verb == "report",
-        [verb, file] => verb == "export" && file_ok(file),
-        [verb, file, flag] => verb == "export" && file_ok(file) && flag == "--json",
+    let words: Vec<&str> = given.iter().map(String::as_str).collect();
+    let file_ok = |f: &str| !f.is_empty() && !f.starts_with('-');
+    let good = match words[..] {
+        ["report"] => true,
+        ["copy", "--to", file]
+        | ["copy", "--to", file, "--json"]
+        | ["copy", "--json", "--to", file] => file_ok(file),
+        ["export", ..] => {
+            eprintln!(
+                "tehas analytics: export is now copy: tehas analytics copy --to <file> [--json]"
+            );
+            return Err(64);
+        }
         _ => false,
     };
     if !good {
-        eprintln!("usage: tehas analytics report | export <file> [--json]");
+        eprintln!("usage: tehas analytics report | copy --to <file> [--json]");
         return Err(64);
     }
     Ok(())
@@ -497,23 +505,28 @@ mod tests {
     }
 
     #[test]
-    fn analytics_takes_report_or_export() {
+    fn analytics_takes_report_or_copy() {
         for good in [
             &["report"][..],
-            &["export", "a"],
-            &["export", "a", "--json"],
+            &["copy", "--to", "a"],
+            &["copy", "--to", "a", "--json"],
+            &["copy", "--json", "--to", "a"],
         ] {
             assert_eq!(analytics_words(&words(good)), Ok(()), "{good:?}");
         }
         for bad in [
             &[][..],
             &["report", "--json"],
-            &["export"],
-            &["export", ""],
-            &["export", "--json"],
-            &["export", "-o", "x"],
-            &["export", "a", "--yaml"],
-            &["export", "a", "--json", "now"],
+            &["copy"],
+            &["copy", "a"],
+            &["copy", "--to"],
+            &["copy", "--to", ""],
+            &["copy", "--to", "--json"],
+            &["copy", "--to", "-o"],
+            &["copy", "--to", "a", "--yaml"],
+            &["copy", "--to", "a", "--json", "now"],
+            &["export", "a"],
+            &["export", "a", "--json"],
             &["prune"],
             &["run", "7"],
         ] {
