@@ -34,6 +34,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::settings::rules::switch;
 
 pub fn keeps_verb(given: &[String]) -> u8 {
     let [home, work] = given else {
@@ -164,7 +165,8 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
     if set("TEHAS_DOMAIN").is_some() {
         units.push("tehas-protolab.timer");
     }
-    if get("TEHAS_PREVIEWS").as_deref() == Some("1") {
+    let on = |name: &str| get(name).and_then(|v| switch(&v)) == Some(true);
+    if on("TEHAS_PREVIEWS") {
         units.extend(["tehas-preview.timer", "tehas-preview-sweep.timer"]);
     }
     let energy = set("TEHAS_ENERGY").or_else(|| {
@@ -174,7 +176,7 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
             .next_back()
             .map(str::to_string)
     });
-    if energy.is_some_and(|e| !e.is_empty() && e != "off") {
+    if energy.is_some_and(|e| !e.is_empty() && switch(&e) != Some(false)) {
         units.push("tehas-energy.service");
     }
     units
@@ -353,8 +355,8 @@ mod tests {
             units(
                 &[
                     ("TEHAS_DOMAIN", "example.org"),
-                    ("TEHAS_PREVIEWS", "1"),
-                    ("TEHAS_ENERGY", "viiwork"),
+                    ("TEHAS_PREVIEWS", "on"),
+                    ("TEHAS_ENERGY", "on"),
                 ],
                 None
             ),
@@ -368,6 +370,18 @@ mod tests {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
         let energy = format!("{base} tehas-energy.service");
         assert_eq!(units(&[("TEHAS_ENERGY", "off")], None), base);
+        assert_eq!(units(&[("TEHAS_ENERGY", "0")], None), base);
+        assert_eq!(units(&[("TEHAS_ENERGY", "1")], None), energy);
+        assert_eq!(
+            units(
+                &[],
+                Some(
+                    "TEHAS_ENERGY=0
+"
+                )
+            ),
+            base
+        );
         assert_eq!(
             units(&[], Some("TEHAS_ENERGY=on\nTEHAS_ENERGY=off\n")),
             base

@@ -486,7 +486,7 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. With neither,
+`TEHAS_ENERGY=off` (or `0`) to remove the file. With neither,
 `PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
 and exits 78, asks nobody and leaves the file as it is, and `--every` stops
 with it. The file is readable by anyone who can

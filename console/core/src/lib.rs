@@ -13,6 +13,7 @@ pub mod egress;
 pub mod end_fault;
 pub mod env_file;
 pub mod events;
+pub mod features;
 pub mod file;
 pub mod forge;
 pub mod github_fails;
