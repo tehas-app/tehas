@@ -25,18 +25,17 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so time says how old the answer is and stale is true when it is more than three hours old or has no time that can be read; no file, or one that is not a whole reading, is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one, named by those roles and never by the host's paths - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so time says how old the answer is and stale is true when it is more than three hours old or has no time that can be read; no file, or one that is not a whole reading, is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
             "time": text("When the answer was made, UTC, as the run that wrote it kept it."),
             "stale": {"type": "boolean", "description": "The reading is more than three hours old, or its time cannot be read: the hourly publish has not run, and the figures may no longer be true."},
-            "dockerRoot": int_("The directory Docker keeps its images in, as Docker named it; left out when it did not say."),
             "filesystems": {
                 "type": "array",
                 "description": "One entry per file system, its paths naming every watched path that stands on it.",
                 "items": {"type": "object", "properties": {
-                    "paths": {"type": "array", "items": {"type": "string"}, "description": "The watched paths that stand on this file system."},
+                    "paths": {"type": "array", "items": {"type": "string", "enum": ["home", "docker", "tmp", "scratch"]}, "description": "What the watched paths that stand on this file system are: home (the instance's home), docker (Docker's own directory), tmp or scratch (TEHAS_SCRATCH_DIR). The host's own paths are not served."},
                     "mount": text("What df names the file system's own, such as overlay; left out when it did not say."),
                     "freeBytes": int_("Free bytes. Left out, with why, when the figure could not be read: no figure is never 0 bytes free."),
                     "totalBytes": int_("Total bytes. Left out, with why, when the figure could not be read."),
@@ -49,7 +48,7 @@ pub fn tool() -> Value {
                 "properties": {
                     "places": {"type": "array", "description": "The biggest places first.", "items": {
                         "type": "object", "properties": {
-                            "path": text("The place."),
+                            "path": text("The place: its path under the instance's home, or its name alone when it is outside the home."),
                             "bytes": int_("Its bytes. Left out, with cut, when it could not be measured."),
                             "cut": text("The bound the walk ran out of: whole, entries, depth, time or unreadable."),
                         },
@@ -94,12 +93,59 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     }
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
+    unrooted(&mut out, &answer);
     let stale = answer["time"]
         .as_str()
         .and_then(tools::epoch)
         .is_none_or(|t| now - t > STALE_SECS);
     out.insert("stale".into(), json!(stale));
     Ok(out)
+}
+
+/// The host's own directories stay on the host. A file system is named by the
+/// role of each path on it, `home`, `docker`, `tmp` or `scratch`, and a place
+/// by its path under the home, or by its name alone when it is outside it. The
+/// writer names the home first, so the first path of the first file system is
+/// the home.
+fn unrooted(out: &mut Map<String, Value>, answer: &Value) {
+    let home = answer["filesystems"][0]["paths"][0].as_str().unwrap_or("");
+    let docker = answer["dockerRoot"].as_str().unwrap_or("/var/lib/docker");
+    let role = |p: &str| match p {
+        _ if p == home => "home",
+        _ if p == docker => "docker",
+        "/tmp" => "tmp",
+        _ => "scratch",
+    };
+    for fs in out
+        .get_mut("filesystems")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(paths) = fs.get_mut("paths").and_then(Value::as_array_mut) {
+            for p in paths.iter_mut() {
+                *p = json!(role(p.as_str().unwrap_or("")));
+            }
+        }
+    }
+    let places = out
+        .get_mut("full")
+        .and_then(|f| f.get_mut("places"))
+        .and_then(Value::as_array_mut);
+    for place in places.into_iter().flatten() {
+        if let Some(path) = place.get("path").and_then(Value::as_str) {
+            let under = std::path::Path::new(path).strip_prefix(home).ok();
+            let named = match under {
+                Some(rel) if !home.is_empty() && rel.as_os_str().is_empty() => ".".to_string(),
+                Some(rel) if !home.is_empty() => rel.to_string_lossy().into_owned(),
+                _ => std::path::Path::new(path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            };
+            place["path"] = json!(named);
+        }
+    }
 }
 
 /// The allowlist the answer is copied with: what the file holds that a person
@@ -115,8 +161,7 @@ pub(crate) fn spec() -> Value {
     json!({
         "time": true,
         "stale": true,
-        "dockerRoot": true,
-        "filesystems": [{"paths": [], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
+        "filesystems": [{"paths": [true], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
         "full": {
             "places": [{"path": true, "bytes": true, "cut": true}],
             "docker": {"state": true, "lines": []},
@@ -166,7 +211,10 @@ mod tests {
         let out = call(&dirs(&dir)).unwrap();
         let out = Value::Object(out);
         assert_eq!(out["time"], "2026-10-31T23:09:32Z");
-        assert_eq!(out["dockerRoot"], "/var/lib/docker");
+        assert_eq!(out["filesystems"][0]["paths"], json!(["home"]));
+        assert_eq!(out["filesystems"][1]["paths"], json!(["tmp"]));
+        assert_eq!(out["full"]["places"][0]["path"], "logs");
+        assert_eq!(out["full"]["places"][1]["path"], "scratch");
         assert_eq!(out["filesystems"][0]["freeBytes"], 223);
         assert_eq!(out["filesystems"][1]["why"], "df answered nothing");
         // A figure that the host could not read is absent, never served as 0:
@@ -190,12 +238,43 @@ mod tests {
             "a name no answer gives",
             "not asked for",
             "hostname",
+            "dockerRoot",
+            "/home/boss",
+            "/var/lib/docker",
+            "/tmp",
         ] {
             assert!(
                 !said.contains(forbidden),
                 "{forbidden} reached the answer: {said}"
             );
         }
+    }
+
+    // The host's own directories stay on the host: a file system is named by
+    // the role of the paths on it, a place by its path under the home, and a
+    // place outside the home by its name alone.
+    #[test]
+    fn paths_are_roles_and_places_are_relative_to_the_home() {
+        let dir = published(
+            r#"{"api":1,"time":"2026-10-31T23:09:32Z","dockerRoot":"/srv/docker",
+              "filesystems":[{"paths":["/home/boss/tehas","/srv/docker"],"freeBytes":1,"totalBytes":2},
+                             {"paths":["/tmp","/mnt/scratch"],"freeBytes":1,"totalBytes":2}],
+              "full":{"places":[{"path":"/home/boss/tehas/dev/alpha.state/target","bytes":5},
+                                {"path":"/home/boss/.pi/agent/sessions","bytes":4},
+                                {"path":"/home/boss/tehas","bytes":3}]}}"#,
+        );
+        let out = Value::Object(call(&dirs(&dir)).unwrap());
+        assert_eq!(out["filesystems"][0]["paths"], json!(["home", "docker"]));
+        assert_eq!(out["filesystems"][1]["paths"], json!(["tmp", "scratch"]));
+        let places: Vec<&str> = out["full"]["places"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(places, ["dev/alpha.state/target", "sessions", "."]);
+        assert!(!out.to_string().contains("/srv"), "{out}");
+        assert!(!out.to_string().contains("boss"), "{out}");
     }
 
     #[test]
@@ -285,7 +364,8 @@ mod tests {
             .unwrap();
         let allowed = spec();
         let allow = allowed.as_object().unwrap();
-        for named in ["time", "dockerRoot", "filesystems", "full"] {
+        for named in ["time", "filesystems", "full"] {
+            assert!(!schema.contains_key("dockerRoot") && !allow.contains_key("dockerRoot"));
             assert!(schema.contains_key(named), "{named} has no schema");
             assert!(allow.contains_key(named), "{named} is not allowed through");
         }
