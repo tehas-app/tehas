@@ -576,6 +576,11 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
     })
 }
 
+/// The statuses of a cycle that ended in failure.
+pub(crate) const FAILED: [&str; 6] = [
+    "killed", "stalled", "timeout", "aborted", "unknown", "failed",
+];
+
 /// How the run ended, in the words of the runs table:
 /// merged    the issue's pull request was merged
 /// stopped   the issue was closed while it ran, or it was interrupted
@@ -583,10 +588,10 @@ fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
 ///           none (3 cannot push, 4 attachments, 5 already running, 64, 78)
 /// pr        it left an open pull request and was not parked
 /// handoff   the runner handed off to a person
-/// failed    tehas stopped or lost it (killed, stalled, timeout), the runner
-///           crashed or aborted, or a failure other than a cap stopped it
+/// failed    tehas stopped it (killed, stalled, timeout), the runner
+///           aborted, or a failure other than a cap stopped it
 /// parked    any other end that needs a person, such as a cap
-fn outcome(run: &Run, parked: bool) -> &'static str {
+pub(crate) fn outcome(run: &Run, parked: bool) -> &'static str {
     let status = run.status.as_deref().unwrap_or("unknown");
     let kind = run.failure_kind.as_deref().unwrap_or("");
     match status {
@@ -604,11 +609,7 @@ fn outcome(run: &Run, parked: bool) -> &'static str {
     if status == "handoff" {
         return "handoff";
     }
-    if matches!(
-        status,
-        "killed" | "stalled" | "timeout" | "crash" | "aborted" | "unknown" | "failed"
-    ) || (!kind.is_empty() && kind != "cap")
-    {
+    if FAILED.contains(&status) || (!kind.is_empty() && kind != "cap") {
         return "failed";
     }
     "parked"
