@@ -1271,20 +1271,12 @@ fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
 }
 
 fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
-    let image = vars.text("PI_ENSEMBLE_IMAGE");
-    let there = program(vars, "docker")
-        .args(["image", "inspect", &image])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    if status_of(there) == 0 {
-        tell(&format!("the sandbox image is there ({image})"));
-    } else {
-        step(
-            "the sandbox build",
-            &mut program(vars, format!("{home}/sandbox/build.sh")),
-        )?;
-    }
+    // --if-moved builds when there is no image or it is not on the commit
+    // PI_RUKAS_FOLLOW resolves to, and says so when it is current.
+    step(
+        "the sandbox build",
+        program(vars, format!("{home}/sandbox/build.sh")).arg("--if-moved"),
+    )?;
     let check = libexec.join("../bin/tehas");
     if runnable(&check) {
         step(

@@ -330,7 +330,7 @@ tehas check-product --sandbox
 
 ### 6. Prove the gates in the sandbox
 
-`tehas setup` runs `tehas check-product --sandbox` once. It runs the product's
+`tehas setup` builds the sandbox image when there is none or it is not on the commit `PI_RUKAS_FOLLOW` resolves to, then runs `tehas check-product --sandbox` once. It runs the product's
 install and its own gates inside the image, as the unprivileged user, with
 nothing mounted but a clone made as a cycle's is, with `origin/main` and
 `origin/HEAD`, and checks the contract files first. The install runs at the root
