@@ -31,6 +31,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | --------------------------------------- | -------------------------------------------------------------- |
 | `/llms.txt`                             | The entry point: a summary and links, as plain text            |
 | `/<page>.md`                            | Any manual page as Markdown, for example `/new-project.md`     |
+| `/llms-full.txt`                        | `/llms.txt` followed by every manual page as Markdown, each under its address, in one text |
 | `/health`                               | Factory health as JSON; 503 when unhealthy                     |
 | `/live/status.json`                     | The queue snapshot: repository, issues by state, how many are in planning, how many closed issues carry `tehas:shipped`, paused or not, and the most used words of all its issues |
 | `/live/epics.json`                      | The open epics, issues with sub-issues, newest first: each with its count of sub-issues and how many are closed, and its sub-issues in this repository with their state; `unlinked`, the open issues labelled `epic` with no sub-issues |
