@@ -141,7 +141,7 @@ tehas api [--json]
 | Field | Meaning |
 | --- | --- |
 | `api` | The API version, 1 |
-| `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
+| `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)) `store-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)) `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message)), `refresh-pr` ([`tehasbot refresh --pr N`](/tools-github#tehasbot-refresh) asks for the refresh of one pull request), `host-message-health` (health, `tehas status`, the MCP server and the dashboard show [the host messages](#tehas-host-message)), `refresh-pr-starts` (the dispatcher starts a refresh `tehasbot refresh --pr N` asked for, [refreshes](/operating#refreshes)), `refresh-pr-lane` (such a refresh runs in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `refresh-pr-json` ([`tehasbot refresh --pr N --json`](/tools-github#tehasbot-refresh) prints what it asked as one object) and `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) |
@@ -193,7 +193,7 @@ tehas status --json
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
   "held": [],
   "room": {"cycles": 0, "slice": 2},
-  "versions": {"platform": {"release": "v0.25.0", "latest": "v0.26.0", "behind": true},
+  "versions": {"platform": {"release": "v0.25.0", "commit": "0123456789abcdef0123456789abcdef01234567", "latest": "v0.26.0", "behind": true},
                "rukas": {"version": "v0.14.54", "latest": "v0.14.54", "behind": false}},
   "prototypes": [{"issue": 21, "builtAt": "2026-10-17T09:12:00Z"}]
 }
@@ -255,9 +255,10 @@ tehas status --json
 | `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
-| `versions.platform` | The tehas release: `release`, `latest` and `behind` |
-| `versions.platform.release` | The release the host runs, such as `v0.25.0`; `null` on a host that runs a checkout, or with no platform reading |
-| `versions.platform.latest` | The newest published release, without release candidates; `null` when it is not known, and on a checkout host |
+| `versions.platform` | The tehas release: `release`, `commit`, `latest` and `behind` |
+| `versions.platform.release` | The release the host runs, such as `v0.25.0` or a prerelease such as `v1.0.0-alpha.1`; `null` on a host that runs a checkout, or with no platform reading |
+| `versions.platform.commit` | The commit the release was built from (its `COMMIT` file), or the commit of the checkout; `null` when it is not known |
+| `versions.platform.latest` | The newest published release, without prereleases; `null` when it is not known, and on a checkout host |
 | `versions.platform.behind` | `true` when `latest` is newer than `release`; on a checkout host, `true` when the checkout is behind its upstream. `null` when it cannot be told |
 | `versions.rukas` | The pi-rukas cycles run: `version`, `latest` and `behind`. All three `null` on a host with no pi-rukas reading |
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |

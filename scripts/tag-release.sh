@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tag the head of the remote's default branch as the next release.
 #
-# Finds the newest vX.Y.Z tag and, when it is not already on the branch head,
+# Finds the newest vX.Y.Z tag (never a prerelease) and, when it is not already on the branch head,
 # gates the head and, when it passes, tags the head with the next version and
 # pushes that tag. Nothing else is pushed. What it tags is the
 # remote's commit, not this checkout's HEAD, so it can run from any branch or
@@ -76,9 +76,14 @@
 #                               [--no-verify] [--dry-run] [--remote <name>]
 #                               [--rukas-caps <file>] [--no-pins]
 #                               [--local-gate] [--gate-wait <minutes>]
+#                               [--pre alpha|beta|rc]
 #   --patch      the default: v0.7.6 becomes v0.7.7
 #   --minor      v0.7.6 becomes v0.8.0
 #   --major      v0.7.6 becomes v1.0.0
+#   --pre        tag the next prerelease of that version at this stage instead:
+#                v0.7.6 with --major --pre alpha becomes v1.0.0-alpha.1, then
+#                v1.0.0-alpha.2; no alpha once a beta of it is out. The release
+#                workflow publishes it as a GitHub prerelease
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  no gate at all: neither the release gate nor scripts/verify.sh
 #   --local-gate run scripts/verify.sh here instead of the release gate
@@ -97,7 +102,8 @@
 #       a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
 #       moved, the fragments could not be collected, or the gate failed, or
-#       no green release gate came within the bound;
+#       no green release gate came within the bound, or --pre names a stage
+#       before one already out for that version;
 #       2 nothing tagged: a pull request, named on stderr, removes polyfills,
 #       collects the changelog fragments or moves the pinned tools first;
 #       64 a bad argument; another status when cargo cannot build the task
