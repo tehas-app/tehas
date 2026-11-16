@@ -25,10 +25,19 @@ it will not do.
 A cycle on a contractor holds its settings, a token for the product
 repository, and a token for the model proxy. It holds no endpoint, no provider,
 no model and no key of its own. Pi reads one `models.json`, so the file the
-contractor's container is given is written for that one job: its `baseUrl` is
-the factory's proxy and its `apiKey` is the job's token. The proxy holds the
-factory's real key, reads it from its own environment, writes it into one
-request and forgets it.
+contractor's container is given is written for that one job: every provider's
+`baseUrl`, and a model's own where it has one, is the factory's proxy, and its
+`apiKey` is the reference `${PI_ENSEMBLE_API_KEY_<PROVIDER>}`, the provider's
+name upper-cased with every other character `_`. The job's token is that
+variable's value, so it is in no file. The factory's endpoints, backup
+endpoints and key names are not in the file. The proxy holds the factory's
+real key, reads it from its own environment, writes it into one request and
+forgets it.
+
+A contractor's sandbox image needs pi-rukas v0.14.86 or later: that release
+reads `PI_ENSEMBLE_BASE_URL_<PROVIDER>` and `PI_ENSEMBLE_API_KEY_<PROVIDER>` as
+a run's own endpoint and key and keeps the key out of every log and file. An
+image that follows `release:0` today has it.
 
 The job token is a secret of the proxy's own. It lives in the proxy's memory,
 is written once to a file of mode 0600 in the job's directory under the state,
