@@ -1,4 +1,5 @@
 use crate::given::*;
+use crate::link::{is_link, links as text_links};
 use serde_json::{json, Value};
 use std::fs;
 use tehas_core::testdir::TestDir;
@@ -14,12 +15,6 @@ fn compose(rec: &Value) -> (Value, String) {
         .unwrap()
         .unwrap();
     (serde_json::from_str(&manifest).unwrap(), gap)
-}
-
-#[test]
-fn the_links_rule_is_the_one_of_the_dispatcher() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispatch/src/text.rs");
-    assert!(fs::read_to_string(path).unwrap().contains(LINK_RULE));
 }
 
 #[test]
@@ -154,7 +149,7 @@ fn an_earlier_manifest_of_the_approval_keeps_its_entries_in_its_order() {
     assert!(gap.unwrap().starts_with("the approval record of issue 7 "));
     let written = fs::read_to_string(&file).unwrap();
     assert!(written.starts_with(
-        r#"{"issue":7,"images":[{"zeta":1,"file":"image-1.png","alpha":"\u007f"}],"approval":{"at":"#
+        r#"{"version":1,"issue":7,"images":[{"zeta":1,"file":"image-1.png","alpha":"\u007f"}],"approval":{"at":"#
     ));
     assert!(written
         .contains(",\"leftOutMore\":0,\"files\":[],\"linksUnavailable\":\"This instance gives"));

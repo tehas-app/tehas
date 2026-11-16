@@ -87,21 +87,10 @@ fn take(bin: &Path, issue: &str, dir: &str, approved: &str) -> Result<(), String
     take_said(rc, &String::from_utf8_lossy(&out)).map_or(Ok(()), Err)
 }
 
-// Wider than LINK_RULE of console/attach/src/given.rs, so no link it takes is
-// missed. The text may be JSON, which may escape a slash.
-fn may_link(text: &str) -> bool {
-    let text = text.replace('\\', "");
-    let github = "https://github.com/";
-    let after = text.find(github).map(|at| &text[at + github.len()..]);
-    after.is_some_and(|rest| rest.contains("/assets/") || rest.contains("/files/"))
-        || text.contains("https://user-images.githubusercontent.com/")
-}
+use attach::link::may_link;
 
 fn empty_manifest(issue: &str, files: bool) -> String {
-    let files = if files { "  \"files\": [],\n" } else { "" };
-    format!(
-        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"linksUnavailable\": \"The text links no file of GitHub's storage.\",\n  \"issue\": {issue},\n  \"approval\": null,\n  \"leftOutMore\": 0\n}}\n"
-    )
+    attach::manifest::nothing(issue, "null", files)
 }
 
 // With no program nothing can be checked, so a text that links a file stops and
