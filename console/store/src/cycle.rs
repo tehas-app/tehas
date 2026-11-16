@@ -83,23 +83,6 @@ pub struct Report {
     pub cleaned: Cleaned,
 }
 
-/// What `cycles.end_reason` can hold. A status word outside it ends as
-/// `unknown`.
-pub const END_REASONS: [&str; 12] = [
-    "closed",
-    "merged",
-    "handoff",
-    "parked",
-    "failed",
-    "stopped",
-    "timeout",
-    "killed",
-    "lost",
-    "interrupted",
-    "stalled",
-    "unknown",
-];
-
 const RESULT_BOUND: u64 = 16 << 20;
 const PROGRESS_BOUND: u64 = tehas_core::file::READ_BOUND;
 const SETTINGS_BOUND: u64 = 64 << 10;
@@ -756,11 +739,7 @@ fn judge(path: &Path, bound: u64) -> Judged {
 fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Result<String, Fail> {
     let result = r.result.as_deref().map(|p| judge(p, RESULT_BOUND));
     let progress = r.progress.as_deref().map(|p| judge(p, PROGRESS_BOUND));
-    let end_reason = if END_REASONS.contains(&r.status.as_str()) {
-        r.status.as_str()
-    } else {
-        "unknown"
-    };
+    let end_reason = tehas_core::outcome::end_reason(&r.status);
     verbs::write(home, |c| {
         let row = row(c, issue)?.ok_or_else(|| refuse("nocycle", issue, "no cycle on record"))?;
         if row.attempt != attempt {

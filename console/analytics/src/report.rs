@@ -293,9 +293,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     let count = |o: &str| runs.iter().filter(|r| r.outcome == o).count();
     let mut split = Map::new();
     split.insert("n".into(), json!(runs.len()));
-    for o in [
-        "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
-    ] {
+    for o in tehas_core::outcome::OUTCOMES {
         split.insert(o.into(), json!(count(o)));
     }
     report.insert("runs".into(), Value::Object(split));
@@ -1392,12 +1390,10 @@ pub fn text(report: &Value) -> String {
         String::new(),
     );
     let runs = &report["runs"];
-    let split: Vec<String> = [
-        "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
-    ]
-    .iter()
-    .map(|o| format!("{} {o}", num(&runs[*o])))
-    .collect();
+    let split: Vec<String> = tehas_core::outcome::OUTCOMES
+        .iter()
+        .map(|o| format!("{} {o}", num(&runs[*o])))
+        .collect();
     row(
         "Runs",
         format!("{}: {}", num(&runs["n"]), split.join(", ")),

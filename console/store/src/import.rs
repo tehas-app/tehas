@@ -28,7 +28,7 @@
 //! `.out`, `.rc`, `.lock`), `state/refined.jsonl` and the `.keep` directories
 //! are not the store's: they stay where they are.
 
-use crate::cycle::{self, SettingsIn, END_REASONS};
+use crate::cycle::{self, SettingsIn};
 use crate::lock;
 use crate::plan;
 use crate::verbs::{self, cap_char, j, kebab_char, line, list, obj, stub, word_char, Fail, Q};
@@ -529,11 +529,7 @@ impl CycleLine {
     }
 
     fn reason(&self) -> &str {
-        if END_REASONS.contains(&self.status.as_str()) {
-            &self.status
-        } else {
-            "unknown"
-        }
+        tehas_core::outcome::end_reason(&self.status)
     }
 }
 
