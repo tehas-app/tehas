@@ -547,17 +547,21 @@ was set and its link. With no message there is no banner. A
 `rukas-version.txt` an older image build left in `~/tehas/fun` is no longer
 read; `install.sh` leaves it where it is.
 
-Five installed files are compiled, not copied: the console of a running cycle,
-the analytics program, the MCP server, the state store and the attachment
-checker, Rust programs in the Cargo workspace `console/` (the others are in
-`console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
+Seven installed files are compiled, not copied: the console of a running cycle,
+the analytics program, the MCP server, the state store, the attachment checker,
+the dispatcher and the cycle's supervisor, Rust programs in the Cargo workspace
+`console/` (the others are in `console/analytics/`, `console/mcp/`,
+`console/store/`, `console/attach/`, `console/dispatch/` and `console/cycle/`,
 and the library all but the attachment checker share is in `console/core/`,
 which holds the one probe of a lock file that the store, the dispatcher, the
 health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
-`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
-`~/tehas/libexec/attach`. The attachment checker fetches the files of an issue
+`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store`,
+`~/tehas/libexec/attach`, `~/tehas/libexec/tehas-dispatch`,
+and `~/tehas/libexec/tehas-cycle`. The model proxy of outsource,
+`console/proxy/`, is a member of the workspace too, but `install.sh` and the
+release do not build or install it yet (#2278). The attachment checker fetches the files of an issue
 and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
@@ -924,7 +928,9 @@ While the backup is in use, each poll logs
 `tehas work`, `tehas plan` and `tehas dev` ask again when they start a
 container. They give it a `models.json` of its own,
 `<state directory>/models.json`, on the endpoint that answered and without
-the backup keys, and the tokens it names as variables, by name. `tehas work`
+the backup keys, and the tokens it names as variables, by name. A contractor's container of [outsource](/outsource) gets the same file
+with every provider on the model proxy and its key named as
+`${PI_ENSEMBLE_API_KEY_<PROVIDER>}`; no endpoint is asked for it. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and

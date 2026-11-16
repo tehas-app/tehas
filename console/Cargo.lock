@@ -621,6 +621,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-proxy"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+ "store",
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-xtask"
 version = "0.1.0"
 dependencies = [
