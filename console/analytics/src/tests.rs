@@ -3,7 +3,7 @@
 use crate::db;
 use crate::run::{self, iso_ms, Given};
 use crate::{execute, parse, Cmd, AT_AHEAD};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
@@ -4911,6 +4911,148 @@ fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
         report["availability"],
         json!({"n": 5, "seconds": 3000, "share": 0.4})
     );
+}
+
+// A cell of the wrong type is no figure, and the report still publishes. The
+// sample whose `paused` holds a REAL is not counted as available, since
+// whether it was paused is unknown. A column with no strict type keeps what a
+// literal of another type is put in it, so the number below is not a whole
+// one: SQLite turns a whole REAL in a column of numeric affinity into an
+// INTEGER, and that is a readable cell.
+#[test]
+fn a_wrong_typed_samples_cell_leaves_its_figure_out() {
+    let home = scratch("report-sample-types");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    // Five minutes apart, so each row stands for its own 300 seconds. The
+    // first row is readable, and so is the third (`held` has text affinity,
+    // which makes the 1.5 the word "1.5", and cycles are running). The middle
+    // row holds the REAL 0.5 in `paused`, which is no pause.
+    conn.execute(
+        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0, '')",
+        params![to - 900],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0.5, '')",
+        params![to - 600],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 4, 0, 1.5)",
+        params![to - 300],
+    )
+    .unwrap();
+    // The first and third rows are available: 600 of the 900 seconds since the
+    // first sample. The middle one is not, since its pause is unknown.
+    let report = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        report["availability"],
+        json!({"n": 3, "seconds": 900, "share": 0.667})
+    );
+}
+
+// A word where a count belongs leaves that count out and the report up: the
+// row with the unreadable line is still in the availability figure, and the
+// last well-formed row still gives the line.
+#[test]
+fn a_word_in_a_counted_column_leaves_the_line_out_and_the_report_up() {
+    let home = scratch("report-sample-text");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    // The first row's `in_line` is the word "many" and its `planning` the word
+    // "few": neither is a count. The second row is well-formed.
+    conn.execute(
+        "INSERT INTO samples (at, in_line, planning, paused, held) VALUES (?1, 'many', 'few', 0, '')",
+        params![to - 600],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO samples (at, in_line, planning, paused, held) VALUES (?1, 2, 1, 0, '')",
+        params![to - 300],
+    )
+    .unwrap();
+    let report = crate::report::build(&conn, to).unwrap();
+    let planned = report["planned"].as_object().unwrap();
+    assert_eq!(planned["n"], json!(3));
+    assert_eq!(planned["inLine"], json!(2));
+    assert_eq!(planned["planning"], json!(1));
+    // Both rows count as available: an unreadable line says nothing about the
+    // pause or the hold. `seconds` is the 600 since the first sample.
+    assert_eq!(
+        report["availability"],
+        json!({"n": 2, "seconds": 600, "share": 1.0})
+    );
+}
+
+// `held` is read as a word or not at all. A cell that is not text names no
+// hold, so a sample with cycles running still counts as available: read as
+// text the same cell is a word that is not empty, and the row drops out of
+// the figure. A whole number in the column does not tell the two readers
+// apart, because text affinity makes it a word first.
+#[test]
+fn a_cell_that_is_not_text_names_no_hold() {
+    let home = scratch("report-sample-held");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    // A column of text affinity keeps a value that is not text as it was put
+    // in it, so this cell is neither a word nor NULL.
+    conn.execute(
+        "INSERT INTO samples (at, running, paused, held)
+         VALUES (?1, 4, 0, CAST(x'7265736f7572636573' AS BLOB))",
+        params![to - 300],
+    )
+    .unwrap();
+    let report = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        report["availability"],
+        json!({"n": 1, "seconds": 300, "share": 1.0})
+    );
+}
+
+// What #2243 replaced: a REAL in `paused` used to end the published report,
+// which is `report` and `report --json`, with exit 70 and the reason on
+// standard error.
+#[test]
+fn a_wrong_typed_samples_cell_no_longer_ends_the_published_report() {
+    let home = scratch("report-sample-published");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    conn.execute(
+        "INSERT INTO samples (at, running, paused, held) VALUES (?1, 1, 0.5, '')",
+        params![to - 300],
+    )
+    .unwrap();
+    let report = crate::report::complete(&conn, &home, to).unwrap();
+    // The row is there and not available, since its pause is unknown.
+    assert_eq!(
+        report["availability"],
+        json!({"n": 1, "seconds": 300, "share": 0.0})
+    );
+    assert!(crate::report::text(&report).contains("Availability"));
+
+    // The same row read the old way, which is what the command used to print.
+    let mut q = conn
+        .prepare("SELECT paused FROM samples WHERE at = ?1")
+        .unwrap();
+    let old_way = q.query_row(params![to - 300], |r| r.get::<_, Option<i64>>(0));
+    assert!(old_way.is_err(), "a REAL is not a count read the old way");
+}
+
+// A cell of the wrong type in `at` or `watts`, the two columns still read as
+// they were, does end the report: this is the half the careful readers do not
+// reach, kept here so the shape of what changed is on the record.
+#[test]
+fn a_word_in_the_watts_column_still_ends_the_report() {
+    let home = scratch("report-sample-watts");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    conn.execute(
+        "INSERT INTO samples (at, paused, held, watts) VALUES (?1, 0, '', 'lots')",
+        params![to - 300],
+    )
+    .unwrap();
+    assert!(crate::report::build(&conn, to).is_err());
 }
 
 fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
