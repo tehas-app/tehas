@@ -927,7 +927,9 @@ While the backup is in use, each poll logs
 `tehas work`, `tehas plan` and `tehas dev` ask again when they start a
 container. They give it a `models.json` of its own,
 `<state directory>/models.json`, on the endpoint that answered and without
-the backup keys, and the tokens it names as variables, by name. `tehas work`
+the backup keys, and the tokens it names as variables, by name. A contractor's container of [outsource](/outsource) gets the same file
+with every provider on the model proxy and its key named as
+`${PI_ENSEMBLE_API_KEY_<PROVIDER>}`; no endpoint is asked for it. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
