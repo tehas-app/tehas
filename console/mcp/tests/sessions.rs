@@ -5,6 +5,7 @@ use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
+use tehas_core::file::READ_BOUND_LEN;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -689,6 +690,33 @@ fn no_snapshot_is_a_tool_error() {
             other => panic!("{name}: {other:?}"),
         }
     }
+}
+
+#[test]
+fn a_header_over_the_read_bound_is_refused_as_unreadable() {
+    let env = Env::new("big-header", Some("a/b"), &[]);
+    // The fixed answer, with nothing of the file in it: no path, and none of
+    // the line that made it too big to read.
+    let over = |n: usize| {
+        let mut text = "x".repeat(n);
+        text.push('\n');
+        std::fs::write(env.dirs.sessions.join("sessions.jsonl"), &text).unwrap();
+        for (name, args) in [
+            ("factory_sessions", json!({})),
+            ("factory_session", json!({"id": "work-1-1234567890"})),
+            ("factory_failures", json!({})),
+        ] {
+            match env.call(name, args) {
+                Err(ToolError::File { file, why }) => {
+                    assert_eq!(file, "sessions.jsonl", "{name}");
+                    assert_eq!(why, "could not be read", "{name}");
+                }
+                other => panic!("{name} at {n} bytes gave {other:?}"),
+            }
+        }
+    };
+    over(READ_BOUND_LEN + 1);
+    over(READ_BOUND_LEN * 3);
 }
 
 #[test]
