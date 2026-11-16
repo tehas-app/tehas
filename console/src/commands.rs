@@ -21,6 +21,7 @@
 //!   console tehas thaw <issue> [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
+//!   console tehas github writes
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -171,8 +172,23 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev" => dev::start(rest),
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
+        "github" => github_verb(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
+            64
+        }
+    }
+}
+
+const GITHUB: &str = include_str!("usage/github.txt");
+
+/// `tehas github writes`. `tehas github check` runs under the settings as
+/// `tehasbot github-token --check` (src/front.rs), so it is not met here.
+fn github_verb(given: &[String]) -> u8 {
+    match given {
+        [verb] if verb == "writes" => crate::gh_writes::main(&[]),
+        _ => {
+            eprint!("{GITHUB}");
             64
         }
     }
@@ -368,6 +384,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "drain" => include_str!("usage/drain.txt"),
         "export" => include_str!("usage/export.txt"),
         "freeze" => freeze::FREEZE_USAGE,
+        "github" => GITHUB,
         "history" => include_str!("usage/history.txt"),
         "host-message" => include_str!("usage/host-message.txt"),
         "index" => include_str!("usage/index.txt"),
@@ -381,6 +398,8 @@ pub fn text(command: &str) -> Option<&'static str> {
         "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
+        // The dispatcher's own text, which `tehasbot refresh --help` prints.
+        "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
         "review" => include_str!("usage/review.txt"),
         "resume" => include_str!("usage/resume.txt"),
         "setup" => include_str!("usage/setup.txt"),

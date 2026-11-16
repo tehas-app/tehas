@@ -10,6 +10,12 @@ description: "The command the units run, and one cycle for one issue with its re
 What the units run. Nothing here is needed in daily use; it is the place to
 look when a timer or service has to be run once by hand.
 
+Three of its old commands have public names on `tehas`, and stay here as
+aliases through 1.x: `tehasbot refresh` is
+[tehas refresh](/tools-github#tehas-refresh), `tehasbot github-token --check`
+is [tehas github check](/tools-github#tehas-github-check), and `tehasbot
+github-writes` is [tehas github writes](/tools-github#tehas-github-writes).
+
 ```
 tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
@@ -20,14 +26,12 @@ tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-to
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
-tehasbot refresh --pr N       # ask for the refresh of pull request N now
-tehasbot refresh --pr N --json  # the same, and print what it asked as one object
+tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
-tehasbot github-token [--check]  # the GitHub App's token, or a check of it
+tehasbot github-token         # the GitHub App's token; what the gh shim runs
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
-tehasbot github-writes        # the GitHub writes of the last day, by hour
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 

@@ -50,7 +50,7 @@ Then, in this order, stopping at the first step that fails:
   6. builds the sandbox image unless it is there, and runs the product's
      gates in it with tehas check-product --sandbox where that is installed
   7. enables the dispatch timer and path, starts the docs server, runs
-     tehasbot github-token --check and prints the dashboard's address
+     tehas github check and prints the dashboard's address
 
 A second run changes nothing that is right, and a second --new-app on an
 instance that names an app checks that app and makes none. A setting that

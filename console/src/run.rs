@@ -107,7 +107,7 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
         refresh.env("TEHAS_REFRESH_LOG", log);
     }
     let failed = refresh.exec();
-    eprintln!("tehasbot refresh: {program}: {failed}");
+    eprintln!("tehas refresh: {program}: {failed}");
     if failed.kind() == ErrorKind::NotFound {
         127
     } else {
@@ -218,7 +218,7 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
-/// `tehasbot refresh --pr N [--json]`, N a whole number above 0: the one form
+/// `tehas refresh --pr N [--json]`, N a whole number above 0: the one form
 /// of refresh that runs under the settings. tehas-dispatch's
 /// `refresh::asked_pr` decides the same, and a test holds the two together.
 fn asks_one(rest: &[String]) -> bool {

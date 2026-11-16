@@ -29,10 +29,11 @@ starts is the dispatcher's, which checks each request again at the start
 and drops one whose pull request no longer qualifies.
 
 Usage:
-  tehasbot refresh --pr N      ask for the refresh of pull request N now
-  tehasbot refresh --pr N --json
-                               the same, and print what it asked as JSON
-  tehasbot refresh -h|--help   print this text and exit 0
+  tehas refresh --pr N         ask for the refresh of pull request N now
+  tehas refresh --pr N --json  the same, and print what it asked as JSON
+  tehas refresh -h|--help      print this text and exit 0
+
+tehasbot refresh is the same command under its old name, kept through 1.x.
 
 Exit: 0 the request was written; 3 N is not a pull request the factory
 refreshes, or it does not conflict: why is on stderr, nothing is written;
