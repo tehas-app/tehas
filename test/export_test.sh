@@ -75,7 +75,9 @@ reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(jq -c 'del(.runs)' <<<"$t_out")" "{\"api\":1,\"next\":\"1760700000-12-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c 'del(.runs)' <<<"$t_out")" "{\"api\":1,\"version\":1,\"next\":\"1760700000-12-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c . "$out/export.json")" '{"version":1}'
+t_eq "$(stat -c %a "$out/export.json")" 644
 t_eq "$(listing 1760700000-12-1)" "history.json
 logs/dispatch-work.log
 logs/progress.json
@@ -213,7 +215,8 @@ t_case "nothing to copy: exit 0, the object, and no directory of a cycle"
 reset
 run_export --json --after $((T0 - 1))-1 "$out"
 t_eq "$t_rc" 0
-t_eq "$(jq -c . <<<"$t_out")" "{\"api\":1,\"runs\":[],\"next\":\"$((T0 - 1))-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c . <<<"$t_out")" "{\"api\":1,\"version\":1,\"runs\":[],\"next\":\"$((T0 - 1))-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c . "$out/export.json")" '{"version":1}'
 
 t_case "without --json, one line for each cycle and one for the directory"
 reset
