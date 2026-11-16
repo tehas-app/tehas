@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -324,6 +324,31 @@ CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 fn step_15(c: &mut Connection) -> Result<(), DbError> {
     step(c, 15, OUTSOURCE_SCHEMA)
 }
+
+/// The step from 15 to 16: an action may be `unknown`, a write GitHub may have
+/// taken that a read has still to settle (#1754). `actions` is rebuilt as
+/// schema.sql writes it, with foreign keys off (`step_16`): `journal` refers to
+/// it. Every row is copied.
+pub(crate) const STEP_16: &str = "
+CREATE TABLE actions_new (
+  id          INTEGER PRIMARY KEY,
+  poll_at     INTEGER NOT NULL REFERENCES polls (at),
+  kind        TEXT NOT NULL,
+  issue       INTEGER NOT NULL,
+  args_json   TEXT NOT NULL,
+  before_snapshot INTEGER NOT NULL,
+  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned','unknown')),
+  intended_at INTEGER NOT NULL,
+  attempted_at INTEGER,
+  settled_at  INTEGER,
+  result      TEXT,
+  evidence_json TEXT
+);
+INSERT INTO actions_new SELECT * FROM actions;
+DROP TABLE actions;
+ALTER TABLE actions_new RENAME TO actions;
+CREATE INDEX actions_open ON actions (state, intended_at);
+";
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -1336,6 +1361,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     (14, step_14),
     // A store at 14 is one this binary wrote before the outsource tables.
     (15, step_15),
+    // A store at 15 is one this binary wrote before an action could be
+    // unknown.
+    (16, step_16),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1402,6 +1430,17 @@ fn step_14(conn: &mut Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
         .map_err(classify)?;
     let stepped = step(conn, 14, STEP_14);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
+}
+
+/// The step to 16, run as `step_4` runs its rebuild of `cycles`.
+fn step_16(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 16, STEP_16);
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     stepped?;

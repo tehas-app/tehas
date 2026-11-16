@@ -15,10 +15,12 @@
 //!   store journal-settle --action N (--result <result> | --abandoned)
 //!                        [--evidence <json>]
 //!     After the call: ok or empty is done, read-failed or timed-out is
-//!     failed. --abandoned is the settling poll's word for an action whose
-//!     fresh read says it did not happen and need not.
+//!     failed. unknown is a call GitHub may have taken (a timeout, a 5xx):
+//!     the row stays open as unknown, with no settled time, until a read
+//!     settles it (#1754). --abandoned is the settling poll's word for an
+//!     action whose fresh read says it did not happen and need not.
 //!   store journal-open
-//!     The actions intended or attempted and not settled, oldest first. A row
+//!     The actions intended, attempted or unknown, oldest first. A row
 //!     whose stored args do not read as a JSON object carries
 //!     `"args_unreadable": true` and no `args`, so a reader cannot take the
 //!     absent arguments for empty ones.
@@ -45,8 +47,9 @@ pub const KINDS: [&str; 12] = [
     "issue-close",
 ];
 
-/// The typed results of every external call (section 3).
-const RESULTS: [&str; 4] = ["ok", "empty", "read-failed", "timed-out"];
+/// The typed results of every external call (section 3), and `unknown`: a
+/// call GitHub may have taken, which a read settles later.
+const RESULTS: [&str; 5] = ["ok", "empty", "read-failed", "timed-out", "unknown"];
 
 /// The most of --args or --evidence taken: a comment's body is 65,536
 /// characters at most on GitHub, and four bytes a character at worst.
@@ -254,16 +257,30 @@ fn attempt(home: &Path, id: i64, now: i64) -> Result<String, Fail> {
 fn settle(home: &Path, s: &Settle, now: i64) -> Result<String, Fail> {
     let to = match s.result {
         Some("ok" | "empty") => "done",
+        Some("unknown") => "unknown",
         Some(_) => "failed",
         None => "abandoned",
     };
+    // An unknown end leaves the row open: no time, no result, until a read.
+    let (at, result) = if to == "unknown" {
+        (None, None)
+    } else {
+        (Some(now), s.result)
+    };
     verbs::write(home, |c| {
         let was = state(c, s.action)?;
-        if !matches!(was.as_str(), "intended" | "attempted") {
+        if !matches!(was.as_str(), "intended" | "attempted" | "unknown") {
             return Err(refuse(
                 "action",
                 s.action,
                 &format!("is settled already ({was})"),
+            ));
+        }
+        if was == "unknown" && to == "unknown" {
+            return Err(refuse(
+                "action",
+                s.action,
+                "is unknown already; a read settles it",
             ));
         }
         // A result is a call's, and a call is made only once attempted.
@@ -278,7 +295,7 @@ fn settle(home: &Path, s: &Settle, now: i64) -> Result<String, Fail> {
             "UPDATE actions SET state = ?2, settled_at = ?3, result = ?4,
                evidence_json = coalesce(?5, evidence_json)
              WHERE id = ?1",
-            params![s.action, to, now, s.result, s.evidence],
+            params![s.action, to, at, result, s.evidence],
         )
         .q()?;
         c.execute(
@@ -292,7 +309,7 @@ fn settle(home: &Path, s: &Settle, now: i64) -> Result<String, Fail> {
         &[
             ("action", j(s.action)),
             ("state", j(to)),
-            ("result", j(s.result)),
+            ("result", j(result)),
         ],
     ))
 }
@@ -303,7 +320,7 @@ fn open(home: &Path) -> Result<String, Fail> {
             .prepare(
                 "SELECT id, poll_at, kind, issue, args_json, before_snapshot, state,
                         intended_at, attempted_at
-                 FROM actions WHERE state IN ('intended','attempted')
+                 FROM actions WHERE state IN ('intended','attempted','unknown')
                  ORDER BY intended_at, id",
             )
             .q()?;

@@ -371,7 +371,7 @@ CREATE TABLE actions (
   issue       INTEGER NOT NULL,
   args_json   TEXT NOT NULL,
   before_snapshot INTEGER NOT NULL,
-  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned')),
+  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned','unknown')),
   intended_at INTEGER NOT NULL,
   attempted_at INTEGER,
   settled_at  INTEGER,
