@@ -98,7 +98,7 @@ struct Given {
     /// The whole answer of `store poll-idle`: what the idle polls measured.
     poll_idle: Option<String>,
     mcp: Option<String>,
-    /// TEHAS_INDUSTRY_VERSION: the tehas-industry that runs this factory.
+    /// TEHAS_INDUSTRY_VERSION: the industry that runs this factory.
     industry: Option<String>,
 }
 
@@ -1079,7 +1079,7 @@ fn rukas(live: &Path) -> J {
     }
 }
 
-/// `{version}` of the tehas-industry that runs this factory. None for a
+/// `{version}` of the industry that runs this factory. None for a
 /// factory with none, and for a value that is no version: either way health
 /// and the footer say nothing of an industry.
 fn industry(given: Option<&str>) -> Option<J> {

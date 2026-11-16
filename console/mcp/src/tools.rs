@@ -303,9 +303,9 @@ fn status_schema() -> Value {
             "industry",
             obj(
                 vec![
-                    ("version", given("The tehas-industry version, such as v0.9.0.")),
+                    ("version", given("The version of the industry, such as v0.9.0.")),
                 ],
-                "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
+                "The industry that runs this factory. Left out for a factory that runs on its own.",
             ),
         ),
         (
