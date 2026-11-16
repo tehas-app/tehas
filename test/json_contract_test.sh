@@ -266,7 +266,7 @@ surfaces=(
   # the host's - how many file systems the watched paths fold into, and which
   # places the home holds - so the reading each sample is made of plants its own
   # home and says what `df` and the daemon answer, as test/disk_test.sh does.
-  # `generatedAt` is the clock of the run that made the answer, which no name in
+  # `time` is the clock of the run that made the answer, which no name in
   # the environment bounds: the case of the clock below compares the two samples
   # with what the command prints now with that one field taken out of both sides,
   # and asks that the field is there, of the right shape, and nothing else.
@@ -277,9 +277,9 @@ surfaces=(
   # missing, a field the schema does not know at the top of it, and the list of
   # file systems given a word where the command prints an array. Three lines,
   # the shape of every check of the table.
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.: generatedAt is missing'
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.zz: not in the schema'
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.filesystems: string, not array'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.: time is missing'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.zz: not in the schema'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.filesystems: string, not array'
   # The same three of the reading that carries `full`, bent on the object of that
   # name: the sample of the third word of the row is read and bent, as the rows of
   # the surface's own `sample` are. It cannot be taken out of the object the way
@@ -315,7 +315,7 @@ surfaces=(
   'bound	full.docker.lines	.full.docker.lines = ["a"]	.full.docker.lines = ["a"] + [range(12) | "b"]	more than 12 items	full'
   'bound	full.containers[0].image	.full.containers[0].image = "a"	.full.containers[0].image = "a" * 201	longer than 200	full'
   'bound	filesystems[0].paths[0]	.filesystems[0].paths = ["/home/boss/tehas"]	.filesystems[0].paths = [1]	integer, not string'
-  'required	["api","generatedAt","filesystems"]'
+  'required	["api","time","filesystems"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -694,7 +694,7 @@ disk_full_reading() { # the reading of the sample with `full`, and no side file
   t_run "'$T_CONSOLE' disk --full --json --max-depth 2 | jq ."
 }
 
-# The clock of the answer is the run's own: `generatedAt` is the moment the
+# The clock of the answer is the run's own: `time` is the moment the
 # reading was made, and no name in the environment bounds it, so the two samples
 # cannot hold a moment a later run prints. The samples keep the moment of the run
 # that wrote them, and every case that compares a sample with what the command
@@ -705,14 +705,14 @@ disk_full_reading() { # the reading of the sample with `full`, and no side file
 # so the two sides of each comparison are two runs of one host.
 disk_without_clock() { # <json>: the object with the run's moment taken out
   # The two fields that hold no fact of the host are taken out of both sides of
-  # every comparison, and are written out of api/ by the rewrite. `generatedAt` is
+  # every comparison, and are written out of api/ by the rewrite. `time` is
   # the moment of the reading. The name of the scratch tree of this run, which
   # `mktemp` makes different for every run of one checkout
   # (test/lib.sh, `T`), stands in the paths of the home and of its places: the
   # name is no more a fact of the host than the moment is, so the tree is named
   # `<home>` on both sides, the way the manual names the home.
   local home=$T/home
-  jq -c --arg home "$home" 'del(.generatedAt)
+  jq -c --arg home "$home" 'del(.time)
          | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
          | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")'
 }
@@ -1079,8 +1079,8 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
       # rewrite leaves is the file the cases below compare.
       if [ "$surface" = disk ]; then
         if jq -c --arg home "$T/home" --argjson kept \
-          "$(jq .generatedAt "$api/$surface.$name.json")" \
-          '. + {generatedAt: $kept}
+          "$(jq .time "$api/$surface.$name.json")" \
+          '. + {time: $kept}
            | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
            | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")' \
           "$api/$surface.$name.json" >"$T/rewrite-clock.json"; then
@@ -1142,8 +1142,8 @@ $changes"
       # name of the scratch tree of the run, in the two fields the command cannot
       # print twice, so the comparison below is of the two objects without them.
       # The fields themselves are the case of the clock's.
-      jq -c 'del(.generatedAt)' "$rewrite/$surface.$name.json" >"$T/rewrite-a.json"
-      jq -c 'del(.generatedAt)' "$api/$surface.$name.json" >"$T/rewrite-b.json"
+      jq -c 'del(.time)' "$rewrite/$surface.$name.json" >"$T/rewrite-a.json"
+      jq -c 'del(.time)' "$api/$surface.$name.json" >"$T/rewrite-b.json"
       t_eq "$(cat "$T/rewrite-a.json")" "$(cat "$T/rewrite-b.json")"
       continue
     fi
@@ -1151,19 +1151,19 @@ $changes"
   done
 
   # The one field of this surface no sample can hold as the command prints it:
-  # `generatedAt` is the moment the reading was made. The case asks that both
+  # `time` is the moment the reading was made. The case asks that both
   # sides of it are there, both of the shape the schema states for it, and that
   # the two moments are not the same field of a copied file - the samples are two
   # readings of one host made by two runs, and the fields beside them are asked
   # for, field by field, by the case of the diff above.
   if [ "$surface" = disk ]; then
-    t_case "the disk samples carry a generatedAt of the run that made them"
+    t_case "the disk samples carry a time of the run that made them"
     for name in "${names[@]}"; do
-      t_eq "$(jq -r '.generatedAt | type' "$api/$surface.$name.json")" "string"
-      t_eq "$(jq -r '.generatedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$api/$surface.$name.json")" "true"
+      t_eq "$(jq -r '.time | type' "$api/$surface.$name.json")" "string"
+      t_eq "$(jq -r '.time | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$api/$surface.$name.json")" "true"
       printed_now=$(printed "$surface" "$name") ||
         t_bad "the console printed no object for $surface $name"
-      t_eq "$(jq -r '.generatedAt | type' <<<"$printed_now")" "string"
+      t_eq "$(jq -r '.time | type' <<<"$printed_now")" "string"
     done
   fi
 

@@ -25,11 +25,11 @@ pub fn tool() -> Value {
     let text = |d: &str| json!({"type": "string", "description": d});
     json!({
         "name": "factory_disk",
-        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so generatedAt says how old the answer is and stale is true when it is more than three hours old or has no time that can be read; no file, or one that is not a whole reading, is a tool error.",
+        "description": "How full this host is and what fills it, as tehas disk published it: one entry per file system the factory cares about - the instance's home, Docker's own directory, /tmp and the scratch disk when the instance has one - with its mount and its free and total bytes, and with full the biggest places under them and what docker system df said. A figure that could not be read is null and carries why, never 0. The file is written by tehas disk --publish, which the hourly cleaner runs, so time says how old the answer is and stale is true when it is more than three hours old or has no time that can be read; no file, or one that is not a whole reading, is a tool error.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
-            "generatedAt": text("When the answer was made, UTC, as the run that wrote it kept it."),
+            "time": text("When the answer was made, UTC, as the run that wrote it kept it."),
             "stale": {"type": "boolean", "description": "The reading is more than three hours old, or its time cannot be read: the hourly publish has not run, and the figures may no longer be true."},
             "dockerRoot": int_("The directory Docker keeps its images in, as Docker named it; left out when it did not say."),
             "filesystems": {
@@ -94,7 +94,7 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     }
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
-    let stale = answer["generatedAt"]
+    let stale = answer["time"]
         .as_str()
         .and_then(tools::epoch)
         .is_none_or(|t| now - t > STALE_SECS);
@@ -113,7 +113,7 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
 /// `stale` is computed by `call`, which writes over any the file has.
 pub(crate) fn spec() -> Value {
     json!({
-        "generatedAt": true,
+        "time": true,
         "stale": true,
         "dockerRoot": true,
         "filesystems": [{"paths": [], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
@@ -150,7 +150,7 @@ mod tests {
     // things the tool must not carry: a container's id, and any field of the
     // host the allowlist does not name. The second file system has no figure,
     // only its reason, and the second place is a tree that could not be read.
-    const ANSWER: &str = r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
+    const ANSWER: &str = r#"{"api":1,"time":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
       "filesystems":[{"paths":["/home/boss/tehas"],"mount":"overlay","freeBytes":223,"totalBytes":307},
                      {"paths":["/tmp"],"why":"df answered nothing"}],
       "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"},
@@ -165,7 +165,7 @@ mod tests {
         let dir = published(ANSWER);
         let out = call(&dirs(&dir)).unwrap();
         let out = Value::Object(out);
-        assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
+        assert_eq!(out["time"], "2026-10-31T23:09:32Z");
         assert_eq!(out["dockerRoot"], "/var/lib/docker");
         assert_eq!(out["filesystems"][0]["freeBytes"], 223);
         assert_eq!(out["filesystems"][1]["why"], "df answered nothing");
@@ -253,7 +253,7 @@ mod tests {
         }
     }
 
-    // generatedAt alone leaves the caller to compare it with the clock, so
+    // time alone leaves the caller to compare it with the clock, so
     // the answer says itself when the reading is too old to trust.
     #[test]
     fn an_old_reading_or_one_without_a_time_is_stale() {
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(stale(at + STALE_SECS + 1), true);
         for text in [
             r#"{"api":1,"stale":false,"filesystems":[{"paths":["/h"]}]}"#,
-            r#"{"api":1,"generatedAt":"yesterday","stale":false,"filesystems":[{"paths":["/h"]}]}"#,
+            r#"{"api":1,"time":"yesterday","stale":false,"filesystems":[{"paths":["/h"]}]}"#,
         ] {
             let dir = published(text);
             let out = call_at(&dirs(&dir), at).unwrap();
@@ -285,7 +285,7 @@ mod tests {
             .unwrap();
         let allowed = spec();
         let allow = allowed.as_object().unwrap();
-        for named in ["generatedAt", "dockerRoot", "filesystems", "full"] {
+        for named in ["time", "dockerRoot", "filesystems", "full"] {
             assert!(schema.contains_key(named), "{named} has no schema");
             assert!(allow.contains_key(named), "{named} is not allowed through");
         }

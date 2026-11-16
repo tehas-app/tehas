@@ -5,6 +5,7 @@
 - `tehas export` writes `export.json` at the top of the export directory, `{"version": 1}`, the layout of the directory, and `tehas export --json` gains the same `version`.
 - `tehas start --json`: the approval's sums are `bodySha256` and `titleSha256`, camelCase like every other `--json` object.
 - `tehas refresh --pr N --json` (and its old name under `tehasbot`): the head is `headSha`, and the object gains `"api": 1`, as every other `--json` object has.
+- `tehas disk --json` and `live/disk.json`: `generatedAt` is now `time`, the word `tehas status --json` uses for when an answer was written. The MCP tool `factory_disk` answers `time` too.
 
 ### Adopter action
 
@@ -14,3 +15,4 @@ A program that reads `--json` objects of tehas reads the new names. Every rename
 - `tehas history --json` and `tehas export --json`: read `runs`, not `cycles`, and the step of a line under `runs[].progress`.
 - `tehas start --json`: read `approval.bodySha256` and `approval.titleSha256`.
 - `tehas refresh --pr N --json`: read `headSha`, not `head_sha`.
+- `tehas disk --json`, `live/disk.json` and the MCP tool `factory_disk`: read `time`, not `generatedAt`.

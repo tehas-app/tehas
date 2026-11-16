@@ -1,4 +1,4 @@
-{"api": 1, "generatedAt": "2026-11-12T09:14:07Z", "dockerRoot": "/var/lib/docker",
+{"api": 1, "time": "2026-11-12T09:14:07Z", "dockerRoot": "/var/lib/docker",
  "filesystems": [
    {"paths": ["/home/boss/tehas", "/var/lib/docker"], "mount": "overlay",
     "freeBytes": 22348619337728, "totalBytes": 30723834994688},
