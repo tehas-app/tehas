@@ -247,27 +247,74 @@ fn own_words(hook: bool, words: &[&str]) -> Vec<String> {
     }
 }
 
+/// The two bounds of one planning turn, named: the seconds a turn may run and
+/// the turns a session may take. The poll passes them to `Host`, where they
+/// become the unit's `RuntimeMaxSec` and the bound of the turn loop, so they
+/// travel by name and not by position.
+#[derive(Debug, PartialEq)]
+struct PlanBounds {
+    timeout: u64,
+    max_turns: u64,
+}
+
+/// A name of the environment read as text: the value as the shell holds it, or
+/// nothing when no rule read it (unset), or `Err` when the name is set and the
+/// bytes of its value are no text this program can read. The crate's `env`
+/// cannot answer the last case: it gives "" for both unset and unreadable, so a
+/// strict read would hand an unreadable value the default it exists to refuse.
+///
+/// Every name of the environment is read through this or through `env`, and the
+/// two names of a planning turn through this one: `std::env::vars` — the whole
+/// environment, as `main` and `refresh` take it — ends the process over a single
+/// value whose bytes are no text, so a poll of a host whose environment holds
+/// one dies before it could say which name and why.
+fn env_text(name: &str) -> Result<Option<String>, String> {
+    match std::env::var_os(name) {
+        None => Ok(None),
+        Some(v) => v.into_string().map(Some).map_err(|_| {
+            format!("{name} is not text this program can read: unset it, or set a whole number")
+        }),
+    }
+}
+
 /// The bound of one planning turn, read the way the settings load reads it.
 ///
 /// The poll hands both bounds to the unit of a turn, so it reads them itself
 /// rather than trust the environment it was given: `parse().unwrap_or(..)`
 /// turned `TEHAS_PLAN_TIMEOUT=1h` into 3600 and the instance's own words back
 /// into a `1h` the loader refuses (console/core/src/settings/rules.rs holds
-/// both rules). Unset or empty is the default the load gives; anything else
-/// that is no count of 1 or more, or a timeout over the ceiling of 7200, is
-/// the line the load would have said. `trees` are the load's, so a rule that
-/// reads a path reads the same one.
-fn planning_bounds(trees: &tehas_core::settings::rules::Trees) -> Result<(u64, u64), String> {
+/// both rules). Unset or empty is the poll's own default, 3600 and 20; the load
+/// reaches 3600 only by a value the instance sets to nothing, and gives 7200 for
+/// a name the instance does not set at all (console/core/src/settings/load.rs).
+/// A name that is set is read by the rule of the same name, so a value the load
+/// refuses is refused here too, in the load's own words, and the timeout keeps
+/// the load's ceiling of 7200. The turns bound has no ceiling of its own: the
+/// count of turns a session may take is the instance's to choose.
+/// The rule's own count takes at most 9 digits, so no value can reach the
+/// ceiling of a `u64` at the parse below.
+fn planning_bounds() -> Result<PlanBounds, String> {
+    // The paths a rule may read, of this poll's own instance. Both are read of
+    // the environment here and not passed in: the poll needs neither path, and
+    // a rule that reads a path would read the instance this poll runs for.
+    let trees = tehas_core::settings::rules::Trees {
+        home: &std::env::var("TEHAS_HOME").unwrap_or_default(),
+        instance: &std::env::var("TEHAS_INSTANCE_DIR").unwrap_or_default(),
+        work_repo: &std::env::var("TEHAS_WORK_REPO").unwrap_or_default(),
+    };
     let read = |name: &str, default: u64, ceiling: Option<u64>| -> Result<u64, String> {
-        let given = env(name);
+        let Some(given) = env_text(name)? else {
+            return Ok(default);
+        };
         if given.is_empty() {
             return Ok(default);
         }
-        tehas_core::settings::rules::check(name, &given, trees)
+        tehas_core::settings::rules::check(name, &given, &trees)
             .map_err(|why| format!("{name} is not valid: {why}"))?;
+        // The rule above takes only 1 to 9 ASCII digits with no leading zero,
+        // so this parse cannot fail. The arm is the bug if it ever does.
         let n = given
             .parse::<u64>()
-            .map_err(|_| format!("{name} is more than this program can count"))?;
+            .map_err(|_| format!("{name} ({given}) is no count this program can hold"))?;
         if let Some(max) = ceiling {
             if n > max {
                 return Err(format!(
@@ -277,14 +324,14 @@ fn planning_bounds(trees: &tehas_core::settings::rules::Trees) -> Result<(u64, u
         }
         Ok(n)
     };
-    Ok((
-        read(
+    Ok(PlanBounds {
+        timeout: read(
             "TEHAS_PLAN_TIMEOUT",
             3600,
             Some(tehas_core::settings::rules::PLAN_TIMEOUT_MAX),
         )?,
-        read("TEHAS_PLAN_MAX_TURNS", 20, None)?,
-    ))
+        max_turns: read("TEHAS_PLAN_MAX_TURNS", 20, None)?,
+    })
 }
 
 fn writer(
@@ -294,7 +341,7 @@ fn writer(
     poll_at: i64,
     before: i64,
     retry: &RetryPolicy,
-    plan: (u64, u64),
+    plan: &PlanBounds,
 ) -> Writer {
     let libexec = home.join("libexec");
     let opt = |k: &str| Some(env(k)).filter(|v| !v.is_empty());
@@ -377,8 +424,8 @@ fn writer(
             pin_cmd: Some(here.join("tehas-cycle"))
                 .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
                 .map(|p| p.to_string_lossy().into_owned()),
-            plan_timeout: plan.0,
-            plan_max_turns: plan.1,
+            plan_timeout: plan.timeout,
+            plan_max_turns: plan.max_turns,
             systemd_run: "systemd-run".into(),
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
@@ -593,18 +640,9 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     // The two bounds of a planning turn are read before the lock is opened and
     // before anything reads GitHub, Docker or git: a poll of an instance whose
     // settings are unreadable stops as one whose store is not installed does,
-    // with no call behind it and nothing on disk but the directories below.
-    let (home_dir, instance_dir, work_repo) = (
-        home.to_string_lossy().into_owned(),
-        settings.instance_dir.clone(),
-        env("TEHAS_WORK_REPO"),
-    );
-    let trees = tehas_core::settings::rules::Trees {
-        home: &home_dir,
-        instance: &instance_dir,
-        work_repo: &work_repo,
-    };
-    let plan = match planning_bounds(&trees) {
+    // with no call behind it and nothing written by this poll: the refusal
+    // returns before the directories below are made.
+    let plan = match planning_bounds() {
         Ok(plan) => plan,
         Err(why) => {
             say(&format!("ERROR: {why}"));
@@ -687,7 +725,15 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let first_token = token.get(home);
     let adopted = adopt_login(home, settings);
     let settings = adopted.as_ref().unwrap_or(settings);
-    let mut w = writer(home, settings, "", 0, tehas_core::time::now(), &retry, plan);
+    let mut w = writer(
+        home,
+        settings,
+        "",
+        0,
+        tehas_core::time::now(),
+        &retry,
+        &plan,
+    );
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
     // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
@@ -1442,15 +1488,6 @@ mod tests {
         held
     }
 
-    /// The trees of a rule that reads one of the three paths, of a test's home.
-    fn trees_of(home: &Path) -> tehas_core::settings::rules::Trees<'static> {
-        tehas_core::settings::rules::Trees {
-            home: Box::leak(home.to_string_lossy().into_owned().into_boxed_str()),
-            instance: "",
-            work_repo: "",
-        }
-    }
-
     /// The two names of a planning turn, held for one test at a time: both
     /// `planning_bounds` and `run_poll` read them from the environment, as a
     /// poll of the host does, and the tests of a crate run side by side in one
@@ -1491,20 +1528,30 @@ mod tests {
         std::env::set_var("TEHAS_PLAN_MAX_TURNS", turns);
     }
 
+    /// The two bounds of a pair the rules take, for a test that asks what the
+    /// poll would hand the unit of a turn.
+    fn taken(timeout: u64, turns: u64) -> Result<super::PlanBounds, String> {
+        Ok(super::PlanBounds {
+            timeout,
+            max_turns: turns,
+        })
+    }
+
     #[test]
     fn the_planning_bounds_are_the_defaults_or_the_words_of_the_rules() {
         let _held = Bounds::take();
-        let home = home_of("bounds");
-        let trees = trees_of(&home);
-        // Unset or empty is the default the load gives: the poll hands the unit
-        // a number of its own either way.
+        // Unset or empty is the poll's own default: the poll hands the unit a
+        // number of its own either way.
         bounds("", "");
-        assert_eq!(super::planning_bounds(&trees), Ok((3600, 20)));
+        assert_eq!(super::planning_bounds(), taken(3600, 20));
+        std::env::remove_var("TEHAS_PLAN_TIMEOUT");
+        std::env::remove_var("TEHAS_PLAN_MAX_TURNS");
+        assert_eq!(super::planning_bounds(), taken(3600, 20));
         // The ceiling itself and any count below it are taken as they are.
         bounds("7200", "5");
-        assert_eq!(super::planning_bounds(&trees), Ok((7200, 5)));
+        assert_eq!(super::planning_bounds(), taken(7200, 5));
         bounds("90", "1");
-        assert_eq!(super::planning_bounds(&trees), Ok((90, 1)));
+        assert_eq!(super::planning_bounds(), taken(90, 1));
         // What the load refuses, the poll refuses, in the load's own words.
         for (name, value) in [
             ("TEHAS_PLAN_TIMEOUT", "1h"),
@@ -1526,7 +1573,7 @@ mod tests {
                 },
             );
             assert_eq!(
-                super::planning_bounds(&trees),
+                super::planning_bounds(),
                 Err(format!(
                     "{name} is not valid: expected a positive whole number"
                 )),
@@ -1538,7 +1585,7 @@ mod tests {
         // wrapped.
         bounds("7201", "");
         assert_eq!(
-            super::planning_bounds(&trees),
+            super::planning_bounds(),
             Err(
                 "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: a planning turn may take at most two hours, and while one runs no other planning turn starts"
                     .to_string()
@@ -1546,9 +1593,31 @@ mod tests {
         );
         bounds("99999999999999999999999", "");
         assert_eq!(
-            super::planning_bounds(&trees),
+            super::planning_bounds(),
             Err("TEHAS_PLAN_TIMEOUT is not valid: expected at most 9 digits".to_string())
         );
+        // A name the shell holds as no text: not unset, so not the default. The
+        // bytes of the value cannot be named here, so the test asks for the
+        // sentence; test/dispatch_poll_test.sh sets such a value and reads the
+        // line and the exit of the poll itself. It is given to the turns name
+        // only: a test of another module of this crate reads the timeout from
+        // the environment as text, and a value that is no text stops it.
+        #[cfg(unix)]
+        {
+            std::env::remove_var("TEHAS_PLAN_TIMEOUT");
+            let unreadable =
+                <std::ffi::OsString as std::os::unix::ffi::OsStringExt>::from_vec(vec![
+                    0xff, b'2', b'0',
+                ]);
+            std::env::set_var("TEHAS_PLAN_MAX_TURNS", unreadable);
+            assert_eq!(
+                super::planning_bounds(),
+                Err(
+                    "TEHAS_PLAN_MAX_TURNS is not text this program can read: unset it, or set a whole number"
+                        .to_string()
+                )
+            );
+        }
     }
 
     #[test]
@@ -1562,6 +1631,13 @@ mod tests {
         let _held = Bounds::take();
         let home = poll_home("bounds-refused");
         let lock = held_lock(&home);
+        // The refusal is the poll's first act: a home of a poll that stopped
+        // this way holds no directory the poll makes for a run. The three are
+        // made when one is missing, so their absence here is this home's own
+        // name: no earlier poll of the test suite wrote them.
+        for d in ["state/cycles", "logs", "live"] {
+            let _ = std::fs::remove_dir_all(home.join(d));
+        }
         for (timeout, turns) in [("", "two"), ("7201", ""), ("1h", "20"), ("60", "0")] {
             bounds(timeout, turns);
             assert_eq!(
@@ -1570,8 +1646,39 @@ mod tests {
                 "{timeout}/{turns}"
             );
         }
+        // A name the shell holds as no text is refused too, not read as unset
+        // and answered with the default. It is given to the turns name only: a
+        // test of another module of this crate reads the timeout from the
+        // environment as text, and a value that is no text stops it. The other
+        // name is unset, so the refusal below is this one's.
+        #[cfg(unix)]
+        {
+            std::env::remove_var("TEHAS_PLAN_TIMEOUT");
+            let unreadable =
+                <std::ffi::OsString as std::os::unix::ffi::OsStringExt>::from_vec(vec![
+                    b'1', 0xff, b'0',
+                ]);
+            std::env::set_var("TEHAS_PLAN_TIMEOUT", unreadable);
+            assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 78);
+        }
+        for d in ["state/cycles", "logs", "live"] {
+            assert!(
+                !home.join(d).exists(),
+                "a refused poll made {}",
+                home.join(d).display()
+            );
+        }
         bounds("7200", "1");
         assert_eq!(run_poll(&home, &Settings::parse(&json!({})), false), 0);
+        // A poll the rules take makes all three, so the checks above asked for
+        // a refusal and not for a poll that stopped for another reason.
+        for d in ["state/cycles", "logs", "live"] {
+            assert!(
+                home.join(d).is_dir(),
+                "a poll that ran made no {}",
+                home.join(d).display()
+            );
+        }
         drop(lock);
     }
 

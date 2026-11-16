@@ -439,14 +439,21 @@ A state store that is not installed stops the poll before it asks GitHub
 anything: `ERROR: the state store is not installed (run install.sh)`, exit
 78. The two bounds of a planning turn stop it the same way, before the lock and
 before any call: the poll reads `TEHAS_PLAN_TIMEOUT` and `TEHAS_PLAN_MAX_TURNS`
-itself, since it hands both to the unit of a turn, and it reads them by the
-rules of the settings load. Unset or empty is the default the load gives, 3600
-and 20; a value that is set and is no whole number of at least 1, or a timeout
+itself, since it hands both to the unit of a turn, and it reads a name that is
+set by the rule of the settings load for that name. Unset or empty is the
+poll's own default, 3600 and 20 (the load gives its own default, 7200 for the
+timeout, both for a name the instance does not set and for one it sets to
+nothing); a value that is set and is no whole number of at least 1, or a timeout
 over the ceiling of 7200, ends the poll with `ERROR: TEHAS_PLAN_TIMEOUT is not
 valid: expected a positive whole number`, or
 `ERROR: TEHAS_PLAN_TIMEOUT (10000000) is more than 7200: ...`, or the same two
-lines for `TEHAS_PLAN_MAX_TURNS`, and exit 78. The load of the run says the
-same words for an instance that sets them, so on a host this is the reading
+lines for `TEHAS_PLAN_MAX_TURNS`, and exit 78. The turns bound has no ceiling:
+how many turns a session may take is the instance's to choose, bounded only by
+the rule's nine digits. A value that is no text this program can read is
+refused too, as `ERROR: TEHAS_PLAN_MAX_TURNS is not text this program can read:
+unset it, or set a whole number`: a value of bytes the shell cannot name is not
+the same as no value, and does not take the default. The load of the run says
+the same words for an instance that sets them, so on a host this is the reading
 that stands when no load ran: `tehas-dispatch poll` under systemd, from
 `tehas-dispatch.path`, or at a shell. Before this the poll's own read turned
 any such text into its default and the instance's words went unheard.
