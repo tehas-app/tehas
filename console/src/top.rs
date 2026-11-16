@@ -45,7 +45,6 @@ use std::fs::{self, File};
 use std::io::{IsTerminal, Read, Write};
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -153,9 +152,19 @@ fn proc_dir() -> PathBuf {
     }
 }
 
-// By name, so a test's stub takes the wait.
+// The seconds a helper of the view or of the publisher is given before it is
+// stopped. Each is asked of a local program, so a bound this short is the same
+// answer as one that gave none.
+const HELPER_SECS: u64 = 5;
+
+// The wait between two readings, by name so a test's stub takes it. A second of
+// wall time, waited on the clock rather than by a `sleep` child: the view gives
+// no program it does not bound, and a wait needs none.
 fn second() {
-    let _ = Command::new("sleep").arg("1").status();
+    let end = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// The readings of one snapshot, the later first. A previous reading that is
@@ -231,15 +240,32 @@ fn publish_once(home: &str) -> u8 {
 // once an install has replaced the file. tehasbot stands before the console so
 // that each mark reads the settings, as each run of the command does.
 fn publish_every(home: &str) -> u8 {
+    publish_loop(
+        home,
+        Duration::from_secs(MARK_WAIT_SECS),
+        Duration::from_secs(5),
+    )
+}
+
+/// The publisher's loop with the child's bound and its grace named, so a case
+/// can drive the loop itself rather than the helper under bounds of its own.
+fn publish_loop(home: &str, bound: Duration, grace: Duration) -> u8 {
     let tehasbot = format!("{home}/bin/tehasbot");
     loop {
-        let done = Command::new(&tehasbot).arg("top").status();
-        if done.is_ok_and(|s| s.code() == Some(78)) {
+        // One child per mark, under a bound that stops it (TERM, then KILL)
+        // when it never ends: a hung child is one missed mark, not a loop that
+        // waits for it forever.
+        let args = vec!["top".to_string()];
+        let done = tehas_core::call::run_grace(&tehasbot, &args, None, bound, grace);
+        if done == Some(78) {
             return 78;
         }
         std::thread::sleep(Duration::from_secs(to_mark(time::now())));
     }
 }
+
+/// The seconds the publisher's child is given to write one mark.
+const MARK_WAIT_SECS: u64 = 30;
 
 fn to_mark(now: i64) -> u64 {
     (PERIOD - now.rem_euclid(PERIOD)) as u64
@@ -301,16 +327,20 @@ fn stty_size(text: &str) -> Option<(u64, u64)> {
 // output.
 fn terminal_size() -> Option<(u64, u64)> {
     let out = std::io::stdout().as_fd().try_clone_to_owned().ok()?;
-    let asked = Command::new("stty")
-        .arg("size")
-        .stdin(Stdio::from(out))
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !asked.status.success() {
+    // The terminal on standard input as the child's own: the words of `stty
+    // size` are the answer, and a stty that waits for a terminal that never
+    // answers is stopped at the bound.
+    let ran = tehas_core::call::run_stdin_file(
+        "stty",
+        &["size".to_string()],
+        out.into(),
+        Duration::from_secs(HELPER_SECS),
+        Duration::from_secs(1),
+    );
+    if !ran.ok() {
         return None;
     }
-    stty_size(&String::from_utf8_lossy(&asked.stdout))
+    stty_size(&ran.out)
 }
 
 /// The size to draw for: COLUMNS and LINES when they are given, the terminal
@@ -337,15 +367,15 @@ fn put(text: &str) -> bool {
 }
 
 fn tty(args: &[&str]) -> Option<String> {
-    let done = Command::new("stty")
-        .args(args)
-        .stdin(File::open("/dev/tty").ok()?)
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    done.status
-        .success()
-        .then(|| String::from_utf8_lossy(&done.stdout).trim().to_string())
+    let keys = File::open("/dev/tty").ok()?;
+    let ran = tehas_core::call::run_stdin_file(
+        "stty",
+        &args.iter().map(|a| a.to_string()).collect::<Vec<String>>(),
+        keys,
+        Duration::from_secs(HELPER_SECS),
+        Duration::from_secs(1),
+    );
+    ran.ok().then(|| ran.out.trim().to_string())
 }
 
 /// The alternate screen with no cursor, and the terminal in its keys-at-once
@@ -603,11 +633,13 @@ fn row(pid: u64, dir: &Path) -> Option<Value> {
 }
 
 fn page_size() -> f64 {
-    Command::new("getconf")
-        .arg("PAGE_SIZE")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
+    let ran = tehas_core::call::run(
+        "getconf",
+        &["PAGE_SIZE".to_string()],
+        Duration::from_secs(HELPER_SECS),
+    );
+    ran.ok()
+        .then_some(ran.out)
         .and_then(|s| digits(s.trim()))
         .map_or(4096.0, |p| p as f64)
 }
@@ -749,6 +781,55 @@ fn host(later: &Value, earlier: &Value, page: f64) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(test)]
+    use std::os::unix::fs::PermissionsExt;
+
+    /// The publisher's loop at the bound it gives its own child: a child that
+    /// never ends is stopped at that bound and costs one mark, and the 78 of the
+    /// next ends the loop. The child sleeps far past MARK_WAIT_SECS, so a bound
+    /// that went away would take this case with it.
+    #[test]
+    fn the_publisher_bounds_its_child_and_ends_only_on_78() {
+        let d = tehas_core::testdir::TestDir::new("top-publish-bound");
+        let bin = d.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let tehasbot = bin.join("tehasbot");
+        // The child of the first mark runs on far past the publisher's bound,
+        // the child of the next answers 78: the loop is not ended by the hung
+        // one and is ended by the second, so it stops of its own accord and
+        // leaves no child - the bound's TERM ends the hung one, and its grace
+        // bounds how long the wait for that takes.
+        fs::write(
+            &tehasbot,
+            "#!/bin/sh\nif [ -f \"$TEHAS_PUBLISH_MARK\" ]; then exit 78; fi\n\
+             : >\"$TEHAS_PUBLISH_MARK\"\nexec sleep 600\n",
+        )
+        .unwrap();
+        fs::set_permissions(&tehasbot, fs::Permissions::from_mode(0o755)).unwrap();
+        std::env::set_var("TEHAS_PUBLISH_MARK", d.join("mark"));
+        let began = Instant::now();
+        let ended = std::panic::catch_unwind(|| {
+            publish_loop(
+                &d.to_string_lossy(),
+                Duration::from_secs(MARK_WAIT_SECS),
+                Duration::from_secs(1),
+            )
+        });
+        std::env::remove_var("TEHAS_PUBLISH_MARK");
+        assert_eq!(
+            ended.ok(),
+            Some(78),
+            "the loop goes on past a hung child and ends on 78"
+        );
+        // The hung child ran 600 s of its own; the bound is MARK_WAIT_SECS, so
+        // the loop was at the next mark within a little over a minute of it.
+        // Without the bound the first child alone would hold this for 600 s.
+        assert!(
+            began.elapsed() < Duration::from_secs(70),
+            "the hung child was stopped at its bound, not when its sleep did: {}s",
+            began.elapsed().as_secs()
+        );
+    }
 
     fn reading(clock: f64, all: u64, idle: u64, procs: Value) -> Value {
         json!({"clock": clock, "cpus": 2, "load": [0.1, 0.2, 0.3],

@@ -777,6 +777,32 @@ fn run_of<'a>(dir: &'a str, data: &'a str, record: &'a str) -> IssueRun<'a> {
 }
 
 #[test]
+fn a_hung_gh_makes_the_read_of_the_issue_give_nothing_at_its_bound() {
+    // The program of the case is named directly: a PATH of one directory
+    // would take sh, timeout and the tools of a core away from the child.
+    let d = TestDir::new("attach-take-hung-gh");
+    let gh = gh_stub(&d, "sleep 30");
+    let got = run_issue_read(&gh.to_string_lossy(), "acme/widget", "7", 1);
+    assert_eq!(got, None, "a gh that hangs at its bound gives no answer");
+}
+
+#[test]
+fn a_gh_that_answers_gives_the_issue_as_its_words() {
+    let d = TestDir::new("attach-take-gh");
+    let gh = gh_stub(&d, "printf '%s' '{\"body\":\"x\"}'");
+    let got = run_issue_read(&gh.to_string_lossy(), "acme/widget", "7", 30);
+    assert_eq!(got.as_deref(), Some(r#"{"body":"x"}"#));
+}
+
+/// The `gh` stub of a case at <d>/gh, whose body is <body>.
+fn gh_stub(d: &TestDir, body: &str) -> std::path::PathBuf {
+    let gh = d.join("gh");
+    fs::write(&gh, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    gh
+}
+
+#[test]
 fn a_directory_is_remade_and_a_bad_answer_is_no_ground_to_fetch() {
     let (_scratch, base) = scratch();
     let dir = format!("{base}/images");
