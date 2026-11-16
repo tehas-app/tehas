@@ -475,7 +475,7 @@ fn attempt_row() -> Value {
                 "how",
                 one_of(
                     &sessions::HOWS,
-                    "What started it. millwright and fixer name the same person.",
+                    "What started it.",
                 ),
             ),
             ("started", given("When it started, UTC.")),
