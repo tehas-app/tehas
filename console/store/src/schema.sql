@@ -13,7 +13,8 @@
 -- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
 -- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
 -- them. Schema 16 lets actions.state say 'unknown', a write GitHub may have
--- taken (db::STEP_16). No secret is in them: an invite code is kept only as the
+-- taken, and writes 'millwright' in every row that still said 'fixer'
+-- (db::STEP_16). No secret is in them: an invite code is kept only as the
 -- sha256 of what was printed, and a contractor gives only its public key, so
 -- there is no private key of any kind in the file.
 -- Within one version columns are only added; a change of meaning raises the
