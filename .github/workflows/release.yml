@@ -5,6 +5,10 @@
 # it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
 # gate; this file is not.
 #
+# A prerelease tag, vX.Y.Z-alpha.N, -beta.N or -rc.N, is built, signed and
+# published the same way, marked as a GitHub prerelease and never as the
+# latest release: tehas update installs one only when it is named.
+#
 # Assets of a release vX.Y.Z:
 #   tehas-vX.Y.Z-linux-x86_64.tar.gz           the tarball
 #   tehas-vX.Y.Z-linux-x86_64.tar.gz.sha256    its hash, for sha256sum -c
@@ -12,12 +16,18 @@
 #   install, install.minisig                   the installer, when the tag
 #                                              has host/release/install
 #
-# Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
-# its password, only when the key has one.
+# Secrets, in the environment `release` and nowhere else: MINISIGN_SECRET_KEY,
+# the whole secret key file; MINISIGN_PASSWORD, its password, only when the key
+# has one. The environment takes only tags and waits for a reviewer, so a tag
+# is signed only after a person approves its run.
 name: release
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
 permissions:
   contents: write
 defaults:
@@ -28,9 +38,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    # tehas-runner, as in verify.yml: it holds cargo at RUST_VERSION, bash,
-    # git, jq and curl, and gives the job no sudo.
-    runs-on: [self-hosted, tehas]
+    # A clean GitHub-hosted runner, gone after the job: not the runners pull
+    # requests run on. The job installs its own minisign, jq and Rust at
+    # pinned versions; the image gives bash, git, curl, tar, gcc for the
+    # bundled SQLite, and the jq of the first step, which runs before anything
+    # of the tagged tree is read.
+    runs-on: ubuntu-24.04
+    environment: release
     timeout-minutes: 45
     env:
       TAG: ${{ github.ref_name }}
@@ -58,7 +72,7 @@ jobs:
       - name: the runner builds for linux x86_64
         run: |
           [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
-          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
           # The runner context is not available in the job's env, so DIST is set here.
           echo "DIST=$RUNNER_TEMP/dist" >>"$GITHUB_ENV"
       - name: minisign at a pinned version
@@ -69,6 +83,34 @@ jobs:
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign 2>/dev/null
           echo "$RUNNER_TEMP/minisign-linux/x86_64" >> "$GITHUB_PATH"
+      - name: jq at the pinned version
+        run: |
+          . host/versions.env
+          mkdir -p "$RUNNER_TEMP/jq"
+          curl -fsSL -o "$RUNNER_TEMP/jq/jq" \
+            "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
+          echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -
+          chmod 755 "$RUNNER_TEMP/jq/jq"
+          echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"
+          test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"
+      - name: rust at the pinned version
+        run: |
+          # rustup at its pinned version and hash, in homes of the job's own,
+          # so the image's toolchain is not the one that builds.
+          . host/versions.env
+          export RUSTUP_HOME=$RUNNER_TEMP/rustup CARGO_HOME=$RUNNER_TEMP/cargo
+          curl -fsSL -o "$RUNNER_TEMP/rustup-init" \
+            "https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/x86_64-unknown-linux-gnu/rustup-init"
+          echo "$RUSTUP_SHA256  $RUNNER_TEMP/rustup-init" | sha256sum -c -
+          chmod 755 "$RUNNER_TEMP/rustup-init"
+          "$RUNNER_TEMP/rustup-init" -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_VERSION" --target x86_64-unknown-linux-musl
+          { echo "RUSTUP_HOME=$RUSTUP_HOME"; echo "CARGO_HOME=$CARGO_HOME"; } >> "$GITHUB_ENV"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          version=$("$CARGO_HOME/bin/cargo" --version)
+          [[ $version == "cargo $RUST_VERSION "* ]] || { echo "not cargo $RUST_VERSION: $version" >&2; exit 1; }
+          # scripts/pack-release.sh builds its task offline.
+          "$CARGO_HOME/bin/cargo" fetch --locked --manifest-path console/Cargo.toml
       - name: build the console, the analytics program, the MCP server, the store, the attachment checker and the two shadows
         run: |
           . host/versions.env
@@ -124,8 +166,10 @@ jobs:
           }
           api=https://api.github.com/repos/$REPO
           auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
-          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" \
-            '{tag_name: $tag, name: $tag, body: $notes, draft: true}')
+          pre=false latest=true
+          if [[ $TAG == *-* ]]; then pre=true latest=false; fi
+          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" --argjson pre "$pre" \
+            '{tag_name: $tag, name: $tag, body: $notes, draft: true, prerelease: $pre}')
           # Made a draft and published only once every asset is on it, so no
           # one downloads a release that is missing its signature.
           release=$(curl -fsS "${auth[@]}" -X POST "$api/releases" -d "$body") || {
@@ -138,5 +182,5 @@ jobs:
               "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")" >/dev/null
             echo "uploaded $(basename "$f")"
           done
-          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d '{"draft": false, "make_latest": "true"}' |
+          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d "{\"draft\": false, \"make_latest\": \"$latest\"}" |
             jq -r .html_url

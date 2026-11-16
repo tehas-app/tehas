@@ -5,7 +5,7 @@
 use super::clean::iso;
 use super::{
     base_stands, fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step,
-    CLASSIC, IMPROVEMENT, LEAN,
+    CLASSIC, LEAN,
 };
 use crate::questions;
 use crate::text;
@@ -585,10 +585,6 @@ impl Poll<'_> {
                 continue;
             }
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {
-                continue;
-            }
-            if has(&have, "cross-project") && has(&have, IMPROVEMENT) {
-                self.log(format!("skip #{n}: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"));
                 continue;
             }
             let at = ans["tick"]["at"].as_str().unwrap_or("").to_string();

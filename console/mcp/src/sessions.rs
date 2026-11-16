@@ -12,11 +12,10 @@ use std::sync::LazyLock;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
 
 // The words an answer may give for an outcome or a kind, and the words the
-// filters of `factory_sessions` accept. `factory_issue` describes the same
-// fields of an attempt, so it reads these rather than a list written twice.
-pub const OUTCOMES: [&str; 7] = [
-    "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
-];
+// filters of `factory_sessions` accept. The outcomes are the core's one
+// vocabulary; `factory_issue` describes the same fields of an attempt, so it
+// reads these rather than a list written twice.
+pub const OUTCOMES: [&str; 7] = tehas_core::outcome::OUTCOMES;
 pub const KINDS: [&str; 2] = ["work", "plan"];
 // Every word a record's `how` can hold, work and plan words alike: the words
 // the store's verbs take and the plan words analytics' `plan::how` writes, with
@@ -866,6 +865,7 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
         let mut r = Map::new();
         put(&mut r, "step", copied(c, "step"));
         put(&mut r, "status", copied(c, "status"));
+        tools::cycle_status_in(&mut r);
         if !r.is_empty() {
             out.insert("running".into(), Value::Object(r));
         }

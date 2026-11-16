@@ -147,9 +147,9 @@ t_eq "$(wc -l < "$T/tmp-same" | tr -d ' ')" 0
 # for the layout and a description for a reader who finds only the page.
 t_case "each tools page has its title and description"
 for page in "${TOOLS_PAGES[@]}"; do
-  head -n 4 "$page" | grep -q '^title: ' \
+  grep -q '^title: ' < <(head -n 4 "$page") \
     || t_bad "$(basename "$page") has no title"
-  head -n 4 "$page" | grep -q '^description: "' \
+  grep -q '^description: "' < <(head -n 4 "$page") \
     || t_bad "$(basename "$page") has no description"
 done
 
@@ -158,8 +158,8 @@ done
 # one heading the split adds is `## The pages`, the list the commands page
 # gives of them. A section left in two pages, or dropped with the page it was
 # moved out of, shows here.
-t_case "the tools pages hold the 44 sections of tools.md, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 45
+t_case "the tools pages hold the 43 sections of tools.md, each once"
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 44
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 
@@ -224,7 +224,7 @@ t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
 t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 30
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 14
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
@@ -251,7 +251,7 @@ for which in tehas tehasbot; do
         infence && index($0, prog " ") == 1 && substr($2, 1, 1) ~ /[a-z]/ {
           for (i = 2; i <= NF; i++) if ($i == cmd) { print "yes"; exit }
         }
-      ' "$page" | grep -q yes && { found=1; break; }
+      ' "$page" | grep yes >/dev/null && { found=1; break; }
     done
     [ "$found" = 1 ] || echo "$which $word: no command block of the tools pages names it"
   done < <(sort -u "$T/verbs-$which")
@@ -264,11 +264,11 @@ t_eq "$(wc -l < "$T/tmp-verbs" | tr -d ' ')" 0
 # word the blocks name and the front routes, and one of each program that no
 # page names and no route answers.
 t_case "the front's verbs are its own, and not the commands of the pages"
-printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehas" &&
+grep -qxF -f "$T/verbs-tehas" <<<bogus &&
   t_bad "the verbs read hold bogus, a command no route answers"
 grep -qxF -f "$T/list-tehas" <(printf 'work\n') ||
   t_bad "the command blocks read hold no work, which every list of tehas gives"
-printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehasbot" &&
+grep -qxF -f "$T/verbs-tehasbot" <<<bogus &&
   t_bad "the verbs read hold bogus, a command no route answers"
 grep -qxF -f "$T/list-tehasbot" <(printf 'clean\n') ||
   t_bad "the command blocks read hold no clean, which the block of tehasbot gives"
@@ -492,8 +492,7 @@ t_row() { # <command> <page>
       backtick=$(printf '\140')
       case $text in *"$command"$backtick*) printf '%s\t%s\n' "$number" "$text"; break ;; esac
     done)
-  if [ -n "$line" ] && printf '%s\n' "${line#*$'\t'}" |
-    grep -qF ". ~/tehas/env.sh && $command"; then
+  if [ -n "$line" ] && grep -qF ". ~/tehas/env.sh && $command" <<<"${line#*$'\t'}"; then
     return 0
   fi
   t_bad "the row running [$command] does not source env.sh on its own line: [$line]"

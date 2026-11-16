@@ -21,6 +21,7 @@
   "versions": {
     "platform": {
       "release": null,
+      "commit": null,
       "latest": null,
       "behind": null
     },

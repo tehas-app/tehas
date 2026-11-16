@@ -40,17 +40,11 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.comments.json` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The two files `tehasbot status` asks `analytics` to write for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`, each with a `.stamp` line beside it that says why it need not be written again. Mode 700: the snapshot holds what the agents saw, and neither is published |
-| `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
 | `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
-
-Where the improvement loop is on, each of its runs removes the per-cycle files
-in `~/tehas/logs/` that are older than seven days (`work-*`, `dispatch-work-*`,
-`index-*`), and the records that old under `~/tehas/tmp/improve/`. Nothing else
-removes logs.
 
 **The cleaner.** `tehasbot clean`, from `tehas-clean.timer` once an hour, removes
 what the host can make again once nothing has touched it for
@@ -137,7 +131,7 @@ unpublished, old
 sandbox recipe - `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its
 `sandbox-uid.Dockerfile.XXXXXX` temporary - of that age a build killed before its
 cleanup ran left beside the build script. Nothing else under `~/tehas` outside
-those directories is touched, and nothing outside `~/tehas`: not `~/tehas/tmp/improve`,
+those directories is touched, and nothing outside `~/tehas`: not
 `state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
 clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
@@ -934,8 +928,8 @@ the backup keys, and the tokens it names as variables, by name. `tehas work`
 prints `tehas work: model endpoint: provider fleet is on its backup` and writes
 it to the preflight log. A container stays on its endpoint: when the main one
 fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
-the next cycle starts on the backup. The improvement loop and the image
-descriptions pick the same way.
+the next cycle starts on the backup. The image descriptions pick the same
+way.
 
 The energy sampler asks the endpoint the dispatcher settled on for the
 subagent provider, the one word in `~/tehas/live/dispatch.json`, and samples
@@ -1037,8 +1031,8 @@ model has; spread the roles over models that different machines serve.
 ## Limits and concurrency
 
 Every sandbox container tehas starts runs in one systemd slice,
-[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session,
-the indexer and the improvement loop's analyst. The slice's `MemoryMax` bounds
+[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session
+and the indexer. The slice's `MemoryMax` bounds
 them all together. No setting describes the machine.
 
 A cycle, a planning turn, a dev session and the indexer each get the same
@@ -1059,7 +1053,7 @@ On a host with 16 CPUs and `TEHAS_TICKET_CONCURRENCY=4` a container gets
 `--cpus 7.00 --pids-limit 2048`.
 
 Every sandbox container also runs with `--init`: a cycle, a planning turn, a
-dev session, the indexer and the analyst. Docker's init is the first process
+dev session and the indexer. Docker's init is the first process
 of the container, and it collects every process whose parent has gone. Pi is
 the command of the container and collects only its own children. A process that
 outlives its parent, as git's background housekeeping does, is handed to the
@@ -1131,9 +1125,7 @@ the default reserve the host needs about 11 GiB of memory, because the reserve
 may not be more than a container's ceiling. A smaller host sets
 `TEHAS_CYCLE_RESERVE` lower.
 
-The analyst is a batch job with limits of its own: the slice, one CPU
-(`--cpus 1`), `--memory 2g`, the same for `--memory-swap`, `--pids-limit 1024`
-and the same CPU weight. The check that the sandbox can push, which `tehas
+The check that the sandbox can push, which `tehas
 work` runs for a few seconds before a cycle, is not in the slice and has no
 limits. It is given the security options below. Previews, image builds and the
 edge router are outside the slice too.
@@ -1143,11 +1135,11 @@ edge router are outside the slice too.
 A cycle, a planning turn, a `tehas dev` session, and the push check and the
 product's install before a cycle all get the options below, from `security` in
 `console/core/src/sandbox.rs`, beside the mounts and the variables. The list is
-capability-shaped options and this round's bounded `/tmp`. The indexer and the
-analyst are not given them yet (issue #54 leaves them to a follow-up), so the
-bounded `/tmp` below is not in those two containers either: when that follow-up
-calls the function, it must say what each of the two gains, and not take the
-`--tmpfs` as a whole bundle by default.
+capability-shaped options and this round's bounded `/tmp`. The indexer is not
+given them yet (issue #54 leaves it to a follow-up), so the bounded `/tmp` below
+is not in that container either: when that follow-up calls the function, it
+must say what the indexer gains, and not take the `--tmpfs` as a whole bundle by
+default.
 
 Each of these containers also starts as the tehas user, with
 `--user "$(id -u):$(id -g)"`, not as root. The image's entrypoint drops from
@@ -1187,7 +1179,7 @@ cycle still builds, tests and drives a headless browser with them is not yet
 seen on a host: see the sandbox row of the [features page](/features).
 
 Nothing starts outside the slice. `tehas work`, `tehas plan`, `tehas dev`,
-`tehas index` and `tehasbot improve` ask once whether the slice is usable:
+and `tehas index` ask once whether the slice is usable:
 the slice is loaded from its file and has a `MemoryMax`, Docker uses the
 systemd cgroup driver on cgroup v2, the `cpu`, `memory` and `pids` controllers
 are there, and the reserve fits under the ceiling. If not, the command stops
@@ -1253,8 +1245,8 @@ as `killed`: `tehas work` exits 137, and the issue is parked with
 container that ran out of memory, or one that was stopped from outside, for
 example with `docker kill`. It is not `killed` when `tehas work` stopped the
 container itself, at the time limit or on a signal, nor when the runner had
-already written its result. The record for the improvement loop carries the
-count as `oomKills`.
+already written its result. The cycle's record in the state store carries the
+count as `oom_kills`.
 
 #### Time limits
 
@@ -1301,7 +1293,6 @@ hold a slot for ever:
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
 | One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |
-| A call to GitHub in a run of the improvement loop | 300 s, then a kill 10 s later | The call counts as failed, and the log says `gh <command> gave no answer in 300s, or could not be run`. A run of the loop ends at 90 minutes (`TimeoutStartSec` of `tehas-improve.service`), which a test holds above the analyst's 3600 s |
 | The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
@@ -1893,23 +1884,17 @@ those are what cycles run. Tag back the `-product` one, or the rollback puts
 back an image without the product's toolchain.
 
 Each image carries the pi-rukas commit it was built with, as its label
-`tehas.rukas`, and the dispatcher and the improvement loop read the commit
-from there. The loop's record of a cycle has the commit and the image's id as
-the cycle's container started.
+`tehas.rukas`, and the dispatcher reads the commit from there. The cycle's
+record in the state store has the commit and the image's id as the cycle's
+container started.
 
 That holds until the next `tehas update`, which builds the followed commit
 again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
 `instance.env`, where it wins over the release's line: `branch:<name>` for a
 branch whose head is the commit you want, or `commit:<sha>` for one commit.
 
-Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
-[improvement loop](/operating#the-improvement-loop) files what it finds about
-pi-rukas there, each issue naming the product's issues whose cycles showed it.
 No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
-a host with the next `tehas update` after upstream tags a release with it. To check it, apply
-`tehas:ready` again to a product issue the filed issue names. The loop's next
-run comments there whether the problem came back, with the pi-rukas commit
-that cycle ran.
+a host with the next `tehas update` after upstream tags a release with it.
 
 ## Services
 
@@ -1922,7 +1907,6 @@ that cycle ran.
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
-| Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | Edge router | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
@@ -2097,18 +2081,8 @@ Both are outside the repository and the tehas tree.
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads three files of the workspace, as data: the product's `.pi/settings.json`, for the retry line of the cycle's log, and the runner's record of the attempt, `.pi/work-state/<issue>.json` or `.pi/lean-state/<issue>.json`. Each only as a plain file with no link on the way, and only up to a size bound. A cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token, no capabilities and `no-new-privileges` |
-| The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
-
-The improvement loop files with the bot's token, from the host. For it the bot
-account needs write access to the repository `TEHAS_IMPROVE_REPO` names: it
-creates a label, issues, comments, and one release that holds the logs. In the
-repository `TEHAS_IMPROVE_RUKAS_REPO` names it creates the label, issues and
-comments.
-The triage role is enough there once someone has created the label
-`tehas:improvement`. Issues must be switched on in that repository: a fork has
-them off until its owner turns them on.
 
 Two recommendations follow from that table:
 

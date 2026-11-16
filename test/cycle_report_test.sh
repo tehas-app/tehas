@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Tests for who reports a cycle: tehas-cycle, in the process that ran it. The
-# report in bash is gone, and TEHAS_CYCLE_REPORT takes only rust. What the
-# report says for each end is the other test/cycle_*_test.sh files.
+# report in bash is gone, and TEHAS_CYCLE_REPORT with it. What the report says for each end is the other test/cycle_*_test.sh files.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -17,21 +16,18 @@ seen() {
 }
 
 t_case "tehas-cycle reports in the process of the cycle, nothing is left open in the journal, and the cycle is on record"
-for v in "" TEHAS_CYCLE_REPORT=rust; do
-  reset
-  seen
-  t_instance "${T_MINIMAL[@]}" ${v:+"$v"}
-  ended aborted develop
-  t_run "$cycle 7"
-  t_eq "$t_rc" 0
-  t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "cycle "
-  t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
-  t_contains "$t_out" "done #7 rc=20 status=aborted step=develop"
-  t_eq "$(TEHAS_HOME=$home "$T_STORE" journal-open | jq '.actions | length')" 0
-  t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
-  t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
-  t_eq "$(t_calls fake-status | wc -l)" 1
-done
+reset
+seen
+ended aborted develop
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "cycle "
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$t_out" "done #7 rc=20 status=aborted step=develop"
+t_eq "$(TEHAS_HOME=$home "$T_STORE" journal-open | jq '.actions | length')" 0
+t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
+t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+t_eq "$(t_calls fake-status | wc -l)" 1
 
 t_case "a report goes by the settings the cycle started with, whatever instance.env says by then"
 changes=(
@@ -64,13 +60,13 @@ t_eq "$t_rc" 70
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "--remove-label tehas:running"
 
-t_case "bash, or any value but rust, stops with 78 before anything runs"
-for v in bash python; do
+t_case "TEHAS_CYCLE_REPORT set to a value, rust too, stops with 78 before anything runs"
+for v in rust bash; do
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_REPORT=$v
   t_run "$cycle 7"
   t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_CYCLE_REPORT is not valid: expected rust: the report in bash is gone"
+  t_contains "$t_out" "TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so take the line out"
   t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 done
 

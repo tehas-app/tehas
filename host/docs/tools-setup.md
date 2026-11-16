@@ -78,8 +78,7 @@ In order, stopping at the first step that fails:
    `contents`, `issues` and `pull_requests` at `write`. It reads the app's
    slug (`GET /app`) and the ID of its bot, `<slug>[bot]`
    (`GET /users/<slug>[bot]`). Each other repository `instance.env` names
-   (`TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_REVIEW_REPO`,
-   `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
+   (`TEHAS_REVIEW_REPO`, `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
    link, and the run goes on. Then it makes the control issue. A check that
    fails stops the run with 1 and nothing written, except the key and the ID
    `--new-app` wrote. The token is kept in no file.
@@ -159,7 +158,7 @@ pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
 [finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
 `tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)), and
-`tehas:improvement` and `cross-project` (the improvement loop's).
+`tehas:improvement` (a proposal the factory files, such as a review's).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
 the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from
