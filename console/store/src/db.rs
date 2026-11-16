@@ -1129,7 +1129,7 @@ pub fn migrate(
             &settings.repo,
         ),
         // A store older than v0.30.0 wrote: this release has no steps for it.
-        from if (1..OLDEST).contains(&from) => Err(too_old(file, from)),
+        from if (1..OLDEST).contains(&from) => migrable(file, from),
         // Every step above the schema the store was found at, in the order the
         // list holds them, and none before it: a step that fails is the answer.
         // A `from` outside 0..SCHEMA_VERSION -- the version of a later release,
@@ -1151,6 +1151,16 @@ pub fn migrate(
 /// The oldest schema `migrate` brings forward: the one v0.30.0 wrote. A store
 /// of an older release goes through a v0.30 release first.
 pub const OLDEST: i64 = 12;
+
+/// Whether `migrate` brings a store at `from` forward: one older than
+/// [`OLDEST`] is refused.
+pub fn migrable(file: &Path, from: i64) -> Result<(), DbError> {
+    if (1..OLDEST).contains(&from) {
+        Err(too_old(file, from))
+    } else {
+        Ok(())
+    }
+}
 
 /// The refusal of a store older than [`OLDEST`], naming the release to take
 /// first.
@@ -1482,9 +1492,7 @@ pub struct Report {
 }
 
 /// Reads only, as section 4's `check` does: the version from PRAGMA
-/// user_version, PRAGMA integrity_check, and a count of each table. The
-/// divergence of section 7 is the import's to report and is #251's, so it is
-/// not asked here.
+/// user_version, PRAGMA integrity_check, and a count of each table.
 pub fn check(conn: &Connection) -> Result<Report, DbError> {
     let schema: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))

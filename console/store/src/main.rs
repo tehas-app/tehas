@@ -35,7 +35,7 @@
 //!     schema v0.30.0 wrote, or a later one, each step up is its own
 //!     transaction and keeps every row. Below 12 is a release before v0.30:
 //!     78 `unreadable`, which says to update to a v0.30 release first, and the
-//!     store is left as it was. A database already at the schema this binary
+//!     store is left as it was, with no backup written. A database already at the schema this binary
 //!     writes says "from" and "to" alike and still writes its backup, the one
 //!     copy of the two. <dir> is the
 //!     state/ of this instance's home, or state/backup/ below it, which the verb
@@ -45,6 +45,11 @@
 //!     Answers
 //!     {"api":1,"verb":"migrate","ok":true,"from":12,"to":16,
 //!     "backup":"..."}.
+//!   store migrate --dry-run [--json]
+//!     Reads only: whether this store would migrate the database, refused as
+//!     migrate refuses it. install.sh asks it before it copies anything.
+//!     Answers {"api":1,"verb":"migrate","ok":true,"dry_run":true,"from":12,
+//!     "to":16}.
 //!   store check [--json]
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
 //!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":2,

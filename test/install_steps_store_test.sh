@@ -75,10 +75,12 @@ if real_store "a database that is not one stops the install and is left as it wa
   mkdir -p "$th/state"
   printf 'not a database\n' >"$th/state/tehas.db"
   t_run "$install"
-  t_eq "$t_rc" 1
+  # The dry run before the first copy finds it: nothing is installed.
+  t_eq "$t_rc" 78
   t_contains "$t_out" "corrupt"
-  t_contains "$t_out" "tehas: the store could not migrate $th/state/tehas.db"
+  t_contains "$t_out" "tehas: this release cannot migrate $th/state/tehas.db; nothing was installed"
   t_eq "$(cat "$th/state/tehas.db")" "not a database"
+  t_eq "$([ -e "$th/bin/tehas" ] || echo none)" "none"
 fi
 
 if real_store "a home reached through a link installs a second time"; then

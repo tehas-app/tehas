@@ -471,6 +471,15 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         );
         assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
         assert_eq!(rows(&conn(&home)), before);
+        // Refused before the copy: no backup of it is written.
+        let backups = home.join("state").join("backup");
+        let kept = fs::read_dir(&backups).map_or(0, |d| d.count());
+        assert_eq!(kept, 0, "{}", backups.display());
+        // The dry run, which install.sh asks before it copies anything,
+        // refuses it the same way.
+        let (code, line) = execute(&home, &Verb::MigrateDry, NOW).unwrap_err();
+        assert_eq!(code, 78, "{line}");
+        assert!(line.contains("update to a v0.30 release first"), "{line}");
         // The verbs say the same.
         let (code, line) = call(&home, &["plan-show", "7"]).unwrap_err();
         assert_eq!(code, 78);
@@ -482,6 +491,37 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         assert_eq!(code, 1, "{line}");
         assert!(line.contains("older than v0.30.0 wrote"), "{line}");
     }
+}
+
+#[test]
+fn the_dry_run_of_migrate_judges_a_0_30_store_and_writes_nothing() {
+    for schema in [12, 13, 14, db::SCHEMA_VERSION] {
+        let home = release(&format!("dry-{schema}"), schema.min(14));
+        if schema == db::SCHEMA_VERSION {
+            migrate(&home).unwrap();
+        }
+        let file = db::path(&home);
+        let before = fs::read(&file).unwrap();
+        let said = execute(&home, &Verb::MigrateDry, NOW).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&said).unwrap();
+        assert_eq!(v["ok"], true, "{said}");
+        assert_eq!(v["dry_run"], true, "{said}");
+        assert_eq!(v["from"], schema, "{said}");
+        assert_eq!(v["to"], db::SCHEMA_VERSION, "{said}");
+        assert_eq!(fs::read(&file).unwrap(), before);
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
+    }
+}
+
+#[test]
+fn the_dry_run_of_migrate_takes_no_other_word() {
+    let p = |a: &[&str]| crate::parse(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(p(&["migrate", "--dry-run"]), Some(Verb::MigrateDry));
+    assert_eq!(
+        p(&["migrate", "--dry-run", "--json"]),
+        Some(Verb::MigrateDry)
+    );
+    assert_eq!(p(&["migrate", "--dry-run", "--backup", "/x"]), None);
 }
 
 #[test]
