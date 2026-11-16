@@ -720,7 +720,10 @@ and `unpack` keeps the one it has.
 planning turn runs (it names the issue, read from the state store), when the
 store cannot say whether a cycle runs, or while any `tehas-*` unit that
 `systemctl --user` reports as active, activating, deactivating or reloading
-is there (it names the unit). `--rehearse` skips those refusals, to size or
+is there (it names the unit). The `systemctl --user` read and each `tar` run
+under a bound: a systemd bus that does not answer in 5 seconds is refused, so a
+hung bus fails the no-active-unit check closed, and a `tar` that never ends is
+stopped at 10 minutes. `--rehearse` skips those refusals, to size or
 try a pack on a running factory, and carries on past files that change or
 cannot be read while tar reads them. It changes nothing in the factory, but
 its tar is not a consistent copy of one, so its manifest says
