@@ -125,6 +125,16 @@ t_eq "$(printf '%s\n' "$table" | LC_ALL=C sort -u | tr '\n' ' ')" \
 t_eq "$(printf '%s\n' "$unnamed" | LC_ALL=C sort -u | tr '\n' ' ')" \
   "$(printf '%s\n' "$unnamed" | LC_ALL=C sort | tr '\n' ' ')"
 
+t_case "the sitemap dates every page by its file and the front page by version.txt"
+sitemap=$(cat "$T_ROOT/host/docs/sitemap.xml")
+t_contains "$sitemap" '<url><loc>{{ $base }}/</loc>{{ if fileExists "/version.txt" }}<lastmod>{{ (fileStat "/version.txt").ModTime.UTC.Format "2006-01-02" }}</lastmod>{{ end }}</url>'
+t_contains "$sitemap" '<url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc><lastmod>{{ (fileStat .).ModTime.UTC.Format "2006-01-02" }}</lastmod></url>'
+t_contains "$sitemap" '{{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}'
+# The date is the file's only while install leaves a page with the same bytes
+# alone (same_content in console/ops/src/update/files.rs).
+t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
+t_contains "$(cat "$T_ROOT/host/docs/host.md")" 'file last changed on this host (an update leaves a page with the same bytes as'
+
 t_case "the live list holds the 20 names the dashboard, the console and the server read"
 t_eq "$(printf '%s\n' "$table" | wc -l)" 20
 for want in /status.json /running.json /endings.json /epics.json /health.json /health.down \
