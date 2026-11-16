@@ -644,12 +644,129 @@ fn git_says(dir: &str, args: &[&str]) -> Option<String> {
     })
 }
 
+/// The remote-tracking refs a clone is to hold, named by the caller.
+///
+/// A workspace is not given every branch the product checkout happens to have
+/// fetched. An agent reads what its tree holds whatever its prompt says, and a
+/// finished branch of another issue beside the one being worked is an answer one
+/// command away (#1789). So each caller says what it needs:
+///
+/// - [`Refs::Issue`] for a cycle, a planning turn, a review and any other run of
+///   work on one issue: the default branch and that issue's own branches.
+/// - [`Refs::DefaultBranch`] for a run that reads only the default branch.
+/// - [`Refs::All`] for a person's `tehas dev` clone, kept between sessions and
+///   read by no automated run.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Refs {
+    /// `origin/<branch>`, and what [`issue_refs`] names for the issue.
+    Issue(u64),
+    /// `origin/<branch>` alone.
+    DefaultBranch,
+    /// Every remote-tracking ref of the source, as a plain fetch would give.
+    All,
+}
+
+/// The refspecs of [`Refs`] of a source that holds every name it is asked for:
+/// the rule of [`refspecs`] read apart from a repository, which is what a caller
+/// outside this crate asks. A cycle's own command keeps one word for the set of
+/// refs a clone takes and wants to say what that word asks git for.
+pub fn refspecs_for(refs: &Refs, branch: &str) -> Vec<String> {
+    let tip = format!("+refs/remotes/origin/{branch}:refs/remotes/origin/{branch}");
+    let patterns: Vec<&str> = match refs {
+        Refs::All => return vec!["+refs/remotes/origin/*:refs/remotes/origin/*".to_string()],
+        Refs::DefaultBranch => return vec![tip],
+        Refs::Issue(n) => issue_refs(*n),
+    };
+    std::iter::once(tip)
+        .chain(
+            patterns
+                .into_iter()
+                .filter(|p| shaped_ref(p))
+                .map(|p| format!("+refs/remotes/origin/{p}:refs/remotes/origin/{p}")),
+        )
+        .collect()
+}
+
+/// The refspecs of [`Refs`], in the order git is asked for them: the default
+/// branch first, so a clone whose issue has no branch yet still holds one.
+///
+/// A pattern is asked of the source by its full ref, so a name the source does
+/// not hold would fail the whole fetch. `for-each-ref` is asked once, with every
+/// pattern as a glob, and answers the names the source holds; they are matched by
+/// hand, because git's glob matches a `*` across `/` and `feature/issue-7*` would
+/// then read `feature/issue-70` as 7's. A name git would not hold (`..`, `//`, a
+/// trailing `.lock`, a character outside its set) is left out by [`shaped_ref`]
+/// and asked of no fetch.
+fn refspecs(src: &str, refs: &Refs, branch: &str) -> Vec<String> {
+    let tip = format!("+refs/remotes/origin/{branch}:refs/remotes/origin/{branch}");
+    let patterns = match refs {
+        Refs::All => return vec!["+refs/remotes/origin/*:refs/remotes/origin/*".to_string()],
+        Refs::DefaultBranch => return vec![tip],
+        Refs::Issue(n) => issue_refs(*n),
+    };
+    // One read of the source decides each pattern, and each is asked for on its
+    // own: a `*` in a pattern matches across `/`, so `feature/issue-7-*` answers
+    // the names of the slug and no pattern answers a name another one was asked
+    // for. Three calls of a local git, of a tree the host reads anyway.
+    //
+    // Only a name the source holds is asked of the fetch. A refspec of a ref the
+    // source does not have fails the whole fetch, which would leave a cycle of an
+    // issue that has never had a branch with no workspace at all. A name of a
+    // shape git would not hold is left out by [`shaped_ref`] for the same reason.
+    let holds = |pattern: &str| {
+        shaped_ref(pattern)
+            && git_says(
+                src,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname:lstrip=3)",
+                    &format!("refs/remotes/origin/{pattern}"),
+                ],
+            )
+            // A pattern is held when the source answers at least one name of it:
+            // the name itself for a plain one, any of the slug's for a `*`.
+            .is_some_and(|said| !said.trim().is_empty())
+    };
+    std::iter::once(tip)
+        .chain(
+            patterns
+                .iter()
+                .filter(|p| holds(p))
+                .map(|p| format!("+refs/remotes/origin/{p}:refs/remotes/origin/{p}")),
+        )
+        .collect()
+}
+
+/// Whether a name is one git holds as a ref: the characters and the shapes of
+/// `tehas_cycle::finish::plan::branch_shaped`, which is the grammar a cycle's
+/// branch name is held to, plus `*` for the slug of an issue's branch. A name
+/// with anything else in it is no name and is asked of no fetch.
+fn shaped_ref(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'/' | b'-' | b'*'))
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && !name.starts_with('/')
+        && !name.ends_with('/')
+        && !name.contains("..")
+        && !name.contains("//")
+        && !name.contains("./")
+        && !name.contains("/.")
+        && !name.contains("/-")
+        && !name.ends_with(".lock")
+}
+
 /// Make <tree>: a clone at the tip the product checkout <src> last fetched for
 /// <branch>, with the product's address as origin. Nothing is fetched from the
-/// network. The host runs git in <tree> here and only here: once a container
-/// has written a tree, anything in it, hooks and git configuration included,
-/// may be an agent's. The caller decides whether <tree> may be made.
-pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
+/// network. Only the remote-tracking refs <refs> names come over: see [`Refs`].
+/// The host runs git in <tree> here and only here: once a container has written
+/// a tree, anything in it, hooks and git configuration included, may be an
+/// agent's. The caller decides whether <tree> may be made.
+pub fn clone(src: &str, tree: &str, branch: &str, refs: &Refs) -> bool {
     let tip = format!("refs/remotes/origin/{branch}");
     let verify = format!("{tip}^{{commit}}");
     let Some(base) = git_says(src, &["rev-parse", "-q", "--verify", &verify]) else {
@@ -659,16 +776,37 @@ pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
     let Some(url) = git_says(src, &["config", "--get", "remote.origin.url"]) else {
         return false;
     };
-    let all = "+refs/remotes/origin/*:refs/remotes/origin/*";
+    let refspecs = refspecs(src, refs, branch);
     let upstream = format!("--set-upstream-to=origin/{branch}");
     ran(Command::new("git").args(["init", "-q", "-b", branch, tree]))
         && ran(git(tree).args(["remote", "add", "origin", &url]))
         && ran(Command::new("timeout")
             .args(["-k", "10", "300", "git", "-C", tree, "fetch"])
-            .args(["-q", "--no-tags", src, all]))
+            .args(["-q", "--no-tags", src])
+            .args(&refspecs))
         && ran(git(tree).args(["symbolic-ref", "refs/remotes/origin/HEAD", &tip]))
         && ran(git(tree).args(["checkout", "-q", "-B", branch, &base]))
         && ran(git(tree).args(["branch", "-q", &upstream, branch]))
+}
+
+/// The branch name patterns of the work of one issue, relative to `origin/`:
+/// its own branches, and the branch the factory pushes when it finishes one.
+/// `feature/issue-7` and `feature/issue-7-<slug>` are the names pi-rukas's work
+/// driver writes; `*` stands for the slug and matches nothing before the dash,
+/// so `7` is never taken for `70`. A `*` in a refspec matches across `/`, so the
+/// names are separate patterns and never one `feature/issue-7*`.
+/// `finish/issue-<n>` is `tehas-cycle finish`'s own name
+/// (console/cycle/src/finish/plan.rs), which a workspace that continues a
+/// finished run reads. A workspace of an issue is given no other name.
+pub fn issue_refs(n: u64) -> Vec<&'static str> {
+    [
+        format!("feature/issue-{n}"),
+        format!("feature/issue-{n}-*"),
+        format!("finish/issue-{n}"),
+    ]
+    .map(|p| Box::leak(p.into_boxed_str()) as &str)
+    .into_iter()
+    .collect()
 }
 
 /// Put the host's code index in <state>/cache, the copy this container is given.
@@ -896,6 +1034,7 @@ fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn the_products_settings_are_read_only_as_a_plain_file_of_a_bounded_size() {
@@ -956,6 +1095,297 @@ mod tests {
 
     fn words(line: &str) -> Vec<String> {
         line.split_whitespace().map(String::from).collect()
+    }
+
+    /// A product with these remote-tracking branches, whose origin's URL git is
+    /// asked for as a plain clone would. `origin/HEAD` stands as install.sh
+    /// leaves it.
+    fn source(name: &str, branches: &[&str]) -> crate::testdir::TestDir {
+        let d = crate::testdir::TestDir::new(name);
+        let git = |args: &[&str]| {
+            let mut c = Command::new("git");
+            c.args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .arg("-C")
+                .arg(d.path())
+                .args(args);
+            assert!(c.status().is_ok_and(|s| s.success()), "{args:?}");
+        };
+        // A bare source, which is what a product checkout is for its own origin:
+        // the branches and the `origin/`-relative names a fetch of origin leaves
+        // beside them, and no branch of it checked out anywhere. The commit is
+        // made in a tree of the case's and brought in by one fetch of every name,
+        // which is how a bare repository is filled without a push anywhere and
+        // without an object of another repository named in the command: `update-
+        // ref` of a sha the bare repository does not yet hold is refused.
+        git(&["init", "-q", "--bare"]);
+        let work = d.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let make = |args: &[&str]| {
+            let mut c = Command::new("git");
+            c.args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .arg("-C")
+                .arg(&work)
+                .args(args);
+            assert!(c.status().is_ok_and(|s| s.success()), "{args:?}");
+        };
+        make(&["init", "-q", "-b", "main"]);
+        make(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        for b in branches {
+            if *b != "main" {
+                // The work tree holds every name before it is read: a branch
+                // created after the read of its sha is no branch at all, and the
+                // case would then be given the default branch and nothing else.
+                make(&["branch", "-f", b, "main"]);
+            }
+            let at = git_says(
+                work.to_str().unwrap(),
+                &["rev-parse", &format!("{b}^{{commit}}")],
+            )
+            .unwrap_or_else(|| panic!("{} holds no {b}", work.display()));
+            // One fetch of the one name, into both places git keeps it: the
+            // branch, and the remote-tracking ref a fetch of origin leaves beside
+            // it. Both at the sha the work tree holds: `update-ref` of a sha the
+            // bare repository has never seen is refused, and of a name it cannot
+            // resolve from outside itself, so a fixture that wrote one of the two
+            // would quietly hold no name at all and answer every case with the
+            // default branch alone.
+            git(&[
+                "fetch",
+                "-q",
+                &work.display().to_string(),
+                &format!("+{at}:refs/heads/{b}"),
+                &format!("+{at}:refs/remotes/origin/{b}"),
+            ]);
+        }
+        let head =
+            git_says(work.to_str().unwrap(), &["rev-parse", "main^{}"]).expect("work holds main");
+        git(&["update-ref", "refs/remotes/origin/HEAD", &head]);
+        git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        git(&[
+            "config",
+            "remote.origin.url",
+            "https://github.com/acme/widget.git",
+        ]);
+        d
+    }
+
+    /// The remote branches and remote HEAD of the clone `tree` holds, one line
+    /// each. `origin/HEAD` is kept, `origin` (the remote's own HEAD) is not: what
+    /// a workspace reads is `origin/<branch>`.
+    fn refs_of(tree: &Path) -> Vec<String> {
+        let out = Command::new("git")
+            .args(["-C"])
+            .arg(tree)
+            .args([
+                "for-each-ref",
+                "--format=%(refname:short)",
+                "refs/remotes/origin",
+            ])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| *l != "origin")
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// `clone` of the source into `<dir>/<tree>`, and the refs it came to hold.
+    fn cloned(src: &Path, tree: &str, branch: &str, refs: &Refs) -> Vec<String> {
+        let tree = src.join(tree);
+        assert!(
+            clone(src.to_str().unwrap(), tree.to_str().unwrap(), branch, refs),
+            "the clone was refused"
+        );
+        refs_of(&tree)
+    }
+
+    #[test]
+    fn a_clone_of_an_issue_holds_the_default_branch_and_its_own_branches() {
+        let d = source("clone-own", &["main", "feature/issue-7", "feature/issue-8"]);
+        let got = cloned(d.path(), "tree", "main", &Refs::Issue(7));
+        assert!(got.contains(&"origin/main".to_string()), "{got:?}");
+        assert!(
+            got.contains(&"origin/feature/issue-7".to_string()),
+            "{got:?}"
+        );
+        assert!(
+            !got.contains(&"origin/feature/issue-8".to_string()),
+            "another issue's branch came over: {got:?}"
+        );
+    }
+
+    #[test]
+    fn the_match_is_on_the_number_and_not_on_its_text() {
+        // The source holds what a checkout of a busy product holds: the issue's
+        // own branch with and without a slug, the finish branch of the factory's
+        // own push, and the branches of every other issue it ever fetched.
+        let d = source(
+            "clone-prefix",
+            &[
+                "main",
+                "feature/issue-7",
+                "feature/issue-7-flaky-gate",
+                "finish/issue-7",
+                "feature/issue-70",
+                "feature/issue-70-default",
+                "finish/issue-70",
+                "feature/issue-8",
+            ],
+        );
+        let got = cloned(d.path(), "tree", "main", &Refs::Issue(7));
+        for want in [
+            "origin/main",
+            "origin/feature/issue-7",
+            "origin/feature/issue-7-flaky-gate",
+            "origin/finish/issue-7",
+        ] {
+            assert!(
+                got.contains(&want.to_string()),
+                "{want} is missing: {got:?}"
+            );
+        }
+        for other in [
+            "origin/feature/issue-70",
+            "origin/feature/issue-70-default",
+            "origin/finish/issue-70",
+            "origin/feature/issue-8",
+        ] {
+            assert!(
+                !got.contains(&other.to_string()),
+                "{other} came over, which makes 70 read as 7: {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_default_branch_clone_holds_the_default_branch_and_nothing_else() {
+        let d = source("clone-default", &["main", "feature/issue-7"]);
+        let got = cloned(d.path(), "tree", "main", &Refs::DefaultBranch);
+        // origin/HEAD is the symbolic ref the clone is given, not a fetched ref.
+        assert_eq!(got, vec!["origin/main".to_string()], "{got:?}");
+    }
+
+    #[test]
+    fn a_clone_asked_for_all_of_them_holds_every_branch() {
+        let d = source("clone-all", &["main", "feature/issue-7", "feature/issue-8"]);
+        let got = cloned(d.path(), "tree", "main", &Refs::All);
+        for want in [
+            "origin/main",
+            "origin/feature/issue-7",
+            "origin/feature/issue-8",
+        ] {
+            assert!(
+                got.contains(&want.to_string()),
+                "{want} is missing: {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_clone_of_an_issue_of_no_branch_is_still_a_worktree_of_the_default_branch() {
+        let d = source("clone-none", &["main"]);
+        let tree = d.join("tree");
+        assert!(clone(
+            d.path().to_str().unwrap(),
+            tree.to_str().unwrap(),
+            "main",
+            &Refs::Issue(7),
+        ));
+        let head = Command::new("git")
+            .args(["-C"])
+            .arg(&tree)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let tip = Command::new("git")
+            .args(["-C"])
+            .arg(d.path())
+            .args(["rev-parse", "refs/remotes/origin/main"])
+            .output()
+            .unwrap();
+        assert_eq!(head.stdout, tip.stdout, "not at the tip the checkout has");
+    }
+
+    #[test]
+    fn the_refspecs_name_the_default_branch_first_and_the_issue_next() {
+        // The source holds the issue's three names: all three are asked for.
+        let d = source(
+            "refspecs",
+            &[
+                "main",
+                "feature/issue-7",
+                "feature/issue-7-flaky-gate",
+                "finish/issue-7",
+            ],
+        );
+        let src = d.path().to_str().unwrap();
+        let got = refspecs(src, &Refs::Issue(7), "main");
+        assert_eq!(
+            got,
+            vec![
+                "+refs/remotes/origin/main:refs/remotes/origin/main",
+                "+refs/remotes/origin/feature/issue-7:refs/remotes/origin/feature/issue-7",
+                "+refs/remotes/origin/feature/issue-7-*:refs/remotes/origin/feature/issue-7-*",
+                "+refs/remotes/origin/finish/issue-7:refs/remotes/origin/finish/issue-7",
+            ],
+            "{got:?}"
+        );
+        assert_eq!(
+            refspecs(src, &Refs::DefaultBranch, "trunk"),
+            vec!["+refs/remotes/origin/trunk:refs/remotes/origin/trunk"]
+        );
+        assert_eq!(
+            refspecs(src, &Refs::All, "main"),
+            vec!["+refs/remotes/origin/*:refs/remotes/origin/*"]
+        );
+    }
+
+    #[test]
+    fn a_pattern_the_source_does_not_hold_is_asked_of_no_fetch() {
+        // An issue that has never had a branch: the two feature names and the
+        // finish name are absent, and asking git for a ref it does not hold
+        // would fail the whole fetch and leave the cycle with no workspace. Only
+        // the default branch is asked for, and the clone is made.
+        let d = source("refspecs-none", &["main"]);
+        let got = refspecs(d.path().to_str().unwrap(), &Refs::Issue(7), "main");
+        assert_eq!(
+            got,
+            vec!["+refs/remotes/origin/main:refs/remotes/origin/main"],
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn a_glob_of_the_slug_is_not_matched_against_another_issues_number() {
+        // for-each-ref answers feature/issue-7-* only of a name that holds it, and
+        // a name of another issue is no answer for it: the refspecs of 7 name no
+        // path of 70, whatever the source holds.
+        let d = source(
+            "refspecs-prefix",
+            &["main", "feature/issue-70-default", "finish/issue-70"],
+        );
+        let got = refspecs(d.path().to_str().unwrap(), &Refs::Issue(7), "main");
+        assert_eq!(
+            got,
+            vec!["+refs/remotes/origin/main:refs/remotes/origin/main"],
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn a_name_git_would_not_hold_is_left_out_even_when_the_source_has_it() {
+        // The refspecs are built from an issue number, so no caller can name one
+        // of these; the rule is pinned because they reach the fetch line as words
+        // and one of them would be a git refusal or worse.
+        assert!(!shaped_ref("feature/issue-7.lock"));
+        assert!(!shaped_ref("feature//issue-7"));
+        assert!(!shaped_ref("feature/../issue-7"));
+        assert!(!shaped_ref(""));
+        assert!(!shaped_ref("feature/issue-7;rm -rf /"));
+        assert!(shaped_ref("feature/issue-7-*"));
+        assert!(shaped_ref("finish/issue-7"));
     }
 
     /// The read-only variables as a container's git takes them: a push to

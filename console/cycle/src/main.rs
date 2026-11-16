@@ -192,8 +192,14 @@
 //!                                     starts, for the table of runs
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
 //!                                     with, as one line
-//!   tehas-cycle sandbox clone <src> <tree> <branch>
-//!                                     make <tree>, a clone of <src>
+//!   tehas-cycle sandbox clone <src> <tree> <branch> <refs>
+//!                                     make <tree>, a clone of <src> holding
+//!                                     only the refs <refs> names: `issue <n>`
+//!                                     for the default branch and the branches
+//!                                     of issue <n>, `default` for the default
+//!                                     branch alone, or `all` for every branch
+//!                                     the checkout holds. Exit 64 for a <refs>
+//!                                     of no shape, and no clone
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
 //!   tehas-cycle sandbox smoke-run <image>

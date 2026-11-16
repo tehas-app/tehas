@@ -596,9 +596,10 @@ fn put_back(tree: &str) -> bool {
 }
 
 /// The workspace of this cycle, at the tip the product checkout last fetched for
-/// the branch. pi-rukas writes the three names into it, and a product needs no
-/// .gitignore lines for them.
-fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool {
+/// the branch, holding the default branch and this issue's own branches and no
+/// other issue's (#1789). pi-rukas writes the three names into it, and a product
+/// needs no .gitignore lines for them.
+fn make_tree(tree: &str, state_dir: &str, branch: &str, issue: u64, set: &mut Aside) -> bool {
     let works = Path::new(tree).parent().unwrap_or(Path::new(""));
     let marked = fs::create_dir_all(works).is_ok()
         && fs::File::create(works.join(".tehas-workspaces")).is_ok();
@@ -616,7 +617,12 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool
             .is_ok()
     };
     ran(Command::new("rm").args(["-rf", state_dir]))
-        && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch)
+        && sandbox::clone(
+            &env("TEHAS_WORK_REPO"),
+            tree,
+            branch,
+            &sandbox::Refs::Issue(issue),
+        )
         && exclude(tree)
 }
 
@@ -965,6 +971,45 @@ pub fn is_commit(head: &str) -> bool {
     tehas_core::grammar::is_hex(head, 40, 40)
 }
 
+/// The head of a refresh, in the clone the merge of the request is judged in.
+///
+/// The clone of a cycle holds the default branch and its issue's own branches
+/// (#1789), and the head of a pull request is none of those names. It is fetched
+/// by its commit, under the name `refs/tehas/pull/<pr>`, and only when the clone
+/// does not hold that commit already: one of the issue's own branches is read
+/// there without a fetch, and a fetch asked of a source that no longer holds the
+/// commit would say nothing but the reason it failed. The name is the factory's
+/// own and holds nothing that a branch of an issue is named for.
+fn fetch_head(tree: &str, src: &str, pr: u64, head: &str) {
+    if !is_commit(head) {
+        // The read of the merge says what a head of no shape is: no fetch is
+        // asked of a word that is not a commit.
+        return;
+    }
+    let holds = Command::new("git")
+        .args(["-C", tree, "cat-file", "-e", &format!("{head}^{{commit}}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if holds {
+        return;
+    }
+    let refspec = format!("+{head}:refs/tehas/pull/{pr}");
+    let _ = Command::new("timeout")
+        .args(["-k", "10", FETCH_WAIT, "git", "-C", tree, "fetch"])
+        .args(["-q", "--no-tags", src, &refspec])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// The wait of one fetch of a refresh's head, and the kill after it: the same
+/// shape as the clone's own fetch (console/core/src/sandbox.rs).
+const FETCH_WAIT: &str = "60";
+
 /// A refresh the image cannot finish when it conflicts: Some(78) when it does,
 /// with the files in state/cycles/<issue>.refresh-conflict, and Some(78) for a
 /// record that holds no pull request, which starts no container
@@ -982,6 +1027,15 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
     // run the note exists to prevent, and no note is written for a conflict
     // nobody saw. The three ways a read judges nothing are named apart, so the
     // line says which of them the host is in (#2227).
+    // A refresh is a run of one issue too, so its clone holds the default branch
+    // and that issue's own names (#1789). The head of the request is no name of
+    // the issue and no longer came with the clone, and the merge below is judged
+    // of that commit: one the clone does not hold is a merge nobody judged, which
+    // stops the start. So it is fetched by the commit the dispatcher read from
+    // GitHub, under the name of the request, before it is asked of merge-tree.
+    // What the clone already holds is left as it is, and a head the source does
+    // not have leaves the read to git, as it was.
+    fetch_head(tree, &env("TEHAS_WORK_REPO"), pr, head);
     let judged = conflict::conflicts(tree, &t.branch, head);
     let paths = match judged.paths() {
         Some(paths) if !paths.is_empty() || judged.judged() => paths,
@@ -1036,7 +1090,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     if t.stop.came() {
         return STOPPED;
     }
-    if !make_tree(&tree, &state_dir, &t.branch, set) {
+    if !make_tree(&tree, &state_dir, &t.branch, t.issue, set) {
         eprintln!("tehas work: could not make the workspace {tree}, not starting a cycle");
         return 78;
     }

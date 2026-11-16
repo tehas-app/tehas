@@ -192,6 +192,43 @@ fn mounts(kind: Kind, p: &Paths) -> i32 {
     }
 }
 
+/// What a clone is to hold, named by the word of the command line: `issue <n>`,
+/// `default` or `all`. tehas_core::sandbox::Refs says what the three mean.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Refs {
+    Issue(u64),
+    DefaultBranch,
+    All,
+}
+
+impl Refs {
+    /// The refs of one word, or None when it names no shape. The number is the
+    /// grammar of [`tehas_core::grammar::digits`]: no sign, no spaces, no leading
+    /// zero, and no word that is not a number at all.
+    pub fn parse(word: &str) -> Option<Refs> {
+        match word.strip_prefix("issue ") {
+            Some(n) => tehas_core::grammar::digits(n, 9, false).map(|n| Refs::Issue(n as u64)),
+            None if word == "default" => Some(Refs::DefaultBranch),
+            None if word == "all" => Some(Refs::All),
+            None => None,
+        }
+    }
+
+    /// The word [`parse`] reads back: the form a caller writes down.
+    pub fn word(issue: u64) -> String {
+        format!("issue {issue}")
+    }
+
+    /// The set of refs the core asks git for, of this word's number.
+    pub fn of(&self) -> sandbox::Refs {
+        match self {
+            Refs::Issue(n) => sandbox::Refs::Issue(*n),
+            Refs::DefaultBranch => sandbox::Refs::DefaultBranch,
+            Refs::All => sandbox::Refs::All,
+        }
+    }
+}
+
 fn verify(words: &[String]) -> i32 {
     match slice::verify(words, &Load::from_env()) {
         Some(n) => {
@@ -282,7 +319,12 @@ pub fn main(args: &[String]) -> Option<i32> {
             tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
-        ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),
+        ["clone", src, tree, branch, refs] => match Refs::parse(refs) {
+            // A word of this verb that names no set of refs is usage, and makes
+            // no clone: a typo would otherwise be a clone of every branch.
+            Some(refs) => i32::from(!sandbox::clone(src, tree, branch, &refs.of())),
+            None => 64,
+        },
         ["seed", state, index] => i32::from(!sandbox::seed(state, index)),
         ["smoke-run", image] => smoke_run_verb(image),
         _ => return None,
@@ -299,6 +341,43 @@ mod tests {
 
     fn crash() -> String {
         "{\"schemaVersion\":5,\"issues\":[],\"error\":{\"code\":\"crash\",\"message\":\"the runner process exited 0 without a result\"}}\n".to_string()
+    }
+
+    #[test]
+    fn the_word_of_a_clone_names_its_issue_or_one_of_the_two_other_sets() {
+        // The words are the grammar of the verb's argument: a caller writes one,
+        // and a word of no shape is refused rather than read as the widest set.
+        assert!(matches!(Refs::parse("issue 7"), Some(Refs::Issue(7))));
+        assert_eq!(Refs::word(7), "issue 7");
+        assert_eq!(Refs::parse("default"), Some(Refs::DefaultBranch));
+        assert_eq!(Refs::parse("all"), Some(Refs::All));
+        for no in [
+            "", "issue", "issue ", "issue 0", "issue 07", "issue -7", "issue 7x", "allx",
+        ] {
+            assert_eq!(Refs::parse(no), None, "{no} names no set of refs");
+        }
+    }
+
+    #[test]
+    fn the_refs_of_an_issue_name_its_own_branches_and_the_default_one() {
+        assert!(matches!(Refs::Issue(7).of(), sandbox::Refs::Issue(7)));
+        // The set the core asks git for is the issue's three names and nothing of
+        // another number: the same rule the core's own cases pin, read from the
+        // one place both callers go through.
+        let words = tehas_core::sandbox::refspecs_for(&Refs::Issue(7).of(), "main");
+        assert!(
+            words.iter().any(|w| w.ends_with("feature/issue-7")),
+            "{words:?}"
+        );
+        assert!(
+            words.iter().any(|w| w.ends_with("feature/issue-7-*")),
+            "{words:?}"
+        );
+        assert!(
+            words.iter().any(|w| w.ends_with("finish/issue-7")),
+            "{words:?}"
+        );
+        assert!(!words.iter().any(|w| w.contains("issue-70")), "{words:?}");
     }
 
     #[test]

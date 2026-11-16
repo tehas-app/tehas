@@ -239,11 +239,13 @@ fn not_a_clone(tree: &Path) -> bool {
 
 // Made beside its place and moved there whole. A clone that stopped halfway has a
 // .git directory too, and the next run would take it for a finished one. The name
-// starts with a dot, which no clone's name can.
+// starts with a dot, which no clone's name can. All of the branches, because this
+// one is kept between sessions and read by a person at a terminal, who asks git
+// for what they want; it is no workspace of a cycle (#1789).
 fn make_clone(devs: &str, name: &str, tree: &str, src: &str, branch: &str) -> bool {
     let making = format!("{devs}/.{name}.making");
     let _ = fs::remove_dir_all(&making);
-    let made = sandbox::clone(src, &making, branch)
+    let made = sandbox::clone(src, &making, branch, &sandbox::Refs::All)
         && (!Path::new(tree).is_dir() || fs::remove_dir(tree).is_ok())
         && fs::rename(&making, tree).is_ok();
     if !made {

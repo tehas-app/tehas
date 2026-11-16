@@ -504,7 +504,16 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         && fs::write(Path::new(&works).join(".tehas-workspaces"), "").is_ok()
         && gone(&tree)
         && gone(&container)
-        && sandbox::clone(&src, &tree, &branch);
+        // A turn of one issue: the default branch and that issue's own branches
+        // and no other issue's (#1789). The number is the one the words were
+        // checked for, the same the workspace, the transcripts and the images of
+        // the turn are named for.
+        && w
+            .issue
+            .parse()
+            .is_ok_and(|issue: u64| {
+                sandbox::clone(&src, &tree, &branch, &sandbox::Refs::Issue(issue))
+            });
     if !made {
         return Err(refuse(format!(
             "tehas plan: could not make the workspace {tree}, not starting a turn"
