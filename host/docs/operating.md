@@ -1268,6 +1268,9 @@ GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree — one it carries whose newest event in the timeline is not an
 application, or that has no event at all — has its events read on their own;
+so does a candidate whose newest `tehas:ready` or `tehas:blocked` on the page is
+no newer than the approval its last cycle started on, since that start took the
+label off and a timeline cut right after it still ends on an application;
 an issue the page gave no timeline at all is always
 read again, and the only label the queue does not ask about is `tehas:running`,
 which the bot applies itself and whose park rests on the lock file rather than
