@@ -1088,7 +1088,7 @@ fn a_planning_record_and_its_sidecars_become_rows() {
     let record = r#"{"session":"sess-1","turns":2,"options":["Yes","No"],"pending":true,"failed":false,
         "running":false,"startedAt":"2026-10-14T10:00:00Z","comment":777,"by":"alice","label":"tehas:plan",
         "answers":[{"turn":1,"by":"alice","fixer":false},{"turn":2,"by":"fixerbot","fixer":true}],
-        "filed":["https://github.com/acme/other/issues/5","not a url"],"fixer_refused":[55],"held":[66]}"#;
+        "filed":["https://github.com/acme/other/issues/5"],"fixer_refused":[55],"held":[66]}"#;
     put(&h, "plan-8.json", record, start + 100);
     put(&h, "plan-8.json.brief", "# Title\n\nBody\n", start - 100);
     put(&h, "plan-8.json.answer", "Go with yes\n", start);
@@ -1222,7 +1222,7 @@ fn planning_options_are_kept_as_plan_end_keeps_them() {
         Value::Null,
         Value::String(String::new()),
     ];
-    options.extend((0..30).map(|i| Value::String(format!("o{i}"))));
+    options.extend((0..16).map(|i| Value::String(format!("o{i}"))));
     let record = serde_json::json!({"session":"s","turns":1,"options":options,"by":"alice","label":"tehas:plan"});
     put(&h, "plan-8.json", &record.to_string(), NOW);
     import_ok(&h);
@@ -1234,6 +1234,146 @@ fn planning_options_are_kept_as_plan_end_keeps_them() {
     assert_eq!((got[2].as_str(), got[3].as_str()), ("-", "-"));
     assert_eq!(got[19], "o15");
     assert!(moved(&h, "plan-8.json"));
+}
+
+#[test]
+fn a_filed_entry_that_is_not_a_string_is_held() {
+    // A list element the import cannot name: the record says the turn filed a
+    // thing, so the plan file is held rather than the entry dropped.
+    let h = host("filed-not-a-string");
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":1,"filed":["https://github.com/acme/widget/issues/9",7]}"#,
+        t("2026-10-14T10:00:00Z"),
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/plan-7.json: has a filed entry that is not a string"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-7.json"), "the file stays");
+    assert_eq!(count(&h, "planning_filed"), 0);
+}
+
+#[test]
+fn a_filed_entry_that_is_not_an_issue_url_is_held() {
+    let h = host("filed-not-a-url");
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":1,"filed":["not a url"]}"#,
+        t("2026-10-14T10:00:00Z"),
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/plan-7.json: has a filed entry that is not an issue URL"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-7.json"), "the file stays");
+    assert_eq!(count(&h, "planning_filed"), 0);
+}
+
+#[test]
+fn a_history_line_whose_filed_entry_is_not_an_issue_url_is_held() {
+    let h = host("plan-history-filed");
+    put(
+        &h,
+        "plan-8.history.jsonl",
+        r#"{"at":"2026-10-14T10:00:00Z","rc":"0","status":"finished","turn":1,"by":"alice","filed":["https://github.com/acme/widget/issues/9","pull/4"]}
+{"at":"2026-10-14T11:00:00Z","rc":"0","status":"finished","turn":2,"by":"alice"}"#,
+        NOW,
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("has a filed entry that is not an issue URL"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-8.history.jsonl"), "the file stays");
+    assert_eq!(count(&h, "plan_history"), 0);
+}
+
+#[test]
+fn a_history_line_with_a_negative_rc_is_held() {
+    // A negative rc is not "no rc": the line says the cycle ended with a
+    // number the verbs would refuse, so the file is held.
+    let h = host("negative-rc");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    put(
+        &h,
+        "cycles/7.history.jsonl",
+        &format!(
+            r#"{{"at":"2026-10-14T11:00:00Z","started":{start},"rc":-1,"status":"failed","step":"review"}}"#,
+        ),
+        start + 3600,
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/cycles/7.history.jsonl: line 1: has an rc that is negative"),
+        "{why}"
+    );
+    assert!(there(&h, "cycles/7.history.jsonl"), "the file stays");
+    assert_eq!(count(&h, "cycle_history"), 0);
+}
+
+#[test]
+fn a_plan_record_with_negative_turns_is_held() {
+    let h = host("negative-turns");
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":-2}"#,
+        t("2026-10-14T10:00:00Z"),
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/plan-7.json: has a turns that is negative"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-7.json"), "the file stays");
+    assert_eq!(count(&h, "planning"), 0);
+}
+
+#[test]
+fn a_plan_record_with_more_options_than_plan_end_keeps_is_held() {
+    // The record holds more options than a turn ever writes: the import cuts
+    // nothing, it holds the file and says how many it found.
+    let h = host("too-many-options");
+    let options: Vec<Value> = (0..21).map(|i| Value::String(format!("o{i}"))).collect();
+    let record = serde_json::json!({"session":"s","turns":1,"options":options});
+    put(&h, "plan-8.json", &record.to_string(), NOW);
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/plan-8.json: has 21 options, more than the 20 plan-end keeps"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-8.json"), "the file stays");
+    assert_eq!(count(&h, "planning"), 0);
+}
+
+#[test]
+fn a_branch_the_store_would_refuse_is_held() {
+    // `by`, `rukas` and `image` each refuse what they cannot read; a branch is
+    // refused the same way rather than dropped as though none was on record.
+    let h = host("bad-branch");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    put(&h, "cycles/7.branch", "no good a branch\n", start + 900);
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/cycles/7.branch: is not a branch of this issue"),
+        "{why}"
+    );
+    assert!(there(&h, "cycles/7.branch"), "the file stays");
+    assert_eq!(count(&h, "cycles"), 0);
 }
 
 fn at(i: i64) -> String {
