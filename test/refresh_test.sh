@@ -286,4 +286,15 @@ t_eq "$t_out" "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")"
 t_run "$alias_refresh"
 t_eq "$t_rc" 64
 
+t_case "with no login PATH it reads GitHub through the gh of the home's shim"
+reset
+one "$(pr 50 7)"
+mkdir -p "$T/home/tehas/shim"
+mv "$T/bin/gh" "$T/home/tehas/shim/gh"
+t_run "PATH=/usr/bin:/bin $refresh --pr 50"
+mv "$T/home/tehas/shim/gh" "$T/bin/gh"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .pr "$dir/7.json")" 50
+t_contains "$(t_calls gh)" "number=50"
+
 t_done

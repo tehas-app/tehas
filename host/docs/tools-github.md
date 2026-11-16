@@ -17,6 +17,12 @@ tail ~/tehas/logs/refresh.log
 1.x, so a program that calls it keeps working, and prints the same words and
 the same object.
 
+It finds the factory's own `gh` whatever `PATH` the caller gives: it puts
+`~/tehas/shim` and `~/tehas/bin` first on `PATH` before it reads GitHub, so a
+caller without a login shell reads through the shim as a login shell would.
+When no `gh` can be run at all, the reason says `gh not found` rather than
+that GitHub did not answer.
+
 Asks for the refresh of one of the factory's own pull requests that conflicts
 with the branch: it writes a request, `~/tehas/state/refresh/<issue>.json`, for
 the dispatcher to start (see [refreshes](/operating#refreshes)). Nothing runs it
