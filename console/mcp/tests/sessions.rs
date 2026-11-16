@@ -5,6 +5,7 @@ use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
+use tehas_core::file::READ_BOUND_LEN;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -687,6 +688,55 @@ fn no_snapshot_is_a_tool_error() {
         match env.call(name, args) {
             Err(ToolError::File { file, .. }) => assert_eq!(file, "sessions.jsonl"),
             other => panic!("{name}: {other:?}"),
+        }
+    }
+}
+
+// Every shape of a first line that is too big to read, and the answer each one
+// gets. The line the host writes is a JSON object (analytics `sessions::lines`),
+// so the padded header is the shape a real file takes: it parses, so only the
+// length of the line refuses it. The bare run of one letter is a foreign or
+// corrupted file, refused as unreadable too, without the file's name or any of
+// its content in the answer.
+fn shapes_over_the_bound(n: usize) -> Vec<(&'static str, String)> {
+    let mut head = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    head["filler"] = json!("x".repeat(n));
+    let padded = head.to_string();
+    assert!(padded.len() > n, "the filler did not reach the bound");
+    // A character is 2 bytes, so half as many of them are still over a bound
+    // counted in bytes: this pins the bound as bytes and not as characters.
+    let mut wide = json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1});
+    wide["filler"] = json!("\u{e9}".repeat(n / 2 + 1));
+    vec![
+        ("invalid", "x".repeat(n)),
+        ("padded", padded),
+        ("multibyte", wide.to_string()),
+    ]
+}
+
+#[test]
+fn a_header_over_the_read_bound_is_refused_as_unreadable() {
+    let env = Env::new("big-header", Some("a/b"), &[]);
+    for n in [READ_BOUND_LEN + 1, READ_BOUND_LEN * 3] {
+        for (shape, line) in shapes_over_the_bound(n) {
+            std::fs::write(
+                env.dirs.sessions.join("sessions.jsonl"),
+                format!("{line}\n"),
+            )
+            .unwrap();
+            for (name, args) in [
+                ("factory_sessions", json!({})),
+                ("factory_session", json!({"id": "work-1-1234567890"})),
+                ("factory_failures", json!({})),
+            ] {
+                match env.call(name, args) {
+                    Err(ToolError::File { file, why }) => {
+                        assert_eq!(file, "sessions.jsonl", "{shape}/{name}");
+                        assert_eq!(why, "could not be read", "{shape} at {n}: {name}");
+                    }
+                    other => panic!("{shape} at {n} bytes gave {name}: {other:?}"),
+                }
+            }
         }
     }
 }

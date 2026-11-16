@@ -7,6 +7,7 @@ use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+use tehas_core::file::READ_BOUND_LEN;
 use tehas_core::testdir::TestDir;
 use tehas_core::time::{iso, now};
 
@@ -246,6 +247,51 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
         other => panic!("not a file error: {other:?}"),
     };
     assert!(why.contains("another file"), "{why}");
+}
+
+// Every shape of a first line that is too big to read, and the answer each one
+// gets. The line the host writes is a JSON object (analytics `outcomes::lines`),
+// so the padded header is the shape a real file takes: it parses, so only the
+// length of the line refuses it. The bare run of one letter is a foreign or
+// corrupted file, refused as unreadable too, without the file's name or any of
+// its content in the answer.
+fn shapes_over_the_bound(n: usize) -> Vec<(&'static str, String)> {
+    let mut head = json!({
+        "api": 1, "outcomes": 1, "file": "outcomes.jsonl",
+        "days": DAYS, "by": "version", "generatedAt": iso(now()),
+    });
+    head["filler"] = json!("x".repeat(n));
+    let padded = head.to_string();
+    assert!(padded.len() > n, "the filler did not reach the bound");
+    // A character is 2 bytes, so half as many of them are still over a bound
+    // counted in bytes: this pins the bound as bytes and not as characters.
+    let mut wide = head.clone();
+    wide["filler"] = json!("\u{e9}".repeat(n / 2 + 1));
+    vec![
+        ("invalid", "x".repeat(n)),
+        ("padded", padded),
+        ("multibyte", wide.to_string()),
+    ]
+}
+
+#[test]
+fn a_header_over_the_read_bound_is_refused_as_unreadable() {
+    let (_root, dir) = dirs("big-header");
+    std::fs::create_dir_all(&dir.sessions).unwrap();
+    // The fixed answer, with nothing of the file in it: no path, and none of
+    // the line that made it too big to read.
+    for n in [READ_BOUND_LEN + 1, READ_BOUND_LEN * 3] {
+        for (shape, line) in shapes_over_the_bound(n) {
+            std::fs::write(dir.sessions.join("outcomes.jsonl"), format!("{line}\n")).unwrap();
+            match call(&dir, json!({})) {
+                Err(ToolError::File { file, why }) => {
+                    assert_eq!(file, "outcomes.jsonl", "{shape}");
+                    assert_eq!(why, "could not be read", "{shape} at {n} bytes");
+                }
+                other => panic!("{shape} at {n} bytes gave {other:?}"),
+            }
+        }
+    }
     // Nothing written at all: the tool says so, rather than answering nothing.
     std::fs::remove_file(dir.sessions.join("outcomes.jsonl")).unwrap();
     let why = match call(&dir, json!({})) {
