@@ -733,13 +733,21 @@ t_eq "$(cycle_args)" ""
 t_eq "$(preflight_args)" ""
 t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
 
-t_case "a lean restart on an image that lists no --restart for work-lean is 78 and starts nothing"
+t_case "a lean restart runs work-lean without --restart: every cycle is a fresh clone, so lean has no state to discard"
 lean_fresh
 caps_lean
 t_run "$work 7 --driver lean --restart"
-t_eq "$t_rc" 78
-t_contains "$t_out" "the flag --restart"
-t_eq "$(cycle_args)" ""
+t_eq "$t_rc" 2
+t_lacks "$t_out" "the flag --restart"
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work-lean 7 --timeout 360 --json "
+t_eq "$([ -e "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" ""
+
+t_case "a classic restart still passes --restart"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver classic --restart"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json --restart "
 
 caps_good
 

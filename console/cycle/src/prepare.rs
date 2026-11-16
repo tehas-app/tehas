@@ -166,14 +166,18 @@ pub fn deadline(now: i64, limit: u64) -> Option<i64> {
 }
 
 /// The flags of the runner. A refresh passes --continue-pr: the cycle checks out
-/// the issue's open pull request and pushes to the same branch.
-pub fn run_flags(limit: u64, restart: bool, refresh: bool) -> Vec<String> {
+/// the issue's open pull request and pushes to the same branch. A restart passes
+/// --restart to classic only: work-lean takes no such flag and has no attention
+/// gate, and every cycle is a fresh clone, so a lean run never finds a state
+/// file to discard. The dispatcher takes needs-human-attention off a lean start
+/// itself, which is what --restart does for classic.
+pub fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
     let mut flags = vec![
         "--timeout".to_string(),
         limit.div_ceil(60).to_string(),
         "--json".to_string(),
     ];
-    if restart {
+    if restart && driver == Driver::Classic {
         flags.push("--restart".to_string());
     }
     if refresh {
@@ -372,9 +376,9 @@ pub fn check(c: &Check) -> i32 {
         .filter(|_| judge)
         .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
         .unwrap_or(Value::Null);
-    // A lean restart or refresh is refused below unless the image lists the
-    // flag for work-lean.
-    let flags = run_flags(limit, c.restart, refresh);
+    // A lean refresh is refused below unless the image lists --continue-pr for
+    // work-lean. A lean restart passes no flag (run_flags).
+    let flags = run_flags(limit, c.restart, refresh, c.driver);
     if c.restart && !lean {
         features.push_str(" restartClearsAttention");
     }
@@ -1779,14 +1783,34 @@ mod tests {
     #[test]
     fn the_runner_is_given_whole_minutes_at_least_one() {
         assert_eq!(
-            run_flags(21600, false, false),
+            run_flags(21600, false, false, Driver::Classic),
             ["--timeout", "360", "--json"]
         );
-        assert_eq!(run_flags(1, false, false)[1], "1");
-        assert_eq!(run_flags(61, false, false)[1], "2");
+        assert_eq!(run_flags(1, false, false, Driver::Classic)[1], "1");
+        assert_eq!(run_flags(61, false, false, Driver::Classic)[1], "2");
         assert_eq!(
-            run_flags(60, true, true),
+            run_flags(60, true, true, Driver::Classic),
             ["--timeout", "1", "--json", "--restart", "--continue-pr"]
+        );
+    }
+
+    #[test]
+    fn a_lean_restart_passes_no_restart_flag() {
+        // work-lean takes no --restart, and every cycle is a fresh clone, so a
+        // lean run has no state file to discard.
+        assert_eq!(
+            run_flags(21600, true, false, Driver::Lean),
+            ["--timeout", "360", "--json"]
+        );
+        assert_eq!(
+            run_flags(21600, true, false, Driver::Classic),
+            ["--timeout", "360", "--json", "--restart"]
+        );
+        // A lean refresh still asks for --continue-pr, which the image's
+        // answer then takes or refuses.
+        assert_eq!(
+            run_flags(60, true, true, Driver::Lean),
+            ["--timeout", "1", "--json", "--continue-pr"]
         );
     }
 
