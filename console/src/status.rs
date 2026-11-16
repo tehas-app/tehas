@@ -27,7 +27,7 @@
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
-use crate::update::release::{candidate, older, tag_ok};
+use crate::update::release::{older, prerelease, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -640,7 +640,7 @@ fn slice_line(h: &J, now: i64) -> String {
 }
 
 /// Whether version a is newer than version b, both released versions: a
-/// release candidate is older than its version. Anything else is never newer.
+/// prerelease is older than its version. Anything else is never newer.
 fn newer(a: &J, b: &J) -> bool {
     match (a.as_str(), b.as_str()) {
         (Some(x), Some(y)) => tag_ok(x) && tag_ok(y) && older(y, x),
@@ -667,8 +667,8 @@ fn platform_line(h: &J, now: i64) -> Option<String> {
             "newest unknown".to_string()
         } else if newer(newest, release) {
             format!("{} is out", newest.text())
-        } else if newer(release, newest) && release.as_str().is_some_and(candidate) {
-            format!("newest {}, the candidate is newer", newest.text())
+        } else if newer(release, newest) && release.as_str().is_some_and(prerelease) {
+            format!("newest {}, the prerelease is newer", newest.text())
         } else {
             format!("newest {}", newest.text())
         };
@@ -1265,11 +1265,11 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_ahead_of_the_newest_release_says_so() {
+    fn a_prerelease_ahead_of_the_newest_release_says_so() {
         let rc = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.22.1"}}}"#);
         assert_eq!(
             platform_line(&rc, NOW).unwrap(),
-            "platform  v0.23.0-rc.2, newest v0.22.1, the candidate is newer, never fetched"
+            "platform  v0.23.0-rc.2, newest v0.22.1, the prerelease is newer, never fetched"
         );
         let out = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.23.0"}}}"#);
         assert_eq!(

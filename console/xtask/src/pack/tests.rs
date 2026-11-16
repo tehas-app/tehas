@@ -163,9 +163,12 @@ fn help_is_the_header_of_the_script() {
 }
 
 #[test]
-fn the_tag_is_vxyz() {
+fn the_tag_is_vxyz_or_a_prerelease_of_one() {
     assert!(is_tag("v0.7.6"));
     assert!(is_tag("v10.0.123"));
+    assert!(is_tag("v1.0.0-alpha.1"));
+    assert!(is_tag("v1.0.0-beta.2"));
+    assert!(is_tag("v1.0.0-rc.3"));
     for bad in [
         "0.7.6",
         "v0.7",
@@ -174,6 +177,8 @@ fn the_tag_is_vxyz() {
         "v0.7.x",
         "V0.7.6",
         "v0.7.6-rc1",
+        "v0.7.6-gamma.1",
+        "v0.7.6-alpha",
     ] {
         assert!(!is_tag(bad), "{bad}");
     }
@@ -369,7 +374,10 @@ fn the_tag_out_dir_and_console_are_needed() {
     assert_eq!(try_(&[]), (64, "name the tag".into()));
     assert_eq!(
         try_(&["9.9.9"]),
-        (64, "the tag must be vX.Y.Z, got: 9.9.9".into())
+        (
+            64,
+            "the tag must be vX.Y.Z or vX.Y.Z-alpha.N, -beta.N or -rc.N, got: 9.9.9".into()
+        )
     );
     assert_eq!(try_(&["v9.9.9"]), (64, "name the output directory".into()));
     assert_eq!(
