@@ -54,7 +54,7 @@ t_stub_store_procs() {
   local bin=$T/home/tehas/libexec/store real=$T/store-real
   [ -f "$bin" ] || return 0
   if [ ! -f "$real" ]; then
-    head -c 4 "$bin" | grep -q '#!.' || return 0
+    grep -q '#!.' < <(head -c 4 "$bin") || return 0
     mv "$bin" "$real"
   fi
   {
