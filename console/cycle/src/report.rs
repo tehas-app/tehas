@@ -1402,13 +1402,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .rsplit_once('/')
         .map(|(p, _)| p.to_string())
         .unwrap_or_default();
+    // A cycle that ran elsewhere has no workspace here to remove or warn of.
     let tidy = Action::Tidy {
         remove: if f.workspaces_marked {
             vec![f.workdir.clone(), format!("{}.before-retry", f.workdir)]
         } else {
             vec![]
         },
-        warn: if f.workspaces_marked {
+        warn: if f.workspaces_marked || f.workdir.is_empty() {
             String::new()
         } else {
             format!(
