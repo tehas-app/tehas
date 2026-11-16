@@ -179,6 +179,30 @@ done <<<"$(docker_runs "$dockerfile")"
   t_eq "$apt_installs" 1
 t_eq "$apt_unclean" ""
 
+t_case "npm run as root leaves no cache in the cycle user's home"
+# The base sets HOME=/home/vscode and USER root keeps it, so npm run as root
+# writes its cache to /home/vscode/.npm owned by root, and the cycle's own npm
+# then fails on it with EACCES. Each RUN that runs npm puts its cache in /tmp
+# and removes it, and the build stops when root owns anything in /home/vscode/.npm.
+npm_runs=0
+npm_bad=""
+while IFS= read -r run; do
+  case "$run" in *"npm ci"* | *"npm install"*) ;; *) continue ;; esac
+  npm_runs=$((npm_runs + 1))
+  case "$run" in *"export npm_config_cache=/tmp/npm-cache"*) ;; *) npm_bad="${npm_bad}no cache in /tmp: ${run:0:60}
+" ;; esac
+  case "$run" in *"rm -rf "*"/tmp/npm-cache"*) ;; *) npm_bad="${npm_bad}cache kept: ${run:0:60}
+" ;; esac
+  case "$run" in *'find /home/vscode/.npm -user root'*'exit 1'*) ;; *) npm_bad="${npm_bad}home not checked: ${run:0:60}
+" ;; esac
+done <<<"$(docker_runs "$dockerfile")"
+# One step runs npm today, the Playwright pin. The count keeps a file with no
+# npm step from passing the rule.
+t_eq "$npm_runs" 1
+t_eq "$npm_bad" ""
+# Root's npm does not write to /root/.npm in this image.
+t_lacks "$recipe" '/root/.npm'
+
 t_case "the wigolo the base ships broken is off PATH, and no tehas prompt names it"
 t_contains "$recipe" 'rm -rf /usr/lib/node_modules/wigolo'
 t_contains "$recipe" 'if command -v wigolo >/dev/null 2>&1; then'
