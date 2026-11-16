@@ -42,7 +42,6 @@ pub struct Ended {
     pub rukas: String,
     pub cap: String,
     pub reason: String,
-    pub build: String,
     /// Whether the handoff of pi-rukas reached a comment, None when the
     /// cycle had none.
     pub handoff_delivered: Option<bool>,
