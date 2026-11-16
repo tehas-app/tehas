@@ -573,7 +573,6 @@ What a lean run does, as pi-rukas's `docs/lean.md` describes it:
   builds once more, and a second red hands back. A pull request that conflicts
   or falls behind after the run is tehas's, not lean's, and it is never
   refreshed with `--continue-pr`: a lean refresh is refused with 78 as above.
-  The [easy merge](#refreshes) is meant for it, and it runs on no host yet.
 - The cycle's time limit, `TEHAS_WORK_TIMEOUT`, covers the whole run, the wait
   for the pull request's checks included.
 
@@ -658,6 +657,15 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
+- A write that timed out or that GitHub answered with a 5xx may have reached
+  GitHub, so the report reads it back before it tries again: a comment by its
+  text, a label by name. Found, it is done. Not found, it is sent again with
+  the tries it has left; a park question that was not found gets the plain
+  park comment, as a refused one does. Only when that read fails too does the
+  write stay as it is: its row stays open as `unknown`, the report logs
+  `WARN: a write on #N may have been posted`, a park question is not followed
+  by the plain park comment, and a handoff comment is not recorded as a failed
+  end. The first poll after the cycle reads the row and settles it.
 - Bodies go to gh on standard input, not as an argument.
 - A call to GitHub has a bound of two minutes.
 
@@ -1269,7 +1277,14 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A read of GitHub that failed on a bad
+or as not done, and never made again. A write that timed out, or that GitHub
+answered with a 5xx, may have reached GitHub: its row is left open as
+`unknown`, the log says `may have been posted`, and the next poll reads it the
+same way before anything is sent again. What the read finds decides the write
+when the poll decides it again: found done, it is done and not sent (a park
+tell or a hold's note is then on record as said); not found, it is abandoned
+and the poll sends it once; a read that failed leaves the row open and the
+write is not sent that poll. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
@@ -1429,7 +1444,7 @@ in the dispatcher's log. On its own it changes nothing in this factory: no
 cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
 its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
-tehas-industry. Take the label off to end it.
+an industry of factories. Take the label off to end it.
 
 ## Read-only
 
@@ -2017,8 +2032,12 @@ what the account may do, and this section is that.
 The millwright was called the fixer. Its old names are no longer read: a
 `TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
 and the label `tehas:fixer-escalated` and the marker
-`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
-written as `how: "fixer"` still counts as the millwright's. [`tehas
+`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. The state
+store's schema 16 writes `millwright` in every row that still said `fixer`
+(a start, a line of history, an approval, a refused note), so `tehas history`
+and `tehas export` name the millwright one way, and the MCP session tools
+answer `millwright` for a run recorded under the old word. The `plan.json` of
+`tehas export` lists an answer's mark as `millwright` alone. [`tehas
 api`](/api#tehas-api) lists only the new names: `millwright-grant` and
 `millwright`.
 
@@ -2178,8 +2197,8 @@ nothing and the dispatcher says so.
 
 **Who asks.** The factory does not look for conflicts on its own. What
 schedules its refreshes (an industry, an operator, a script) asks for one pull
-request at a time with `tehasbot refresh --pr N` (see
-[tehasbot refresh](/tools-github#tehasbot-refresh)). It reads that pull request
+request at a time with `tehas refresh --pr N` (see
+[tehas refresh](/tools-github#tehas-refresh)). It reads that pull request
 now and keeps it when it is the bot's, closes exactly one open issue carrying
 `tehas:awaiting-merge`, or `needs-human-attention` after a handoff that left
 the pull request open, without `tehas:running` and not the control issue, is
@@ -2350,17 +2369,14 @@ the `Adopter action` of each release between, do what they ask, then run
 [Rolling back tehas](/host#rolling-back-tehas)). An update does not wait for
 the running cycles and needs no drain: each cycle and planning turn runs from
 its own copy of the code, so it ends on the version it began on, and the next
-one starts on the new version (see [Updating tehas](/host#updating-tehas)). The
-one exception is a host that still has record files of a tehas from before the
-state store: that update moves them into the store, refuses while a cycle or a
-planning turn runs, and installs nothing. Drain it first with
-`tehas drain --wait 3600`, let planning turns end, update, then
-`tehas limit clear` (see [tehas drain](/tools-control#tehas-drain), and `install.sh` in
-[the tools](/tools)). The update moves each old record file it imported to
-`~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
-While a record file of the older tehas is still in `state/`, every poll stops
-with exit 78 and logs `ERROR: records of an older tehas at <path>; run
-install.sh again`: run `install.sh` again, and it imports what is left. How it works is in
+one starts on the new version (see [Updating tehas](/host#updating-tehas)).
+This release updates a host on v0.30.0 or later. A host on an older release
+updates to a v0.30 release first: the store refuses an older database, and the
+record files a tehas before the state store kept are no longer imported. While
+such a file is still in `state/`, every poll stops with exit 78 and logs
+`ERROR: records of an older tehas at <path>; this release does not import them`:
+move it out of `state/`. A v0.30 release cannot import it either once this
+release has migrated the store, as it refuses the newer schema. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).

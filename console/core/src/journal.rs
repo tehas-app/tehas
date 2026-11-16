@@ -6,7 +6,9 @@
 //! a cycle asks a busy store again, and then makes the write with no row.
 
 use crate::call::{gh_why, run_full, Ran};
+use regex::Regex;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// How a journaled call ended.
@@ -16,6 +18,10 @@ pub enum Wrote {
     Done(String),
     /// What gh gave as its reason, as `gh_why` has it.
     Failed(String),
+    /// GitHub may have taken it: the call timed out or GitHub answered 5xx.
+    /// Never sent again on this answer: a read settles it first (#1754). The
+    /// reason as `Failed` has it.
+    Unknown(String),
     /// Not made: the journal could not record it.
     Unrecorded,
 }
@@ -58,25 +64,8 @@ impl Journal<'_> {
         input: Option<&str>,
         done_if: Option<&str>,
     ) -> Wrote {
-        // The body by its sum and length: the settling poll finds a comment
-        // by them, and the store's arguments stay short and hold no text.
-        // Given as JSON (--input -), the body is its field: the text GitHub
-        // keeps.
         let body = input;
-        let json = args.iter().any(|a| a == "--input");
-        let field = input
-            .filter(|_| json)
-            .and_then(|b| serde_json::from_str::<Value>(b).ok())
-            .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
-        let input = field.as_deref().or(input).map(|b| {
-            use sha2::{Digest, Sha256};
-            let sum: String = Sha256::digest(b.as_bytes())
-                .iter()
-                .map(|x| format!("{x:02x}"))
-                .collect();
-            json!({"sha256": sum, "bytes": b.len()})
-        });
-        let mut call = json!({"repo": self.repo, "gh": args, "input": input});
+        let mut call = json!({"repo": self.repo, "gh": args, "input": summed(&args, input)});
         if let Some((n, attempt)) = self.cycle {
             call["cycle"] = json!({"issue": n, "attempt": attempt});
         }
@@ -123,14 +112,38 @@ impl Journal<'_> {
         let there = there(&r, done_if);
         let result = match r.status {
             Some(0) => "ok",
-            None => "timed-out",
             Some(_) if there => "empty",
+            _ if self.maybe_taken(&r) => "unknown",
+            None => "timed-out",
             Some(_) => "read-failed",
         };
-        // A settle that fails leaves the action attempted: the next poll
-        // settles it from a fresh read.
+        // A settle that fails leaves the action attempted, and an unknown one
+        // open: the next poll settles it from a fresh read.
         let _ = store(&["journal-settle", "--action", &id, "--result", result]);
-        wrote(r, there)
+        self.wrote(r, there)
+    }
+
+    /// Whether GitHub may have taken a call that did not answer as done: it
+    /// timed out after gh started, or GitHub answered 5xx, which it does for a
+    /// write it went on to commit. A gh that never ran sent nothing.
+    fn maybe_taken(&self, r: &Ran) -> bool {
+        static FIVE: OnceLock<Regex> = OnceLock::new();
+        let five = FIVE.get_or_init(|| Regex::new(r"HTTP 5[0-9]{2}\b").expect("a regex"));
+        match r.status {
+            None => r.err != format!("{} could not be run", self.gh),
+            Some(0) => false,
+            Some(_) => five.is_match(&r.err),
+        }
+    }
+
+    fn wrote(&self, r: Ran, there: bool) -> Wrote {
+        if r.ok() || (there && r.status.is_some()) {
+            Wrote::Done(r.out)
+        } else if self.maybe_taken(&r) {
+            Wrote::Unknown(gh_why(&r.err))
+        } else {
+            Wrote::Failed(gh_why(&r.err))
+        }
     }
 
     /// A write the journal could not record, made with no row. For a writer
@@ -144,7 +157,7 @@ impl Journal<'_> {
     ) -> Wrote {
         let r = self.gh(&args, input);
         let there = there(&r, done_if);
-        wrote(r, there)
+        self.wrote(r, there)
     }
 
     fn gh(&self, args: &[String], input: Option<&str>) -> Ran {
@@ -160,12 +173,25 @@ fn there(r: &Ran, done_if: Option<&str>) -> bool {
     done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w))
 }
 
-fn wrote(r: Ran, there: bool) -> Wrote {
-    if r.ok() || (there && r.status.is_some()) {
-        Wrote::Done(r.out)
-    } else {
-        Wrote::Failed(gh_why(&r.err))
-    }
+/// The body of a write by its sum and length, as an action keeps it: the
+/// settling poll finds a comment by them, and the store's arguments stay short
+/// and hold no text. Given as JSON (--input -), the body is its field: the text
+/// GitHub keeps. A caller that looks for an earlier action of the same write
+/// compares this.
+pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
+    let json = args.iter().any(|a| a == "--input");
+    let field = input
+        .filter(|_| json)
+        .and_then(|b| serde_json::from_str::<Value>(b).ok())
+        .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
+    field.as_deref().or(input).map(|b| {
+        use sha2::{Digest, Sha256};
+        let sum: String = Sha256::digest(b.as_bytes())
+            .iter()
+            .map(|x| format!("{x:02x}"))
+            .collect();
+        json!({"sha256": sum, "bytes": b.len()})
+    })
 }
 
 #[cfg(test)]
@@ -281,6 +307,57 @@ mod tests {
             j.unrecorded(sh("exit 1"), None, Some("Not Found")),
             Wrote::Failed(_)
         ));
+    }
+
+    /// The settle each answer of gh is given, and what the caller hears.
+    fn settled(gh: &str, args: Vec<String>, bound: Duration) -> (Wrote, String) {
+        let (mut at, mut no_row, mut asked) = (9, false, vec![]);
+        let mut j = journal(&mut at, &mut no_row, gh, None);
+        j.bound = bound;
+        j.grace = Duration::from_millis(100);
+        let w = j.write(
+            &mut |a| taken(&mut asked, a),
+            7,
+            "comment-post",
+            args,
+            Some("text"),
+            None,
+        );
+        let settle = asked.iter().find(|a| a[0] == "journal-settle").unwrap();
+        (w, settle[4].clone())
+    }
+
+    /// #1754: a write GitHub may have taken is unknown, never failed: the
+    /// caller does not send it again, and the row stays open for a read.
+    #[test]
+    fn a_write_that_timed_out_or_got_a_5xx_is_unknown() {
+        let long = Duration::from_secs(5);
+        let (w, result) = settled("sh", sh("sleep 5"), Duration::from_millis(300));
+        assert!(matches!(w, Wrote::Unknown(_)), "{w:?}");
+        assert_eq!(result, "unknown");
+        for code in ["500", "502", "503", "504"] {
+            let script = format!("cat >/dev/null; echo 'HTTP {code}: Bad Gateway' >&2; exit 1");
+            let (w, result) = settled("sh", sh(&script), long);
+            assert_eq!(w, Wrote::Unknown(format!(": HTTP {code}")));
+            assert_eq!(result, "unknown");
+        }
+        let (w, result) = settled("sh", sh("echo 'HTTP 422: Unprocessable' >&2; exit 1"), long);
+        assert_eq!(w, Wrote::Failed(": HTTP 422".into()));
+        assert_eq!(result, "read-failed");
+        // A gh that never ran sent nothing.
+        let (w, result) = settled("/nonexistent/gh", vec![], long);
+        assert!(matches!(w, Wrote::Failed(_)), "{w:?}");
+        assert_eq!(result, "timed-out");
+    }
+
+    #[test]
+    fn a_write_with_no_row_that_got_a_5xx_is_unknown_too() {
+        let (mut at, mut no_row) = (0, false);
+        let j = journal(&mut at, &mut no_row, "sh", None);
+        assert_eq!(
+            j.unrecorded(sh("echo 'HTTP 502: Bad Gateway' >&2; exit 1"), None, None),
+            Wrote::Unknown(": HTTP 502".into())
+        );
     }
 
     #[test]

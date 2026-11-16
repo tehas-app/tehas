@@ -105,25 +105,6 @@ pub fn is_millwright(how: &str) -> bool {
     MILLWRIGHT_WORDS.contains(&how)
 }
 
-/// The mark on a planning answer, read under its two names: each name the
-/// record does not give is read as false, and an unequal pair is the one case
-/// the import cannot decide, so this is None and the caller names both values.
-pub fn kept_mark(millwright: Option<bool>, fixer: Option<bool>) -> Option<bool> {
-    match (millwright, fixer) {
-        (Some(a), Some(b)) if a != b => None,
-        (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
-    }
-}
-
-/// The how of a record or a start, as the row writes it: one of `CURRENT_HOWS`,
-/// or the word of today that `fixer` names, or None for a word it does not know.
-pub fn kept_how(given: &str) -> Option<&'static str> {
-    CURRENT_HOWS
-        .into_iter()
-        .find(|(w, a)| *w == given || *a == given)
-        .map(|(w, _)| w)
-}
-
 /// The arguments of `approval-current` as the read of `store batch` takes them:
 /// the issue, refused by the verb's own grammar. The line of a refusal is the
 /// one the single call prints, so a batch and a call made alone answer alike.

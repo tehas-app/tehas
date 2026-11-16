@@ -152,34 +152,36 @@ t_eq "$([ -f "$snapped/$install_marker" ] && echo there)" "there"
 t_eq "$(cat "$snapped/mcp/sessions.jsonl")" '{"api":1}'
 t_eq "$(cat "$snapped/mcp/outcomes.jsonl")" '{"api":1,"by":"week"}'
 
-t_case "the manual beside the front page is known as tehas's own, and gets the marker"
+t_case "a home an install before v0.30 left, with no marker, is refused: update to v0.30 first"
+# Every install since v0.30.0 leaves the marker; a home without it is not
+# known by the files an older install left any more.
 fresh
 instance
-manual=$T/manual-home
-rm -rf "$manual"
-mkdir -p "$manual/docs" "$manual/fun"
-echo "# the manual of an earlier install" >"$manual/docs/host.md"
-echo "<html></html>" >"$manual/fun/index.html"
-t_run "TEHAS_HOME='$manual' '$install'"
-t_eq "$t_rc" 0
-t_eq "$([ -f "$manual/$install_marker" ] && echo there)" "there"
-t_eq "$([ -f "$manual/docs/host.md" ] && echo there)" "there"
-
-t_case "an existing home with no marker is known by its env.sh and dispatch, and gets one"
-fresh
-instance
-legacy=$T/legacy-home
-rm -rf "$legacy"
-mkdir -p "$legacy/libexec"
-echo "# the env of an earlier install" >"$legacy/env.sh"
-echo "# the dispatcher of an earlier install" >"$legacy/libexec/dispatch"
-t_run "TEHAS_HOME='$legacy' '$install'"
-t_eq "$t_rc" 0
-t_eq "$(head -1 "$legacy/env.sh")" "# shellcheck shell=bash"
-t_eq "$([ -f "$legacy/$install_marker" ] && echo there)" "there"
+for legacy in manual env; do
+  old=$T/$legacy-home
+  rm -rf "$old"
+  if [ "$legacy" = manual ]; then
+    mkdir -p "$old/docs" "$old/fun"
+    echo "# the manual of an earlier install" >"$old/docs/host.md"
+    echo "<html></html>" >"$old/fun/index.html"
+  else
+    mkdir -p "$old/libexec"
+    echo "# the env of an earlier install" >"$old/env.sh"
+    echo "# the dispatcher of an earlier install" >"$old/libexec/dispatch"
+  fi
+  t_run "TEHAS_HOME='$old' '$install'"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_HOME is not empty and holds no $install_marker: $old"
+  t_eq "$([ -e "$old/$install_marker" ] && echo there)" ""
+done
 
 t_case "a second run leaves the marker and reports no drift for it"
-t_run "TEHAS_HOME='$legacy' '$install'"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$([ -f "$th/$install_marker" ] && echo there)" "there"
+t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "$install_marker"
 

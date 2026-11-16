@@ -75,14 +75,9 @@ seconds and durations are seconds, as integers, except `runner_ms` and
 
 `PRAGMA user_version` is the schema version, today 4. Within one version
 columns are only added. A change of a column's meaning raises the version.
-A file at 2 or 3 is migrated in place as the program opens it: one transaction
-adds the columns it lacks (`driver` from 2; `tool_calls`, `tool_errors` and
-`result_driver` on `runs` and `tool_calls` and `tool_errors` on `run_roles` from
-3) and makes the view `v_versions` anew, and every run stays. The new columns are
-NULL on the runs recorded before them. Programs that have the file open go on working. A host whose file is still
-at 1 keeps it aside under its version and starts a new one. Nothing of the gate
-was on the record there before; the new gate columns are NULL where a run made no
-gate, which the report reads as no gate rather than a gate of no time.
+v0.30.0 wrote 4 already, so this release migrates no older file: a file at 1, 2
+or 3 is kept aside under its version, as any other version is, and a new one is
+made.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
@@ -100,7 +95,7 @@ A move is said once on standard error, in the log of the command that met it.
 
 The schema is `console/analytics/src/schema.sql` in the source, with a pinned
 copy `schema.pinned` beside it that a test compares it with. A reader may pin
-that copy too. A change to the schema is agreed with tehas-industry first, as
+that copy too. A change to the schema is agreed first with the programs that read it, as
 for the JSON of [the factory API](/api).
 
 ## The tables
@@ -555,16 +550,16 @@ when it is written, a pull request is kept as its number, and no other column
 holds free text. A test opens an export and checks every text column of every
 table for them.
 
-What was agreed with tehas-industry (tehas #377, tehas-industry #26):
+What was agreed with the program that archives the factories' runs (tehas #377):
 
-- Industry's `archive` job fetches the copy daily per factory, beside
+- Its `archive` job fetches the copy daily per factory, beside
   `tehas export`, and upserts it into its own store on `runs.id`,
   `(run_id, step, round)`, `(run_id, role)`, `(issue, event)` and
   `samples.at`. A fetch repeated is harmless, so there is no cursor.
 - It fetches the copy before it runs `tehas update --to` on a factory, so a
   release that raises the schema version loses nothing. A file the release does
   not migrate is kept aside under its version for 365 days as well.
-- Events stay once per issue. Industry's long-term copy keeps what is older
+- Events stay once per issue. Its long-term copy keeps what is older
   than 365 days.
 
 `tehas api` lists the feature `analytics` in a release that has the command.

@@ -7,13 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tehas_core::file::side_file;
 
-/// PRAGMA user_version of the schema in schema.sql. Schema 2 added
-/// run_gate_runs and the gate columns of runs, schema 3 runs.driver, schema 4
-/// the tool counts and runs.result_driver.
+/// PRAGMA user_version of the schema in schema.sql. v0.30.0 wrote 4 already,
+/// so a database of any other schema is moved aside whole under its version.
 pub const SCHEMA_VERSION: i64 = 4;
-/// The older schemas `migrate` takes up in place. Any other is moved aside
-/// whole under its version.
-const MIGRATES: [i64; 2] = [2, 3];
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 const DAY: i64 = 86_400;
@@ -35,7 +31,7 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
-/// is at most RETENTION_DAYS deep. A database of schema 2 or 3 is migrated in place.
+/// is at most RETENTION_DAYS deep.
 /// One of any other schema version is moved, with its -wal and -shm, to
 /// analytics.db.schema-<version>, where a reader can still fetch it, and
 /// prune_aside deletes it RETENTION_DAYS after its last write. Any other
@@ -202,14 +198,14 @@ fn is_busy(e: &rusqlite::Error) -> bool {
     )
 }
 
-/// Makes or migrates the schema of a database whose user_version read `seen`.
-/// The version is read again under a write lock: another program may have
-/// done it since, and its database is not a broken one.
+/// Makes the schema of a database whose user_version read `seen`. The version
+/// is read again under a write lock: another program may have done it since,
+/// and its database is not a broken one.
 pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
     if seen == SCHEMA_VERSION {
         return Ok(());
     }
-    if seen != 0 && !MIGRATES.contains(&seen) {
+    if seen != 0 {
         return Err(foreign(seen));
     }
     let tx = conn
@@ -220,7 +216,6 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
         .map_err(classify)?;
     match version {
         SCHEMA_VERSION => return Ok(()),
-        old if MIGRATES.contains(&old) => migrate(&tx, old).map_err(classify)?,
         0 => {
             let tables: i64 = tx
                 .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
@@ -237,41 +232,12 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
     tx.commit().map_err(classify)
 }
 
-// A schema this program neither writes nor migrates is kept aside.
+// A schema this program does not write is kept aside.
 fn foreign(version: i64) -> Unusable {
     Unusable::Foreign(
         version,
         format!("the database has schema {version}, this program writes {SCHEMA_VERSION}"),
     )
-}
-
-/// Schema 2 or 3 to 4. Each new column is last in schema.sql too, in the
-/// order added here, so a migrated database and a new one hold the same
-/// tables. No view reads them. v_versions, the last statement of schema.sql,
-/// is made anew.
-fn migrate(tx: &Transaction, from: i64) -> rusqlite::Result<()> {
-    let view = SCHEMA
-        .rfind("CREATE VIEW v_versions")
-        .map_or("", |at| &SCHEMA[at..]);
-    if from == 2 {
-        tx.execute_batch(
-            "ALTER TABLE runs ADD COLUMN driver TEXT CHECK (driver IN ('classic', 'lean'));",
-        )?;
-    }
-    tx.execute_batch(&format!(
-        "ALTER TABLE runs ADD COLUMN tool_calls INTEGER;
-         ALTER TABLE runs ADD COLUMN tool_errors INTEGER;
-         ALTER TABLE runs ADD COLUMN result_driver TEXT CHECK (result_driver IN ('classic', 'lean'));
-         ALTER TABLE run_roles ADD COLUMN tool_calls INTEGER;
-         ALTER TABLE run_roles ADD COLUMN tool_errors INTEGER;
-         DROP VIEW v_versions;
-         {view}"
-    ))?;
-    tx.execute(
-        "UPDATE meta SET value = ?1 WHERE key = 'schema'",
-        [SCHEMA_VERSION.to_string()],
-    )?;
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 fn create(tx: &Transaction, now: i64) -> rusqlite::Result<()> {

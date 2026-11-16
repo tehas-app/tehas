@@ -24,6 +24,7 @@ use crate::read::host::hostname;
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
@@ -149,8 +150,9 @@ fn cpu_ms(stat: &str, ticks: u64) -> i64 {
     (sum.saturating_mul(1000) / ticks.max(1)) as i64
 }
 
-/// The records of an older tehas, which install.sh imports: one still here
-/// means the store has no row for it, and no row is not "none".
+/// The records of a tehas older than v0.30, which a v0.30 install imported:
+/// one still here means the store has no row for it, and no row is not "none".
+/// This release imports none, so the poll stops and says what to do.
 fn old_record(home: &Path) -> Option<String> {
     let named = |dir: &str, ok: &dyn Fn(&str) -> bool| -> Option<String> {
         let mut names: Vec<String> = std::fs::read_dir(home.join(dir))
@@ -363,6 +365,7 @@ fn writer(
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        looked: HashMap::new(),
     }
 }
 
@@ -607,7 +610,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     }
     if let Some(old) = old_record(home) {
         say(&format!(
-            "ERROR: records of an older tehas at {}/{old}; run install.sh again",
+            "ERROR: records of an older tehas at {}/{old}; this release does not import them: move them out of state/",
             home.display()
         ));
         return 78;

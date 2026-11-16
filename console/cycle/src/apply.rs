@@ -21,6 +21,9 @@ use tehas_core::end_fault;
 use tehas_core::journal::{Journal, Wrote};
 use tehas_core::question::is_handoff_marker;
 
+mod reread;
+use reread::Seen;
+
 /// The comment a park posts when its question's label could not be added.
 pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
@@ -116,6 +119,21 @@ impl Tried {
     }
 }
 
+/// What the post of a park question came to.
+enum Posted {
+    Id(String),
+    /// GitHub may have taken it (#1754).
+    Maybe,
+    No,
+}
+
+/// A write GitHub may have taken and no read could settle: not sent again.
+fn maybe_posted(n: u64, why: &str) {
+    log(&format!(
+        "WARN: a write on #{n} may have been posted{why}; no read could tell, so it is not sent again, and the next poll reads it"
+    ));
+}
+
 /// Whether `body` carries the handoff of pi-rukas for `issue`: its first line
 /// is the marker, and the marker of this issue alone. Every body tehas posts
 /// with the marker puts it on the first line (`marker_line`, `q_render`), so a
@@ -199,6 +217,8 @@ struct Writer<'a> {
     last_failed: String,
     /// What gh said of the comment with the handoff that was not posted.
     handoff_failed: Option<String>,
+    /// The comment with the handoff may have been posted: no read could tell.
+    handoff_maybe: bool,
 }
 
 impl Writer<'_> {
@@ -251,13 +271,61 @@ impl Writer<'_> {
         journal.unrecorded(args, input, done_if)
     }
 
+    /// What GitHub shows of a write it may have taken, read after the wait
+    /// between tries.
+    fn reread(&self, n: u64, kind: &str, args: &[String], input: Option<&str>, since: i64) -> Seen {
+        std::thread::sleep(self.gh.retry_wait);
+        let (bound, grace) = (self.gh.bound, self.gh.grace);
+        let mut read = |path: &str, page: bool| {
+            let mut a = vec!["api".to_string(), path.to_string()];
+            if page {
+                a.push("--paginate".into());
+            }
+            let r = run_full("gh", &a, None, bound, grace, &[]);
+            if !r.ok() {
+                return None;
+            }
+            // Every page is a value of its own.
+            let mut all: Vec<Value> = vec![];
+            for v in serde_json::Deserializer::from_str(&r.out).into_iter::<Value>() {
+                match v.ok()? {
+                    Value::Array(items) if page => all.extend(items),
+                    v if !page => return Some(v),
+                    _ => return None,
+                }
+            }
+            page.then_some(Value::Array(all))
+        };
+        reread::seen(&self.repo, n, kind, args, input, since, &mut read)
+    }
+
     /// A write tried as the bash tried it, `warn` logged when all tries fail.
-    fn tried(&mut self, warn: &str, kind: &str, args: Vec<String>, input: Option<&str>) -> bool {
+    /// One GitHub may have taken is read before it is sent again: Some(true)
+    /// when it is there, None when no read could tell (#1754).
+    fn tried(
+        &mut self,
+        warn: &str,
+        kind: &str,
+        args: Vec<String>,
+        input: Option<&str>,
+    ) -> Option<bool> {
         let n = self.issue;
         for t in 1..=self.gh.tries {
+            let since = tehas_core::time::now();
             match self.write(n, kind, args.clone(), input, None) {
-                Wrote::Done(_) => return true,
+                Wrote::Done(_) => return Some(true),
                 Wrote::Failed(why) => self.last_failed = why,
+                Wrote::Unknown(why) => {
+                    self.last_failed = why.clone();
+                    match self.reread(n, kind, &args, input, since) {
+                        Seen::There(_) => return Some(true),
+                        Seen::Missing => continue,
+                        Seen::Unread => {
+                            maybe_posted(n, &why);
+                            return None;
+                        }
+                    }
+                }
                 Wrote::Unrecorded => self.last_failed.clear(),
             }
             if t < self.gh.tries {
@@ -265,7 +333,7 @@ impl Writer<'_> {
             }
         }
         log(warn);
-        false
+        Some(false)
     }
 
     fn relabel(&mut self, remove: &[String], add: &[String]) -> bool {
@@ -294,7 +362,7 @@ impl Writer<'_> {
         } else {
             "label-add"
         };
-        self.tried(&warn, kind, args, None)
+        self.tried(&warn, kind, args, None) == Some(true)
     }
 
     fn comment(&mut self, body: &str) {
@@ -312,11 +380,16 @@ impl Writer<'_> {
         self.handed(posted, body);
     }
 
-    /// A body posted with pi-rukas's handoff marker carries its handoff.
-    fn handed(&mut self, posted: bool, body: &str) {
-        self.handed_off |= posted && carries_handoff(body, self.issue);
-        if !posted && carries_handoff(body, self.issue) {
-            self.handoff_failed = Some(self.last_failed.clone());
+    /// A body posted with pi-rukas's handoff marker carries its handoff. One
+    /// that may have been posted is no failure of the host's.
+    fn handed(&mut self, posted: Option<bool>, body: &str) {
+        if !carries_handoff(body, self.issue) {
+            return;
+        }
+        match posted {
+            Some(true) => self.handed_off = true,
+            Some(false) => self.handoff_failed = Some(self.last_failed.clone()),
+            None => self.handoff_maybe = true,
         }
     }
 
@@ -361,17 +434,23 @@ impl Writer<'_> {
         }
         if on_record {
             let (_, body) = p.question(n, self.stuck);
-            if let Some(id) = self.post_question(&body) {
-                self.asked(&id, &body);
-                return;
+            match self.post_question(&body) {
+                Posted::Id(id) => {
+                    self.asked(&id, &body);
+                    return;
+                }
+                // The question may be there: a plain comment would say the
+                // park twice.
+                Posted::Maybe => return,
+                Posted::No => {}
             }
         }
         let said = p.comment(self.stuck, on_record);
         self.comment(&said);
     }
 
-    /// The question's id, None when it could not be posted.
-    fn post_question(&mut self, body: &str) -> Option<String> {
+    /// The question's id, or whether it may have been posted.
+    fn post_question(&mut self, body: &str) -> Posted {
         let n = self.issue;
         let args = vec![
             "api".into(),
@@ -382,15 +461,34 @@ impl Writer<'_> {
             ".id".into(),
         ];
         let input = json!({"body": body}).to_string();
-        let Wrote::Done(out) = self.write(n, "comment-post", args, Some(&input), None) else {
-            return None;
+        let since = tehas_core::time::now();
+        let out = match self.write(n, "comment-post", args.clone(), Some(&input), None) {
+            Wrote::Done(out) => out,
+            // Read back: one not there gets the plain comment, as a refused
+            // post does.
+            Wrote::Unknown(why) => match self.reread(n, "comment-post", &args, Some(&input), since)
+            {
+                Seen::There(id) => id,
+                Seen::Missing => return Posted::No,
+                Seen::Unread => {
+                    maybe_posted(n, &why);
+                    self.last_failed = why;
+                    self.handed(None, body);
+                    return Posted::Maybe;
+                }
+            },
+            Wrote::Failed(_) | Wrote::Unrecorded => return Posted::No,
         };
-        self.handed(true, body);
+        self.handed(Some(true), body);
         let id = out.trim().to_string();
         let digits = (1..=16).contains(&id.len())
             && !id.starts_with('0')
             && id.bytes().all(|b| b.is_ascii_digit());
-        digits.then_some(id)
+        if digits {
+            Posted::Id(id)
+        } else {
+            Posted::No
+        }
     }
 
     /// On record before the label shows it: a tick counts only in the
@@ -442,12 +540,21 @@ impl Writer<'_> {
             "--body-file".into(),
             "-".into(),
         ];
-        let posted = matches!(
-            self.write(n, "comment-post", args, Some(body), None),
-            Wrote::Done(_)
-        );
+        let since = tehas_core::time::now();
+        let posted = match self.write(n, "comment-post", args.clone(), Some(body), None) {
+            Wrote::Done(_) => Some(true),
+            Wrote::Failed(_) | Wrote::Unrecorded => Some(false),
+            Wrote::Unknown(why) => match self.reread(n, "comment-post", &args, Some(body), since) {
+                Seen::There(_) => Some(true),
+                Seen::Missing => Some(false),
+                Seen::Unread => {
+                    maybe_posted(n, &why);
+                    None
+                }
+            },
+        };
         self.handed(posted, body);
-        if !posted {
+        if posted == Some(false) {
             log(&format!("WARN: comment on {pr} failed"));
         }
     }
@@ -465,11 +572,15 @@ impl Writer<'_> {
             format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
         ];
         for t in 1..=self.gh.tries {
-            if matches!(
-                self.write(n, "refresh-end", args.clone(), None, Some("Not Found")),
-                Wrote::Done(_)
-            ) {
-                return;
+            let since = tehas_core::time::now();
+            match self.write(n, "refresh-end", args.clone(), None, Some("Not Found")) {
+                Wrote::Done(_) => return,
+                Wrote::Unknown(why) => match self.reread(n, "refresh-end", &args, None, since) {
+                    Seen::There(_) => return,
+                    Seen::Missing => continue,
+                    Seen::Unread => return maybe_posted(n, &why),
+                },
+                Wrote::Failed(_) | Wrote::Unrecorded => {}
             }
             if t < self.gh.tries {
                 std::thread::sleep(self.gh.retry_wait);
@@ -734,6 +845,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         handed_off: false,
         last_failed: String::new(),
         handoff_failed: None,
+        handoff_maybe: false,
     };
     for a in &mut r.actions {
         match a {
@@ -771,7 +883,11 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     let mut a = r.after.clone();
     let delivered = &mut a.ended.handoff_delivered;
     *delivered = delivered.map(|d| d || w.handed_off);
-    if *delivered == Some(false) {
+    if *delivered == Some(false) && w.handoff_maybe && w.handoff_failed.is_none() {
+        log(&format!(
+            "WARN: the handoff of #{issue} may not have reached a comment: the next poll reads it"
+        ));
+    } else if *delivered == Some(false) {
         log(&format!(
             "WARN: the handoff of #{issue} reached no comment: it is only in the run log"
         ));

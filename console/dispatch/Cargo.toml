@@ -18,6 +18,8 @@ name = "tehas-dispatch"
 path = "src/main.rs"
 
 [dependencies]
+# The one link rule (src/text.rs).
+attach = { path = "../attach" }
 regex = "1"
 serde_json = "1"
 sha2 = "0.10"
