@@ -49,13 +49,29 @@ fn sid_ok(s: &str) -> bool {
 /// Bytes written whole to `path`, which is then the file, at `mode` when one
 /// is given. The sibling of a failed write is taken back, so a caller that
 /// renames next sees either the old file or the bytes it was given.
+///
+/// The file is made new, never truncated: what already holds the name is not
+/// this write's to reuse. A leftover regular file of a turn that died
+/// mid-keep is taken away first; anything else under the name - a link, a
+/// directory - is left where it is and the write fails naming it, since to
+/// follow it would write through a name this run does not own.
 fn write_atomic(path: &std::path::Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
     use std::io::Write as _;
     use std::os::unix::fs::OpenOptionsExt as _;
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => std::fs::remove_file(path)?,
+        Ok(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("{} is not a regular file", path.display()),
+            ))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut f = std::fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(mode.unwrap_or(0o644))
         .open(path)?;
     match f.write_all(bytes).and_then(|()| f.flush()) {
@@ -219,10 +235,15 @@ impl Writer {
         PathBuf::from(format!("{}-plan-{n}.keep", self.host.work_dir))
     }
 
+    /// The outcome the turn left, or nothing. Read as a regular file under the
+    /// shared bound: a link, a directory, a file that grew past the bound or
+    /// one that cannot be opened is no outcome, the same answer as no file at
+    /// all, so the poll takes the turn's text from nothing rather than from a
+    /// file it cannot vouch for.
     fn outcome(&self, n: u64) -> Value {
-        std::fs::read_to_string(self.st(n, ".out"))
+        tehas_core::file::read_regular(&self.st(n, ".out"), tehas_core::file::READ_BOUND)
             .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
+            .and_then(|(bytes, _)| serde_json::from_slice(&bytes).ok())
             .unwrap_or(Value::Null)
     }
 
@@ -1180,7 +1201,7 @@ impl Writer {
 
     /// The outcome without its text, so a poll that posts the question again
     /// does not say the plan twice. False when the file could not be written.
-    fn plan_text_said(&self, n: u64, out: &Value) -> bool {
+    pub(super) fn plan_text_said(&self, n: u64, out: &Value) -> bool {
         let mut rest = out.clone();
         rest["text"] = json!("");
         self.outcome_said(n, &rest)
@@ -1198,9 +1219,9 @@ impl Writer {
     /// land: which write it was, and what the system said of it. The document
     /// is written whole to a sibling of `.out` and moved into place, so a poll
     /// that reads it sees one document or the other; a turn killed between the
-    /// two leaves the sibling behind, and the next keep truncates it. A `doc`
-    /// that is no object at all keeps only its session, so what a poll writes
-    /// back always reads as an outcome.
+    /// two leaves the sibling behind, and the next keep takes the name back
+    /// from it. A `doc` that is no object at all keeps only its session, so
+    /// what a poll writes back always reads as an outcome.
     fn outcome_kept(&self, n: u64, doc: &Value) -> Result<(), String> {
         let new = self.st(n, ".out.new");
         let doc = if doc.is_object() {

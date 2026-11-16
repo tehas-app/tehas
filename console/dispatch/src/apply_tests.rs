@@ -5428,3 +5428,292 @@ fn a_body_written_whole_settles_as_done_by_its_sum() {
     );
     assert!(log[1].contains("did not happen"), "{log:?}");
 }
+
+/// The outcome file of issue 7 and its sibling, as `outcome_kept` names them.
+fn outcome_files(t: &World) -> (std::path::PathBuf, std::path::PathBuf) {
+    (
+        t.w.home.join("state/plan-7.json.out"),
+        t.w.home.join("state/plan-7.json.out.new"),
+    )
+}
+
+/// The turn of issue 7 whose outcome the poll cannot read: the exit status of
+/// a turn that ended, a session on record so that the turn is a real one, and
+/// nothing the poll may take at `state/plan-7.json.out` - a link, or a file
+/// that grew past the read bound. With no outcome the turn has no words of its
+/// own, so the poll says the one line of a turn that left none and asks the
+/// one box of a session that ended.
+fn turn_of_no_outcome(t: &World) {
+    plan_row(t, alices_session());
+    fs::write(t.w.home.join("state/plan-7.json.rc"), "0\n").unwrap();
+}
+
+#[test]
+fn a_leftover_sibling_is_replaced_and_the_new_document_is_read() {
+    // A turn killed between the write of the sibling and its rename leaves the
+    // name held by a whole file of its own. The keep makes the name new again
+    // rather than writing into what is there, so the document a later poll
+    // reads is the one this keep wrote and not the leftover's bytes.
+    // The keep of a refused draft, on a turn whose question was asked already:
+    // the poll keeps the console's own document and asks nothing again, so the
+    // file is still there for a later poll to read. `--add-label` is stopped so
+    // the wind-up of an ended session cannot take the file off: the refusal's
+    // own keep lands before any of that.
+    let mut t = world();
+    chosen_draft_asked(
+        &t,
+        REFUSED_TITLE,
+        PLAN_BODY,
+        &json!({"question": "Tick.", "options": [{"label": TICK}]}),
+    );
+    let (file, new) = outcome_files(&t);
+    let before: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert!(before.get("update").is_some(), "{before}");
+    let leftover = json!({"text": "half a document of a turn that died"});
+    fs::write(&new, format!("{leftover}\n")).unwrap();
+    t.fail("gh", "--add-label");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    // The document the keep wrote, read back: no `update` of the refused plan
+    // is left in it, and none of the leftover's text is either.
+    let kept: Value = serde_json::from_str(
+        &fs::read_to_string(&file)
+            .unwrap_or_else(|e| panic!("{}: {e}\nlog {:?}", file.display(), a.log)),
+    )
+    .unwrap();
+    assert_eq!(kept.get("update"), None, "{kept}");
+    assert!(!kept.to_string().contains("half a document"), "{kept}");
+    // The name is gone with the rename, so a poll that reads the sibling finds
+    // nothing, and the keep of the next turn makes it new again.
+    assert!(!new.exists());
+    // The document the keep left is what the same poll read: it posted the
+    // refusal once and asked the question of the document it kept, without the
+    // tick the refusal stopped - the answer that writes the plan is the one a
+    // refusal stops.
+    let w = t.writes();
+    assert_eq!(
+        w.iter()
+            .filter(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED))
+            .count(),
+        1,
+        "{w:?}"
+    );
+    let boxes = w
+        .iter()
+        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+        .unwrap();
+    assert!(!boxes.contains(TICK), "{boxes}");
+    // The sibling's name is not this write's to open, either. A world of the
+    // same facts, with a link under the name instead of a file: the keep is
+    // refused it, the link stands where it was put, its target keeps its own
+    // bytes, and the warning names the file that stopped the keep. A directory
+    // of the name is refused the same way, which is the case above this one.
+    let mut t = world();
+    chosen_draft_asked(
+        &t,
+        REFUSED_TITLE,
+        PLAN_BODY,
+        &json!({"question": "Tick.", "options": [{"label": TICK}]}),
+    );
+    let (file, new) = outcome_files(&t);
+    let target = t.w.home.join("state/victim.json");
+    fs::write(&target, "not the outcome\n").unwrap();
+    std::os::unix::fs::symlink(&target, &new).unwrap();
+    t.fail("gh", "--add-label");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(
+        a.log.iter().any(|l| {
+            l.starts_with(
+                "WARN: the refusal of the drafted plan of #7 could not be kept (plan-7.json.out.new:"
+            ) && l.contains("the next poll tries again")
+        }),
+        "{:?}",
+        a.log
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), "not the outcome\n");
+    assert!(new.is_symlink());
+    // The document of the console still stands at the outcome's name, and the
+    // keep made no move of the sibling into its place. The write then works
+    // with the name free: the name is made new again, the document of the keep
+    // stands in its place whole, and the target of the link that stood there
+    // still holds its own bytes. `plan_text_said` is the keep asked of the
+    // writer directly - the write of the sibling and its rename - so no poll of
+    // a turn ends the session and takes the files with it, and its text is the
+    // empty the keep gives a document of no text.
+    fs::remove_file(&new).unwrap();
+    assert!(t
+        .w
+        .plan_text_said(7, &json!({"session": "s-1", "text": "Kept."})));
+    assert!(!new.exists(), "the keep renamed its sibling by itself");
+    // The document the keep wrote is the one the file holds now, and the target
+    // of the link that stood under the sibling's name was never opened for
+    // writing: its bytes are the ones the case wrote there.
+    let kept: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(kept["text"], "", "{kept}");
+    assert_eq!(kept["session"], "s-1", "{kept}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "not the outcome\n");
+}
+
+#[test]
+fn a_link_at_the_outcome_reads_as_no_outcome() {
+    // The poll reads the outcome as a regular file: a link of the name is no
+    // document, whatever it points at. A world whose outcome the poll may read
+    // says the plan of the file and asks its tick; the same world with a link
+    // at the name has nothing to say and asks only the box of a session that
+    // ended. The two worlds differ by the one fact under test.
+    let plan = json!({"session": "s-1", "text": "The plan of another issue.",
+                      "question": {"question": "Which of the two?",
+                                   "options": [{"label": TICK}]}});
+
+    // The same world, read: the document of the file is the turn's own, so its
+    // text is said and its tick is asked for.
+    let mut t = world();
+    turn_of_no_outcome(&t);
+    let (file, _) = outcome_files(&t);
+    fs::write(&file, format!("{plan}\n")).unwrap();
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert!(!a.log.iter().any(|l| l.starts_with("WARN")), "{:?}", a.log);
+    let w = t.writes();
+    assert!(
+        w.iter()
+            .any(|c| c.starts_with("gh issue comment 7") && c.contains("The plan of another issue")),
+        "{w:?}"
+    );
+    let boxes = w
+        .iter()
+        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+        .unwrap();
+    assert!(
+        boxes.contains(TICK) && boxes.contains("Which of the two?"),
+        "{boxes}"
+    );
+
+    // The link: no document to read. The name handed to the store's record is
+    // the same one either way - what the guard decides is what the poll reads
+    // of it, not what it names - and nothing of the file behind the link is
+    // said, whatever shape of the question that file would have asked.
+    let mut t = world();
+    turn_of_no_outcome(&t);
+    let (file, new) = outcome_files(&t);
+    let elsewhere = t.w.home.join("state/elsewhere.json");
+    fs::write(&elsewhere, format!("{plan}\n")).unwrap();
+    assert!(!file.exists(), "the case asks for a link and nothing else");
+    std::os::unix::fs::symlink(&elsewhere, &file).unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    // A session on record and no outcome the poll may read is the turn of a
+    // runner that came back with nothing: the poll has no words of it to post,
+    // ends on that warning, and says nothing of the document behind the link.
+    assert_eq!(
+        a.log,
+        vec![
+            "WARN: the planning turn of #7 could not be posted; the next poll tries again",
+            "done planning #7 turn=2 rc=0"
+        ],
+        "{:?}",
+        a.log
+    );
+    let w = t.writes();
+    // The words and the tick of the file behind the link are nowhere in a
+    // write: no comment of the plan, and no boxes of its tick.
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh issue comment 7")),
+        "{:?}",
+        t.calls()
+    );
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
+        "{:?}",
+        t.calls()
+    );
+    // No plan of the linked document was written onto the issue.
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    // The link stands and its target is untouched: reading is not writing.
+    assert!(file
+        .symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink()));
+    assert!(elsewhere.is_file());
+    assert!(!new.exists());
+}
+
+#[test]
+fn an_outcome_over_the_read_bound_reads_as_no_outcome() {
+    // The other half of the guard: a file that grew past the shared bound is no
+    // outcome either, and it is refused before its bytes are read. The poll
+    // answers it as the case above answers a link, and a document that ends at
+    // the bound - the padding to the last byte of it - is still read. The
+    // document is a refusal's own: no `update` for a poll to write, and a
+    // question of a reply rather than of a tick, which is the shape the link
+    // above must not be read as either.
+    let whole = format!(
+        "{}\n",
+        json!({"session": "s-1", "text": REFUSED,
+        "question": {"question": "Which?", "options": [{"label": TICK}]}})
+    );
+    let mut fits = whole.clone();
+    fits.extend(std::iter::repeat_n(
+        ' ',
+        tehas_core::file::READ_BOUND_LEN - whole.chars().count(),
+    ));
+    assert_eq!(fits.len() as u64, tehas_core::file::READ_BOUND);
+
+    // Over it by the last byte of that padding, and the poll reads no outcome.
+    let mut t = world();
+    turn_of_no_outcome(&t);
+    let (file, _new) = outcome_files(&t);
+    fs::write(&file, format!("{whole}{}x", &fits[whole.len()..])).unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=2 rc=0"], "{:?}", a.log);
+    let w = t.writes();
+    // The turn is answered as one that left no words of its own, which is what
+    // a file the poll may not read leaves it with, and nothing of the oversize
+    // document reached a write: the document it holds asks the tick the poll
+    // of the case below is left with, and no comment of a plan was posted.
+    assert!(
+        w.iter().any(|c| c.starts_with("gh issue comment 7")
+            && c.contains("This planning turn did not finish")),
+        "{w:?}"
+    );
+    assert!(!w.iter().any(|c| c.contains("Which?")), "{w:?}");
+    assert!(
+        !w.iter()
+            .any(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title")),
+        "{w:?}"
+    );
+    let boxes = w
+        .iter()
+        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+        .unwrap();
+    assert!(boxes.contains("End this planning session"), "{boxes}");
+    assert!(!boxes.contains(TICK), "{boxes}");
+
+    // At the bound itself the same document is the turn's own outcome: the
+    // poll says its text in a comment of its own and asks the tick of the plan
+    // it holds.
+    let mut t = world();
+    turn_of_no_outcome(&t);
+    let (file, _) = outcome_files(&t);
+    fs::write(&file, &fits).unwrap();
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=2 rc=0"], "{:?}", a.log);
+    let w = t.writes();
+    assert!(
+        w.iter()
+            .any(|c| c.starts_with("gh issue comment 7") && c.contains(REFUSED)),
+        "{w:?}"
+    );
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh issue comment 7")
+            && c.contains("This planning turn did not finish")),
+        "{w:?}"
+    );
+    let boxes = w
+        .iter()
+        .find(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments"))
+        .unwrap();
+    assert!(boxes.contains(TICK), "{boxes}");
+    assert!(boxes.contains("Which?"), "{boxes}");
+}
