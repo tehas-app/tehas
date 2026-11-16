@@ -68,8 +68,9 @@ build host's paths, and an explicit ssh call keeps that visible and testable.
 
 ### Choosing a host
 
-The dispatcher counts running cycles per host from the store and picks the
-host with the most free slots. A host at its count is skipped. When every host
+The factory sees only the slots it was given. It counts its own running cycles
+per host from the store and picks the host with the most free slots. It does
+not know what other factories use of the same machine (see "Fleet" below). A host at its count is skipped. When every host
 is full and `TEHAS_BUILD_LOCAL=1`, the local slice is used. Otherwise the
 issue waits, as it waits today for a full slice.
 
@@ -141,8 +142,17 @@ says so (hard rule 4).
 real build host and the host's name is in its record) and a changelog
 fragment with an adopter action only for factories that name hosts.
 
+## Fleet (tehas-industry)
+
+This spec is the factory side: the executor and the setting. A registry of
+hosts, slot sharing between factories on the same machine, provisioning and
+the share left to a machine's CI runners belong to tehas-industry, which writes
+`TEHAS_BUILD_HOSTS` into each instance. A single factory with no industry works
+from the setting alone.
+
 ## Out of scope
 
+- A host registry and cross-factory slot accounting (tehas-industry).
 - Running the dispatcher or the store anywhere but the control host.
 - Syncing a workspace from the control host to a build host.
 - Dev sessions, planning turns and the refresh. They stay local first. If the
