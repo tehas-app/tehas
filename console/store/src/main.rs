@@ -3,8 +3,8 @@
 //! database. `docs/specs/2026-10-21-state-store.md` is the design; section 3
 //! is the schema (src/schema.sql) and section 4 this command.
 //!
-//!   store init [--force] [--version <v>] [--commit <sha>] [--instance <name>]
-//!                [--repo <owner/name>] [--json]
+//!   store init [--force] [--outsource] [--version <v>] [--commit <sha>]
+//!                [--instance <name>] [--repo <owner/name>] [--json]
 //!     Makes the database: schema v2 in an empty file and PRAGMA
 //!     user_version 2, and the row of meta that says when it was made, by
 //!     which version and commit of tehas, and for which instance and
@@ -17,7 +17,12 @@
 //!     Answers
 //!     {"api":1,"verb":"init","ok":true,"schema":2,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
-//!   store migrate --backup <dir> [--json]
+//!     --outsource turns the outsource feature on. The store reads no setting
+//!     of a host, so the command that loaded the instance's settings says
+//!     whether TEHAS_OUTSOURCE is 1, and the store keeps the word in meta.
+//!     The five tables are laid either way; without the flag the verbs of
+//!     outsource.rs answer `refused` and write nothing.
+//!   store migrate --backup <dir> [--outsource] [--json]
 //!     Backs the database up and then brings it forward, in that order: a
 //!     consistent copy of the store as it stands is written to
 //!     <dir>/tehas-<to>-<time>.db with VACUUM INTO before a byte of the store is
