@@ -52,6 +52,21 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 /// The label that chooses the lean driver for one issue.
 pub(crate) const LEAN: &str = "tehas:lean";
 
+/// The label that chooses the classic driver for one issue, where
+/// `TEHAS_DRIVER=lean` makes lean the default.
+pub(crate) const CLASSIC: &str = "tehas:classic";
+
+/// The label that chooses against the instance's default driver: the one
+/// whose applier `Poll::driver` asks about. The other agrees with the default
+/// and chooses nothing.
+pub(crate) fn opt_out(lean_default: bool) -> &'static str {
+    if lean_default {
+        CLASSIC
+    } else {
+        LEAN
+    }
+}
+
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
 /// it cannot drift apart.
@@ -69,18 +84,24 @@ pub(crate) const HOST: &str = "host";
 enum Driver {
     Classic,
     Lean,
-    /// An account outside the list made the choice: nothing starts, classic
-    /// included.
+    /// An account outside the list made the choice, or the issue carries both
+    /// driver labels: nothing starts, the default driver included.
     Stranger(Stranger),
     /// Its record could not be read this poll.
     Wait,
 }
 
 impl Driver {
-    /// The action of a classic start names no driver.
-    fn bind(&self, extra: &mut Map<String, Value>) {
+    /// The action of a classic start names no driver. A lean start takes
+    /// `needs-human-attention` off with its other labels: classic's
+    /// `--restart` clears it in the cycle, and work-lean has no restart.
+    fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
         if matches!(self, Driver::Lean) {
             extra.insert("driver".into(), json!("lean"));
+            let attention = "needs-human-attention";
+            if has(labels, attention) && !remove.iter().any(|l| l == attention) {
+                remove.push(attention.into());
+            }
         }
     }
 }
@@ -96,22 +117,58 @@ enum Planned {
     Go(String, String),
 }
 
-/// Who made the choice of driver that does not count: applied tehas:lean, or
-/// with `off` took an allowed account's off.
+/// Who made the choice of driver that does not count: applied `label` (the
+/// instance's [`opt_out`]), or with `off` took an allowed account's off. With
+/// `both`, the issue carries both driver labels and nobody's choice is read.
 struct Stranger {
     who: String,
     off: bool,
+    label: &'static str,
+    both: bool,
 }
 
 impl Stranger {
+    /// Both driver labels are on the issue.
+    fn both() -> Stranger {
+        Stranger {
+            who: String::new(),
+            off: false,
+            label: LEAN,
+            both: true,
+        }
+    }
+
+    /// The driver that runs when `label` is off, and that tehas does not run
+    /// in its place.
+    fn default_name(&self) -> &'static str {
+        if self.label == CLASSIC {
+            "lean"
+        } else {
+            "classic"
+        }
+    }
+
     /// What a start refused over it says on the issue.
     fn said(&self) -> String {
+        if self.both {
+            return format!("it carries both `{LEAN}` and `{CLASSIC}`, and tehas does not guess which driver to run. An account named in `TEHAS_ALLOWED_LABELERS` takes one of them off");
+        }
+        let (label, other) = (self.label, self.default_name());
         let (what, rest) = if self.off {
-            ("taken off", "and takes it off for classic")
+            ("taken off", format!("and takes it off for {other}"))
         } else {
-            ("applied", "or takes it off for classic")
+            ("applied", format!("or takes it off for {other}"))
         };
-        format!("`{LEAN}` was {what} by `{}`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `{LEAN}` again, {rest}", self.who)
+        format!("`{label}` was {what} by `{}`, an account that may not choose the driver in this factory, and tehas does not run {other} in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `{label}` again, {rest}", self.who)
+    }
+
+    /// What a dry run logs in place of the refusal.
+    fn dry_line(&self) -> String {
+        if self.both {
+            format!("it carries both {LEAN} and {CLASSIC}")
+        } else {
+            format!("{} is not an allowed account's", self.label)
+        }
     }
 }
 
@@ -1447,27 +1504,47 @@ impl<'a> Poll<'a> {
             && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
     }
 
-    /// driver: the driver of a start, read of who applied tehas:lean and never
-    /// of the label alone. With the label off a start is classic, whatever the
-    /// last one ran, unless an account outside the list took an allowed
-    /// account's choice off. With it on, a start that rests on an earlier
-    /// approval (`retry`) keeps the driver on that record, so a label added
-    /// since changes nothing until a person approves a new start.
+    /// driver: the driver of a start, read of who applied the label that
+    /// chooses against the default (`tehas:lean`, or `tehas:classic` under
+    /// `TEHAS_DRIVER=lean`) and never of the label alone. With that label off
+    /// a start runs the default, whatever the last one ran, unless an account
+    /// outside the list took an allowed account's choice off. With it on, a
+    /// start that rests on an earlier approval (`retry`) keeps the driver on
+    /// that record, so a label added since changes nothing until a person
+    /// approves a new start. The label that agrees with the default chooses
+    /// nothing, but with both on nothing starts: tehas does not guess.
     fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
-        if !has(labels, LEAN) {
-            return Ok(match self.lean_taken_off(n) {
-                Some(who) => Driver::Stranger(Stranger { who, off: true }),
-                None => Driver::Classic,
+        if has(labels, LEAN) && has(labels, CLASSIC) {
+            return Ok(Driver::Stranger(Stranger::both()));
+        }
+        let lean_default = self.c.lean_default;
+        let label = opt_out(lean_default);
+        let (default, chosen) = if lean_default {
+            (Driver::Lean, Driver::Classic)
+        } else {
+            (Driver::Classic, Driver::Lean)
+        };
+        let stranger = |who: String, off: bool| {
+            Driver::Stranger(Stranger {
+                who,
+                off,
+                label,
+                both: false,
+            })
+        };
+        if !has(labels, label) {
+            return Ok(match self.taken_off(n, label) {
+                Some(who) => stranger(who, true),
+                None => default,
             });
         }
         let ev = self.events(n)?;
-        let (who, _) = label_actor(&ev, LEAN);
+        let (who, _) = label_actor(&ev, label);
         if !self.c.allowed(&who) {
-            let who = or_unknown(&who).to_string();
-            return Ok(Driver::Stranger(Stranger { who, off: false }));
+            return Ok(stranger(or_unknown(&who).to_string(), false));
         }
         if !retry {
-            return Ok(Driver::Lean);
+            return Ok(chosen);
         }
         match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
             None => {
@@ -1479,7 +1556,7 @@ impl<'a> Poll<'a> {
                 Ok(Driver::Wait)
             }
             // No start on record to follow: this one is the first.
-            Some(Ok(None)) => Ok(Driver::Lean),
+            Some(Ok(None)) => Ok(chosen),
             Some(Ok(Some(r))) if r.get("driver") == Some(&json!("lean")) => Ok(Driver::Lean),
             Some(Ok(Some(_))) => Ok(Driver::Classic),
         }
@@ -1608,35 +1685,38 @@ impl<'a> Poll<'a> {
         Ok(false)
     }
 
-    /// lean_taken_off: who took tehas:lean off, when an allowed account's
-    /// choice went and that account may not take it. An issue whose events
-    /// were not read names nobody: each start reads them itself.
-    fn lean_taken_off(&self, n: u64) -> Option<String> {
+    /// taken_off: who took the driver label `label` off, when an allowed
+    /// account's choice went and that account may not take it. An issue whose
+    /// events were not read names nobody: each start reads them itself.
+    fn taken_off(&self, n: u64, label: &str) -> Option<String> {
         let i = self.s.issues.get(&n)?;
         let Events::Read(ev) = &i.events else {
             return None;
         };
-        let state = label_state(ev, LEAN);
+        let state = label_state(ev, label);
         (state.event() == "unlabeled"
             && !self.c.allowed(state.actor())
-            && self.c.allowed(&label_actor(ev, LEAN).0))
+            && self.c.allowed(&label_actor(ev, label).0))
         .then(|| or_unknown(state.actor()).to_string())
     }
 
     /// lean_deny: the log line of a choice of driver that does not count.
     fn lean_deny(&mut self, n: u64, s: &Stranger) {
-        if s.off {
-            let who = &s.who;
+        if s.both {
+            self.log(format!("skip #{n}: it carries both {LEAN} and {CLASSIC}; tehas does not guess the driver, so nothing starts until one comes off"));
+        } else if s.off {
+            let (who, label) = (&s.who, s.label);
             self.log(format!(
-                "skip #{n}: {LEAN} was taken off by '{who}', not an allowed account"
+                "skip #{n}: {label} was taken off by '{who}', not an allowed account"
             ));
         } else {
-            self.deny("skip", n, LEAN, &s.who);
+            self.deny("skip", n, s.label, &s.who);
         }
     }
 
     /// lean_refused: the labels that ask for the start come off, so this is
-    /// said once. tehas:lean stays, or the next tehas:ready would run classic.
+    /// said once. The driver label stays, or the next tehas:ready would run
+    /// the other driver.
     fn lean_refused(&mut self, n: u64, ask: &str, labels: &[String], s: &Stranger) {
         self.lean_deny(n, s);
         self.refuse_start(
@@ -1644,7 +1724,7 @@ impl<'a> Poll<'a> {
             ask,
             labels,
             &format!("{}, then applies `{ask}`.", s.said()),
-            &format!("{LEAN} is not an allowed account's"),
+            &s.dry_line(),
         );
     }
 
@@ -2995,7 +3075,7 @@ impl<'a> Poll<'a> {
                 st.extra
                     .insert("approved_label".into(), json!("tehas:plan"));
             }
-            driver.bind(&mut st.extra);
+            driver.bind(&mut st.extra, &mut st.remove, &labels);
             self.starts.push((n, st));
         }
         let count = self.live().count();

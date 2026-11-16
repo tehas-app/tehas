@@ -542,7 +542,7 @@ mod tests {
 
     /// The labels of the table a closed issue keeps, each with why. Together
     /// with `STATES` they are the whole table, and no name is in both.
-    const KEPT: [(&str, &str); 13] = [
+    const KEPT: [(&str, &str); 14] = [
         (SHIPPED, "the mark of a merge, given by tidy itself"),
         ("tehas:pause", "a setting of the control issue, not of work"),
         (
@@ -559,6 +559,7 @@ mod tests {
             "a record: the millwright left it to a person",
         ),
         ("tehas:lean", "a choice of driver, not a state of work"),
+        ("tehas:classic", "a choice of driver, not a state of work"),
         (
             "tehas:all-hands",
             "a setting of the control issue, not of work",

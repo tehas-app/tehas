@@ -246,7 +246,7 @@ compute on the issue.
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
   label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-  `tehas:lean`) in `~/tehas/state/labels`,
+  `tehas:lean`, `tehas:classic`) in `~/tehas/state/labels`,
   written by `tehas labels` when it makes the labels, and an application of a
   label with another id, or of a granting label with no pin, counts as
   nobody's. The poll logs each refusal with the
@@ -368,6 +368,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
+| `tehas:classic`         | Under `TEHAS_DRIVER=lean`: the classic driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on lean |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 | `tehas:finish`          | Asks the factory to open the draft pull request of a stopped cycle. See [Finishing a stopped cycle](#finishing-a-stopped-cycle) | Wait: the next poll takes it off and comments with the URL or why not |
@@ -395,8 +396,8 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`,
 `tehas:refreshing`, `tehas:blocked`, `tehas:ready`, `tehas:plan` and
 `tehas:refine`.
-`needs-human-attention` and the labels a person chooses, such as `tehas:lean`,
-stay. The list, the two searches, the decision of what comes
+`needs-human-attention` and the labels a person chooses, such as `tehas:lean`
+and `tehas:classic`, stay. The list, the two searches, the decision of what comes
 off which issue and the edits are the console's (`console tidy run`,
 `console/ops/src/tidy.rs`).
 
@@ -471,6 +472,18 @@ does. See [Commands](/tools).
 A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
+`TEHAS_DRIVER` in the instance sets the default: `classic`, the default, or
+`lean`. With `TEHAS_DRIVER=lean` every approved start runs lean unless a person
+chooses classic for that issue with `tehas:classic`, which is then read as
+`tehas:lean` is under the classic default: from an allowed account only, read
+from the label's events, and the rules below hold with the two labels and the
+two drivers swapped. `tehas:lean` then agrees with the default and chooses
+nothing, and `tehas:classic` does the same under the classic default. An issue
+that carries both labels starts nothing, whatever the default: the poll takes
+`tehas:ready` off, says why once, and an allowed account takes one of them
+off. Each approval record binds the driver its start ran, so changing the
+setting changes no retry of a start already on record.
+
 A lean start runs `pi-rukas-headless work-lean` in the same container classic
 `work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later
 ([pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920)). On an
@@ -500,7 +513,12 @@ lean without the label ([tehas work](/tools-work#tehas-work)).
 - The park of a refused lean start asks for the label to come off first. A
   Retry ticked there while `tehas:lean` is on starts nothing: the poll logs
   that it waits for the label, and the tick stays. Once the label is off, that
-  tick starts the cycle on classic.
+  tick starts the cycle on classic. Under `TEHAS_DRIVER=lean` the park asks for
+  `tehas:classic` instead: the tick waits until an allowed account applied it,
+  then starts the cycle on classic.
+- A lean start takes `needs-human-attention` off with its other labels. A
+  classic start leaves it to the cycle's `--restart`; `work-lean` takes no
+  restart.
 - A new lean start also needs a `pi-spec v1` block in the issue's text: one
   fence with that info string, holding valid JSON. With none the poll starts
   nothing, takes `tehas:ready` off and says why once, as for a label from an

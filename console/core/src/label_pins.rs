@@ -12,22 +12,24 @@ use std::path::Path;
 
 /// The labels whose application the dispatcher takes as a person's word to
 /// start or plan work.
-pub const GRANTING: [&str; 5] = [
+pub const GRANTING: [&str; 6] = [
     "tehas:ready",
     "tehas:plan",
     "tehas:refine",
     "tehas:finish",
     "tehas:lean",
+    "tehas:classic",
 ];
 
 /// The labels `tehas labels` pins: the granting ones, and the label that
 /// puts a ticket in the Protolab.
-pub const PINNED: [&str; 6] = [
+pub const PINNED: [&str; 7] = [
     "tehas:ready",
     "tehas:plan",
     "tehas:refine",
     "tehas:finish",
     "tehas:lean",
+    "tehas:classic",
     "tehas:prototype",
 ];
 
