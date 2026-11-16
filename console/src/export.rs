@@ -212,7 +212,7 @@ pub fn main(given: &[String]) -> u8 {
         runs: user.join(".pi/agent/ensemble-runs"),
         cycles: to.join("cycles"),
     };
-    let lines: Vec<String> = listing.cycles.iter().map(J::dump).collect();
+    let lines: Vec<String> = listing.runs.iter().map(J::dump).collect();
     let mut printed = String::new();
     let mut ok = make_dir(&to) && make_dir(&run.cycles);
     if ok {

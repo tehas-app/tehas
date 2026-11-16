@@ -11,3 +11,9 @@ field	status.running[].stepTotal	status.running[].progress.stepTotal	driver-spec
 field	status.running[].round	status.running[].progress.round	driver-specific, may change
 field	status.running[].roundLimit	status.running[].progress.roundLimit	driver-specific, may change
 field	status.running[].stepSince	status.running[].progress.stepSince	driver-specific, may change
+field	history.cycles	history.runs	holds cycles and planning turns
+field	history.cycles[].step	history.runs[].progress.step	driver-specific, may change
+field	history.cycles[].stepNumber	history.runs[].progress.stepNumber	driver-specific, may change
+field	history.cycles[].stepTotal	history.runs[].progress.stepTotal	driver-specific, may change
+field	history.cycles[].round	history.runs[].progress.round	driver-specific, may change
+field	export.cycles	export.runs	tehas export --json prints the history object; each history.json of the directory is a line of it
