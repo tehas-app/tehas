@@ -14,7 +14,7 @@
 //! else. The last list of releases answered is kept in state/platform-newest.
 
 use crate::jq::{obj, J};
-use crate::update::release::{candidate, older, stale, tag_ok};
+use crate::update::release::{older, prerelease, stale, tag_ok};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -50,7 +50,7 @@ fn installed(home: &Path) -> Option<String> {
 }
 
 /// The release list as GitHub answers it, published `vX.Y.Z` tags only, no
-/// release candidate: the newest by version, not by date. None when the answer is not such a list,
+/// prerelease: the newest by version, not by date. None when the answer is not such a list,
 /// which ends the read as a list that failed.
 fn newest_of(answer: &str) -> Option<String> {
     if answer.trim().is_empty() {
@@ -71,7 +71,7 @@ fn newest_of(answer: &str) -> Option<String> {
             continue;
         }
         let tag = item.get("tag_name").as_str()?;
-        if !tag_ok(tag) || candidate(tag) {
+        if !tag_ok(tag) || prerelease(tag) {
             continue;
         }
         if newest.is_none_or(|n| !older(tag, n)) {
@@ -175,7 +175,9 @@ fn release(home: &Path, live: &Path, installed: &str) {
     let (last, mut fetched) = stamp_read(&stamp);
     let cached = fs::read_to_string(&cache).unwrap_or_default();
     let mut newest = cached.lines().next().unwrap_or_default().to_string();
-    if !newest.is_empty() && stale(&newest, installed) && !(candidate(installed) && tag_ok(&newest))
+    if !newest.is_empty()
+        && stale(&newest, installed)
+        && !(prerelease(installed) && tag_ok(&newest))
     {
         let _ = fs::remove_file(&cache);
         newest.clear();
@@ -308,9 +310,16 @@ mod tests {
             rel("v0.12.0", r#","prerelease":true"#),
             rel("nightly", ""),
             rel("v0.11.0-rc.1", r#","prerelease":true"#),
-            // A candidate is never the newest, flagged or not.
+            // A prerelease is never the newest, flagged or not.
             rel("v0.11.0-rc.2", ""),
         );
+        let pre = format!(
+            "[{},{},{}]",
+            rel("v0.10.0", ""),
+            rel("v0.11.0-alpha.1", ""),
+            rel("v0.11.0-beta.1", r#","prerelease":true"#),
+        );
+        assert_eq!(newest_of(&pre).as_deref(), Some("v0.10.0"));
         assert_eq!(newest_of(&list).as_deref(), Some("v0.10.0"));
         assert_eq!(newest_of("[]"), None);
         assert_eq!(newest_of(""), None);
