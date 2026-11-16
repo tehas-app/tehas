@@ -77,6 +77,9 @@ pub struct Settings {
     /// TEHAS_WORKSPACE_KEEP_DAYS: the days a kept workspace of an open issue
     /// waits after its last use before the sweep takes it.
     pub keep_days: u64,
+    /// TEHAS_DRIVER=lean: a start no driver label chose runs lean, and
+    /// `tehas:classic` is the choice against it.
+    pub lean_default: bool,
 }
 
 impl Settings {
@@ -148,6 +151,7 @@ impl Settings {
             millwright_epics: s("TEHAS_MILLWRIGHT_EPICS", "0") == "1",
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
+            lean_default: s("TEHAS_DRIVER", "classic") == "lean",
         }
     }
 
@@ -155,6 +159,10 @@ impl Settings {
     /// GitHub, is no value to act by. The load refuses it too; a run with no
     /// load before it must not read it as the setting left unset.
     pub fn refused(v: &Value) -> Option<String> {
+        let driver = v.get("TEHAS_DRIVER").and_then(Value::as_str).unwrap_or("");
+        if !matches!(driver, "" | "classic" | "lean") {
+            return Some("TEHAS_DRIVER is not valid: expected classic or lean".into());
+        }
         let k = tehas_core::kinds::SETTING;
         let value = v.get(k).and_then(Value::as_str).unwrap_or("");
         tehas_core::kinds::parse(value)
@@ -206,6 +214,21 @@ mod tests {
                 "TEHAS_ISSUE_TYPES is not valid: bug is no kind: expected improvement or prototype"
             )
         );
+    }
+
+    #[test]
+    fn the_driver_is_classic_unless_the_setting_says_lean() {
+        assert!(!Settings::parse(&json!({})).lean_default);
+        assert!(!Settings::parse(&json!({"TEHAS_DRIVER": "classic"})).lean_default);
+        assert!(Settings::parse(&json!({"TEHAS_DRIVER": "lean"})).lean_default);
+        assert_eq!(Settings::refused(&json!({"TEHAS_DRIVER": "lean"})), None);
+        assert_eq!(Settings::refused(&json!({"TEHAS_DRIVER": "classic"})), None);
+        for bad in ["Lean", "work-lean", " lean"] {
+            assert_eq!(
+                Settings::refused(&json!({"TEHAS_DRIVER": bad})).as_deref(),
+                Some("TEHAS_DRIVER is not valid: expected classic or lean")
+            );
+        }
     }
 
     #[test]

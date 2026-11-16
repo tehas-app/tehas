@@ -146,6 +146,9 @@ pub const OWN_CAPS: [&str; 5] = [
 /// The label that chooses the lean driver.
 const LEAN: &str = "tehas:lean";
 
+/// The label that chooses the classic driver where `TEHAS_DRIVER=lean`.
+const CLASSIC: &str = "tehas:classic";
+
 /// What a label that could not be changed adds to a comment.
 pub const STUCK: &str =
     " The label of this issue could not be changed. The next poll of the dispatcher hands it to a human.";
@@ -1668,9 +1671,19 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 let lacks = refused
                     .as_deref()
                     .unwrap_or("The log names what the image lacks.");
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+                // Under a lean default taking `tehas:lean` off changes nothing:
+                // `tehas:classic` is what runs classic.
+                let (how, step) = if f.lean_default {
+                    (
+                        format!("apply `{CLASSIC}`"),
+                        format!("Apply `{CLASSIC}` to"),
+                    )
+                } else {
+                    (format!("take `{LEAN}` off"), format!("Take `{LEAN}` off"))
+                };
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, {how}, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
-                lead = format!("Take `{LEAN}` off this issue, then tick a box.");
+                lead = format!("{step} this issue, then tick a box.");
             }
         } else if let Some(said) = &conflicted {
             r.arm = "refresh-conflict";

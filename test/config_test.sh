@@ -707,6 +707,21 @@ t_contains "$t_out" "tehas: TEHAS_DESIGN is not valid: expected beesknees26 or p
 t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "the default driver is classic unless the instance says lean"
+for pair in "|classic" "TEHAS_DRIVER=|classic" "TEHAS_DRIVER=classic|classic" "TEHAS_DRIVER=lean|lean"; do
+  t_instance "${T_MINIMAL[@]}" "${pair%%|*}"
+  t_run "$load; echo rc=\$? \"[\$TEHAS_DRIVER]\""
+  t_eq "$t_out" "rc=0 [${pair#*|}]"
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a driver this version does not know stops every command"
+t_instance "${T_MINIMAL[@]}" TEHAS_DRIVER=work-lean
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_DRIVER is not valid: expected classic or lean"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
+
 t_case "a retired theme or layout line stops every command, with its reason"
 for pair in "TEHAS_THEME=pixel|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
   "TEHAS_THEME=neon|TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out" \
@@ -1653,7 +1668,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "65faf0b4059cd67957614fbc888c5a2489b8b12958326c47b14dbf456c6f97cf"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "49e5fb2c33264c6968bcea3c311aa8bfd07902f020569436a9451ebb6a170769"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

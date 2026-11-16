@@ -1033,6 +1033,23 @@ mod tests {
     }
 
     #[test]
+    fn the_driver_is_classic_unless_the_instance_says_lean() {
+        assert_eq!(loads(&[]).text("TEHAS_DRIVER"), "classic");
+        assert_eq!(loads(&["TEHAS_DRIVER="]).text("TEHAS_DRIVER"), "classic");
+        assert_eq!(loads(&["TEHAS_DRIVER=lean"]).text("TEHAS_DRIVER"), "lean");
+        assert_eq!(
+            loads(&["TEHAS_DRIVER=classic"]).text("TEHAS_DRIVER"),
+            "classic"
+        );
+        for bad in ["Lean", "work-lean", "both"] {
+            assert_eq!(
+                refused(&[&format!("TEHAS_DRIVER={bad}")]),
+                format!("TEHAS_DRIVER is not valid: expected classic or lean (see {FILE})")
+            );
+        }
+    }
+
+    #[test]
     fn a_renewal_period_is_whole_seconds_or_left_out() {
         assert_eq!(loads(&[]).text("TEHAS_GITHUB_RENEW_EVERY"), "");
         assert_eq!(

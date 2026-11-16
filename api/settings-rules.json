@@ -126,6 +126,17 @@
       "reason": "expected 0 or 1"
     },
     {
+      "name": "TEHAS_DRIVER",
+      "rule": "one-of",
+      "when": "always",
+      "default": "classic",
+      "words": [
+        "classic",
+        "lean"
+      ],
+      "reason": "expected classic or lean"
+    },
+    {
       "name": "TEHAS_EASY_MERGE",
       "rule": "one-of",
       "when": "always",

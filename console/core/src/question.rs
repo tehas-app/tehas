@@ -37,7 +37,8 @@ pub fn retry_of(label: &str) -> Option<bool> {
     }
 }
 /// The reason on record of a park over a lean start tehas work refused: a
-/// retry of it waits while the issue carries `tehas:lean`.
+/// retry of it waits while the issue carries `tehas:lean`, or under
+/// `TEHAS_DRIVER=lean` until it carries `tehas:classic`.
 pub const LEAN_REFUSED: &str = "lean-refused";
 
 /// The `sig` of a park marker: the hash of the park's fields as the state
