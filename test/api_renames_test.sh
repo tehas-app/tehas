@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for api/renames-1.0.tsv, the keys and values of the API that 1.0
 # renamed or removed: a header and rows of four tab-separated columns, kind,
-# old, new and note, each kind one of setting, label, command, field, word, tool or value, and no old name twice.
+# old, new and note. A kind is setting, label, command, field, word, tool or
+# value, and no old name is listed twice.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
