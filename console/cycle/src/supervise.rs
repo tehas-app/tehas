@@ -17,10 +17,15 @@
 //!
 //! The report is `apply`, in this process. It goes by the settings of this
 //! environment and loads none: instance.env may have changed during the cycle.
+//!
+//! The --work program is the runner seam. tehas work runs the cycle on this
+//! host. A job waiter (`--runner job`) waits on a cycle run on a contractor and
+//! leaves the same notes and exit status; the start and the report then read
+//! no image and no workspace of this host.
 
 use crate::after::log;
 use crate::apply;
-use crate::host::{self, Refused, Start};
+use crate::host::{self, Refused, Runner, Start};
 use crate::runner;
 use crate::start::attempt_shaped;
 use serde_json::Value;
@@ -40,6 +45,7 @@ pub struct Given {
     /// tehas work: the program and the words before the issue's number.
     pub work: String,
     pub work_args: Vec<String>,
+    pub runner: Runner,
     pub status_cmd: String,
     pub status_args: Vec<String>,
     pub console: String,
@@ -157,8 +163,8 @@ fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
 }
 
 /// The start on record, or the status to exit with.
-fn start_on_record(home: &Path, n: &str) -> Result<Value, i32> {
-    let rukas = rukas_commit();
+fn start_on_record(home: &Path, n: &str, runner: Runner) -> Result<Value, i32> {
+    let rukas = runner.on_host().then(rukas_commit).flatten();
     let mut args = vec!["cycle-start", n];
     if let Some(r) = &rukas {
         args.extend(["--rukas", r]);
@@ -344,7 +350,7 @@ fn supervise(
 /// A cycle's start, its supervision and its report. Its exit status.
 pub fn run(home: &Path, g: &Given) -> i32 {
     let n = g.issue.to_string();
-    let answer = match start_on_record(home, &n) {
+    let answer = match start_on_record(home, &n, g.runner) {
         Ok(a) => a,
         Err(rc) => return rc,
     };
@@ -435,6 +441,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         console: g.console.clone(),
         status_cmd: g.status_cmd.clone(),
         status_args: g.status_args.clone(),
+        runner: g.runner,
     };
     apply::run(home, &start)
 }
