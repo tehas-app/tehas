@@ -24,8 +24,9 @@ impl Kind {
         }
     }
 
-    /// The label that is the kind when the setting maps no type to it.
-    pub fn label(self) -> &'static str {
+    /// The label that is the kind when the setting maps no type to it. The
+    /// constants that name the label call this, so the spelling has one home.
+    pub const fn label(self) -> &'static str {
         match self {
             Kind::Improvement => "tehas:improvement",
             Kind::Prototype => "tehas:prototype",
@@ -99,6 +100,12 @@ mod tests {
         assert_eq!(type_of("prototype=Prototype", Kind::Improvement), None);
         assert_eq!(type_of("", Kind::Prototype), None);
         assert_eq!(parse("").unwrap(), vec![]);
+    }
+
+    #[test]
+    fn the_label_of_each_kind_keeps_its_spelling() {
+        assert_eq!(Kind::Improvement.label(), "tehas:improvement");
+        assert_eq!(Kind::Prototype.label(), "tehas:prototype");
     }
 
     #[test]

@@ -23,7 +23,7 @@ use tehas_core::sandbox;
 use tehas_core::secret::secret;
 use tehas_core::{mask, time};
 
-const LABEL: &str = "tehas:improvement";
+const LABEL: &str = Kind::Improvement.label();
 const CROSS: &str = "cross-project";
 const TAG: &str = "tehas-improve-logs";
 const CHUNK: u64 = 5 * 1024 * 1024;

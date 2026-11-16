@@ -70,7 +70,7 @@ const MAX_BODY: usize = 60_000;
 
 /// The label of the issues of the review, the one label a filing gives. Never
 /// `tehas:ready`: a finding starts no cycle until a person says so.
-const LABEL: &str = "tehas:improvement";
+const LABEL: &str = tehas_core::kinds::Kind::Improvement.label();
 
 /// What the title of a review issue starts with, which is how a filing
 /// recognises its own among the open issues of the label. One string with the
