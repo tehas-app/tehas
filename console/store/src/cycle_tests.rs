@@ -1,7 +1,6 @@
 //! cycle-start, cycle-image, cycle-end, cycle-show, cycle-note and
 //! cycle-stop-asked.
 
-use tehas_core::outcome::END_REASONS;
 use crate::db;
 use crate::lock;
 use crate::verbs_tests::*;
@@ -9,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::outcome::END_REASONS;
 use tehas_core::secret::secret;
 
 fn attempt_args(issue: i64, attempt: i64) -> (String, String) {
