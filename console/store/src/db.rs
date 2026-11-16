@@ -18,8 +18,120 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 pub const SCHEMA: &str = include_str!("schema.sql");
+
+/// The five tables of section 3.15, the outsource state. They are not part of
+/// `SCHEMA`: a factory with `TEHAS_OUTSOURCE` off holds no table of them at
+/// all, so no reader can tell its store from one that predates the feature.
+/// [`outsource_schema`] is the one writer of them, and `OUTSOURCE_TABLES` the
+/// one list of their names.
+pub const OUTSOURCE_TABLES: [&str; 5] = [
+    "contractors",
+    "join_codes",
+    "jobs",
+    "job_history",
+    "issue_attempts",
+];
+
+/// The DDL of the five outsource tables, from `outsource.sql`: the section 3.15
+/// of the schema, kept in the file beside it and named by the marker at its
+/// head. It is not part of `SCHEMA`, which is the schema of a factory that does
+/// not outsource: a store is widened only by [`outsource_schema`], and a test
+/// of the schema says the two files together hold the 29 tables of this
+/// version. The one file split into two is what keeps a `store init` of a
+/// factory with the feature off from laying a table of it.
+pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
+
+/// The DDL of the five outsource tables. An empty string means `outsource.sql`
+/// is empty, which the schema test refuses; nothing else here writes a table,
+/// so that case cannot create one either.
+pub fn outsource_ddl() -> &'static str {
+    OUTSOURCE_SCHEMA.trim_end()
+}
+
+/// Whether the five outsource tables are there.
+///
+/// The one place the feature is told to the store, so the answer is decided by
+/// one read and obeyed everywhere: the verbs, `store check`, the record verbs
+/// that refuse a call the feature owns. It is not read from the environment:
+/// the store reads no setting of a host (src/main.rs), so a command that has
+/// loaded the instance's settings passes the feature down, exactly as
+/// `migrate` and `init` take the four values of the installation as
+/// [`Settings`] rather than looking them up. A caller that loaded nothing says
+/// false, which is the truth of it and the safe one: a store is never widened
+/// by a guess.
+///
+/// The read is a statement of a connection, not a read of the file's bytes:
+/// with WAL on, which the store keeps on, the master record of a database that
+/// was just widened lives in the -wal beside the file, and a caller that opened
+/// the file itself would read a master record a run that has not yet
+/// checkpointed never wrote. `has_outsource_held` is what a verb asks while it
+/// holds the write lock; this is what a reader asks, and it opens the store the
+/// way every other read verb does, through `open_read_only`, which is the open
+/// that reads the -wal.
+pub fn has_outsource(conn: &Connection) -> Result<bool, DbError> {
+    // The five names are the store's own, never a caller's word, so they are
+    // written into the SQL as `OUTSOURCE_TABLES` spells them.
+    let marks = OUTSOURCE_TABLES
+        .iter()
+        .map(|t| format!("'{t}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let n: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ({marks})"
+            ),
+            [],
+            |r| r.get(0),
+        )
+        .map_err(classify)?;
+    Ok(n == OUTSOURCE_TABLES.len() as i64)
+}
+
+/// Whether the five outsource tables are there, on a connection whose write
+/// lock is held and whose transaction has begun. The answer is the one the
+/// write of the same transaction will see, because SQLite reads the schema at
+/// the first statement of a transaction and holds it to the commit: a verb that
+/// judged the feature on a connection of its own and then asked for the lock
+/// could be answered `refused` for a store another verb had just widened, and
+/// could write a row into a table that call had refused to name.
+pub fn has_outsource_held(conn: &Connection) -> Result<bool, DbError> {
+    has_outsource(conn)
+}
+
+/// The five outsource tables, in one transaction, for the command that says the
+/// instance has `TEHAS_OUTSOURCE=1`. Idempotent: it is run by `init` and by
+/// `migrate` every time, and a store that holds them is left alone, so a
+/// feature switched on twice or a store that has had them since an earlier run
+/// costs one read.
+///
+/// It is the only writer of them besides [`step_15`], and a caller that says
+/// false writes nothing: with the feature off no table of the five is created
+/// anywhere, which is the guarantee the outsource spec's "No new state" gives.
+pub fn outsource_schema(conn: &mut Connection, file: &Path) -> Result<(), DbError> {
+    if outsource_ddl().is_empty() {
+        return Err(DbError::Corrupt(format!(
+            "outsource.sql of {} holds nothing",
+            file.display()
+        )));
+    }
+    if has_outsource(conn)? {
+        return Ok(());
+    }
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    // Read again under the lock: another verb may have added them in between.
+    if has_outsource(&tx)? {
+        // The transaction is given back rather than left open on the store.
+        drop(tx);
+        return Ok(());
+    }
+    tx.execute_batch(outsource_ddl()).map_err(classify)?;
+    tx.commit().map_err(classify)
+}
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
 /// nothing changed or removed, so no row of an older store can be lost. Each
@@ -253,6 +365,24 @@ DROP TABLE cycles;
 ALTER TABLE cycles_new RENAME TO cycles;
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
 ";
+
+/// The step from 14 to 15: the five outsource tables of section 3.15, the DDL
+/// of the tail of schema.sql. It creates nothing a store of 14 holds a row of,
+/// and the tables are the feature's own: a step does not decide whether the
+/// factory outsources, so a store migrated by a command that says the feature
+/// off ends at 15 with no table of the five, and gains them when a command that
+/// says it on runs [`outsource_schema`]. Nothing has to be rebuilt as `step_4`
+/// rebuilds `cycles`, so no row can be lost, and `step` checks the foreign keys
+/// before it commits.
+fn step_15(c: &mut Connection) -> Result<(), DbError> {
+    let ddl = outsource_ddl();
+    if ddl.is_empty() {
+        return Err(DbError::Corrupt(
+            "schema.sql holds no outsource section".to_string(),
+        ));
+    }
+    step(c, 15, ddl)
+}
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -556,9 +686,11 @@ pub const COUNTED_INDEXES: [&str; 14] = [
     "journal_action",
 ];
 
-/// The tables `check` counts. Every table of schema.sql appears here exactly
-/// once, which the test every_counted_table_exists pins, so a table that goes
-/// missing from the schema cannot go missing from the report too.
+/// The tables `check` counts without the feature on. Every table of schema.sql
+/// above the outsource section appears here exactly once, which the test
+/// every_counted_table_exists pins, so a table that goes missing from the
+/// schema cannot go missing from the report too. A store with the feature on
+/// counts [`OUTSOURCE_TABLES`] as well: see [`check`].
 pub const COUNTED_TABLES: [&str; 24] = [
     "actions",
     "approvals",
@@ -1169,6 +1301,12 @@ pub fn write_schema(
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
 ///
+/// `outsource` is the feature as the command that loaded the instance's
+/// settings said it: when it is true the five tables of section 3.15 are laid
+/// beside the steps, whether the steps ran or not, and when it is false the
+/// migration touches nothing of them. The tables are never created by a step
+/// alone: see [`outsource_schema`] for who decides.
+///
 /// The steps themselves are `STEPS` below, in the order they run, so that a
 /// new schema is one new entry there and not an edit to every arm of a match.
 pub fn migrate(
@@ -1177,12 +1315,19 @@ pub fn migrate(
     from: i64,
     now: i64,
     settings: &Settings,
+    outsource: bool,
 ) -> Result<(), DbError> {
     match from {
         // Already what this binary writes: the verb reports it and runs
         // nothing, so a migration is safe to call on a database that does not
         // need one.
-        v if v == SCHEMA_VERSION => Ok(()),
+        v if v == SCHEMA_VERSION => {
+            if outsource {
+                outsource_schema(conn, file)
+            } else {
+                Ok(())
+            }
+        }
         // Each step is asked for outside any transaction of the caller's,
         // which is why `migrate` gives its own lock back before it comes here:
         // SQLite will not run `VACUUM INTO` from within one, and the two would
@@ -1203,6 +1348,9 @@ pub fn migrate(
         from if from > 0 && from < SCHEMA_VERSION => {
             for (to, run) in STEPS.iter().filter(|(to, _)| *to > from) {
                 run(conn).map_err(|e| at_step(e, *to, from))?;
+            }
+            if outsource {
+                outsource_schema(conn, file)?;
             }
             Ok(())
         }
@@ -1256,6 +1404,10 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 13 is one this binary wrote before `cycles.how` took 'host':
     // the step to 14 is all it needs.
     (14, step_14),
+    // A store at 14 is one this binary wrote before the outsource tables. The
+    // step lays them whether or not the instance outsources; see
+    // [`outsource_schema`] for who decides, and `step_15` for why a step cannot.
+    (15, step_15),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
@@ -1555,6 +1707,10 @@ pub struct Report {
 /// user_version, PRAGMA integrity_check, and a count of each table. The
 /// divergence of section 7 is the import's to report and is #251's, so it is
 /// not asked here.
+///
+/// The five outsource tables are counted when the store holds them and left
+/// out when it does not, so an off factory's report names the same 24 tables
+/// it named before the feature, and an on factory's names 29.
 pub fn check(conn: &Connection) -> Result<Report, DbError> {
     let schema: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -1574,8 +1730,19 @@ pub fn check(conn: &Connection) -> Result<Report, DbError> {
         [only] if only == "ok" => "ok".to_string(),
         others => others.join("; "),
     };
-    let mut counts = Vec::with_capacity(COUNTED_TABLES.len());
-    for table in COUNTED_TABLES {
+    let mut counts = Vec::with_capacity(COUNTED_TABLES.len() + OUTSOURCE_TABLES.len());
+    let outsource = has_outsource(conn)?;
+    let tables: Vec<&'static str> = COUNTED_TABLES
+        .iter()
+        .chain(
+            outsource
+                .then_some(OUTSOURCE_TABLES.iter())
+                .into_iter()
+                .flatten(),
+        )
+        .copied()
+        .collect();
+    for table in tables {
         // A store not yet migrated lacks the tables of the later versions; it
         // is reported as it is. At the version this binary writes, a missing
         // table is the error the count below gives.
