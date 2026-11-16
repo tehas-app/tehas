@@ -9,10 +9,11 @@
     root * /srv/docs
     # Search engines stay out unless the instance sets TEHAS_INDEXING=1. The
     # pages and robots.txt read the same setting. The live data and the
-    # Markdown copies of the pages are never indexed.
+    # Markdown copies of the pages, one by one or all in llms-full.txt, are
+    # never indexed.
     @unlisted expression `"{$TEHAS_INDEXING:0}" != "1"`
     header @unlisted X-Robots-Tag "noindex, nofollow"
-    @data path /live/* /health /healthz *.md
+    @data path /live/* /health /healthz *.md /llms-full.txt
     header @data X-Robots-Tag "noindex"
     # The pages, their scripts and their stylesheets go out compressed: zstd
     # where the browser speaks it and gzip elsewhere. The files under /live/ and
@@ -122,7 +123,7 @@
         # For agents: the entry point. A template, so its links are absolute
         # from the request and no host name is kept in the file. robots.txt and
         # the sitemap are for the same reason, and to follow TEHAS_INDEXING.
-        @llms path /llms.txt /robots.txt /sitemap.xml
+        @llms path /llms.txt /llms-full.txt /robots.txt /sitemap.xml
         handle @llms {
             templates {
                 mime text/plain text/xml

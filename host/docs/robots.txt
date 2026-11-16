@@ -11,6 +11,7 @@ Disallow: /health
 Sitemap: {{ $base }}/sitemap.xml
 
 # For agents: {{ $base }}/llms.txt
+# The whole manual for agents, in one text: {{ $base }}/llms-full.txt
 {{- else }}
 Disallow: /
 {{- end }}

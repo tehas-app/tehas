@@ -65,4 +65,25 @@ for page in operating.md overview.md pi-software-factory.md tools-health.md; do
     || t_bad "$page has no link to the floor at /floor"
 done
 
+t_case "llms-full.txt is llms.txt and then every page's body under its address"
+full=$(cat "$T_ROOT/host/docs/llms-full.txt")
+t_contains "$full" '{{ include "/llms.txt" }}'
+t_contains "$full" '{{- range sortAlpha (listFiles "/") }}{{ if hasSuffix ".md" . }}'
+t_contains "$full" '{{- $doc := splitFrontMatter (readFile .) }}'
+t_contains "$full" 'Address: {{ $base }}/{{ trim'"Suffix"' ".md" . }}'
+t_contains "$full" '{{ trim $doc.Body }}'
+
+t_case "llms-full.txt builds its address only from a plain scheme and host"
+t_contains "$full" '{{- if or (not (has $proto (list "http" "https"))) (not (regexMatch "^[A-Za-z0-9.-]+(:[0-9]+)?$" .Req.Host)) }}{{ httpError 400 }}{{ end -}}'
+
+t_case "the docs server renders llms-full.txt as text and keeps it out of the index"
+docs_caddy=$T_ROOT/host/edge/docs.Caddyfile
+t_contains "$(cat "$docs_caddy")" '@llms path /llms.txt /llms-full.txt /robots.txt /sitemap.xml'
+t_contains "$(cat "$docs_caddy")" '@data path /live/* /health /healthz *.md /llms-full.txt'
+
+t_case "llms.txt, robots.txt and agents.md point to llms-full.txt"
+t_contains "$(cat "$T_ROOT/host/docs/llms.txt")" 'The whole manual in one text is at {{ $base }}/llms-full.txt.'
+t_contains "$(cat "$T_ROOT/host/docs/robots.txt")" '# The whole manual for agents, in one text: {{ $base }}/llms-full.txt'
+t_contains "$(cat "$T_ROOT/host/docs/agents.md")" '| `/llms-full.txt`'
+
 t_done
