@@ -159,6 +159,59 @@
       "reason": "expected 0 or 1"
     },
     {
+      "name": "TEHAS_OUTSOURCE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "0",
+        "1"
+      ],
+      "reason": "expected 0 or 1"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_TIMEOUT",
+      "rule": "count",
+      "when": "always",
+      "default": "600",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_GRACE",
+      "rule": "count",
+      "when": "always",
+      "default": "120",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_RETRIES",
+      "rule": "count",
+      "when": "always",
+      "default": "2",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_REST",
+      "rule": "count",
+      "when": "always",
+      "default": "1800",
+      "reason": "expected a positive whole number"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_REPOS",
+      "rule": "repos",
+      "when": "given",
+      "default": "",
+      "reason": "expected owner/name repositories separated by single spaces"
+    },
+    {
+      "name": "TEHAS_OUTSOURCE_JOIN_TTL",
+      "rule": "count",
+      "when": "always",
+      "default": "3600",
+      "reason": "expected a positive whole number"
+    },
+    {
       "name": "TEHAS_IMPROVE_RUKAS_SKIP",
       "rule": "one-of",
       "when": "always",
