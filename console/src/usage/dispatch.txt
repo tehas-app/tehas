@@ -244,9 +244,9 @@ Instance settings (lib/config.sh; defaults in brackets):
                             is refused with 78, as the settings load refuses it,
                             and the turns bound has no ceiling
   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]; unset or
-                            empty is the load's default, 7200; the poll's own
-                            default is 3600, any other text
-                            is refused with 78, and so is a timeout over 7200
+                            empty is the load's default, 7200, and the poll's
+                            own default is 3600; any other text is refused with
+                            78, and so is a timeout over 7200
   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
                             record [0]
   TEHAS_MILLWRIGHT_LOGIN         the millwright's account, none when unset

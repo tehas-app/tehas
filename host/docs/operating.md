@@ -1238,15 +1238,15 @@ has checked the settings and the checkout. A file that is no program counts as
 not installed, so an empty one is not a poll that exits 0, and either way
 `tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
 acts, and reads the two bounds of a planning turn for itself, since it hands
-both to the unit of a turn: unset or empty `TEHAS_PLAN_TIMEOUT` and
-`TEHAS_PLAN_MAX_TURNS` are the poll's own defaults, 3600 and 20 (the load gives
-its own default, 7200 for the timeout, whether the instance sets the name to
-nothing or not at all), and a value that
-is set and is no whole number of at least 1, is no text this program can read,
-or is a timeout over
-7200, stops the poll with exit 78 and one ERROR line before the lock is opened
-and before any call to GitHub, Docker or git. The turns bound has no ceiling. `tehas help dispatch` is the whole of the rules. A poll
-is, in order: the lock, the
+both to the unit of a turn. Unset or empty `TEHAS_PLAN_TIMEOUT` and
+`TEHAS_PLAN_MAX_TURNS` are the poll's own defaults, 3600 seconds and 20 turns;
+the load gives its own default, 7200 for the timeout, whether the instance sets
+the name to nothing or not at all. A value that is set and is no whole number of
+at least 1, is no text this program can read, or is a timeout over 7200, stops
+the poll with exit 78 and one ERROR line before the lock is opened and before
+any call to GitHub, Docker or git. The turns bound has no ceiling: the count a
+session may take is the instance's to choose. `tehas help dispatch` is the whole
+of the rules. A poll is, in order: the lock, the
 snapshot of the queue (one GraphQL query in pages of 25;
 GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
