@@ -604,14 +604,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tehas-merge"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tehas-core",
-]
-
-[[package]]
 name = "tehas-ops"
 version = "0.1.0"
 dependencies = [
