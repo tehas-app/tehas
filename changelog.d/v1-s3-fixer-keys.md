@@ -4,4 +4,4 @@
 
 ### Adopter action
 
-A reader of `tehas export`'s `plan.json` that reads `answers[].fixer` reads `answers[].millwright`. An MCP client that filters `factory_sessions` by `how: "fixer"` filters by `millwright`. `api/renames-1.0.tsv` lists the renamed key.
+A reader of `tehas export`'s `plan.json` that reads `answers[].fixer` reads `answers[].millwright`. An MCP client that filters `factory_sessions` by `how: "fixer"` filters by `millwright`. `api/renames-1.0.tsv` lists the renamed key and the `how` value.
