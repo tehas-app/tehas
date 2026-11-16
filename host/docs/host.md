@@ -1530,7 +1530,10 @@ tehas's jq (ahead of the base image's, the version the host runs), Rust at
 fonts, `file`, and a Python image library. The last two are in the container only: `bootstrap.sh` installs
 neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
-crates; they go with the container. The base is pinned by digest in
+crates; they go with the container. The Playwright install runs npm as root with the
+cycle user's home, so its npm cache goes to `/tmp` and is removed in the same
+step; the build stops when root owns anything in `/home/vscode/.npm`, where a
+cycle's own npm would fail with `EACCES`. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree
