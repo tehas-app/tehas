@@ -162,7 +162,36 @@ t_eq "$(t_calls gh | grep -c -e '^issue comment 7 ')" 3
 t_eq "$(grep -c -e 'WARN: comment on #7 failed' <<<"$t_out")" 1
 t_eq "$(t_row cycle-show 7 -- '(.cycle.ended_at != null)')" true
 
-t_case "a comment GitHub answered with a 5xx is not posted again: a read settles it"
+t_case "a comment GitHub answered with a 5xx and did not take is posted again after the read"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 1 >"$fx/comment-fails-times"
+echo "HTTP 502: Bad Gateway" >"$fx/comment-says"
+echo '[]' >"$fx/comments.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '^issue comment 7 ')" 2
+t_eq "$(t_calls gh | grep -c -e '^api repos/acme/widget/issues/7/comments?per_page=100')" 1
+t_lacks "$t_out" "may have been posted"
+t_lacks "$t_out" "WARN: comment on #7 failed"
+# The unknown row stays for the poll, which finds the comment by its text.
+t_eq "$(TEHAS_HOME=$T/home/tehas "$T_STORE" journal-open | jq -c '[.actions[] | [.kind, .state]]')" '[["comment-post","unknown"]]'
+
+t_case "a comment GitHub answered with a 5xx and took is not posted again"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "HTTP 502: Bad Gateway" >"$fx/comment-fails"
+: >"$fx/comment-taken"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '^issue comment 7 ')" 1
+t_eq "$(t_calls gh | grep -c -e '^api repos/acme/widget/issues/7/comments?per_page=100')" 1
+t_lacks "$t_out" "may have been posted"
+t_lacks "$t_out" "WARN: comment on #7 failed"
+
+t_case "a comment GitHub answered with a 5xx that no read settles is not posted again"
 reset
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"

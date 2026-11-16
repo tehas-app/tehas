@@ -659,10 +659,14 @@ bash did not:
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
 - A write that timed out or that GitHub answered with a 5xx may have reached
-  GitHub, so the report does not try it again: its row stays open as
-  `unknown`, and the report logs `WARN: a write on #N may have been posted`. A
-  park question that ended so is not followed by the plain park comment. The
-  first poll after the cycle reads the row and settles it.
+  GitHub, so the report reads it back before it tries again: a comment by its
+  text, a label by name. Found, it is done. Not found, it is sent again with
+  the tries it has left; a park question that was not found gets the plain
+  park comment, as a refused one does. Only when that read fails too does the
+  write stay as it is: its row stays open as `unknown`, the report logs
+  `WARN: a write on #N may have been posted`, a park question is not followed
+  by the plain park comment, and a handoff comment is not recorded as a failed
+  end. The first poll after the cycle reads the row and settles it.
 - Bodies go to gh on standard input, not as an argument.
 - A call to GitHub has a bound of two minutes.
 
