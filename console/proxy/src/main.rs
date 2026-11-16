@@ -14,9 +14,9 @@
 //!
 //! The settings are read as tehas_load leaves them in the environment:
 //! TEHAS_HOME, whose state store holds the contractors and the jobs;
-//! TEHAS_OUTSOURCE, the switch; TEHAS_OUTSOURCE_ADDR, the address and port to
+//! TEHAS_OUTSOURCE, the switch; TEHAS_OUTSOURCE_PROXY_ADDR, the address and port to
 //! listen on, never the dashboard's; TEHAS_OUTSOURCE_TIMEOUT, how long a job
-//! may go without a contractor's check-in; TEHAS_OUTSOURCE_IDLE, how long one
+//! may go without a contractor's check-in; TEHAS_OUTSOURCE_PROXY_IDLE, how long one
 //! of its model streams may go silent. The instance's models.json names the
 //! endpoint and the variable of its key of the provider the instance's agents
 //! run on, which is the endpoint a cycle's container is given too. The key is
@@ -138,9 +138,9 @@ fn main() {
 /// instance that has the feature off are `serve::declined`'s, and the command
 /// ends 0: the unit is stopped, nothing listens, and status says no word.
 fn listen() -> ! {
-    let at = env("TEHAS_OUTSOURCE_ADDR");
-    let timeout = seconds("TEHAS_OUTSOURCE_TIMEOUT", 900);
-    let idle = seconds("TEHAS_OUTSOURCE_IDLE", 3600);
+    let at = env("TEHAS_OUTSOURCE_PROXY_ADDR");
+    let timeout = seconds("TEHAS_OUTSOURCE_TIMEOUT", 600);
+    let idle = seconds("TEHAS_OUTSOURCE_PROXY_IDLE", 900);
     let (endpoint, key) = match endpoint() {
         Ok(pair) => pair,
         Err(why) if on() => stop(&why, 78),

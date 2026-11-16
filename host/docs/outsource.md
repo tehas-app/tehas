@@ -53,9 +53,9 @@ job's token is written to `~/tehas/state/outsource/jobs/<job>/job-token`.
 | Setting | Default | What it is |
 | --- | --- | --- |
 | `TEHAS_OUTSOURCE` | `0` | `1` runs the proxy. Anything else stops every command with 78 |
-| `TEHAS_OUTSOURCE_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
+| `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
 | `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
-| `TEHAS_OUTSOURCE_IDLE` | `3600` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
+| `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
 
 The proxy asks the endpoint of the provider the instance's agents run on, the
 same one a cycle's container is given: `PI_ENSEMBLE_SUBAGENT_PROVIDER` names it

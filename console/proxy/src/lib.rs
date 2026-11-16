@@ -12,7 +12,7 @@
 //!
 //! 1. A streamed reply is passed through as it arrives, never buffered.
 //! 2. Its idle bound is a setting, and the load refuses one that is not
-//!    longer than the check-in timeout (`TEHAS_OUTSOURCE_IDLE`).
+//!    longer than the check-in timeout (`TEHAS_OUTSOURCE_PROXY_IDLE`).
 //! 3. Only the model paths a cycle needs are forwarded ([`PATHS`]); the rest
 //!    are refused before an upstream call is made.
 //! 4. A job that has ended, a contractor that is revoked and a path outside
