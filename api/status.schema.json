@@ -22,6 +22,7 @@
         "label": {"type": "boolean"}
       }
     },
+    "readOnly": {"const": true},
     "allHands": {"type": "boolean"},
     "limit": {
       "type": "object",
@@ -55,12 +56,19 @@
         "properties": {
           "issue": {"type": "integer", "minimum": 1},
           "since": {"type": "string", "format": "date-time"},
-          "step": {"type": "string"},
-          "stepNumber": {"type": "integer", "minimum": 1},
-          "stepTotal": {"type": "integer", "minimum": 1},
-          "round": {"type": "integer", "minimum": 1},
-          "roundLimit": {"type": "integer", "minimum": 1},
-          "stepSince": {"type": "string", "format": "date-time"}
+          "progress": {
+            "description": "Where the cycle's step is, as its driver reports it. Driver-specific and may change in a minor release: a program shows it, and does not decide on it. Left out when nothing of it is known.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "step": {"type": "string"},
+              "stepNumber": {"type": "integer", "minimum": 1},
+              "stepTotal": {"type": "integer", "minimum": 1},
+              "round": {"type": "integer", "minimum": 1},
+              "roundLimit": {"type": "integer", "minimum": 1},
+              "stepSince": {"type": "string", "format": "date-time"}
+            }
+          }
         }
       }
     },

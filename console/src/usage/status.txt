@@ -37,7 +37,7 @@ With --json the same facts as one object on standard output, for a program
   {"api": 1, "time": "...", "age": 40, "stale": false, "state": "pass",
    "reasons": [], "paused": {"local": false, "label": false},
    "allHands": false, "limit": {"state": "none"},
-   "running": [{"issue": 12, "since": "...", "step": "review"}],
+   "running": [{"issue": 12, "since": "...", "progress": {"step": "review"}}],
    "planning": [{"issue": 7, "turn": 2, "since": "..."}],
    "demand": {"waiting": 2, "oldestWait": 5400},
    "hold": {"why": "count", "text": "holding: ..."},

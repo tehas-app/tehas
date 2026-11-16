@@ -186,8 +186,9 @@ tehas status --json
   "paused": {"local": true, "label": false},
   "allHands": false,
   "limit": {"state": "none"},
-  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z", "step": "lens-review",
-               "stepNumber": 7, "stepTotal": 9, "round": 2, "stepSince": "2026-10-17T13:41:00Z"}],
+  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z",
+               "progress": {"step": "lens-review", "stepNumber": 7, "stepTotal": 9, "round": 2,
+                            "stepSince": "2026-10-17T13:41:00Z"}}],
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
   "demand": {"waiting": 2, "oldestWait": 5400},
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
@@ -212,7 +213,7 @@ tehas status --json
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
-| `running` | The running cycles: `issue`, `since` (when it started) and `step`, and where the step is: `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines |
+| `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
@@ -280,9 +281,9 @@ checks, at a start, that the text is unchanged since the label, that no open
 pull request closes the issue, and the millwright's grant.
 
 The source holds a JSON Schema of this object, `api/status.schema.json`, and
-two samples made by the code that prints it, `api/status.busy.json` and
-`api/status.quiet.json`. Its tests keep the three in step, and a program can
-copy the samples into its own tests.
+three samples made by the code that prints it, `api/status.busy.json`,
+`api/status.quiet.json` and `api/status.readonly.json`. Its tests keep them in
+step, and a program can copy the samples into its own tests.
 
 It reads `~/tehas/live/health.json` and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on

@@ -177,7 +177,7 @@ reset
 cycle true running develop
 t_run "$status && $summary --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.running | map({issue, step})' <<<"$t_out")" '[{"issue":12,"step":"develop"}]'
+t_eq "$(jq -c '.running | map({issue, step: .progress.step})' <<<"$t_out")" '[{"issue":12,"step":"develop"}]'
 t_eq "$(jq -r '.running[0].since | fromdateiso8601 | type' <<<"$t_out")" number
 t_eq "$(jq "$shape" <<<"$t_out")" true
 
