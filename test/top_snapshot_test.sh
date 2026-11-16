@@ -207,6 +207,10 @@ t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
 # Time passes, as it does between two frames of a view. The reading of the frame
 # before is handed to the next one, and that call takes no wait at all.
 proc_ahead "$proc1"
+# The clock of the bound starts here, at the call that is meant to take no
+# wait at all: the run of the snapshot above waits a second for its pair and
+# is timed by that case's own bound, so it is no part of this one. Each timed
+# case starts its own clock at the command it bounds.
 t_start
 t_run '"$TEHAS_CONSOLE" top snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
 t_eq "$t_rc" 0
