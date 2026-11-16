@@ -127,6 +127,7 @@ const TO_11: &str = db::STEP_11;
 const TO_12: &str = db::STEP_12;
 const TO_13: &str = db::STEP_13;
 const TO_14: &str = db::STEP_14;
+const TO_15: &str = db::OUTSOURCE_SCHEMA;
 
 /// The tables schema 11 drops (#1770): no verb wrote them and nothing read them.
 const DROPPED: [&str; 18] = [
@@ -171,6 +172,7 @@ fn old_home(name: &str, at: i64, rows: &str, later: &str) -> TestDir {
         (12, TO_12),
         (13, TO_13),
         (14, TO_14),
+        (15, TO_15),
     ] {
         if to <= at {
             c.execute_batch(sql).unwrap();
@@ -303,13 +305,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_15() {
-    assert_eq!(db::SCHEMA_VERSION, 15);
-    let home = home("schema-15");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 15);
+fn init_writes_schema_16() {
+    assert_eq!(db::SCHEMA_VERSION, 16);
+    let home = home("schema-16");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 16);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "15"
+        "16"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -740,6 +742,27 @@ fn the_step_from_13_keeps_the_cycles_and_takes_host() {
     assert_eq!(count(&home, "cycles WHERE how = 'host'"), 1);
 }
 
+/// #1754: the step from 15 keeps every action and its journal, and an action
+/// may then be `unknown`.
+#[test]
+fn the_step_from_15_keeps_the_journal_and_takes_unknown() {
+    let home = old_home("step-from-15", 15, V1_ROWS, "");
+    let unknown = "INSERT INTO actions (id, poll_at, kind, issue, args_json, before_snapshot, state, intended_at)
+         VALUES (2, 200, 'comment-post', 7, '{}', 0, 'unknown', 200);";
+    assert!(conn(&home).execute_batch(unknown).is_err());
+    let (actions, journal) = (count(&home, "actions"), count(&home, "journal"));
+    assert!(actions > 0 && journal > 0);
+    let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
+    assert_eq!(
+        (v["from"].as_i64(), v["to"].as_i64()),
+        (Some(15), Some(db::SCHEMA_VERSION))
+    );
+    assert_eq!(count(&home, "actions"), actions);
+    assert_eq!(count(&home, "journal"), journal);
+    conn(&home).execute_batch(unknown).unwrap();
+    assert_eq!(count(&home, "actions WHERE state = 'unknown'"), 1);
+}
+
 #[test]
 fn the_steps_are_the_ladder_up_to_the_schema_this_binary_writes() {
     // The list migrate walks is one entry per schema, in order, each once: a
@@ -803,7 +826,7 @@ INSERT INTO cycles (issue, started_at, started_by, how) VALUES (21, 300, 'janit'
 ";
 
 #[test]
-fn a_store_of_a_0_30_release_comes_to_15_with_the_tables_and_the_feature_off() {
+fn a_store_of_a_0_30_release_comes_to_16_with_the_tables_and_the_feature_off() {
     // v0.30.0 wrote schema 12, v0.30.1 13, and v0.30.2 to v0.30.6 14.
     for from in [12, 13, 14] {
         let home = old_home(&format!("release-{from}"), from, RELEASE_ROWS, "");
@@ -814,7 +837,7 @@ fn a_store_of_a_0_30_release_comes_to_15_with_the_tables_and_the_feature_off() {
         let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
         assert_eq!(
             (v["from"].as_i64(), v["to"].as_i64()),
-            (Some(from), Some(15)),
+            (Some(from), Some(db::SCHEMA_VERSION)),
             "from {from}"
         );
         let after: Vec<i64> = ["issues", "cycles", "meta"]
@@ -840,7 +863,7 @@ fn a_store_of_a_0_30_release_comes_to_15_with_the_tables_and_the_feature_off() {
 fn a_store_of_14_migrated_with_the_feature_on_takes_its_writes() {
     let home = old_home("release-14-on", 14, RELEASE_ROWS, "");
     migrate_with(&home, true, NOW).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 15);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(
         count(&home, "meta WHERE key = 'outsource' AND value = '1'"),
         1

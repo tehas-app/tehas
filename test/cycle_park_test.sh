@@ -388,6 +388,40 @@ t_eq "$(park_q)" none
 # The park is on record all the same: it asks nothing.
 t_eq "$(park_of .reason)" unknown
 
+t_case "a question GitHub answered with a 5xx and took is read back and asked"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+: >"$fx/post-taken"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_lacks "$t_out" "may have been posted"
+t_eq "$(park_q)" 4002
+t_contains "$(t_calls gh | grep '^issue edit')" "tehas:question"
+
+t_case "a question GitHub answered with a 5xx and did not take gets the plain comment"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+echo '[]' >"$fx/comments.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+t_lacks "$t_out" "may have been posted"
+t_eq "$(park_q)" none
+
+t_case "a question GitHub answered with a 5xx that no read settles is not posted again, nor followed by the plain comment"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_contains "$t_out" "may have been posted"
+# The row stays open for the poll's read to settle.
+t_eq "$(TEHAS_HOME=$T/home/tehas "$T_STORE" journal-open | jq -c '[.actions[] | [.kind, .state]]')" '[["comment-post","unknown"]]'
+
 t_case "a park the store would not take asks no question: the plain comment, and no tehas:question"
 reset
 t_store_answers park 1 'store: busy #7: the database is locked'
