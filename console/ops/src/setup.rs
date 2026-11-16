@@ -1348,7 +1348,7 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
     let tehasbot = Path::new(&home).join("bin/tehasbot");
     if runnable(&tehasbot) {
         step(
-            "tehasbot github-token --check",
+            "tehas github check",
             program(vars, tehasbot).args(["github-token", "--check"]),
         )?;
     } else {

@@ -120,7 +120,7 @@ In order, stopping at the first step that fails:
    `tehas check-product --sandbox` where that command is installed. Where it is
    not, it says the gates were not run.
 7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
-   server, runs `tehasbot github-token --check` (one mint, the login, the reach
+   server, runs `tehas github check` (one mint, the login, the reach
    of `TEHAS_REPO`, never the token) and prints the dashboard's address.
 
 A second run changes nothing that is right: a value that is there is kept, the

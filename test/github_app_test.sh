@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tests for lib/github-app.sh and tehasbot github-token, with the console behind
-# it (console/ops/src/github.rs): the GitHub App's installation token, made from a
-# signed JWT and kept until 10 minutes are left. openssl and curl are stubs: no
-# key is read, no network is asked.
+# Tests for lib/github-app.sh, tehasbot github-token and tehas github check, with
+# the console behind them (console/ops/src/github.rs): the GitHub App's
+# installation token, made from a signed JWT and kept until 10 minutes are left.
+# openssl and curl are stubs: no key is read, no network is asked.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -183,6 +183,14 @@ t_contains "$t_out" "it reaches acme/widget"
 t_lacks "$t_out" "ghs_"
 t_contains "$(t_calls auth)" 'header = "Authorization: Bearer ghs_fresh'
 t_lacks "$(t_calls curl)" "ghs_"
+
+t_case "tehas github check is the same check under its public name"
+reset
+t_run "$T_ROOT/bin/tehas github check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "acting as tehas-app-bot[bot]"
+t_contains "$t_out" "it reaches acme/widget"
+t_lacks "$t_out" "ghs_"
 
 t_case "--check of an installation that does not reach the repository is exit 1"
 reset

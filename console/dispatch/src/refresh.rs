@@ -1,6 +1,6 @@
-//! tehasbot refresh --pr N: one of the factory's own pull requests that
-//! conflicts with the branch, asked of the dispatcher in a file under
-//! state/refresh. What a run does and its statuses are in
+//! tehas refresh --pr N, or tehasbot refresh: one of the factory's own pull
+//! requests that conflicts with the branch, asked of the dispatcher in a file
+//! under state/refresh. What a run does and its statuses are in
 //! src/usage/refresh.txt, this command's --help.
 
 use crate::decide::{hex40, iso_now, refresh_why};
@@ -35,6 +35,19 @@ fn kept_at(request: &str, pr: u64, head: &str) -> Option<String> {
     }
     let at = v.get("at")?.as_str()?;
     (!at.is_empty()).then(|| at.to_string())
+}
+
+/// Whether `program` names a file that can be run: as a path, or found in a
+/// directory of `path`.
+fn found(program: &str, path: Option<&std::ffi::OsStr>) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let runs = |p: &Path| {
+        fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if program.contains('/') {
+        return runs(Path::new(program));
+    }
+    path.is_some_and(|path| std::env::split_paths(path).any(|d| runs(&d.join(program))))
 }
 
 /// The request `--pr` writes, in the field order and layout the
@@ -175,10 +188,14 @@ impl Run {
         }
         let node = github::pull(calls, &self.repo, pr);
         if node.is_null() || node.get("failed").is_some() {
-            let why = format!(
-                "GitHub did not answer for pull request #{pr} of {}",
-                self.repo
-            );
+            let why = if found(&calls.gh, std::env::var_os("PATH").as_deref()) {
+                format!(
+                    "GitHub did not answer for pull request #{pr} of {}",
+                    self.repo
+                )
+            } else {
+                format!("gh not found, so pull request #{pr} could not be read")
+            };
             print(said(pr, None, None, Some(&why)));
             return self.fail(&why);
         }
@@ -187,7 +204,7 @@ impl Run {
             Err(why) => {
                 let (issue, head) = named(&node);
                 print(said(pr, issue, head, Some(&why)));
-                eprintln!("tehasbot refresh: pull request #{pr} is not refreshed: {why}");
+                eprintln!("tehas refresh: pull request #{pr} is not refreshed: {why}");
                 self.line(&format!(
                     "asked for pull request #{pr}: not refreshed: {why}"
                 ));
@@ -225,7 +242,7 @@ pub fn main(args: &[&str]) -> i32 {
             None | Some(&"--pr") => "--pr takes the number of one pull request".to_string(),
             Some(a) => format!("unknown argument: {a}"),
         };
-        eprintln!("tehasbot refresh: {why}\n{}", usage());
+        eprintln!("tehas refresh: {why}\n{}", usage());
         return 64;
     };
     let set = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
@@ -237,7 +254,7 @@ pub fn main(args: &[&str]) -> i32 {
         number("TEHAS_CONTROL_ISSUE"),
     ) else {
         eprintln!(
-            "tehas-dispatch: refresh needs the settings tehasbot refresh loads (lib/config.sh, tehas_load)"
+            "tehas-dispatch: refresh needs the settings tehas refresh loads (lib/config.sh, tehas_load)"
         );
         return 78;
     };
@@ -279,6 +296,44 @@ mod tests {
 
     fn ask(p: &Value) -> Result<Conflict, String> {
         asked(p, "bot[bot]", "a/b", 1)
+    }
+
+    #[test]
+    fn a_program_is_found_by_its_path_or_in_a_directory_of_path() {
+        let d = scratch("found");
+        let gh = d.join("gh");
+        fs::write(&gh, "#!/bin/sh\n").unwrap();
+        let mode = |m| {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&gh, fs::Permissions::from_mode(m)).unwrap();
+        };
+        let path = std::env::join_paths(["/nonexistent", d.path().to_str().unwrap()]).unwrap();
+        assert!(!found("gh", Some(&path)), "not executable");
+        mode(0o755);
+        assert!(found("gh", Some(&path)));
+        assert!(found(gh.to_str().unwrap(), None));
+        assert!(!found("gh", Some("/nonexistent".as_ref())));
+        assert!(!found("gh", None));
+        assert!(!found("/nonexistent/gh", Some(&path)));
+    }
+
+    #[test]
+    fn a_pull_request_read_with_no_gh_to_run_says_gh_not_found() {
+        let d = scratch("no-gh");
+        let run = Run {
+            dir: d.join("state/refresh"),
+            log: d.join("logs/refresh.log"),
+            repo: "a/b".into(),
+            control: 1,
+            bot: "bot".into(),
+        };
+        let store = d.join("store").to_string_lossy().into_owned();
+        let mut calls = Calls::idle(Duration::from_secs(1), store);
+        calls.gh = d.join("nowhere/gh").to_string_lossy().into_owned();
+        assert_eq!(run.one(&mut calls, 50, false), 1);
+        let log = fs::read_to_string(d.join("logs/refresh.log")).unwrap();
+        assert!(log.contains("ERROR: gh not found"), "{log}");
+        assert!(!log.contains("did not answer"), "{log}");
     }
 
     #[test]
@@ -435,7 +490,7 @@ mod tests {
         let text = usage();
         assert!(text
             .starts_with("Ask the dispatcher to refresh one of the factory's own pull requests"));
-        assert!(text.contains("\n\nUsage:\n  tehasbot refresh "));
+        assert!(text.contains("\n\nUsage:\n  tehas refresh "));
         assert!(text.ends_with("written."));
     }
 }
