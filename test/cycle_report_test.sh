@@ -60,8 +60,8 @@ t_eq "$t_rc" 70
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "--remove-label tehas:running"
 
-t_case "TEHAS_CYCLE_REPORT set to anything, rust too, stops with 78 before anything runs"
-for v in rust bash ""; do
+t_case "TEHAS_CYCLE_REPORT set to a value, rust too, stops with 78 before anything runs"
+for v in rust bash; do
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_REPORT=$v
   t_run "$cycle 7"

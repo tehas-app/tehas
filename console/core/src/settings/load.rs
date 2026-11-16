@@ -417,10 +417,11 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         }
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
-        // the Rust poll, and beesknees26 and business are the default design,
-        // so the line stays loadable. A value the timed refresh scan took is
-        // dropped: refreshes are asked for with --pr now, and the line is
-        // left to the operator to take out.
+        // the Rust poll, beesknees26 and business are the default design, and
+        // a skip of 0 asks nothing of a loop that is gone, so the line stays
+        // loadable. A value the timed refresh scan took is dropped: refreshes
+        // are asked for with --pr now, and the line is left to the operator
+        // to take out.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
@@ -430,11 +431,16 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_LAYOUT", "business" | "")
                 | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | ("TEHAS_REFRESH_EVERY", "")
+                | ("TEHAS_IMPROVE_RUKAS_SKIP", "0" | "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
                         | "TEHAS_PRIORITY_FIELD"
-                        | "TEHAS_OVERLAP_HOLD",
+                        | "TEHAS_OVERLAP_HOLD"
+                        | "TEHAS_IMPROVE_REPO"
+                        | "TEHAS_IMPROVE_RUKAS_REPO"
+                        | "TEHAS_IMPROVE_MAX_OPEN"
+                        | "TEHAS_CYCLE_REPORT",
                     ""
                 )
         ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
@@ -1311,6 +1317,12 @@ mod tests {
             "TEHAS_REFRESH_EVERY=1",
             "TEHAS_REFRESH_EVERY=1440",
             "TEHAS_OVERLAP_HOLD=",
+            "TEHAS_IMPROVE_REPO=",
+            "TEHAS_IMPROVE_RUKAS_REPO=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=0",
+            "TEHAS_IMPROVE_MAX_OPEN=",
+            "TEHAS_CYCLE_REPORT=",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1357,10 +1369,8 @@ mod tests {
                 "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
             ),
             ("TEHAS_IMPROVE_REPO=acme/backlog", GONE_LOOP),
-            ("TEHAS_IMPROVE_REPO=", GONE_LOOP),
             ("TEHAS_IMPROVE_RUKAS_REPO=acme/rukas", GONE_LOOP),
             ("TEHAS_IMPROVE_RUKAS_SKIP=1", GONE_LOOP),
-            ("TEHAS_IMPROVE_RUKAS_SKIP=0", GONE_LOOP),
             ("TEHAS_IMPROVE_MAX_OPEN=30", GONE_LOOP),
             (
                 "TEHAS_CYCLE_REPORT=rust",

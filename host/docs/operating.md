@@ -638,8 +638,9 @@ check, and warns when the list is not empty; see
 
 `tehas-cycle cycle` reports a cycle in its own process once `tehas work` has
 ended: the report of `libexec/cycle` in bash is gone, and so is
-`TEHAS_CYCLE_REPORT`. An instance that still sets it, to any value, stops
-with 78 until the line is taken out. The report goes by the settings the cycle started with and does not load
+`TEHAS_CYCLE_REPORT`. An instance that still sets it to a value, `rust` too,
+stops with 78 until the line is taken out; a blank value is ignored. The
+report goes by the settings the cycle started with and does not load
 `instance.env` again: a file changed or broken during a cycle does not stop
 it. A host without `libexec/tehas-cycle` starts no cycle: `tehasbot cycle`
 stops with 78. There is no way back to the bash report short of installing a
