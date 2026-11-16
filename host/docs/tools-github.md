@@ -164,7 +164,11 @@ gh's output stays the terminal, so `gh pr create` and the other commands that
 ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
 call that waits holds up no other. A caller with a time limit of its own, such
 as the poll's 30 seconds a call, ends the call at its limit; the poll's action
-journal settles that write on a later poll.
+journal settles that write on a later poll. A write that ended at its limit, or
+that GitHub answered with a 5xx, is kept as `unknown`, not as failed: it may
+have reached GitHub, so it is read again (a comment by its body, a label by
+name) before it is ever sent again. Found there, it is done and not sent; not
+found, it is sent once; a read that failed sends nothing until a later read.
 
 ## tehasbot github-writes
 

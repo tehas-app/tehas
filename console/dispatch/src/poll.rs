@@ -24,6 +24,7 @@ use crate::read::host::hostname;
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
@@ -363,6 +364,7 @@ fn writer(
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        looked: HashMap::new(),
     }
 }
 

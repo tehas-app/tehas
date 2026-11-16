@@ -113,7 +113,8 @@ case "$1 $2" in
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
   # The park question, posted through the API so that its id comes back.
-  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+  # post-fails holds what gh says when it fails, which may be nothing.
+  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || { cat "$T/fx/post-fails" >&2; exit 1; }; echo 4002 ;;
   # The comment the cycle posts on the issue. The first ones fail, as many as
   # comment-fails-times says, and any comment fails at once when
   # comment-fails is there: the two arms of the edits above.
