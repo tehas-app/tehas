@@ -22,7 +22,7 @@ use common::{prompt, read_some, request, rows_of, token_of, Endpoint, Plan, Reco
 /// three things a request is judged against: the factory's rows, the tokens of
 /// live jobs, and the journal of the lines.
 ///
-/// The rows name the token of each job, as #2272's table will, and the proxy is
+/// The rows name the token of each job, as a test mints it, and the proxy is
 /// the one holder of the tokens: the two are made together, in one table, which
 /// is what a revocation and the end of a job empty. A case asks the proxy
 /// through [`Proxy::job`] and [`Proxy::ask`], which is the contractor's side of
@@ -545,13 +545,13 @@ fn a_revoked_contractor_s_tokens_all_go_at_once() {
 
 /// A factory whose records read nothing, or whose read fails, forwards nothing.
 /// The fail-closed half of the proxy as a service: the state of every instance
-/// the day before #2272's tables.
+/// whose store cannot be read, or has the feature off.
 #[test]
 fn a_factory_that_reads_nothing_forwards_nothing_to_the_endpoint() {
     let endpoint = Endpoint::open(Plan::json(200, 1, 1));
     // The proxy of a factory with no outsource tables, on the unit's own
     // listener: there are rows to read and they say nothing, which is the state
-    // of every instance the day before #2272's tables land.
+    // of a store that cannot be read or has the feature off.
     let proxy = Proxy::open(&endpoint, &[]);
     let (status, _) = proxy.ask("a-token-of-no-job", "/v1/chat/completions", "{}");
     assert_eq!(status, 401, "a model was reached with no records");

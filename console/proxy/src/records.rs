@@ -1,16 +1,20 @@
 //! Who may work, and which job is going: the proxy's reading of the factory's
-//! records, and the record of a factory that has no outsource tables yet.
+//! records in the state store.
 //!
 //! The proxy decides nothing from what a contractor sends (rule 4). It asks
 //! these four questions of the factory on every request, so a job that ended or
 //! a contractor revoked mid-stream is refused by the next request rather than
 //! remembered wrongly from the last one.
 //!
-//! The rows come from #2272's tables. Until they are there, a factory reads no
-//! job and no contractor, and this answers nothing at all: every request is
-//! refused as a job whose record says absent, and nothing is ever forwarded to
-//! the model endpoint. Failing closed is the point of a proxy that holds the
-//! factory's model key.
+//! The rows are the store's outsource tables, read with `contractor-list` and
+//! `job-show`. A store that cannot be read, or one with the feature off, which
+//! answers those verbs `refused`, reads as no job and no contractor: every
+//! request is refused and nothing is forwarded to the model endpoint. Failing
+//! closed is the point of a proxy that holds the factory's model key.
+
+use std::path::{Path, PathBuf};
+
+use serde_json::Value;
 
 use crate::jobs::Issuer;
 use crate::request::{Live, Records, State};
@@ -36,10 +40,9 @@ pub struct Job {
     pub contractor: String,
     /// The state of the job's record, in the words the table holds.
     pub state: String,
-    /// The token of this attempt, as this process issued it. The proxy has the
-    /// tokens of live jobs in memory and nowhere else, so the ask names the
-    /// job and the table answers with the token rather than the other way
-    /// round: nothing that comes from a contractor is ever looked up.
+    /// The token a test's rows were minted with. The store holds no token, so
+    /// its rows leave this empty: a token is answered from the proxy's own
+    /// table only.
     pub token: String,
 }
 
@@ -54,13 +57,12 @@ pub trait Reader {
     fn rows(&self) -> Rows;
 }
 
-/// The records of a factory with no outsource tables: the state before #2272
-/// lands, and the state of any instance whose tables cannot be read. Nothing
-/// is allowed and no job is going, so the proxy answers only refusals.
+/// The records of a factory whose tables cannot be read. Nothing is allowed
+/// and no job is going, so the proxy answers only refusals.
 pub struct NoneAtAll;
 
-/// The records of one proxy, read as a request comes: the factory's two lists,
-/// which #2272 writes, and the tokens this process minted. They answer the four
+/// The records of one proxy, read as a request comes: the factory's two lists
+/// and the tokens this process minted. They answer the four
 /// questions together because the process is the one holder of both: it read
 /// the job when the job was placed and it minted the token then, so a request
 /// that carries a token it no longer holds is the request of a job that ended,
@@ -131,6 +133,72 @@ impl Reader for NoneAtAll {
             contractors: Vec::new(),
             jobs: Vec::new(),
         }
+    }
+}
+
+/// The factory's records as the state store of `home` holds them: the
+/// contractors that are not revoked, and the jobs this proxy holds a token of.
+/// A draining contractor still finishes the job it has, so it stays allowed.
+/// Only the jobs of held tokens are read: a request whose token the proxy does
+/// not hold is refused before a job is asked for.
+pub struct OfStore {
+    home: PathBuf,
+    issuer: Issuer,
+}
+
+impl OfStore {
+    pub fn at(home: &Path, issuer: &Issuer) -> OfStore {
+        OfStore {
+            home: home.to_path_buf(),
+            issuer: issuer.shared(),
+        }
+    }
+
+    /// One read verb of the store, when it answered with `verb`.
+    fn ask(&self, args: &[&str], verb: &str) -> Option<Value> {
+        let text = store::call(&self.home, args, &mut std::io::empty()).ok()?;
+        let said: Value = serde_json::from_str(&text).ok()?;
+        (said["verb"] == verb).then_some(said)
+    }
+}
+
+/// One row of a store list. The store writes each row of `contractor-list` as
+/// a string of JSON today; an object is taken as it is too.
+fn row(v: &Value) -> Option<Value> {
+    match v {
+        Value::String(text) => serde_json::from_str(text).ok(),
+        Value::Object(_) => Some(v.clone()),
+        _ => None,
+    }
+}
+
+impl Reader for OfStore {
+    fn rows(&self) -> Rows {
+        let contractors = self
+            .ask(&["contractor-list"], "contractors")
+            .and_then(|v| v["rows"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(row)
+            .filter(|c| c["revoked"] == Value::Bool(false))
+            .filter_map(|c| c["name"].as_str().map(str::to_string))
+            .collect();
+        let jobs = self
+            .issuer
+            .jobs()
+            .into_iter()
+            .filter_map(|id| {
+                let v = self.ask(&["job-show", "--job", &id.to_string()], "job")?;
+                Some(Job {
+                    job: v["job"].as_i64()?,
+                    attempt: v["attempt"].as_i64()?,
+                    contractor: v["contractor"].as_str()?.to_string(),
+                    state: v["state"].as_str()?.to_string(),
+                    token: String::new(),
+                })
+            })
+            .collect();
+        Rows { contractors, jobs }
     }
 }
 
@@ -220,7 +288,7 @@ mod tests {
 
     #[test]
     fn a_factory_of_no_records_answers_nothing_at_all() {
-        // The state before #2272, and the state of a read that failed: no
+        // The state of a read that failed: no
         // token is known, no job is going, nobody is allowed. A proxy told
         // nothing answers only refusals, and never the model.
         let none = NoneAtAll;

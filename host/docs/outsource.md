@@ -16,8 +16,9 @@ says why and ends 0: no listener, no new port, nothing in `live/` and no new
 line in `tehas status`.
 
 The rest of [outsource](#what-is-not-here-yet) is not built yet: the
-contractor's program, the invitations and the jobs. This page is the factory's
-half, the proxy, and what it will not do.
+contractor's program and the job channel. The state store holds the
+contractors and the jobs. This page is the factory's half, the proxy, and what
+it will not do.
 
 ## What it is for
 
@@ -36,11 +37,15 @@ in a log and never in the store.
 
 ## How it is switched on
 
+`tehas-proxy` reads the settings `tehas_load` exports, and the state store under
+`TEHAS_HOME`. Its control socket is `~/tehas/state/outsource/proxy.sock`; a
+job's token is written to `~/tehas/state/outsource/jobs/<job>/job-token`.
+
 | Setting | Default | What it is |
 | --- | --- | --- |
 | `TEHAS_OUTSOURCE` | `0` | `1` runs the proxy. Anything else stops every command with 78 |
 | `TEHAS_OUTSOURCE_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
-| `TEHAS_OUTSOURCE_TIMEOUT` | `900` | Seconds a job may go without a contractor's check-in before it is lost |
+| `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
 | `TEHAS_OUTSOURCE_IDLE` | `3600` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
 
 The proxy asks the endpoint of the provider the instance's agents run on, the
@@ -88,7 +93,9 @@ no byte of a body.
 | An endpoint that cannot be reached or answers nothing | 502 | the words of the failure, which name the host and not the key it was to send |
 
 The job and the contractor are read from the factory's records on every
-request, never from a field the contractor sent. A job that ended or a
+request, never from a field the contractor sent: the state store's
+`contractor-list`, where a revoked contractor may not work and a draining one
+still finishes its job, and `job-show` of the job the token was issued for. A job that ended or a
 contractor revoked mid-stream is refused by the next request rather than
 remembered wrongly from the last one. A factory whose records cannot be read
 answers only refusals, and forwards nothing: that is the point of a proxy that
@@ -110,8 +117,9 @@ holds the factory's model key.
 ## What it counts
 
 The endpoint's own figures, `usage` of an answer or of the last chunk of a
-stream, are counted per contractor and per job and kept as rows of the state
-store, which is what `tehas status` and the dashboard report from (#2277). A
+stream, and the requests each token carried are counted per contractor and per
+job. `tehas-proxy --counts` prints the request counts and clears them. They
+reach the state store, `tehas status` and the dashboard with #2277. A
 proxy that could not finish writing an answer counts nothing: an answer no one
 read is no answer to price. The proxy never guesses a token count, and a row
 names no token, no path and no byte of a body.
@@ -150,5 +158,5 @@ own issue:
 - #2277, the counts in `tehas status`, the dashboard and the MCP server.
 - #2278, the install and the join installer.
 
-Until #2272's tables are read by the proxy, it reads no job and no contractor,
-so it answers every request with a refusal and forwards nothing to the endpoint.
+Until #2274 issues tokens for real jobs, no contractor holds one, so the proxy
+answers every request with a refusal and forwards nothing to the endpoint.

@@ -192,6 +192,15 @@ impl Issuer {
         out
     }
 
+    /// The jobs this process holds a token of, each once, in order: the jobs
+    /// whose records the proxy reads.
+    pub fn jobs(&self) -> Vec<i64> {
+        let mut jobs: Vec<i64> = self.lock().values().map(|e| e.live.job).collect();
+        jobs.sort_unstable();
+        jobs.dedup();
+        jobs
+    }
+
     pub fn len(&self) -> usize {
         self.lock().len()
     }
@@ -297,6 +306,13 @@ mod tests {
         assert_eq!(issuer.forget_jobs(&[1]), 1);
         assert!(!issuer.holds(&tokens[0]));
         assert!(issuer.holds(&tokens[1]));
+    }
+
+    #[test]
+    fn the_jobs_held_are_named_once_each() {
+        let (issuer, _) = issuer_with(&[(3, 1, "gpu1"), (1, 1, "gpu2"), (3, 2, "gpu1")]);
+        assert_eq!(issuer.jobs(), vec![1, 3]);
+        assert!(Issuer::new().jobs().is_empty());
     }
 
     #[test]
