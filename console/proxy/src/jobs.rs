@@ -55,14 +55,11 @@ impl Issuer {
         job: i64,
         attempt: i64,
         contractor: &str,
-        random: &mut dyn FnMut() -> String,
-    ) -> String {
-        let token = random();
-        debug_assert!(
-            token.len() >= 8,
-            "a token of {} characters is too short",
-            token.len()
-        );
+        random: &mut dyn FnMut() -> Option<String>,
+    ) -> Option<String> {
+        // No randomness, or too little of it, is no token: nothing is kept and
+        // the caller is told, so a job never gets a token that cannot work.
+        let token = random().filter(|t| t.len() >= 8)?;
         let _ = self.lock().insert(
             token.clone(),
             Entry {
@@ -74,7 +71,7 @@ impl Issuer {
                 requests: 0,
             },
         );
-        token
+        Some(token)
     }
 
     /// The job and contractor a token names, and the count of requests that
@@ -249,9 +246,13 @@ mod tests {
         let mut tokens = Vec::new();
         for (job, attempt, contractor) in jobs {
             let n = tokens.len();
-            tokens.push(issuer.issue(*job, *attempt, contractor, &mut || {
-                format!("token-{n}-for-job-{job}")
-            }));
+            tokens.push(
+                issuer
+                    .issue(*job, *attempt, contractor, &mut || {
+                        Some(format!("token-{n}-for-job-{job}"))
+                    })
+                    .unwrap(),
+            );
         }
         (issuer, tokens)
     }
@@ -340,5 +341,20 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         assert!(!made.contains(['+', '/', '=', ' ', '\r', '\n', '"']));
+    }
+
+    #[test]
+    fn no_randomness_is_no_token_and_nothing_kept() {
+        let issuer = Issuer::new();
+        assert_eq!(issuer.issue(7, 1, "gpu1", &mut || None), None);
+        assert_eq!(
+            issuer.issue(7, 1, "gpu1", &mut || Some(String::new())),
+            None
+        );
+        assert_eq!(
+            issuer.issue(7, 1, "gpu1", &mut || Some("short".into())),
+            None
+        );
+        assert!(issuer.is_empty());
     }
 }
