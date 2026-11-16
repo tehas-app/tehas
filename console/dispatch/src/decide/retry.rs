@@ -5,7 +5,7 @@
 use super::clean::iso;
 use super::{
     base_stands, fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step,
-    LEAN,
+    IMPROVEMENT, LEAN,
 };
 use crate::questions;
 use crate::text;
@@ -582,7 +582,7 @@ impl Poll<'_> {
             if !self.work_ok(n)? || !self.epic_ok(n, "tehas:ready", &have) {
                 continue;
             }
-            if has(&have, "cross-project") && has(&have, "tehas:improvement") {
+            if has(&have, "cross-project") && has(&have, IMPROVEMENT) {
                 self.log(format!("skip #{n}: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"));
                 continue;
             }
