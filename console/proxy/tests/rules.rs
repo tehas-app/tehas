@@ -296,6 +296,16 @@ fn a_stream_reaches_the_contractor_chunk_by_chunk() {
     }
     let whole = format!("{first}{}", String::from_utf8_lossy(&rest));
     assert!(whole.contains("data: [DONE]"), "no end of stream: {whole}");
+    // The endpoint's own head comes first, then the chunks in the order sent.
+    assert!(
+        whole.starts_with("HTTP/1.1 200"),
+        "the endpoint's status line did not reach the contractor: {whole}"
+    );
+    let at = |word: &str| whole.find(word).unwrap_or(usize::MAX);
+    assert!(
+        at("\r\n\r\n") < at("\"one\"") && at("\"one\"") < at("\"two\""),
+        "the head and the chunks came out of order: {whole}"
+    );
 
     let outcome = answer.join().expect("the proxy's half of the stream");
     assert_eq!(outcome.status, 200);

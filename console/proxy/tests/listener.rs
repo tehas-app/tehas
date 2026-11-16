@@ -449,6 +449,23 @@ fn a_job_s_token_goes_to_a_file_of_the_job_s_own_directory() {
         0o600,
         "a token file another user can read"
     );
+    assert_eq!(
+        std::fs::metadata(dir.join("job-7"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700,
+        "a job directory another user can list"
+    );
+    // A new attempt's token replaces the last, with the same mode.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let again = serve::write_token(&dir.join("job-7"), "tok-8").expect("the second token");
+    assert_eq!(std::fs::read_to_string(&again).unwrap(), "tok-8");
+    assert_eq!(
+        std::fs::metadata(&again).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     // A directory of nothing else, and no token anywhere but that file.
     let listed: Vec<String> = std::fs::read_dir(dir.join("job-7"))
         .unwrap()

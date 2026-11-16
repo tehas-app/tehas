@@ -421,26 +421,44 @@ pub fn content_length(head: &[u8]) -> Option<usize> {
     len
 }
 
+/// How much of the end of an answer's body [`pipe`] keeps: the endpoint's
+/// figures ride in the last chunk of a stream, or are the whole of a short
+/// completion. Nothing before this is held, however long the answer runs.
+pub const TAIL: usize = 64 * 1024;
+
 /// The answer's bytes from where the caller left them to the contractor, one
 /// chunk at a time: write what was read, then read the next. This is the whole
 /// of the proxy's part in a stream, and it is why a chunk reaches the
-/// contractor before the endpoint has sent the one after it. What was written
-/// is returned, which is all the caller keeps of a body: the figures the
-/// endpoint gave are read of it and nothing else ever is.
-pub fn pipe(upstream: &mut TcpStream, client: &mut TcpStream, from: &[u8]) -> io::Result<Vec<u8>> {
+/// contractor before the endpoint has sent the one after it. `from` is what
+/// was already read, its body starting at `body`. The last [`TAIL`] bytes of
+/// the body are returned, for the figures the endpoint gave and nothing else.
+pub fn pipe(
+    upstream: &mut TcpStream,
+    client: &mut TcpStream,
+    from: &[u8],
+    body: usize,
+) -> io::Result<Vec<u8>> {
     let mut buf = [0u8; 16 * 1024];
-    let mut copied = Vec::new();
+    let mut tail = Vec::new();
     client.write_all(from)?;
+    keep_tail(&mut tail, from.get(body..).unwrap_or_default());
     loop {
         let n = upstream.read(&mut buf)?;
         if n == 0 {
             break;
         }
         client.write_all(&buf[..n])?;
-        copied.extend_from_slice(&buf[..n]);
+        keep_tail(&mut tail, &buf[..n]);
     }
     client.flush()?;
-    Ok(copied)
+    Ok(tail)
+}
+
+fn keep_tail(tail: &mut Vec<u8>, more: &[u8]) {
+    tail.extend_from_slice(more);
+    if tail.len() > TAIL {
+        tail.drain(..tail.len() - TAIL);
+    }
 }
 
 #[cfg(test)]
@@ -833,6 +851,16 @@ mod tests {
     }
 
     #[test]
+    fn only_the_tail_of_a_long_answer_is_kept() {
+        let mut tail = Vec::new();
+        keep_tail(&mut tail, &vec![b'a'; TAIL]);
+        keep_tail(&mut tail, b"last");
+        assert_eq!(tail.len(), TAIL);
+        assert!(tail.ends_with(b"last"));
+        assert!(tail.starts_with(b"a"));
+    }
+
+    #[test]
     fn a_stream_reaches_the_reader_chunk_by_chunk_and_not_at_the_end() {
         // The endpoint sends the first chunk at once and the second half a
         // second later. A proxy that buffered the answer would give the reader
@@ -881,7 +909,7 @@ mod tests {
         let (mut reader, mut client) = os_pipe_pair().expect("a pair for the answer");
         thread::spawn(move || {
             let mut up = stream;
-            let _ = super::pipe(&mut up, &mut client, &[]);
+            let _ = super::pipe(&mut up, &mut client, &[], 0);
         });
         let mut got = Vec::new();
         let _ = reader.set_read_timeout(Some(Duration::from_secs(5)));
