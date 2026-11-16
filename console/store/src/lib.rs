@@ -22,7 +22,6 @@ mod plan;
 mod poll;
 mod review_issue;
 mod say;
-mod slow;
 mod upkeep;
 mod verbs;
 
@@ -86,7 +85,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | slow <file> --out <file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -143,10 +142,6 @@ pub enum Verb {
     },
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
-    Slow {
-        file: PathBuf,
-        out: PathBuf,
-    },
     ReviewIssue(ReviewIssue),
     ReviewFile(ReviewFile),
     /// The calls of one `store batch`, already read from standard input and
@@ -173,13 +168,6 @@ fn parse(args: &[String]) -> Option<Verb> {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
         }
-        // The record writer's one selection that is not a copy: the driver's
-        // slow notices of a cycle, kept in the record so a stuck child reads
-        // without the console (tehas_core::slow).
-        [verb, file, flag, out] if verb == "slow" && flag == "--out" => Some(Verb::Slow {
-            file: PathBuf::from(file),
-            out: PathBuf::from(out),
-        }),
         // The review issue of one run's document. The two names are checked
         // here and not in the verb, so a call that stops at its arguments is
         // the usage error it is: nothing was read and nothing was written.
@@ -554,7 +542,6 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
-        Verb::Slow { file, out } => slow::run(file, out),
         Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
         // The names of the host go to the mask once, before the first call of
         // it, as the console's `review run` sets them before it masks the two

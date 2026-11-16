@@ -5,8 +5,8 @@
 //! and `freeze` says what the watch does for a frozen cycle.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 //! `finish` opens a pull request from what a cycle that stopped left.
-//! `after` does what follows a cycle's record, and `improve` writes the
-//! record the improvement loop reads.
+//! `after` does what follows a cycle's record, and `ran_with` says what a
+//! cycle ran with.
 //! `caps` reads what an image says its runner can do.
 //! `index` builds the code index a cycle's agents search.
 //! `sandbox` prints the docker options of a container for the commands that
@@ -32,13 +32,13 @@ pub mod finish;
 pub mod freeze;
 pub mod gives;
 pub mod host;
-pub mod improve;
 pub mod index;
 pub mod last_attempt;
 pub mod lock;
 pub mod pin;
 pub mod prepare;
 pub mod progress;
+pub mod ran_with;
 pub mod relay;
 pub mod renew;
 pub mod report;

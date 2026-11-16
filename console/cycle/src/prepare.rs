@@ -23,7 +23,7 @@
 //! has touched.
 
 use crate::start::{self, is_record, record_value, Driver};
-use crate::{caps, conflict, host, improve};
+use crate::{caps, conflict, host, ran_with};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -469,8 +469,7 @@ fn on(path: &Path, end: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// The log of the push check, beside the cycle's own log. `work` names it the
-/// same way when it reads it for the improvement record.
+/// The log of the push check, beside the cycle's own log.
 pub fn preflight_of(log: &Path) -> PathBuf {
     on(log, ".preflight")
 }
@@ -1209,7 +1208,7 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
     }
     let mut options = list(state, "env");
     options.extend_from_slice(&r.images);
-    let text = improve::settings(&running(home).to_string(), &options);
+    let text = ran_with::settings(&running(home).to_string(), &options);
     let settings = start::private_file(home, "settings", format!("{text}\n").as_bytes());
     let path = settings.as_ref().map(|p| p.to_string_lossy().into_owned());
     match &path {

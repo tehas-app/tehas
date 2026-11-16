@@ -343,8 +343,6 @@ Blocked by #12 and #34.
 
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. Only the bot's own such comment counts as said. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
-An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
-
 An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
 An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
@@ -364,8 +362,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:replaced`        | Closed: a refine filed the issue that replaces it | Work on the issue named in `Replaced by` |
 | `tehas:refined`         | A refine filed its first part; later parts remain | Apply `tehas:refine` for the next part, or close it |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
-| `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
-| `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
+| `tehas:improvement`     | Filed by the factory, a proposal  | Read it; apply `tehas:ready` if it should be built |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:classic`         | Under `TEHAS_DRIVER=lean`: the classic driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on lean |
@@ -640,9 +637,9 @@ check, and warns when the list is not empty; see
 ### The report in Rust
 
 `tehas-cycle cycle` reports a cycle in its own process once `tehas work` has
-ended: the report of `libexec/cycle` in bash is gone. `TEHAS_CYCLE_REPORT`
-takes only `rust`, which changes nothing; `bash`, or any other value, is exit
-78. The report goes by the settings the cycle started with and does not load
+ended: the report of `libexec/cycle` in bash is gone, and so is
+`TEHAS_CYCLE_REPORT`. An instance that still sets it, to any value, stops
+with 78 until the line is taken out. The report goes by the settings the cycle started with and does not load
 `instance.env` again: a file changed or broken during a cycle does not stop
 it. A host without `libexec/tehas-cycle` starts no cycle: `tehasbot cycle`
 stops with 78. There is no way back to the bash report short of installing a
@@ -1457,7 +1454,7 @@ tehas limit clear            # back to no limit
 ```
 
 `--cycles` is the most cycles at once; `--plan off` also holds new planning
-sessions and improvement runs, though an answer to a planning question still
+sessions, though an answer to a planning question still
 runs. Without `--for` or `--until` the limit stays until cleared. Running
 cycles are never stopped. A limit that has expired, or a file that cannot be
 read, holds every start until it is set again or cleared, and `tehas status`
@@ -1757,122 +1754,10 @@ still alive. Both are for pi-rukas to change: on a bound kill, go to the
 handoff with what it has, and name the test file still running. Until then,
 size `TEHAS_WORK_TIMEOUT` for two bounds a step.
 
-## The improvement loop
-
-Optional. It is off unless the instance sets `TEHAS_IMPROVE_REPO` and the timer
-`tehas-improve.timer` is enabled; see [Commands](/tools).
-
-Every three hours a model reads the cycles that ended since the last run and
-says what could be better: in the dispatcher, the cycle, pi-rukas, the
-console, the gates or this manual. A finding that is not already in the issue
-stack is filed as an issue of its own in that repository.
-
-- **A finding about pi-rukas has a repository of its own** where the instance
-  sets `TEHAS_IMPROVE_RUKAS_REPO`. The model gives each finding a category,
-  and one of the category `pi-rukas` is filed there, because a cycle on the
-  product cannot fix it. Both repositories are read for duplicates. Each
-  has the limit of 10 open issues to itself, so one that is full does not
-  hold the other back. How a fix then reaches the host is
-  under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
-- **Or none at all.** With `TEHAS_IMPROVE_RUKAS_SKIP=1` a finding of the
-  category `pi-rukas` is not filed anywhere, and the run line counts it as
-  `skipped`. This is for a host whose pi-rukas developers read its cycles
-  themselves, through the [MCP server](/mcp-server). It cannot be set with
-  `TEHAS_IMPROVE_RUKAS_REPO`, and no issue there is checked again.
-- **A finding at the boundary is two issues.** The category `boundary` is
-  for a problem with a half in the factory and a half in pi-rukas, or a
-  shape the two have to agree on. Each half is filed in its own repository,
-  the two link each other, and both carry `cross-project` as well. Without
-  a repository for pi-rukas it is one issue that names both halves.
-- **The model reads what each cycle ran with**: the `PI_ENSEMBLE_*`
-  variables its container was given, the `TEHAS_*` settings that shape a
-  cycle, how many cycles were running as its container started, and the
-  provider retry line of its preflight log. `tehas work` puts the first
-  three on the cycle's record in the state store as the container starts.
-  What the model reads may
-  reach a public issue, so only short plain values are written: numbers,
-  booleans and words of letters, digits and `_.,:=-`. Any other value is
-  `[withheld]`: every URL, host, path and address, anything that may be a
-  token, and every value whose name says it may be a secret or a host.
-- **Each issue names the product's issues** whose cycles it rests on, as
-  `owner/name#7`, so GitHub links the two both ways.
-- **Each issue says what working on it means**, in the line `Working on it`,
-  because the text of an issue is the task a cycle is given. A finding about
-  the factory is built in the repository it is filed in, once a person applies
-  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas; no cycle on the
-  product works around it. Where the
-  instance has no repository for pi-rukas, such a finding is filed with the
-  rest and tells a cycle to change no code and hand off.
-- **An issue worked on again is checked against the filed issue.** When a
-  later cycle of a product issue is read and an issue the loop filed rests on
-  an earlier cycle of it, the model says whether the problem came back. That
-  is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
-  what the new cycle showed, its whole log, and the pi-rukas commit the cycle
-  ran: the `buildCommit` of its runner's result, or for a record written
-  before tehas kept it, the sandbox image's label. Of a closed issue in the
-  repository for pi-rukas, the loop asks GitHub whether the commit that closed
-  it is in that pi-rukas commit, the question `git merge-base --is-ancestor` answers. When it is
-  not, the comment says `not in this build` instead of `yes`. When the
-  record names no commit, or GitHub does not answer, it says `build unknown`.
-  The record names no commit of the factory, so an issue there that a
-  commit closed always says `build unknown`. This is how a fix in pi-rukas is verified: deploy it,
-  apply `tehas:ready` to the product issue again, and read the comment. A
-  model wrote it, so check it against the log. The loop closes and reopens
-  nothing. At most 10 comments a run, and none in a run that waits because
-  every repository is full.
-- **The label is `tehas:improvement`**, with `cross-project` beside it on the
-  two halves of a boundary finding, and on a finding of any category that
-  speaks of a repository of the stack beside the one its issue is filed in -
-  the text names it as `owner/name:`, or an open or recently closed issue
-  there cites one of the cycles the finding rests on. It is the dispatcher's
-  tell that one cycle here cannot make the change on its own, and it holds such
-  an issue back from starting; see
-  [what happens next](#3-what-happens-next). The issue says those
-  repositories in its `Names` line, so a person reads where the other half of
-  the work is before labelling. The names are read from the stack the host
-  gave the loop, never from a name a model wrote, and none is used that the
-  stack does not hold. tehas does not act on
-  `tehas:improvement`, and the loop never applies `tehas:ready`. A filed issue is a proposal a
-  model wrote: read it, correct it, and apply `tehas:ready` yourself if it
-  should be built. Close it if not.
-- **At most 3 issues a run, and none in a repository where 10 are open** with
-  the label, or the number `TEHAS_IMPROVE_MAX_OPEN` gives. The loop reads text
-  anyone may have written into an issue or a log, so the limit is what keeps
-  a steered or a mistaken model from filling the stack while nobody reads. Close some or build some and the loop files there again. A run
-  waits, and reads nothing, only when every repository is full.
-- **The whole log is linked.** Each issue links the logs of the cycles it
-  names, gzipped, as assets of the release `tehas-improve-logs` in
-  `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository
-  they are public. A log goes up masked as the console masks it: tokens,
-  passwords, private addresses. A log that still holds something shaped like a
-  token, or that could not be masked, is not uploaded, and the issue says so.
-- **One line per run** in `~/tehas/logs/improve.log`:
-
-```
-2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58 rechecked=1
-```
-
-`cycles` is how many were read and `findings` what the model gave. `invalid`
-were dropped for not being the shape asked for, `duplicates` were already in
-the stack or given twice (`of` names the issues the model pointed at), and `over` were more
-than the limits allow and are dropped. `filed` and `issues` are what was
-opened. An issue in the repository for pi-rukas is written with its
-repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
-on issues that were worked on again; one GitHub refused follows as
-`not-commented=acme/rukas#12`. `skipped=2` says two findings about pi-rukas
-were not filed. A run reads at most five cycles, the oldest
-first; `left=2` at the end says two wait for the next run. `stopped=124
-returned=2` says the analyst hit its bound of 60 minutes: what it had written
-was filed, and the two cycles it named nowhere wait for a later run.
-
-To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
-stop leaving records and a run does nothing. Or stop the timer with
-`systemctl --user disable --now tehas-improve.timer`.
-
 ## Kinds as issue types
 
 Optional. Two labels say what an issue is rather than where it is:
-`tehas:improvement`, a proposal of the improvement loop, and
+`tehas:improvement`, a proposal the factory filed, and
 `tehas:prototype`, a ticket at the prototype stage. An organisation can use
 its own issue types for them instead. Without the setting, the labels work
 as described above.
@@ -1881,8 +1766,7 @@ To set it up:
 
 1. As an owner of the organisation, add the issue types in its settings,
    under Planning, Issue types: for example `Improvement` and `Prototype`.
-   tehas never creates them. Where the improvement loop files in a second
-   repository (`TEHAS_IMPROVE_RUKAS_REPO`), its owner needs the type too.
+   tehas never creates them.
 2. Map each kind to its type in `instance.env`, one `kind=Type` pair for
    each, separated by a space. A kind left out stays its label:
 
@@ -1895,20 +1779,17 @@ To set it up:
 
 What changes:
 
-- **improvement**: the loop files its issues with the type and puts no
-  `tehas:improvement` on them; `cross-project` stays a label. Its limit of
-  open issues counts the issues of the type and those with the label. The
-  dispatcher holds an issue of the type exactly as it holds one labelled
-  `tehas:improvement`: the millwright does not start it, and with
-  `cross-project` nobody does. The label still holds where a person left it,
-  so turning the setting on lets nothing start that was held.
+- **improvement**: the dispatcher holds an issue of the type exactly as it
+  holds one labelled `tehas:improvement`: the millwright does not start it.
+  The label still holds where a person left it, so turning the setting on lets
+  nothing start that was held. The review still files under the label.
 - **prototype**: the Protolab lists the open issues of the type, and a ticket
   counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
   its type, the change that set it. A type set by anyone else, or a change the
   Protolab cannot see, counts as no type, as a label from anyone else does.
   With the setting on, `tehas:prototype` puts nothing in the lab.
 
-A type the organisation does not have fails closed: the poll, the loop or the
+A type the organisation does not have fails closed: the poll or the
 Protolab pass that reads the setting stops with 78 before it writes anything,
 and the log names the type and the repository. A repository of a personal
 account has no issue types, so the setting is not for it. To go back to the
@@ -2038,9 +1919,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   list, or nothing
   about the host's containers, removes no image: an unknown is never a reason
   to take one away.
-- the logs of cycles, planning turns, index runs and the improvement loop's
-  analyst in `~/tehas/logs` older than 7 days, whether or not the improvement
-  loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+- the logs of cycles, planning turns, index runs and reviews in
+  `~/tehas/logs` older than 7 days, and the analyst logs an earlier version
+  left. Long-lived logs such as `dispatch.log` and `clean.log` stay.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
   journal, old heartbeats of cycles that have ended, and the cycle and plan
@@ -2170,7 +2051,7 @@ the new names.
   issue no person approved a cycle of, the millwright's `tehas:ready` starts
   the first cycle when an account in `TEHAS_ALLOWED_LABELERS` wrote the issue,
   nobody outside the list changed its title or text since, it carries none of
-  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:improvement`, `needs-human-attention` and
   `tehas:millwright-escalated`, and no allowed labeller took `tehas:ready` off
   it before. Writing the issue is the person's approval of its text. A body
   the millwright reshaped is not the author's, so it needs a person's
@@ -2191,7 +2072,7 @@ the new names.
   tehas itself wrote the issue and last changed its title and text (tehas's
   planner writes a sub-issue's plan as tehas), nobody else changed them
   since the millwright's label, and the issue carries none of
-  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:improvement`, `needs-human-attention` and
   `tehas:millwright-escalated`. Otherwise the label comes off and the issue
   says why. The start is recorded as the person's label on the epic, `how:
   "label"` by that person, and the session as theirs, so the millwright

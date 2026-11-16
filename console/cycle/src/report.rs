@@ -2,15 +2,14 @@
 //! ended, from what the cycle left (`Facts`) and the questions it asks
 //! GitHub on the way (`Ask`). It writes nothing. Its answer is the lines it
 //! logs while it reads, the writes in their order, and what goes on the
-//! cycle's record, in the analytics and to the improvement loop.
+//! cycle's record and in the analytics.
 //!
 //! The order of the bash report it replaced is kept, and so are its words:
 //! tests/fixtures holds the bash's reports, traced, and each is checked line by
 //! line.
 
-use crate::after::After;
+use crate::after::{After, Ended};
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
-use crate::improve::Ended;
 use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
@@ -351,8 +350,6 @@ pub struct Report {
     /// The arguments of `analytics run` after the issue, the attempt and the
     /// line.
     pub analytics: Vec<String>,
-    /// The arguments of the improvement record.
-    pub improve: Vec<String>,
     /// Whether the status runs after it (not after a stop).
     pub status_run: bool,
     /// What GitHub was asked, in order: `prs <branch>`, `attention`.
@@ -1642,7 +1639,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             // reported exists: the report names the start as one that was
             // refused rather than `unknown`, which is the word of a run that
             // stopped with nothing to say for it. It goes to the end, the line
-            // of history, analytics and the improvement record, so each names
+            // of history and analytics, so each names
             // the same thing. The park's reason and the comment's summary keep
             // the status below: the poll holds a non-run by its reason.
             end_status = "refused".into();
@@ -1866,20 +1863,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         signalled: f.signalled,
         ..After::default()
     };
-    r.improve = vec![
-        issue.to_string(),
-        f.started.to_string(),
-        rc.to_string(),
-        said_status.to_string(),
-        step,
-        pr,
-        kills,
-        image_id,
-        image_rukas,
-        cap,
-        reason,
-        build,
-    ];
     r.status_run = !f.signalled;
     r
 }
@@ -1932,7 +1915,7 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         .collect();
     json!({
         "log": r.log, "actions": actions, "done": r.done, "end": r.end, "files": r.files,
-        "history": r.history, "analytics": r.analytics, "improve": r.improve,
+        "history": r.history, "analytics": r.analytics,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
 }
@@ -2158,7 +2141,7 @@ mod tests {
         let r = notes(vec![("stalled", "1800\nstall-step\n")]);
         assert_eq!(stalled_arg(&r), Some("1800"));
         assert!(r.done.contains("status=stalled"), "{}", r.done);
-        assert!(r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert_eq!(r.after.ended.status, "stalled");
         assert!(
             comments(&r)
                 .iter()
@@ -2181,7 +2164,7 @@ mod tests {
             "{:?}",
             comments(&r)
         );
-        assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert_ne!(r.after.ended.status, "stalled");
         assert!(
             r.log
                 .iter()

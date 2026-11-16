@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn the_table_of_the_repository_is_read_whole() {
         let labels = table(THE_TABLE).unwrap();
-        assert_eq!(labels.len(), 23);
+        assert_eq!(labels.len(), 22);
         assert_eq!(labels[0].name, "tehas:ready");
         assert_eq!(labels[0].color, "0e8a16");
         assert_eq!(
@@ -192,11 +192,11 @@ mod tests {
         let mut names: Vec<&str> = labels.iter().map(|l| l.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 23, "a name twice");
+        assert_eq!(names.len(), 22, "a name twice");
     }
 
     /// The labels a program names without the `tehas:` prefix.
-    const UNPREFIXED: [&str; 3] = ["needs-human-attention", "cross-project", "epic"];
+    const UNPREFIXED: [&str; 2] = ["needs-human-attention", "epic"];
 
     /// Each label name quoted in the code of `file` before its tests.
     fn named_in(file: &str, out: &mut Vec<String>) {
@@ -251,10 +251,10 @@ mod tests {
     fn a_name_in_the_code_is_found_and_one_in_its_tests_is_not() {
         let mut out = Vec::new();
         named_in(
-            "const A: &str = \"tehas:ready\";\nsay(\"tehas: no\");\nlet b = [\"cross-project\", \"tehas:{x}\"];\n#[cfg(test)]\nmod tests { \"tehas:x\" }\n",
+            "const A: &str = \"tehas:ready\";\nsay(\"tehas: no\");\nlet b = [\"epic\", \"tehas:{x}\"];\n#[cfg(test)]\nmod tests { \"tehas:x\" }\n",
             &mut out,
         );
-        assert_eq!(out, ["tehas:ready", "cross-project"]);
+        assert_eq!(out, ["tehas:ready", "epic"]);
     }
 
     #[test]

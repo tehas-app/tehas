@@ -119,14 +119,14 @@ t_case "every state label comes off a closed issue in one edit, and the labels a
 reset
 echo '[{"number":5,"state":"CLOSED","labels":[{"name":"tehas:running"},{"name":"tehas:awaiting-merge"},{"name":"tehas:question"},{"name":"tehas:planning"},
   {"name":"tehas:refreshing"},{"name":"tehas:blocked"},{"name":"tehas:ready"},{"name":"tehas:plan"},{"name":"tehas:refine"},{"name":"tehas:urgent"},
-  {"name":"tehas:next"},{"name":"tehas:prototype"},{"name":"cross-project"},{"name":"bug"}]}]' >"$fx/closed.json"
+  {"name":"tehas:next"},{"name":"tehas:prototype"},{"name":"epic"},{"name":"bug"}]}]' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits | wc -l)" 1
 for l in tehas:running tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine; do
   t_contains "$(edits)" "--remove-label $l"
 done
-for l in tehas:urgent tehas:next tehas:prototype cross-project bug; do
+for l in tehas:urgent tehas:next tehas:prototype epic bug; do
   t_lacks "$(edits) " "--remove-label $l "
 done
 t_contains "$t_out" "tidy #5: removed tehas:running tehas:awaiting-merge tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine"
@@ -137,7 +137,7 @@ echo '[]' >"$fx/closed.json"
 t_run "$tidy"
 search=$(t_calls gh | grep '^issue list')
 t_contains "$search" '--search label:"tehas:running","tehas:awaiting-merge","tehas:question","tehas:planning","tehas:refreshing","tehas:blocked","tehas:ready","tehas:plan","tehas:refine"'
-for l in tehas:shipped needs-human-attention tehas:urgent tehas:next tehas:prototype cross-project tehas:pause tehas:replaced tehas:refined; do
+for l in tehas:shipped needs-human-attention tehas:urgent tehas:next tehas:prototype epic tehas:pause tehas:replaced tehas:refined; do
   t_lacks "$search" "\"$l\""
 done
 
