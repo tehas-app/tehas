@@ -19,6 +19,8 @@ name = "tehas-cycle"
 path = "src/main.rs"
 
 [dependencies]
+# The link rule and the manifest of a cycle given nothing (src/gives.rs).
+attach = { path = "../attach" }
 regex = "1"
 # Clears close-on-exec on a held lock, so the programs a cycle starts inherit
 # it (src/lock.rs, #1587). No unsafe of our own.

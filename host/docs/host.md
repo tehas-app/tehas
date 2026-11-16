@@ -145,8 +145,8 @@ person pulls `~/tehas/platform` and runs `install.sh`.
 
 A factory is one machine. Nothing of it is shared with another factory: not
 the Docker daemon, not the ports the edge publishes, not the Unix user, not
-the name it is known by. A program that creates factories, such as
-[tehas-industry](/api), gets one machine per factory and runs the same two
+the name it is known by. A program that creates factories, such as an
+[industry of factories](/api), gets one machine per factory and runs the same two
 commands a person does.
 
 | Needs                                          | Why                                                                                                                    |
@@ -216,8 +216,8 @@ The lines it prints and what each one reports are in
 [Configuration comes from git](#configuration-comes-from-git).
 
 Whether this really works on a machine no one has prepared by hand is proven
-on the [features page](/features); the test there is industry's first
-acceptance test, and what it finds broken is fixed here.
+on the [features page](/features); the test there is the first
+acceptance test of a program that creates factories, and what it finds broken is fixed here.
 
 `install.sh` refuses a `TEHAS_HOME` it cannot prove is tehas's, because it
 removes what it takes for stale under it: the home carries the marker
@@ -538,7 +538,7 @@ footer of every manual page shows it. `--check` does not look at it. The
 footers of the two front pages read their versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
-the tehas-industry that runs the factory from `checks.industry` when there is
+the industry that runs the factory from `checks.industry` when there is
 one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
 module shows a banner at the top of both pages while a host message is set
 (`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
@@ -1536,7 +1536,10 @@ tehas's jq (ahead of the base image's, the version the host runs), Rust at
 fonts, `file`, and a Python image library. The last two are in the container only: `bootstrap.sh` installs
 neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
-crates; they go with the container. The base is pinned by digest in
+crates; they go with the container. The Playwright install runs npm as root with the
+cycle user's home, so its npm cache goes to `/tmp` and is removed in the same
+step; the build stops when root owns anything in `/home/vscode/.npm`, where a
+cycle's own npm would fail with `EACCES`. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree

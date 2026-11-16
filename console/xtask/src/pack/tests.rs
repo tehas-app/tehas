@@ -543,10 +543,6 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 const NOT_INSTALLED: &[(&str, &str)] = &[
     ("tehas-xtask", "the development tasks of scripts/"),
     (
-        "tehas-merge",
-        "built and tested, but no installed command starts it yet",
-    ),
-    (
         "tehas-proxy",
         "built and tested; install.sh and the release take it with #2278",
     ),

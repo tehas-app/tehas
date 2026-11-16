@@ -1,0 +1,4 @@
+kind	old	new	note
+command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an alias through 1.x; it prints the same words and object
+command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
+command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias

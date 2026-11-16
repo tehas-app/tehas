@@ -409,7 +409,7 @@ label events, relabelling and commenting, editing the description of a pull
 request to say where its preview is, pushing the cycle's branch and opening
 the pull request.
 
-- Check it with `tehasbot github-token --check`: it must say the installation
+- Check it with `tehas github check`: it must say the installation
   reaches the product repository.
 - The key never enters a cycle's container. A cycle gets a token narrowed to the
   product repository, with Contents and Pull requests write and Issues read,
