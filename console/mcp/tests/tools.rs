@@ -652,7 +652,7 @@ fn factory_disk_is_listed_and_answers() {
     let c = copy("disk");
     std::fs::write(
         c.join("disk.json"),
-        r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
+        r#"{"api":1,"time":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
             "filesystems":[{"paths":["/home/boss/tehas"],"mount":"overlay","freeBytes":223,"totalBytes":307}],
             "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"}],
                     "stoppedContainers":2,"hostname":"a name no answer gives"}}"#,
@@ -660,7 +660,8 @@ fn factory_disk_is_listed_and_answers() {
     .unwrap();
     let out = call(&c, "factory_disk", &json!({})).unwrap();
     assert_eq!(out["api"], 1);
-    assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
+    assert_eq!(out["time"], "2026-10-31T23:09:32Z");
+    assert!(out.get("generatedAt").is_none());
     assert_eq!(out["stale"], true);
     assert_eq!(out["dockerRoot"], "/var/lib/docker");
     assert_eq!(out["filesystems"][0]["freeBytes"], 223);

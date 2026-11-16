@@ -354,7 +354,7 @@ t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
   -f "$T_ROOT/test/schema.jq" "$T_ROOT/api/disk-cycles.sample.json")" ""
 # And the schema says the four keys the contract is judged on.
 t_eq "$(jq -r '.required | sort | @json' "$T_ROOT/api/disk-cycles.schema.json")" \
-  '["api","cycles","filesystems","generatedAt"]'
+  '["api","cycles","filesystems","time"]'
 
 # The two keys this schema shares with the plain disk answer, `filesystems` and
 # `full`, are restated here because api/ has no $ref: they are a copy, and a

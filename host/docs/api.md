@@ -984,7 +984,7 @@ tehas disk [--full] [--cycles] [--json] [--publish]
 ```
 
 ```json
-{"api": 1, "generatedAt": "2026-10-31T23:09:32Z", "dockerRoot": "/var/lib/docker",
+{"api": 1, "time": "2026-10-31T23:09:32Z", "dockerRoot": "/var/lib/docker",
  "filesystems": [
    {"paths": ["/home/boss/tehas"], "mount": "overlay",
     "freeBytes": 22348619337728, "totalBytes": 30723834994688},
@@ -1011,7 +1011,7 @@ field of one entry and under `full` for a field of what fills them.
 | Field | Meaning |
 | --- | --- |
 | `api` | The API version, 1 |
-| `generatedAt` | When the answer was made, UTC. The command's own reads write nothing, so this says how old the answer on the terminal is |
+| `time` | When the answer was made, UTC. The command's own reads write nothing, so this says how old the answer on the terminal is |
 | `dockerRoot` | The directory Docker keeps its images in, as `docker info` named it. Left out when the daemon named none, which is a host with no Docker and the entry of `/var/lib/docker` all the same |
 | `filesystems` | One entry per file system the factory cares about, in the order the paths were asked |
 | `filesystems.paths` | Every watched path that stands on this file system, the one that opened the entry first |

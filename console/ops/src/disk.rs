@@ -942,7 +942,7 @@ fn answer(host: &Host, opts: &Options) -> Value {
     let paths = watched(host, opts, &docker_dir);
     let mut out = Map::new();
     out.insert("api".into(), json!(1));
-    out.insert("generatedAt".into(), json!(time::iso(time::now())));
+    out.insert("time".into(), json!(time::iso(time::now())));
     insert(&mut out, "dockerRoot", Some(Value::from(docker_dir)));
     out.insert(
         "filesystems".into(),
@@ -1401,7 +1401,8 @@ mod tests {
         let opts = opts();
         let answer = read(&host(&home), &opts);
         assert_eq!(answer["api"], 1);
-        assert!(answer["generatedAt"].as_str().unwrap().ends_with('Z'));
+        assert!(answer["time"].as_str().unwrap().ends_with('Z'));
+        assert!(answer.get("generatedAt").is_none());
         let entries = answer["filesystems"].as_array().unwrap();
         // Of the four paths the answer is read from, the scratch disk is the
         // one a host of these tests has none of: what is there is named, and
