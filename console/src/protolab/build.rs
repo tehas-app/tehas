@@ -20,7 +20,7 @@ use tehas_core::events::{first_unallowed_rename, label_actor};
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
 use tehas_core::kinds::Kind;
 
-const LABEL: &str = "tehas:prototype";
+const LABEL: &str = Kind::Prototype.label();
 const LIMIT: i64 = 10 * 1024 * 1024;
 const MAX_FILES: i64 = 40;
 const OVER: &str = "Over the 10 MB limit of a ticket.";
