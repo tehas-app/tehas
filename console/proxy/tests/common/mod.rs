@@ -23,21 +23,30 @@ use tehas_proxy::request::State;
 pub const BIND_WAIT: Duration = Duration::from_secs(25);
 
 /// What the stub answers with: its status, and the body in two parts, the
-/// second after `late` of silence. A stream is what a case asks the stub for,
-/// since a completion whose head names its length goes out at once, as an
-/// endpoint sends one: the parts are what says whether a proxy passed them on
-/// as they came or kept them to its end.
+/// second after `late` of silence. The shape the answer goes back in is the
+/// shape the contractor asked for, which the stub reads out of the ask: a prompt
+/// that asks for a stream is answered with an event stream whose parts go out as
+/// they are made, and one that does not with a completion that names its own
+/// length. The parts are what says whether a proxy passed them on as they came
+/// or kept them to its end.
 pub struct Plan {
     pub status: u16,
-    /// Whether the answer is asked for as a stream, which decides whether the
-    /// proxy reads it to a length or copies it as it arrives.
-    pub streaming: bool,
     pub first: String,
     pub second: String,
     pub late: Duration,
 }
 
 impl Plan {
+    /// The two parts of an answer, the second after `late` of silence.
+    pub fn of(status: u16, first: &str, second: &str, late: Duration) -> Plan {
+        Plan {
+            status,
+            first: first.to_string(),
+            second: second.to_string(),
+            late,
+        }
+    }
+
     /// An answer of one part, with the endpoint's own figures for a completion.
     pub fn json(status: u16, prompt: u64, completion: u64) -> Plan {
         Plan::text(
@@ -51,37 +60,14 @@ impl Plan {
 
     /// An answer of one part, of no figures.
     pub fn text(status: u16, body: &str) -> Plan {
-        Plan {
-            status,
-            streaming: false,
-            first: body.to_string(),
-            second: String::new(),
-            late: Duration::ZERO,
-        }
+        Plan::of(status, body, "", Duration::ZERO)
     }
 
-    /// An answer that streams: the first part at once, the rest after `late`,
-    /// the last chunk carrying the figures, as an endpoint that prices its own
-    /// answer sends them.
-    pub fn streaming(first: &str, second: &str, late: Duration) -> Plan {
-        Plan {
-            status: 200,
-            streaming: true,
-            first: first.to_string(),
-            second: second.to_string(),
-            late,
-        }
-    }
-
-    /// An endpoint that accepts and then answers nothing.
+    /// An endpoint that accepts the ask and then answers nothing, which the
+    /// instance's idle bound ends: the silence is the case, and the proxy's own
+    /// 502 is what comes of it.
     pub fn silent() -> Plan {
-        Plan {
-            status: 200,
-            streaming: true,
-            first: String::new(),
-            second: String::new(),
-            late: Duration::ZERO,
-        }
+        Plan::of(200, "", "", Duration::ZERO)
     }
 }
 
@@ -92,7 +78,6 @@ pub struct Endpoint {
     port: u16,
     calls: Arc<AtomicUsize>,
     asked: Arc<Mutex<Vec<u8>>>,
-    plan: Arc<Mutex<Plan>>,
     stop: Arc<AtomicBool>,
     handling: Arc<AtomicBool>,
 }
@@ -152,10 +137,27 @@ impl Endpoint {
             port,
             calls,
             asked,
-            plan,
             stop,
             handling,
         }
+    }
+
+    /// The same stub for a thread of a case: the handle of a port that is
+    /// already open, so a case can give a thread its endpoint without a second
+    /// stub that a case would have to answer twice.
+    pub fn at(port: u16) -> Endpoint {
+        Endpoint {
+            port,
+            calls: Arc::new(AtomicUsize::new(0)),
+            asked: Arc::new(Mutex::new(Vec::new())),
+            stop: Arc::new(AtomicBool::new(true)),
+            handling: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// The port the stub answers on.
+    pub fn port(&self) -> u16 {
+        self.port
     }
 
     /// The endpoint of the instance's settings: this port, under `/v1`.
@@ -164,19 +166,6 @@ impl Endpoint {
             host: "127.0.0.1".into(),
             port: self.port,
             base: "/v1".into(),
-        }
-    }
-
-    /// The same stub again, for a thread of a case: the same port, the same
-    /// plan and the same record of the ask.
-    pub fn again(&self) -> Endpoint {
-        Endpoint {
-            port: self.port,
-            calls: Arc::clone(&self.calls),
-            asked: Arc::clone(&self.asked),
-            plan: Arc::clone(&self.plan),
-            stop: Arc::clone(&self.stop),
-            handling: Arc::clone(&self.handling),
         }
     }
 
@@ -246,11 +235,17 @@ fn serve_stub(mut stream: TcpStream, stub: &Stub) {
     }
     calls.fetch_add(1, Ordering::SeqCst);
 
-    let (status, asked_as_stream, first, second, late) = {
+    // Whether the contractor asked for a stream, out of the ask the proxy
+    // forwarded: the stub answers the ask it was given, as an endpoint does,
+    // which is what lets a case ask for a stream in its prompt alone.
+    let wants_stream = String::from_utf8_lossy(&got)
+        .to_ascii_lowercase()
+        .replace(' ', "")
+        .contains("\"stream\":true");
+    let (status, first, second, late) = {
         let plan = plan.lock().unwrap_or_else(PoisonError::into_inner);
         (
             plan.status,
-            plan.streaming,
             plan.first.clone(),
             plan.second.clone(),
             plan.late,
@@ -263,7 +258,7 @@ fn serve_stub(mut stream: TcpStream, stub: &Stub) {
     }
     // A stream is sent as an event stream is: no length, the parts written as
     // they are made. A completion of a length names its own.
-    let head = if asked_as_stream {
+    let head = if wants_stream {
         format!(
             "HTTP/1.1 {status} OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n"
         )
@@ -283,15 +278,18 @@ fn serve_stub(mut stream: TcpStream, stub: &Stub) {
     }
     let _ = stream.write_all(second.as_bytes());
     let _ = stream.flush();
-    // Hold the connection until the proxy has done with it, so the case reads
-    // the whole answer rather than a socket that closed too early.
-    while !stop.load(Ordering::SeqCst) && stream.read(&mut chunk).unwrap_or(0) > 0 {}
+    // The answer is whole, so the stub ends the connection, as an endpoint of a
+    // length and a stream of `connection: close` both do. The waiting is the
+    // proxy's own: a stub that held the socket after its last byte would hold the
+    // proxy's thread past an answer nobody is left to read.
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    let _ = stop.load(Ordering::SeqCst);
 }
 
-/// The records of a case: the rows the proxy reads, behind a lock, and the
-/// tokens the case issued for them. A case changes the rows or forgets a token
-/// between two requests, which is how a job that ends mid-work and a contractor
-/// revoked mid-stream are tested: the proxy asks again for every request, so
+/// The records of a case: the rows the proxy reads, behind a lock, and the one
+/// table of the tokens the proxy holds. A case changes the rows between two
+/// requests, which is how a job that ends mid-work and a contractor revoked
+/// mid-stream are tested: the proxy asks the factory again for every request, so
 /// the next one is refused rather than remembered wrongly from the last.
 #[derive(Clone)]
 pub struct Records {
@@ -300,7 +298,11 @@ pub struct Records {
 }
 
 impl Records {
-    /// The records of the rows a case lists.
+    /// The records of a case: the rows it says the factory holds, and the tokens
+    /// of the proxy that answers them. A case never hands a token to the rows of
+    /// its own, and never holds a token of its own either: the proxy is their one
+    /// holder, as on a host, which is what a revocation and the end of a job
+    /// empty.
     pub fn of(rows: Rows, issuer: &Issuer) -> Records {
         Records {
             rows: Arc::new(Mutex::new(rows)),
@@ -308,25 +310,11 @@ impl Records {
         }
     }
 
-    /// Records that read nothing at all: the state of an instance whose
-    /// outsource tables are not there yet, which is every instance until
-    /// #2272's land.
+    /// Records that read nothing at all, of a proxy that holds no token: the
+    /// state of an instance whose outsource tables are not there yet, which is
+    /// every instance until #2272's land, and the state of a read that failed.
     pub fn empty() -> Records {
-        Records {
-            rows: Arc::new(Mutex::new(Rows::default())),
-            issuer: Issuer::new(),
-        }
-    }
-
-    /// Say what the records hold: the rows, and the tokens minted for them. A
-    /// case and the proxy it started call this with the same rows and the same
-    /// mint, which is how the two come to agree on which token is whose.
-    pub fn load(&self, rows: Rows, mint: impl Fn(i64) -> String) {
-        for row in &rows.jobs {
-            self.issuer
-                .put(&mint(row.job), row.job, row.attempt, &row.contractor);
-        }
-        *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows;
+        Records::of(Rows::default(), &Issuer::new())
     }
 
     /// What a job's record says now.
@@ -366,7 +354,10 @@ impl tehas_proxy::records::Reader for Records {
 }
 
 impl tehas_proxy::request::Records for Records {
-    /// A token the case never issued, or one it took back, names no job.
+    /// The job and contractor of a token the proxy holds. A token it never
+    /// issued, or one it took back when the job ended or its contractor was
+    /// revoked, names no job: the rows of the factory name a token and are never
+    /// what answers for one.
     fn live(&self, token: &str) -> Option<tehas_proxy::request::Live> {
         self.issuer.look(token)
     }
@@ -380,15 +371,25 @@ impl tehas_proxy::request::Records for Records {
     fn allowed(&self, contractor: &str) -> bool {
         self.snapshot().contractors.iter().any(|c| c == contractor)
     }
+    /// The ask of a request whose token names no job: a request of a token of a
+    /// job was counted by [`Issuer::look`] above and is never counted twice.
     fn asked(&self, token: &str) {
         self.issuer.asked(token);
     }
 }
 
+/// The token of a job of a case, fixed so a case can name it in a request of its
+/// own bytes and read it back out of a line it must not appear in. The proxy
+/// holds the same tokens, in its own table.
+pub fn token_of(job: i64) -> String {
+    format!("tok-{job}")
+}
+
 /// The rows of a case, each a job: its number, its contractor and what its own
-/// record says. The token a case asks with is the token of the row of that
-/// number, from [`token_of`].
-pub fn rows_of(jobs: &[(&str, &str, State)]) -> Rows {
+/// record says. The token of a row is the one `mint` gives for the job, so the
+/// rows and the proxy's own table agree on which token is whose without either
+/// naming a token of the other's.
+pub fn rows_of(jobs: &[(&str, &str, State)], mint: impl Fn(i64) -> String) -> Rows {
     let mut rows = Rows::default();
     for (job, contractor, state) in jobs {
         let (job, contractor) = (job.parse().unwrap(), (*contractor).to_string());
@@ -400,17 +401,10 @@ pub fn rows_of(jobs: &[(&str, &str, State)]) -> Rows {
             attempt: 1,
             contractor,
             state: state.word().to_string(),
-            token: token_of(job),
+            token: mint(job),
         });
     }
     rows
-}
-
-/// The token of a job, as the records hold it. A case and the issuer both ask
-/// this one function, so the two always agree on which token is whose, and the
-/// values are fixed.
-pub fn token_of(job: i64) -> String {
-    format!("tok-{job}")
 }
 
 /// Read from a socket until the answer is whole, with a wait that cannot hang
@@ -447,19 +441,6 @@ pub fn read_some(mut stream: TcpStream) -> (u16, String) {
     (status, text)
 }
 
-/// A connected pair of sockets: one end the proxy is given, the other what the
-/// case writes its request to and reads the answer from.
-pub fn pair() -> (TcpStream, TcpStream) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let at = listener.local_addr().unwrap();
-    let client = TcpStream::connect(at).unwrap();
-    let (proxy, _) = listener.accept().unwrap();
-    drop(listener);
-    client.set_nodelay(true).unwrap();
-    proxy.set_nodelay(true).unwrap();
-    (proxy, client)
-}
-
 /// A contractor's request: the token it was given, the path it asks for, and
 /// the body it sends with it. The Host and the token are the contractor's own,
 /// which is what the proxy is to drop.
@@ -469,11 +450,6 @@ pub fn request(token: &str, path: &str, body: &str) -> String {
          content-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
     )
-}
-
-/// One chunk of an event stream, as the endpoint writes it.
-pub fn chunk(json: &str) -> String {
-    format!("data: {json}\n\n")
 }
 
 /// A prompt that holds the marker a case looks for, and the source it stands

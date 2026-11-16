@@ -78,6 +78,8 @@ impl<'a> OfProxy<'a> {
     }
 }
 
+/// A request is counted once: a request of a token of a job was counted by
+/// [`Issuer::look`], so only the ask of a token of no job is said here.
 impl Records for OfProxy<'_> {
     /// The job and contractor of a token this process issued. A token it
     /// never issued, or one it took back when the job ended or its contractor
@@ -132,41 +134,51 @@ impl Reader for NoneAtAll {
     }
 }
 
-/// A read of the factory's rows, kept for what it says: the lists are small,
-/// and a proxy that reads them once per request needs no cache and no
-/// invalidation. An empty list is a factory where nothing may work, which is
-/// the answer of a read that failed.
+/// A read of the factory's rows with the tokens of the proxy that answers
+/// them: the shape of [`OfProxy`] with both halves kept by the reader, which is
+/// what a test of one request hands the proxy. The lists are small, and a proxy
+/// that reads them once per request needs no cache and no invalidation. An
+/// empty list is a factory where nothing may work, which is the answer of a
+/// read that failed.
+///
+/// A token is answered from the proxy's own table and never from a row of the
+/// factory: a row whose token the proxy does not hold is the row of a job that
+/// ended or of a contractor revoked, and is refused.
 pub struct Of {
     rows: Rows,
+    issuer: Issuer,
 }
 
 impl Of {
-    /// The rows a proxy is given to read, taken from a reader: what a request
-    /// makes of one read of the factory's two lists, and what a test hands the
-    /// proxy to say what its records hold.
-    pub fn once(reader: &dyn Reader) -> Of {
+    /// The rows of a reader and the tokens of the proxy that answers them:
+    /// what a request makes of one read of the factory's two lists and the
+    /// process's own table, and what a test hands the proxy to say what its
+    /// records hold. Rows with no token to go with them are `of` nothing.
+    pub fn once(reader: &dyn Reader, issuer: &Issuer) -> Of {
         Of {
             rows: reader.rows(),
+            issuer: issuer.shared(),
         }
     }
 
-    /// The rows themselves, for a caller that read them already.
-    pub fn of(rows: Rows) -> Of {
-        Of { rows }
+    /// The rows of a factory and the tokens of a proxy that answered them: the
+    /// shape of [`OfProxy::of`] with both halves kept, which is what a test of
+    /// one request hands the proxy.
+    pub fn read(rows: Rows, issuer: &Issuer) -> Of {
+        Of {
+            rows,
+            issuer: issuer.shared(),
+        }
     }
 }
 
 impl Records for Of {
+    /// The job and contractor of a token this proxy holds. The factory's rows
+    /// name a token, and a name is not what decides: the table of the proxy
+    /// that issued the token is, since that is the table a revocation and the
+    /// end of a job empty.
     fn live(&self, token: &str) -> Option<Live> {
-        self.rows
-            .jobs
-            .iter()
-            .find(|j| !j.token.is_empty() && j.token == token)
-            .map(|j| Live {
-                job: j.job,
-                attempt: j.attempt,
-                contractor: j.contractor.clone(),
-            })
+        self.issuer.look(token)
     }
 
     fn state_of(&self, job: i64) -> Option<State> {
@@ -181,9 +193,12 @@ impl Records for Of {
         self.rows.contractors.iter().any(|c| c == contractor)
     }
 
-    /// A row read of the factory's own list was asked for the model, which is
-    /// what the count of rule 5 is a count of.
-    fn asked(&self, _token: &str) {}
+    /// A request whose token names no job of this proxy, counted for the token
+    /// it carried. A request of a token of a job was counted by [`Self::live`]
+    /// and is never counted twice.
+    fn asked(&self, token: &str) {
+        self.issuer.asked(token);
+    }
 }
 
 #[cfg(test)]
@@ -216,9 +231,24 @@ mod tests {
         assert!(none.rows().jobs.is_empty());
     }
 
+    /// The rows of a case and the tokens of the proxy that answers them, from
+    /// one table: the records a test hands the proxy of one request.
+    fn read_of(issuer: &Issuer) -> Of {
+        Of::once(&TableOf(rows()), issuer)
+    }
+
+    struct TableOf(Rows);
+    impl Reader for TableOf {
+        fn rows(&self) -> Rows {
+            self.0.clone()
+        }
+    }
+
     #[test]
     fn the_records_of_a_read_answer_the_four_questions() {
-        let records = Of::of(rows());
+        let issuer = Issuer::new();
+        issuer.put("token-of-7", 7, 1, "gpu1");
+        let records = read_of(&issuer);
         assert_eq!(
             records.live("token-of-7"),
             Some(Live {
@@ -237,14 +267,32 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_token_names_no_job_even_against_a_row_that_holds_one() {
-        // A contractor that sends no bearer word asks the question with an
-        // empty string; a row whose token was never issued is no answer.
-        let mut rows = rows();
-        rows.jobs[0].token = String::new();
-        let records = Of::of(rows);
+    fn a_token_is_answered_from_the_proxy_s_table_and_never_from_a_row() {
+        // The row of the factory still names the token of the job; the proxy
+        // no longer holds it, which is the job that ended or the contractor
+        // revoked. A row is the factory's word about who works what, and a
+        // token is never looked up from what a contractor sends.
+        let issuer = Issuer::new();
+        let records = read_of(&issuer);
+        assert_eq!(
+            records.live("token-of-7"),
+            None,
+            "a row of the factory answered for a token the proxy does not hold"
+        );
+        // An empty token is no token, whatever the rows say.
         assert_eq!(records.live(""), None);
-        assert_eq!(records.live("token-of-7"), None);
+        // The token comes back when the proxy holds it, and its requests are
+        // counted for its job once, by the reading that named the job.
+        let issuer = Issuer::new();
+        issuer.put_counted("token-of-7", 7, 1, "gpu1", 3);
+        let records = read_of(&issuer);
+        assert!(records.live("token-of-7").is_some());
+        records.asked("a-token-of-no-job");
+        assert_eq!(
+            issuer.take_counts(),
+            vec![("gpu1".to_string(), 7, 4)],
+            "the ask of a token of no job, or the count of twice"
+        );
     }
 
     #[test]
@@ -258,8 +306,14 @@ mod tests {
                 }
             }
         }
-        let records = Of::once(&Empty);
-        assert_eq!(records.live("token-of-7"), None);
+        let issuer = Issuer::new();
+        issuer.put("token-of-7", 7, 1, "gpu1");
+        let records = Of::once(&Empty, &issuer);
+        // A token the proxy holds names a job the factory does not know, which
+        // the rules refuse as a job that is over; nothing of the read itself
+        // may work.
+        assert!(records.live("token-of-7").is_some());
+        assert_eq!(records.state_of(7), None);
         assert!(!records.allowed("gpu1"));
     }
 }

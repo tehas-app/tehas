@@ -78,8 +78,9 @@ impl Issuer {
     }
 
     /// The job and contractor a token names, and the count of requests that
-    /// carried it going up by one. A token never issued answers None, and
-    /// counts nothing.
+    /// carried it going up by one: the count of rule 5 for a request whose
+    /// token names a job, since a request of a token never issued counts for
+    /// nobody. [`Issuer::asked`] is the count of the requests that name none.
     pub fn look(&self, token: &str) -> Option<Live> {
         let mut held = self.lock();
         let entry = held.get_mut(token)?;
@@ -87,11 +88,26 @@ impl Issuer {
         Some(entry.live.clone())
     }
 
-    /// Put one token in the table by hand: for a test, and for a process that
-    /// took a token over from a proxy that ended, both of which know the token
-    /// and the job it belongs to and have no random to ask.
+    /// Put one token in the table by hand. A test of the rules of one request
+    /// uses it; a token of a job on a host is issued, never put, since the
+    /// proxy is the one holder of a token and mints it of `/dev/urandom`.
     #[doc(hidden)]
     pub fn put(&self, token: &str, job: i64, attempt: i64, contractor: &str) {
+        self.put_counted(token, job, attempt, contractor, 0)
+    }
+
+    /// [`Self::put`] of a token that already carried a number of requests:
+    /// what a test hands the records of a proxy whose table holds the token and
+    /// its count both.
+    #[doc(hidden)]
+    pub fn put_counted(
+        &self,
+        token: &str,
+        job: i64,
+        attempt: i64,
+        contractor: &str,
+        requests: u64,
+    ) {
         let _ = self.lock().insert(
             token.to_string(),
             Entry {
@@ -100,14 +116,15 @@ impl Issuer {
                     attempt,
                     contractor: contractor.to_string(),
                 },
-                requests: 0,
+                requests,
             },
         );
     }
 
     /// One request of a token carried, counted for its job and nothing else:
-    /// what a refusal of a live job's token counts, since the factory was
-    /// asked. A token never issued counts for nobody.
+    /// what a request whose token names no job counts, once, since
+    /// [`Self::look`] counted nothing of it. A token never issued counts for
+    /// nobody.
     pub fn asked(&self, token: &str) {
         if let Some(entry) = self.lock().get_mut(token) {
             entry.requests += 1;

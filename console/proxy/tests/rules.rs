@@ -6,7 +6,7 @@
 //! 127.0.0.1 and no database: the outside world is what these tests make.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::Builder;
 use std::thread::JoinHandle;
@@ -14,23 +14,11 @@ use std::time::{Duration, Instant};
 
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::log::Sink;
-use tehas_proxy::records::Rows;
 use tehas_proxy::request::State;
 use tehas_proxy::serve::{self, Serve};
 
 mod common;
-use common::{chunk, pair, prompt, read_some, request, rows_of, token_of, Endpoint, Plan, Records};
-
-/// The records of a case, and the tokens this process issued for the rows, so
-/// a case never has to name a token twice.
-/// The records of a case, and the tokens this process issued for its rows, so
-/// a case never has to name a token twice.
-fn records_of(rows: Rows, issuer: &Issuer) -> Records {
-    let records = Records::empty();
-    records.load(rows, token_of);
-    let _ = issuer;
-    records
-}
+use common::{prompt, read_some, request, rows_of, token_of, Endpoint, Plan, Records};
 
 /// The proxy of a test: the parts the unit is started with, as fields, so a
 /// case can say what was counted, what was answered and what was written down.
@@ -45,11 +33,18 @@ struct Proxy {
 
 impl Proxy {
     /// A proxy with the records of the jobs a case lists. The endpoint's key is
-    /// unmistakably not a token, so a case can tell one from the other.
+    /// unmistakably not a token, so a case can tell one from the other. The
+    /// tokens of the rows are issued by this proxy, which is the one holder of
+    /// them and of the count of the requests that carry them.
     fn new(endpoint: Endpoint, jobs: &[(&str, &str, State)]) -> Proxy {
+        // The rows name the token of each job, as #2272's table will, and the
+        // proxy is the one holder of the tokens: the two are made together.
         let issuer = Issuer::new();
-        let rows = rows_of(jobs);
-        let factory = records_of(rows, &issuer);
+        let rows = rows_of(jobs, token_of);
+        for row in &rows.jobs {
+            issuer.put(&row.token, row.job, row.attempt, &row.contractor);
+        }
+        let factory = Records::of(rows, &issuer);
         Proxy {
             endpoint,
             key: "sk-the-factory-s-own-key".to_string(),
@@ -91,6 +86,25 @@ impl Proxy {
         read_some(client)
     }
 
+    /// One request of one job of the case, and what the proxy made of it: the
+    /// outcome of the request, which is where a case reads back whose job it
+    /// was and what the endpoint priced. The case asks through this and never
+    /// reads a token's entry of its own, so the ask of rule 5 is counted once
+    /// and by the proxy alone.
+    fn answered(&self, job: i64, path: &str, body: &str) -> tehas_proxy::serve::Outcome {
+        let (mut proxy_half, client) = pair();
+        write(&client, &request(&token_of(job), path, body));
+        let outcome = self.answer(&mut proxy_half, self.idle);
+        // The answer is read to its end before the outcome is handed back, so
+        // the case's figures are the ones the contractor was given, and the
+        // contractor's copy says the same status the outcome says.
+        let (status, said) = read_some(client);
+        assert_eq!(status, outcome.status, "the answer of the outcome");
+        assert!(!said.is_empty(), "an answer of nothing to the contractor");
+        assert!(outcome.complete, "an answer that never reached its end");
+        outcome
+    }
+
     /// The proxy's half of one request, on the calling thread.
     fn answer(&self, client: &mut TcpStream, idle: Duration) -> tehas_proxy::serve::Outcome {
         let kept = JournalSink(Arc::clone(&self.lines));
@@ -115,7 +129,9 @@ impl Proxy {
     ) -> JoinHandle<tehas_proxy::serve::Outcome> {
         let (proxy, client) = (
             Proxy {
-                endpoint: self.endpoint.again(),
+                // The same stub, the same port and the same record of the ask,
+                // for the thread: the case reads back what the one endpoint saw.
+                endpoint: Endpoint::at(self.endpoint.port()),
                 key: self.key.clone(),
                 issuer: self.issuer.shared(),
                 factory: self.factory.clone(),
@@ -156,6 +172,26 @@ impl Proxy {
     }
 }
 
+/// One chunk of an event stream, as the endpoint writes it.
+fn event(json: &str) -> String {
+    format!("data: {json}\n\n")
+}
+
+/// A connected pair of sockets: one end the proxy is given, the other what the
+/// case writes its request to and reads the answer from. Only the streaming case
+/// needs one, since it is the only case that answers a proxy on a thread of its
+/// own while the contractor reads the answer as it comes.
+fn pair() -> (TcpStream, TcpStream) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let at = listener.local_addr().unwrap();
+    let client = TcpStream::connect(at).unwrap();
+    let (proxy, _) = listener.accept().unwrap();
+    drop(listener);
+    client.set_nodelay(true).unwrap();
+    proxy.set_nodelay(true).unwrap();
+    (proxy, client)
+}
+
 /// Write a contractor's bytes and keep the socket open, which is what a
 /// contractor does while it waits for the answer.
 fn write(stream: &TcpStream, bytes: &str) {
@@ -190,11 +226,16 @@ fn usage_of(said: &str) -> Option<tehas_proxy::count::Usage> {
 /// the answer would give the contractor nothing until the second had come.
 #[test]
 fn a_stream_reaches_the_contractor_chunk_by_chunk() {
-    let endpoint = Endpoint::open(Plan::streaming(
-        &chunk(r#"{"choices":[{"delta":{"content":"one"}}]}"#),
+    // The parts of the stream, the second a good while after the first: what
+    // says whether the proxy passed them on as they came or kept them to its
+    // end. The stub sends them as an event stream because the prompt below asks
+    // for a stream, which is what an endpoint does of the ask it was given.
+    let endpoint = Endpoint::open(Plan::of(
+        200,
+        &event(r#"{"choices":[{"delta":{"content":"one"}}]}"#),
         &format!(
             "{}{}\n\n",
-            chunk(
+            event(
                 r#"{"choices":[{"delta":{"content":"two"}}],"usage":{"prompt_tokens":4,"completion_tokens":6,"total_tokens":10}}"#
             ),
             "data: [DONE]"
@@ -493,10 +534,10 @@ fn the_figures_of_an_answer_are_counted_per_contractor_and_job() {
         ],
     );
     let mut rows: Vec<String> = Vec::new();
-    for token in [7i64, 8, 9] {
-        let (status, said) = proxy.job(token, "/v1/chat/completions", "{}");
-        assert_eq!(status, 200, "job {token}");
-        let usage = usage_of(&said).expect("the endpoint priced its own answer");
+    for job in [7i64, 8, 9] {
+        let answered = proxy.answered(job, "/v1/chat/completions", "{}");
+        assert_eq!(answered.status, 200, "job {job}");
+        let usage = answered.usage.expect("a figure of the proxy's own");
         assert_eq!(
             usage,
             tehas_proxy::count::Usage {
@@ -504,17 +545,11 @@ fn the_figures_of_an_answer_are_counted_per_contractor_and_job() {
                 completion: 340,
                 total: 460
             },
-            "a figure of the proxy's own"
+            "a figure the endpoint did not name"
         );
         // The row is the one the request's own outcome gives, which is what
         // keeps a count of a number the proxy did not read.
-        let outcome = tehas_proxy::serve::Outcome {
-            status,
-            live: proxy.issuer.look(&token_of(token)),
-            usage: Some(usage),
-            complete: true,
-        };
-        let row = outcome.row().expect("a priced answer has a row");
+        let row = answered.row().expect("a priced answer has a row");
         rows.push(serve::usage_args(&row).join(" "));
     }
     let all = rows.join("\n");
@@ -560,6 +595,8 @@ fn the_figures_of_an_answer_are_counted_per_contractor_and_job() {
 /// instance's, and it is longer than the check-in timeout.
 #[test]
 fn an_endpoint_that_answers_nothing_is_a_502_and_no_invented_answer() {
+    // A stream with nothing in it, which is an endpoint that accepts and then
+    // says nothing at all: the instance's idle bound is what ends the request.
     let endpoint = Endpoint::open(Plan::silent());
     let proxy = Proxy::new(endpoint, &[("7", "gpu1", State::Running)]);
     let (status, said) = proxy.job(7, "/v1/chat/completions", "{}");
