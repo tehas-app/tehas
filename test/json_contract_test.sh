@@ -163,24 +163,24 @@ surfaces=(
   # line leave the list as the sample holds it: a word for the array answers the
   # three above it and nothing of a line, and the object of each check is still
   # a listing of the surface.
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.: next is missing'
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.zz: not in the schema'
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.cycles: string, not array'
-  'check	del(.next) | del(.cycles[3].outcome)	.cycles[3]: outcome is missing'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.: next is missing'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.zz: not in the schema'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.runs: string, not array'
+  'check	del(.next) | del(.runs[3].outcome)	.runs[3]: outcome is missing'
   # An unknown field of a line, held by a plan line on purpose: the walk of the
-  # bounds below bends one field of `.cycles[3]` and asks the check about the
+  # bounds below bends one field of `.runs[3]` and asks the check about the
   # object whole, so a word a line of that sample does not hold would be found
   # wrong there before it is found wrong here.
-  'check	del(.next) | .cycles[3].zz = 1	.cycles[3].zz: not in the schema'
-  'check	del(.next) | .cycles[3].kind = "cycle"	.cycles[3].kind: "cycle" is not one of ["work","plan"]'
+  'check	del(.next) | .runs[3].zz = 1	.runs[3].zz: not in the schema'
+  'check	del(.next) | .runs[3].kind = "cycle"	.runs[3].kind: "cycle" is not one of ["work","plan"]'
   # The bounds of the schema, each of a field of one line: the least value the
   # schema lets through and one step past it, as the command prints or refuses
   # them. The field of the line names the field as the schema does, with the
-  # place of its own line in the listing after it: `cycles[0].issue`. The path
+  # place of its own line in the listing after it: `runs[0].issue`. The path
   # the check prints holds both of them, as the drain's `running` is reported at
   # `.running[0]`: a name that goes into an element of a field of a line holds
-  # that element too, `cycles[3].filed[0]`, which the check prints as
-  # `.cycles[3].filed[0]`. The places are those of the one sample the case of
+  # that element too, `runs[3].filed[0]`, which the check prints as
+  # `.runs[3].filed[0]`. The places are those of the one sample the case of
   # the bounds bends, `api/history.sample.json`, whose first line is the end of a
   # cycle and whose last is the end of a planning turn, so a field of either kind
   # is named on a line that holds it. An issue of 1 and 0, the least
@@ -190,26 +190,26 @@ surfaces=(
   # (console/src/history.rs); the step number and the round of a heartbeat, which
   # the store keeps from 1 to 1000 (console/store/src/live.rs); and the count of
   # a run of parks, which the command gives only from 1 (console/src/history.rs).
-  'bound	cycles[0].issue	.cycles[0].issue = 1	.cycles[0].issue = 0	under 1'
-  'bound	cycles[0].status	.cycles[0].status = 255	.cycles[0].status = 256	over 255'
-  'bound	cycles[0].cursor	.cycles[0].cursor = "9999999999-999999999-999999999999999"	.cycles[0].cursor = "12345678901-12-1"	does not match'
-  'bound	cycles[0].stepNumber	.cycles[0].stepNumber = 1000	.cycles[0].stepNumber = 1001	over 1000'
-  'bound	cycles[0].repeat	.cycles[0].repeat = 1	.cycles[0].repeat = 0	under 1'
+  'bound	runs[0].issue	.runs[0].issue = 1	.runs[0].issue = 0	under 1'
+  'bound	runs[0].status	.runs[0].status = 255	.runs[0].status = 256	over 255'
+  'bound	runs[0].cursor	.runs[0].cursor = "9999999999-999999999-999999999999999"	.runs[0].cursor = "12345678901-12-1"	does not match'
+  'bound	runs[0].progress.stepNumber	.runs[0].progress.stepNumber = 1000	.runs[0].progress.stepNumber = 1001	over 1000'
+  'bound	runs[0].repeat	.runs[0].repeat = 1	.runs[0].repeat = 0	under 1'
   # The round of the plan line: the store keeps a heartbeat's step number, total
   # and round from 1 to 1000 (console/store/src/live.rs), and a line prints them
   # only when its end copied them from a heartbeat of its own step.
-  'bound	cycles[3].round	.cycles[3].round = 1	.cycles[3].round = 0	under 1'
+  'bound	runs[3].progress.round	.runs[3].progress.round = 1	.runs[3].progress.round = 0	under 1'
   # The park reason of a line, which the plan line of that sample does not
   # print: the store keeps an empty word as no reason at all
   # (console/store/src/cycle.rs), so the least the schema lets through is one
   # word of a reason and the step past it nothing, which no line prints.
-  'bound	cycles[3].parkReason	.cycles[3].parkReason = "merge"	.cycles[3].parkReason = ""	shorter than 1'
+  'bound	runs[3].parkReason	.runs[3].parkReason = "merge"	.runs[3].parkReason = ""	shorter than 1'
   # The issues a turn filed, of the one line of either sample that prints it:
   # none at all is what a plan line that filed nothing leaves out, and an
   # element that is no text is one step past what the command ever puts there
   # (console/src/history.rs keeps the addresses and drops the rest).
-  'bound	cycles[3].filed[0]	.cycles[3].filed = []	.cycles[3].filed = [1]	integer, not string'
-  'required	["api","cycles","next"]'
+  'bound	runs[3].filed[0]	.runs[3].filed = []	.runs[3].filed = [1]	integer, not string'
+  'required	["api","runs","next"]'
 
   # The list `tehas panel --json` prints: the pages of the project the dashboard
   # links, and the same object as state/panels.json and live/panels.json. The two
@@ -886,26 +886,26 @@ enum_of() { # <schema file> <path>
 
 # The path the check prints for the field of a `bound` line of a listing. The
 # name of such a line holds the field as the schema names it and the place of
-# its own line in the array of them, `cycles[0].issue`; a name that stops at a
+# its own line in the array of them, `runs[0].issue`; a name that stops at a
 # field of a line that holds a list leaves that field's element out,
-# `cycles[3].filed`, the way the drain's `running` is named without its element.
-# The check reports the whole path, `.cycles[0].issue` and
-# `.cycles[3].filed[0]`, so the one element a name leaves out is put back here.
+# `runs[3].filed`, the way the drain's `running` is named without its element.
+# The check reports the whole path, `.runs[0].issue` and
+# `.runs[3].filed[0]`, so the one element a name leaves out is put back here.
 #
 # The two words are named, not worked out. A name of the table already holds the
-# element of the array of lines - the `0` of `cycles[0]`, or the `0` of the
+# element of the array of lines - the `0` of `runs[0]`, or the `0` of the
 # scratch path of `filesystems[0].paths[0]` - and holds no element of a field of
 # its own, which is the one the check adds and the table's name leaves out: a
-# row that goes into such a field names the second element too, `cycles[3].filed[0]`, and
+# row that goes into such a field names the second element too, `runs[3].filed[0]`, and
 # is printed as it is named. No rule of the shape of a name tells the two apart,
-# since `cycles[3].round` and `cycles[3].filed` have the same shape and one of
+# since `runs[3].round` and `runs[3].filed` have the same shape and one of
 # them gains an element and the other does not, so each of the five rows that
 # goes into a field of a line says so on its own line, and the row of a listing
 # that names no field of its own, the drain's `running`, is named too.
 path_of_bound() { # <path>: the dotted path the check prints for it
   case $1 in
     running) printf '%s\n' "running[0]" ;;
-    'cycles[3].filed[0]') printf '%s\n' "cycles[3].filed[0]" ;;
+    'runs[3].filed[0]') printf '%s\n' "runs[3].filed[0]" ;;
     'full.places[0].cut') printf '%s\n' "full.places[0].cut[0]" ;;
     'full.places[0].bytes') printf '%s\n' "full.places[0].bytes[0]" ;;
     'full.containers[0].image') printf '%s\n' "full.containers[0].image[0]" ;;
@@ -1283,7 +1283,7 @@ $changes"
   # A bound of a path under another object is reported at the path the check
   # prints, which holds the element of an array and so is not the table's own
   # path: `.running` is reported as `.running[0]`, and a field of a line of a
-  # listing as `.cycles[0].filed[0]`.
+  # listing as `.runs[0].filed[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
   for bound in "${bounds[@]}"; do
     bound_field=$(surface_line "$bound" 1)
@@ -1313,10 +1313,10 @@ $changes"
       # drain's `running`. The names of a listing hold the place of their own
       # line, so the element of the array of lines is put back where the check
       # puts it, and the element of a field of a line that holds a list is put
-      # back too: `cycles[0].issue` is reported at `.cycles[0].issue` and
-      # `cycles[3].filed` at `.cycles[3].filed[0]`.
+      # back too: `runs[0].issue` is reported at `.runs[0].issue` and
+      # `runs[3].filed` at `.runs[3].filed[0]`.
       running) t_contains "$lines" ".running[0]:" ;;
-      cycles.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
+      runs.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
       # A bound of a list is named at the element the command prints it at. A row
       # whose own name already holds that element - the disk surface's
       # `filesystems[0].paths[0]` - is reported at the name the row holds, since

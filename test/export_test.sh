@@ -75,7 +75,7 @@ reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(jq -c 'del(.cycles)' <<<"$t_out")" "{\"api\":1,\"next\":\"1760700000-12-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c 'del(.runs)' <<<"$t_out")" "{\"api\":1,\"next\":\"1760700000-12-1\",\"to\":\"$out\"}"
 t_eq "$(listing 1760700000-12-1)" "history.json
 logs/dispatch-work.log
 logs/progress.json
@@ -118,7 +118,7 @@ t_case "the cycle's own line of history is what tehas history says"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -c . "$out/cycles/1760700000-12-1/history.json")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
+t_eq "$(jq -c . "$out/cycles/1760700000-12-1/history.json")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"progress\":{\"step\":\"review\"},\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
 
 t_case "a planning turn brings its session, as the store has it, and no cycle files"
 reset
@@ -213,7 +213,7 @@ t_case "nothing to copy: exit 0, the object, and no directory of a cycle"
 reset
 run_export --json --after $((T0 - 1))-1 "$out"
 t_eq "$t_rc" 0
-t_eq "$(jq -c . <<<"$t_out")" "{\"api\":1,\"cycles\":[],\"next\":\"$((T0 - 1))-1\",\"to\":\"$out\"}"
+t_eq "$(jq -c . <<<"$t_out")" "{\"api\":1,\"runs\":[],\"next\":\"$((T0 - 1))-1\",\"to\":\"$out\"}"
 
 t_case "without --json, one line for each cycle and one for the directory"
 reset
@@ -339,7 +339,7 @@ files() { (cd "$home" && find . ! -name 'tehas.db-wal' ! -name 'tehas.db-shm' | 
 before=$(files)
 before_runs=$(cd "$T/home/.pi" && find . | LC_ALL=C sort)
 run_export --json --after $((T0 - 1))-1 "$out"
-t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 2
+t_eq "$(jq -r '.runs | length' <<<"$t_out")" 2
 t_eq "$(files)" "$before"
 t_eq "$(cd "$T/home/.pi" && find . | LC_ALL=C sort)" "$before_runs"
 
@@ -350,7 +350,7 @@ cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_run "flock '$cycles/12.lock' $run_line"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 1
+t_eq "$(jq -r '.runs | length' <<<"$t_out")" 1
 
 t_case "every file is masked with the host's names: aliases, each role's endpoints, the email"
 reset

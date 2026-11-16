@@ -46,7 +46,7 @@ Usage: tehas export [--json] --after CURSOR <dir>
 With --json, the object tehas history prints for what was copied, so the
 cursor to keep is the "next" of the object:
 
-  {"api": 1, "cycles": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
+  {"api": 1, "runs": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
 
 Exit: 0 copied, also when there was nothing to copy; 1 the state store did
 not answer (busy) for the history, which copies nothing, or a cycle could not
