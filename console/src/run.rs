@@ -107,7 +107,7 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
         refresh.env("TEHAS_REFRESH_LOG", log);
     }
     let failed = refresh.exec();
-    eprintln!("tehasbot refresh: {program}: {failed}");
+    eprintln!("tehas refresh: {program}: {failed}");
     if failed.kind() == ErrorKind::NotFound {
         127
     } else {
@@ -218,7 +218,26 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
-/// `tehasbot refresh --pr N [--json]`, N a whole number above 0: the one form
+/// PATH with the home's shim and bin first, where they exist, so a refresh
+/// a caller runs without a login shell reads GitHub through the factory's
+/// own gh. The rest keeps its order.
+fn factory_path(home: &Path, path: Option<OsString>) -> OsString {
+    let first: Vec<_> = ["shim", "bin"]
+        .iter()
+        .map(|d| home.join(d))
+        .filter(|d| d.is_dir())
+        .collect();
+    let rest: Vec<_> = path
+        .as_deref()
+        .map(env::split_paths)
+        .into_iter()
+        .flatten()
+        .filter(|d| !first.contains(d))
+        .collect();
+    env::join_paths(first.into_iter().chain(rest)).unwrap_or_else(|_| path.unwrap_or_default())
+}
+
+/// `tehas refresh --pr N [--json]`, N a whole number above 0: the one form
 /// of refresh that runs under the settings. tehas-dispatch's
 /// `refresh::asked_pr` decides the same, and a test holds the two together.
 fn asks_one(rest: &[String]) -> bool {
@@ -271,8 +290,10 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehasbot", "preview"] => preview_run(rest, settle),
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
-            let log = format!("{}/logs/refresh.log", var("TEHAS_HOME"));
-            hand_to_dispatcher(libexec, rest, Some(log))
+            let home = var("TEHAS_HOME");
+            let path = factory_path(Path::new(&home), env::var_os("PATH"));
+            env::set_var("PATH", path);
+            hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
         ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
@@ -308,6 +329,35 @@ mod tests {
 
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         tehas_core::testdir::TestDir::new(&format!("run-{name}"))
+    }
+
+    #[test]
+    fn a_refresh_finds_the_homes_shim_and_bin_first_and_keeps_the_rest() {
+        let d = scratch("path");
+        let home = d.join("tehas");
+        let shim = home.join("shim");
+        let bin = home.join("bin");
+        let path = |p: &str| Some(OsString::from(p));
+        assert_eq!(factory_path(&home, path("/usr/bin:/bin")), "/usr/bin:/bin");
+        fs::create_dir_all(&shim).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        let (s, b) = (shim.to_str().unwrap(), bin.to_str().unwrap());
+        assert_eq!(
+            factory_path(&home, path("/usr/bin:/bin")),
+            OsString::from(format!("{s}:{b}:/usr/bin:/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, path(&format!("{s}:{b}:/usr/bin"))),
+            OsString::from(format!("{s}:{b}:/usr/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, path(&format!("/usr/bin:{s}"))),
+            OsString::from(format!("{s}:{b}:/usr/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, None),
+            OsString::from(format!("{s}:{b}"))
+        );
     }
 
     #[test]

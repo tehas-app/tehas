@@ -20,6 +20,8 @@ rust-version = "1.89"
 publish = false
 
 [dependencies]
+# The link rule, the fetch and the manifest (src/attach.rs, src/protolab).
+attach = { path = "attach" }
 libc = "0.2"
 rustix = { version = "1", default-features = false, features = ["std"] }
 serde_json = "1"

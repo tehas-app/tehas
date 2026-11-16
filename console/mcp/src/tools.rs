@@ -303,9 +303,9 @@ fn status_schema() -> Value {
             "industry",
             obj(
                 vec![
-                    ("version", given("The tehas-industry version, such as v0.9.0.")),
+                    ("version", given("The version of the industry, such as v0.9.0.")),
                 ],
-                "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
+                "The industry that runs this factory. Left out for a factory that runs on its own.",
             ),
         ),
         (
@@ -916,7 +916,7 @@ fn build_entries() -> Value {
         },
         {
             "name": "factory_console",
-            "description": "One running cycle's step, status and the end of its console as the dashboard shows it.",
+            "description": "One running cycle's step, status and the end of its console as the dashboard shows it, masked.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1637,16 +1637,45 @@ fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
     // The only file name this opens, and only when running.json gives it.
     let name = format!("console-{issue}.txt");
     if cycle["console"].as_str() == Some(name.as_str()) {
-        if let Some(text) = read_tail(&live.join(&name), bytes) {
+        if let Some(text) = masked_tail(&live.join(&name), bytes) {
             out.insert("console".into(), json!(text));
         }
     }
     Ok(out)
 }
 
-/// The last `n` bytes of a file, cut forward to the start of a character.
-/// Only those bytes are read: a console only grows.
-fn read_tail(path: &Path, n: u64) -> Option<String> {
+// How far before the tail the console is read, so that a secret the tail cuts
+// is masked with the line it is on.
+const CONSOLE_LEAD: u64 = 4096;
+
+/// The last `n` bytes of the masked console. The lines before the tail, as far
+/// as CONSOLE_LEAD, are masked whole first and then cut, as a log is: a value
+/// cut from the name that marks it would be missed by the mask.
+fn masked_tail(path: &Path, n: u64) -> Option<String> {
+    let (text, whole) = read_tail(path, n.saturating_add(CONSOLE_LEAD))?;
+    // A first line the read cut is left out when another line follows it.
+    let text = match text.split_once('\n') {
+        Some((_, rest)) if !whole => rest,
+        _ => text.as_str(),
+    };
+    let masked: String = text
+        .split_inclusive('\n')
+        .map(|line| match line.strip_suffix('\n') {
+            Some(body) => format!("{}\n", mask(body)),
+            None => mask(line),
+        })
+        .collect();
+    let start = masked
+        .len()
+        .saturating_sub(usize::try_from(n).unwrap_or(usize::MAX));
+    let start = (start..=masked.len()).find(|i| masked.is_char_boundary(*i))?;
+    Some(masked[start..].to_string())
+}
+
+/// The last `n` bytes of a file, cut forward to the start of a character, and
+/// whether they are the whole file. Only those bytes are read: a console only
+/// grows.
+fn read_tail(path: &Path, n: u64) -> Option<(String, bool)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
@@ -1657,7 +1686,10 @@ fn read_tail(path: &Path, n: u64) -> Option<String> {
         .iter()
         .position(|b| b & 0b1100_0000 != 0b1000_0000)
         .unwrap_or(text.len());
-    Some(String::from_utf8_lossy(&text[start..]).into_owned())
+    Some((
+        String::from_utf8_lossy(&text[start..]).into_owned(),
+        len <= n,
+    ))
 }
 
 fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {

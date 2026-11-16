@@ -48,7 +48,7 @@ tehas setup --app-id <App ID> --app-key-file <downloaded>.private-key.pem
 ```
 
 [tehas setup](/tools-setup#tehas-setup) lists every step. Setup ends with
-`tehasbot github-token --check`.
+`tehas github check`.
 
 ## Make the app by hand
 
@@ -122,7 +122,7 @@ Then check it:
 
 ```bash
 . ~/tehas/env.sh
-tehasbot github-token --check
+tehas github check
 ```
 
 It prints the app, the installation, the bot's login, when the token runs out
@@ -213,10 +213,10 @@ so adds no line. Which call is a write, and the line, are decided by
 `console gh`, which the shim execs; a read goes on to gh at once. A host whose
 console is missing or cannot be run still has a working `gh`, with the token,
 and logs nothing until the console is repaired. The poll line of `tehas
-status` counts it, and `tehasbot github-writes` shows the last day by hour and
+status` counts it, and `tehas github writes` shows the last day by hour and
 by its busiest minute against GitHub's limits. A write GitHub refuses for a
 rate limit is sent once more after a minute, and only that call
-([the commands page](/tools-github#tehasbot-github-writes)).
+([the commands page](/tools-github#tehas-github-writes)).
 
 [The commands page](/tools-github#tehasbot-github-token) has the details.
 

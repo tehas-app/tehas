@@ -47,15 +47,7 @@ fn attach(home: &Path) -> Option<PathBuf> {
     (m.is_file() && m.permissions().mode() & 0o111 != 0).then_some(bin)
 }
 
-/// Wider than LINK_RULE of console/attach/src/given.rs, so no link it takes is
-/// missed. The text may be JSON, which may escape a slash.
-pub fn may_link(text: &str) -> bool {
-    let text = text.replace('\\', "");
-    let github = "https://github.com/";
-    let after = text.find(github).map(|at| &text[at + github.len()..]);
-    after.is_some_and(|rest| rest.contains("/assets/") || rest.contains("/files/"))
-        || text.contains("https://user-images.githubusercontent.com/")
-}
+use attach::link::may_link;
 
 fn status_of(s: std::process::ExitStatus) -> i32 {
     s.code()
@@ -275,15 +267,12 @@ fn gives_nothing(
         }
         "null".to_string()
     };
-    let files = if files { "  \"files\": [],\n" } else { "" };
     let unmade = "the directory for the issue's images could not be made";
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir).map_err(|_| unmade)?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).map_err(|_| unmade)?;
     let manifest = dir.join("manifest.json");
-    let text = format!(
-        "{{\n  \"images\": [],\n{files}  \"leftOut\": [],\n  \"linksUnavailable\": \"The text links no file of GitHub's storage.\",\n  \"issue\": {issue},\n  \"approval\": {approval},\n  \"leftOutMore\": 0\n}}\n"
-    );
+    let text = attach::manifest::nothing(&issue.to_string(), &approval, files);
     fs::write(&manifest, text).map_err(|_| unmade)?;
     fs::set_permissions(&manifest, fs::Permissions::from_mode(0o644)).map_err(|_| unmade)?;
     Ok(())
@@ -734,7 +723,7 @@ mod tests {
         assert_eq!(names, ["manifest.json"]);
         assert_eq!(
             manifest(&dir),
-            json!({"images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
+            json!({"version": 1, "images": [], "leftOut": [], "linksUnavailable": "The text links no file of GitHub's storage.", "issue": 7, "approval": null, "leftOutMore": 0})
         );
         // An instance that gives files is given an empty list of them.
         gives_nothing(7, &dir, "", body, true).unwrap();

@@ -6,6 +6,7 @@ use super::{front_page, live_file, number_of, refs, ticket_page};
 use crate::edge;
 use crate::forge::{gh_program, repo, runnable, CALL_BOUND};
 use crate::jq::{obj, J};
+use attach::fetch::{self, Fetched, Full};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -521,26 +522,28 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         };
     }
-    if held.count >= MAX_FILES {
-        held.skip(&name, &more_than());
-        return Some(());
-    }
-    let left = LIMIT - held.used;
-    if left <= 0 {
-        held.skip(&name, OVER);
-        return Some(());
-    }
-
-    let part = dir.join(".part");
-    let _ = fs::remove_file(&part);
-    let (code, content_type) = fetch(link, &part, left, &lab.token);
-    match code {
-        0 => {}
-        63 => {
+    let left = match fetch::room(held.count, MAX_FILES, held.used, LIMIT) {
+        Ok(left) => left,
+        Err(Full::Count) => {
+            held.skip(&name, &more_than());
+            return Some(());
+        }
+        Err(Full::Bytes) => {
             held.skip(&name, OVER);
             return Some(());
         }
-        22 => {
+    };
+
+    let part = dir.join(".part");
+    let _ = fs::remove_file(&part);
+    let Fetched { code, content_type } = fetch::fetch(link, &part, left, &lab.token);
+    match code {
+        0 => {}
+        fetch::TOO_BIG => {
+            held.skip(&name, OVER);
+            return Some(());
+        }
+        fetch::REFUSED => {
             held.skip(&name, "GitHub did not hand it out.");
             return Some(());
         }
@@ -675,50 +678,6 @@ fn without_number(name: &str) -> &str {
     }
 }
 
-/// Whether the token goes with a link: only to a whole link of an attachment
-/// folder on github.com.
-fn sends_token(link: &str, token: &str) -> bool {
-    link.starts_with(super::GITHUB) && super::is_attachment(link) && !token.is_empty()
-}
-
-/// curl's exit status and the content type it printed. The token goes on
-/// standard input and never on the command line, see [`sends_token`]; curl
-/// does not pass it on when GitHub redirects to its storage, and sends the path
-/// as written. 63 is a file over `most`, 22 one GitHub did not hand out.
-fn fetch(link: &str, file: &Path, most: i64, token: &str) -> (i32, String) {
-    let mut curl = Command::new("curl");
-    curl.args(["-sSfL", "--path-as-is", "--proto", "=https"])
-        .args(["--proto-redir", "=https"])
-        .args(["--max-redirs", "3", "--max-time", "120"])
-        .arg("--max-filesize")
-        .arg(most.to_string())
-        .arg("-o")
-        .arg(file)
-        .args(["-w", "%{content_type}"])
-        .stdout(Stdio::piped());
-    let header = sends_token(link, token);
-    if header {
-        curl.args(["-H", "@-"]).stdin(Stdio::piped());
-    } else {
-        curl.stdin(Stdio::null());
-    }
-    let Ok(mut child) = curl.arg(link).spawn() else {
-        return (127, String::new());
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = writeln!(stdin, "Authorization: Bearer {token}");
-    }
-    match child.wait_with_output() {
-        Ok(done) => (
-            status_of(done.status),
-            String::from_utf8_lossy(&done.stdout)
-                .trim_end_matches('\n')
-                .to_string(),
-        ),
-        Err(_) => (127, String::new()),
-    }
-}
-
 fn status_of(status: std::process::ExitStatus) -> i32 {
     status
         .code()
@@ -845,6 +804,7 @@ fn read_attach(code: i32, out: &str) -> Unpacked {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use attach::link::sends_token;
 
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         tehas_core::testdir::TestDir::new(&format!("protolab-{name}"))
