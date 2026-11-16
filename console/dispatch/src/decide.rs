@@ -912,6 +912,10 @@ impl<'a> Poll<'a> {
         } else {
             format!("{limit_cycles} cycles")
         };
+        // The plan of the file, read the way the dispatcher's other reader of
+        // it does: a boolean or the text of one.
+        let limit_plan_off = matches!(s.limit.get("plan"), Some(Value::Bool(false)))
+            || s.limit.get("plan").and_then(Value::as_str) == Some("false");
         let with_reason = |r: &str| {
             if r.is_empty() {
                 String::new()
@@ -1025,10 +1029,23 @@ impl<'a> Poll<'a> {
             );
         } else if matches!(limit_room, Some(r) if r <= 0) {
             why = Some(Why::Limit);
+            // A drain is a limit of no cycles at once which no clock ends: it
+            // stays until a person clears it, so the line names the command
+            // that frees the factory. Another limit under its own ceiling is
+            // no drain and keeps its words.
+            let drained = limit_cycles == 0
+                && count == 0
+                && limit_plan_off
+                && s.limit.get("until").is_none_or(Value::is_null);
             hold = format!(
-                "holding: the limit allows {limit_words} at once and {count} {} running{}",
+                "holding: the limit allows {limit_words} at once and {count} {} running{}{}",
                 if count == 1 { "is" } else { "are" },
-                with_reason(&limit_reason)
+                with_reason(&limit_reason),
+                if drained {
+                    "; tehas limit clear starts the factory"
+                } else {
+                    ""
+                }
             );
         } else if self.push_fault() {
             // A sandbox that cannot push starts no cycle. The word is `lane`,

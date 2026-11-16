@@ -258,6 +258,152 @@
    }
   },
   {
+   "case": "limit: a drain names the command that frees the factory",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": false,
+     "until": null,
+     "reason": "draining"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the limit allows 0 cycles at once and 0 are running: draining; tehas limit clear starts the factory"
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 0 cycles at once and 0 are running: draining; tehas limit clear starts the factory"
+    }
+   }
+  },
+  {
+   "case": "limit: a limit of 0 with a cycle running is no drain and says nothing of clearing",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": false,
+     "until": null,
+     "reason": "draining"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 0 cycles at once and 1 is running: draining"
+    }
+   }
+  },
+  {
+   "case": "limit: a limit of 0 with planning on is no drain",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true,
+     "until": null
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log_lacks": [
+     "tehas limit clear starts the factory"
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 0 cycles at once and 0 are running"
+    }
+   }
+  },
+  {
+   "case": "limit: a limit whose ceiling is above none keeps its words",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "hold": [
+    5,
+    6
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 2,
+     "plan": false,
+     "until": null
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log_lacks": [
+     "tehas limit clear starts the factory"
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 2 cycles at once and 2 are running"
+    }
+   }
+  },
+  {
+   "case": "limit: a limit of 0 that carries a time is no drain: the time holds it",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": false,
+     "until": "2036-01-01T14:05:00Z"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log_lacks": [
+     "tehas limit clear starts the factory"
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 0 cycles at once and 0 are running"
+    }
+   }
+  },
+  {
    "case": "limit: fewer start than the slots allow, and the limit is the reason",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 3
