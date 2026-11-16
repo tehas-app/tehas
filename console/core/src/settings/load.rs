@@ -1019,6 +1019,65 @@ mod tests {
     }
 
     #[test]
+    fn outsource_is_off_with_its_figures_at_the_defaults_and_writes_nothing() {
+        let vars = loads(&[]);
+        for (name, value) in [
+            ("TEHAS_OUTSOURCE", "0"),
+            ("TEHAS_OUTSOURCE_TIMEOUT", "600"),
+            ("TEHAS_OUTSOURCE_GRACE", "120"),
+            ("TEHAS_OUTSOURCE_RETRIES", "2"),
+            ("TEHAS_OUTSOURCE_REST", "1800"),
+            ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
+        ] {
+            assert_eq!(vars.text(name), value, "{name}");
+        }
+        // A line left empty takes the default, as every Always setting does.
+        let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
+        let vars = loads(&[
+            "TEHAS_OUTSOURCE=1",
+            "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
+        ]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
+        assert_eq!(
+            vars.text("TEHAS_OUTSOURCE_REPOS"),
+            "acme/widget other/widget"
+        );
+    }
+
+    #[test]
+    fn a_malformed_outsource_setting_stops_the_load_before_any_write() {
+        for (name, value) in [
+            ("TEHAS_OUTSOURCE", "yes"),
+            ("TEHAS_OUTSOURCE_TIMEOUT", "0"),
+            ("TEHAS_OUTSOURCE_GRACE", "2m"),
+            ("TEHAS_OUTSOURCE_RETRIES", "-1"),
+            ("TEHAS_OUTSOURCE_REST", "two"),
+            ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
+        ] {
+            let why = run(&mut Fake::with(&[&format!("{name}={value}")]))
+                .1
+                .unwrap_err();
+            assert_eq!(
+                why,
+                format!(
+                    "{name} is not valid: {} (see {FILE})",
+                    reason_of(name, value)
+                )
+            );
+        }
+    }
+
+    /// The reason the rule of `name` gives `value`, read off the rule itself so
+    /// the test above names no copy of it.
+    fn reason_of(name: &str, value: &str) -> String {
+        rules::check(name, value, &Trees::default()).unwrap_err()
+    }
+
+    #[test]
     fn the_design_is_beesknees26_unless_the_instance_says_pixel() {
         assert_eq!(loads(&[]).text("TEHAS_DESIGN"), "beesknees26");
         assert_eq!(

@@ -100,6 +100,11 @@ pub enum Rule {
     Follow,
     /// A check run's name goes into a URL and into the log.
     BranchCheck,
+    /// Which repositories may outsource a cycle, as `Rule::Logins` separates
+    /// them: one space between entries and none around them, each entry the
+    /// shape of [`Rule::Repo`]. The empty value is no repository, which is the
+    /// default of TEHAS_OUTSOURCE_REPOS.
+    Repos,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
@@ -141,6 +146,7 @@ impl Rule {
             Rule::CleanDirs => "clean-dirs",
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
+            Rule::Repos => "repos",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
             Rule::IssueTypes => "issue-types",
@@ -180,6 +186,7 @@ impl Rule {
             Rule::CleanDirs => "a/target",
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
+            Rule::Repos => "acme/widget  other/widget",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
             Rule::IssueTypes => "improvement",
@@ -260,6 +267,13 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
+    always("TEHAS_OUTSOURCE", SWITCH, "0"),
+    always("TEHAS_OUTSOURCE_TIMEOUT", Rule::Count, "600"),
+    always("TEHAS_OUTSOURCE_GRACE", Rule::Count, "120"),
+    always("TEHAS_OUTSOURCE_RETRIES", Rule::Count, "2"),
+    always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
+    given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
+    always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
     always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_CONCURRENCY", Rule::Count, "1"),
@@ -480,6 +494,12 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         Rule::BranchCheck => refuse(
             v.split(' ').all(|w| all(w, class("._()/-"))),
             "expected the name of a check, words of letters, digits and ._()/- separated by single spaces",
+        ),
+        // The empty value is the default: no repository may outsource. An
+        // entry is a repository of the same shape TEHAS_REPO takes.
+        Rule::Repos => refuse(
+            v.is_empty() || v.split(' ').all(is_repo),
+            "expected owner/name repositories separated by single spaces",
         ),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
@@ -1166,6 +1186,45 @@ mod tests {
         let why = "expected the name of a check, words of letters, digits and ._()/- separated by single spaces";
         for bad in ["verify&x=1", "two  spaces", " verify", "a\"b"] {
             refuses("TEHAS_BRANCH_CHECK", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_outsource_settings_take_their_shape() {
+        for name in [
+            "TEHAS_OUTSOURCE_TIMEOUT",
+            "TEHAS_OUTSOURCE_GRACE",
+            "TEHAS_OUTSOURCE_RETRIES",
+            "TEHAS_OUTSOURCE_REST",
+            "TEHAS_OUTSOURCE_JOIN_TTL",
+        ] {
+            takes(name, "600");
+            for bad in ["0", "05", "10m", "-1", "two", ""] {
+                refuses(name, bad, POSITIVE);
+            }
+            refuses(name, "1000000000", "expected at most 9 digits");
+        }
+        for v in ["yes", "2", "on"] {
+            refuses("TEHAS_OUTSOURCE", v, "expected 0 or 1");
+        }
+    }
+
+    #[test]
+    fn the_outsource_repositories_are_owner_and_name_one_space_apart() {
+        takes("TEHAS_OUTSOURCE_REPOS", "");
+        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget");
+        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget other/widget.js_2");
+        let why = "expected owner/name repositories separated by single spaces";
+        for bad in [
+            "acme/widget  other/widget",
+            " acme/widget",
+            "acme/widget ",
+            "acme",
+            "a/b/c",
+            "/b",
+            "acme/widget not-a-repo",
+        ] {
+            refuses("TEHAS_OUTSOURCE_REPOS", bad, why);
         }
     }
 

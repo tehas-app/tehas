@@ -384,6 +384,40 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
+t_case "outsource is off unless the instance turns it on, and the bounds are the defaults"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
+t_eq "$t_out" "[0][]"
+t_run "$load && echo \"[\$TEHAS_OUTSOURCE_TIMEOUT][\$TEHAS_OUTSOURCE_GRACE][\$TEHAS_OUTSOURCE_RETRIES][\$TEHAS_OUTSOURCE_REST][\$TEHAS_OUTSOURCE_JOIN_TTL]\""
+t_eq "$t_out" "[600][120][2][1800][3600]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 "TEHAS_OUTSOURCE_REPOS='acme/widget other/widget'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
+t_eq "$t_out" "[1][acme/widget other/widget]"
+
+for bad in "TEHAS_OUTSOURCE=yes" "TEHAS_OUTSOURCE=on" "TEHAS_OUTSOURCE=2" \
+  "TEHAS_OUTSOURCE_TIMEOUT=soon" "TEHAS_OUTSOURCE_TIMEOUT=0" "TEHAS_OUTSOURCE_TIMEOUT=10m" \
+  "TEHAS_OUTSOURCE_GRACE=-1" "TEHAS_OUTSOURCE_RETRIES=two" "TEHAS_OUTSOURCE_RETRIES=0" \
+  "TEHAS_OUTSOURCE_REST=1h" "TEHAS_OUTSOURCE_JOIN_TTL=0" \
+  "TEHAS_OUTSOURCE_REPOS=acme" "TEHAS_OUTSOURCE_REPOS=acme/widget  other/widget" \
+  "TEHAS_OUTSOURCE_REPOS= acme/widget" "TEHAS_OUTSOURCE_REPOS=acme/widget " \
+  "TEHAS_OUTSOURCE_REPOS=acme/widget;rm"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+done
+
+t_case "a command fails closed on a bad TEHAS_OUTSOURCE before it calls GitHub"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
+t_stub gh
+for cmd in "bin/tehasbot cycle 7" "bin/tehasbot dispatch"; do
+  t_run "TEHAS_CONSOLE=\"\$TEHAS_SETTINGS_CMD\" \"\$T_ROOT/\"$cmd"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_OUTSOURCE is not valid"
+  t_eq "$(t_calls gh)" ""
+done
+
 t_case "the owner is optional: unset it is empty, set it is the login"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_OWNER]\""
@@ -1014,6 +1048,18 @@ before=$(find "$T/home" "$T/instance" "$T/watch" | sort)
 T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/watch/tmp")
 t_run "cd '$T/watch/cwd' && $load"
 after=$(find "$T/home" "$T/instance" "$T/watch" | sort)
+t_eq "$after" "$before"
+T_ENV=()
+
+t_case "loading the outsource settings of an on instance writes nothing"
+# The rule of every setting, proven here for the feature's own: the load of an
+# instance that turns outsource on reaches nothing but its own environment.
+mkdir -p "$T/outsource/cwd" "$T/outsource/tmp"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_REPOS=acme/widget >"$TEHAS_INSTANCE_DIR/instance.env"
+before=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/outsource/tmp")
+t_run "cd '$T/outsource/cwd' && $load"
+after=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
 t_eq "$after" "$before"
 T_ENV=()
 
