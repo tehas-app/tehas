@@ -709,11 +709,11 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     // timeout, or a job is lost while its stream is still alive.
     let (check_in, idle) = (
         number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
-        number(vars, "TEHAS_OUTSOURCE_IDLE"),
+        number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
     );
     if idle <= check_in {
         return Err(format!(
-            "TEHAS_OUTSOURCE_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
+            "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
         ));
     }
     Ok(())
@@ -1028,16 +1028,16 @@ mod tests {
     #[test]
     fn the_model_proxy_listens_on_its_address_with_a_longer_idle_bound() {
         let vars = loads(&[]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_ADDR"), "127.0.0.1:8090");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_IDLE"), "3600");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
         let vars = loads(&[
             "TEHAS_OUTSOURCE=1",
-            "TEHAS_OUTSOURCE_ADDR=192.0.2.7:8091",
+            "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
             "TEHAS_OUTSOURCE_TIMEOUT=1800",
-            "TEHAS_OUTSOURCE_IDLE=7200",
+            "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
         ]);
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_ADDR"), "192.0.2.7:8091");
-        assert_eq!(vars.text("TEHAS_OUTSOURCE_IDLE"), "7200");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
     }
 
     #[test]
@@ -1565,12 +1565,15 @@ mod tests {
                 "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
             ),
             (
-                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_IDLE=600"][..],
-                "TEHAS_OUTSOURCE_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
+                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
             ),
             (
-                &["TEHAS_OUTSOURCE_IDLE=60", "TEHAS_OUTSOURCE_TIMEOUT=61"][..],
-                "TEHAS_OUTSOURCE_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
+                &[
+                    "TEHAS_OUTSOURCE_PROXY_IDLE=60",
+                    "TEHAS_OUTSOURCE_TIMEOUT=61",
+                ][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
             let got = refused(lines);

@@ -513,7 +513,7 @@ pub fn declined(
     }
     if !listens(listen) {
         return Some(format!(
-            "TEHAS_OUTSOURCE_ADDR is no address and port to listen on: {listen}"
+            "TEHAS_OUTSOURCE_PROXY_ADDR is no address and port to listen on: {listen}"
         ));
     }
     if Upstream::of(endpoint).is_none() {
@@ -523,7 +523,7 @@ pub fn declined(
     }
     if idle.as_secs() <= timeout {
         return Some(format!(
-            "TEHAS_OUTSOURCE_IDLE of {} s is no longer than the check-in timeout of {timeout} s",
+            "TEHAS_OUTSOURCE_PROXY_IDLE of {} s is no longer than the check-in timeout of {timeout} s",
             idle.as_secs()
         ));
     }

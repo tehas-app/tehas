@@ -282,8 +282,12 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
     // The model proxy. Its idle bound is checked against the check-in timeout
     // by the load: a stream must outlive the job that waits on it.
-    always("TEHAS_OUTSOURCE_ADDR", Rule::ListenAddress, "127.0.0.1:8090"),
-    always("TEHAS_OUTSOURCE_IDLE", Rule::Count, "3600"),
+    always(
+        "TEHAS_OUTSOURCE_PROXY_ADDR",
+        Rule::ListenAddress,
+        "127.0.0.1:8090",
+    ),
+    always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_CONCURRENCY", Rule::Count, "1"),
     row(
@@ -937,12 +941,12 @@ mod tests {
 
     #[test]
     fn a_listen_address_is_an_address_and_a_port() {
-        takes("TEHAS_OUTSOURCE_ADDR", "127.0.0.1:8090");
-        takes("TEHAS_OUTSOURCE_ADDR", "0.0.0.0:1");
-        takes("TEHAS_OUTSOURCE_ADDR", "tehas.example:8090");
-        takes("TEHAS_OUTSOURCE_ADDR", "192.0.2.7:65535");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "127.0.0.1:8090");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "0.0.0.0:1");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "tehas.example:8090");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "192.0.2.7:65535");
         // An IPv6 address keeps its own colons: the last one is the port's.
-        takes("TEHAS_OUTSOURCE_ADDR", "fe80::1:8090");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "fe80::1:8090");
         let why = "expected an address or host name and a port, as 127.0.0.1:8090";
         for bad in [
             "127.0.0.1",
@@ -957,7 +961,7 @@ mod tests {
             "not an address:8090",
             "",
         ] {
-            refuses("TEHAS_OUTSOURCE_ADDR", bad, why);
+            refuses("TEHAS_OUTSOURCE_PROXY_ADDR", bad, why);
         }
     }
 

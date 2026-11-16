@@ -1444,40 +1444,40 @@ t_contains "$(grep ^#TEHAS_POLL_BUDGET= "$T_ROOT/instances/example/optional.env"
 # is a bug an instance would never see coming.
 t_case "the model proxy listens on the loopback port of the platform"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE_ADDR] [\$TEHAS_OUTSOURCE_IDLE]\""
+t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE_PROXY_ADDR] [\$TEHAS_OUTSOURCE_PROXY_IDLE]\""
 t_eq "$t_rc" 0
-t_eq "$t_out" "[127.0.0.1:8090] [3600]"
+t_eq "$t_out" "[127.0.0.1:8090] [900]"
 
 t_case "the proxy's address and its idle bound can be set"
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_ADDR=192.0.2.7:8091 \
-  TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_IDLE=7200
-t_run "$load && echo \"\$TEHAS_OUTSOURCE_ADDR \$TEHAS_OUTSOURCE_IDLE\""
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091 \
+  TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_PROXY_IDLE=7200
+t_run "$load && echo \"\$TEHAS_OUTSOURCE_PROXY_ADDR \$TEHAS_OUTSOURCE_PROXY_IDLE\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "192.0.2.7:8091 7200"
 
 for bad in "127.0.0.1" "127.0.0.1:0" "127.0.0.1:65536" "not an address:8090"; do
-  t_case "loading rejects a TEHAS_OUTSOURCE_ADDR of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE_ADDR='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_case "loading rejects a TEHAS_OUTSOURCE_PROXY_ADDR of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE_PROXY_ADDR='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "TEHAS_OUTSOURCE_ADDR is not valid: expected an address or host name and a port"
+  t_contains "$t_out" "TEHAS_OUTSOURCE_PROXY_ADDR is not valid: expected an address or host name and a port"
 done
 
 t_case "an idle bound not longer than the check-in timeout is refused"
-for pair in "TEHAS_OUTSOURCE_IDLE=600" "TEHAS_OUTSOURCE_IDLE=60 TEHAS_OUTSOURCE_TIMEOUT=61"; do
+for pair in "TEHAS_OUTSOURCE_PROXY_IDLE=600" "TEHAS_OUTSOURCE_PROXY_IDLE=60 TEHAS_OUTSOURCE_TIMEOUT=61"; do
   # shellcheck disable=SC2086 # two settings in one word, split on purpose
   t_instance "${T_MINIMAL[@]}" $pair
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "is not longer than TEHAS_OUTSOURCE_TIMEOUT"
 done
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
 t_run "$load && echo ok"
 t_eq "$t_out" "ok"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the example instance documents the proxy's settings as the table has them"
-for line in '#TEHAS_OUTSOURCE_ADDR=127.0.0.1:8090' '#TEHAS_OUTSOURCE_IDLE=3600'; do
+for line in '#TEHAS_OUTSOURCE_PROXY_ADDR=127.0.0.1:8090' '#TEHAS_OUTSOURCE_PROXY_IDLE=900'; do
   t_contains "$(cat "$T_ROOT/instances/example/optional.env")" "$line"
 done
 

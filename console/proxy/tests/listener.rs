@@ -378,11 +378,11 @@ fn a_setting_the_proxy_will_not_start_on_is_named_by_its_own_name() {
     )
     .is_none());
     for (listen, want) in [
-        ("127.0.0.1", "TEHAS_OUTSOURCE_ADDR"),
-        ("", "TEHAS_OUTSOURCE_ADDR"),
-        ("http://127.0.0.1:8090", "TEHAS_OUTSOURCE_ADDR"),
-        ("127.0.0.1:0", "TEHAS_OUTSOURCE_ADDR"),
-        (":8090", "TEHAS_OUTSOURCE_ADDR"),
+        ("127.0.0.1", "TEHAS_OUTSOURCE_PROXY_ADDR"),
+        ("", "TEHAS_OUTSOURCE_PROXY_ADDR"),
+        ("http://127.0.0.1:8090", "TEHAS_OUTSOURCE_PROXY_ADDR"),
+        ("127.0.0.1:0", "TEHAS_OUTSOURCE_PROXY_ADDR"),
+        (":8090", "TEHAS_OUTSOURCE_PROXY_ADDR"),
     ] {
         let why = serve::declined(true, listen, "http://127.0.0.1:3000/v1", idle, 900)
             .unwrap_or_else(|| panic!("{listen} was taken as a port"));
@@ -408,7 +408,7 @@ fn a_setting_the_proxy_will_not_start_on_is_named_by_its_own_name() {
             timeout,
         )
         .unwrap_or_else(|| panic!("an idle of {} s was taken", idle.as_secs()));
-        assert!(why.contains("TEHAS_OUTSOURCE_IDLE"), "{why}");
+        assert!(why.contains("TEHAS_OUTSOURCE_PROXY_IDLE"), "{why}");
         assert!(why.contains("900") || why.contains("30"), "{why}");
     }
     // A bound one second longer than the timeout is the least that is allowed.

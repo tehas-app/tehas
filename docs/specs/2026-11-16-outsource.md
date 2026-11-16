@@ -264,6 +264,7 @@ All outsource settings are instance settings, loaded like every other one:
 | `TEHAS_OUTSOURCE_REST` | `1800` | seconds a contractor that lost a job rests |
 | `TEHAS_OUTSOURCE_REPOS` | none | repositories that may outsource |
 | `TEHAS_OUTSOURCE_CONTRACTORS` | none | contractor names allowed to call the factory, space separated like `TEHAS_ALLOWED_LABELERS`; empty refuses every contractor |
+| `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | the address and port the model proxy listens on, never the dashboard's |
 | `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | seconds the model proxy waits on a quiet stream; must be longer than `TEHAS_OUTSOURCE_TIMEOUT` |
 
 These names and defaults are final for 1.0. Times are whole seconds, as the
