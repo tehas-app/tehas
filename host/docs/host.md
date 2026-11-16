@@ -528,6 +528,10 @@ module the page loads as `type="module"`, whose own `import "./x.js"` lines name
 its siblings by name: hashing the page is safe, hashing the module would make it
 ask for files none of them is named by.
 
+`/favicon.ico`, which browsers and crawlers ask for whatever a page links, is
+answered with the icon the pages link, `fun/favicon.svg`, sent as SVG and
+cached for a day.
+
 Everything the server sends is compressed, zstd where the browser speaks it and
 gzip otherwise. The files under `/live/` and the two health addresses are left
 alone, because the dashboard's console reads them with Range requests whose

@@ -102,6 +102,14 @@
             templates
             file_server
         }
+        # Browsers and crawlers ask for /favicon.ico whatever a page links.
+        # They get the icon the pages link, as the SVG it is.
+        handle /favicon.ico {
+            root * /srv/fun
+            rewrite * /favicon.svg
+            header Cache-Control "public, max-age=86400"
+            file_server
+        }
         handle_path /fun/* {
             root * /srv/fun
             # Each page names the theme file, the logo and the share card it is
