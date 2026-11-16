@@ -6,7 +6,7 @@ A setting, `TEHAS_READ_ONLY=1`, under which an instance reads its product's issu
 
 ## Why
 
-tehas-industry is gaining a dev mode: a developer runs an industry and one factory on their own laptop, for working on tehas, industry or a product's setup. A factory on a laptop is still a real factory. Pointed at a repository that a shared factory also serves, it would pick up the same `tehas:ready` issues, push branches and open duplicate pull requests, and a laptop that sleeps in the middle of a cycle leaves labels behind. Dev factories should be read-only unless someone chooses otherwise.
+The program that runs an industry of factories is gaining a dev mode: a developer runs an industry and one factory on their own laptop, for working on tehas, industry or a product's setup. A factory on a laptop is still a real factory. Pointed at a repository that a shared factory also serves, it would pick up the same `tehas:ready` issues, push branches and open duplicate pull requests, and a laptop that sleeps in the middle of a cycle leaves labels behind. Dev factories should be read-only unless someone chooses otherwise.
 
 Industry will also check the token's role on the product repository and refuse anything above read for a read-only factory. That check holds even if a write slips through, but on its own it turns every write into a failure in the middle of a cycle. The instance should know it is read-only.
 
