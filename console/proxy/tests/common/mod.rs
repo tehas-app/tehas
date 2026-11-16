@@ -20,6 +20,7 @@ use tehas_proxy::request::State;
 
 /// How long a case waits for a listener to bind: long enough that a wait that
 /// ends is a bug's timeout and not this one.
+#[allow(dead_code)] // each test file uses a part of this module
 pub const BIND_WAIT: Duration = Duration::from_secs(25);
 
 /// What the stub answers with: its status, and the body in two parts, the
@@ -66,6 +67,7 @@ impl Plan {
     /// An endpoint that accepts the ask and then answers nothing, which the
     /// instance's idle bound ends: the silence is the case, and the proxy's own
     /// 502 is what comes of it.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn silent() -> Plan {
         Plan::of(200, "", "", Duration::ZERO)
     }
@@ -145,6 +147,7 @@ impl Endpoint {
     /// The same stub for a thread of a case: the handle of a port that is
     /// already open, so a case can give a thread its endpoint without a second
     /// stub that a case would have to answer twice.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn at(port: u16) -> Endpoint {
         Endpoint {
             port,
@@ -156,6 +159,7 @@ impl Endpoint {
     }
 
     /// The port the stub answers on.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -313,11 +317,13 @@ impl Records {
     /// Records that read nothing at all, of a proxy that holds no token: the
     /// state of an instance whose outsource tables are not there yet, which is
     /// every instance until #2272's land, and the state of a read that failed.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn empty() -> Records {
         Records::of(Rows::default(), &Issuer::new())
     }
 
     /// What a job's record says now.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn end(&self, job: i64, state: State) {
         self.edit(|rows| {
             if let Some(row) = rows.jobs.iter_mut().find(|j| j.job == job) {
@@ -329,11 +335,13 @@ impl Records {
     /// A contractor that may no longer work. The proxy asks only who may, so
     /// the row goes: a job of it is then refused as the job of a contractor
     /// that is revoked or unknown.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn revoke(&self, contractor: &str) {
         self.edit(|rows| rows.contractors.retain(|c| c != contractor));
     }
 
     /// Change what the rows say, in place.
+    #[allow(dead_code)] // each test file uses a part of this module
     pub fn edit(&self, what: impl FnOnce(&mut Rows)) {
         what(&mut self.rows.lock().unwrap_or_else(PoisonError::into_inner));
     }
@@ -367,6 +375,9 @@ impl tehas_proxy::request::Records for Records {
             .iter()
             .find(|j| j.job == job)
             .and_then(|j| State::of(&j.state))
+    }
+    fn holder(&self, job: i64) -> Option<(i64, String)> {
+        self.snapshot().holder(job)
     }
     fn allowed(&self, contractor: &str) -> bool {
         self.snapshot().contractors.iter().any(|c| c == contractor)

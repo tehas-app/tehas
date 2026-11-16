@@ -181,7 +181,7 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
         }
     };
     let status = answer.status;
-    let (usage, complete) = hand_on(client, answer, streaming, serve, &live);
+    let (usage, complete) = hand_on(client, answer, serve, &live);
     serve.sink.line(&Line::answered(
         method,
         &log::shown(ask.path),
@@ -198,12 +198,12 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
     }
 }
 
-/// The endpoint's answer, on the contractor's socket: what came with its head
-/// first, then the rest as the endpoint sends it.
+/// The endpoint's answer, on the contractor's socket: its head and what came
+/// with it first, then the rest as the endpoint sends it. A stream was read no
+/// further than its head, so the two cases are carried alike.
 fn hand_on(
     client: &mut TcpStream,
     answer: Answer,
-    streaming: bool,
     serve: &Serve,
     live: &Live,
 ) -> (Option<count::Usage>, bool) {
@@ -213,31 +213,16 @@ fn hand_on(
         body,
         ..
     } = answer;
-    // A stream's own bytes are the answer's, and none of them were read past
-    // its head; an answer of a length is whole in `got`. The bytes are kept for
-    // the one object the endpoint prices itself with, and dropped with the
-    // request.
-    let from = if streaming { &got[body..] } else { &got[..] };
-    let mut kept = if streaming {
-        got[body..].to_vec()
-    } else {
-        got.clone()
-    };
-    match forward::pipe(&mut stream, client, from) {
+    match forward::pipe(&mut stream, client, &got, body) {
+        // Only the tail of a stream is kept, for the endpoint's own figures. A
+        // completion of a length was read whole before it was forwarded.
         Ok(tail) => {
-            kept.extend_from_slice(&tail);
-            let usage = if streaming {
-                count::of_stream(&kept)
-            } else {
-                count::of_answer(&kept[body..]).or_else(|| count::of_stream(&kept))
-            };
+            let usage = count::of_answer(&tail).or_else(|| count::of_answer(&got[body..]));
             (usage.with_total(), true)
         }
         Err(e) => {
-            // The contractor stopped reading: the answer it was given is the
-            // endpoint's still, and the stream's end is what the log says. The
-            // figures of an answer the proxy could not carry are not counted:
-            // the job did not get the answer they are the price of.
+            // The contractor stopped reading. The figures of an answer the
+            // proxy could not carry are not counted.
             serve.sink.line(&Line(format!(
                 "job {} contractor {} stopped reading: {e}",
                 live.job, live.contractor
@@ -386,11 +371,16 @@ const STORED_BODY: usize = 64 * 1024;
 /// is read; a body that is not JSON asks for nothing, and the endpoint's answer
 /// is passed on as it comes either way.
 fn asks_for_a_stream(body: &[u8]) -> bool {
-    body.windows(12)
-        .any(|w| w.eq_ignore_ascii_case(b"\"stream\":tr"))
-        || body
-            .windows(13)
-            .any(|w| w.eq_ignore_ascii_case(b"\"stream\": tr"))
+    const KEY: &[u8] = b"\"stream\"";
+    body.windows(KEY.len())
+        .enumerate()
+        .filter(|(_, w)| *w == KEY)
+        .any(|(i, _)| {
+            let rest = &body[i + KEY.len()..];
+            let rest = rest.trim_ascii_start();
+            rest.strip_prefix(b":")
+                .is_some_and(|v| v.trim_ascii_start().starts_with(b"true"))
+        })
 }
 
 /// An endpoint that gives a total alone still gives the two halves of it, and a
@@ -414,7 +404,7 @@ impl WithTotal for Option<count::Usage> {
 /// is the process. A request over [`HANDS`] is ended rather than queued, which
 /// is what a cycle retries as it retries a busy model; the count is one atomic
 /// and holds no lock over a request.
-pub fn listen(serve: &Serve<'static>, at: &str) -> Result<TcpListener, String> {
+pub fn listen(serve: &'static Serve<'static>, at: &str) -> Result<TcpListener, String> {
     let listener =
         TcpListener::bind(at).map_err(|e| format!("the model proxy cannot listen on {at}: {e}"))?;
     let hands = Arc::new(AtomicUsize::new(HANDS));
@@ -424,12 +414,11 @@ pub fn listen(serve: &Serve<'static>, at: &str) -> Result<TcpListener, String> {
             drop(stream);
             continue;
         };
-        let serve = ServeRef::of(serve);
         Builder::new()
             .stack_size(256 * 1024)
             .spawn(move || {
                 let mut stream = stream;
-                one(&mut stream, serve.get());
+                one(&mut stream, serve);
                 drop(ticket);
             })
             .ok();
@@ -452,30 +441,6 @@ impl Ticket {
 impl Drop for Ticket {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::Release);
-    }
-}
-
-/// The rules outlive every request of the listener, so a request borrows them
-/// for as long as the process does. One value, made at the proxy's start, read
-/// by every thread the listener spawns and never dropped while it runs.
-struct ServeRef(*const Serve<'static>);
-
-// Safety: the pointee is the one Serve of the process, alive for as long as the
-// listener is, and read by every request thread.
-unsafe impl Send for ServeRef {}
-unsafe impl Sync for ServeRef {}
-
-impl ServeRef {
-    /// The caller has kept one [`Serve`] alive for the whole of the listener's
-    /// life, which is the life of the process: the caller's own signature is
-    /// what says so, since it asks for a `Serve` of no shorter a life.
-    fn of(serve: &Serve<'static>) -> ServeRef {
-        ServeRef(serve as *const Serve<'static>)
-    }
-    fn get(&self) -> &Serve<'static> {
-        // Safety: one value, made at the proxy's start, never dropped while the
-        // listener runs. Nothing here copies or moves it.
-        unsafe { &*self.0 }
     }
 }
 
@@ -560,12 +525,27 @@ pub fn started(at: &str, idle: Duration) -> String {
 pub const TOKEN_FILE: &str = "job-token";
 
 /// Write a job's token where the process that starts its container can read it.
+/// The directory is 0700 and the file is made 0600, so no other user can read
+/// the token at any moment. A token of an earlier attempt is removed first.
 pub fn write_token(dir: &std::path::Path, token: &str) -> std::io::Result<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::create_dir_all(dir)?;
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     let path = dir.join(TOKEN_FILE);
-    std::fs::write(&path, token.as_bytes())?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    match std::fs::remove_file(&path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    file.write_all(token.as_bytes())?;
     Ok(path)
 }
 
@@ -598,5 +578,32 @@ pub fn usage_args(row: &Row) -> Vec<String> {
 impl Serve<'_> {
     pub fn answer(&self, mut client: TcpStream) -> Outcome {
         one(&mut client, self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_ask_of_a_stream_is_read_whatever_the_spacing() {
+        for body in [
+            r#"{"model":"main","stream":true}"#,
+            r#"{"model":"main","stream": true}"#,
+            r#"{"stream" : true,"model":"main"}"#,
+            "{\"stream\":\n  true}",
+        ] {
+            assert!(asks_for_a_stream(body.as_bytes()), "{body}");
+        }
+        for body in [
+            "",
+            "not json",
+            r#"{"model":"main"}"#,
+            r#"{"stream":false}"#,
+            r#"{"stream_options":{"include_usage":true}}"#,
+            r#"{"content":"stream true"}"#,
+        ] {
+            assert!(!asks_for_a_stream(body.as_bytes()), "{body}");
+        }
     }
 }
