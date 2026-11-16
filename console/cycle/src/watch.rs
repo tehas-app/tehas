@@ -1447,15 +1447,18 @@ fn tell_the_end(w: &Watch, cap: &str, wrote: bool) {
     };
     w.append_or_say(line.as_bytes());
     let name = w.g.log.file_name().unwrap_or_default().to_string_lossy();
-    let line = match fs::read(&w.g.log) {
-        Ok(stream) => {
+    // Only the tail of the run log is read: the diagnostics of a cycle that
+    // ended are in its last bytes, and a whole log can be far past what this
+    // process should hold.
+    let line = match runner::log_tail(&w.g.log).map(|(bytes, _)| bytes) {
+        Some(stream) => {
             let lines = diag(&stream);
             if !lines.is_empty() && !append(&w.err, &lines) {
                 eprintln!("tehas work: could not write {}", w.err.display());
             }
             format!("tehas work: the driver's diagnostics are in {name}\n")
         }
-        Err(_) => format!("tehas work: the driver's diagnostics could not be read from {name}\n"),
+        None => format!("tehas work: the driver's diagnostics could not be read from {name}\n"),
     };
     w.append_or_say(line.as_bytes());
 }
@@ -1539,6 +1542,36 @@ mod tests {
         fs::remove_file(&file).unwrap();
         fs::create_dir_all(&file).unwrap();
         assert_eq!(end_reason(&file), None, "a directory is not read");
+    }
+
+    #[test]
+    fn the_end_line_reads_only_the_tail_of_a_run_log_past_the_bound() {
+        let d = dir("end-tail");
+        let home = d.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let g = given(&d);
+        let w = a_watch(&d, &home, &g);
+        // A log past LOG_TAIL whose diagnostics are in its last bytes. The
+        // first line is padded to the bound so the tail of the read begins
+        // inside it; the padding says what the whole read held.
+        let head = "[pi-rukas] WARN the head of the log";
+        let dots = ".".repeat(runner::LOG_TAIL as usize - head.len());
+        fs::write(&g.log, format!("{head}{dots}\n[pi-rukas] WARN the tail\n")).unwrap();
+        assert!(fs::metadata(&g.log).unwrap().len() > runner::LOG_TAIL);
+        tell_the_end(&w, "turns", true);
+        let got = fs::read_to_string(&w.err).unwrap();
+        assert!(
+            got.contains("[pi-rukas] WARN the tail\n"),
+            "the diagnostics of the tail are carried: {got}"
+        );
+        assert!(
+            !got.contains("the head of the log"),
+            "the head of a log past the bound is not read: {got}"
+        );
+        assert!(
+            got.contains("the driver's diagnostics are in log\n"),
+            "{got}"
+        );
     }
 
     #[test]

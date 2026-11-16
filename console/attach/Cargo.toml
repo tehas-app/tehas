@@ -15,4 +15,6 @@ regex = "1"
 serde = "1"
 serde_json = "1"
 sha2 = "0.11"
-tehas-core = { path = "../core" }
+# The `mask` feature is what carries `tehas_core::call`: the bounded calls of
+# take are gated behind it, so the feature is needed for them and not for a mask.
+tehas-core = { path = "../core", features = ["mask"] }

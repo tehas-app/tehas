@@ -156,6 +156,53 @@ fn run_capped(
     }
 }
 
+/// run_full with a file in the place of the program's standard input, for a
+/// program that answers a terminal: `stty` asked of the terminal on standard
+/// output, or of /dev/tty. The bound and the grace are as any other call.
+pub fn run_stdin_file(
+    program: &str,
+    args: &[String],
+    stdin: std::fs::File,
+    bound: Duration,
+    grace: Duration,
+) -> Ran {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    let child = cmd
+        .process_group(0)
+        .stdin(Stdio::from(stdin))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else {
+        return Ran {
+            status: None,
+            out: String::new(),
+            err: format!("{program} could not be run"),
+            truncated: false,
+            unread: false,
+        };
+    };
+    let mut out = child.stdout.take();
+    let reader = std::thread::spawn(move || {
+        let Some(s) = out.as_mut() else {
+            return (String::new(), false);
+        };
+        drain(s)
+    });
+    let status = wait(&mut child, bound, grace, true);
+    // A reader that panicked read nothing that can be trusted.
+    let (text, read) = reader.join().unwrap_or((String::new(), false));
+    Ran {
+        status,
+        out: text,
+        err: String::new(),
+        truncated: false,
+        unread: !read,
+    }
+}
+
 /// All of a stream, and whether it was read to its end. Bytes that are not
 /// UTF-8 are replaced rather than losing the whole answer.
 fn drain(s: &mut impl Read) -> (String, bool) {
