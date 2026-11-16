@@ -701,6 +701,332 @@
    }
   },
   {
+   "case": "a sub-issue whose edit record does not say whether it was edited is refused, not read as unedited",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_EPICS": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     },
+     "5": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "work": {
+    "7": {
+     "parent": 5,
+     "labels": [
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    },
+    "5": {
+     "labels": [],
+     "sub_issues_summary": {
+      "total": 3,
+      "completed": 0
+     }
+    }
+   },
+   "body": {
+    "7": "## Plan"
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-10-01T02:00:00Z",
+       "author": {
+        "login": "tehas-bot"
+       }
+      }
+     }
+    }
+   },
+   "drop": [
+    "issues.7.edit.lastEditedAt",
+    "issues.7.edit.editor"
+   ],
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a sub-issue whose edit record was not read is refused",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_EPICS": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     },
+     "5": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "work": {
+    "7": {
+     "parent": 5,
+     "labels": [
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    },
+    "5": {
+     "labels": [],
+     "sub_issues_summary": {
+      "total": 3,
+      "completed": 0
+     }
+    }
+   },
+   "body": {
+    "7": "## Plan"
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-10-01T02:00:00Z",
+       "author": {
+        "login": "tehas-bot"
+       }
+      }
+     }
+    }
+   },
+   "drop": [
+    "issues.7.edit"
+   ],
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a sub-issue whose edit time is not a time is refused",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_EPICS": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     },
+     "5": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "work": {
+    "7": {
+     "parent": 5,
+     "labels": [
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    },
+    "5": {
+     "labels": [],
+     "sub_issues_summary": {
+      "total": 3,
+      "completed": 0
+     }
+    }
+   },
+   "body": {
+    "7": "## Plan"
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-10-01T02:00:00Z",
+       "author": {
+        "login": "tehas-bot"
+       },
+       "lastEditedAt": true,
+       "editor": {
+        "login": "tehas-bot"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready from the fixer starts nothing: its epic #5 is approved, but whether its text was changed since it was written could not be read"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
    "case": "a sub-issue an outsider wrote is refused",
    "settings": {
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",

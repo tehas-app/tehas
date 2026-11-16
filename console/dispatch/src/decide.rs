@@ -2245,6 +2245,17 @@ impl<'a> Poll<'a> {
         let bot = account(&self.d.bot).to_string();
         let ours = |w: &str| c.allowed(w) || (!bot.is_empty() && account(w) == bot);
         let t = self.text(n);
+        // GitHub answers null for a text never edited. A record without the
+        // field, or with something else in it, was not read and grants nothing.
+        let edited = match t.get("lastEditedAt") {
+            Some(Value::Null) => false,
+            Some(Value::String(_)) => true,
+            _ => {
+                return refuse(
+                    "whether its text was changed since it was written could not be read".into(),
+                )
+            }
+        };
         let login = |k: &str| {
             t.pointer(&format!("/{k}/login"))
                 .and_then(Value::as_str)
@@ -2258,7 +2269,6 @@ impl<'a> Poll<'a> {
                 or_unknown(&author)
             ));
         }
-        let edited = t.get("lastEditedAt").is_some_and(|v| !v.is_null());
         let editor = login("editor");
         if edited && !ours(&editor) {
             return refuse(format!(
