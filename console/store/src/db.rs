@@ -635,7 +635,7 @@ pub const COUNTED_INDEXES: [&str; 19] = [
 /// The tables of schema.sql, each exactly once, which the test
 /// every_counted_table_exists pins, so a table that goes missing from the
 /// schema cannot go missing from the report too. `check` counts these and
-/// [`OUTSOURCE_TABLES`]; `copy` counts and `load` moves these alone.
+/// [`OUTSOURCE_TABLES`], and `copy` counts and `load` moves both.
 pub const COUNTED_TABLES: [&str; 24] = [
     "actions",
     "approvals",
@@ -1526,14 +1526,18 @@ fn make_copy(conn: &Connection, copy: &Path, what: &str) -> Result<Copied, DbErr
         let wal = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         let schema = c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?;
         let mut rows = 0;
-        for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
+        for table in COUNTED_TABLES
+            .iter()
+            .chain(&OUTSOURCE_TABLES)
+            .filter(|t| **t != "meta")
+        {
             let there: bool = c.query_row(
                 "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
                 [table],
                 |r| r.get(0),
             )?;
             if there {
-                // The name is one of COUNTED_TABLES, never a caller's word.
+                // The name is one of the store's own tables, never a caller's word.
                 rows += c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
                     r.get::<_, i64>(0)
                 })?;
