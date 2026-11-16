@@ -104,13 +104,6 @@ step() {
     s && /^        run: \|$/ {s = 2}' "$workflow"
 }
 
-t_case "jq is the pinned one, checked against its hash"
-jq_step=$(step 'jq at the pinned version')
-# shellcheck disable=SC2016  # the step's own text
-t_contains "$jq_step" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
-# shellcheck disable=SC2016  # the step's own text
-t_contains "$jq_step" 'test "$("$RUNNER_TEMP/jq/jq" --version)" = "jq-$JQ_VERSION"'
-
 # A tree with its own versions.env, and a rustup-init that curl "downloads":
 # it records its arguments and leaves a cargo that names its version.
 step 'rust at the pinned version' >"$T/rust.sh"
@@ -165,5 +158,40 @@ rust 'CARGO_VERSION=1.99.0'
 t_eq "$t_rc" 1
 t_contains "$t_out" 'not cargo 1.100.0'
 t_lacks "$(cat "$T/cargo.args")" 'fetch'
+
+# A jq that curl "downloads": it names the version JQ_FAKE gives, or the pin.
+step 'jq at the pinned version' >"$T/jq.sh"
+printf '%s\n' JQ_VERSION=1.8.1 JQ_SHA256=beef >>"$T/tree/host/versions.env"
+cat >"$T/fakejq" <<STUB
+#!$T_BASH
+echo "jq-\${JQ_FAKE:-1.8.1}"
+STUB
+# shellcheck disable=SC2016  # the stub's own arguments
+t_stub curl 'while [ "$#" -gt 0 ]; do [ "$1" = -o ] && cp "$T/fakejq" "$2"; shift; done'
+jqstep() {
+  rm -rf "$T/rt" "$T/calls/curl"
+  mkdir -p "$T/rt"
+  t_run "cd '$T/tree' && RUNNER_TEMP='$T/rt' GITHUB_PATH='$T/rt/path' $1 bash -eo pipefail '$T/jq.sh'"
+}
+
+t_case "jq is the pinned release, checked against its hash and put on the job's path"
+# shellcheck disable=SC2016  # the stub's own $T
+t_stub sha256sum 'cat >"$T/sha.in"'
+jqstep ''
+t_eq "$t_rc" 0
+t_contains "$(t_calls curl)" 'https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64'
+t_eq "$(cat "$T/sha.in")" "beef  $T/rt/jq/jq"
+t_eq "$(cat "$T/rt/path")" "$T/rt/jq"
+
+t_case "a jq that does not match its hash is not put on the path"
+t_stub sha256sum 'exit 1'
+jqstep ''
+t_eq "$t_rc" 1
+t_eq "$(cat "$T/rt/path" 2>/dev/null)" ""
+
+t_case "a jq of another version stops the job"
+t_stub sha256sum 'exit 0'
+jqstep 'JQ_FAKE=1.7.1'
+t_eq "$t_rc" 1
 
 t_done
