@@ -663,11 +663,18 @@ fn factory_disk_is_listed_and_answers() {
     assert_eq!(out["time"], "2026-10-31T23:09:32Z");
     assert!(out.get("generatedAt").is_none());
     assert_eq!(out["stale"], true);
-    assert_eq!(out["dockerRoot"], "/var/lib/docker");
+    assert!(out.get("dockerRoot").is_none());
+    assert_eq!(out["filesystems"][0]["paths"], json!(["home"]));
+    assert_eq!(out["full"]["places"][0]["path"], "logs");
     assert_eq!(out["filesystems"][0]["freeBytes"], 223);
     assert_eq!(out["full"]["stoppedContainers"], 2);
     let text = out.to_string();
-    for bad in ["hostname", "a name no answer gives"] {
+    for bad in [
+        "hostname",
+        "a name no answer gives",
+        "/home/boss",
+        "/var/lib/docker",
+    ] {
         assert!(!text.contains(bad), "{bad} reached the answer: {text}");
     }
     // The schema a client is told and the allowlist the answer is copied with

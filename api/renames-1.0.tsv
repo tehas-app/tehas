@@ -22,3 +22,4 @@ field	start.approval.title_sha256	start.approval.titleSha256	camelCase like ever
 field	refresh.head_sha	refresh.headSha	camelCase like every other object; the object also gains api
 field	disk.generatedAt	disk.time	also in live/disk.json and tehas disk --cycles --json
 field	factory_disk.generatedAt	factory_disk.time	as tehas disk
+field	factory_disk.dockerRoot		not served over MCP
