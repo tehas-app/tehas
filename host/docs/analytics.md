@@ -521,16 +521,16 @@ reads it (see [the MCP server](/mcp-server)).
 ## Fetching it
 
 ```
-tehas analytics export copy.db --json
+tehas analytics copy --to copy.db --json
 ```
 
 writes a consistent copy with SQLite's `VACUUM INTO`, mode 600, and prints
 `{"api":1,"schema":3,"from":...,"to":...,"runs":N}`, read from the copy. It
 takes no lock a cycle holds and makes no network call. It never replaces a
 file. A file name may not start with `-`: write `./-name` for one that does.
-See [the factory API](/api#tehas-analytics-export) for the fields.
+See [the factory API](/api#tehas-analytics-copy) for the fields.
 
-`tehas analytics report` and `export` open the database as the other
+`tehas analytics report` and `copy` open the database as the other
 commands do, so either may make an empty one where there is none, or move a
 broken file or one of another schema version aside, as [The file](#the-file)
 says.
@@ -538,7 +538,7 @@ says.
 A program fetches it the way it runs any factory command, then copies the file:
 
 ```
-ssh boss@tehas-tehas '. ~/tehas/env.sh && tehas analytics export /tmp/analytics-$(date +%F).db --json'
+ssh boss@tehas-tehas '. ~/tehas/env.sh && tehas analytics copy --to /tmp/analytics-$(date +%F).db --json'
 scp boss@tehas-tehas:/tmp/analytics-2026-10-19.db .
 ```
 

@@ -1557,7 +1557,7 @@ it ran, and keeps 365 days of them. Two commands read them:
 
 ```
 tehas analytics report                    # the ten-day report in the terminal
-tehas analytics export copy.db --json     # a copy of the database, to fetch
+tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 ```
 
 The report is the one on the plain dashboard. The copy is for deeper analysis

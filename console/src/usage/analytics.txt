@@ -7,17 +7,19 @@ all of their SQL.
 
 Usage:
   tehas analytics report               the ten-day report, for a person
-  tehas analytics export <file> [--json]
+  tehas analytics copy --to <file> [--json]
                                        a consistent copy of the database
 
 report prints what the dashboard's "Last 10 days" shows, as text.
 
-export writes the copy to <file>, mode 600, and never replaces a file. With
+copy writes the copy to <file>, mode 600, and never replaces a file. With
 --json it then prints, read from the copy:
   {"api":1,"schema":1,"from":1792022400,"to":1792800000,"runs":42}
 schema is the copy's schema version, from and to the oldest start and the
 newest end of its runs, in Unix seconds, both left out when it has none.
 It takes no lock a cycle holds and makes no network call.
+
+export, the name before 1.0, is refused with 64 and names copy --to.
 
 Exit: 0 printed or written; 64 a bad argument; 69 analytics is off
 (TEHAS_ANALYTICS=off) or the program is not installed, which writes nothing;

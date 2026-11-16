@@ -41,7 +41,7 @@ tehas state check [--json]       # the state store's integrity and rows
 tehas state copy --to <file>     # a copy of the store, taken while cycles run
 tehas state load --from <file>   # fill a drained factory's empty store from one
 tehas top [--once|--json]        # one screen of what the factory is doing
-tehas analytics report|export    # the factory's last 365 days of runs
+tehas analytics report|copy      # the factory's last 365 days of runs
 tehas mcp key                    # a new key for the read-only MCP server
 tehas github check|writes        # the GitHub App's token, its writes of the day
 tehas pause [reason]             # stop this host from starting new work
