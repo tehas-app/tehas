@@ -197,7 +197,7 @@ t_eq "$t_rc" 0
 # One object, one line, and valid JSON: what a program keeps is what it read.
 t_eq "$(printf '%s\n' "$json" | wc -l)" 1
 t_eq "$(printf '%s' "$json" | jq -e '.api == 1 and .repo == "acme/widget" and
-  .fixer == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
+  .millwright == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
 # A model token is named, never written: the file that carries these facts is
 # the one a person may put anywhere, so no value of a TEHAS_MODEL_KEY_ name
 # appears in it.
