@@ -25,6 +25,7 @@
 use crate::forge::runnable;
 use crate::github;
 use crate::settings;
+use crate::update::steps;
 use serde_json::{json, Value};
 use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -205,8 +206,7 @@ fn is_number(s: &str) -> bool {
 /// holds `TEHAS_ALLOWED_LABELERS` to, so setup never writes a line the load
 /// refuses.
 fn is_logins(s: &str) -> bool {
-    s.split(' ')
-        .all(tehas_core::settings::rules::is_login)
+    s.split(' ').all(tehas_core::settings::rules::is_login)
 }
 fn is_endpoint(s: &str) -> bool {
     let rest = s
@@ -1279,13 +1279,39 @@ fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
     Ok(())
 }
 
+fn is_sandbox(line: &str) -> bool {
+    steps::step_id(line.split(' ').next().unwrap_or("")) == "sandbox"
+}
+
+/// Whether the record of steps owed holds the sandbox build, as install.sh
+/// leaves it when the instance's sandbox.Dockerfile or the platform's recipe
+/// changed. An unreadable record owes nothing here; tehas update reports it.
+fn sandbox_owed(home: &Path) -> bool {
+    steps::read_record(home).is_ok_and(|lines| lines.iter().any(|l| is_sandbox(l)))
+}
+
+/// Take the build off the record once it ran, so tehas update does not run
+/// it again. The other lines stay as they were.
+fn sandbox_done(home: &Path) {
+    if let Ok(lines) = steps::read_record(home) {
+        let rest: Vec<String> = lines.into_iter().filter(|l| !is_sandbox(l)).collect();
+        let _ = steps::write_record(home, &rest);
+    }
+}
+
 fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
     // --if-moved builds when there is no image or it is not on the commit
-    // PI_RUKAS_FOLLOW resolves to, and says so when it is current.
-    step(
-        "the sandbox build",
-        program(vars, format!("{home}/sandbox/build.sh")).arg("--if-moved"),
-    )?;
+    // PI_RUKAS_FOLLOW resolves to, and says so when it is current. It does not
+    // see a changed recipe, so an owed build runs without it.
+    let owed = sandbox_owed(Path::new(home));
+    let mut build = program(vars, format!("{home}/sandbox/build.sh"));
+    if !owed {
+        build.arg("--if-moved");
+    }
+    step("the sandbox build", &mut build)?;
+    if owed {
+        sandbox_done(Path::new(home));
+    }
     let check = libexec.join("../bin/tehas");
     if runnable(&check) {
         step(
