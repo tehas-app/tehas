@@ -122,10 +122,22 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_CYCLE_ATTEMPT",
         "handed by tehasbot cycle to tehas work",
     ),
+    (
+        "TEHAS_CONTRACTOR",
+        "handed by the contractor program to the cycle it runs",
+    ),
+    (
+        "TEHAS_CONTRACTOR_GIT",
+        "a test's clone source for tehas-contractor",
+    ),
     ("TEHAS_TIDY_CMD", "a test's tidy"),
     ("TEHAS_FINISH_CMD", "a test's finish"),
     ("TEHAS_DISPATCH_CMD", "a test's dispatcher"),
     ("TEHAS_HEALTH_CMD", "a test's health"),
+    (
+        "TEHAS_PUSH_PROBE_CMD",
+        "a test's probe of the sandbox's push",
+    ),
     ("TEHAS_TIDY_WAIT", "a test's bound on the tidy"),
     ("TEHAS_ANALYTICS_WAIT", "a test's bound on analytics"),
     ("TEHAS_FROM_POLL", "handed by the poll to tehasbot status"),
