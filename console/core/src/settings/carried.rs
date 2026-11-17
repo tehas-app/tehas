@@ -15,6 +15,7 @@ pub const CARRIED: &[&str] = &[
     "TEHAS_GITHUB_APP_ID",
     "TEHAS_BRANCH",
     "TEHAS_DRIVER",
+    "TEHAS_LEAN",
     "TEHAS_READ_ONLY",
     "TEHAS_WORK_TIMEOUT",
     "TEHAS_WORK_STALL",

@@ -109,11 +109,15 @@ enum Planned {
 /// Who made the choice of driver that does not count: applied `label` (the
 /// instance's [`Driver::opt_out`]), or with `off` took an allowed account's off. With
 /// `both`, the issue carries both driver labels and nobody's choice is read.
+/// With `building`, the start would run lean and the lean feature is not on
+/// in this release: nobody's choice is wrong, but nothing starts and classic
+/// does not run in its place.
 struct Stranger {
     who: String,
     off: bool,
     label: &'static str,
     both: bool,
+    building: bool,
 }
 
 impl Stranger {
@@ -124,6 +128,18 @@ impl Stranger {
             off: false,
             label: LEAN,
             both: true,
+            building: false,
+        }
+    }
+
+    /// The start would run lean, and the lean feature is off.
+    fn building() -> Stranger {
+        Stranger {
+            who: String::new(),
+            off: false,
+            label: LEAN,
+            both: false,
+            building: true,
         }
     }
 
@@ -139,6 +155,9 @@ impl Stranger {
 
     /// What a start refused over it says on the issue.
     fn said(&self) -> String {
+        if self.building {
+            return format!("`{LEAN}` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `{LEAN}` off");
+        }
         if self.both {
             return format!("it carries both `{LEAN}` and `{CLASSIC}`, and tehas does not guess which driver to run. An account named in `TEHAS_ALLOWED_LABELERS` takes one of them off");
         }
@@ -153,7 +172,9 @@ impl Stranger {
 
     /// What a dry run logs in place of the refusal.
     fn dry_line(&self) -> String {
-        if self.both {
+        if self.building {
+            format!("{LEAN} asks for lean, still being built in this release")
+        } else if self.both {
             format!("it carries both {LEAN} and {CLASSIC}")
         } else {
             format!("{} is not an allowed account's", self.label)
@@ -1487,7 +1508,19 @@ impl<'a> Poll<'a> {
     /// that record, so a label added since changes nothing until a person
     /// approves a new start. The label that agrees with the default chooses
     /// nothing, but with both on nothing starts: tehas does not guess.
+    ///
+    /// A start that would run lean while the lean feature is off starts
+    /// nothing, as a stranger's choice does, and says why. A lean default
+    /// with the feature off stops the poll before it gets here
+    /// (`Settings::refused`).
     fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Choice> {
+        Ok(match self.chosen_driver(n, labels, retry)? {
+            Choice::Run(Driver::Lean) if !self.c.lean => Choice::Stranger(Stranger::building()),
+            c => c,
+        })
+    }
+
+    fn chosen_driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Choice> {
         if has(labels, LEAN) && has(labels, CLASSIC) {
             return Ok(Choice::Stranger(Stranger::both()));
         }
@@ -1500,6 +1533,7 @@ impl<'a> Poll<'a> {
                 off,
                 label,
                 both: false,
+                building: false,
             })
         };
         if !has(labels, label) {
@@ -1694,7 +1728,9 @@ impl<'a> Poll<'a> {
 
     /// lean_deny: the log line of a choice of driver that does not count.
     fn lean_deny(&mut self, n: u64, s: &Stranger) {
-        if s.both {
+        if s.building {
+            self.log(format!("skip #{n}: {LEAN} asks for the lean driver, still being built in this release; nothing starts until it comes off"));
+        } else if s.both {
             self.log(format!("skip #{n}: it carries both {LEAN} and {CLASSIC}; tehas does not guess the driver, so nothing starts until one comes off"));
         } else if s.off {
             let (who, label) = (&s.who, s.label);

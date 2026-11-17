@@ -155,6 +155,19 @@
       "reason": "expected classic or lean"
     },
     {
+      "name": "TEHAS_LEAN",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_READ_ONLY",
       "rule": "one-of",
       "when": "always",

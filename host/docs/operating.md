@@ -468,6 +468,16 @@ does. See [Commands](/tools).
 
 ### Choosing the driver
 
+The lean driver is a feature still being built (`lean` in
+[`tehas api --json`](/api#tehas-api) `flags`). A release runs every cycle on
+classic: `TEHAS_LEAN=on` and `TEHAS_DRIVER=lean` each stop every command with
+78 and name the feature, and `tehas work --driver lean` exits 78. `tehas:lean`
+starts nothing and does not fall back to classic: the poll takes `tehas:ready`
+off and says lean is still being built; an allowed account takes `tehas:lean`
+off to run the issue on classic. A retry, an outage retry or a refresh that
+follows a lean start is refused the same way. `tehas:classic` works as before.
+The rest of this section is how the driver is chosen once lean is on.
+
 A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
