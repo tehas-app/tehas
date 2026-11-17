@@ -115,8 +115,8 @@ done
 
 t_case "every row of the manual names a setting the loader, the host or pi-rukas reads"
 # The rows that name no row of TABLE on purpose, each checked by a case of its
-# own below: TEHAS_MILLWRIGHT_LOGIN and TEHAS_WORK_REPO are set by a load from
-# the app's login and from TEHAS_REPO; TEHAS_DISK_WAIT is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
+# own below: TEHAS_WORK_REPO is set by a load from TEHAS_REPO; TEHAS_DISK_WAIT
+# is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
 # of kinds.rs rather than a string in the table's own text.
 # The settings a row names with no row of the loader's table behind it, each one
 # said in the comment below, and each one a row of the manual's table the case
@@ -124,7 +124,6 @@ t_case "every row of the manual names a setting the loader, the host or pi-rukas
 # it, because a name that shares its front with the name before it on the same
 # line would otherwise be a piece of another word and match nothing.
 exceptions="
-TEHAS_MILLWRIGHT_LOGIN
 TEHAS_WORK_REPO
 TEHAS_DISK_WAIT
 TEHAS_ISSUE_TYPES
@@ -158,6 +157,8 @@ done
 # sets: a row for the bot's login, refused with 78 since the factory became one
 # app, would tell an operator to set a thing that stops every command.
 has TEHAS_BOT_LOGIN "$manual" && t_bad "TEHAS_BOT_LOGIN is a row again: the app names the bot"
+has TEHAS_MILLWRIGHT_LOGIN "$manual" &&
+  t_bad "TEHAS_MILLWRIGHT_LOGIN is a row again: the app names the millwright"
 has TEHAS_GITHUB_APP_INSTALLATION "$manual" &&
   t_bad "TEHAS_GITHUB_APP_INSTALLATION is a row again: the installation is looked up"
 

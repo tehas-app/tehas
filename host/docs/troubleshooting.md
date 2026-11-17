@@ -189,8 +189,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
   blank value is ignored.
-- `TEHAS_IMPROVE_REPO is no longer read: this version of tehas has no
-  improvement loop, so take the line out` (the same for
+- `TEHAS_IMPROVE_REPO is no longer read: the improvement loop is removed, so
+  take the line out` (the same for
   `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and
   `TEHAS_IMPROVE_MAX_OPEN`): every command stops with 78 while the instance
   sets one of them to a value. Take the line out. A blank value, and
@@ -198,10 +198,16 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so
   take the line out`: every command stops with 78 while the instance sets it
   to a value, `rust` too. Take the line out. A blank value is ignored.
-- `TEHAS_EASY_MERGE is no longer read: this version of tehas has no easy
-  merge, every refresh is the full refresh cycle, so take the line out`: every
+- `TEHAS_EASY_MERGE is no longer read: the easy merge is removed and every
+  refresh is the full refresh cycle, so take the line out`: every
   command stops with 78 while the instance sets it to 1 or any value but 0.
   Take the line out. A blank value and `TEHAS_EASY_MERGE=0` are ignored.
+- `<NAME> is no longer read: tehas 1.0 renamed it <NEW> (...), so rename the
+  line` or `<NAME> is no longer read: <why>, so take the line out`: a setting
+  tehas 1.0 renamed or removed, a row of `api/renames-1.0.tsv`, is still in
+  `instance.env` or `~/.config/tehas/env`. Every command stops with 78 until
+  the line is renamed or taken out. `tehas update --check` lists every such
+  line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the

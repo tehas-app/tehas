@@ -14,17 +14,16 @@
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
-//!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN, over any
-//!   value the instance holds. Without the file the load sets neither, and a
-//!   value the instance still holds stays as it is until the first mint
-//!   writes the file. An instance
-//!   that still sets TEHAS_GITHUB_APP_INSTALLATION, TEHAS_BOT_LOGIN or
-//!   TEHAS_MILLWRIGHT_LOGIN gets a warning for each; the login file wins.
-//!   TEHAS_MILLWRIGHT_APP, `<slug>[bot]`, names a second app the factory
+//!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN. Without
+//!   the file the load sets neither until the first mint writes it. Neither
+//!   is a setting: an instance that sets one, or
+//!   TEHAS_GITHUB_APP_INSTALLATION, is refused as a row of
+//!   api/renames-1.0.tsv (renamed.rs). TEHAS_MILLWRIGHT_APP, `<slug>[bot]`, names a second app the factory
 //!   trusts as its millwright: the load gives it to TEHAS_MILLWRIGHT_LOGIN
 //!   over the factory's own login, and TEHAS_BOT_LOGIN stays the factory's.
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
-//!   stop the load. A TEHAS_FIXER_* name stops it too.
+//!   stop the load. A TEHAS_FIXER_* name stops it too, and so does every
+//!   setting tehas 1.0 renamed or removed (renamed.rs).
 //! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 //!   lowest issues. Unset is valid and means there is no gate. It is asked with
 //!   nothing of the poll's environment but PATH, and it may not name a file
@@ -33,6 +32,7 @@
 //! - Nothing falls back to a project: a setting with no generic default stays
 //!   unset until a command requires it.
 
+use super::renamed;
 use super::rules::{self, Trees, When, ROLES, SWITCH_WORDS, TABLE};
 use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
@@ -107,7 +107,7 @@ const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 21] = [
+const RETIRED: [&str; 15] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -123,12 +123,6 @@ const RETIRED: [&str; 21] = [
     "TEHAS_REFRESH_CONFLICTS",
     "TEHAS_REFRESH_EVERY",
     "TEHAS_OVERLAP_HOLD",
-    "TEHAS_IMPROVE_REPO",
-    "TEHAS_IMPROVE_RUKAS_REPO",
-    "TEHAS_IMPROVE_RUKAS_SKIP",
-    "TEHAS_IMPROVE_MAX_OPEN",
-    "TEHAS_CYCLE_REPORT",
-    "TEHAS_EASY_MERGE",
 ];
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
@@ -276,7 +270,7 @@ fn test_only(vars: &Vars, host: &dyn Host, instance: &[u8], file: &str) -> Resul
 }
 
 /// A line without the blanks and the `export` before the name.
-fn bare_line(line: &[u8]) -> Vec<u8> {
+pub(crate) fn bare_line(line: &[u8]) -> Vec<u8> {
     let space = |b: &u8| matches!(*b, b' ' | b'\t' | 0x0b | 0x0c | b'\r');
     let strip = |line: &[u8]| match line.iter().position(|b| !space(b)) {
         Some(at) => line[at..].to_vec(),
@@ -374,13 +368,6 @@ fn role_models(vars: &mut Vars, file: &str) -> Result<(), String> {
 /// GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN.
 const NO_LONGER_USED: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
 
-/// The settings the app's login makes needless, ignored with a warning.
-const OBSOLETE: [&str; 3] = [
-    "TEHAS_GITHUB_APP_INSTALLATION",
-    "TEHAS_BOT_LOGIN",
-    "TEHAS_MILLWRIGHT_LOGIN",
-];
-
 /// Where the factory's own credentials are kept, besides the instance.
 fn credential_file(vars: &Vars) -> String {
     format!("{}/.config/tehas/env", vars.text("HOME"))
@@ -405,19 +392,10 @@ fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
     }
 }
 
-/// The login the app has, from state/github/login, replaces whatever the
-/// instance said of the bot and the millwright. Without the file the old
-/// lines stay as they are, each with its warning, and nothing new is set.
-/// TEHAS_MILLWRIGHT_APP, when the instance sets it, is the millwright over
-/// both, with or without the file.
-fn app_login(vars: &mut Vars, host: &mut dyn Host, file: &str) {
-    for name in OBSOLETE {
-        if vars.is_set(name) {
-            host.warn(&format!(
-                "{name} is no longer used: the factory is named by TEHAS_GITHUB_APP_ID alone (see {file})"
-            ));
-        }
-    }
+/// The login the app has, from state/github/login, is the bot and the
+/// millwright. Without the file neither is set. TEHAS_MILLWRIGHT_APP, when the
+/// instance sets it, is the millwright, with or without the file.
+fn app_login(vars: &mut Vars, host: &mut dyn Host) {
     let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
     if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
         vars.set("TEHAS_BOT_LOGIN", login.clone());
@@ -438,10 +416,8 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         }
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
-        // the Rust poll, beesknees26 and business are the default design, and
-        // a skip of 0 asks nothing of a loop that is gone, and an easy merge of
-        // 0 asks for the full refresh every refresh is now, so the line stays
-        // loadable. A value the timed refresh scan took is dropped: refreshes
+        // the Rust poll, and beesknees26 and business are the default design,
+        // so the line stays loadable. A value the timed refresh scan took is dropped: refreshes
         // are asked for with --pr now, and the line is left to the operator
         // to take out.
         let value = vars.text(name);
@@ -453,17 +429,11 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_LAYOUT", "business" | "")
                 | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | ("TEHAS_REFRESH_EVERY", "")
-                | ("TEHAS_IMPROVE_RUKAS_SKIP", "0" | "")
-                | ("TEHAS_EASY_MERGE", "0" | "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
                         | "TEHAS_PRIORITY_FIELD"
-                        | "TEHAS_OVERLAP_HOLD"
-                        | "TEHAS_IMPROVE_REPO"
-                        | "TEHAS_IMPROVE_RUKAS_REPO"
-                        | "TEHAS_IMPROVE_MAX_OPEN"
-                        | "TEHAS_CYCLE_REPORT",
+                        | "TEHAS_OVERLAP_HOLD",
                     ""
                 )
         ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
@@ -486,9 +456,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
             "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
-            "TEHAS_IMPROVE_REPO" | "TEHAS_IMPROVE_RUKAS_REPO" | "TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_IMPROVE_MAX_OPEN" => "is no longer read: this version of tehas has no improvement loop, so take the line out".to_string(),
-            "TEHAS_CYCLE_REPORT" => "is no longer read: the cycle's report has one form, so take the line out".to_string(),
-            "TEHAS_EASY_MERGE" => GONE_EASY.to_string(),
+            "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -499,7 +467,29 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
-const GONE_EASY: &str = "is no longer read: this version of tehas has no easy merge, every refresh is the full refresh cycle, so take the line out";
+/// A row of api/renames-1.0.tsv still set stops the load, the instance's
+/// first and then the credential file's. A value that loads quietly
+/// ([`renamed::quiet`]) is dropped. The credential file is read as text: its
+/// names are not the instance's, and a renamed one there is swept before the
+/// instance is sourced.
+fn renamed(vars: &mut Vars, host: &dyn Host, file: &str) -> Result<(), String> {
+    for row in renamed::rows() {
+        if !vars.is_set(row.old) {
+            continue;
+        }
+        if renamed::quiet(row.old, &vars.text(row.old)) {
+            vars.unset(row.old.as_bytes());
+            continue;
+        }
+        return Err(format!("{} (see {file})", row.why()));
+    }
+    let creds_file = credential_file(vars);
+    let creds = host.read(&creds_file).unwrap_or_default();
+    match renamed::found_in(&creds, &creds_file).into_iter().next() {
+        Some(line) => Err(line),
+        None => Ok(()),
+    }
+}
 
 /// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
 /// leading 0. The digits check matters: u32's parse also takes a leading '+'.
@@ -838,7 +828,8 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     role_models(vars, &file)?;
     tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
-    app_login(vars, host, &file);
+    renamed(vars, host, &file)?;
+    app_login(vars, host);
     defaults(vars, host, uid);
     check_values(vars, &file)?;
     switches(vars);
@@ -1551,14 +1542,11 @@ mod tests {
         );
     }
 
-    const GONE_LOOP: &str =
-        "is no longer read: this version of tehas has no improvement loop, so take the line out";
-
     #[test]
     fn a_retired_name_is_refused_or_taken_as_what_it_asked_for() {
         assert_eq!(
             refused(&["TEHAS_FIXER_LOGIN="]),
-            format!("TEHAS_FIXER_LOGIN is no longer read: rename it TEHAS_MILLWRIGHT_LOGIN (see {FILE})")
+            format!("TEHAS_FIXER_LOGIN is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out (see {FILE})")
         );
         assert_eq!(
             refused(&["TEHAS_WORK_MEMORY=8g", "TEHAS_CLONES=1"]),
@@ -1588,14 +1576,6 @@ mod tests {
             "TEHAS_REFRESH_EVERY=1",
             "TEHAS_REFRESH_EVERY=1440",
             "TEHAS_OVERLAP_HOLD=",
-            "TEHAS_IMPROVE_REPO=",
-            "TEHAS_IMPROVE_RUKAS_REPO=",
-            "TEHAS_IMPROVE_RUKAS_SKIP=",
-            "TEHAS_IMPROVE_RUKAS_SKIP=0",
-            "TEHAS_IMPROVE_MAX_OPEN=",
-            "TEHAS_CYCLE_REPORT=",
-            "TEHAS_EASY_MERGE=",
-            "TEHAS_EASY_MERGE=0",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1641,16 +1621,6 @@ mod tests {
                 "TEHAS_LAYOUT=floor",
                 "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
             ),
-            ("TEHAS_IMPROVE_REPO=acme/backlog", GONE_LOOP),
-            ("TEHAS_IMPROVE_RUKAS_REPO=acme/rukas", GONE_LOOP),
-            ("TEHAS_IMPROVE_RUKAS_SKIP=1", GONE_LOOP),
-            ("TEHAS_IMPROVE_MAX_OPEN=30", GONE_LOOP),
-            (
-                "TEHAS_CYCLE_REPORT=rust",
-                "is no longer read: the cycle's report has one form, so take the line out",
-            ),
-            ("TEHAS_EASY_MERGE=1", GONE_EASY),
-            ("TEHAS_EASY_MERGE=yes", GONE_EASY),
         ] {
             assert_eq!(
                 refused(&[line]),
@@ -1778,20 +1748,72 @@ mod tests {
     const LOGIN: &str = "/h/tehas/state/github/login";
 
     #[test]
-    fn obsolete_app_settings_warn_and_are_ignored() {
-        let mut host = Fake::with(&[
-            "TEHAS_GITHUB_APP_INSTALLATION=2",
-            "TEHAS_BOT_LOGIN=old[bot]",
-            "TEHAS_MILLWRIGHT_LOGIN=mw[bot]",
-        ])
-        .file(LOGIN, "new[bot]\n");
+    fn every_setting_row_of_the_renames_file_is_refused() {
+        for row in renamed::rows() {
+            let line = format!("{}=x", row.old);
+            let got = refused(&[&line]);
+            assert_eq!(got, format!("{} (see {FILE})", row.why()));
+            assert!(got.starts_with(&format!("{} is no longer read: ", row.old)));
+            if !row.new.is_empty() {
+                assert!(got.contains(&format!(" renamed it {} (", row.new)), "{got}");
+            }
+            // The credential file is read too, and named.
+            let mut host = Fake::with(&[]).file("/h/.config/tehas/env", &format!("{line}\n"));
+            assert_eq!(
+                run(&mut host).1.unwrap_err(),
+                format!("{} (see /h/.config/tehas/env)", row.why())
+            );
+        }
+    }
+
+    #[test]
+    fn a_removed_line_that_asks_for_what_this_version_does_loads() {
+        for line in [
+            "TEHAS_IMPROVE_REPO=",
+            "TEHAS_IMPROVE_RUKAS_REPO=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=0",
+            "TEHAS_IMPROVE_MAX_OPEN=",
+            "TEHAS_CYCLE_REPORT=",
+            "TEHAS_EASY_MERGE=",
+            "TEHAS_EASY_MERGE=0",
+        ] {
+            let vars = loads(&[line]);
+            assert!(!vars.is_set(line.split('=').next().unwrap()), "{line}");
+        }
+        assert!(
+            refused(&["TEHAS_EASY_MERGE=1"]).starts_with("TEHAS_EASY_MERGE is no longer read: ")
+        );
+        assert!(refused(&["TEHAS_BOT_LOGIN="]).starts_with("TEHAS_BOT_LOGIN is no longer read: "));
+    }
+
+    #[test]
+    fn a_renamed_setting_is_in_no_list_of_names_this_version_reads() {
+        for row in renamed::rows() {
+            assert!(
+                !TABLE.iter().any(|s| s.name == row.old),
+                "{} is in TABLE",
+                row.old
+            );
+            assert!(!KEPT.contains(&row.old), "{} is in KEPT", row.old);
+            assert!(!RETIRED.contains(&row.old), "{} is in RETIRED", row.old);
+            if !row.new.is_empty() {
+                let read = TABLE.iter().any(|s| s.name == row.new) || KEPT.contains(&row.new);
+                assert!(
+                    read,
+                    "{} renames to {}, which nothing reads",
+                    row.old, row.new
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_app_names_the_bot_and_the_millwright() {
+        let mut host = Fake::with(&[]).file(LOGIN, "new[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
-        assert_eq!(host.warned.len(), 3, "{:?}", host.warned);
-        for (line, name) in host.warned.iter().zip(OBSOLETE) {
-            assert!(line.contains(name), "{line}");
-            assert!(line.contains("is no longer used"), "{line}");
-        }
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
         assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
         assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "new[bot]");
     }
@@ -1811,19 +1833,6 @@ mod tests {
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
-        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
-    }
-
-    #[test]
-    fn the_old_millwright_line_does_not_name_a_second_app() {
-        let mut host = Fake::with(&[
-            "TEHAS_MILLWRIGHT_LOGIN=old-mill[bot]",
-            "TEHAS_MILLWRIGHT_APP=acme-mill[bot]",
-        ])
-        .file(LOGIN, "acme-app[bot]\n");
-        let (vars, got) = run(&mut host);
-        assert_eq!(got, Ok(()));
-        assert_eq!(host.warned.len(), 1, "{:?}", host.warned);
         assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
     }
 

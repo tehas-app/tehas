@@ -29,6 +29,23 @@ stops with 78 and names the setting. `--to` on a host that updates from its
 checkout is refused with 64. Any other word is refused with 78 and
 `TEHAS_UPDATE_FROM is not valid: expected git or release`.
 
+### Settings tehas 1.0 renamed or removed
+
+`api/renames-1.0.tsv` lists every public name tehas 1.0 renamed or removed. A
+row of kind `setting` still set in `instance.env` or in `~/.config/tehas/env`
+stops every command of the new version with 78, and the line names the new
+key or why the old one went. tehas does not edit the lines: the instance
+directory is a checkout of a settings repository.
+
+Before an update installs anything, install.sh asks the new version's console
+to judge the instance. When the instance still sets such a row, that check
+lists every one of them, one line each with the new key or the reason, and
+nothing is installed: `tehas update` and `tehas update --check` exit 78 and
+the host stays as it was, drained if it was drained. Edit the lines, then run
+the update again. From a release, `--check` reads the release's own console;
+from the checkout, `--check` reads the console an earlier build left, so a
+real run, which builds first, is what names the rows there.
+
 ### From a release
 
 Releases are read from `TEHAS_RELEASE_REPO`, owner/name on GitHub. The

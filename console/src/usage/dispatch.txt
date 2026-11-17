@@ -177,7 +177,8 @@ Rules, in order:
      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
      ticks a retry box on it, starts nothing, and the label stays where it
      is. The poll says so once, as it says a label of an account that is not
-     allowed. The one exception is TEHAS_MILLWRIGHT_LOGIN, which is never the bot:
+     allowed. The one exception is the millwright, the app's login or the app
+     TEHAS_MILLWRIGHT_APP names:
      its tehas:ready starts a cycle on an issue an allowed account approved
      before, whose body is still the body that account approved, at most
      TEHAS_MILLWRIGHT_MAX_RETRIES times since. Otherwise the poll
@@ -241,7 +242,8 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
                             record [0]
-  TEHAS_MILLWRIGHT_LOGIN         the millwright's account, none when unset
+  TEHAS_MILLWRIGHT_APP           a second app that is the millwright [the
+                            factory's own app]
   TEHAS_MILLWRIGHT_MAX_RETRIES   the millwright's starts on one issue since a person's
                             approval [2]
   TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
