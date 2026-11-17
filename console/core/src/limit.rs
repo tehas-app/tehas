@@ -1,6 +1,6 @@
 //! The reading of an instance's `state/limit.json`, the limit `tehas limit`
 //! sets. Every reader of the file asks here, so the console, the dispatcher and
-//! the health page give the same answer for the same bytes. `flags.rs` in the
+//! the health page give the same answer for the same bytes. `holds.rs` in the
 //! console says what the file holds and the words a reading prints.
 //!
 //! `state` is `none` when no file is there, `ok`, `expired` once `until` has

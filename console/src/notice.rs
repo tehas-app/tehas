@@ -24,7 +24,6 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 const MARKER: &str = "<!-- tehas-preview -->";
 const MARKER_END: &str = "<!-- /tehas-preview -->";
@@ -212,15 +211,12 @@ impl Tell<'_> {
     }
 
     fn gh(&self, args: &[&str]) -> Result<String, String> {
-        let out = Command::new("gh")
-            .args(args)
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| e.to_string())?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        let out = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
+        if out.ok() {
+            Ok(out.out)
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).into_owned())
+            Err(out.err)
         }
     }
 
