@@ -43,6 +43,8 @@ pub struct Host {
     pub bot: String,
     /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
+    /// The outsource feature is on: the start comment says who builds it.
+    pub outsource: bool,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.
     pub start_cmd: Option<String>,
@@ -766,7 +768,9 @@ impl Writer {
                 let names: Vec<String> = left_out.iter().map(|l| format!("`{l}`")).collect();
                 format!(" The comments of {} are left out: their permission on the repository could not be read.", names.join(", "))
             };
-            self.say(n, &format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}"), log);
+            let said = format!("Tehas cycle started on `{host}` at {when} UTC (authorized by {whose} {how}). This issue is owned by the cycle until `tehas:running` is removed.{left}");
+            let said = self.stamped(n, recorded, said, log);
+            self.say(n, &said, log);
         }
         let why = match self.unit_start(n, before, log) {
             Ok(()) => {
@@ -799,6 +803,31 @@ impl Writer {
         }
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
         Then::Failed
+    }
+
+    /// The start comment with the line of who builds the cycle, where
+    /// outsource is on: the contractor of the issue's job given out since the
+    /// approval at `since`, or in-house. Placement gives the job out before
+    /// this comment, so the comment names the hand that holds it. A store
+    /// that cannot say leaves the comment as it was rather than guess.
+    fn stamped(&mut self, n: u64, since: i64, said: String, log: &mut Vec<String>) -> String {
+        if !self.host.outsource {
+            return said;
+        }
+        let (issue, since) = (n.to_string(), since.to_string());
+        match self.store_try(3, &["job-stamp", "--issue", &issue, "--since", &since]) {
+            Ok(v) => format!(
+                "{said}\n\n{}",
+                tehas_core::stamp::Built::of_answer(&v).line()
+            ),
+            Err(f) => {
+                log.push(format!(
+                    "WARN: #{n}: the store did not say who builds it ({}): its start comment carries no stamp",
+                    word(&f)
+                ));
+                said
+            }
+        }
     }
 
     /// approved_record: the approval on record with its inputs. Its time,
