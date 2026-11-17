@@ -114,6 +114,7 @@ impl Proxy {
             records: &self.factory,
             sink: &kept,
             idle,
+            channel: None,
         };
         tehas_proxy::serve::one(client, &serve)
     }
@@ -151,6 +152,7 @@ impl Proxy {
                     records: &proxy.factory,
                     sink: &kept,
                     idle,
+                    channel: None,
                 };
                 tehas_proxy::serve::one(&mut client, &serve)
             })

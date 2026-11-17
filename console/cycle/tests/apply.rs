@@ -24,6 +24,7 @@ case $1 in
   cycle-show) echo '{"api":1,"verb":"cycle-show","ok":true,"cycle":null}' ;;
   approval-current) echo '{"api":1,"verb":"approval-current","ok":true,"current":null}' ;;
   history-show) echo '{"api":1,"verb":"history-show","ok":true,"rows":[]}' ;;
+  job-stamp) cat "$d/../job.json" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   *) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
 esac
 "#;
@@ -44,6 +45,7 @@ case "$1 $2" in
   "pr list") cat "$d/../prs.json" 2>/dev/null || echo '[]' ;;
   "api repos/a/b/issues/7/comments?per_page=100") cat "$d/../comments.json" 2>/dev/null || exit 1 ;;
   "api repos/a/b/issues/7/comments") echo 4002 ;;
+  "api repos/a/b/pulls/9") cat "$d/../pull.json" 2>/dev/null || exit 1 ;;
   "api repos/a/b/issues/7") cat "$d/../issue.json" 2>/dev/null || echo '{"number":7,"body":"Words."}' ;;
 esac
 "#;
@@ -779,4 +781,305 @@ done
         serde_json::from_str(&fs::read_to_string(h.dir.join("facts.json")).unwrap()).unwrap();
     assert_eq!(facts["line"]["step"].as_str(), Some(step.as_str()));
     assert!(h.dir.join("state/dispatch.again").exists());
+}
+
+/// A merged cycle of issue 7 whose pull request #9 GitHub holds, on the
+/// branch `feature/issue-7-x` of `a/b`.
+fn merged_with_pull(h: &Host, body: &str) {
+    pull_in_state(h, body, "closed");
+}
+
+/// The same, with GitHub's pull request in `state`.
+fn pull_in_state(h: &Host, body: &str, state: &str) {
+    h.result("merged", "done", "feature/issue-7-x", "");
+    let prs: Value = json!([{"url": "https://github.com/a/b/pull/9", "state": "MERGED",
+        "body": "Fixes #7", "headRefName": "feature/issue-7-x", "createdAt": CREATED}]);
+    fs::write(h.dir.join("prs.json"), prs.to_string()).unwrap();
+    let pull = json!({"number": 9, "body": body, "state": state,
+        "head": {"ref": "feature/issue-7-x", "repo": {"full_name": "a/b"}},
+        "base": {"ref": "main"}});
+    fs::write(h.dir.join("pull.json"), pull.to_string()).unwrap();
+}
+
+/// The report with outsource on, as a test build turns a building feature on.
+fn outsourced(h: &Host, runner: &str) -> Command {
+    exe(
+        &h.dir.join("libexec/analytics"),
+        "#!/bin/sh\nd=$(dirname \"$0\")\nwhile [ $# -gt 0 ]; do [ \"$1\" = --facts ] && cat \"$2\" >>\"$d/../facts.log\"; shift; done\nexit 0\n",
+    );
+    let mut c = h.report_cmd(0, false, &["--status-cmd", "true", "--runner", runner]);
+    c.env("TEHAS_TEST_FEATURES", "outsource")
+        .env("TEHAS_OUTSOURCE", "on")
+        .env("TEHAS_ANALYTICS", "on");
+    c
+}
+
+#[test]
+fn with_outsource_off_nothing_is_stamped_and_a_job_runner_is_refused() {
+    let h = Host::new("stamp-off");
+    merged_with_pull(&h, "Fixes #7");
+    let o = h.report(0, false);
+    assert!(o.status.success(), "{}", out(&o));
+    let calls = h.calls().join("\n");
+    assert!(!calls.contains("Built by"), "{calls}");
+    assert!(!calls.contains("repos/a/b/pulls/9"), "{calls}");
+    assert!(!calls.contains("job-stamp"), "{calls}");
+    let o = h
+        .report_cmd(0, false, &["--status-cmd", "true", "--runner", "job"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(78), "{}", out(&o));
+}
+
+#[test]
+fn an_in_house_cycle_says_so_on_its_comment_and_its_pull_request() {
+    let h = Host::new("stamp-in-house");
+    merged_with_pull(&h, "Fixes #7");
+    let o = outsourced(&h, "work").output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    let calls = h.calls().join("\n");
+    assert!(
+        calls.contains("\n\nBuilt by: in-house"),
+        "{calls}\n{}",
+        out(&o)
+    );
+    assert_eq!(h.count("store job-stamp"), 0);
+    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
+    assert!(
+        h.calls()[edit].contains(r#"{"body":"Fixes #7\n\nBuilt by: in-house"}"#),
+        "{}",
+        h.calls()[edit]
+    );
+    assert!(edit < h.at("store cycle-end"));
+    let facts = fs::read_to_string(h.dir.join("facts.log")).unwrap();
+    assert!(!facts.contains("contractor"), "{facts}");
+}
+
+#[test]
+fn a_pull_request_that_carries_the_stamp_is_not_written_again() {
+    let h = Host::new("stamp-there");
+    merged_with_pull(&h, "Fixes #7\n\nBuilt by: in-house");
+    let o = outsourced(&h, "work").output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    assert_eq!(h.count("gh api repos/a/b/pulls/9"), 1);
+    assert_eq!(h.count("gh api -X PATCH repos/a/b/issues/9"), 0);
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Ada")
+        .env("GIT_AUTHOR_EMAIL", "ada@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Ada")
+        .env("GIT_COMMITTER_EMAIL", "ada@example.invalid")
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{args:?}: {o:?}");
+    String::from_utf8(o.stdout).unwrap()
+}
+
+/// The repository a contractor's pull request's branch is on, reached at
+/// GitHub's address: `main`, and the branch with `commits` over it. The note
+/// of the heads as the cycle started holds what the branch held after the
+/// first `before` of them.
+fn contractors_branch(h: &Host, commits: &[&str], before: usize) -> std::path::PathBuf {
+    fs::write(
+        h.dir.join("job.json"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"issue":7,"contractor":"box-1","attempt":1,"state":"finished"}"#,
+    )
+    .unwrap();
+    let remote = h.dir.join("remote.git");
+    let work = h.dir.join("clone");
+    fs::create_dir_all(&work).unwrap();
+    git(
+        &h.dir,
+        &["init", "--quiet", "--bare", remote.to_str().unwrap()],
+    );
+    git(&work, &["init", "--quiet", "-b", "main"]);
+    fs::write(work.join("a"), "1").unwrap();
+    git(&work, &["add", "a"]);
+    git(&work, &["commit", "--quiet", "-m", "Base"]);
+    git(&work, &["checkout", "--quiet", "-b", "feature/issue-7-x"]);
+    let r = remote.to_str().unwrap();
+    git(&work, &["push", "--quiet", r, "main"]);
+    for (i, message) in commits.iter().enumerate() {
+        if i == before {
+            let heads = git(&h.dir, &["ls-remote", "--heads", r]);
+            fs::write(h.dir.join("state/cycles/7.heads"), heads).unwrap();
+        }
+        fs::write(work.join("a"), format!("{}", i + 2)).unwrap();
+        git(&work, &["commit", "--quiet", "-am", message]);
+        git(&work, &["push", "--quiet", r, "feature/issue-7-x"]);
+    }
+    remote
+}
+
+fn at_github(mut c: Command, remote: &Path) -> Command {
+    c.env("GIT_CONFIG_COUNT", "1")
+        .env(
+            "GIT_CONFIG_KEY_0",
+            format!("url.{}.insteadOf", remote.display()),
+        )
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/a/b.git");
+    c
+}
+
+#[test]
+fn a_contractors_cycle_names_it_and_its_job_and_its_commits_carry_its_trailer() {
+    let h = Host::new("stamp-contractor");
+    pull_in_state(&h, "Fixes #7", "open");
+    // A new branch: its commit names another contractor.
+    let remote = contractors_branch(&h, &["Change\n\nBuilt-by: other"], 0);
+    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    let stamp = h.at("store job-stamp --issue 7 --since 900");
+    assert!(stamp < h.at("gh issue comment 7"));
+    let calls = h.calls().join("\n");
+    assert!(
+        calls.contains("\n\nBuilt by contractor: box-1 (job 4)"),
+        "{calls}"
+    );
+    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
+    assert!(
+        h.calls()[edit].contains(r#"{"body":"Fixes #7\n\nBuilt by contractor: box-1 (job 4)"}"#),
+        "{}",
+        h.calls()[edit]
+    );
+    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x"]);
+    assert_eq!(message.trim_end(), "Change\n\nBuilt-by: box-1");
+    let said = out(&o);
+    assert!(
+        said.contains("1 commit(s) of feature/issue-7-x did not name box-1"),
+        "{said}"
+    );
+    assert!(!h.dir.join("state/outsource/stamp/7").exists());
+    assert!(!h.dir.join("state/cycles/7.heads").exists());
+    let facts = fs::read_to_string(h.dir.join("facts.log")).unwrap();
+    assert!(facts.contains(r#""contractor":"box-1""#), "{facts}");
+}
+
+#[test]
+fn the_commits_on_a_contractors_branch_before_its_cycle_keep_their_message_and_id() {
+    let h = Host::new("stamp-earlier");
+    pull_in_state(&h, "Fixes #7", "open");
+    // An in-house cycle pushed the first commit; the contractor's cycle the
+    // second.
+    let remote = contractors_branch(&h, &["In-house\n\nIt changes a.", "Contractor"], 1);
+    let earlier = git(&remote, &["rev-parse", "feature/issue-7-x^"]);
+    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x^"]), earlier);
+    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x^"]);
+    assert_eq!(message.trim_end(), "In-house\n\nIt changes a.");
+    let message = git(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x"]);
+    assert_eq!(message.trim_end(), "Contractor\n\nBuilt-by: box-1");
+    assert!(out(&o).contains("1 commit(s) of feature/issue-7-x did not name box-1"));
+}
+
+#[test]
+fn with_no_note_of_the_heads_or_read_only_a_contractors_branch_is_left_alone() {
+    let h = Host::new("stamp-no-heads");
+    pull_in_state(&h, "Fixes #7", "open");
+    let remote = contractors_branch(&h, &["Change"], 0);
+    fs::remove_file(h.dir.join("state/cycles/7.heads")).unwrap();
+    let head = git(&remote, &["rev-parse", "feature/issue-7-x"]);
+    let o = at_github(outsourced(&h, "job"), &remote).output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(
+        out(&o).contains("WARN: the Built-by: trailers of feature/issue-7-x were not checked: the branch heads as the cycle started were not noted"),
+        "{}",
+        out(&o)
+    );
+    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x"]), head);
+
+    let h = Host::new("stamp-read-only");
+    pull_in_state(&h, "Fixes #7", "open");
+    let remote = contractors_branch(&h, &["Change"], 0);
+    let head = git(&remote, &["rev-parse", "feature/issue-7-x"]);
+    let o = at_github(outsourced(&h, "job"), &remote)
+        .env("TEHAS_READ_ONLY", "1")
+        .output()
+        .unwrap();
+    assert!(
+        out(&o).contains("read-only: would push the Built-by: rewrite of feature/issue-7-x"),
+        "{}",
+        out(&o)
+    );
+    assert_eq!(git(&remote, &["rev-parse", "feature/issue-7-x"]), head);
+    assert!(!h.dir.join("state/outsource/stamp").exists());
+}
+
+#[test]
+fn a_contractors_cycle_with_no_job_or_no_approval_time_carries_no_stamp() {
+    let h = Host::new("stamp-no-job");
+    merged_with_pull(&h, "Fixes #7");
+    let o = outsourced(&h, "job").output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(
+        out(&o).contains(
+            "WARN: #7: the store did not say which job built it (its answer names no job)"
+        ),
+        "{}",
+        out(&o)
+    );
+    let calls = h.calls().join("\n");
+    assert!(!calls.contains("Built by"), "{calls}");
+
+    let h = Host::new("stamp-no-approval");
+    merged_with_pull(&h, "Fixes #7");
+    fs::write(
+        h.dir.join("job.json"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    let o = outsourced(&h, "job")
+        .args(["--approval-at", ""])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    assert!(
+        out(&o).contains("the cycle's approval has no time"),
+        "{}",
+        out(&o)
+    );
+    assert_eq!(h.count("store job-stamp"), 0);
+    let calls = h.calls().join("\n");
+    assert!(!calls.contains("Built by"), "{calls}");
+}
+
+#[test]
+fn a_contractors_cycle_the_store_cannot_place_carries_no_stamp() {
+    let h = Host::new("stamp-unknown");
+    merged_with_pull(&h, "Fixes #7");
+    fs::write(h.dir.join("store-fail"), "job-stamp").unwrap();
+    let o = outsourced(&h, "job").output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    let said = out(&o);
+    assert!(
+        said.contains("WARN: #7: the store did not say which job built it"),
+        "{said}"
+    );
+    let calls = h.calls().join("\n");
+    assert!(!calls.contains("Built by"), "{calls}");
+}
+
+#[test]
+fn a_merged_contractors_pull_request_is_footed_and_its_branch_left_alone() {
+    let h = Host::new("stamp-merged");
+    merged_with_pull(&h, "Fixes #7");
+    fs::write(
+        h.dir.join("job.json"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    let o = outsourced(&h, "job").output().unwrap();
+    assert!(o.status.success(), "{}", out(&o));
+    let said = out(&o);
+    assert!(!said.contains("Built-by"), "{said}");
+    assert!(!h.dir.join("state/outsource/stamp").exists());
+    let edit = h.at("gh api -X PATCH repos/a/b/issues/9 --input -");
+    assert!(h.calls()[edit].contains("Built by contractor: box-1 (job 4)"));
 }

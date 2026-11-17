@@ -93,9 +93,22 @@ platform  v0.10.0-alpha.1, newest v0.9.0, the prerelease is newer, fetched 20 mi
 A host on a prerelease (an alpha, a beta or a release candidate) keeps the
 newest release it last read, even though it is older than the prerelease.
 
+With [outsource](/outsource) on, each running cycle says where it is built,
+and an `outsource:` line counts the contractors:
+
+```
+cycle     #15 running, step develop, started 2 min ago, outsourced to box1
+cycle     #12 running, step review, started 40 min ago, in-house
+outsource: 1 idle, 1 working, 1 resting; 1 cycle(s) outsourced
+```
+
+Both come from `live/contractors.json`, which the factory writes only while
+outsource is on. Outsource is still being built in this release, so no
+factory prints them yet.
+
 It reads
-that one file and nothing else: no GitHub call, no instance settings, and it
-writes nothing. So it is as fresh as the dispatcher's last poll, and the first
+that one file, and `contractors.json` beside it when it is there, and nothing
+else: no GitHub call, no instance settings, and it writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
 
 A stopped dispatcher cannot report itself: its file just stops changing. A
@@ -107,7 +120,7 @@ the demand, the pause switches, the running cycles, what holds cycles back
 and the room under each cap. [The factory API](/api#tehas-status---json) has
 every field. Without a health file it prints nothing on standard output.
 
-Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
+Exit 0 on `pass` and `warn`. Exit 3 on `fail`, on a stale file, or when there
 is no health file yet. Exit 64 on any argument but `--json`.
 
 ## tehas api
@@ -187,7 +200,9 @@ and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/ops/src/disk.rs`);
 it reads the home, the scratch disk and the bound of the wait from the
 instance's own file, so `bin/tehas` loads nothing for it and hands the
-arguments straight over. See
+arguments straight over. The file is read, not run as shell: a `TEHAS_HOME` or
+`TEHAS_SCRATCH_DIR` that holds a `$` or a backtick outside single quotes is
+refused with 78 and a line that says so, rather than read as written. See
 [`tehas disk`](/api#tehas-disk) for every field of `--json`.
 
 Exit 0 when it printed, and with the file written; 1 when the published file
@@ -303,7 +318,7 @@ newest end of its runs in Unix seconds, both left out when it has none, and
 call. See [the factory API](/api#tehas-analytics-copy), and
 [Analytics](/analytics) for what the database holds.
 
-Exit 0; 64 on a bad argument; 69 when `TEHAS_ANALYTICS=off`, or the program is
-not installed, which reads and writes nothing; 70 when the database cannot be
-read; 73 when `<file>` exists or cannot be made; 78 when the settings are
-missing or malformed.
+Exit 0; 1 when the program is not installed, the database cannot be read, or
+`<file>` exists or cannot be made; 64 on a bad argument; 78 when the settings
+are missing or malformed, or `TEHAS_ANALYTICS=off`, which reads and writes
+nothing.

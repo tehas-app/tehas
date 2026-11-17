@@ -13,6 +13,7 @@ use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
 use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
+use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
 
@@ -141,12 +142,6 @@ pub const OWN_CAPS: [&str; 5] = [
     "runner-never-started",
     "signal",
 ];
-
-/// The label that chooses the lean driver.
-const LEAN: &str = "tehas:lean";
-
-/// The label that chooses the classic driver where `TEHAS_DRIVER=lean`.
-const CLASSIC: &str = "tehas:classic";
 
 /// What a label that could not be changed adds to a comment.
 pub const STUCK: &str =
@@ -1665,13 +1660,15 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                     .unwrap_or("The log names what the image lacks.");
                 // Under a lean default taking `tehas:lean` off changes nothing:
                 // `tehas:classic` is what runs classic.
-                let (how, step) = if f.lean_default {
+                let (how, step) = if f.driver_default == Driver::Lean {
+                    let classic = Driver::Classic.label();
                     (
-                        format!("apply `{CLASSIC}`"),
-                        format!("Apply `{CLASSIC}` to"),
+                        format!("apply `{classic}`"),
+                        format!("Apply `{classic}` to"),
                     )
                 } else {
-                    (format!("take `{LEAN}` off"), format!("Take `{LEAN}` off"))
+                    let lean = Driver::Lean.label();
+                    (format!("take `{lean}` off"), format!("Take `{lean}` off"))
                 };
                 parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, {how}, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
@@ -1921,8 +1918,9 @@ fn lean_start(f: &Facts) -> bool {
     };
     a.get("current")
         .filter(|c| c.get("used_by").and_then(Value::as_u64) == Some(f.attempt))
-        .and_then(|c| c.pointer("/input/driver"))
-        == Some(&json!("lean"))
+        .and_then(|c| c.get("input"))
+        .and_then(Driver::of_record)
+        == Some(Driver::Lean)
 }
 
 /// The caps of a handoff whose open pull request waits only for a merge.

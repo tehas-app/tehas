@@ -116,8 +116,8 @@ const POLL: Duration = Duration::from_millis(250);
 const SESSIONS: &str = ".git/pi-plan-sessions";
 const STOP_ON_SIGNAL: u32 = 10;
 const STOP_ON_LIMIT: u32 = 20;
-const NOTHING_STARTS: u8 = 78;
-const FAILED: u8 = 2;
+const NOTHING_STARTS: u8 = tehas_core::exit::SETTINGS;
+const FAILED: u8 = tehas_core::exit::plan::FAILED;
 
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");

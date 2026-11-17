@@ -1414,9 +1414,16 @@ t_eq "$t_out" "[]"
 
 t_case "the MCP server's settings come from the host's environment and are kept"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_MCP=1 TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second" TEHAS_MCP_DASHBOARD_KEYS="zyxwvutsrqponmlkjihgfedcba012345")
+T_ENV=(TEHAS_MCP=on TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second-key-of-32-characters-long" TEHAS_MCP_DASHBOARD_KEYS="zyxwvutsrqponmlkjihgfedcba012345")
 t_run "$load && echo \"\$TEHAS_MCP [\$TEHAS_MCP_KEYS] [\$TEHAS_MCP_DASHBOARD_KEYS]\""
-t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second] [zyxwvutsrqponmlkjihgfedcba012345]"
+t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second-key-of-32-characters-long] [zyxwvutsrqponmlkjihgfedcba012345]"
+
+t_case "an MCP key of the wrong shape stops the load, named by its place and never shown"
+T_ENV=(TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second")
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MCP_KEYS is not valid: key 2 is not at least 32 characters"
+t_lacks "$t_out" "second"
 T_ENV=()
 
 t_case "keys for the MCP server in the instance directory are refused"
@@ -1687,7 +1694,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "bc2efb33b8bc3e72c9ab5755b204ca1a73c4f35cac2bffb528113e15f529576c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "67954b003b5ea0501506a39774065877ddd67f26c39af8423acd0044cf8f0db9"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1785,7 +1792,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "2eb770098ee155522833c936c004e783a5269f12525b3defdfdd3cc7c27fe931"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "a66336f1cccf2a046ec7aded19c89968bb5f53b02a4beeb62bfd472e78c6ac0b"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

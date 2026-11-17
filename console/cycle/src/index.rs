@@ -300,7 +300,7 @@ fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
         warn(&format!(
             "a poll held the dispatcher's lock for {wait}s, nothing was indexed; run it again in a moment"
         ));
-        return Err(3);
+        return Err(tehas_core::exit::NO);
     }
     // What a running cycle looks like: its lock is held.
     let issues = lock::held_in(&home.join("state/cycles"));
@@ -309,7 +309,7 @@ fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
             "a cycle is running (issue {}), nothing was indexed; run it again afterwards",
             issues.join(" ")
         ));
-        return Err(3);
+        return Err(tehas_core::exit::NO);
     }
     Ok(())
 }
