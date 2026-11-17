@@ -1392,6 +1392,14 @@ An empty value means unset and is not checked against the rule, except for a
 `named` setting. An unset setting of `when` `required` is refused by the
 command that requires it.
 
+Every other `TEHAS_*` name tehas reads is internal and may change in any
+release: the names the environment hands the load (the home, the instance
+directory, the tests' commands), what the load derives, such as each size
+setting again in megabytes as `<name>_MB`, the waits of a `tehas update` run,
+the tests' hooks, and what one program hands the next. The list, with why for
+each, is `console/core/src/settings/unruled.rs`, and a test of the workspace
+holds every name the installed source reads to a rule or to that list.
+
 The file holds a rule's name and one reason, not the check itself: to check a
 value, run `libexec/console settings valid <name> <value>` from the tarball of
 the same release. It exits 0 for a value the setting takes, and 1 with the

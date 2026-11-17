@@ -125,6 +125,16 @@ const RETIRED: [&str; 15] = [
     "TEHAS_OVERLAP_HOLD",
 ];
 
+/// Whether the environment may give `name` (`KEPT`).
+pub(super) fn kept(name: &str) -> bool {
+    KEPT.contains(&name)
+}
+
+/// Whether `name` is one an earlier version read, refused now (`RETIRED`).
+pub(super) fn retired(name: &str) -> bool {
+    RETIRED.contains(&name)
+}
+
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
 /// that file would run in the shell that reads the settings.
 const SHELL_OWN: [&str; 5] = ["_", "PWD", "OLDPWD", "SHLVL", "BASH_ENV"];
@@ -2023,12 +2033,9 @@ mod tests {
 
     /// Settings the example instance names whose rule lives with the program
     /// that reads them, not in the table.
-    const RULED_ELSEWHERE: [&str; 6] = [
-        // Defaults of this load: the sandbox image, the product's clone and
-        // the cycle's host names.
+    const RULED_ELSEWHERE: [&str; 4] = [
+        // A default of this load: the sandbox image.
         "PI_ENSEMBLE_IMAGE",
-        "TEHAS_WORK_REPO",
-        "PI_ENSEMBLE_HOST_ALIASES",
         // pi-rukas reads it in the container.
         "PI_ENSEMBLE_REVIEW_THRESHOLD",
         // A pin of versions.env, read by core/src/rukas.rs.

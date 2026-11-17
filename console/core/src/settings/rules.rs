@@ -128,6 +128,8 @@ pub enum Rule {
     ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
+    /// An absolute path of letters, digits and `._-`, with no `..`.
+    Path,
     /// `name:address` pairs the sandbox resolves, read by
     /// [`crate::sandbox::hosts`]: they become `docker run` arguments.
     HostAliases,
@@ -171,6 +173,7 @@ impl Rule {
             Rule::EgressHosts => "egress-hosts",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
+            Rule::Path => "path",
             Rule::HostAliases => "host-aliases",
         }
     }
@@ -213,6 +216,7 @@ impl Rule {
             Rule::EgressHosts => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
+            Rule::Path => "repos/app",
             Rule::HostAliases => "models:192.0.2.8 extra",
         }
     }
@@ -352,6 +356,7 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_RELEASE_REPO", Rule::Repo),
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
+    given("TEHAS_WORK_REPO", Rule::Path),
     given_or("TEHAS_SITE_ANALYTICS_SRC", Rule::ScriptAddress, ""),
     given_or("TEHAS_SITE_ANALYTICS_NAME", Rule::SiteName, ""),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
@@ -498,12 +503,8 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         ),
         Rule::PollBudget => poll_budget(v),
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
-        Rule::ScratchDir => refuse(
-            v.strip_prefix('/')
-                .is_some_and(|rest| rest.split('/').all(|p| all(p, class("._-"))))
-                && !v.contains(".."),
-            "expected an absolute path such as /mnt/scratch",
-        ),
+        Rule::ScratchDir => refuse(is_path(v), "expected an absolute path such as /mnt/scratch"),
+        Rule::Path => refuse(is_path(v), "expected an absolute path"),
         Rule::CleanDirs => clean_dirs(v),
         Rule::Follow => follow(v),
         Rule::BranchCheck => refuse(
@@ -559,6 +560,11 @@ const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
     digits(s) && !s.starts_with('0') && s.len() <= max
+}
+fn is_path(v: &str) -> bool {
+    v.strip_prefix('/')
+        .is_some_and(|rest| rest.split('/').all(|p| all(p, class("._-"))))
+        && !v.contains("..")
 }
 /// The space class of a POSIX pattern, in ASCII.
 fn is_space(b: u8) -> bool {
@@ -1321,6 +1327,14 @@ mod tests {
     #[test]
     fn a_name_with_no_rule_takes_anything() {
         takes("TEHAS_NO_SUCH_SETTING", "any thing");
+    }
+
+    #[test]
+    fn the_checkout_is_an_absolute_path() {
+        takes("TEHAS_WORK_REPO", "/home/tehas/tehas/repos/app");
+        for bad in ["repos/app", "/a/../b", "/a b", "/a//b", ""] {
+            refuses("TEHAS_WORK_REPO", bad, "expected an absolute path");
+        }
     }
 
     #[test]

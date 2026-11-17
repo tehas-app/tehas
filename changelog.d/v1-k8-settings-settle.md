@@ -18,6 +18,9 @@
   that a shell would expand (a `$` or a backtick outside single quotes), with a
   line that names the key and not its value. Before, they took it as written
   while the shell that sources the same file expanded it.
+- `TEHAS_WORK_REPO` is a ruled setting: an absolute path, else the load stops
+  with exit 78. Every other `TEHAS_*` name tehas reads is internal and listed
+  with why, and a test holds new names to a rule or to that list.
 
 ### Adopter action
 
