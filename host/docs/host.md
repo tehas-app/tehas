@@ -2005,6 +2005,9 @@ A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
 out, when a page names a colour or a typeface of its own, and when a page names
 a theme other than the instance's design.
 
+How the pages themselves are built, what they may use, how their parts are
+named and how big they may grow is on [The front end](/frontend).
+
 ## Secrets and trust
 
 - `~/.config/tehas/github-app.pem`: the key of the factory's
