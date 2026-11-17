@@ -216,6 +216,22 @@ fn the_same_link_of_the_same_approval_must_keep_its_bytes() {
 }
 
 #[test]
+fn each_file_of_an_archive_must_keep_its_bytes() {
+    let approval = json!({"at": "1", "by": "a", "how": "label"});
+    let m = |a: &str, b: &str| {
+        json!({"files": [
+            {"link": LINK, "path": "a.md", "sha256": a},
+            {"link": LINK, "path": "b.md", "sha256": b},
+        ], "approval": approval})
+        .to_string()
+    };
+    assert_eq!(changed(&m("a", "b"), &m("a", "b")), None);
+    // The first file swapped, the last the same.
+    assert_eq!(changed(&m("a", "b"), &m("x", "b")).as_deref(), Some(LINK));
+    assert_eq!(changed(&m("a", "b"), &m("a", "x")).as_deref(), Some(LINK));
+}
+
+#[test]
 fn said_names_what_was_given_and_what_was_left_out() {
     let m = json!({"images": [{"link": "L", "file": "image-1.png", "sha256": "S", "source": "comment:3"}],
         "files": [], "leftOut": [{"link": "M", "reason": "Too big.", "source": "body"}], "leftOutMore": 2});

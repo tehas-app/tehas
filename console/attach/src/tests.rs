@@ -738,3 +738,42 @@ fn an_entry_that_inflates_past_its_size_stops_there() {
         .is_err());
     assert!(inflated <= 64 * 1024, "inflated {inflated}");
 }
+
+#[test]
+fn an_entry_that_claims_more_than_the_room_is_refused_before_a_byte() {
+    let mut big = e("big.txt", "");
+    big.data = vec![0u8; 2 * MB as usize];
+    big.deflate = true;
+    let zip = zip_of(&[big, e("small.txt", "s")]);
+    let archive = Archive::open(&zip).unwrap();
+    let mut sink = Vec::new();
+    let mut inflated = 0;
+    assert!(matches!(
+        archive.read(&archive.entries[0], MB, &mut sink, &mut inflated),
+        Err(crate::zip::ReadError::Over)
+    ));
+    assert!(sink.is_empty());
+    assert_eq!(inflated, 0);
+
+    let s = TestDir::new("attach");
+    let out = unpack(&archive, &s, MB, 16).unwrap();
+    assert_eq!(
+        skips(&out),
+        [
+            (
+                "big.txt".to_string(),
+                "Over the 10 MB limit of a ticket.".to_string()
+            ),
+            (
+                "small.txt".to_string(),
+                "Over the 10 MB limit of a ticket.".to_string()
+            ),
+        ]
+    );
+    assert!(files_under(&s).is_empty());
+
+    // Within the room it is unpacked whole.
+    let s2 = TestDir::new("attach");
+    let out = unpack(&archive, &s2, 2 * MB + 1, 16).unwrap();
+    assert_eq!(names(&out), ["big.txt", "small.txt"]);
+}
