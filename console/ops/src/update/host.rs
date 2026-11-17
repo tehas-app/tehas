@@ -176,7 +176,7 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
             .next_back()
             .map(str::to_string)
     });
-    if energy.is_some_and(|e| !e.is_empty() && switch(&e) != Some(false)) {
+    if energy.is_some_and(|e| switch(&e) == Some(true)) {
         units.push("tehas-energy.service");
     }
     units
@@ -372,6 +372,8 @@ mod tests {
         assert_eq!(units(&[("TEHAS_ENERGY", "off")], None), base);
         assert_eq!(units(&[("TEHAS_ENERGY", "0")], None), base);
         assert_eq!(units(&[("TEHAS_ENERGY", "1")], None), energy);
+        // A word that is not a switch is one the load refuses: no unit.
+        assert_eq!(units(&[("TEHAS_ENERGY", "mesh")], None), base);
         assert_eq!(
             units(
                 &[],
