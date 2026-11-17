@@ -22,7 +22,7 @@
 //! the host runs nothing in it. The host runs git only in a tree no container
 //! has touched.
 
-use crate::start::{self, is_record, record_value, Driver};
+use crate::start::{self, is_record, record_value};
 use crate::{caps, conflict, host, ran_with};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::driver::Driver;
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};

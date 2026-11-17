@@ -8,6 +8,7 @@ use crate::slice::{self, gib};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::driver::Driver;
 use tehas_core::events::{
     changed_after, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
     sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
@@ -49,22 +50,11 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 }
 
 /// The label that chooses the lean driver for one issue.
-pub(crate) const LEAN: &str = "tehas:lean";
+pub(crate) const LEAN: &str = Driver::Lean.label();
 
 /// The label that chooses the classic driver for one issue, where
 /// `TEHAS_DRIVER=lean` makes lean the default.
-pub(crate) const CLASSIC: &str = "tehas:classic";
-
-/// The label that chooses against the instance's default driver: the one
-/// whose applier `Poll::driver` asks about. The other agrees with the default
-/// and chooses nothing.
-pub(crate) fn opt_out(lean_default: bool) -> &'static str {
-    if lean_default {
-        CLASSIC
-    } else {
-        LEAN
-    }
-}
+pub(crate) const CLASSIC: &str = Driver::Classic.label();
 
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
@@ -80,9 +70,8 @@ pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 pub(crate) const HOST: &str = "host";
 
 /// The driver a start runs, as `Poll::driver` reads it.
-enum Driver {
-    Classic,
-    Lean,
+enum Choice {
+    Run(Driver),
     /// An account outside the list made the choice, or the issue carries both
     /// driver labels: nothing starts, the default driver included.
     Stranger(Stranger),
@@ -90,13 +79,13 @@ enum Driver {
     Wait,
 }
 
-impl Driver {
+impl Choice {
     /// The action of a classic start names no driver. A lean start takes
     /// `needs-human-attention` off with its other labels: classic's
     /// `--restart` clears it in the cycle, and work-lean has no restart.
     fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
-        if matches!(self, Driver::Lean) {
-            extra.insert("driver".into(), json!("lean"));
+        if matches!(self, Choice::Run(Driver::Lean)) {
+            extra.insert("driver".into(), json!(Driver::Lean.word()));
             let attention = "needs-human-attention";
             if has(labels, attention) && !remove.iter().any(|l| l == attention) {
                 remove.push(attention.into());
@@ -117,7 +106,7 @@ enum Planned {
 }
 
 /// Who made the choice of driver that does not count: applied `label` (the
-/// instance's [`opt_out`]), or with `off` took an allowed account's off. With
+/// instance's [`Driver::opt_out`]), or with `off` took an allowed account's off. With
 /// `both`, the issue carries both driver labels and nobody's choice is read.
 struct Stranger {
     who: String,
@@ -141,9 +130,9 @@ impl Stranger {
     /// in its place.
     fn default_name(&self) -> &'static str {
         if self.label == CLASSIC {
-            "lean"
+            Driver::Lean.word()
         } else {
-            "classic"
+            Driver::Classic.word()
         }
     }
 
@@ -1487,19 +1476,15 @@ impl<'a> Poll<'a> {
     /// that record, so a label added since changes nothing until a person
     /// approves a new start. The label that agrees with the default chooses
     /// nothing, but with both on nothing starts: tehas does not guess.
-    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
+    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Choice> {
         if has(labels, LEAN) && has(labels, CLASSIC) {
-            return Ok(Driver::Stranger(Stranger::both()));
+            return Ok(Choice::Stranger(Stranger::both()));
         }
-        let lean_default = self.c.lean_default;
-        let label = opt_out(lean_default);
-        let (default, chosen) = if lean_default {
-            (Driver::Lean, Driver::Classic)
-        } else {
-            (Driver::Classic, Driver::Lean)
-        };
+        let default = self.c.driver_default;
+        let label = Driver::opt_out(default);
+        let (default, chosen) = (Choice::Run(default), Choice::Run(default.other()));
         let stranger = |who: String, off: bool| {
-            Driver::Stranger(Stranger {
+            Choice::Stranger(Stranger {
                 who,
                 off,
                 label,
@@ -1523,16 +1508,19 @@ impl<'a> Poll<'a> {
         match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
             None => {
                 self.need("approval");
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             Some(Err(())) => {
                 self.log(format!("wait #{n}: its approval could not be read"));
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             // No start on record to follow: this one is the first.
             Some(Ok(None)) => Ok(chosen),
-            Some(Ok(Some(r))) if r.get("driver") == Some(&json!("lean")) => Ok(Driver::Lean),
-            Some(Ok(Some(_))) => Ok(Driver::Classic),
+            // Only a record that names lean runs lean; any other runs classic.
+            Some(Ok(Some(r))) if Driver::of_record(&r) == Some(Driver::Lean) => {
+                Ok(Choice::Run(Driver::Lean))
+            }
+            Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
         }
     }
 
@@ -2964,12 +2952,12 @@ impl<'a> Poll<'a> {
                 continue;
             }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
-                Driver::Wait => continue,
-                Driver::Stranger(s) => {
+                Choice::Wait => continue,
+                Choice::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
-                Driver::Lean if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
+                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
                     continue;
                 }
                 d => d,
