@@ -212,26 +212,33 @@ fn own(p: &Paths, container: job::Owner, folders: &[&str]) -> i32 {
 }
 
 fn relay(p: &Paths) -> i32 {
+    let mut text = String::new();
+    let read = std::io::stdin()
+        .take(4 << 20)
+        .read_to_string(&mut text)
+        .is_ok();
+    let ask = serde_json::from_str::<Value>(&text).ok();
+    // A vipune call (kind vipune) is passed on as it is; a failure reads as
+    // vipune's, so the cycle goes on without memory.
+    let who = match ask.as_ref().map(|a| &a["kind"]) {
+        Some(k) if k == "vipune" => "vipune: the factory's memory",
+        _ => "gh-shim: the relay",
+    };
     let failed = |why: &str| {
         tehas_core::outln!(
             "{}",
-            json!({ "out": "", "err": format!("gh-shim: the relay {why}"), "rc": 1 })
+            json!({ "out": "", "err": format!("{who} {why}"), "rc": 1 })
         );
         0
     };
-    let Some((factory, job_token)) = host::job_of(p) else {
-        return failed("has no job running");
-    };
-    let mut text = String::new();
-    if std::io::stdin()
-        .take(4 << 20)
-        .read_to_string(&mut text)
-        .is_err()
-    {
+    if !read {
         return failed("could not read the request");
     }
-    let Ok(ask) = serde_json::from_str::<Value>(&text) else {
+    let Some(ask) = ask else {
         return failed("got no request");
+    };
+    let Some((factory, job_token)) = host::job_of(p) else {
+        return failed("has no job running");
     };
     let wait = Duration::from_secs(120);
     match http::post(&factory, "relay", As::Job(&job_token), &ask, wait) {

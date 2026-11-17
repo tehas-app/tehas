@@ -1,0 +1,64 @@
+#!/bin/sh
+# vipune in a cycle's container. With outsource on, a cycle's memory lives in
+# the factory (console/cycle/src/memory.rs): the host leaves the file vipune in
+# the cycle's relay directory, and each call goes there as a request of kind
+# vipune, in the format host/sandbox/gh-shim uses: req.<pid>/args (each
+# argument ended by a NUL), kind, env (VIPUNE_RECENCY_WEIGHT and
+# VIPUNE_PROJECT as NAME=VALUE, each ended by a NUL), ready made last. The
+# host answers in res.<pid> with out, err and rc, done made last; this prints
+# them and exits with rc. An answer with local in it says the host's memory is
+# off, and the image's own vipune runs.
+#
+# No relay directory, or no vipune file in it, and the image's own vipune runs
+# with the same arguments, as it did before this file was there. It lives at
+# /usr/local/lib/tehas/vipune; this takes its place in /usr/local/bin.
+#
+# TEHAS_VIPUNE_BIN names the real vipune, TEHAS_RELAY_DIR the relay directory
+# and TEHAS_VIPUNE_WAIT the seconds to wait [28]; all three are seams for
+# test/vipune_shim_test.sh, and the image sets none.
+#
+# Exit: vipune's own status, or the factory's for a relayed call (64 for a
+# call it refuses, as vipune answers a usage error); 1 when the factory did
+# not answer in time or the request could not be written.
+real=${TEHAS_VIPUNE_BIN:-/usr/local/lib/tehas/vipune}
+relay=${TEHAS_RELAY_DIR:-/run/tehas/relay}
+if [ ! -f "$relay/vipune" ]; then exec "$real" "$@"; fi
+
+req=$relay/req.$$ res=$relay/res.$$
+failed() {
+  rm -rf "$req"
+  echo "vipune: $1" >&2
+  exit 1
+}
+rm -rf "$req" "$res"
+mkdir "$req" || failed "the request could not be written"
+if [ "$#" -gt 0 ]; then
+  printf '%s\0' "$@" >"$req/args" || failed "the request could not be written"
+else
+  : >"$req/args" || failed "the request could not be written"
+fi
+echo vipune >"$req/kind" || failed "the request could not be written"
+{
+  if [ -n "${VIPUNE_RECENCY_WEIGHT+set}" ]; then printf 'VIPUNE_RECENCY_WEIGHT=%s\0' "$VIPUNE_RECENCY_WEIGHT"; fi
+  if [ -n "${VIPUNE_PROJECT+set}" ]; then printf 'VIPUNE_PROJECT=%s\0' "$VIPUNE_PROJECT"; fi
+} >"$req/env" || failed "the request could not be written"
+: >"$req/ready" || failed "the request could not be written"
+
+# pi-rukas gives a vipune call 30 s; the relay reads its directory every 0.5 s.
+tenths=$((${TEHAS_VIPUNE_WAIT:-28} * 10))
+n=0
+until [ -e "$res/done" ]; do
+  [ "$n" -lt "$tenths" ] || failed "the factory's memory did not answer"
+  sleep 0.1
+  n=$((n + 1))
+done
+if [ -e "$res/local" ]; then
+  rm -rf "$res"
+  exec "$real" "$@"
+fi
+cat "$res/out"
+cat "$res/err" >&2
+rc=$(cat "$res/rc")
+rm -rf "$res"
+case $rc in '' | *[!0-9]*) rc=1 ;; esac
+exit "$rc"
