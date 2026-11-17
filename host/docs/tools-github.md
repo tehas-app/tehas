@@ -115,6 +115,10 @@ Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
+Until then the kept token is used without asking GitHub: when the app loses
+`TEHAS_REPO`, or is installed again, commands fail with the old token for up
+to 50 minutes. Removing `~/tehas/state/github/token` and
+`~/tehas/state/github-cycle/token` makes the next command make a new one.
 The web token and the token go to curl on its standard input, never on its
 command line. Without `--check` it prints the token and nothing else. `--check`
 is [tehas github check](#tehas-github-check).
