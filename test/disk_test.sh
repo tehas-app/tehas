@@ -437,6 +437,14 @@ t_eq "$t_rc" 78
 t_eq "$(t_calls df)" ""
 t_contains "$t_out" "TEHAS_SCRATCH_DIR is not an absolute path"
 
+t_case "a scratch disk the shell would expand is 78 and says the file is read, not run"
+reset
+t_instance "${T_MINIMAL[@]}" 'TEHAS_SCRATCH_DIR=$HOME/scratch'
+t_run "$disk"
+t_eq "$t_rc" 78
+t_eq "$(t_calls df)" ""
+t_contains "$t_out" "TEHAS_SCRATCH_DIR holds a \$ or a backtick: the file is read, not run as shell"
+
 t_case "no instance to read the home from is 78 and says to set one up"
 reset
 # The name of the instance is given and the file it holds is not there: the

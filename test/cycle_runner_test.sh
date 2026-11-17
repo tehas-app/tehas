@@ -28,6 +28,13 @@ planted() {
 # Outsource is still being built: only a test build with the feature named in
 # TEHAS_TEST_FEATURES follows its switch.
 outsource="TEHAS_OUTSOURCE=on TEHAS_TEST_FEATURES=outsource"
+# The product's repository, which a job cycle notes the branch heads of before
+# the waiter runs, at GitHub's address.
+remote=$T/widget.git
+git init --quiet --bare "$remote"
+github() {
+  echo "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.$1.insteadOf GIT_CONFIG_VALUE_0=https://github.com/acme/widget.git"
+}
 
 t_case "a job runner with outsource off is 78 before the lock, the store, GitHub or the waiter"
 for off in "" "TEHAS_OUTSOURCE=off TEHAS_TEST_FEATURES=outsource" "TEHAS_OUTSOURCE=1" "TEHAS_OUTSOURCE=on"; do
@@ -53,18 +60,36 @@ reset
 planted
 ended running handoff feature/x
 merged_pr
+echo 'cp "$TEHAS_HOME/state/cycles/7.heads" "$TEHAS_HOME/heads-seen"' >>"$fx/work.sh"
 echo 'exit 2' >>"$fx/work.sh"
-t_run "$given $outsource $supervisor cycle 7 --runner job $words"
+t_run "$given $outsource $(github "$remote") $supervisor cycle 7 --runner job $words"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
+# The heads were noted before the waiter ran, and the end cleared the note.
+t_eq "$(find "$T/home/tehas/heads-seen" | wc -l)" 1
+t_eq "$(find "$state" -name '7.heads' | wc -l)" 0
 t_eq "$(t_calls docker)" ""
 t_eq "$(find "$workdir" "$workdir.images" -maxdepth 0 | wc -l)" 2
 t_eq "$(t_calls gh | grep '^issue edit')" "issue edit 7 --repo acme/widget --remove-label tehas:running"
 t_contains "$(t_calls gh)" "This cycle left no workspace on this host"
 t_lacks "$(t_calls gh)" "The workspace is kept"
-t_lacks "$t_out" "WARN"
+# No job is on record, nor an approval time: a contractor's cycle is not
+# stamped in-house.
+t_contains "$t_out" "WARN: #7: the store did not say which job built it"
+t_eq "$(grep WARN <<<"$t_out" | grep -vc 'which job built it')" 0
+t_lacks "$(t_calls gh)" "Built by"
 t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .step] | @csv')" '"merged","handoff"'
 t_eq "$(t_row cycle-show 7 -- '.cycle.ended_at != null')" true
+
+t_case "a job cycle whose branch heads cannot be read says so and runs"
+reset
+ended running handoff feature/x
+merged_pr
+echo 'exit 2' >>"$fx/work.sh"
+t_run "$given $outsource $(github "$T/nowhere.git") $supervisor cycle 7 --runner job $words"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" "7"
+t_contains "$t_out" "WARN: #7: the branch heads could not be noted"
 
 t_case "the same cycle from tehas work reads the image and clears the workspace, as before"
 reset

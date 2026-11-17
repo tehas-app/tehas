@@ -34,6 +34,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use tehas_core::exit;
 use tehas_core::sandbox::HELPER_KEY;
 use tehas_core::settings::{
     load::{self, Vars},
@@ -181,6 +182,16 @@ fn value_in(file: &Path, key: &str) -> String {
         return String::new();
     };
     tehas_core::env_file::value(&text, key).unwrap_or_default()
+}
+
+/// A value setup goes on to use, read as the shell that sources the file
+/// would leave it: one the shell would expand is refused, not taken as
+/// written.
+fn used_in(file: &Path, key: &str) -> Result<String, Fail> {
+    let text = fs::read_to_string(file).unwrap_or_default();
+    tehas_core::env_file::literal(&text, key)
+        .map(Option::unwrap_or_default)
+        .map_err(|why| Bad(format!("{why} (see {})", file.display())))
 }
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
@@ -645,25 +656,26 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     let models = dir.join("models.json");
 
     // What is asked for: the options, then the files, then the terminal.
-    let fill = |v: &mut String, key: &str| {
+    let fill = |v: &mut String, key: &str| -> Result<(), Fail> {
         if v.is_empty() {
-            *v = value_in(&inst, key);
+            *v = used_in(&inst, key)?;
         }
+        Ok(())
     };
-    fill(&mut g.repo, "TEHAS_REPO");
-    fill(&mut g.labelers, "TEHAS_ALLOWED_LABELERS");
-    fill(&mut g.control, "TEHAS_CONTROL_ISSUE");
-    fill(&mut g.provider, "PI_ENSEMBLE_SUBAGENT_PROVIDER");
+    fill(&mut g.repo, "TEHAS_REPO")?;
+    fill(&mut g.labelers, "TEHAS_ALLOWED_LABELERS")?;
+    fill(&mut g.control, "TEHAS_CONTROL_ISSUE")?;
+    fill(&mut g.provider, "PI_ENSEMBLE_SUBAGENT_PROVIDER")?;
     if g.provider.is_empty() {
         g.provider = "main".into();
     }
-    fill(&mut g.model, "PI_ENSEMBLE_SUBAGENT_MODEL");
+    fill(&mut g.model, "PI_ENSEMBLE_SUBAGENT_MODEL")?;
     if g.endpoint.is_empty() {
         if let Some(m) = read_json(&models) {
             g.endpoint = base_url(&m, &g.provider);
         }
     }
-    let kept_id = value_in(&inst, "TEHAS_GITHUB_APP_ID");
+    let kept_id = used_in(&inst, "TEHAS_GITHUB_APP_ID")?;
     let configured = !kept_id.is_empty() && app_key.exists();
     if g.key_file == "-" && g.new_app {
         return Err(Bad(
@@ -812,7 +824,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
 
     let key_name = key_name(&g.provider);
     let key = if g.key_file.is_empty() {
-        value_in(&env_file, &key_name)
+        used_in(&env_file, &key_name)?
     } else {
         read_secret(&g.key_file, "the model key")?
     };
@@ -1100,12 +1112,18 @@ fn status_of(done: io::Result<ExitStatus>) -> u8 {
     }
 }
 
+/// A step's settings stop setup with 78; any other failure of a step is a
+/// failed setup, whatever the step's own status means to that step.
 fn step(name: &str, command: &mut Command) -> Result<(), Fail> {
     match status_of(command.status()) {
         0 => Ok(()),
         rc => {
             say(&failed(name, rc));
-            Err(Stop(rc))
+            Err(Stop(if rc == exit::SETTINGS {
+                exit::SETTINGS
+            } else {
+                exit::FAILED
+            }))
         }
     }
 }
@@ -1591,14 +1609,20 @@ mod tests {
     }
 
     #[test]
-    fn a_step_that_fails_stops_with_its_status_and_says_it_twice() {
+    fn a_step_that_fails_stops_setup_and_says_its_status_twice() {
         assert_eq!(
             failed("install.sh", 78),
             "install.sh failed (exit 78); fix it and run tehas setup again 78"
         );
         let mut command = Command::new("sh");
         command.args(["-c", "exit 5"]);
-        assert!(matches!(step("x", &mut command), Err(Stop(5))));
+        assert!(matches!(step("x", &mut command), Err(Stop(1))));
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 3"]);
+        assert!(matches!(step("x", &mut command), Err(Stop(1))));
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 78"]);
+        assert!(matches!(step("x", &mut command), Err(Stop(78))));
         assert!(step("x", &mut Command::new("true")).is_ok());
     }
 

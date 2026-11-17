@@ -21,7 +21,7 @@ It takes no lock a cycle holds and makes no network call.
 
 export, the name before 1.0, is refused with 64 and names copy --to.
 
-Exit: 0 printed or written; 64 a bad argument; 69 analytics is off
-(TEHAS_ANALYTICS=off) or the program is not installed, which writes nothing;
-70 the database could not be read; 73 <file> exists or cannot be made; 78
-the instance settings are missing or malformed.
+Exit: 0 printed or written; 1 the program is not installed, the database
+could not be read, or <file> exists or cannot be made; 64 a bad argument; 78
+the instance settings are missing or malformed, or analytics is off
+(TEHAS_ANALYTICS=off), which writes nothing.

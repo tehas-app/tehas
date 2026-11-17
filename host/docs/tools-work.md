@@ -59,7 +59,9 @@ exit codes 1, result schema 5 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
-for it, or any name when it lists none, as v0.12.80 does), and the answer's
+for it, or any name when it lists none, as v0.12.80 does) or one a polyfill
+named in the image's `tehas.rukas.polyfills` label declares (see
+[Instance settings](/tools#instance-settings)), and the answer's
 `features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
 has a deadline and for `restartClearsAttention` with `--restart`. On driver
 lean the flags are checked against the `work-lean` verb, the features are
@@ -251,6 +253,35 @@ the agents are told where they have it with `CBM_CACHE_DIR`; `memory` is what
 its agents learn; `sessions` holds Pi's session files. Nothing a cycle writes
 there is what a later cycle of another issue reads. It is made fresh for every
 cycle and removed with the workspace.
+
+### The workspace and its history
+
+The workspace is a clone of the product checkout's `origin/<branch>`, at the
+tip the checkout last fetched, with the product's address as `origin`. Nothing
+comes from the network. It holds that one branch and `TEHAS_CLONE_DEPTH`
+commits of its history, 100 by default: the fetch is `git fetch --depth`. No
+other branch of the checkout and no tag is in it. `TEHAS_CLONE_DEPTH=0` gives
+the branch's full history. A value that is not a whole number of 0 or more
+stops the command with 78 before anything is cloned.
+
+A refresh works on a pull request whose branch may have started more than that
+many commits back. Before its conflict check, `tehas work` takes the pull
+request's head from the checkout into the workspace and deepens both the
+branch and the head until each reaches the commit the pull request started
+from, its merge base with the branch, as the checkout has it. The depth is
+worked out from the checkout's own history, so each is fetched once, at a
+depth that holds the merge base, never by trying. So
+`git merge-base` and `git merge-base --is-ancestor` answer in the workspace
+as they would in a full clone, for the head and for every commit of the pull
+request before it, such as a head reviewed earlier. A head the checkout does
+not hold, a pull request with no history in common with the branch, or a
+workspace that still does not reach the merge base after the fetch stops the
+start with 78 and the reason.
+
+`tehas finish` takes a shallow workspace as it is: its own repository takes
+the workspace's shallow history with `git fetch --update-shallow`, and the
+fetch of the remote's default branch brings the commits since the workspace
+was made, which join that history at the commit the cycle started from.
 
 What a cycle caches under its home otherwise, package downloads among them,
 lives in its container's own layer and goes when the container is removed. A
@@ -479,7 +510,28 @@ and `TEHAS_WORK_FILES=off` the directory is still mounted and named in
 gives a cycle the comments (`native`, `polyfill` or `off`), which decides
 whether a park offers the comments retry.
 
-With `TEHAS_WORK_IMAGES=off` and `TEHAS_WORK_FILES=off`, and no comments, a cycle is given nothing:
+With `TEHAS_SPEC_PIPE=on`, a feature still being built (a release refuses
+`on` with 78), a start with an approval record also gives its cycle what was
+approved, in the same directory. The spec the approval pinned is fetched
+again, at most 1 MiB, and held to the pin: its file is `spec`, or
+`spec.<ext>` for a text file's extension, named in the manifest as `"spec":
+{"file", "link", "name", "bytes", "sha256"}`, the sha256 the approval's. The
+title and body the start read and compared with the approval are written to
+`approved.json` (`number`, `title`, `body`, as GitHub gave them), named as
+`"approvedText": {"file", "bytes", "sha256"}`. Both keys come last in the
+manifest, which stays at `version` 1. A spec of other bytes, one that cannot
+be fetched or a file that cannot be written stops the start with 4 and says
+why on the issue. A cycle given a spec starts only on a runner whose
+`--capabilities` sets the feature `issueSpec` to true: any other stops with
+78 before anything is fetched, naming `the feature issueSpec`, so a spec is
+never dropped without a word. The approved text alone needs no such runner:
+one that does not read it reads the issue from GitHub, as before. With images,
+files and comments off the directory is still mounted and named in
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` for these files, and holds the manifest and
+them alone. A start by hand, with no record, is handed nothing. With the
+feature off nothing of this is fetched, written or mounted.
+
+With `TEHAS_WORK_IMAGES=off` and `TEHAS_WORK_FILES=off`, no comments and nothing handed over by the spec pipe, a cycle is given nothing:
 no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
 whatever the instance file says. The issue's text is still read once, to
 compare it with the dispatcher's record, and a body that is not the approved

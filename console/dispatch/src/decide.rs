@@ -2,12 +2,14 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
+use crate::place::{place, Need, Outsourcing, Place};
 use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::driver::Driver;
 use tehas_core::events::{
     changed_after, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
     sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
@@ -49,22 +51,11 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 }
 
 /// The label that chooses the lean driver for one issue.
-pub(crate) const LEAN: &str = "tehas:lean";
+pub(crate) const LEAN: &str = Driver::Lean.label();
 
 /// The label that chooses the classic driver for one issue, where
 /// `TEHAS_DRIVER=lean` makes lean the default.
-pub(crate) const CLASSIC: &str = "tehas:classic";
-
-/// The label that chooses against the instance's default driver: the one
-/// whose applier `Poll::driver` asks about. The other agrees with the default
-/// and chooses nothing.
-pub(crate) fn opt_out(lean_default: bool) -> &'static str {
-    if lean_default {
-        CLASSIC
-    } else {
-        LEAN
-    }
-}
+pub(crate) const CLASSIC: &str = Driver::Classic.label();
 
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
@@ -80,9 +71,8 @@ pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 pub(crate) const HOST: &str = "host";
 
 /// The driver a start runs, as `Poll::driver` reads it.
-enum Driver {
-    Classic,
-    Lean,
+enum Choice {
+    Run(Driver),
     /// An account outside the list made the choice, or the issue carries both
     /// driver labels: nothing starts, the default driver included.
     Stranger(Stranger),
@@ -90,13 +80,13 @@ enum Driver {
     Wait,
 }
 
-impl Driver {
+impl Choice {
     /// The action of a classic start names no driver. A lean start takes
     /// `needs-human-attention` off with its other labels: classic's
     /// `--restart` clears it in the cycle, and work-lean has no restart.
     fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
-        if matches!(self, Driver::Lean) {
-            extra.insert("driver".into(), json!("lean"));
+        if matches!(self, Choice::Run(Driver::Lean)) {
+            extra.insert("driver".into(), json!(Driver::Lean.word()));
             let attention = "needs-human-attention";
             if has(labels, attention) && !remove.iter().any(|l| l == attention) {
                 remove.push(attention.into());
@@ -117,7 +107,7 @@ enum Planned {
 }
 
 /// Who made the choice of driver that does not count: applied `label` (the
-/// instance's [`opt_out`]), or with `off` took an allowed account's off. With
+/// instance's [`Driver::opt_out`]), or with `off` took an allowed account's off. With
 /// `both`, the issue carries both driver labels and nobody's choice is read.
 struct Stranger {
     who: String,
@@ -141,9 +131,9 @@ impl Stranger {
     /// in its place.
     fn default_name(&self) -> &'static str {
         if self.label == CLASSIC {
-            "lean"
+            Driver::Lean.word()
         } else {
-            "classic"
+            Driver::Classic.word()
         }
     }
 
@@ -225,6 +215,9 @@ struct Start {
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
     extra: Map<String, Value>,
+    /// Under the outsource feature: where the start runs, as its log line
+    /// ends. None with the feature off, and for the starts it does not place.
+    placed: Option<String>,
 }
 
 /// What an issue's epic says of the millwright's label on the issue, under
@@ -271,9 +264,8 @@ struct Poll<'a> {
     bot: String,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
-    /// The hold of a host whose sandbox cannot push, empty when it can. Said
-    /// as the hold of the poll while the fault is younger than the wait of
-    /// `host::PUSH_FAULT_HOLD`.
+    /// The hold of a host whose sandbox cannot push, empty when it can: the one
+    /// line said as the hold of the poll while the fault stands on record.
     push_hold: String,
     /// Parked issues with a box ticked: rule 5a leaves them.
     park_ticked: Vec<u64>,
@@ -281,6 +273,11 @@ struct Poll<'a> {
     /// this poll closed.
     plan_busy: Option<u64>,
     plan_closed: Vec<u64>,
+    /// The memory ceiling of one cycle's container in MiB, as the slice
+    /// gives it; 0 when the slice did not say.
+    cycle_mb: u64,
+    /// The contractors this poll gave a start.
+    taken: Vec<String>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -302,6 +299,8 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
+        cycle_mb: 0,
+        taken: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -962,6 +961,7 @@ impl<'a> Poll<'a> {
         match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
+                self.cycle_mb = u.ceiling_mb;
                 let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
                 room_mem = r.room;
                 committed = r.committed;
@@ -1074,7 +1074,7 @@ impl<'a> Poll<'a> {
             // uses for the host that keeps what it has while nothing new
             // starts: the cycles that run, the planning turns and the
             // refreshes of a pull request that already stands on the remote
-            // are untouched by it. Part 3 gives the fault a word of its own.
+            // are untouched by it.
             why = Some(Why::Lane);
             hold = self.push_hold.clone();
             // Cycles start none; the refreshes keep what they would have been
@@ -1264,23 +1264,23 @@ impl<'a> Poll<'a> {
     /// The hold of the host's own push fault, and whether it holds the poll:
     /// while a sandbox that cannot push is on record the poll starts no cycle,
     /// so every ready issue does not fail the same check in turn. The one line
-    /// of the hold is left on `push_hold`, empty for no fault: a fault older
-    /// than `host::PUSH_FAULT_HOLD` is no fault to the poll, and Part 3
-    /// replaces that wait with a re-probe of the push check.
+    /// of the hold is left on `push_hold`, empty for no fault.
     ///
-    /// The report's word for it is `lane`, not a word of its own: the readers
-    /// outside the dispatcher (`console/ops/src/health.rs`, `console/mcp/`)
-    /// know the thirteen words of `tehas_core::hold::Why`, and `lane` is the
-    /// one of them already used for the host that keeps running while nothing
-    /// new starts. Part 3 gives the fault its own word with the re-probe and
-    /// the health line.
+    /// A fault of any age holds the starts: past `host::PUSH_FAULT_HOLD` the
+    /// poll asked the sandbox before the rules were read (`crate::poll`), and
+    /// left the record that stands, or none.
+    ///
+    /// The report's word for the hold is `lane`, not a word of its own: the
+    /// readers outside the dispatcher (`console/ops/src/health.rs`,
+    /// `console/mcp/`) know the thirteen words of `tehas_core::hold::Why`, and
+    /// `lane` is the one of them already used for the host that keeps running
+    /// while nothing new starts.
     fn push_fault(&mut self) -> bool {
         let Some(fault) = self.s.push_fault.as_ref() else {
             self.push_hold.clear();
             return false;
         };
-        let now = self.s.now.unwrap_or(0) as i64;
-        if !host::push_fault_holds(fault, now) {
+        if !host::push_fault_holds(fault) {
             self.push_hold.clear();
             return false;
         }
@@ -1487,19 +1487,15 @@ impl<'a> Poll<'a> {
     /// that record, so a label added since changes nothing until a person
     /// approves a new start. The label that agrees with the default chooses
     /// nothing, but with both on nothing starts: tehas does not guess.
-    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
+    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Choice> {
         if has(labels, LEAN) && has(labels, CLASSIC) {
-            return Ok(Driver::Stranger(Stranger::both()));
+            return Ok(Choice::Stranger(Stranger::both()));
         }
-        let lean_default = self.c.lean_default;
-        let label = opt_out(lean_default);
-        let (default, chosen) = if lean_default {
-            (Driver::Lean, Driver::Classic)
-        } else {
-            (Driver::Classic, Driver::Lean)
-        };
+        let default = self.c.driver_default;
+        let label = Driver::opt_out(default);
+        let (default, chosen) = (Choice::Run(default), Choice::Run(default.other()));
         let stranger = |who: String, off: bool| {
-            Driver::Stranger(Stranger {
+            Choice::Stranger(Stranger {
                 who,
                 off,
                 label,
@@ -1523,16 +1519,19 @@ impl<'a> Poll<'a> {
         match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
             None => {
                 self.need("approval");
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             Some(Err(())) => {
                 self.log(format!("wait #{n}: its approval could not be read"));
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             // No start on record to follow: this one is the first.
             Some(Ok(None)) => Ok(chosen),
-            Some(Ok(Some(r))) if r.get("driver") == Some(&json!("lean")) => Ok(Driver::Lean),
-            Some(Ok(Some(_))) => Ok(Driver::Classic),
+            // Only a record that names lean runs lean; any other runs classic.
+            Some(Ok(Some(r))) if Driver::of_record(&r) == Some(Driver::Lean) => {
+                Ok(Choice::Run(Driver::Lean))
+            }
+            Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
         }
     }
 
@@ -1656,6 +1655,25 @@ impl<'a> Poll<'a> {
             &why,
             &format!("its text holds no {} block", text::SPEC_INFO),
         );
+        Ok(false)
+    }
+
+    /// mark_ok: with the spec-pipe feature on, an issue whose body has a
+    /// `Spec:` line tehas cannot read starts nothing: the labels that asked
+    /// come off and the reason is said once. A body with no such line starts
+    /// as before. Off, the body is asked nothing.
+    fn mark_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
+        if !self.c.spec_pipe {
+            return Ok(true);
+        }
+        let Some(body) = self.body(n) else {
+            return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
+        };
+        let Err(why) = text::spec_mark(&body) else {
+            return Ok(true);
+        };
+        self.log(format!("skip #{n}: {why}"));
+        self.refuse_start(n, ask, labels, &text::no_mark_said(ask, &why), &why);
         Ok(false)
     }
 
@@ -2943,6 +2961,9 @@ impl<'a> Poll<'a> {
             if !self.size_ok(n, ask, &labels)? {
                 continue;
             }
+            if !self.mark_ok(n, ask, &labels)? {
+                continue;
+            }
             if let Some(url) = self.open_pr(n)? {
                 self.holds_on_pr(n, ask, &url);
                 continue;
@@ -2964,12 +2985,12 @@ impl<'a> Poll<'a> {
                 continue;
             }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
-                Driver::Wait => continue,
-                Driver::Stranger(s) => {
+                Choice::Wait => continue,
+                Choice::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
-                Driver::Lean if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
+                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
                     continue;
                 }
                 d => d,
@@ -3005,6 +3026,7 @@ impl<'a> Poll<'a> {
                 fixer: None,
                 park_lifted: None,
                 extra: Map::new(),
+                placed: None,
             };
             if ask == HOST {
                 st.verb = "started from the host".into();
@@ -3056,6 +3078,7 @@ impl<'a> Poll<'a> {
                     .insert("approved_label".into(), json!("tehas:plan"));
             }
             driver.bind(&mut st.extra, &mut st.remove, &labels);
+            self.place(n, &mut st);
             self.starts.push((n, st));
         }
         let count = self.live().count();
@@ -3074,8 +3097,13 @@ impl<'a> Poll<'a> {
         }
         for (n, st) in starts {
             if self.dry {
+                let placed = st
+                    .placed
+                    .as_ref()
+                    .map(|p| format!(", {p}"))
+                    .unwrap_or_default();
                 self.log(format!(
-                    "would run a cycle for #{n} ({} by {})",
+                    "would run a cycle for #{n} ({} by {}){placed}",
                     st.verb, st.starter
                 ));
             } else {
@@ -3095,6 +3123,33 @@ impl<'a> Poll<'a> {
         self.act(json!({"index_gate": running}));
     }
 
+    /// Under the outsource feature, where the start of `n` runs: a contractor
+    /// is named in the action, which the approval binds, and either way the
+    /// start's line says where. With the feature off nothing changes.
+    fn place(&mut self, n: u64, st: &mut Start) {
+        let Some(rules) = &self.c.outsource else {
+            return;
+        };
+        let none = Outsourcing::default();
+        let need = Need {
+            repo: self.c.repo.clone(),
+            issue: n,
+            mem_mb: self.cycle_mb,
+            disk_kb: self.c.min_free_mb * 1024,
+            now: self.s.now.unwrap_or(0),
+        };
+        let o = self.s.outsource.as_ref().unwrap_or(&none);
+        st.placed = Some(match place(rules, o, &need, &self.taken) {
+            Place::Out(name) => {
+                st.extra.insert("contractor".into(), json!(name));
+                let said = format!("outsourced to {name}");
+                self.taken.push(name);
+                said
+            }
+            Place::InHouse(why) => format!("in-house: {why}"),
+        });
+    }
+
     /// The start of a cycle as an action: what start_cycles records and
     /// changes.
     fn act_start(&mut self, n: u64, st: Start) {
@@ -3106,10 +3161,11 @@ impl<'a> Poll<'a> {
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
             "given": st.given_how, "remove": st.remove, "verb": st.verb,
             // The line apply logs as the start begins.
-            "log": if st.given_how == HOST {
-                format!("start #{n} ({})", st.verb)
-            } else {
-                format!("start #{n} ({} by {})", st.verb, st.starter)
+            "log": match (st.given_how == HOST, &st.placed) {
+                (true, None) => format!("start #{n} ({})", st.verb),
+                (true, Some(p)) => format!("start #{n} ({}), {p}", st.verb),
+                (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
+                (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
             },
             "text": !t.as_object().is_none_or(|o| o.is_empty()),
             "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
@@ -3122,10 +3178,32 @@ impl<'a> Poll<'a> {
         if let Some(note) = st.park_lifted {
             a["park_lifted"] = note;
         }
+        if self.c.spec_pipe {
+            if let Some(spec) = spec_of(body, &st.remove) {
+                a["spec"] = spec;
+            }
+        }
         for (k, v) in st.extra {
             a[k] = v;
         }
         self.act(a);
+    }
+}
+
+/// The spec a start pins, from the body its approval binds: {link, sha256,
+/// off} for a `Spec:` line, {why, off} for one tehas cannot read, so a start
+/// that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
+/// what comes off when the spec stops the start: of the labels the start takes
+/// off, those that asked for it. None for a body with no such line.
+fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
+    let off: Vec<&String> = remove
+        .iter()
+        .filter(|l| matches!(l.as_str(), "tehas:ready" | "tehas:blocked" | "tehas:plan"))
+        .collect();
+    match text::spec_mark(body) {
+        Ok(None) => None,
+        Ok(Some(m)) => Some(json!({"link": m.link, "sha256": m.sha256, "off": off})),
+        Err(why) => Some(json!({"why": why, "off": off})),
     }
 }
 
@@ -3257,6 +3335,40 @@ mod label_tests {
     #[test]
     fn the_improvement_constant_keeps_its_spelling() {
         assert_eq!(IMPROVEMENT, "tehas:improvement");
+    }
+}
+
+#[cfg(test)]
+mod spec_tests {
+    use super::spec_of;
+    use serde_json::json;
+
+    #[test]
+    fn a_start_pins_the_spec_its_body_marks_and_names_what_asked_for_it() {
+        let h = "e".repeat(64);
+        let link = "https://github.com/user-attachments/files/3/spec.md";
+        let remove = [
+            "tehas:ready",
+            "tehas:blocked",
+            "tehas:question",
+            "tehas:awaiting-merge",
+        ]
+        .map(String::from);
+        assert_eq!(
+            spec_of(&format!("Do it.\n\nSpec: {link} sha256:{h}"), &remove),
+            Some(json!({"link": link, "sha256": h, "off": ["tehas:ready", "tehas:blocked"]}))
+        );
+        assert_eq!(spec_of("Do it.", &remove), None);
+        assert_eq!(
+            spec_of("Spec: docs/spec.md", &["tehas:question".to_string()]),
+            Some(json!({"why": "its `Spec:` line is not a link and its sha256", "off": []}))
+        );
+        assert_eq!(
+            spec_of(&format!("Spec: https://example.com/s.md sha256:{h}"), &[]),
+            Some(
+                json!({"why": "the link of its `Spec:` line is not a file attached on GitHub", "off": []})
+            )
+        );
     }
 }
 
