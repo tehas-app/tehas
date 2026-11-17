@@ -218,7 +218,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"
 
 t_case "comments are not read unless the instance says so, and only where it gives images or files"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
@@ -230,7 +230,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_COMMENTS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+t_contains "$t_out" "tehas: TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
 
 t_case "a cycle is given no text files unless the instance says so, and they need no images"
 t_instance "${T_MINIMAL[@]}"
@@ -257,7 +257,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_ZIPS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+t_contains "$t_out" "tehas: TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
@@ -938,7 +938,7 @@ t_case "previews without a domain are refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+t_contains "$t_out" "tehas: TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set"
 
 t_case "previews with a domain load, with the defaults"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org
@@ -1762,7 +1762,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "7f40906ce054d3fa2bbc6247c62cb56ffbd86c64aae8d41221b4b361b21f1ba3"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "759e57476c477bd411c37eae33098e2644f32acd9c352cb1709e4d7dcdfce9a0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
