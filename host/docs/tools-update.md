@@ -58,6 +58,8 @@ and signed with. It asks 1.0's settings check before it switches
 `~/tehas/current`, so an instance that still sets a renamed setting stops with
 78 and nothing switched. From 1.0 on, the repository and the key are the ones
 built into tehas, and those two files are no longer read.
+The steps a person takes, drain first, and every name 1.0 renamed or removed
+are in [Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
 
 ### From a release
 
