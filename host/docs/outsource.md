@@ -52,7 +52,7 @@ channel's `job` call and sent to the contractor in that answer:
 
 | Token | In the answer | Held by | What it may call |
 | --- | --- | --- | --- |
-| model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and later the egress tunnel |
+| model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and the egress tunnel |
 | job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and later the job's downloads |
 
 A token of one scope is refused on the other's paths with 403: the channel
@@ -262,6 +262,58 @@ path, key or token of the factory is on it. A job also names the factory's
 account, the `uid` and `gid` its containers run as, which the contractor
 hands the cycle's folders to.
 
+## The egress tunnel
+
+The same listener carries a job's connections to GitHub, the package
+registries and the hosts the instance lists, at
+`/outsource/v1/egress?to=<host>:<port>`. It is an HTTP/1.1 Upgrade, not a
+CONNECT, so it works on the proxy's own port and behind a TLS terminator
+that passes an Upgrade, as Caddy's reverse proxy does. A contractor asks
+with a GET that carries `Connection: Upgrade`, `Upgrade: tehas-egress` and
+the job's model token as a bearer. The answer is `101 Switching Protocols`,
+and from then on the bytes are the tunnel's.
+
+What it takes:
+
+- The job's model token. The job token is refused with 403 `scope`, a token
+  the proxy never issued with 401. The job must be in a state that a
+  `result` is taken in: running, stopping, or lost to a silence while its
+  attempt is current, so the salvage push of a stopped job still goes out.
+  A job that ended and a revoked contractor are refused with one log line,
+  and nothing is connected.
+- A destination on the factory's list: the base list of `TEHAS_EGRESS=1`
+  (GitHub and the npm and cargo registries, on 443) and
+  `TEHAS_EGRESS_HOSTS`, by the same rule the in-house egress proxy uses.
+  A model endpoint of `models.json` is refused even when it is listed: model
+  traffic stays on the counted model route. No host alias is read.
+- After the name resolves, every address must be public and not the
+  factory's own, so the dashboard, the MCP server and the docs are out of
+  reach. A loopback, private, shared, link-local or unique local address is
+  refused.
+
+A refusal is a JSON answer with a `refused` word:
+
+| Status | Word | Why |
+| --- | --- | --- |
+| 400 | `an egress tunnel is a GET with Upgrade: tehas-egress` | no Upgrade asked |
+| 400 | `no host:port to tunnel to` | `to` is missing or no `host:port` |
+| 401 | `no job` | a token the proxy never issued |
+| 403 | `scope` | the job token, not the model token |
+| 403 | `revoked`, or the job's state | the job ended or its contractor was revoked |
+| 403 | `not on the egress list` | the destination is not listed |
+| 403 | `a model endpoint: use the model route` | the destination is a model endpoint |
+| 403 | `an address that is not public` | the name resolved to a private address or to the factory |
+| 502 | `the host could not be resolved`, `the host could not be reached` | the destination did not answer |
+| 503 | `too many tunnels` | 128 tunnels are open over every job |
+
+A tunnel ends when both sides have ended, or when neither has sent anything
+for `TEHAS_OUTSOURCE_PROXY_IDLE` seconds. There is no cap on a single write
+and nothing is buffered, so a large push or install passes. An open tunnel
+does not hold one of the listener's 32 places, so downloads never crowd out
+a check-in. The log has one line when a tunnel opens or is refused, naming
+the job, the contractor and the destination, and one when it closes, with
+its bytes each way. It never has a token or a byte of the tunnel.
+
 ## A cycle on a contractor
 
 A contractor runs the same `tehas work` as the factory does, with the same
@@ -450,6 +502,13 @@ The cycle is never killed outright. It gets its stop signal and
 is it killed and its container stopped. A report the factory does not answer
 is retried for the job's timeout.
 
+The program's own git, the product's clone and the salvage push, goes
+through the egress tunnel: for each job it runs a CONNECT proxy on
+127.0.0.1 that opens every tunnel on the factory's listener with the job's
+model token, and gives it to git as `http.proxy`. No proxy variable of the
+user's and no `NO_PROXY` takes git around it. A host the factory refuses is
+answered to git with the factory's status and word.
+
 The salvage push runs no git in the workspace, whose hooks and git config the
 container could write. It fetches the issue's branch (`feature/issue-<n>`, or
 that with a `-` and more) out of the workspace into a repository of its own,
@@ -480,5 +539,9 @@ Still owed, each in its own issue:
   Nothing reads them yet.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
+- #2379, the container's own way out: the internal network and the
+  contractor's local end for the cycle's container, so its git and
+  registries go through the egress tunnel too. Until then only the
+  contractor program's own git does.
 - #2354, TLS and signed requests on the channel. Version 1 is plain http with
   bearer keys: bind the proxy's address on a network you control.

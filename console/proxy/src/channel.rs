@@ -11,6 +11,7 @@
 //! | `relay` | a job, by its token | one issue write, checked and made here |
 //! | `result` | a job, by its token | the cycle's result, kept for its report |
 //! | `stopped` | a job, by its token | the job handed back or given up |
+//! | `egress` | a job's container, by its model token | a tunnel to a listed host ([`crate::egress`]) |
 //!
 //! Each path is `/outsource/v1/<name>`, POST, a JSON body of at most
 //! [`BODY_MAX`] bytes and a JSON answer. A contractor's key is sent as a bearer
@@ -20,10 +21,10 @@
 //! with it, which the container holds, is refused here with 403 `scope`, and
 //! the job token is refused on the model paths.
 //!
-//! Routes still to come take a scope by [`Call::scope`]: the job's downloads
-//! (index, bundle, attachments) the job scope, and the egress tunnel
-//! (`/outsource/v1/egress`) the model scope. The image download comes before
-//! a job and is the contractor's, by its key, so it takes no token.
+//! Each call takes a scope by [`Call::scope`]. The egress tunnel is the one
+//! route of the model scope here. Routes still to come: the job's downloads
+//! (index, bundle, attachments) take the job scope. The image download comes
+//! before a job and is the contractor's, by its key, so it takes no token.
 //!
 //! What each call requires is the spec's "The job channel": check-in, token
 //! and relay need a running job of the issue's current attempt on a contractor
@@ -74,6 +75,7 @@ pub enum Call {
     Relay,
     Result,
     Stopped,
+    Egress,
 }
 
 impl Call {
@@ -89,20 +91,21 @@ impl Call {
             "relay" => Call::Relay,
             "result" => Call::Result,
             "stopped" => Call::Stopped,
+            "egress" => Call::Egress,
             _ => return None,
         })
     }
 
     /// The scope of the token a call takes, None for a call made with a
-    /// contractor's key or with none. Every call of a job today takes the job
-    /// scope; the egress tunnel, when it is built, is the one route of the
-    /// model scope here.
+    /// contractor's key or with none. The egress tunnel is the one route of
+    /// the model scope here.
     pub fn scope(self) -> Option<jobs::Scope> {
         match self {
             Call::Join | Call::Hello | Call::Job => None,
             Call::CheckIn | Call::Token | Call::Relay | Call::Result | Call::Stopped => {
                 Some(jobs::Scope::Job)
             }
+            Call::Egress => Some(jobs::Scope::Model),
         }
     }
 
@@ -116,6 +119,7 @@ impl Call {
             Call::Relay => "relay",
             Call::Result => "result",
             Call::Stopped => "stopped",
+            Call::Egress => "egress",
         }
     }
 }
@@ -166,7 +170,7 @@ impl Answer {
 
     /// A refusal: 401 for a key or token the factory does not know, 403 for
     /// one it knows and refuses, 409 for an attempt replaced by a newer one.
-    fn no(status: u16, word: &str) -> Answer {
+    pub fn no(status: u16, word: &str) -> Answer {
         Answer {
             status,
             body: json!({ "refused": word }),
@@ -201,6 +205,8 @@ fn hex(bytes: &[u8]) -> String {
 pub struct Channel<'a> {
     pub issuer: &'a Issuer,
     pub factory: &'a (dyn Factory + Sync),
+    /// The egress tunnel route. None answers it 404.
+    pub egress: Option<&'a crate::egress::Egress>,
     scopes: Mutex<HashMap<i64, Scope>>,
 }
 
@@ -217,8 +223,27 @@ impl<'a> Channel<'a> {
         Channel {
             issuer,
             factory,
+            egress: None,
             scopes: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn with_egress(mut self, egress: &'a crate::egress::Egress) -> Channel<'a> {
+        self.egress = Some(egress);
+        self
+    }
+
+    /// The job and issue a call made with a token is admitted for, or the
+    /// refusal: the token in the call's scope, then the job's state in the
+    /// store.
+    pub fn admit(&self, call: Call, bearer: Option<&str>) -> Result<(Live, i64), Answer> {
+        let scope = call.scope().unwrap_or(jobs::Scope::Job);
+        let live = match bearer.map(|t| self.issuer.look(t, scope)) {
+            Some(Ok(live)) => live,
+            Some(Err(Miss::Scope)) => return Err(Answer::no(403, "scope")),
+            _ => return Err(Answer::no(401, "no job")),
+        };
+        self.held(&live, call).map(|issue| (live, issue))
     }
 
     pub fn answer(&self, asked: &Asked) -> Answer {
@@ -244,18 +269,11 @@ impl<'a> Channel<'a> {
                 Ok((name, draining)) => self.job(&name, draining),
                 Err(no) => no,
             },
-            call => {
-                let scope = call.scope().unwrap_or(jobs::Scope::Job);
-                let live = match asked.bearer.map(|t| self.issuer.look(t, scope)) {
-                    Some(Ok(live)) => live,
-                    Some(Err(Miss::Scope)) => return Answer::no(403, "scope"),
-                    _ => return Answer::no(401, "no job"),
-                };
-                match self.held(&live, call) {
-                    Ok(issue) => self.of_job(call, &live, issue, &body),
-                    Err(no) => no,
-                }
-            }
+            Call::Egress => Answer::no(400, "the egress route is an Upgrade"),
+            call => match self.admit(call, asked.bearer) {
+                Ok((live, issue)) => self.of_job(call, &live, issue, &body),
+                Err(no) => no,
+            },
         }
     }
 
@@ -397,8 +415,12 @@ impl<'a> Channel<'a> {
         }
         let state = record["state"].as_str().unwrap_or_default();
         let lost_silent = state == "lost" && record["lost_reason"] != "revoked";
+        // A tunnel is admitted as long as a result is: the salvage push of a
+        // job that stops or was lost to a silence goes through it.
         let ok = match call {
-            Call::Result | Call::Stopped => matches!(state, "running" | "stopping") || lost_silent,
+            Call::Result | Call::Stopped | Call::Egress => {
+                matches!(state, "running" | "stopping") || lost_silent
+            }
             _ => state == "running",
         };
         let issue = record["issue"].as_i64().unwrap_or_default();
@@ -494,7 +516,7 @@ impl<'a> Channel<'a> {
                 self.forget(live.job);
                 Answer::ok(json!({ "stopped": live.job }))
             }
-            Call::Join | Call::Hello | Call::Job => Answer::no(400, "refused"),
+            Call::Join | Call::Hello | Call::Job | Call::Egress => Answer::no(400, "refused"),
         }
     }
 
