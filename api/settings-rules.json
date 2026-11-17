@@ -258,10 +258,10 @@
     },
     {
       "name": "TEHAS_TICKET_CONCURRENCY",
-      "rule": "count-or-auto",
+      "rule": "cycles",
       "when": "always",
       "default": null,
-      "reason": "expected a whole number (auto is not usable yet)"
+      "reason": "expected a positive whole number"
     },
     {
       "name": "TEHAS_HOST_ADDR",
@@ -682,13 +682,6 @@
       "when": "required",
       "default": null,
       "reason": "expected one word"
-    },
-    {
-      "name": "TEHAS_CONTAINER_MEMORY",
-      "rule": "container-size",
-      "when": "required",
-      "default": null,
-      "reason": "expected a size of at least 6m, such as 512m or 2g"
     },
     {
       "name": "TEHAS_REVIEW_REPO",

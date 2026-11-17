@@ -116,21 +116,16 @@ done
 t_case "every row of the manual names a setting the loader, the host or pi-rukas reads"
 # The rows that name no row of TABLE on purpose, each checked by a case of its
 # own below: TEHAS_MILLWRIGHT_LOGIN and TEHAS_WORK_REPO are set by a load from
-# the app's login and from TEHAS_REPO; TEHAS_CYCLE_CPUS and TEHAS_CYCLE_CEILING
-# are what the poll would count by were `auto` ever usable; TEHAS_DISK_WAIT is
-# one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
+# the app's login and from TEHAS_REPO; TEHAS_DISK_WAIT is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
 # of kinds.rs rather than a string in the table's own text.
 # The settings a row names with no row of the loader's table behind it, each one
 # said in the comment below, and each one a row of the manual's table the case
 # after this insists on. The list is a string, not a file: one word per line of
 # it, because a name that shares its front with the name before it on the same
-# line, as TEHAS_CYCLE_CPUS does with TEHAS_WORK_REPO and TEHAS_CYCLE_CEILING
-# with it, would otherwise be a piece of another word and match nothing.
+# line would otherwise be a piece of another word and match nothing.
 exceptions="
 TEHAS_MILLWRIGHT_LOGIN
 TEHAS_WORK_REPO
-TEHAS_CYCLE_CPUS
-TEHAS_CYCLE_CEILING
 TEHAS_DISK_WAIT
 TEHAS_ISSUE_TYPES
 TEHAS_CYCLE_LOGIN
@@ -142,9 +137,7 @@ for name in $manual; do
   has "$name" "$kept" && continue
   case $name in PI_ENSEMBLE_*) continue ;; esac
   has "$name" "$exceptions" && continue
-  # An operator has to set no more than these: the two are read from the
-  # environment by a poll that could not act by them and so refuses the word
-  # that would need them, `auto`, and the rest are named by the comment above.
+  # An operator has to set no more than these, named by the comment above.
   extra="$extra $name"
 done
 [ -z "$extra" ] || t_bad "no setting behind the rows:$extra"

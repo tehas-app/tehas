@@ -378,7 +378,7 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   # The suffix belongs to `auto` alone, and that count is TEHAS_CONCURRENCY.
-  [ "${bad%%=*}" = TEHAS_CONCURRENCY ] || t_lacks "$t_out" "auto is not usable yet"
+  [ "${bad%%=*}" = TEHAS_CONCURRENCY ] || t_lacks "$t_out" "auto sizing is removed"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
@@ -594,10 +594,10 @@ for bad in 1 0 17 06 1.5 -4 auto AUTO 99999999999999999999; do
   t_contains "$t_out" "rc=78"
   # The suffix is for `auto` alone: it is not said of a number out of range.
   if [ "$bad" = auto ]; then
-    t_contains "$t_out" "TEHAS_SLICE_CONTAINERS is not valid: expected a whole number (auto is not usable yet)"
+    t_contains "$t_out" "TEHAS_SLICE_CONTAINERS is not valid: expected a whole number from 2 to 16: auto sizing is removed"
   else
     t_contains "$t_out" "TEHAS_SLICE_CONTAINERS is not valid: expected a whole number from 2 to 16"
-    t_lacks "$t_out" "auto is not usable yet"
+    t_lacks "$t_out" "auto sizing is removed"
   fi
 done
 
@@ -848,9 +848,8 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_WORK_MEMORY is set"
 
-# What the poll reads for `auto` is not exported and not checked here: the
-# loader clears what came in with it, and the poll defaults the three itself.
-t_case "an inherited auto count is cleared and stays cleared in a child"
+# A name of the family that came in with the environment is cleared.
+t_case "an inherited sizing name is cleared and stays cleared in a child"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
 t_run "$load && echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\" && bash -c 'echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\"'"
@@ -1201,8 +1200,8 @@ for bad in two 0 -1 1.5 AUTO 99999999999999999999; do
   t_run "$load"
   t_eq "$t_rc" 78
   t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
-  # AUTO is another word, not the poll's: only `auto` gets its reason named.
-  [ "$bad" = AUTO ] || t_lacks "$t_out" "auto is not usable yet"
+  # AUTO is another word: only `auto` gets its reason named.
+  [ "$bad" = AUTO ] || t_lacks "$t_out" "auto sizing is removed"
 done
 
 # `auto` is refused by its own case, with the words that say why.
@@ -1210,17 +1209,17 @@ t_case "a concurrency of auto is refused with the reason"
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid: expected a whole number (auto is not usable yet)"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid: expected a whole number: auto sizing is removed"
 
-# The poll answers `auto` (console/dispatch/src/slots.rs) and the cycle does
-# not, so the loader refuses both counts before a poll spends its approval.
+# Auto sizing is removed: the word is refused for both counts, and the host is
+# not read for it.
 t_case "auto for either count is refused with 78"
 rm -f "$T/bin/nproc"
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_SLICE_CONTAINERS=auto
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
-t_contains "$t_out" "(auto is not usable yet)"
+t_contains "$t_out" "auto sizing is removed"
 t_eq "$(t_calls nproc)" ""
 t_stub nproc 'echo 8'
 
@@ -1239,14 +1238,6 @@ t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=4
 t_run "$load"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (4) are both above 1"
-
-# The three the poll reads for `auto` are not the loader's: nothing is exported
-# and nothing is checked, and the poll holds the rule and the default of each
-# with the arithmetic (console/dispatch/src/slots.rs).
-t_case "what the instance writes for the auto settings reaches the environment as written"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONTAINER_MEMORY=16g TEHAS_CYCLE_CPUS=8 TEHAS_CYCLE_CEILING=6
-t_run "$load && echo \"\$TEHAS_CONTAINER_MEMORY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_CEILING\""
-t_eq "$t_out" "16g 8 6"
 
 rm -f "$T/bin/nproc"
 
@@ -1649,7 +1640,7 @@ values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 100000000
 names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_RUKAS_FOLLOW
   TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
-  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTAINER_MEMORY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
+  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR
   TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
@@ -1664,7 +1655,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "a19d2b3dea236afba3c3b4ce8d3c8261a435c35bbea2eb83b087eb35331ba23e"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "bc2efb33b8bc3e72c9ab5755b204ca1a73c4f35cac2bffb528113e15f529576c"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"

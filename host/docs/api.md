@@ -234,27 +234,6 @@ tehas status --json
 | `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
 | `room.slice` | Cycles `tehas.slice` has room for |
 | `room.limit` | Room under the limit: its `cycles` less the cycles running, 0 when the limit expired or cannot be read; left out without a limit. The others never count the limit |
-| `room.slots` | The counts in force when `TEHAS_TICKET_CONCURRENCY` or `TEHAS_SLICE_CONTAINERS` is `auto`, and why. Left out when both are numbers, which need no telling |
-| `room.slots.cycles` | The most cycles side by side the poll decided by, whatever the setting says |
-| `room.slots.containers` | The containers `tehas.slice` holds at once, as the poll worked them out |
-| `room.slots.cyclesHow` | `auto` when the cycles are the poll's count, `number` when the instance wrote one, `fixed` when the setting is neither |
-| `room.slots.containersHow` | The same for the containers |
-| `room.slots.cycle` | How the cycles were derived; left out when `cyclesHow` is not `auto` |
-| `room.slots.container` | How the containers were derived; left out when `containersHow` is not `auto` |
-| `room.slots.cycle.bound` | The one word for what gave the count: `cpu`, `memory`, `ceiling` or `host`, which is for a host whose readings answered nothing. Treat it as an open list |
-| `room.slots.cycle.slots` | What the host's readings give before the bounds are put on them; 0 when no reading answered, or when the CPUs hold less than one cycle |
-| `room.slots.cycle.cpus` | The host's CPUs as `nproc` answered, `null` when it answered nothing |
-| `room.slots.cycle.cycleCpus` | `TEHAS_CYCLE_CPUS` as written: the CPUs one cycle is given |
-| `room.slots.cycle.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written: the memory one container is given |
-| `room.slots.cycle.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default: the most cycles the endpoint may serve |
-| `room.slots.cycle.floored` | `true` when the count is the floor of its setting, 1 cycle: with `bound` `host` because no reading answered, with `cpu` because the CPUs hold less than one cycle |
-| `room.slots.container.bound` | The same for the containers: `memory`, `ceiling` or `host` |
-| `room.slots.container.slots` | The containers the slice's `MemoryMax` holds at `TEHAS_CONTAINER_MEMORY`, before the bounds |
-| `room.slots.container.cpus` | The host's CPUs, read for the line the two counts are shown in; `null` when `nproc` answered nothing |
-| `room.slots.container.cycleCpus` | `TEHAS_CYCLE_CPUS` as written, named beside the pair so a person reads both numbers of one derivation together |
-| `room.slots.container.containerMemory` | `TEHAS_CONTAINER_MEMORY` as written |
-| `room.slots.container.ceiling` | `TEHAS_CYCLE_CEILING` as written, or its default |
-| `room.slots.container.floored` | `true` when 2 containers are in force because the memory or the size was no reading (`bound` `host`) or because the slice holds fewer than two (`bound` `memory`) |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 | `versions` | The platform and the pi-rukas this factory runs, as the [health file](/tools-health#tehasbot-health) last read them in `checks.platform` and `checks.rukas`. Always there: a value that cannot be read is `null`, never left out, so a program tells "unknown" from a release without the field. The feature `status-versions` of [`tehas api`](#tehas-api) says a factory has it |
 | `versions.platform` | The tehas release: `release`, `commit`, `latest` and `behind` |
