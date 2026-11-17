@@ -253,6 +253,46 @@ mod tests {
         }
     }
 
+    /// The words of api/features.txt at the newest tag that holds it, when git
+    /// has the history: a shallow clone or a tree with no tag skips the check.
+    #[test]
+    fn features_starts_with_the_words_of_the_last_tag_that_pinned_them() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(args)
+                .output()
+                .ok()?;
+            out.status
+                .success()
+                .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+        };
+        let file = "api/features.txt";
+        let added = git(&["log", "--diff-filter=A", "--format=%H", "--", file]);
+        let Some(first) = added.as_deref().and_then(|a| a.lines().last()) else {
+            return;
+        };
+        let tags = git(&[
+            "tag",
+            "--merged",
+            "HEAD",
+            "--contains",
+            first,
+            "--sort=-creatordate",
+        ]);
+        let Some(tag) = tags.as_deref().and_then(|t| t.lines().next()) else {
+            return;
+        };
+        let then = git(&["show", &format!("{tag}:{file}")]).unwrap();
+        let then: Vec<&str> = then.lines().filter(|l| !l.starts_with('#')).collect();
+        assert!(
+            features().starts_with(&then),
+            "features drops or moves a word of {tag}: only add, at the end"
+        );
+    }
+
     #[test]
     fn a_building_feature_is_a_flag_and_no_word_of_features() {
         let words = features();
