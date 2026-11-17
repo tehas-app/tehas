@@ -9,7 +9,7 @@ use std::rc::Rc;
 use serde_json::{json, Value};
 
 use crate::http::Reply;
-use crate::job::{run, run_job, End, Job, Work, World};
+use crate::job::{run, run_job, End, Job, Owner, Work, World};
 
 /// The cycle of a case: when it ends on its own, and how long it takes to end
 /// after its stop signal (None: it never does, and is killed).
@@ -227,6 +227,62 @@ fn a_job_is_read_from_its_answer_and_no_job_is_none() {
     }
     assert_eq!(j.token, "job-token");
     assert_eq!(j.model_token, "model-token");
+    assert_eq!(j.owner, None);
+}
+
+#[test]
+fn a_job_names_the_factory_s_account_with_both_numbers_or_none() {
+    let with = |extra: Value| {
+        let mut v = json!({ "job": 1, "issue": 2, "attempt": 1, "timeout": 60,
+                            "token": "job-token", "model_token": "model-token" });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        Job::of(&v).unwrap().owner
+    };
+    assert_eq!(
+        with(json!({ "uid": 1001, "gid": 1002 })),
+        Some(Owner {
+            uid: 1001,
+            gid: 1002
+        })
+    );
+    assert_eq!(
+        with(json!({ "uid": 0, "gid": 0 })),
+        Some(Owner { uid: 0, gid: 0 })
+    );
+    for extra in [
+        json!({ "uid": 1001 }),
+        json!({ "gid": 1002 }),
+        json!({ "uid": -1, "gid": 1002 }),
+        json!({ "uid": 4_294_967_296_u64, "gid": 1002 }),
+        json!({ "uid": "1001", "gid": "1002" }),
+    ] {
+        assert_eq!(with(extra.clone()), None, "{extra}");
+    }
+}
+
+#[test]
+fn an_account_is_read_as_docker_s_user_takes_it() {
+    assert_eq!(
+        Owner::parse("1001:1002"),
+        Some(Owner {
+            uid: 1001,
+            gid: 1002
+        })
+    );
+    for bad in [
+        "",
+        "1001",
+        "1001:",
+        ":1002",
+        "a:b",
+        "-1:2",
+        "1:2:3",
+        "1001 :1002",
+    ] {
+        assert_eq!(Owner::parse(bad), None, "{bad}");
+    }
 }
 
 #[test]

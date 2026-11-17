@@ -106,6 +106,12 @@ t_stub docker 'case "$1" in
     [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run)
+    # The vipune check of a smoke run is the run with a cpuset. It answers
+    # $fx/vipune when there is one and the quiet line otherwise.
+    if [[ $* == "run --rm --init --network none "*" --cpuset-cpus "*" --entrypoint bash "* ]]; then
+      if [ -e "$T/fx/vipune" ]; then cat "$T/fx/vipune"; else echo quiet; fi
+      exit 0
+    fi
     # A smoke run asked of bash stands apart from the ask of --capabilities: the
     # layer above the image answers from a file of its own,
     # so one case can let the image below it start a step and refuse the layer.
@@ -518,7 +524,7 @@ reset
 smoke_crash
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "started no step of an offline work run (crashed)"
+t_contains "$t_out" "failed its smoke run (crashed)"
 t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
 # The image built, and no tag of the run moved onto it.
 t_contains "$(t_calls docker)" "build --build-arg"
@@ -529,7 +535,7 @@ reset
 smoke_silence
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "started no step of an offline work run (silent)"
+t_contains "$t_out" "failed its smoke run (silent)"
 t_contains "$(t_calls docker)" "build --build-arg"
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
 
@@ -540,7 +546,31 @@ reset
 : >"$fx/smoke"
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "started no step of an offline work run (silent)"
+t_contains "$t_out" "failed its smoke run (silent)"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+t_case "a smoke run runs vipune as this uid on one CPU of a cpuset, after the work turn"
+reset
+t_run "$build"
+t_eq "$t_rc" 0
+vipune_run=$(t_calls docker | grep -m1 -e ' --cpuset-cpus ')
+t_contains "$vipune_run" "--user $uid -e HOME=/home/vscode --entrypoint bash tehas/pi-rukas:"
+t_contains "$vipune_run" "vipune search "
+t_lacks "$vipune_run" "ORT_INTRA_OP_NUM_THREADS"
+work_at=$(t_calls docker | grep -n -m1 'pi-rukas-headless work 1' | cut -d: -f1)
+vipune_at=$(t_calls docker | grep -n -m1 -e ' --cpuset-cpus ' | cut -d: -f1)
+t_eq "$([ -n "$work_at" ] && [ -n "$vipune_at" ] && [ "$work_at" -lt "$vipune_at" ] && echo after)" after
+
+t_case "a smoke run whose vipune writes to stderr under a cpuset leaves the uid tag where it was and ends 1"
+reset
+# What onnxruntime printed on every vipune call of a cycle while no thread
+# count was set: one line per thread it could not pin.
+printf '%s\n' 'pthread_setaffinity_np failed for thread: 12, index: 3, mask: {4, }, error code: 22 error msg: Invalid argument.' quiet >"$fx/vipune"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "failed its smoke run (noisy)"
+t_contains "$t_out" "pthread_setaffinity_np failed"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
 
 t_case "the instance layer is smoke-run too, and a refusal there leaves the tag on the image under it"
@@ -554,7 +584,7 @@ printf '%s\n' '{"schemaVersion":5,"error":{"code":"crash"}}' >"$fx/smoke-product
 t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
-t_contains "$t_out" "-product started no step of an offline work run (crashed)"
+t_contains "$t_out" "-product failed its smoke run (crashed)"
 # One tag moved: the platform image's. The layer that was refused takes nothing.
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
 uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')

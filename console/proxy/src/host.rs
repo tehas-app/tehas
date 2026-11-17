@@ -82,9 +82,12 @@ impl Factory for OfHost {
             .collect();
         let get = |n: &str| std::env::var(n).unwrap_or_default();
         let models = models_for_job(&self.addr);
+        let (uid, gid) = account(&tehas_core::sandbox::user());
         json!({
             "settings": channel::settings_of(&names, &get),
             "models": models,
+            "uid": uid,
+            "gid": gid,
         })
     }
 
@@ -99,6 +102,14 @@ impl Factory for OfHost {
     fn allowed(&self, name: &str) -> bool {
         self.contractors.iter().any(|c| c == name)
     }
+}
+
+/// The uid and gid of `<uid>:<gid>`, the account this factory's containers run
+/// as. Null for a number `id` did not give.
+pub fn account(user: &str) -> (Value, Value) {
+    let (uid, gid) = user.split_once(':').unwrap_or_default();
+    let n = |w: &str| w.parse::<u32>().map_or(Value::Null, |n| json!(n));
+    (n(uid), n(gid))
 }
 
 /// The instance's models.json with every provider behind the proxy at `addr`,

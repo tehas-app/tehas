@@ -139,6 +139,14 @@ RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors 
  && rm -f /tmp/jq \
  && /usr/local/bin/jq --version
 
+# vipune sets no onnxruntime thread count, so onnxruntime pins a thread to each
+# host core, and under a cycle's cpuset most of those are not the container's:
+# every vipune call then wrote one pthread_setaffinity_np error per thread to
+# stderr. onnxruntime reads this itself, and with an explicit count it pins
+# nothing. An ENV of the image, so every container of it has it, not a variable
+# a cycle passes.
+ENV ORT_INTRA_OP_NUM_THREADS=1
+
 # vipune downloads its embedding model on its first search. A cycle has no
 # route to the publisher, so the download failed and every later search answered
 # an empty store, which reads as a host that recorded nothing. The model is put
@@ -164,6 +172,9 @@ RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL
 # the base has to be the version versions.env names, since that version picks
 # the revision. Every call names the scratch store: any vipune call, version
 # included, otherwise creates one in ~/.vipune, where a cycle mounts its own.
+# The build stops on anything add and search write to stderr. A build step has
+# no cpuset, so onnxruntime's affinity errors do not show here: build.sh checks
+# for them in the finished image, under a cpuset (tehas-cycle sandbox smoke-run).
 #
 # The remap, and the step the two stages are drawn around: it is the only step of
 # the image that reads the uid, it is the first one below the boundary, and it goes
@@ -201,12 +212,13 @@ RUN db=$(mktemp -d) \
  && found=$(vipune version --db-path "$db/gate.db" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
  && if [ "${found:-}" != "$VIPUNE_VERSION" ]; then echo "sandbox: vipune is ${found:-not there}, versions.env names $VIPUNE_VERSION" >&2; exit 1; fi \
  && export HF_HUB_OFFLINE=1 HF_ENDPOINT=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
- && added=$(vipune add 'the sandbox image carries the embedding model' --json --db-path "$db/gate.db") \
- && answer=$(vipune search 'embedding model of the sandbox image' --json --limit 1 --db-path "$db/gate.db") \
- && rm -rf "$db" \
+ && added=$(vipune add 'the sandbox image carries the embedding model' --json --db-path "$db/gate.db" 2>"$db/add.err") \
+ && answer=$(vipune search 'embedding model of the sandbox image' --json --limit 1 --db-path "$db/gate.db" 2>"$db/search.err") \
  && printf '%s' "$added" | jq -e '.status == "added"' >/dev/null \
  && printf '%s' "$answer" | jq -e '.results | length > 0' >/dev/null \
- || { echo "sandbox: vipune cannot embed with $VIPUNE_MODEL: $added $answer" >&2; exit 1; }; \
+ || { echo "sandbox: vipune cannot embed with $VIPUNE_MODEL: $added $answer" >&2; cat "$db"/*.err >&2; exit 1; }; \
+    if [ -s "$db/add.err" ] || [ -s "$db/search.err" ]; then echo "sandbox: vipune wrote to stderr:" >&2; cat "$db"/*.err >&2; exit 1; fi; \
+    rm -rf "$db"; \
     echo "sandbox: vipune $VIPUNE_VERSION embeds and searches with $VIPUNE_MODEL"
 USER root
 
@@ -252,11 +264,20 @@ RUN chmod 755 /usr/local/bin/gh && [ -x /usr/bin/gh ]
 # as root again so the steps after it are unaffected.
 # test/sandbox_test.sh reads these commands out of the docker runs in libexec/
 # and fails when one of them is not checked here.
+#
+# npm's cache is $HOME/.npm, and a step above that ran npm as root would have
+# left it root's: the cycle's own npm then fails with "Your cache folder
+# contains root-owned files". The directory is made the cycle user's here, after
+# every step that runs as root but the last two, which run no npm, and the user
+# writes a file to the cache npm names.
+RUN mkdir -p /home/vscode/.npm && chown -R vscode:vscode /home/vscode/.npm
 USER vscode
-RUN for tool in bash cargo curl fd file find gh git jq node pi python3 rg shellcheck codebase-memory-mcp /opt/pi-rukas/bin/pi-rukas-headless; do \
+RUN for tool in bash cargo curl fd file find gh git jq node npm pi python3 rg shellcheck codebase-memory-mcp /opt/pi-rukas/bin/pi-rukas-headless; do \
       command -v "$tool" >/dev/null 2>&1 || { echo "sandbox: $tool is not in this image" >&2; exit 1; }; \
     done \
  && python3 -c 'import PIL' \
+ && { cache=$(npm config get cache) && probe=$(mktemp -p "$cache") && rm -f "$probe" \
+      || { echo "sandbox: the cycle user cannot write npm's cache ${cache:-}" >&2; exit 1; }; } \
  && if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]; then echo "sandbox: a cycle finds $(jq --version), versions.env names jq-${JQ_VERSION}" >&2; exit 1; fi \
  && case "$(rustc --version)" in "rustc ${RUST_VERSION} "*) ;; *) echo "sandbox: a cycle finds $(rustc --version), versions.env names rustc ${RUST_VERSION}" >&2; exit 1 ;; esac \
  && echo "sandbox: the tools a cycle reaches for are in the image"
