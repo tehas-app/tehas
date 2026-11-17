@@ -34,12 +34,12 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use tehas_core::exit;
 use tehas_core::sandbox::HELPER_KEY;
 use tehas_core::settings::{
     load::{self, Vars},
     INSTANCE_SETTINGS,
 };
+use tehas_core::{call, exit};
 
 const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labelers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
@@ -289,16 +289,9 @@ fn base_url(models: &Value, provider: &str) -> String {
 /// gh with the token in its environment; its standard output, trimmed, when
 /// it exits 0.
 fn gh(token: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new("gh")
-        .args(args)
-        .env("GH_TOKEN", token)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let out = call::run_input_env("gh", &args, None, call::GH_BOUND, &[("GH_TOKEN", token)]);
+    out.ok().then(|| out.out.trim().to_string())
 }
 
 /// The ids of the models the endpoint lists. The key goes to curl on
@@ -1254,12 +1247,12 @@ fn unassignable_owner(vars: &Vars) -> Option<String> {
         return None;
     }
     let repo = vars.text("TEHAS_REPO");
-    let asked = program(vars, "gh")
-        .args([
-            "api",
-            &format!("repos/{repo}/assignees/{owner}"),
-            "--silent",
-        ])
+    // Under the bound of a gh call, as timeout -k holds it: the check runs
+    // under `vars` alone, which the bounded runner does not give.
+    let bound = call::GH_BOUND.as_secs().to_string();
+    let asked = program(vars, "timeout")
+        .args(["-k", "10", &bound, "gh", "api"])
+        .args([&format!("repos/{repo}/assignees/{owner}"), "--silent"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();

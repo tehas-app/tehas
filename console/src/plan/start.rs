@@ -13,9 +13,9 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Misshaped, Paths};
 use tehas_core::text::disarm;
+use tehas_core::{call, models};
 use tehas_core::{settings, slice, time};
 
 const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
@@ -122,14 +122,16 @@ fn no_turn(why: &str, kinds: &str) -> String {
 /// A comment on the issue, its output dropped. A failure is said and changes
 /// nothing else.
 fn comment(issue: &str, body: &str) {
-    let posted = Command::new("gh")
-        .args(["issue", "comment", issue, "--repo", &var("TEHAS_REPO")])
-        .args(["--body", body])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    if !posted.is_ok_and(|s| s.success()) {
+    let posted = gh(&[
+        "issue",
+        "comment",
+        issue,
+        "--repo",
+        &var("TEHAS_REPO"),
+        "--body",
+        body,
+    ]);
+    if !posted.ok() {
         eprintln!("tehas plan: the comment on #{issue} failed");
     }
 }
@@ -152,15 +154,22 @@ fn chose_update(keep: &str, answer: &str) -> bool {
 
 /// The issue's {title, body}, as gh issue view gives them.
 fn issue_text(issue: &str) -> Option<String> {
-    let out = Command::new("gh")
-        .args(["issue", "view", issue, "--repo", &var("TEHAS_REPO")])
-        .args(["--json", "title,body"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = gh(&[
+        "issue",
+        "view",
+        issue,
+        "--repo",
+        &var("TEHAS_REPO"),
+        "--json",
+        "title,body",
+    ]);
+    out.ok().then_some(out.out)
+}
+
+/// gh under its bound, its standard input closed and what it printed held.
+fn gh(args: &[&str]) -> call::Ran {
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    call::run("gh", &args, call::GH_BOUND)
 }
 
 fn update_issue(w: &Words) -> u8 {

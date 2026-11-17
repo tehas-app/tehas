@@ -106,15 +106,9 @@ fn commit_id(word: &str) -> bool {
 
 /// The answer of `gh api`, its errors going nowhere.
 pub fn gh(path: &str) -> Option<String> {
-    let out = Command::new("gh")
-        .args(["api", path])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let args = ["api".to_string(), path.to_string()];
+    let out = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
+    out.ok().then_some(out.out)
 }
 
 /// What Docker printed, whatever came of it: a listing that failed lists
