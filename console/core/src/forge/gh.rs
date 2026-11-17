@@ -338,22 +338,32 @@ pub(crate) fn parse_typed_by(out: &str, name: &str) -> Result<Option<super::Appr
     else {
         return Err("the type's events are no list".to_string());
     };
-    let text = |e: &Value, p: &str| {
-        e.pointer(p)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
     let set = nodes.last().filter(|e| {
         matches!(
             e.get("__typename").and_then(Value::as_str),
             Some("IssueTypeAddedEvent" | "IssueTypeChangedEvent")
         ) && e.pointer("/issueType/name").and_then(Value::as_str) == Some(name)
     });
-    Ok(Some(set.map_or_else(super::Approval::default, |e| {
-        super::Approval {
-            actor: text(e, "/actor/login"),
-            at: text(e, "/createdAt"),
-        }
-    })))
+    let Some(e) = set else {
+        return Ok(Some(super::Approval::default()));
+    };
+    // Absent or null is a fact: the account is gone, or no stamp. Any other
+    // type is a malformed answer, refused as in `page_events`, so it is not
+    // read as an account that is gone.
+    let actor = match e.get("actor") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(a)) => a.get("login"),
+        Some(_) => return Err("a type event's actor is no text".to_string()),
+    };
+    let actor = match actor {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err("a type event's actor is no text".to_string()),
+    };
+    let at = match e.get("createdAt") {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err("a type event's stamp is no text".to_string()),
+    };
+    Ok(Some(super::Approval { actor, at }))
 }
