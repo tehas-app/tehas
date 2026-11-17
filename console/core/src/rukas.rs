@@ -36,7 +36,7 @@ pub fn target(
         let commit = follow.strip_prefix("commit:")?;
         (commit.to_string(), "pinned".to_string())
     };
-    commit_shaped(&commit).then_some((commit, what))
+    crate::grammar::commit_id(&commit).then_some((commit, what))
 }
 
 /// The image upstream publishes for `commit` of `repo`:
@@ -50,7 +50,7 @@ pub fn image(repo: &str, commit: &str) -> Option<String> {
     };
     let path = repo.strip_prefix("https://github.com/")?;
     let (owner, name) = path.split_once('/')?;
-    if !word(owner) || !word(name) || !commit_shaped(commit) {
+    if !word(owner) || !word(name) || !crate::grammar::commit_id(commit) {
         return None;
     }
     let path = path.strip_suffix(".git").unwrap_or(path);
@@ -118,10 +118,6 @@ fn digest_shaped(v: &str) -> bool {
     v.len() == 71
         && v.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b':')
-}
-
-fn commit_shaped(c: &str) -> bool {
-    c.len() == 40 && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn digits(s: &str) -> Option<u32> {

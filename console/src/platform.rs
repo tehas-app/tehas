@@ -200,8 +200,7 @@ fn release(home: &Path, live: &Path, installed: &str) {
 fn built_from(home: &Path) -> Option<String> {
     let text = fs::read_to_string(home.join("current/COMMIT")).ok()?;
     let line = text.lines().next()?.trim();
-    let hex = line.len() == 40 && line.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    hex.then(|| line.to_string())
+    tehas_core::grammar::commit_id(line).then(|| line.to_string())
 }
 
 fn git(co: &Path, args: &[&str]) -> Option<String> {

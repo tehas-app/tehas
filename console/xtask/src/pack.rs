@@ -122,14 +122,6 @@ pub fn is_tag(tag: &str) -> bool {
     tehas_core::version::is_tag(tag)
 }
 
-fn is_digits(s: &str, ok: impl Fn(char) -> bool) -> bool {
-    !s.is_empty() && s.chars().all(ok)
-}
-
-fn is_hex(s: &str, len: usize) -> bool {
-    s.len() == len && is_digits(s, |c| matches!(c, '0'..='9' | 'a'..='f'))
-}
-
 /// The two bytes of e_machine, at offset 18 of an ELF header, little endian.
 pub fn want_machine(arch: &str) -> Option<&'static str> {
     match arch {
@@ -371,10 +363,10 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
     let commit = a.commit.to_lowercase();
     let rukas_commit = a.rukas_commit.to_lowercase();
     let rukas_digest = a.rukas_digest.to_lowercase();
-    if !commit.is_empty() && !is_hex(&commit, 40) {
+    if !commit.is_empty() && !tehas_core::grammar::commit_id(&commit) {
         return fail(1, format!("--commit must be 40 hex digits: {commit}"));
     }
-    if !rukas_commit.is_empty() && !is_hex(&rukas_commit, 40) {
+    if !rukas_commit.is_empty() && !tehas_core::grammar::commit_id(&rukas_commit) {
         return fail(
             1,
             format!("--rukas-commit must be 40 hex digits: {rukas_commit}"),
@@ -383,7 +375,7 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
     if !rukas_digest.is_empty()
         && !rukas_digest
             .strip_prefix("sha256:")
-            .is_some_and(|h| is_hex(h, 64))
+            .is_some_and(|h| tehas_core::grammar::is_hex(h, 64, 64))
     {
         return fail(
             1,

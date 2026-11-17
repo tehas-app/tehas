@@ -850,7 +850,7 @@ fn follow(v: &str) -> Result<(), String> {
     }
     if let Some(sha) = v.strip_prefix("commit:") {
         // The whole commit: an abbreviation could name another one later.
-        if sha.len() == 40 && all(sha, |c| matches!(c, '0'..='9' | 'a'..='f')) {
+        if crate::grammar::commit_id(sha) {
             return Ok(());
         }
         return Err("expected commit: and 40 lower-case hex digits".into());
