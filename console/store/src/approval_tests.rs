@@ -716,6 +716,14 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             write_file(&home, "number.json", br#"{"driver":1}"#),
             "holds driver of another type",
         ),
+        (
+            write_file(&home, "contractor.json", br#"{"contractor":"-box"}"#),
+            "holds contractor of another type",
+        ),
+        (
+            write_file(&home, "contractor-n.json", br#"{"contractor":7}"#),
+            "holds contractor of another type",
+        ),
     ];
     for (file, says) in cases {
         let (code, line) = record_with(&home, 41, 5, &file).unwrap_err();
@@ -841,6 +849,19 @@ fn the_driver_is_kept_with_the_inputs_and_a_record_without_one_names_none() {
     assert_eq!(current(&home, 44)["approval"]["input"].get("driver"), None);
     record(&home, 45, 5, "alice", "label");
     assert_eq!(current(&home, 45)["approval"]["input"], Value::Null);
+}
+
+/// The contractor an outsourced start was placed on lives in the inputs too,
+/// as the driver does.
+#[test]
+fn the_contractor_is_kept_with_the_inputs() {
+    let home = home("approval-contractor");
+    let out = write_file(&home, "out.json", br#"{"links":[],"contractor":"box-1"}"#);
+    record_with(&home, 43, 5, &out).unwrap();
+    assert_eq!(
+        current(&home, 43)["approval"]["input"]["contractor"],
+        "box-1"
+    );
 }
 
 #[test]
