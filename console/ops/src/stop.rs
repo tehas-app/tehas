@@ -29,6 +29,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::cycle_notes;
 use tehas_core::lock::{probe, Probe};
+use tehas_core::settings::rules::is_repo;
 
 pub const USAGE: &str = include_str!("../../src/usage/stop.txt");
 
@@ -569,14 +570,10 @@ fn repo_refusal(repo: &str) -> Option<&'static str> {
     if repo.trim_matches(' ').is_empty() {
         return Some("is not set");
     }
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
-    match repo.split_once('/') {
-        Some((owner, name)) if part(owner) && part(name) => None,
-        _ => Some("is not valid: expected owner/name"),
+    if is_repo(repo) {
+        None
+    } else {
+        Some("is not valid: expected owner/name")
     }
 }
 
