@@ -200,7 +200,7 @@ t_lacks "$(t_calls gh)" "comments?per_page"
 
 t_case "with comments on, the record takes the links of comments an allowed account wrote before the label"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
 jq -n --arg body "![a]($A/1111)" '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
 {
@@ -229,7 +229,7 @@ t_lacks "$(approval)" "$A/8888"
 
 t_case "a retry tick's record takes the comments written before the tick"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 comments 7 "$(park_body x ' ')" alice
 {
   echo '['
@@ -249,7 +249,7 @@ t_eq "$(at_mark '[.how, (.comment_links | map(.source))]')" '["retry-tick",["com
 # the clean-start box.
 t_case "a retry tick of the issue alone reads no comment with the comments setting on"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 comments 7 "$(park_body ' ' x ' ')" alice
 echo '[]' >"$fx/icomments-7.json"
 echo '[{"number":30,"headRefName":"feature/issue-7-search","body":""}]' >"$fx/prlist.json"
@@ -265,7 +265,7 @@ t_lacks "$(t_calls gh)" "issues/7/comments?per_page"
 
 t_case "a retry tick takes what allowed accounts wrote on the cycle's pull request up to the tick"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 comments 7 "$(park_body x ' ')" alice
 echo '[]' >"$fx/icomments-7.json"
 echo '[{"number":30,"headRefName":"feature/issue-7-search","body":""},{"number":31,"headRefName":"feature/issue-8-other","body":""},{"number":32,"headRefName":"x","body":"Fixes #7"}]' >"$fx/prlist.json"
@@ -282,7 +282,7 @@ echo '[{"number":30,"headRefName":"feature/issue-7-search","body":""},{"number":
 } >"$fx/icomments-30.json"
 icomment 81 alice 2026-01-01T00:30:00Z 2026-01-01T00:30:00Z "other issue ![o]($A/8181)" | jq -s . >"$fx/icomments-31.json"
 icomment 91 bob 2026-01-01T00:40:00Z 2026-01-01T00:40:00Z "second PR" | jq -s . >"$fx/icomments-32.json"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1 'TEHAS_ALLOWED_LABELERS="alice bob"'
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1 'TEHAS_ALLOWED_LABELERS="alice bob"'
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
@@ -298,7 +298,7 @@ t_lacks "$(t_calls gh)" "issues/31/comments"
 
 t_case "a start by label reads no pull request"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 echo '[]' >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -316,7 +316,7 @@ t_eq "$(approval '[has("comment_links"), (.retry_context | map(.source))]')" '[f
 
 t_case "pull requests that cannot be listed start no retry and change no label: exit 1"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 comments 7 "$(park_body x ' ')" alice
 echo '[]' >"$fx/icomments-7.json"
 : >"$fx/pr-fails"
@@ -328,7 +328,7 @@ t_eq "$(t_calls fake-start)" ""
 
 t_case "comments that cannot be read start nothing and change no label: exit 1"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
 : >"$fx/icomments-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1

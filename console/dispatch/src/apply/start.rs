@@ -41,7 +41,7 @@ pub struct Host {
     pub refused_labels: Vec<String>,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
-    /// TEHAS_OWNER: the person a claimed issue is assigned to, or empty.
+    /// TEHAS_ASSIGNEE: the person a claimed issue is assigned to, or empty.
     pub owner: String,
     pub systemctl: String,
     /// TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD, which a test sets.

@@ -80,8 +80,8 @@ the factory works the same without it.
 | Work by hand         | `tehas dev`, for a person with an account on the host; one step as root lets the account in. See [Operating](/operating) | Work arrives as issues only |
 | Protolab             | Only if you label issues `tehas:prototype`. The dispatcher never acts on that label              | The Protolab is empty                                  |
 | Previews             | `TEHAS_PREVIEWS=on` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
-| Search indexing      | `TEHAS_INDEXING=on`, for an instance published on the internet                                    | Every page says noindex                                |
-| Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
+| Search indexing      | `TEHAS_SITE_INDEXING=on`, for an instance published on the internet                                    | Every page says noindex                                |
+| Visitor analytics    | `TEHAS_SITE_ANALYTICS_SRC` and `TEHAS_SITE_ANALYTICS_NAME`, for an instance that wants to count visits     | No script is loaded                                    |
 | Pixel design         | `TEHAS_DESIGN=pixel`: the whole site in 16-bit pixel art, with the factory floor at `/`         | Every page is beesknees26, with the business page at `/` |
 
 ## Start here

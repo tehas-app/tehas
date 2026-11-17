@@ -189,7 +189,9 @@ pub fn record_here(accept: &[String]) -> u8 {
         .iter()
         .find(|a| !logins.iter().any(|l| account(l) == account(a)))
     {
-        eprintln!("tehas: --accept-id {a} names no login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN");
+        eprintln!(
+            "tehas: --accept-id {a} names no login of TEHAS_ALLOWED_LABELERS or the millwright"
+        );
         return 64;
     }
     if env::var("GH_TOKEN").unwrap_or_default().is_empty() {

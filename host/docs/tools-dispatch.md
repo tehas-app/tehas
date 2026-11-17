@@ -32,7 +32,7 @@ there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, free disk of at least
 `TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own,
 the free slots
-(`TEHAS_TICKET_CONCURRENCY` less the running cycles, after that housekeeping),
+(`TEHAS_MAX_CYCLES` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
 ceilings and the memory pressure in the slice, then who applied `tehas:ready`,
 then whether `tehas:blocked` holds it. The candidates come in this order: the

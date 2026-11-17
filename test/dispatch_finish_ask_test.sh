@@ -19,7 +19,7 @@ echo "https://github.com/acme/widget/pull/90"'
 asked() { # <who>
   reset
   T_ENV+=(TEHAS_FINISH_CMD=fake-finish)
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
   rm -f "$fx/finish-refuses"
   echo '[]' >"$fx/ready.json"
   echo '{"number":7,"state":"open","labels":[{"name":"tehas:finish"}]}' >"$fx/work-7.json"

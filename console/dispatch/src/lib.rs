@@ -11,7 +11,6 @@ pub mod questions;
 pub mod read;
 pub mod refresh;
 pub mod settings;
-pub mod slots;
 pub mod snapshot;
 pub mod text;
 

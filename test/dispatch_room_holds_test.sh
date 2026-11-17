@@ -304,7 +304,7 @@ mesh_curl
 
 t_case "a role's own model the endpoint does not offer holds the start, and the endpoint is asked once"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
 mesh '{"data":[{"id":"test-model"}]}'
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
@@ -312,13 +312,13 @@ t_eq "$(grep -c "holding: no resources: the model endpoint does not offer small-
 t_eq "$(t_calls curl | grep -c '/models$')" 1
 mesh '{"data":[{"id":"test-model"},{"id":"small-model"}]}'
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
 t_case "a role on a provider of its own is asked of that provider's endpoint"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other
 mesh '{"data":[{"id":"test-model"}]}'
 echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"},"other":{"baseUrl":"http://other.test/v1"}}}' >"$T/home/.pi/agent/models.json"
 t_run "$dispatch"
@@ -412,7 +412,7 @@ t_eq "$(jq -c 'has("endpoint")' "$dispatch_json")" false
 # A role on another provider does not move the word: the subagent's own
 # endpoint is the one published.
 reset
-T_ENV+=("${keys[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other)
+T_ENV+=("${keys[@]}" TEHAS_MAX_CYCLES=1 PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other)
 mesh '{"data":[{"id":"test-model"}]}'
 backed '{"data":[{"id":"test-model"}]}'
 echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"},"other":{"baseUrl":"http://other.test/v1"}}}' >"$T/home/.pi/agent/models.json"

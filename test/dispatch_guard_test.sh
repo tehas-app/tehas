@@ -333,7 +333,7 @@ t_eq "$(t_calls gh)" ""
 # The poll's own guard. tehas-dispatch reads its settings from the environment,
 # with no shell before it that loaded them, so it names what it needs: the five
 # an instance has to set itself, which `console settings required` answers, and
-# TEHAS_HOME, TEHAS_INSTANCE_DIR and TEHAS_TICKET_CONCURRENCY, which a load
+# TEHAS_HOME, TEHAS_INSTANCE_DIR and TEHAS_MAX_CYCLES, which a load
 # always leaves set and a poll cannot guess. The lists are tehas-core's
 # (console/core/src/settings.rs); what is read here is what the two answer.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
@@ -579,7 +579,7 @@ t_lacks "$(t_calls gh)" "off this issue, put"
 t_case "the measure is asked only when the instance names a ceiling"
 wide_issue 6
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 

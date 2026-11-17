@@ -279,7 +279,7 @@
     ]
    },
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     7
@@ -330,7 +330,7 @@
   {
    "case": "an issue that waits behind its own cycle does not hold back the next one",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     "7",

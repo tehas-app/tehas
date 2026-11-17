@@ -593,7 +593,7 @@
   {
    "case": "a workspace whose issue's lock is held is kept, however old, and so are its transcripts and its console",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     5

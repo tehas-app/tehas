@@ -305,7 +305,7 @@ t_says "$update" '"args_unreadable": true'
 
 # ---------------------------------------------------------------------------
 # The compose lines of the manual, and the environment they are run in. The two
-# files of host/edge read TEHAS_DESIGN, TEHAS_INDEXING, TEHAS_ANALYTICS_* and
+# files of host/edge read TEHAS_DESIGN, TEHAS_SITE_INDEXING, TEHAS_ANALYTICS_* and
 # TEHAS_HOST_ADDR from the shell that starts them, so a line that runs compose
 # straight recreates a container from the defaults: a host of TEHAS_DESIGN=pixel
 # is drawn in beesknees26, and the ports bind to 127.0.0.1. `edge/` stands for

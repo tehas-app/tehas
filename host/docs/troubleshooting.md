@@ -111,7 +111,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   flag file is damaged, and a switch that cannot be read is taken as closed.
   `tehas resume` removes it; `tehas pause` writes one that can be read.
 - `holding: N cycles are running (limit N)`: the ceiling is reached. Wait for
-  a cycle to end, or raise `TEHAS_TICKET_CONCURRENCY`.
+  a cycle to end, or raise `TEHAS_MAX_CYCLES`.
 - `holding: tehas.slice has no room for another cycle (X GiB of Y GiB promised,
   each cycle is given R)`: the containers in the slice are promised, or use,
   so much that one more reserve does not fit. Every container counts: cycles,
@@ -189,8 +189,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
   blank value is ignored.
-- `TEHAS_IMPROVE_REPO is no longer read: this version of tehas has no
-  improvement loop, so take the line out` (the same for
+- `TEHAS_IMPROVE_REPO is no longer read: the improvement loop is removed, so
+  take the line out` (the same for
   `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and
   `TEHAS_IMPROVE_MAX_OPEN`): every command stops with 78 while the instance
   sets one of them to a value. Take the line out. A blank value, and
@@ -198,10 +198,16 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `TEHAS_CYCLE_REPORT is no longer read: the cycle's report has one form, so
   take the line out`: every command stops with 78 while the instance sets it
   to a value, `rust` too. Take the line out. A blank value is ignored.
-- `TEHAS_EASY_MERGE is no longer read: this version of tehas has no easy
-  merge, every refresh is the full refresh cycle, so take the line out`: every
+- `TEHAS_EASY_MERGE is no longer read: the easy merge is removed and every
+  refresh is the full refresh cycle, so take the line out`: every
   command stops with 78 while the instance sets it to 1 or any value but 0.
   Take the line out. A blank value and `TEHAS_EASY_MERGE=0` are ignored.
+- `<NAME> is no longer read: tehas 1.0 renamed it <NEW> (...), so rename the
+  line` or `<NAME> is no longer read: <why>, so take the line out`: a setting
+  tehas 1.0 renamed or removed, a row of `api/renames-1.0.tsv`, is still in
+  `instance.env` or `~/.config/tehas/env`. Every command stops with 78 until
+  the line is renamed or taken out. `tehas update --check` lists every such
+  line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the
@@ -505,7 +511,7 @@ The common ones:
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 | `signal`                            | A `TERM`, `INT` or `HUP` came to `tehas work` (the unit was stopped, or the host shut down) and it stopped the container. The record's `capReason` names the signal and the step, and a run of the gate the stop cut short is closed in the stream by a `verify-aborted` line | Retry once the host is back; nothing in the issue caused it |
 | `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
-| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
+| `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 | `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry (under `TEHAS_DRIVER=lean`, apply `tehas:classic` instead). The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |

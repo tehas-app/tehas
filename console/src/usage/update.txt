@@ -92,7 +92,7 @@ with an install.sh; without one this command stops rather than guess at
 another directory.
 
 Before anything moves, the update asks GitHub for the user id of each login
-of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN and records the pairs in
+of TEHAS_ALLOWED_LABELERS and of the millwright and records the pairs in
 $TEHAS_HOME/state/account-ids. Every label, tick, answer and comment counts only
 when its account carries the recorded id, so a login that was renamed and
 taken by someone else authorises nothing. A login that does not resolve, or
@@ -174,10 +174,12 @@ Exit: 0 updated, or already up to date,
         with --check or with --to, --accept-id without a login, with --check
         or --pending, or with a login of neither setting, or an argument this
         command does not know
-      78 a login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN does not
+      78 a login of TEHAS_ALLOWED_LABELERS or the millwright's does not
         resolve, GitHub could not be asked for its user id, or its id is not
         the recorded one (nothing is changed),
-        the instance settings are missing or malformed, no console stands
+        the instance settings are missing or malformed (a setting tehas 1.0
+        renamed or removed among them: install.sh lists every such line and
+        installs nothing), no console stands
         beside this command, there is no platform checkout, the host has neither one nor ~/tehas/current and
         no TEHAS_UPDATE_FROM, or the release to switch to asks for a setting
         the instance does not have (nothing is switched). --pending asks for

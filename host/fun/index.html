@@ -11,7 +11,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  {{- if ne (env "TEHAS_INDEXING") "1" }}
+  {{- if ne (env "TEHAS_SITE_INDEXING") "1" }}
   <meta name="robots" content="noindex, nofollow">
   {{- end }}
   <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
@@ -63,8 +63,8 @@
   <link rel="stylesheet" href="/fun/host-view.css">
   <link rel="stylesheet" href="/fun/panels.css">
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
-  {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
-  <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
+  {{- if and (env "TEHAS_SITE_ANALYTICS_SRC") (env "TEHAS_SITE_ANALYTICS_NAME") }}
+  <script async src="{{ env "TEHAS_SITE_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_SITE_ANALYTICS_NAME" }}"{{ if eq (env "TEHAS_SITE_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
   {{- end }}
 </head>
 <body id="top">

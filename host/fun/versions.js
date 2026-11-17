@@ -1,8 +1,8 @@
 // The versions in the footers of the two front pages, and the host messages
 // at their top, read from the factory's health (/live/health.json, written by
 // tehasbot health): tehas from checks.platform, the pi-rukas the sandbox image
-// runs from checks.rukas, the industry that runs the factory from
-// checks.industry, when there is one, and the messages of tehas host-message
+// runs from checks.rukas, the program that manages the factory from
+// checks.manager, when there is one, and the messages of tehas host-message
 // from checks.hostMessages. So the footer, the banner, /health and the MCP
 // server tell one story, however the image was built.
 //
@@ -20,7 +20,7 @@
   const object = (o) => (o !== null && typeof o === "object" ? o : {});
   const text = (s) => (typeof s === "string" ? s.slice(0, 200) : "");
 
-  // "tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0", or null when the
+  // "tehas v0.24.6 · pi-rukas v0.14.54 · manager v0.9.0", or null when the
   // file names none of them.
   function line(health) {
     const checks = object(object(health).checks);
@@ -29,7 +29,7 @@
     const parts = [
       ["tehas", version(platform.release) ?? commit(platform.commit)],
       ["pi-rukas", version(rukas.imageVersion) ?? commit(rukas.image)],
-      ["industry", version(object(checks.industry).version)],
+      ["manager", version(object(checks.manager).version)],
     ];
     const said = parts.filter(([, v]) => v).map(([name, v]) => `${name} ${v}`);
     return said.length ? said.join(" · ") : null;

@@ -34,3 +34,26 @@ word	refresh-pr-lane	refresh-pr	folded into one word
 word	refresh-pr-json	refresh-pr	folded into one word
 word	host-message-health	host-message	folded into one word
 value	TEHAS_ENERGY=<word>	on	TEHAS_ENERGY takes on, off, 1 or 0 like every switch; any other word stops every command with 78
+setting	TEHAS_IMPROVE_REPO		the improvement loop is removed
+setting	TEHAS_IMPROVE_RUKAS_REPO		the improvement loop is removed
+setting	TEHAS_IMPROVE_RUKAS_SKIP		the improvement loop is removed
+setting	TEHAS_IMPROVE_MAX_OPEN		the improvement loop is removed
+setting	TEHAS_EASY_MERGE		the easy merge is removed and every refresh is the full refresh cycle
+setting	TEHAS_CYCLE_REPORT		the cycle's report has one form
+setting	TEHAS_CONTAINER_MEMORY		auto sizing is removed and this sized only the auto count
+setting	TEHAS_CYCLE_CPUS		auto sizing is removed and this sized only the auto count
+setting	TEHAS_CYCLE_CEILING		auto sizing is removed and this bounded only the auto count
+setting	TEHAS_MILLWRIGHT_LOGIN		the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names
+setting	TEHAS_BOT_LOGIN		the bot is the GitHub App's login, kept in state/github/login
+setting	TEHAS_GITHUB_APP_INSTALLATION		the installation is looked up from TEHAS_GITHUB_APP_ID
+field	status.room.slots		auto sizing is removed and the object was filled only for the auto count
+setting	TEHAS_INDEXING	TEHAS_SITE_INDEXING	search engines may index the site; same values
+setting	TEHAS_ANALYTICS_SRC	TEHAS_SITE_ANALYTICS_SRC	the site's visitor tracker; TEHAS_ANALYTICS is unchanged
+setting	TEHAS_ANALYTICS_SITE	TEHAS_SITE_ANALYTICS_NAME	the site's visitor tracker; same values
+setting	TEHAS_ANALYTICS_COOKIE	TEHAS_SITE_ANALYTICS_COOKIE	the site's visitor tracker; same values
+setting	TEHAS_CONCURRENCY	TEHAS_WORKSTREAMS	workstreams inside one cycle; same values
+setting	TEHAS_TICKET_CONCURRENCY	TEHAS_MAX_CYCLES	the most cycles side by side; same values
+setting	TEHAS_REFRESH_MAX	TEHAS_REFRESH_MAX_PER_PR	refreshes of one pull request since its approval; same values
+setting	TEHAS_OWNER	TEHAS_ASSIGNEE	the login a claimed issue is assigned to; same values
+setting	TEHAS_INDUSTRY_VERSION	TEHAS_MANAGER_VERSION	in ~/.config/tehas/env, written by the program that manages the factory; same values; the old name is ignored, not refused
+field	factory_status.industry	factory_status.manager	the program that manages the factory, as health's checks.manager has it
