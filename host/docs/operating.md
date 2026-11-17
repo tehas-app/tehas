@@ -1627,12 +1627,27 @@ recording, and both commands then say so and exit 78.
 - No new cycle while the sandbox cannot push. A start whose push check is
   refused leaves `~/tehas/state/push-fault.json` (see
   [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)), and
-  while that file is younger than ten minutes the poll starts no cycle and
-  logs `holding: the sandbox cannot push: <git's line> (<login>)` once, so
-  every ready issue does not fail the same check in turn. Past ten minutes the
-  poll starts as it does today, and the start whose check passes takes the
-  file off again. Running cycles, planning turns and refreshes are not held by
-  it: what a refresh pushes already stands on the remote.
+  while that file stands the poll starts no cycle and logs
+  `holding: the sandbox cannot push: <git's line> (<login>)` once, so every
+  ready issue does not fail the same check in turn. `tehas status` says
+  `push      the sandbox cannot push: <git's line> (<login>)` and
+  `tehasbot health` fails the page with it, so the host says it without anyone
+  reading the log.
+  Once the file is ten minutes old the poll asks the sandbox itself, before
+  it reads the queue, with no cycle spent on it. It runs the dry-run push a
+  start runs, with the App's cycle token, in a fresh copy of the product
+  checkout under `~/tehas/state/push-probe` that it removes after, bounded
+  like a start's check. No container is given the checkout itself, and the
+  image is not pulled inside the poll (`--pull=never`). It asks only when the
+  poll could start a cycle: not while the factory is paused or nothing is
+  ready or approved. A check that passes takes the file off and the
+  queue starts. One that is refused writes the fault fresh, and the hold starts
+  again from that moment. When the poll cannot ask at all (no sandbox image,
+  no cycle token, docker or its daemon not there), it records nothing, logs
+  `WARN: the sandbox could not be asked whether it can push: ...`, and starts
+  as it would with no fault: the start's own check decides. Running cycles,
+  planning turns and refreshes are not held by it: what a refresh pushes
+  already stands on the remote.
 - With `TEHAS_WORK_IMAGES=on`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at

@@ -19,8 +19,8 @@
 use crate::apply::start::Host;
 use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
-use crate::read::build::{fill, snapshot, Sources};
-use crate::read::host::hostname;
+use crate::read::build::{fill, may_start, snapshot, Sources};
+use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
@@ -390,6 +390,7 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
+            container_memory: env("TEHAS_CONTAINER_MEMORY"),
             plan_cmd: match opt("TEHAS_PLAN_CMD") {
                 Some(cmd) => vec![cmd],
                 None => vec![
@@ -420,6 +421,9 @@ fn writer(
                 Ok(n) => Duration::from_secs(n),
                 Err(_) => Duration::from_secs(120),
             },
+            push_probe_cmd: opt("TEHAS_PUSH_PROBE_CMD"),
+            push_probe_wait: secs("TEHAS_PREFLIGHT_WAIT", 300),
+            aliases: env("PI_ENSEMBLE_HOST_ALIASES"),
         },
         ended: None,
         spend: None,
@@ -810,6 +814,19 @@ fn body(
     };
     for l in refresh_warn(&snap) {
         say(l);
+    }
+    // A push fault that has aged out is asked about before the rules read it:
+    // the record left behind is what holds the starts. A probe the host could
+    // not run holds nothing, so the start's own check decides, as before. A
+    // poll that could start nothing asks nothing: the record holds no start.
+    if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before)
+        && may_start(&snap, settings)
+    {
+        let (lines, holds) = w.push_probe(dry);
+        for l in &lines {
+            say(l);
+        }
+        snap["push_fault"] = if holds { push_fault(home) } else { Value::Null };
     }
     let (said, refused) = crate::pins::settle(home, &mut snap, dry);
     for l in &said {

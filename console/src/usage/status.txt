@@ -22,6 +22,7 @@ Usage: tehas status [--json]
   cycle     #12 handoff at step review, 3 min ago
   plan      #7 turn 2 running, started 12 min ago
   slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
+  push      the sandbox cannot push: remote: Permission denied (tehas-bot)
   platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 min ago
 
 A plan line is there for each planning turn in flight, and for each open
@@ -30,13 +31,18 @@ planning session whose last turn ended in error and waits for a person
 "holding: ..." when the last poll held cycles back, and "unknown: no poll
 has reported in 10 min" when no poll got as far as reading the slice in that
 time, as while the factory is paused. The platform line is there only on a
-host with a platform checkout, the poll line only with a poll on record.
+host with a platform checkout, the poll line only with a poll on record. The
+push line is there only while the sandbox cannot push
+(~/tehas/state/push-fault.json): the poll starts no cycle then, and the
+factory fails.
 
 With --json the same facts as one object on standard output, for a program
 (host/docs/api.md has every field):
   {"api": 1, "time": "...", "age": 40, "stale": false, "state": "pass",
    "reasons": [], "paused": {"local": false, "label": false},
-   "allHands": false, "limit": {"state": "none"},
+   "allHands": false,
+   "pushFault": {"at": "...", "login": "tehas-bot", "line": "..."},
+   "limit": {"state": "none"},
    "running": [{"issue": 12, "since": "...", "progress": {"step": "review"}}],
    "planning": [{"issue": 7, "turn": 2, "since": "..."}],
    "demand": {"waiting": 2, "oldestWait": 5400},
@@ -45,5 +51,6 @@ With --json the same facts as one object on standard output, for a program
 Without a health file it prints nothing on standard output.
 
 Exit: 0 the factory is taking work or is paused (pass, warn); 3 it is not
-(fail), the file is older than ten minutes, or there is no health file yet;
+(fail, as while the sandbox cannot push), the file is older than ten minutes,
+or there is no health file yet;
 64 an argument other than --json.

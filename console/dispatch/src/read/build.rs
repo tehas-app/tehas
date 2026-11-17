@@ -709,6 +709,14 @@ fn blocker_reads(
 /// Whether the poll stops at the pause, as decide's pause_flag and
 /// pause_label find it. A read that failed is not a pause: decide ends the
 /// poll on it.
+/// Whether the poll may start a cycle at all: not paused, and an issue ready
+/// or approved by `tehas start`. A poll that can start nothing has no start for
+/// the push probe to free, and asks the sandbox nothing.
+pub fn may_start(s: &Value, c: &Settings) -> bool {
+    let waiting = |k: &str| s[k].as_array().is_some_and(|a| !a.is_empty());
+    !paused(s, c) && (waiting("ready") || waiting("host_starts"))
+}
+
 fn paused(s: &Value, c: &Settings) -> bool {
     if !s["pause_flag"].is_null() {
         return true;
