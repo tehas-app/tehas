@@ -27,12 +27,20 @@ pub struct Feature {
     pub since: &'static str,
 }
 
-pub const FEATURES: &[Feature] = &[Feature {
-    name: "outsource",
-    stage: Stage::Building,
-    setting: "TEHAS_OUTSOURCE",
-    since: "v1.0.0-alpha.2",
-}];
+pub const FEATURES: &[Feature] = &[
+    Feature {
+        name: "outsource",
+        stage: Stage::Building,
+        setting: "TEHAS_OUTSOURCE",
+        since: "v1.0.0-alpha.2",
+    },
+    Feature {
+        name: "spec-pipe",
+        stage: Stage::Building,
+        setting: "TEHAS_SPEC_PIPE",
+        since: "v1.0.0-alpha.3",
+    },
+];
 
 /// The internal variable that lets a test turn building features on: their
 /// names, one space apart.
@@ -136,6 +144,19 @@ mod tests {
     fn outsource_is_building() {
         assert_eq!(find("outsource").map(|f| f.stage), Some(Stage::Building));
         assert!(!shipped().contains(&"outsource"));
+    }
+
+    #[test]
+    fn the_spec_pipe_is_building_and_follows_its_switch_only_in_a_test() {
+        assert_eq!(find("spec-pipe").map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&"spec-pipe"));
+        assert!(!on_in("spec-pipe", &vars(&[("TEHAS_SPEC_PIPE", "on")])));
+        let tested = vars(&[("TEHAS_SPEC_PIPE", "on"), (TEST_VAR, "spec-pipe")]);
+        assert!(on_in("spec-pipe", &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_SPEC_PIPE", "1")])),
+            Err("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out".to_string())
+        );
     }
 
     #[test]

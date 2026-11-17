@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::sync::{LazyLock, OnceLock};
 pub use tehas_core::approval::{body_sha256, title_sha256};
+use tehas_core::grammar::{SpecMark, SPEC_MARK};
 /// The info string of the block, the one name the reader of a body and the
 /// writer of one both use.
 pub use tehas_core::plan::SPEC_INFO;
@@ -46,6 +47,31 @@ pub fn no_spec_said(ask: &str) -> String {
         return format!("its text holds no `{SPEC_INFO}` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and the host approves it again with `tehas start`.");
     }
     format!("its text holds no `{SPEC_INFO}` block for the lean driver to read: it is not there, or it is not the one block of valid JSON lean needs. A person writes that block, and applies `{ask}` again.")
+}
+
+/// The spec an issue's body marks, by the one grammar of the line
+/// (tehas_core::grammar::spec_mark), with its link held to the link rule of
+/// console/attach: only a file of GitHub's storage is ever fetched for it.
+pub fn spec_mark(body: &str) -> Result<Option<SpecMark>, String> {
+    let mark = tehas_core::grammar::spec_mark(body)?;
+    if let Some(m) = &mark {
+        if !attach::link::is_link(&m.link) {
+            return Err(format!(
+                "the link of its `{SPEC_MARK}` line is not a file attached on GitHub"
+            ));
+        }
+    }
+    Ok(mark)
+}
+
+/// What the poll says on an issue whose `Spec:` line it cannot read: the
+/// reason `why` from [`spec_mark`], and what a person does next.
+pub fn no_mark_said(ask: &str, why: &str) -> String {
+    let fix = format!("A person writes the one line `{SPEC_MARK} <link of the attached file> sha256:<64 hex digits of its bytes>`, or takes it out,");
+    if ask == crate::decide::HOST {
+        return format!("{why}. {fix} and the host approves it again with `tehas start`.");
+    }
+    format!("{why}. {fix} and applies `{ask}` again.")
 }
 
 /// What a plan's start binds: the title and the body together, without the
@@ -455,6 +481,43 @@ mod tests {
         );
         // Non-ASCII digits are no reference at all: u64 refuses them.
         assert!(closing_numbers("Closes #٧ and #8").is_empty());
+    }
+
+    #[test]
+    fn a_spec_mark_links_only_a_file_attached_on_github() {
+        let h = "c".repeat(64);
+        for link in [
+            "https://github.com/user-attachments/files/12/spec.md",
+            "https://github.com/acme/widget/files/34/spec.md",
+        ] {
+            let got = spec_mark(&format!("Do it.\n\nSpec: {link} sha256:{h}\n"));
+            let want = SpecMark {
+                link: link.into(),
+                sha256: h.clone(),
+            };
+            assert_eq!(got, Ok(Some(want)), "{link}");
+        }
+        for link in [
+            "https://example.com/spec.md",
+            "http://github.com/user-attachments/files/12/spec.md",
+            "docs/specs/spec.md",
+            "https://github.com/user-attachments/files/12/../x",
+        ] {
+            assert_eq!(
+                spec_mark(&format!("Spec: {link} sha256:{h}")),
+                Err("the link of its `Spec:` line is not a file attached on GitHub".into()),
+                "{link}"
+            );
+        }
+        assert_eq!(spec_mark("No mark."), Ok(None));
+        assert_eq!(
+            spec_mark("Spec: docs/specs/spec.md"),
+            Err("its `Spec:` line is not a link and its sha256".into())
+        );
+        let said = no_mark_said("tehas:ready", "it has more than one `Spec:` line");
+        assert!(said.starts_with("it has more than one `Spec:` line. A person writes"));
+        assert!(said.ends_with("and applies `tehas:ready` again."));
+        assert!(no_mark_said(crate::decide::HOST, "x").ends_with("`tehas start`."));
     }
 
     #[test]

@@ -1659,6 +1659,25 @@ impl<'a> Poll<'a> {
         Ok(false)
     }
 
+    /// mark_ok: with the spec-pipe feature on, an issue whose body has a
+    /// `Spec:` line tehas cannot read starts nothing: the labels that asked
+    /// come off and the reason is said once. A body with no such line starts
+    /// as before. Off, the body is asked nothing.
+    fn mark_ok(&mut self, n: u64, ask: &str, labels: &[String]) -> Step<bool> {
+        if !self.c.spec_pipe {
+            return Ok(true);
+        }
+        let Some(body) = self.body(n) else {
+            return Err(self.fail(format!("ERROR: the text of #{n} could not be read"), 1));
+        };
+        let Err(why) = text::spec_mark(&body) else {
+            return Ok(true);
+        };
+        self.log(format!("skip #{n}: {why}"));
+        self.refuse_start(n, ask, labels, &text::no_mark_said(ask, &why), &why);
+        Ok(false)
+    }
+
     /// taken_off: who took the driver label `label` off, when an allowed
     /// account's choice went and that account may not take it. An issue whose
     /// events were not read names nobody: each start reads them itself.
@@ -2941,6 +2960,9 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if !self.size_ok(n, ask, &labels)? {
+                continue;
+            }
+            if !self.mark_ok(n, ask, &labels)? {
                 continue;
             }
             if let Some(url) = self.open_pr(n)? {

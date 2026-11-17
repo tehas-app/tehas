@@ -296,6 +296,7 @@ pub const TABLE: &[Setting] = &[
         "127.0.0.1:8090",
     ),
     always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
+    always("TEHAS_SPEC_PIPE", SWITCH, "0"),
     always("TEHAS_REVIEW", SWITCH, "0"),
     always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
     row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
@@ -849,10 +850,11 @@ mod tests {
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
+            "TEHAS_SPEC_PIPE",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 16);
+        assert_eq!(switches.len(), 17);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
