@@ -16,8 +16,9 @@
 //!   6. at most --max-bytes in all, counted on what is inflated and not on
 //!      what the archive says, a damaged entry's bytes included; after the
 //!      first file over it, nothing more is unpacked and the rest are left out
-//!      for the same reason. An entry that inflates past the size it claims,
-//!      or whose data shares bytes with another entry's, is damaged
+//!      for the same reason. An entry that claims more than is left is over
+//!      it before a byte is inflated. An entry that inflates past the size it
+//!      claims, or whose data shares bytes with another entry's, is damaged
 //!   7. nothing written through a link: not when the directory is one, nor
 //!      when a part of the entry's path that already stands under it is one,
 //!      and no file over one already there

@@ -421,6 +421,16 @@ impl Take<'_> {
             .map_err(|_| NOT_WRITTEN.to_string())
     }
 
+    /// As [`Take::place`], never over a file or link already there: a hard
+    /// link fails when the name is taken, where a rename would replace it.
+    fn place_new(&self, from: &str, name: &str) -> Result<(), String> {
+        let to = format!("{}/{name}", self.dir);
+        fs::hard_link(from, &to)
+            .and_then(|()| fs::remove_file(from))
+            .and_then(|()| chmod(&to, 0o644))
+            .map_err(|_| NOT_WRITTEN.to_string())
+    }
+
     fn image(&mut self, l: &Linked) -> Result<(), String> {
         let other = self.wants.other();
         let left = match fetch::room(self.n.count, MOST_IMAGES, self.n.used, LIMIT) {
@@ -696,11 +706,11 @@ impl Take<'_> {
                 continue;
             }
             let mut name = name;
-            while Path::new(&format!("{}/{name}", self.dir)).exists() {
+            while fs::symlink_metadata(format!("{}/{name}", self.dir)).is_ok() {
                 name = format!("{n}-{}", without_number(&name));
                 n += 1;
             }
-            self.place(&from, &name)?;
+            self.place_new(&from, &name)?;
             let g = Given {
                 file: &name,
                 link: &l.link,
