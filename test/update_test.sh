@@ -38,6 +38,7 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # (test/sandbox_build_test.sh is where a refusal of it is checked).
 docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then
+  for a in "$@"; do [ "$a" != --cpuset-cpus ] || { echo quiet; exit 0; }; done
   for a in "$@"; do [ "$a" != --entrypoint ] || {
     cat "$T_ROOT/test/fixtures/smoke-started.json"; exit 0; }; done
   cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }

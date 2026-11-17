@@ -13,8 +13,8 @@ use tehas_core::sandbox;
 use tehas_core::slice::{self, Host, Load};
 
 /// What the output of a sandbox smoke run says of the image. `Started` is the
-/// one answer that lets the uid tag move; the other two both refuse it, and are
-/// told apart only for the line the build says.
+/// one answer that lets the uid tag move; the others refuse it, and are told
+/// apart only for the line the build says.
 #[derive(Debug, PartialEq)]
 enum Smoke {
     /// A stable `step-started` line: the runner reached its first step.
@@ -25,6 +25,8 @@ enum Smoke {
     /// Neither. Of an output with no `step-started` line the build cannot tell
     /// a runner that printed nothing from one that died without a document.
     Silent,
+    /// The runner started, but vipune wrote to stderr on one CPU of a cpuset.
+    Noisy,
 }
 
 impl Smoke {
@@ -33,6 +35,7 @@ impl Smoke {
             Smoke::Started => "started",
             Smoke::Crashed => "crashed",
             Smoke::Silent => "silent",
+            Smoke::Noisy => "noisy",
         }
     }
 }
@@ -98,6 +101,63 @@ fn smoke_run(image: &str) -> Vec<String> {
     .to_vec()
 }
 
+/// The words of the build's vipune check: an add and a search on a scratch
+/// store, as the cycle's user, offline, under a cpuset of one CPU. vipune sets
+/// no onnxruntime thread count of its own, and onnxruntime then pins a thread
+/// to each host core; under a cpuset every pin outside it fails and is written
+/// to stderr on every call. `taskset` does not show it: only a cpuset refuses
+/// the pin. The thread count the image sets stops it, so the run sets none
+/// of its own. Their stdout goes nowhere, so the whole output of a good
+/// image is the `quiet` line.
+fn vipune_run(image: &str, uid: &str, cpu: u32) -> Vec<String> {
+    let turn = "db=$(mktemp -d) && export HF_HUB_OFFLINE=1 \
+ && vipune add 'the sandbox smoke run' --json --db-path \"$db/smoke.db\" >/dev/null \
+ && vipune search 'sandbox smoke run' --json --limit 1 --db-path \"$db/smoke.db\" >/dev/null \
+ && echo quiet";
+    let cpu = cpu.to_string();
+    [
+        "run",
+        "--rm",
+        "--init",
+        "--network",
+        "none",
+        "--memory",
+        "2g",
+        "--pids-limit",
+        "512",
+        "--cpuset-cpus",
+        &cpu,
+        "--user",
+        uid,
+        "-e",
+        "HOME=/home/vscode",
+        "--entrypoint",
+        "bash",
+        image,
+        "-c",
+        turn,
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
+fn vipune_quiet(text: &str) -> bool {
+    text == "quiet\n"
+}
+
+/// The highest CPU of `Cpus_allowed_list` in a `/proc/<pid>/status`.
+fn highest_cpu(status: &str) -> Option<u32> {
+    let list = status
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))?
+        .trim();
+    list.split(',')
+        .map(|part| part.rsplit('-').next().unwrap_or(part).parse::<u32>().ok())
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .max()
+}
+
 /// What a command printed on both streams, as `2>&1` puts them on one pipe,
 /// at most `runner::LOG_TAIL` bytes of it. The read end closes there, so a
 /// command that goes on printing ends on its next write.
@@ -116,21 +176,46 @@ fn merged_head(cmd: &mut Command) -> io::Result<Vec<u8>> {
     read.map(|_| bytes)
 }
 
-/// The `tehas-cycle sandbox smoke-run <image>` verb: the turn of `smoke_run`
-/// in <image>, bounded at 40 s, and the verdict on what it printed. Prints
-/// `started`, `crashed` or `silent` and ends 0 only for `started`. Docker's own
-/// status is not read: the output decides. It reads no settings.
-fn smoke_run_verb(image: &str) -> i32 {
-    let mut cmd = Command::new("timeout");
-    cmd.args(["-k", "5", "40", "docker"]).args(smoke_run(image));
-    let bytes = match merged_head(&mut cmd) {
+/// The `tehas-cycle sandbox smoke-run <image> <uid>` verb: the turn of
+/// `smoke_run` in <image>, bounded at 40 s, and the verdict on what it printed;
+/// then, on a started run, the vipune check of `vipune_run` as <uid>, bounded
+/// the same, which must print `quiet` alone. Prints `started`, `crashed`,
+/// `silent` or `noisy` and ends 0 only for `started`. Docker's own status is
+/// not read: the output decides. It reads no settings.
+fn smoke_run_verb(image: &str, uid: &str) -> i32 {
+    if uid.is_empty() || !uid.bytes().all(|b| b.is_ascii_digit()) {
+        eprintln!("tehas-cycle: sandbox smoke-run takes a numeric uid, not {uid:?}");
+        return 64;
+    }
+    let bounded = |words: Vec<String>| {
+        let mut cmd = Command::new("timeout");
+        cmd.args(["-k", "5", "40", "docker"]).args(words);
+        merged_head(&mut cmd)
+    };
+    let bytes = match bounded(smoke_run(image)) {
         Ok(bytes) => bytes,
         Err(e) => {
             eprintln!("tehas-cycle: the smoke run of {image} could not be started: {e}");
             return 1;
         }
     };
-    let verdict = smoke_verdict(&String::from_utf8_lossy(&bytes));
+    let mut verdict = smoke_verdict(&String::from_utf8_lossy(&bytes));
+    if verdict == Smoke::Started {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let Some(cpu) = highest_cpu(&status) else {
+            eprintln!("tehas-cycle: no CPU this process may run on is named in /proc/self/status");
+            return 1;
+        };
+        let out = match bounded(vipune_run(image, uid, cpu)) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) => format!("{e}\n"),
+        };
+        if !vipune_quiet(&out) {
+            eprintln!("tehas-cycle: vipune in {image} on CPU {cpu} of a cpuset printed:");
+            eprint!("{out}");
+            verdict = Smoke::Noisy;
+        }
+    }
     tehas_core::outln!("{}", verdict.word());
     i32::from(verdict != Smoke::Started)
 }
@@ -224,7 +309,7 @@ pub fn main(args: &[String]) -> Option<i32> {
             tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
-        ["smoke-run", image] => smoke_run_verb(image),
+        ["smoke-run", image, uid] => smoke_run_verb(image, uid),
         _ => return None,
     })
 }
@@ -384,6 +469,88 @@ mod tests {
                 "{secret} is in the smoke turn: {turn}"
             );
         }
+    }
+
+    #[test]
+    fn the_vipune_run_is_on_one_cpu_as_the_cycle_user_and_offline() {
+        let words = vipune_run("tehas/pi-rukas:260101-0000", "1000", 7);
+        let held: Vec<&str> = words.iter().map(String::as_str).collect();
+        assert_eq!(
+            held[..19],
+            [
+                "run",
+                "--rm",
+                "--init",
+                "--network",
+                "none",
+                "--memory",
+                "2g",
+                "--pids-limit",
+                "512",
+                "--cpuset-cpus",
+                "7",
+                "--user",
+                "1000",
+                "-e",
+                "HOME=/home/vscode",
+                "--entrypoint",
+                "bash",
+                "tehas/pi-rukas:260101-0000",
+                "-c",
+            ]
+        );
+        assert_eq!(held.len(), 20);
+        let turn = held[19];
+        assert!(turn.contains("vipune add "), "{turn}");
+        assert!(turn.contains("vipune search "), "{turn}");
+        assert_eq!(
+            turn.matches("--db-path \"$db/smoke.db\" >/dev/null")
+                .count(),
+            2
+        );
+        assert!(turn.ends_with("&& echo quiet"), "{turn}");
+        // The thread count has to come from the image, or the run proves nothing.
+        assert!(!turn.contains("ORT_"), "{turn}");
+        assert!(!held.iter().any(|w| w.contains("ORT_")));
+    }
+
+    #[test]
+    fn only_the_marker_alone_is_quiet() {
+        assert!(vipune_quiet("quiet\n"));
+        for noisy in [
+            "",
+            "quiet",
+            "pthread_setaffinity_np failed for thread: 12, index: 3, mask: {4, }, error code: 22\nquiet\n",
+            "quiet\nwarning\n",
+            include_str!("../../../test/fixtures/smoke-started.json"),
+        ] {
+            assert!(!vipune_quiet(noisy), "{noisy:?}");
+        }
+    }
+
+    #[test]
+    fn the_cpu_is_the_highest_one_this_process_may_run_on() {
+        let status = "Name:\tx\nCpus_allowed:\tffff\nCpus_allowed_list:\t0-3,8,10-11\nMems_allowed_list:\t0\n";
+        assert_eq!(highest_cpu(status), Some(11));
+        assert_eq!(highest_cpu("Cpus_allowed_list:\t0-15\n"), Some(15));
+        assert_eq!(highest_cpu("Cpus_allowed_list:\t0,2,4\n"), Some(4));
+        assert_eq!(highest_cpu("Cpus_allowed_list:\t3\n"), Some(3));
+        for none in [
+            "",
+            "Cpus_allowed:\tffff\n",
+            "Cpus_allowed_list:\t\n",
+            "Cpus_allowed_list:\tx\n",
+        ] {
+            assert_eq!(highest_cpu(none), None, "{none:?}");
+        }
+    }
+
+    #[test]
+    fn the_verb_takes_an_image_and_a_numeric_uid() {
+        let args = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(main(&args(&["smoke-run", "img"])), None);
+        assert_eq!(main(&args(&["smoke-run", "img", "vscode"])), Some(64));
+        assert_eq!(main(&args(&["smoke-run", "img", ""])), Some(64));
     }
 
     #[test]

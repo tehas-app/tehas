@@ -172,9 +172,9 @@ RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL
 # the base has to be the version versions.env names, since that version picks
 # the revision. Every call names the scratch store: any vipune call, version
 # included, otherwise creates one in ~/.vipune, where a cycle mounts its own.
-# add and search run pinned to one core, as under a cycle's cpuset, and the
-# build stops on anything they write to stderr, such as onnxruntime's affinity
-# errors when the thread count above is lost.
+# The build stops on anything add and search write to stderr. A build step has
+# no cpuset, so onnxruntime's affinity errors do not show here: build.sh checks
+# for them in the finished image, under a cpuset (tehas-cycle sandbox smoke-run).
 #
 # The remap, and the step the two stages are drawn around: it is the only step of
 # the image that reads the uid, it is the first one below the boundary, and it goes
@@ -212,13 +212,12 @@ RUN db=$(mktemp -d) \
  && found=$(vipune version --db-path "$db/gate.db" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
  && if [ "${found:-}" != "$VIPUNE_VERSION" ]; then echo "sandbox: vipune is ${found:-not there}, versions.env names $VIPUNE_VERSION" >&2; exit 1; fi \
  && export HF_HUB_OFFLINE=1 HF_ENDPOINT=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
- && cpu=$(taskset -pc $$ | sed 's/.*: //; s/[-,].*//') \
- && added=$(taskset -c "$cpu" vipune add 'the sandbox image carries the embedding model' --json --db-path "$db/gate.db" 2>"$db/add.err") \
- && answer=$(taskset -c "$cpu" vipune search 'embedding model of the sandbox image' --json --limit 1 --db-path "$db/gate.db" 2>"$db/search.err") \
+ && added=$(vipune add 'the sandbox image carries the embedding model' --json --db-path "$db/gate.db" 2>"$db/add.err") \
+ && answer=$(vipune search 'embedding model of the sandbox image' --json --limit 1 --db-path "$db/gate.db" 2>"$db/search.err") \
  && printf '%s' "$added" | jq -e '.status == "added"' >/dev/null \
  && printf '%s' "$answer" | jq -e '.results | length > 0' >/dev/null \
  || { echo "sandbox: vipune cannot embed with $VIPUNE_MODEL: $added $answer" >&2; cat "$db"/*.err >&2; exit 1; }; \
-    if [ -s "$db/add.err" ] || [ -s "$db/search.err" ]; then echo "sandbox: vipune wrote to stderr on one core:" >&2; cat "$db"/*.err >&2; exit 1; fi; \
+    if [ -s "$db/add.err" ] || [ -s "$db/search.err" ]; then echo "sandbox: vipune wrote to stderr:" >&2; cat "$db"/*.err >&2; exit 1; fi; \
     rm -rf "$db"; \
     echo "sandbox: vipune $VIPUNE_VERSION embeds and searches with $VIPUNE_MODEL"
 USER root

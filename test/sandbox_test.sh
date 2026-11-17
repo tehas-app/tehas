@@ -240,15 +240,18 @@ t_case "onnxruntime sets no thread affinity: the image fixes its thread count"
 shared_part=$(sed -n '1,/^FROM shared$/p' "$dockerfile")
 t_eq "$(grep -c -x 'ENV ORT_INTRA_OP_NUM_THREADS=1' <<<"$shared_part")" 1
 t_eq "$(grep -c 'ORT_INTRA_OP_NUM_THREADS' "$dockerfile")" 1
+# No unit and no source of the workspace passes it, the place that builds a
+# cycle's container words included.
 for unit in "$T_ROOT"/libexec/* "$T_ROOT"/bin/*; do
   t_lacks "$(cat "$unit")" 'ORT_INTRA_OP_NUM_THREADS'
 done
-t_lacks "$(grep -rh 'ORT_INTRA_OP_NUM_THREADS' "$T_ROOT/console/src" || true)" 'ORT_INTRA_OP_NUM_THREADS'
-# The smoke step runs add and search on one core, as a cpuset does, and stops
-# the build on anything they write to stderr.
+t_lacks "$(grep -rh --exclude-dir=target 'ORT_INTRA_OP_NUM_THREADS' "$T_ROOT/console" || true)" 'ORT_INTRA_OP_NUM_THREADS'
+# The smoke step stops the build on anything add and search write to stderr.
+# It cannot catch a lost thread count: a build step has no cpuset, and taskset
+# does not refuse the pins a cpuset does. build.sh's smoke run checks that, in
+# the finished image (console/cycle/src/sandbox.rs).
 vipune_step=$(sed -n '/^USER vscode$/,/^USER root$/p' "$dockerfile")
-t_contains "$vipune_step" 'cpu=$(taskset -pc $$'
-t_eq "$(grep -c -E 'taskset -c "\$cpu" vipune (add|search) ' <<<"$vipune_step")" 2
+t_lacks "$vipune_step" 'taskset'
 t_contains "$vipune_step" '2>"$db/add.err"'
 t_contains "$vipune_step" '2>"$db/search.err"'
 t_contains "$vipune_step" 'if [ -s "$db/add.err" ] || [ -s "$db/search.err" ]; then'

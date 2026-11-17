@@ -42,11 +42,13 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # otherwise answer this one.
 # A sandbox build asks the base for its capabilities: the answer of the image
 # of pi-rukas main. A run asked of bash, told apart by --entrypoint, is the
-# build's smoke run, answered with a step that started, so the uid tag moves as
-# it did before the check was there (test/sandbox_build_test.sh is where a
-# refusal of it is checked).
+# build's smoke run, answered with a step that started, and its vipune check,
+# the run with --cpuset-cpus, answers quiet, so the uid tag moves as it did
+# before the check was there (test/sandbox_build_test.sh is where a refusal of
+# it is checked).
 docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then
+  for a in "$@"; do [ "$a" != --cpuset-cpus ] || { echo quiet; exit 0; }; done
   for a in "$@"; do [ "$a" != --entrypoint ] || {
     cat "$T_ROOT/test/fixtures/smoke-started.json"; exit 0; }; done
   cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
@@ -243,6 +245,7 @@ rukas_image() { # <commit or none>
   fi
   t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then
+  for a in "$@"; do [ "$a" != --cpuset-cpus ] || { echo quiet; exit 0; }; done
   for a in "$@"; do [ "$a" != --entrypoint ] || {
     cat "$T_ROOT/test/fixtures/smoke-started.json"; exit 0; }; done
   cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi
