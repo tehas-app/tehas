@@ -118,6 +118,11 @@ pub enum Rule {
     /// shape of [`Rule::Repo`]. The empty value is no repository, which is the
     /// default of TEHAS_OUTSOURCE_REPOS.
     Repos,
+    /// The contractors the job channel answers: names as a join gives them
+    /// (a letter or digit, then letters, digits and `._-`, at most 64), one
+    /// space apart. The empty value refuses every contractor, the default of
+    /// TEHAS_OUTSOURCE_CONTRACTORS.
+    Contractors,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
@@ -180,6 +185,7 @@ impl Rule {
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
             Rule::Repos => "repos",
+            Rule::Contractors => "contractors",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
             Rule::ListenAddress => "listen-address",
@@ -227,6 +233,7 @@ impl Rule {
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
             Rule::Repos => "acme/widget  other/widget",
+            Rule::Contractors => "box1  box2",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
@@ -315,6 +322,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_OUTSOURCE_RETRIES", Rule::Count, "2"),
     always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
     given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
+    given_or("TEHAS_OUTSOURCE_CONTRACTORS", Rule::Contractors, ""),
     always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
     // The model proxy. Its idle bound is checked against the check-in timeout
     // by the load: a stream must outlive the job that waits on it.
@@ -566,6 +574,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             v.is_empty() || v.split(' ').all(is_repo),
             "expected owner/name repositories separated by single spaces",
         ),
+        Rule::Contractors => refuse(
+            v.is_empty() || v.split(' ').all(is_contractor),
+            "expected contractor names separated by single spaces",
+        ),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
@@ -648,6 +660,12 @@ fn is_space(b: u8) -> bool {
 }
 fn is_login(s: &str) -> bool {
     all(s, class("-")) && !s.starts_with('-')
+}
+/// A contractor's name, the shape the state store takes at a join.
+fn is_contractor(s: &str) -> bool {
+    s.len() <= 64
+        && s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
+        && all(s, class("._-"))
 }
 fn is_repo(s: &str) -> bool {
     matches!(s.split_once('/'), Some((o, n)) if all(o, class("_.-")) && all(n, class("_.-")))
@@ -1382,6 +1400,29 @@ mod tests {
             "acme/widget not-a-repo",
         ] {
             refuses("TEHAS_OUTSOURCE_REPOS", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_outsource_contractors_are_names_one_space_apart() {
+        takes("TEHAS_OUTSOURCE_CONTRACTORS", "");
+        takes("TEHAS_OUTSOURCE_CONTRACTORS", "box1");
+        takes(
+            "TEHAS_OUTSOURCE_CONTRACTORS",
+            "box1 contractor-1a2b3c4d my.box_2",
+        );
+        let why = "expected contractor names separated by single spaces";
+        let long = "b".repeat(65);
+        for bad in [
+            "box1  box2",
+            " box1",
+            "box1 ",
+            "-box",
+            "box/1",
+            "box;rm",
+            long.as_str(),
+        ] {
+            refuses("TEHAS_OUTSOURCE_CONTRACTORS", bad, why);
         }
     }
 

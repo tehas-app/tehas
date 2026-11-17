@@ -85,6 +85,11 @@ impl Issuer {
         Some(entry.live.clone())
     }
 
+    /// The job and contractor a token names, without counting a request.
+    pub fn peek(&self, token: &str) -> Option<Live> {
+        self.lock().get(token).map(|e| e.live.clone())
+    }
+
     /// Put one token in the table by hand. A test of the rules of one request
     /// uses it; a token of a job on a host is issued, never put, since the
     /// proxy is the one holder of a token and mints it of `/dev/urandom`.
