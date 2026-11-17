@@ -68,6 +68,8 @@ mod findings;
 mod finish;
 mod host;
 mod lock;
+#[cfg(test)]
+mod pages;
 mod pi;
 mod programs;
 mod push;
