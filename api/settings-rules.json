@@ -244,6 +244,19 @@
       "reason": "expected a positive whole number"
     },
     {
+      "name": "TEHAS_SPEC_PIPE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_REVIEW",
       "rule": "one-of",
       "when": "always",
@@ -586,6 +599,13 @@
       "reason": "expected an absolute path such as /mnt/scratch"
     },
     {
+      "name": "TEHAS_WORK_REPO",
+      "rule": "path",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path"
+    },
+    {
       "name": "TEHAS_SITE_ANALYTICS_SRC",
       "rule": "script-address",
       "when": "given",
@@ -656,6 +676,13 @@
       "reason": "expected directory names of letters, digits and ._-, separated by single spaces"
     },
     {
+      "name": "PI_ENSEMBLE_HOST_ALIASES",
+      "rule": "host-aliases",
+      "when": "given",
+      "default": "",
+      "reason": "expected name:address pairs separated by commas, such as models.example:192.0.2.10"
+    },
+    {
       "name": "TEHAS_REPO",
       "rule": "repo",
       "when": "required",
@@ -696,6 +723,83 @@
       "when": "required",
       "default": "",
       "reason": "expected owner/name"
+    }
+  ],
+  "host": [
+    {
+      "name": "TEHAS_HOME",
+      "rule": "path",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path"
+    },
+    {
+      "name": "TEHAS_INSTANCE_DIR",
+      "rule": "path",
+      "when": "given",
+      "default": null,
+      "reason": "expected an absolute path"
+    },
+    {
+      "name": "TEHAS_MODEL_KEY_<NAME>",
+      "rule": "token",
+      "when": "given",
+      "default": null,
+      "reason": "expected one word of printable characters, with no quote, backslash, $ or backtick"
+    },
+    {
+      "name": "TEHAS_MCP",
+      "rule": "one-of",
+      "when": "given",
+      "default": null,
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
+      "name": "TEHAS_MCP_KEYS",
+      "rule": "mcp-keys",
+      "when": "given",
+      "default": null,
+      "reason": "key 1 is not at least 32 characters of A-Za-z0-9_-"
+    },
+    {
+      "name": "TEHAS_MCP_DASHBOARD_KEYS",
+      "rule": "mcp-keys",
+      "when": "given",
+      "default": null,
+      "reason": "key 1 is not at least 32 characters of A-Za-z0-9_-"
+    },
+    {
+      "name": "TEHAS_ENERGY",
+      "rule": "one-of",
+      "when": "given",
+      "default": null,
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
+      "name": "TEHAS_ENERGY_URL",
+      "rule": "address",
+      "when": "given",
+      "default": null,
+      "reason": "expected an http or https address such as http://models.example:8080/v1/cluster"
+    },
+    {
+      "name": "TEHAS_UPDATE_LOCK_WAIT",
+      "rule": "seconds",
+      "when": "given",
+      "default": "10",
+      "reason": "expected a whole number of seconds from 0 to 300"
     }
   ]
 }

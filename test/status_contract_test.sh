@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json,
-# api/status.quiet.json and api/status.readonly.json, are what console status json (console/src/status.rs) makes of
+# api/status.quiet.json, api/status.readonly.json and api/status.pushfault.json, are what console status json (console/src/status.rs) makes of
 # the health files in test/fixtures/status-json/, with the Protolab's list beside
 # one of them, at a fixed time. A program
 # that reads the object copies the samples into its own tests, so a change
@@ -20,7 +20,7 @@ schema=$api/status.schema.json
 fixtures=$T_ROOT/test/fixtures/status-json
 # 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 now=1792245620
-samples=(busy quiet readonly)
+samples=(busy quiet readonly pushfault)
 
 sample() { # <name>: the sample as the console makes it, as committed
   "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .
@@ -64,8 +64,8 @@ for name in "${samples[@]}"; do
   [ ! -e "$fixtures/$name.protolab.json" ] ||
     cp "$fixtures/$name.protolab.json" "$T/home/tehas/live/protolab.json"
   t_run "$T_ROOT/bin/tehas status --json"
-  # The health file is days old: stale, so the exit status is 1.
-  t_eq "$t_rc" 1
+  # The health file is days old: stale, so the exit status is 3.
+  t_eq "$t_rc" 3
   t_eq "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' <<<"$t_out")" \
     "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' "$api/status.$name.json")"
 done

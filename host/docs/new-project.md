@@ -272,7 +272,7 @@ tehas init-product
 ```
 
 `tehas check-product` says which files of the contract above the default
-branch lacks, and exits 78 when one is missing. `tehas init-product` writes the
+branch lacks, and exits 3 when one is missing. `tehas init-product` writes the
 missing `AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` on a branch and
 opens a pull request with the bot. The gate is guessed from the stack: check
 it, then merge it. See [tehas check-product](/tools-setup#tehas-check-product).

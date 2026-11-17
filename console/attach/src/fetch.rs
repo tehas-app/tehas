@@ -15,13 +15,27 @@ use std::process::{Command, Stdio};
 pub const TOO_BIG: i32 = 63;
 /// curl's exit status for an answer of 400 or more.
 pub const REFUSED: i32 = 22;
+/// What curl prints when it is done: the content type, and on its own line the
+/// HTTP status of the last answer, so a caller can tell 404 from 503.
+const WRITE_OUT: &str = "%{content_type}\\n%{response_code}";
 
 /// What a fetch ended with: curl's exit status, 128 and the signal when one
-/// ended it, 127 when it could not run, and the content type it printed.
+/// ended it, 127 when it could not run, the content type it printed and the
+/// HTTP status of the last answer, 0 when it printed none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fetched {
     pub code: i32,
     pub content_type: String,
+    pub http: u16,
+}
+
+/// The content type and the HTTP status of what curl printed for `WRITE_OUT`.
+fn answer(out: &str) -> (String, u16) {
+    let out = out.trim_end_matches('\n');
+    match out.rsplit_once('\n') {
+        Some((kind, http)) => (kind.to_string(), http.trim().parse().unwrap_or(0)),
+        None => (out.to_string(), 0),
+    }
 }
 
 /// curl's arguments, and whether it is given the token on standard input. The
@@ -47,7 +61,7 @@ pub fn curl_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>
     .to_vec();
     args.push(most.to_string());
     args.extend(["-o".to_string(), file.to_string()]);
-    args.extend(["-w".to_string(), "%{content_type}".to_string()]);
+    args.extend(["-w".to_string(), WRITE_OUT.to_string()]);
     let with_token = link::sends_token(link, token);
     if with_token {
         args.extend(["-H".to_string(), "@-".to_string()]);
@@ -76,6 +90,7 @@ pub fn fetch(link: &str, file: &Path, most: i64, token: &str) -> Fetched {
     let none = |code| Fetched {
         code,
         content_type: String::new(),
+        http: 0,
     };
     let Ok(mut child) = curl.spawn() else {
         return none(127);
@@ -85,12 +100,14 @@ pub fn fetch(link: &str, file: &Path, most: i64, token: &str) -> Fetched {
         let _ = writeln!(stdin, "Authorization: Bearer {token}");
     }
     match child.wait_with_output() {
-        Ok(done) => Fetched {
-            code: status_of(done.status),
-            content_type: String::from_utf8_lossy(&done.stdout)
-                .trim_end_matches('\n')
-                .to_string(),
-        },
+        Ok(done) => {
+            let (content_type, http) = answer(&String::from_utf8_lossy(&done.stdout));
+            Fetched {
+                code: status_of(done.status),
+                content_type,
+                http,
+            }
+        }
         Err(_) => none(127),
     }
 }
@@ -199,11 +216,22 @@ mod tests {
         assert!(with);
         assert_eq!(
             args.join(" "),
-            "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type} -H @- https://github.com/a/b/assets/1/x"
+            "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type}\\n%{response_code} -H @- https://github.com/a/b/assets/1/x"
         );
         assert!(!args.iter().any(|a| a.contains("tok")));
         let (args, with) = curl_args("https://example.com/x.zip", "f", 9, "tok");
         assert!(!with && !args.contains(&"-H".to_string()));
+    }
+
+    #[test]
+    fn what_curl_prints_gives_the_content_type_and_the_status() {
+        assert_eq!(answer("text/plain\n404"), ("text/plain".into(), 404));
+        assert_eq!(answer("\n503"), (String::new(), 503));
+        assert_eq!(answer("text/plain\n000"), ("text/plain".into(), 0));
+        // A curl that printed the type alone, as a stand-in may.
+        assert_eq!(answer("image/png"), ("image/png".into(), 0));
+        assert_eq!(answer("image/png\n"), ("image/png".into(), 0));
+        assert_eq!(answer(""), (String::new(), 0));
     }
 
     #[test]

@@ -74,14 +74,21 @@ since <approver> approved it, left as it was`, and a page it had keeps the
 title it was built with. An allowed account applying the label (or the type)
 again approves the title as it then is.
 
-It fetches only links to GitHub's attachment storage, in text written by an
-owner, member or collaborator of the repository, and only the types listed
-under [Operating](/operating). A ticket gets 10 megabytes and 40 files. An
-issue that has not changed since the last pass is not built again, so a quiet
-pass fetches no files: one GitHub call for its own account, one for the list,
-one for the label's id when the list is not empty, and one for every ticket at
-the stage, its label events. With `TEHAS_ISSUE_TYPES` a ticket that changed
-costs one more call, its label events, for the renames. When GitHub cannot be
+It fetches only links to GitHub's attachment storage, and only the types listed
+under [Operating](/operating). A link is taken from the issue's text or a
+comment when an account in `TEHAS_ALLOWED_LABELERS` wrote it, nobody off the
+list edited it last, and the line is not a quote (a line that starts with
+`>`): a quote reply carries someone else's words. Being a member or a
+collaborator of the repository is not enough, and the bot never is. Any other
+link is counted on the page and not fetched. A ticket gets 10 megabytes and 40
+files. An issue that has not changed since the last pass is not built again,
+so a quiet pass fetches no files: one GitHub call for its own account, one for
+the list, one for the label's id when the list is not empty, and one for every
+ticket at the stage, its label events. A ticket that changed costs one more
+call, its texts. When its title and the links taken are the ones its page was
+built from, as after a comment with no new link, no file is fetched again and
+the page only takes the new time. With `TEHAS_ISSUE_TYPES` a ticket that
+changed costs one more call, its label events, for the renames. When GitHub cannot be
 reached, what is there stays. A pass that finds no console to write the pages
 with says so and exits 78 before it calls GitHub.
 

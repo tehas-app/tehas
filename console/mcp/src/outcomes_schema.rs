@@ -105,7 +105,7 @@ pub fn tool() -> Value {
     );
     json!({
         "name": "factory_outcomes",
-        "description": "How the factory has done further back than 30 days: the runs per tehas and pi-rukas version pair, or per UTC week, as far back as the factory's analytics holds. Counts only, so it answers whether a release changed the park or failure rates and how often a failure kind comes back, and says nothing of any issue. Arguments all optional: tehasVersion, rukasVersion, since and until (a day as YYYY-MM-DD, or a full UTC time), and by (version or week).",
+        "description": "How the factory has done further back than 30 days: the runs per tehas and pi-rukas version pair, or per UTC week, as far back as the factory's analytics holds. Counts only, so it answers whether a release changed the park or failure rates and how often a failure kind comes back, and says nothing of any issue. Arguments all optional: tehasVersion, rukasVersion, since and until (a day as YYYY-MM-DD, or a full UTC time), and by (version or week). By week, an entry whose week is missing or no date is kept whatever the window and marked unwindowed.",
         "inputSchema": {
             "type": "object",
             "properties": properties,
@@ -131,6 +131,8 @@ pub fn tool() -> Value {
                 json!({"type": "array", "description": "One entry per version pair, the most runs first, or per week, newest first.", "items": entry_schema(vec![
                     ("tehasVersion", text("The tehas version. Left out when the run recorded none.")),
                     ("rukasVersion", text("The pi-rukas version, or its commit. Left out when the run recorded neither.")),
+                    ("week", text("The Monday that opens the UTC week, YYYY-MM-DD.")),
+                    ("unwindowed", json!({"type": "boolean", "description": "By week, with since or until: true on an entry whose week is missing or no date, which is kept since no window can bound it. Left out otherwise."})),
                 ])}),
             ),
         ]),
