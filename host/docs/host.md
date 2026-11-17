@@ -324,7 +324,7 @@ moving the checkout. See [tehas update](/tools-update#tehas-update).
 One update runs at a time. `tehas update` and a real run of `install.sh` hold
 `~/tehas/state/update.lock`; a second one started meanwhile waits
 `TEHAS_UPDATE_LOCK_WAIT` seconds for it (10 by default, 0 to refuse at once,
-at most 300), and if it is still held prints `another update is running` and
+at most 300, anything else 78), and if it is still held prints `another update is running` and
 exits 1 before it changes anything. The update hands its lock to the
 `install.sh` it runs. `--check` takes no lock.
 

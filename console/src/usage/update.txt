@@ -177,6 +177,7 @@ Exit: 0 updated, or already up to date,
       78 a login of TEHAS_ALLOWED_LABELERS or the millwright's does not
         resolve, GitHub could not be asked for its user id, or its id is not
         the recorded one (nothing is changed),
+        TEHAS_UPDATE_LOCK_WAIT is not a whole number from 0 to 300,
         the instance settings are missing or malformed (a setting tehas 1.0
         renamed or removed among them: install.sh lists every such line and
         installs nothing), no console stands

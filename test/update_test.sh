@@ -436,18 +436,28 @@ t_eq "$(t_calls install)" "install "
 
 # The rule a held lock is measured by, asked of the console as libexec/update and
 # install.sh ask it, before tehas_load. Every form of the knob is in the Rust
-# tests of console/ops/src/update/wait.rs; these are the two ends of the range and
-# a refused shape on each side.
-t_case "the wait rule takes 0 through 300 and is 10 otherwise"
-t_run "for v in 0 300 301 05 soon; do TEHAS_UPDATE_LOCK_WAIT=\$v '$T_CONSOLE' update wait update; done
+# tests of console/ops/src/update/wait.rs; these are the two ends of the range,
+# unset, and a refused shape on each side.
+t_case "the wait rule takes 0 through 300, is 10 unset, and refuses anything else with 78"
+t_run "for v in 0 300; do TEHAS_UPDATE_LOCK_WAIT=\$v '$T_CONSOLE' update wait update; done
 unset TEHAS_UPDATE_LOCK_WAIT; '$T_CONSOLE' update wait update"
 t_eq "$t_rc" 0
 t_eq "$t_out" "0
 300
-10
-10
-10
 10"
+for v in 301 05 soon; do
+  t_run "TEHAS_UPDATE_LOCK_WAIT=$v '$T_CONSOLE' update wait update"
+  t_eq "$t_rc" 78
+  t_eq "$t_out" "tehas: TEHAS_UPDATE_LOCK_WAIT is not valid: expected a whole number of seconds from 0 to 300"
+done
+
+t_case "tehas update with a wait it cannot read stops with 78 before the lock and the install"
+platform 0
+mkdir -p "$th/state"
+t_run "export TEHAS_UPDATE_LOCK_WAIT=soon; '$update'"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_UPDATE_LOCK_WAIT is not valid"
+t_eq "$(t_calls install)" ""
 
 t_case "install.sh is handed the lock the update holds"
 instance
