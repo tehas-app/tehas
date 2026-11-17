@@ -236,6 +236,27 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `stop #N: its issue is closed` or `stop #N: its pull request <url> is
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
+- `ignore #N: tehas:finish was applied by '<who>', not an allowed account`:
+  someone outside `TEHAS_ALLOWED_LABELERS` asked for the finish of a stopped
+  cycle. The label stays and nothing runs. An allowed account takes it off,
+  writes the marked comment and applies `tehas:finish` again. See
+  [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `wait #N: tehas:finish waits: <why>`: the issue's label events, its comments
+  or its approval could not be read. The label stays and the next poll tries
+  again. If the line keeps coming, the rest of it says what could not be read.
+  See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: refused, asked by <who>: <why>`, with `(<label|millwright>)`
+  after the name when the command itself refused: a rule of the ask was not
+  met, or `tehas-cycle finish` refused. The label came off and the bot replied
+  with `result=refused` and the one line of why. Fix what it names, then ask
+  again. See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: opened <url>, asked by <who> (<label|millwright>): <reason>`: the
+  finish opened its draft pull request, and the bot replied with its address.
+  Review it as any other pull request.
+
+  The finish step runs only on a poll that is not paused, not a dry run and
+  did not fail, and takes at most three asks a poll; the rest wait for the
+  next one.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, refused the request with an HTTP code (401 for a wrong or missing
   token, 429 for a rate limit), could not be asked because curl could not be

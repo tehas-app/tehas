@@ -737,7 +737,7 @@ carries between turns is a directory beside its workspace,
 `~/tehas/work/<name>-plan-<issue>.keep`. The scripts, `tehas dispatch` and
 `tehasbot cycle` run the store, `~/tehas/libexec/store`. The commands of the
 console (`tehas stop`, `tehas history`, `tehas export`, `tehas status`,
-`tehas api`, `tehas state`, `tehasbot health`, `tehas clean`'s upkeep and a
+`tehas api`, `tehas state`, `tehasbot health`, `tehasbot clean`'s upkeep and a
 cycle's review) call the store in their own process, with the same code, and
 do not start the program; they still need it installed. `tehas dispatch`, `tehasbot cycle`, `tehas work`,
 `tehas stop`, `tehas history`, `tehas export` and `tehasbot health` stop with

@@ -89,7 +89,7 @@ Docker's build cache, old sandbox and base images, and old files under
 
 A full disk stops previews and fails clones. A kept workspace is never built
 in again, since every cycle clones fresh. A cycle takes its build output as it
-ends (libexec/cycle); this takes what a killed cycle left.
+ends (console clean ended); this takes what a killed cycle left.
 
 Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
 goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
@@ -2039,6 +2039,13 @@ impl Run {
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+
+    #[test]
+    fn the_help_names_the_command_a_cycle_cleans_with() {
+        assert!(!HELP.contains("libexec/cycle"), "no such program");
+        assert!(HELP.contains("console clean ended"));
+        assert!(USAGE.contains("console clean ended <workspace>"));
+    }
 
     #[test]
     fn the_dated_tags_past_the_newest_builds_are_the_sweeps() {

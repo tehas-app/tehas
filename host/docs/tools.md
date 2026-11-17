@@ -263,7 +263,7 @@ LABEL tehas.rukas.polyfills="example@0.1.0" \
 Only a `PI_ENSEMBLE_*` name that the runner does not list at all counts: a
 polyfill adds an input, it does not open one the runner keeps to itself. The
 labels are read only when the runner's answer lacks an input, and the run log
-says each input a polyfill took. `tehas review` checks the names of its own
+says each input a polyfill took. `tehasbot review` checks the names of its own
 container by the same rule. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for
