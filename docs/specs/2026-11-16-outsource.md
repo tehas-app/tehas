@@ -90,7 +90,8 @@ HTTPS, on the factory's own address.
    nothing.
 3. A job carries the issue, the driver, the timeout, the attempt number, the
    settings for the container that may leave the factory (see "Settings and
-   the model") and a job token.
+   the model") and the job's two tokens: the job token and the model token
+   (see "What a contractor holds").
 4. The contractor runs the same container as `libexec/work` runs, with the
    same pinned mounts and variables.
 5. The contractor checks in while it runs and streams the cycle's progress.
@@ -167,7 +168,7 @@ lost job, or a factory that does not answer, takes the salvage path of
   sends the answer back.
 - **The App's key stays on the factory.** The contractor never holds it, nor
   any token that can write issues. A stolen running box still holds the
-  cycle token and the job token. With them the thief can push to the
+  cycle token, the job token and the model token. With them the thief can push to the
   repository and write pull requests (the cycle token has contents and pull
   request write), renew the cycle token and send relay requests, until the
   job ends or `tehas outsource revoke` runs.
@@ -246,7 +247,7 @@ setting. Everything else stays on the factory:
 
 - A name not on the allow list, even one the cycle would get in-house.
 - The model's base URL and key. The job carries the model proxy's address and
-  the job token in their place.
+  the model token in their place.
 - A token or key a polyfill needs. A cycle that cannot run without one runs
   in-house.
 
@@ -277,11 +278,11 @@ does a `TEHAS_OUTSOURCE_PROXY_IDLE` that is not longer than
 
 Contractors get the model through the factory, and only through it.
 
-- The contractor talks to a factory address with the job's token. The factory
+- The container talks to a factory address with the job's model token. The factory
   forwards to the endpoint it has configured, which may have come from
   whoever manages the instance settings. Where it points is not a concern of
   this feature.
-- The contractor never holds the real key. The job token dies with the job and
+- No contractor holds the real key. The model token dies with the job and
   with revocation.
 - The proxy passes streamed replies as they arrive and does not buffer a
   reply. Its idle timeout is `TEHAS_OUTSOURCE_PROXY_IDLE`, longer than the
@@ -311,7 +312,16 @@ the clock, is not cycle traffic.
 - At rest: its identity key and the factory's address. Nothing else.
 - Per job: the allow-listed settings, the cycle's GitHub token, which reads
   issues and cannot write them and is renewed over the job channel, and the
-  job token for the model proxy and the channel. All die with the job.
+  job's two tokens. All die with the job.
+- The two tokens are made together when the job is given out and die
+  together at its end, its loss or a revocation. Both survive a restart of
+  the proxy, which keeps only their hashes.
+  - The **job token** is held by the contractor program. It reaches the job
+    channel and the downloads of that job. The container never sees it.
+  - The **model token** is the only one the container is given. It reaches
+    the model paths and the egress tunnel.
+  - A token used on the other's routes is refused with 403. An unknown,
+    ended or revoked token is refused with 401.
 - The workspace is a RAM disk or a per-job directory. It is wiped when a job
   ends and when the program starts. No source stays in layers or caches.
 
@@ -321,7 +331,7 @@ the clock, is not cycle traffic.
 | --- | --- | --- |
 | Stolen idle box, disk encrypted | Nothing | Disk encryption (below) |
 | Stolen idle box, not encrypted | The identity key and the public image | `tehas outsource revoke` ends it. No source, no GitHub or model credential at rest |
-| Stolen running box | The running job's source, the cycle token and the job token: pushes, pull request writes, token renewal and relay requests until the job ends | `tehas outsource revoke` and the short job life. Not preventable |
+| Stolen running box | The running job's source, the cycle token, the job token and the model token: pushes, pull request writes, token renewal, relay requests, model calls and tunnels until the job ends | `tehas outsource revoke` and the short job life. Not preventable |
 | Malicious owner | What a job gives | Allowlist, per-repository permission, review of the result |
 | Network lost | Nothing | The timeout and graceful death |
 
@@ -483,7 +493,9 @@ The gate needs no network and no sandbox image. Stub the outside world with
 9. **Container:** `test/work_test.sh` pins the same mounts and variables for
    the remote path.
 10. **Proxy:** streaming passes through; an expired or revoked token is
-    refused; a path outside the model paths is refused; no body is logged.
+    refused with 401; a token of the other scope is refused with 403 (the
+    model token on a job channel route, the job token on a model path); a
+    path outside the model paths is refused; no body is logged.
 11. **Secrets:** a scan of the contractor's directories finds no GitHub or
     model credential at rest; the workspace is wiped at start and end.
 12. **Contract:** the `contractors` field matches its schema and samples;
