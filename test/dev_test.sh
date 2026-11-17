@@ -531,7 +531,7 @@ t_case "a session whose build output docker would have to make is refused"
 # container, no directory. And the source is older than the record of the call,
 # so this command made it and Docker was not left to, which is what keeps a
 # missing source from coming back root-owned. The comparison is only as sharp as
-# the clock: tehas-cycle sandbox mounts makes the state directory's own children, so
+# the clock: the mounts step makes the state directory's own children, so
 # the tree is put a minute behind before the run, since timestamps are whole
 # seconds and cannot tell two moments of one second apart.
 target_guard_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
