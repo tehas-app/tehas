@@ -25,10 +25,12 @@
 //! 7. A busy upstream's answer goes back as it is, status and body, so the
 //!    agents' retry of a busy model (#215) works unchanged.
 //!
-//! The job token is a secret. It is never in a command line, never in a log
-//! and never in the store: [`jobs::Issuer`] holds the tokens of live jobs in
-//! this process and nowhere else, and hands each one out once, to the process
-//! that starts the contractor's container.
+//! A job's tokens are secrets, one per scope: the model token, which the
+//! container holds and the model paths take, and the job token, which the
+//! contractor program holds and the job channel takes. They are never in a
+//! command line, never in a log and never in the store, which keeps only
+//! their hashes: [`jobs::Issuer`] holds the tokens of live jobs in this
+//! process and hands each pair out once, to the contractor that took the job.
 
 pub mod channel;
 pub mod count;

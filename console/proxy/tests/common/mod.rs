@@ -367,7 +367,12 @@ impl tehas_proxy::request::Records for Records {
     /// revoked, names no job: the rows of the factory name a token and are never
     /// what answers for one.
     fn live(&self, token: &str) -> Option<tehas_proxy::request::Live> {
-        self.issuer.look(token)
+        self.issuer
+            .look(token, tehas_proxy::jobs::Scope::Model)
+            .ok()
+    }
+    fn wrong_scope(&self, token: &str) -> bool {
+        self.issuer.scope_of(token) == Some(tehas_proxy::jobs::Scope::Job)
     }
     fn state_of(&self, job: i64) -> Option<State> {
         self.snapshot()

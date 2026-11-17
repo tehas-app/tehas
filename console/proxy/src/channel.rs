@@ -15,8 +15,15 @@
 //! Each path is `/outsource/v1/<name>`, POST, a JSON body of at most
 //! [`BODY_MAX`] bytes and a JSON answer. A contractor's key is sent as a bearer
 //! with its name in `x-tehas-contractor`; the store holds the key's sha256 and
-//! compares it. A job's token is the one the proxy issued when the job was
-//! taken, which the model paths take too.
+//! compares it. A job's token is the job-scope token the proxy issued when
+//! the job was taken ([`crate::jobs::Scope::Job`]). The model token issued
+//! with it, which the container holds, is refused here with 403 `scope`, and
+//! the job token is refused on the model paths.
+//!
+//! Routes still to come take a scope by [`Call::scope`]: the job's downloads
+//! (index, bundle, attachments) the job scope, and the egress tunnel
+//! (`/outsource/v1/egress`) the model scope. The image download comes before
+//! a job and is the contractor's, by its key, so it takes no token.
 //!
 //! What each call requires is the spec's "The job channel": check-in, token
 //! and relay need a running job of the issue's current attempt on a contractor
@@ -41,7 +48,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tehas_cycle::relay::Scope;
 
-use crate::jobs::Issuer;
+use crate::jobs::{self, Issuer, Miss};
 use crate::request::Live;
 
 /// The paths of the channel start with this.
@@ -84,6 +91,19 @@ impl Call {
             "stopped" => Call::Stopped,
             _ => return None,
         })
+    }
+
+    /// The scope of the token a call takes, None for a call made with a
+    /// contractor's key or with none. Every call of a job today takes the job
+    /// scope; the egress tunnel, when it is built, is the one route of the
+    /// model scope here.
+    pub fn scope(self) -> Option<jobs::Scope> {
+        match self {
+            Call::Join | Call::Hello | Call::Job => None,
+            Call::CheckIn | Call::Token | Call::Relay | Call::Result | Call::Stopped => {
+                Some(jobs::Scope::Job)
+            }
+        }
     }
 
     pub fn word(self) -> &'static str {
@@ -223,8 +243,11 @@ impl<'a> Channel<'a> {
                 Err(no) => no,
             },
             call => {
-                let Some(live) = asked.bearer.and_then(|t| self.issuer.look(t)) else {
-                    return Answer::no(401, "no job");
+                let scope = call.scope().unwrap_or(jobs::Scope::Job);
+                let live = match asked.bearer.map(|t| self.issuer.look(t, scope)) {
+                    Some(Ok(live)) => live,
+                    Some(Err(Miss::Scope)) => return Answer::no(403, "scope"),
+                    _ => return Answer::no(401, "no job"),
                 };
                 match self.held(&live, call) {
                     Ok(issue) => self.of_job(call, &live, issue, &body),
@@ -280,8 +303,9 @@ impl<'a> Channel<'a> {
         }
     }
 
-    /// The offer in a contractor's hand, taken: its token is issued and the
-    /// job moves to running. A draining contractor is given nothing.
+    /// The offer in a contractor's hand, taken: its two tokens are issued and
+    /// the job moves to running. `token` is the job token, for the contractor
+    /// program; `model_token` is for the container's models.json. A draining contractor is given nothing.
     fn job(&self, name: &str, draining: bool) -> Answer {
         let none = Answer {
             status: 200,
@@ -304,7 +328,7 @@ impl<'a> Channel<'a> {
         ) else {
             return none;
         };
-        let Some(token) = self
+        let Some(tokens) = self
             .issuer
             .issue(job, attempt, name, &mut || self.factory.random())
         else {
@@ -324,7 +348,8 @@ impl<'a> Channel<'a> {
             "issue": issue,
             "attempt": attempt,
             "timeout": self.factory.timeout(),
-            "token": token,
+            "token": tokens.job,
+            "model_token": tokens.model,
             "settings": carried["settings"],
             "models": carried["models"],
         }))
