@@ -1035,13 +1035,23 @@ seven limits, fourteen words on the `docker run` line:
 | `--memory` | the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, a quarter unless set | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while `TEHAS_SLICE_CONTAINERS` containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
-| `--cpus` | the host's CPUs less one, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
+| `--cpus` | the host's CPUs less one, never below 1. The host's CPUs are what `nproc` counts, or what the Docker daemon counts (`docker info`, `NCPU`) when that is fewer | A CPU quota. The container may use no more CPU time than that many CPUs |
 | `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_MAX_CYCLES`, counted at most `TEHAS_SLICE_CONTAINERS` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
 On a host with 16 CPUs and `TEHAS_MAX_CYCLES=4` a container gets
 `--cpus 15.00 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
 `--cpus 7.00 --pids-limit 2048`.
+
+The Docker daemon counts the CPUs once, when it starts, and refuses a
+`--cpus` above that count. A host given more CPUs while Docker runs, by a
+resize or a raised container limit, has `nproc` count more than Docker
+does. tehas then sizes the containers for Docker's count and says so in the
+log of the command that starts them, for example `tehas work: the host has
+48 CPUs and its Docker daemon counts 16, so containers get --cpus of 15;
+restart the Docker daemon to give them the host's CPUs`. Restart Docker when
+no cycle runs (`sudo systemctl restart docker`). When Docker gives no count,
+`nproc`'s is used.
 
 Every sandbox container also runs with `--init`: a cycle, a planning turn, a
 dev session and the indexer. Docker's init is the first process

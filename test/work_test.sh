@@ -77,6 +77,30 @@ t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
 t_eq "$(t_calls docker | grep -c '^info ')" 1
+t_eq "$(t_calls docker | grep '^info ')" 'info --format {{.CgroupDriver}} {{.CgroupVersion}}{{"\n"}}{{.NCPU}}'
+t_lacks "$t_out" "Docker daemon counts"
+
+# A Docker daemon started before the host was given more CPUs refuses a
+# --cpus above its own count: the cycle and its install are sized for that
+# count, one CPU left free, and the run log says both numbers.
+t_case "the CPUs are capped at what the Docker daemon counts, and the log says so"
+rm -f "$T"/calls/*
+t_stub nproc 'echo 48'
+printf '%s\n' "systemd 2" 16 >"$T/docker.info"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after --cpus)" "15.00"
+t_contains "$t_out" "tehas work: the host has 48 CPUs and its Docker daemon counts 16, so containers get --cpus of 15; restart the Docker daemon to give them the host's CPUs"
+
+t_case "a count of the Docker daemon that cannot be read keeps the host's"
+rm -f "$T"/calls/*
+printf '%s\n' "systemd 2" "<no value>" >"$T/docker.info"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after --cpus)" "47.00"
+t_lacks "$t_out" "Docker daemon counts"
+t_stub nproc 'echo 16'
+slice_good
 
 t_case "the cid file is gone when the cycle is over, and no count of kills is left"
 t_eq "$(find "$cid_file" "$oom_file" 2>/dev/null | wc -l)" 0
