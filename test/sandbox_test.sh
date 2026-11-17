@@ -203,6 +203,59 @@ t_eq "$npm_bad" ""
 # Root's npm does not write to /root/.npm in this image.
 t_lacks "$recipe" '/root/.npm'
 
+t_case "the cycle's user owns npm's cache and the build proves it can write there"
+# A cycle runs as the image's user with HOME=/home/vscode, so its npm caches in
+# /home/vscode/.npm. A root-owned directory there made every npm call of a cycle
+# fail. The image hands the directory to that user after the last step that
+# runs npm as root, and the tool gate, as that user, writes to the cache npm
+# names.
+# Each RUN and USER instruction, continuations joined, in the file's order.
+npm_steps=$(awk '{ line = $0
+  while (sub(/[ \t]*\\[ \t]*$/, "", line)) {
+    if ((getline nxt) <= 0) break
+    line = line " " nxt
+  }
+  if (line !~ /^[ \t]*(RUN|USER)([ \t]|$)/) next
+  print line }' "$dockerfile")
+own_at=$(grep -n -F 'RUN mkdir -p /home/vscode/.npm && chown -R vscode:vscode /home/vscode/.npm' <<<"$npm_steps" | head -n 1 | cut -d: -f1)
+[ -n "$own_at" ] || { t_bad "no step hands /home/vscode/.npm to the cycle's user"; own_at=0; }
+npm_ci_at=$(grep -n -F 'npm ci' <<<"$npm_steps" | tail -n 1 | cut -d: -f1)
+gate_npm_at=$(grep -n -F 'npm config get cache' <<<"$npm_steps" | head -n 1 | cut -d: -f1)
+[ "${npm_ci_at:-0}" -gt 0 ] && [ "$own_at" -gt "$npm_ci_at" ] || t_bad "the cache is handed over before the last npm step"
+[ -n "$gate_npm_at" ] && [ "$gate_npm_at" -gt "$own_at" ] || t_bad "the build does not ask npm for its cache after the hand-over"
+# The check runs as the cycle's user: the last USER before it is vscode.
+t_eq "$(head -n "${gate_npm_at:-1}" <<<"$npm_steps" | grep -E '^[ \t]*USER' | tail -n 1)" "USER vscode"
+gate_npm=$(sed -n "${gate_npm_at:-1}p" <<<"$npm_steps")
+t_contains "$gate_npm" 'probe=$(mktemp -p "$cache") && rm -f "$probe"'
+t_contains "$gate_npm" "cannot write npm's cache"
+# The only step after the hand-over that runs npm is that check, as the user.
+t_eq "$(tail -n "+$((own_at + 1))" <<<"$npm_steps" | grep -c -E '(^|[ ;&|({])npm ')" 1
+
+t_case "onnxruntime sets no thread affinity: the image fixes its thread count"
+# vipune sets no onnxruntime thread count, so onnxruntime pinned a thread to
+# each host core and, under a cycle's cpuset, wrote an affinity error to stderr
+# on every call. The count is an ENV of the image, in the stage every instance
+# user shares, so every container of the image has it without a variable of
+# the cycle.
+shared_part=$(sed -n '1,/^FROM shared$/p' "$dockerfile")
+t_eq "$(grep -c -x 'ENV ORT_INTRA_OP_NUM_THREADS=1' <<<"$shared_part")" 1
+t_eq "$(grep -c 'ORT_INTRA_OP_NUM_THREADS' "$dockerfile")" 1
+# No unit and no source of the workspace passes it, the place that builds a
+# cycle's container words included.
+for unit in "$T_ROOT"/libexec/* "$T_ROOT"/bin/*; do
+  t_lacks "$(cat "$unit")" 'ORT_INTRA_OP_NUM_THREADS'
+done
+t_lacks "$(grep -rh --exclude-dir=target 'ORT_INTRA_OP_NUM_THREADS' "$T_ROOT/console" || true)" 'ORT_INTRA_OP_NUM_THREADS'
+# The smoke step stops the build on anything add and search write to stderr.
+# It cannot catch a lost thread count: a build step has no cpuset, and taskset
+# does not refuse the pins a cpuset does. build.sh's smoke run checks that, in
+# the finished image (console/cycle/src/sandbox.rs).
+vipune_step=$(sed -n '/^USER vscode$/,/^USER root$/p' "$dockerfile")
+t_lacks "$vipune_step" 'taskset'
+t_contains "$vipune_step" '2>"$db/add.err"'
+t_contains "$vipune_step" '2>"$db/search.err"'
+t_contains "$vipune_step" 'if [ -s "$db/add.err" ] || [ -s "$db/search.err" ]; then'
+
 t_case "the wigolo the base ships broken is off PATH, and no tehas prompt names it"
 t_contains "$recipe" 'rm -rf /usr/lib/node_modules/wigolo'
 t_contains "$recipe" 'if command -v wigolo >/dev/null 2>&1; then'
@@ -337,7 +390,7 @@ gate=$(gate_tools "$dockerfile")
 # The read is not vacuous: a RUN for which no words were read matches no tool
 # below, so the loop's own first words are asked for as well.
 t_contains " $gate " ' bash '
-for tool in file python3 rg git jq curl gh node cargo shellcheck codebase-memory-mcp fd find bash pi /opt/pi-rukas/bin/pi-rukas-headless; do
+for tool in file python3 rg git jq curl gh node npm cargo shellcheck codebase-memory-mcp fd find bash pi /opt/pi-rukas/bin/pi-rukas-headless; do
   case " $gate " in *" $tool "*) ;; *) t_bad "$tool is not one of the tools the image checks" ;; esac
 done
 t_lacks " $gate " ' wigolo '

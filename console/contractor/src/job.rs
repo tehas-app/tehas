@@ -44,6 +44,36 @@ pub struct Job {
     pub settings: Map<String, Value>,
     /// The models.json of the cycle, every provider behind the factory's proxy.
     pub models: Value,
+    /// The factory's account, which its image and the cycle's container run
+    /// as. None from a factory that names none.
+    pub owner: Option<Owner>,
+}
+
+/// A uid and a gid: the account a job's folders are handed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Owner {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+impl Owner {
+    /// The `uid` and `gid` of a job answer or of the job file, both or none.
+    pub fn of(v: &Value) -> Option<Owner> {
+        let id = |k: &str| v[k].as_u64().and_then(|n| u32::try_from(n).ok());
+        Some(Owner {
+            uid: id("uid")?,
+            gid: id("gid")?,
+        })
+    }
+
+    /// `uid:gid`, as docker's `--user` takes it.
+    pub fn parse(s: &str) -> Option<Owner> {
+        let (uid, gid) = s.split_once(':')?;
+        Some(Owner {
+            uid: uid.parse().ok()?,
+            gid: gid.parse().ok()?,
+        })
+    }
 }
 
 impl Job {
@@ -61,6 +91,7 @@ impl Job {
                 .to_string(),
             settings: v["settings"].as_object().cloned().unwrap_or_default(),
             models: v["models"].clone(),
+            owner: Owner::of(v),
         })
     }
 

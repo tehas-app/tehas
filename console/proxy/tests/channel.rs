@@ -107,7 +107,8 @@ impl Factory for Fake {
         Ok(())
     }
     fn carried(&self) -> Value {
-        json!({ "settings": { "TEHAS_REPO": "example-owner/example-product" }, "models": {} })
+        json!({ "settings": { "TEHAS_REPO": "example-owner/example-product" }, "models": {},
+                "uid": 1001, "gid": 1002 })
     }
     fn timeout(&self) -> i64 {
         600
@@ -237,6 +238,11 @@ fn a_contractor_takes_the_offer_in_its_hand_once_and_its_job_runs() {
     assert_eq!(
         a.body["settings"]["TEHAS_REPO"],
         "example-owner/example-product"
+    );
+    // The factory's account, which the contractor hands the cycle's folders to.
+    assert_eq!(
+        (&a.body["uid"], &a.body["gid"]),
+        (&json!(1001), &json!(1002))
     );
     let token = a.body["token"].as_str().unwrap();
     let job = a.body["job"].as_i64().unwrap();
@@ -749,4 +755,17 @@ fn a_revoked_contractor_s_tokens_of_both_scopes_are_refused() {
     let chan = Channel::new(&after, &fake);
     let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
     assert_eq!((a.status, a.refused()), (401, Some("no job")));
+}
+
+#[test]
+fn the_factory_s_account_is_read_from_id_s_numbers_and_null_where_there_are_none() {
+    use tehas_proxy::host::account;
+    assert_eq!(account("1001:1002"), (json!(1001), json!(1002)));
+    assert_eq!(account("0:0"), (json!(0), json!(0)));
+    assert_eq!(account(":"), (Value::Null, Value::Null));
+    assert_eq!(account(""), (Value::Null, Value::Null));
+    assert_eq!(account("1001:x"), (json!(1001), Value::Null));
+    // This process's own, as the factory's containers run.
+    let (uid, gid) = account(&tehas_core::sandbox::user());
+    assert!(uid.is_u64() && gid.is_u64(), "{uid} {gid}");
 }
