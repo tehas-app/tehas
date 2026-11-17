@@ -127,6 +127,8 @@ fn parse_reads_the_arguments_in_order() {
         "m",
         "--cycle",
         "y",
+        "--contractor",
+        "k",
         "--arch",
         "aarch64",
     ]);
@@ -136,7 +138,9 @@ fn parse_reads_the_arguments_in_order() {
     assert_eq!(a.arch, "aarch64");
     assert_eq!(a.programs[1], "m");
     assert_eq!(a.programs[5], "y");
+    assert_eq!(a.programs[7], "k");
     assert!(a.programs[0].is_empty());
+    assert!(a.programs[6].is_empty());
     assert_eq!(run_args(&[]).arch, "x86_64");
 }
 
@@ -297,6 +301,31 @@ fn the_programs_go_to_libexec_executable() {
         .listing(&p.tarball)
         .iter()
         .any(|f| f.ends_with("libexec/store")));
+}
+
+#[test]
+fn the_proxy_and_the_contractor_go_to_libexec_by_their_names() {
+    let t = Tree::new();
+    program(&t.path("proxy"), X86, "proxy");
+    program(&t.path("contractor"), X86, "contractor");
+    let proxy = t.path("proxy").display().to_string();
+    let contractor = t.path("contractor").display().to_string();
+    let p = t
+        .pack(&["--proxy", &proxy, "--contractor", &contractor])
+        .unwrap();
+    assert!(t
+        .unpacked(&p.tarball, "libexec/tehas-proxy")
+        .contains("proxy"));
+    assert!(t
+        .unpacked(&p.tarball, "libexec/tehas-contractor")
+        .contains("contractor"));
+    // A release packed without them carries neither.
+    let t = Tree::new();
+    let p = t.pack(&[]).unwrap();
+    assert!(!t
+        .listing(&p.tarball)
+        .iter()
+        .any(|f| f.ends_with("tehas-proxy") || f.ends_with("tehas-contractor")));
 }
 
 #[test]
@@ -540,17 +569,12 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 
 /// The packages of the workspace that build a program and that no host is given,
 /// each with why. Every other program is in each list below.
-const NOT_INSTALLED: &[(&str, &str)] = &[
-    ("tehas-xtask", "the development tasks of scripts/"),
-    (
-        "tehas-proxy",
-        "built and tested; install.sh and the release take it with #2278",
-    ),
-    (
-        "tehas-contractor",
-        "built and tested; install.sh and the release take it with #2278",
-    ),
-];
+const NOT_INSTALLED: &[(&str, &str)] = &[("tehas-xtask", "the development tasks of scripts/")];
+
+/// The programs the pack takes and install.sh installs by feature that the
+/// release workflow does not build yet. The workflow is a person's to change;
+/// the change that adds them to it takes them out of here.
+const NOT_BUILT_BY_THE_WORKFLOW: &[&str] = &["tehas-proxy", "tehas-contractor"];
 
 /// The name of `[package]` in a manifest.
 fn package_name(manifest: &str) -> String {
@@ -611,12 +635,29 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         .lines()
         .find_map(|l| l.strip_prefix("compiled=("))
         .expect("install.sh: compiled=(");
-    let compiled: BTreeSet<String> = compiled
+    let mut compiled: BTreeSet<String> = compiled
         .trim_end_matches(')')
         .split_whitespace()
         .map(String::from)
         .collect();
-    assert_eq!(compiled, programs, "install.sh compiled=(...)");
+    // The programs of a feature are installed only while it is on.
+    for f in tehas_core::features::FEATURES {
+        for p in f.programs {
+            assert!(
+                compiled.insert(p.to_string()),
+                "{p} is in compiled=(...) and of {}",
+                f.name
+            );
+        }
+    }
+    assert!(
+        install.contains("update featured"),
+        "install.sh asks for the programs of a feature"
+    );
+    assert_eq!(
+        compiled, programs,
+        "install.sh compiled=(...) and the features' programs"
+    );
 
     let release = read(".github/workflows/release.yml");
     let between = |from: &str, to: &str| {
@@ -626,6 +667,21 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         let rest = &release[start..];
         rest[..rest.find(to).unwrap_or_else(|| panic!("release.yml: {to}"))].to_string()
     };
+    let mut packed = set(&["console"]);
+    let mut pack_flags = set(&["--console"]);
+    for (flag, name) in PROGRAMS {
+        packed.insert(name.to_string());
+        if !NOT_BUILT_BY_THE_WORKFLOW.contains(name) {
+            pack_flags.insert(flag.to_string());
+        }
+    }
+    assert_eq!(packed, programs, "pack-release PROGRAMS");
+    for name in NOT_BUILT_BY_THE_WORKFLOW {
+        assert!(
+            programs.remove(*name),
+            "{name} is no program of the workspace"
+        );
+    }
     let built = names_after(&between("cargo build", "mkdir -p"), " -p ", &[' ', '\n']);
     assert_eq!(built, programs, "release.yml: cargo build -p");
     let copies = between("cp \"$target", "\"$RUNNER_TEMP/programs/\"");
@@ -636,12 +692,5 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         .filter(|w| w.starts_with("--"))
         .map(String::from)
         .collect();
-    let mut packed = set(&["console"]);
-    let mut pack_flags = set(&["--console"]);
-    for (flag, name) in PROGRAMS {
-        packed.insert(name.to_string());
-        pack_flags.insert(flag.to_string());
-    }
-    assert_eq!(packed, programs, "pack-release PROGRAMS");
     assert_eq!(flags, pack_flags, "release.yml: pack-release.sh flags");
 }
