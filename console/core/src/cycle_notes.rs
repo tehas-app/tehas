@@ -13,8 +13,9 @@ pub const RUNNING: [&str; 2] = ["lock", "cid"];
 /// cycle's record.
 pub const RECORD: [&str; 2] = ["runner_exit", "status"];
 
-/// What the run said of itself and what parks or holds the issue.
-pub const SAID: [&str; 17] = [
+/// What the run said of itself, what parks or holds the issue, and the
+/// branch heads a contractor's cycle started at.
+pub const SAID: [&str; 18] = [
     "oom",
     "forks",
     "stalled",
@@ -32,6 +33,7 @@ pub const SAID: [&str; 17] = [
     "progress.json",
     "freeze",
     "frozen",
+    "heads",
 ];
 
 /// A note written beside its name and moved into place: a step that clears
@@ -47,7 +49,7 @@ pub const NEW: [&str; 4] = [
 /// for what reads them after the end: the result and the progress for the
 /// record, a freeze, a park's reasons and the comments mode for the next
 /// step on the issue.
-pub const ENDED: [&str; 12] = [
+pub const ENDED: [&str; 13] = [
     "oom",
     "forks",
     "stalled",
@@ -60,6 +62,7 @@ pub const ENDED: [&str; 12] = [
     "done",
     "runner_exit",
     "status",
+    "heads",
 ];
 
 /// Every note.

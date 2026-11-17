@@ -2031,8 +2031,9 @@ fn schema_is_pinned() {
         let version_line = |s: &str| s.lines().next().unwrap_or("").to_string();
         if version_line(&dump) == version_line(pinned) {
             panic!(
-                "the schema changed and user_version did not: raise SCHEMA_VERSION in db.rs, \
-                 then replace src/schema.pinned with:\n{dump}"
+                "the schema changed and user_version did not: a column added within the \
+                 version goes last in its table and in db::ADDED, anything else raises \
+                 SCHEMA_VERSION in db.rs; then replace src/schema.pinned with:\n{dump}"
             );
         }
         panic!("user_version changed: replace src/schema.pinned with:\n{dump}");
@@ -6537,4 +6538,75 @@ fn out_of_a_new_day_writes_the_file_again() {
         iso(now + DAY),
         "the snapshot of the new day still names the old one"
     );
+}
+
+/// The names of a table's columns, in their order.
+fn columns(conn: &Connection, table: &str) -> Vec<String> {
+    let mut q = conn
+        .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .unwrap();
+    let names = q.query_map([], |r| r.get::<_, String>(0)).unwrap();
+    names.map(Result::unwrap).collect()
+}
+
+#[test]
+fn a_schema_4_file_of_0_30_opens_in_place_and_gains_the_contractor_column() {
+    let home = scratch("schema-4-v0.30");
+    let file = db::path(&home);
+    {
+        let old = Connection::open(&file).unwrap();
+        old.execute_batch(include_str!("../tests/fixtures/schema-4-v0.30.6.sql"))
+            .unwrap();
+        old.execute_batch(
+            "INSERT INTO meta (key, value) VALUES ('schema', '4'), ('retention_days', '365'),
+               ('created', '100');
+             INSERT INTO runs (id, kind, issue, started, outcome)
+               VALUES ('work-7-100', 'work', 7, 100, 'pr');
+             PRAGMA user_version = 4;",
+        )
+        .unwrap();
+        assert!(!columns(&old, "runs").contains(&"contractor_id".to_string()));
+    }
+    let (conn, moved) = db::open(&file, 200).unwrap();
+    assert_eq!(moved, None, "a file of schema 4 is not moved aside");
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 4);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT id || ' ' || outcome || ' ' || coalesce(contractor_id, 'null') FROM runs"
+        ),
+        "work-7-100 pr null"
+    );
+    let fresh = scratch("schema-4-fresh");
+    let (made, _) = db::open(&db::path(&fresh), 0).unwrap();
+    assert_eq!(columns(&conn, "runs"), columns(&made, "runs"));
+    drop(conn);
+    // A second open finds the column there and changes nothing.
+    let (again, moved) = db::open(&file, 300).unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(columns(&again, "runs"), columns(&made, "runs"));
+}
+
+#[test]
+fn the_contractor_of_a_run_is_kept_and_an_in_house_run_or_a_bad_word_keeps_none() {
+    let started = secs("2026-10-18T10:16:39Z");
+    let line = json!({"at": iso(started + 30), "started": started, "rc": 10,
+                      "status": "handoff", "parked": true});
+    for (name, contractor, want) in [
+        ("contractor-named", json!("box-1.lan"), "box-1.lan"),
+        ("contractor-none", Value::Null, "null"),
+        ("contractor-spaced", json!("box 1"), "null"),
+        ("contractor-long", json!("b".repeat(65)), "null"),
+        ("contractor-number", json!(7), "null"),
+    ] {
+        let home = scratch(name);
+        cycle(&home, "headless-316134e", started, line.clone());
+        fact(&home, 7, "contractor", contractor);
+        let conn = record(&home, 7, started + 60);
+        assert_eq!(
+            one::<String>(&conn, "SELECT coalesce(contractor_id, 'null') FROM runs"),
+            want,
+            "{name}"
+        );
+    }
 }

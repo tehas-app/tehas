@@ -12,6 +12,11 @@ use tehas_core::file::side_file;
 pub const SCHEMA_VERSION: i64 = 4;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
+
+/// The columns added within schema 4, after v0.30.0 wrote it: table, column
+/// and type. A file a release before them wrote gains each as it is opened,
+/// last in its table, where schema.sql has it too.
+pub const ADDED: [(&str, &str, &str); 1] = [("runs", "contractor_id", "TEXT")];
 const DAY: i64 = 86_400;
 
 /// How long to keep trying the journal switch, and how often, when another
@@ -155,6 +160,7 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
     settle(&mut conn, version, now)?;
+    add_missing(&mut conn)?;
     // Only now: a file that is moved aside is moved as it was found.
     set_wal(&mut conn)?;
     conn.pragma_update(None, "foreign_keys", "ON")
@@ -230,6 +236,38 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
         other => return Err(foreign(other)),
     }
     tx.commit().map_err(classify)
+}
+
+/// The columns of [`ADDED`] the file does not hold yet. Read first without a
+/// lock, so an open of a file that has them all writes nothing, and again
+/// under the write lock, where another opener may have added them since.
+fn add_missing(conn: &mut Connection) -> Result<(), Unusable> {
+    if lacking(conn).map_err(classify)?.is_empty() {
+        return Ok(());
+    }
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    for (table, column, kind) in lacking(&tx).map_err(classify)? {
+        tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {kind}"))
+            .map_err(classify)?;
+    }
+    tx.commit().map_err(classify)
+}
+
+fn lacking(conn: &Connection) -> rusqlite::Result<Vec<(&'static str, &'static str, &'static str)>> {
+    let mut out = Vec::new();
+    for (table, column, kind) in ADDED {
+        let there: i64 = conn.query_row(
+            "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+            params![table, column],
+            |r| r.get(0),
+        )?;
+        if there == 0 {
+            out.push((table, column, kind));
+        }
+    }
+    Ok(out)
 }
 
 // A schema this program does not write is kept aside.
