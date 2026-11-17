@@ -331,7 +331,6 @@ pub fn said(text: &str) -> Option<String> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use tehas_core::testdir::TestDir;
     use tehas_core::text::has_marker;
@@ -477,8 +476,7 @@ mod tests {
         // Written beside the stub and moved into place: a program that is being
         // replaced when the read comes to it is one that could not be started.
         let new = PathBuf::from(format!("{}.new", stub.display()));
-        fs::write(&new, text).unwrap();
-        fs::set_permissions(&new, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&new, text).unwrap();
         fs::rename(&new, stub).unwrap();
     }
 
@@ -618,12 +616,11 @@ mod tests {
         // neither 0 nor 1: no answer to a question that was asked.
         let tree_id = git(Path::new(&r.tree), &["rev-parse", "HEAD^{tree}"]);
         assert!(tree_id.len() >= 40, "no tree object: {tree_id:?}");
-        fs::write(
+        tehas_core::testing::write_exe(
             &stub,
             format!("#!/bin/sh\nprintf '%s\\0' '{tree_id}'\nprintf '%s\\0' 'a.txt'\nexit 3\n"),
         )
         .unwrap();
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
         let why = reason_at(&stub, &r.tree, "main", &head);
         assert!(
             why.starts_with("git wrote a tree object and answered 3 with 1 file(s) named"),
@@ -661,12 +658,11 @@ mod tests {
         let dir = TestDir::new("conflict-timeout");
         let stub = dir.path().join("wait");
         for word in ["124", "137"] {
-            fs::write(
+            tehas_core::testing::write_exe(
                 &stub,
                 format!("#!/bin/sh\nshift 3\nprintf '%s\\n' 'fatal: early EOF' >&2\nexit {word}\n"),
             )
             .unwrap();
-            fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
             let why = match read(&stub.display().to_string(), &r.tree, "main", &head) {
                 Judged::Unreadable(why) => why,
                 other => panic!("judged after all: {other:?}"),
@@ -678,8 +674,7 @@ mod tests {
             assert!(why.contains("early EOF"), "{word}: {why}");
         }
         // A timeout that says nothing is still a read that failed.
-        fs::write(&stub, "#!/bin/sh\nexit 124\n").unwrap();
-        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&stub, "#!/bin/sh\nexit 124\n").unwrap();
         assert_eq!(
             reason_at(&stub, &r.tree, "main", &head),
             "git did not answer within 120s"
