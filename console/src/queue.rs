@@ -13,7 +13,8 @@
 //! written with no words, and the page counts the tickets it does list.
 //!
 //! The run also writes live/platform.json (src/platform.rs), live/rukas.json
-//! (ops/src/rukas.rs), live/epics.json
+//! (ops/src/rukas.rs), live/contractors.json with outsource on, taken away
+//! with it off (src/outsource.rs), live/epics.json
 //! (src/epics.rs) and what the analytics program publishes (src/publish.rs),
 //! and it refreshes the health file unless the poll ran it: the poll sets
 //! TEHAS_FROM_POLL and runs health a moment later. Those last two happen at
@@ -66,6 +67,7 @@
 use crate::commands;
 use crate::flags::{epoch, REASON};
 use crate::jq::{obj, J};
+use crate::outsource;
 use crate::platform;
 use crate::publish::{log, Analytics};
 use crate::rukas;
@@ -781,6 +783,12 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let controls = [issue.to_string()];
     platform::write(home, live);
     rukas::write(home, live);
+    if let Err(why) = outsource::publish(home, live) {
+        log(&format!(
+            "WARN contractors.json not written: {}",
+            oneline(&why)
+        ));
+    }
 
     let mut reads = Reads::new(home);
     let mut stale: Vec<&str> = Vec::new();
