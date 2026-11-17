@@ -140,6 +140,10 @@ impl World for (Fake, Shared) {
             .get()
             .then(|| (json!({ "status": "merged" }), 0))
     }
+    fn image(&self, id: &str) -> Result<bool, String> {
+        self.0.events.borrow_mut().push(format!("image {id}"));
+        Ok(true)
+    }
     fn salvage(&self, _job: &Job) -> bool {
         self.0.events.borrow_mut().push("push".to_string());
         true
@@ -444,4 +448,24 @@ fn the_loop_wipes_first_runs_a_job_and_ends_when_drained() {
     w.0.script("hello", vec![Reply::No(403, "revoked".to_string())]);
     assert_eq!(run(&w, 30, 60), 1);
     assert_eq!(w.0.calls("job"), 0);
+}
+
+#[test]
+fn a_hello_that_names_the_factory_s_image_loads_it_before_a_job_is_asked() {
+    let mut w = world(ends_at(30));
+    w.0.script(
+        "hello",
+        vec![Reply::Ok(json!({ "hello": "box1", "image": "sha256:abc" }))],
+    );
+    w.0.jobs.borrow_mut().push_back(json!({
+        "job": 3, "issue": 7, "attempt": 1, "timeout": 60, "token": "job-token", "model_token": "model-token"
+    }));
+    w.0.drain_at = Some(1200);
+    assert_eq!(run(&w, 30, 60), 0);
+    let ev = w.0.events();
+    let image = ev.iter().position(|e| e == "image sha256:abc").unwrap();
+    let asked = ev.iter().position(|e| e == "job").unwrap();
+    assert!(image < asked, "{ev:?}");
+    // A hello that names none loads nothing.
+    assert_eq!(ev.iter().filter(|e| e.starts_with("image ")).count(), 1);
 }

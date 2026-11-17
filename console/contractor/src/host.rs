@@ -10,18 +10,24 @@
 //! | `state/outsource/job.json` | the factory's address and the job's token (0600) |
 //! | `state/outsource/instance/instance.env` | the job's settings (0600) |
 //! | `state/outsource/salvage/` | the repository a salvage push is made from |
+//! | `state/outsource/downloads/` | the job's downloads before they are unpacked |
+//! | `state/index/` | the factory's code index, which `tehas work` copies into the cycle |
 //! | `state/github-cycle/token` | the cycle's token, as the container reads it (0600) |
 //! | `~/.pi/agent/models.json` | the job's models.json, every provider behind the factory |
-//! | `repos/<name>` | the product, cloned for the job |
-//! | `work/`, `state/cycles/` | the cycle's workspace and notes |
+//! | `repos/<name>` | the product, cloned from the factory's bundle of its tip |
+//! | `work/`, `state/cycles/` | the cycle's workspace and notes, and the issue's files in `work/<name>-<issue>.images` |
 //!
 //! The wipe removes whole directories a factory install keeps too, so the
 //! program refuses a home that holds a factory ([`foreign`]), and removes a
 //! `models.json` only when it wrote it.
 //!
-//! The clone and the salvage push go through the job's local end of the
-//! factory's egress route ([`crate::egress`]): the factory's listener is this
-//! program's one connection for a job.
+//! The product comes from the factory as a git bundle of its tip, and the code
+//! index and the issue's files from the factory too (proxy/src/download.rs):
+//! nothing of a job is cloned or fetched from GitHub here. The salvage push
+//! goes through the job's local end of the factory's egress route
+//! ([`crate::egress`]): the factory's listener is this program's one
+//! connection for a job. The sandbox image is fetched by the image route when
+//! the factory's hello names another than this box has.
 //!
 //! The job names the factory's account. Before the cycle's container starts,
 //! `tehas work` asks this program (`own`) to hand the folders the container
@@ -98,6 +104,17 @@ impl Paths {
     pub fn runs(&self) -> PathBuf {
         self.user_home.join(".pi/agent/ensemble-runs")
     }
+    pub fn downloads(&self) -> PathBuf {
+        self.outsource().join("downloads")
+    }
+    pub fn index(&self) -> PathBuf {
+        self.home.join("state/index")
+    }
+    /// Where an image download is kept until it is loaded, so a broken one
+    /// resumes.
+    pub fn images(&self) -> PathBuf {
+        self.outsource().join("images")
+    }
 
     /// Everything a job leaves, in the order it is removed. `models.json` is
     /// not on it: it goes only with [`Paths::models_made`].
@@ -106,6 +123,8 @@ impl Paths {
             self.job_file(),
             self.instance(),
             self.salvage(),
+            self.downloads(),
+            self.index(),
             self.token_dir(),
             self.home.join("repos"),
             self.home.join("work"),
@@ -329,19 +348,216 @@ impl Host {
         write_private(&p.models_made(), b"")?;
         write_private(&p.models(), format!("{models}\n").as_bytes())?;
         let (repo, name) = Host::product(job).ok_or("the job names no TEHAS_REPO")?;
-        let token = fetch_token(&self.id.factory, &job.token, &p.token_dir())?;
-        let into = p.home.join("repos").join(&name);
-        let local = local_end(&self.id.factory, job)?;
-        let cloned = git_with(&token, &local.url())
-            .args(["clone", "--quiet", &format!("{}/{repo}.git", self.git_base)])
-            .arg(&into)
-            .stdout(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
-        if !cloned {
-            return Err(format!("{repo} could not be cloned"));
+        fetch_token(&self.id.factory, &job.token, &p.token_dir())?;
+        self.source(job, &repo, &p.home.join("repos").join(&name))?;
+        if let Err(why) = self.code_index(job) {
+            self.say(&format!(
+                "job {}: {why}, this cycle searches without a code index",
+                job.id
+            ));
+        }
+        self.files(
+            job,
+            &p.home
+                .join("work")
+                .join(format!("{name}-{}.images", job.issue)),
+        )
+    }
+
+    fn fetch(&self, job: &Job, path: &str, dest: &Path) -> Result<http::Fetched, Reply> {
+        let _ = fs::create_dir_all(self.paths.downloads());
+        http::fetch(
+            &self.id.factory,
+            path,
+            As::Job(&job.token),
+            dest,
+            false,
+            FETCH_WAIT,
+        )
+    }
+
+    /// The product at `into`, from the factory's bundle of its tip, as the
+    /// factory's own checkout is: `origin/<branch>` at the tip and the
+    /// repository's address as origin, so the cycle's pushes go where they
+    /// do in-house.
+    fn source(&self, job: &Job, repo: &str, into: &Path) -> Result<(), String> {
+        let bundle = self.paths.downloads().join("source.bundle");
+        let got = self
+            .fetch(job, "bundle", &bundle)
+            .map_err(|r| format!("the factory gave no source: {}", said(&r)))?;
+        let (Some(tip), Some(branch)) = (got.field("x-tehas-tip"), got.field("x-tehas-branch"))
+        else {
+            return Err("the factory's source names no tip or branch".to_string());
+        };
+        let branch_ok = !branch.starts_with('-')
+            && ran(git_pinned().args(["check-ref-format", "--branch", branch]));
+        if !branch_ok || tip.len() < 40 || !tip.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("the factory's source names no tip or branch".to_string());
+        }
+        let remote = format!("refs/remotes/origin/{branch}");
+        let made = ran(git_pinned()
+            .args(["init", "--quiet", "-b", branch])
+            .arg(into))
+            && ran(git_pinned().arg("-C").arg(into).args([
+                "remote",
+                "add",
+                "origin",
+                &format!("{}/{repo}.git", self.git_base),
+            ]))
+            && ran(git_pinned()
+                .arg("-C")
+                .arg(into)
+                .args(["fetch", "--quiet", "--no-tags"])
+                .arg(&bundle)
+                .arg(format!("+{remote}:{remote}")))
+            && ran(git_pinned().arg("-C").arg(into).args([
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                &remote,
+            ]))
+            && ran(git_pinned()
+                .arg("-C")
+                .arg(into)
+                .args(["checkout", "--quiet", "-B", branch, tip]));
+        let _ = fs::remove_file(&bundle);
+        if !made {
+            return Err(format!(
+                "{repo} could not be made from the factory's bundle"
+            ));
         }
         Ok(())
+    }
+
+    /// The factory's code index in `state/index`, where `tehas work` copies it
+    /// into the cycle's cache from.
+    fn code_index(&self, job: &Job) -> Result<(), String> {
+        let pack = self.paths.downloads().join("index.pack");
+        let got = self
+            .fetch(job, "index", &pack)
+            .map_err(|r| format!("the factory gave no code index ({})", said(&r)))?;
+        let unpacked = unpack(&pack, got.field("x-tehas-pack"), &self.paths.index());
+        let _ = fs::remove_file(&pack);
+        unpacked.map_err(|why| format!("the code index could not be unpacked ({why})"))
+    }
+
+    /// The issue's images and files at `dir`, as the factory fetched and
+    /// checked them. None given is no error; a refusal is the one an
+    /// in-house start stops on, and the job does not start.
+    fn files(&self, job: &Job, dir: &Path) -> Result<(), String> {
+        let pack = self.paths.downloads().join("files.pack");
+        let got = match self.fetch(job, "attachments", &pack) {
+            Ok(got) => got,
+            Err(Reply::No(404, _)) => return Ok(()),
+            Err(r) => return Err(format!("the factory gave no files: {}", said(&r))),
+        };
+        let unpacked = unpack(&pack, got.field("x-tehas-pack"), dir);
+        let _ = fs::remove_file(&pack);
+        unpacked.map_err(|why| format!("the issue's files could not be unpacked ({why})"))
+    }
+}
+
+/// The words of a refusal or of no answer, for a line of the log.
+fn said(r: &Reply) -> String {
+    match r {
+        Reply::Ok(_) => "an answer".to_string(),
+        Reply::No(status, word) => format!("{status} {word}"),
+        Reply::Down(why) => why.clone(),
+    }
+}
+
+/// How long one read of a download may take.
+const FETCH_WAIT: Duration = Duration::from_secs(300);
+
+/// A tar the factory packed, `pack` saying how (`zstd` or `tar`), unpacked
+/// into `dir`, which is made anew. The owner and modes of the tar are not
+/// kept: the files are this user's.
+pub fn unpack(file: &Path, pack: Option<&str>, dir: &Path) -> Result<(), String> {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut tar = Command::new("tar");
+    tar.args(["-x", "--no-same-owner", "--no-same-permissions", "-C"])
+        .arg(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let done = match pack {
+        Some("tar") => tar.arg("-f").arg(file).stdin(Stdio::null()).status(),
+        Some("zstd") => {
+            let mut zstd = Command::new("zstd")
+                .args(["-q", "-d", "-c"])
+                .arg(file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("zstd: {e}"))?;
+            let out = zstd.stdout.take().ok_or("zstd gave no output")?;
+            let status = tar.args(["-f", "-"]).stdin(out).status();
+            let z = zstd.wait().map_err(|e| e.to_string())?;
+            if !z.success() {
+                return Err(format!("zstd {z}"));
+            }
+            status
+        }
+        other => return Err(format!("a pack of no known kind: {other:?}")),
+    };
+    match done {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("tar {s}")),
+        Err(e) => Err(format!("tar: {e}")),
+    }
+}
+
+/// The id of the image docker holds by `name`, or None.
+fn image_id_of(name: &str) -> Option<String> {
+    let out = Command::new("timeout")
+        .args([
+            "-k",
+            "5",
+            INSPECT_WAIT,
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+        ])
+        .arg("{{.Id}}")
+        .arg(name)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    id.starts_with("sha256:").then_some(id)
+}
+
+/// Load a `docker save` the factory packed, `pack` saying how.
+fn docker_load(file: &Path, pack: Option<&str>) -> Result<(), String> {
+    let mut load = Command::new("docker");
+    load.args(["load", "--quiet"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let status = match pack {
+        Some("tar") => load.arg("-i").arg(file).stdin(Stdio::null()).status(),
+        Some("zstd") => {
+            let mut zstd = Command::new("zstd")
+                .args(["-q", "-d", "-c"])
+                .arg(file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("zstd: {e}"))?;
+            let out = zstd.stdout.take().ok_or("zstd gave no output")?;
+            let status = load.stdin(out).status();
+            let _ = zstd.wait();
+            status
+        }
+        other => return Err(format!("a pack of no known kind: {other:?}")),
+    };
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("docker load {s}")),
+        Err(e) => Err(format!("docker load: {e}")),
     }
 }
 
@@ -600,6 +816,44 @@ impl World for Host {
 
     fn call(&self, call: &str, token: &str, body: &Value) -> Reply {
         http::post(&self.id.factory, call, As::Job(token), body, CALL_WAIT)
+    }
+
+    fn image(&self, id: &str) -> Result<bool, String> {
+        let name = std::env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default();
+        if name.is_empty() {
+            return Err("PI_ENSEMBLE_IMAGE names no image".to_string());
+        }
+        if image_id_of(&name).as_deref() == Some(id) {
+            return Ok(false);
+        }
+        let hex = id.strip_prefix("sha256:").unwrap_or(id);
+        if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("the factory named no image id".to_string());
+        }
+        fs::create_dir_all(self.paths.images()).map_err(|e| e.to_string())?;
+        let file = self.paths.images().join(format!("{hex}.pack"));
+        let who = As::Contractor {
+            name: &self.id.name,
+            key: &self.id.key,
+        };
+        let got = http::fetch(
+            &self.id.factory,
+            &format!("image?id={id}"),
+            who,
+            &file,
+            true,
+            FETCH_WAIT,
+        )
+        .map_err(|r| format!("the factory gave no image: {}", said(&r)))?;
+        let loaded = docker_load(&file, got.field("x-tehas-pack"));
+        let _ = fs::remove_dir_all(self.paths.images());
+        loaded?;
+        if image_id_of(&name).as_deref() != Some(id) {
+            return Err(format!(
+                "{name} is not the image the factory named after the load"
+            ));
+        }
+        Ok(true)
     }
 
     fn start(&self, job: &Job) -> Result<Box<dyn Work>, String> {

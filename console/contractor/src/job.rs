@@ -118,6 +118,11 @@ pub trait World {
     fn ask(&self, call: &str) -> Reply;
     /// A call made with a job's token.
     fn call(&self, call: &str, token: &str, body: &Value) -> Reply;
+    /// Load the factory's sandbox image of this id, unless this box has it:
+    /// whether it was loaded, or why not.
+    fn image(&self, _id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Prepare the job's workspace and start its cycle.
     fn start(&self, job: &Job) -> Result<Box<dyn Work>, String>;
     /// The result the cycle wrote and its exit status, if it wrote one.
@@ -299,7 +304,19 @@ pub fn run(world: &dyn World, grace: u64, poll: u64) -> i32 {
             return 0;
         }
         match world.ask("hello") {
-            Reply::Ok(_) => {}
+            Reply::Ok(said) => {
+                // The image a job runs is the factory's: one this box does
+                // not have is fetched before a job is asked for.
+                if let Some(id) = said["image"].as_str() {
+                    match world.image(id) {
+                        Ok(true) => world.say(&format!("loaded the factory's image {id}")),
+                        Ok(false) => {}
+                        Err(why) => {
+                            world.say(&format!("the factory's image is not loaded: {why}"));
+                        }
+                    }
+                }
+            }
             r if r.revoked() => {
                 world.say("the factory revoked this contractor: it takes no more work");
                 return 1;

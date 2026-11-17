@@ -34,6 +34,7 @@
 
 pub mod channel;
 pub mod count;
+pub mod download;
 pub mod egress;
 pub mod forward;
 pub mod host;
