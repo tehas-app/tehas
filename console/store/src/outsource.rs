@@ -83,6 +83,13 @@
 //!     The oldest offer still open in this contractor's hand, which it takes
 //!     when it asks for work: answers `job` with its number, issue and attempt,
 //!     or `none`.
+//!   store job-stamp --issue <n> --since <unix>
+//!     Who built the issue's cycle that started on an approval of --since:
+//!     the newest job given out for the issue at or after that second,
+//!     whatever its state: its number, contractor, attempt and state, each
+//!     null when the cycle ran in-house. Answered under its own verb, as a
+//!     caller of libexec/store reads it. The stamp of the issue's comments,
+//!     its pull request and its commits.
 //!   store job-attempts --issue <n>
 //!     The record of what the outsourced attempts of an issue have cost, in
 //!     the words "this issue has spent its outsourced attempts" are read:
@@ -188,6 +195,10 @@ pub enum Call {
         key: String,
     },
     Offered(String),
+    Stamp {
+        issue: i64,
+        since: i64,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -500,6 +511,18 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                     host,
                 )?))
             }),
+        "job-stamp" => Args::parse(
+            "job-stamp",
+            rest,
+            &[("--issue", Kind::Value), ("--since", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Stamp {
+                issue: a.strict_need("--issue", "an issue number", verbs::number)?,
+                since: a.strict_need("--since", "a second", verbs::number)?,
+            })
+        }),
         "job-attempts" => Args::parse("job-attempts", rest, &[("--issue", Kind::Value)], false)
             .and_then(|a| {
                 Ok(Call::Attempts(a.strict_need(
@@ -538,6 +561,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Attempts(issue) => attempts(home, *issue),
         Call::Auth { name, key } => auth(home, name, key),
         Call::Offered(name) => offered(home, name, now),
+        Call::Stamp { issue, since } => stamp(home, *issue, *since),
     }
 }
 
@@ -1013,6 +1037,41 @@ fn offered(home: &Path, name: &str, now: i64) -> Result<String, Fail> {
             ),
             None => line("none", &[("contractor", j(name))]),
         })
+    })
+}
+
+fn stamp(home: &Path, issue: i64, since: i64) -> Result<String, Fail> {
+    look(home, move |c| {
+        let job = c
+            .query_row(
+                "SELECT id, issue, contractor, attempt, state FROM jobs
+                   WHERE issue = ?1 AND offered_at >= ?2 ORDER BY id DESC LIMIT 1",
+                params![issue, since],
+                read_job,
+            )
+            .optional()
+            .q()?;
+        // Answered under its own verb, as every caller of libexec/store
+        // reads an answer: the job, or null for a cycle run in-house.
+        let (id, contractor, attempt, state) = match &job {
+            Some(job) => (
+                Some(job.id),
+                Some(job.contractor.as_str()),
+                Some(job.attempt),
+                Some(job.state.as_str()),
+            ),
+            None => (None, None, None, None),
+        };
+        Ok(line(
+            "job-stamp",
+            &[
+                ("issue", j(issue)),
+                ("job", j(id)),
+                ("contractor", j(contractor)),
+                ("attempt", j(attempt)),
+                ("state", j(state)),
+            ],
+        ))
     })
 }
 
