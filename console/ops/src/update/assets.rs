@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 const DIRS: [&str; 2] = ["fun", "docs"];
 
 /// The pages that name a script or a stylesheet by tag, from the stage.
-const PAGES: [&str; 3] = ["fun/index.html", "fun/business.html", "docs/dashboard.frag"];
+pub(super) const PAGES: [&str; 3] = ["fun/index.html", "fun/business.html", "docs/dashboard.frag"];
 
 /// The extensions a page may name by tag and the server may cache for ever.
 /// Nothing else is given a hashed name: an image, a font or a document keeps
@@ -80,7 +80,7 @@ fn hashed_name(name: &str, bytes: &[u8]) -> String {
 /// under `/fun/` - a relative address among them, which is how a module names
 /// the modules it imports. `src=` wins where a tag holds both, because that is
 /// the attribute that names what a script runs.
-fn address(tag: &str) -> Option<(&'static str, &str)> {
+pub(super) fn address(tag: &str) -> Option<(&'static str, &str)> {
     // Past the attribute, the bytes up to the first `"` are nothing, the ones
     // after it are the value, and the value ends at the first `"` or the first
     // `>`: a tag's last attribute may be closed by the `>` that ends the tag.
@@ -114,7 +114,7 @@ fn asset_path(stage: &Path, addr: &str) -> Option<PathBuf> {
 /// `>` that closes it, which for a `<script>` is the one that closes it and not
 /// a `>` of its own text: the search for it starts past the opening quote of an
 /// attribute, so a `>` written inside one cannot end the tag.
-fn spans(text: &str) -> Vec<(usize, usize)> {
+pub(super) fn spans(text: &str) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     let mut at = 0;
     while let Some(offset) = text[at..].find('<') {

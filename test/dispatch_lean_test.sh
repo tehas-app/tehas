@@ -7,10 +7,17 @@
 # shellcheck source=test/dispatch_lib.sh
 . "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
+# lean is still being built: a test build turns it on, after reset().
+lean_on() {
+  T_ENV+=(TEHAS_TEST_FEATURES=lean)
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_LEAN=on
+}
+
 # Issue 7 parked with its Retry box ticked by alice. Its last start named the
 # driver given, and it carries tehas:lean from alice.
 lean_parked() { # <input of the last start, as JSON> [<reason of the park>]
   reset
+  lean_on
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:lean"}]}]' >"$fx/asking.json"
   printf '%s' "$1" >"$T/lean-input.json"
@@ -57,6 +64,7 @@ t_eq "$(approval .driver)" null
 
 t_case "a lean start whose body holds no pi-spec block starts nothing and says why once"
 reset
+lean_on
 echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:lean"}]}]' >"$fx/ready.json"
 label_events 7 tehas:lean=alice
 echo '{"title":"Faster search","body":"Make it fast, with no block."}' >"$fx/issue-7.json"
@@ -74,6 +82,7 @@ t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
 
 t_case "a lean start whose body holds the block is started"
 reset
+lean_on
 echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:lean"}]}]' >"$fx/ready.json"
 label_events 7 tehas:lean=alice
 jq -n '{title: "Faster search",
@@ -82,5 +91,28 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
 t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+
+t_case "with lean off, tehas:lean starts nothing, classic included, and says why once"
+reset
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:lean"}]}]' >"$fx/ready.json"
+label_events 7 tehas:lean=alice
+jq -n '{title: "Faster search",
+        body: "```pi-spec v1\n{\"intent\":\"faster search\"}\n```\n\nMake it fast."}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "skip #7: tehas:lean asks for the lean driver, still being built in this release"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "--remove-label tehas:lean"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: \`tehas:lean\` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place."
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+
+t_case "with lean off, a lean default stops the poll with 78 before it calls GitHub"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_DRIVER=lean
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release"
+t_eq "$(t_calls gh)" ""
 
 t_done

@@ -136,6 +136,11 @@ const SAID: &[(&str, &[&str])] = &[
     ("job-show", &["job"]),
     ("jobs-sweep", &["swept"]),
     ("job-attempts", &["attempts"]),
+    ("contractor-auth", &["allowed"]),
+    ("job-offered", &["job", "none"]),
+    ("job-stamp", &["job-stamp"]),
+    ("job-token", &["kept", "refused", "stale"]),
+    ("job-by-token", &["job", "none"]),
 ];
 
 /// The words one verb may answer with, its own and the one of the feature
@@ -1583,4 +1588,380 @@ fn load_refuses_a_store_that_holds_a_job() {
     assert!(why.contains("rows in jobs"), "{why}");
     assert_eq!(count(&into, "jobs"), 1);
     assert!(on_in(&into));
+}
+
+// --- the job channel's two questions ----------------------------------------
+
+#[test]
+fn a_contractor_is_allowed_only_with_its_own_key_until_it_is_revoked() {
+    let home = on("auth");
+    add(&home, "box1");
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["verb"], "allowed");
+    assert_eq!(v["draining"], false);
+    let v = out(
+        &home,
+        &["contractor-auth", "--name", "box1", "--key", KEY_B],
+    );
+    assert_eq!(
+        (v["verb"].as_str(), v["said"].as_str()),
+        (Some("refused"), Some("another key"))
+    );
+    let v = out(&home, &["contractor-auth", "--name", "box9", "--key", KEY]);
+    assert_eq!(v["said"], "unknown");
+    out(&home, &["contractor-drain", "--name", "box1"]);
+    assert_eq!(
+        out(&home, &["contractor-auth", "--name", "box1", "--key", KEY])["draining"],
+        true
+    );
+    out(&home, &["contractor-revoke", "--name", "box1"]);
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["said"], "revoked");
+    // Off, the question is refused like every verb of the feature.
+    let home = off("auth-off");
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["verb"], "refused");
+    assert_eq!(v["said"], "outsource is off");
+}
+
+#[test]
+fn the_offer_in_a_contractor_s_hand_is_found_until_it_is_taken_or_expires() {
+    let home = on("offered");
+    issue(&home, 7);
+    add(&home, "box1");
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box1"])["verb"],
+        "none"
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let v = out(&home, &["job-offered", "--contractor", "box1"]);
+    assert_eq!(v["verb"], "job");
+    assert_eq!(v["job"], id);
+    assert_eq!(v["issue"], 7);
+    assert_eq!(v["attempt"], 1);
+    // Another contractor's hand holds nothing.
+    add(&home, "box2");
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box2"])["verb"],
+        "none"
+    );
+    // Past its expiry the offer is no work, sweep or not.
+    let late = out_at(
+        &home,
+        NOW + OFFER_TTL_TEST,
+        &["job-offered", "--contractor", "box1"],
+    );
+    assert_eq!(late["verb"], "none");
+    // Taken, it is running and no longer an offer.
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box1"])["verb"],
+        "none"
+    );
+}
+
+/// One second past the expiry of an offer made with no --expires.
+const OFFER_TTL_TEST: i64 = crate::outsource::OFFER_TTL + 1;
+
+#[test]
+fn a_job_lost_to_a_silence_takes_its_result_until_the_next_attempt_is_given() {
+    let home = on("salvage");
+    issue(&home, 9);
+    let id = offered(&home, 9, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
+    assert_eq!(out(&home, &["job-show", "--job", &job])["state"], "lost");
+    let v = out(&home, &["job-finish", "--job", &job]);
+    assert_eq!(v["verb"], "finished", "{v}");
+    // Once the issue's next attempt is out, the old one's result is stale.
+    let home = on("salvage-late");
+    issue(&home, 9);
+    let id = offered(&home, 9, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
+    add(&home, "box2");
+    out_at(
+        &home,
+        NOW + 602,
+        &["job-offer", "--issue", "9", "--contractor", "box2"],
+    );
+    assert_eq!(out(&home, &["job-finish", "--job", &job])["verb"], "stale");
+}
+
+#[test]
+fn a_revoked_job_takes_no_result() {
+    let home = on("revoked-result");
+    issue(&home, 7);
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out(&home, &["contractor-revoke", "--name", "box1"]);
+    let v = out(&home, &["job-finish", "--job", &job]);
+    assert_eq!(v["verb"], "refused");
+    assert_eq!(v["said"], "lost does not finish");
+}
+
+#[test]
+fn the_list_names_the_job_open_in_a_contractor_s_hand() {
+    let home = on("list-job");
+    issue(&home, 7);
+    add(&home, "box1");
+    let row = first_row(&home, "contractor-list");
+    assert_eq!(
+        (row["job_issue"].clone(), row["job_state"].clone()),
+        (Value::Null, Value::Null)
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let row = first_row(&home, "contractor-list");
+    assert_eq!(
+        (row["job_issue"].as_i64(), row["job_state"].as_str()),
+        (Some(7), Some("offered"))
+    );
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(first_row(&home, "contractor-list")["job_state"], "running");
+    out(&home, &["job-finish", "--job", &id.to_string()]);
+    assert_eq!(
+        first_row(&home, "contractor-list")["job_issue"],
+        Value::Null
+    );
+}
+
+#[test]
+fn the_stamp_of_a_cycle_is_the_newest_job_of_its_issue_given_since_its_approval() {
+    let home = on("stamp");
+    issue(&home, 7);
+    let since = NOW.to_string();
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["job"],
+        Value::Null
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let v = out(&home, &["job-stamp", "--issue", "7", "--since", &since]);
+    assert_eq!(
+        (
+            &v["verb"],
+            &v["job"],
+            &v["contractor"],
+            &v["attempt"],
+            &v["state"]
+        ),
+        (
+            &"job-stamp".into(),
+            &id.into(),
+            &"box1".into(),
+            &1.into(),
+            &"offered".into()
+        )
+    );
+    // A job given before the approval is an earlier cycle's.
+    let later = (NOW + 1).to_string();
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &later])["contractor"],
+        Value::Null
+    );
+    // A job that has ended still stamps the cycle that waited on it.
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    out(&home, &["job-finish", "--job", &id.to_string()]);
+    let v = out(&home, &["job-stamp", "--issue", "7", "--since", &since]);
+    assert_eq!((&v["job"], &v["state"]), (&id.into(), &"finished".into()));
+    // Another issue's job is no stamp of this one.
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "8", "--since", &since])["job"],
+        Value::Null
+    );
+    let home = off("stamp-off");
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["verb"],
+        "refused"
+    );
+}
+
+#[test]
+fn the_stamp_of_a_start_is_only_a_job_still_open() {
+    let home = on("stamp-open");
+    issue(&home, 7);
+    let since = NOW.to_string();
+    let open = ["job-stamp", "--issue", "7", "--since", &since, "--open"];
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    assert_eq!(out(&home, &open)["job"], id);
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(out(&home, &open)["state"], "running");
+    // A retry under the same approval, after the job was lost, is not the
+    // lost job's: the start of it names no contractor.
+    let lose = ["job-lose", "--job", &id.to_string(), "--reason", "timeout"];
+    assert_eq!(out(&home, &lose)["verb"], "lost");
+    assert_eq!(out(&home, &open)["job"], Value::Null);
+    assert_eq!(out(&home, &open)["contractor"], Value::Null);
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["job"],
+        id
+    );
+}
+
+// --- schema 17: the report and the token's hash -------------------------------
+
+const IMAGE: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+/// The hash of a job's token, as the proxy passes it.
+const TOKEN_SHA: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+#[test]
+fn a_hello_with_a_report_is_listed_until_the_next_report_replaces_it() {
+    let home = on("report");
+    add(&home, "box1");
+    assert_eq!(first_row(&home, "contractor-list")["report"], Value::Null);
+    let v = out(
+        &home,
+        &[
+            "contractor-seen",
+            "--name",
+            "box1",
+            "--image",
+            IMAGE,
+            "--rukas",
+            "v0.14.50",
+            "--mem-mb",
+            "32000",
+            "--disk-kb",
+            "50000000",
+        ],
+    );
+    assert_eq!(v["report"], true);
+    let r = first_row(&home, "contractor-list")["report"].clone();
+    assert_eq!(r["digest"], IMAGE);
+    assert_eq!(r["rukas"], "v0.14.50");
+    assert_eq!(r["mem_mb"], 32000);
+    assert_eq!(r["disk_kb"], 50_000_000);
+    assert_eq!(r["at"], NOW);
+    // A hello with no report keeps the last one; its time stays the report's.
+    out_at(&home, NOW + 30, &["contractor-seen", "--name", "box1"]);
+    let row = first_row_at(&home, NOW + 30, "contractor-list");
+    assert_eq!(row["last_seen_at"], NOW + 30);
+    assert_eq!(row["report"]["at"], NOW);
+    // A report replaces the one before whole: what it left out is null.
+    out_at(
+        &home,
+        NOW + 60,
+        &["contractor-seen", "--name", "box1", "--mem-mb", "100"],
+    );
+    let r = first_row_at(&home, NOW + 60, "contractor-list")["report"].clone();
+    assert_eq!(r["digest"], Value::Null);
+    assert_eq!(r["mem_mb"], 100);
+    assert_eq!(r["at"], NOW + 60);
+}
+
+#[test]
+fn a_report_outside_its_grammar_is_64_and_writes_nothing() {
+    let home = on("report-grammar");
+    add(&home, "box1");
+    for (flag, bad) in [
+        ("--image", "aaaa"),
+        ("--image", "sha256:AAAA"),
+        (
+            "--image",
+            "md5:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+        ("--rukas", "v1 two"),
+        ("--rukas", "$(id)"),
+        ("--mem-mb", "-1"),
+        ("--mem-mb", "12x"),
+        ("--disk-kb", "99999999999999"),
+    ] {
+        let (code, _) = refused_out(&home, &["contractor-seen", "--name", "box1", flag, bad]);
+        assert_eq!(code, 64, "{flag} {bad}");
+    }
+    assert_eq!(
+        count(
+            &home,
+            "contractors WHERE last_seen_at IS NULL AND report_at IS NULL"
+        ),
+        1
+    );
+}
+
+#[test]
+fn a_store_with_the_feature_off_takes_no_report_and_no_token_hash() {
+    let home = off("report-off");
+    let args = ["contractor-seen", "--name", "box1", "--image", IMAGE];
+    assert_eq!(out(&home, &args)["verb"], "refused");
+    let args = ["job-token", "--job", "1", "--sha256", TOKEN_SHA];
+    assert_eq!(out(&home, &args)["verb"], "refused");
+    let args = ["job-by-token", "--sha256", TOKEN_SHA];
+    assert_eq!(out(&home, &args)["verb"], "refused");
+}
+
+/// A job of issue 7 taken by box1, its token's hash kept.
+fn tokened(name: &str) -> (TestDir, String) {
+    let home = on(name);
+    issue(&home, 7);
+    let job = offered(&home, 7, "box1")["job"]
+        .as_i64()
+        .unwrap()
+        .to_string();
+    let v = out(&home, &["job-token", "--job", &job, "--sha256", TOKEN_SHA]);
+    assert_eq!(v["verb"], "kept", "{v}");
+    out(&home, &["job-check-in", "--job", &job]);
+    (home, job)
+}
+
+fn by_token(home: &Path) -> Value {
+    out(home, &["job-by-token", "--sha256", TOKEN_SHA])
+}
+
+#[test]
+fn a_kept_token_hash_names_its_running_job_and_nothing_else() {
+    let (home, job) = tokened("token-kept");
+    let v = by_token(&home);
+    assert_eq!(v["verb"], "job", "{v}");
+    assert_eq!(v["job"].to_string(), job);
+    assert_eq!(
+        (v["issue"].as_i64(), v["attempt"].as_i64()),
+        (Some(7), Some(1))
+    );
+    assert_eq!(v["contractor"], "box1");
+    assert_eq!(v["state"], "running");
+    assert_eq!(
+        count(&home, &format!("jobs WHERE token_sha256 = '{TOKEN_SHA}'")),
+        1
+    );
+    let other = "2222222222222222222222222222222222222222222222222222222222222222";
+    let v = out(&home, &["job-by-token", "--sha256", other]);
+    assert_eq!(v["verb"], "none");
+    // Stopping still names it; finished does not.
+    out(&home, &["job-stop", "--job", &job]);
+    assert_eq!(by_token(&home)["state"], "stopping");
+    out(&home, &["job-finish", "--job", &job]);
+    assert_eq!(by_token(&home)["verb"], "none");
+    // A finished job takes no new hash.
+    let v = out(&home, &["job-token", "--job", &job, "--sha256", other]);
+    assert_eq!(v["verb"], "refused");
+}
+
+#[test]
+fn a_token_hash_of_a_revoked_contractor_or_a_replaced_attempt_names_no_job() {
+    let (home, _) = tokened("token-revoked");
+    out(&home, &["contractor-revoke", "--name", "box1"]);
+    assert_eq!(by_token(&home)["verb"], "none");
+    // Lost to a silence, it still names the job until the next attempt.
+    let (home, job) = tokened("token-silent");
+    out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
+    assert_eq!(out(&home, &["job-show", "--job", &job])["state"], "lost");
+    assert_eq!(by_token(&home)["state"], "lost");
+    add(&home, "box2");
+    out_at(
+        &home,
+        NOW + 602,
+        &["job-offer", "--issue", "7", "--contractor", "box2"],
+    );
+    assert_eq!(by_token(&home)["verb"], "none");
+    // An offer not yet taken names no job either.
+    let home = on("token-offered");
+    issue(&home, 7);
+    let job = offered(&home, 7, "box1")["job"]
+        .as_i64()
+        .unwrap()
+        .to_string();
+    out(&home, &["job-token", "--job", &job, "--sha256", TOKEN_SHA]);
+    assert_eq!(by_token(&home)["verb"], "none");
 }

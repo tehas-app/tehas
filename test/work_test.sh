@@ -287,6 +287,29 @@ PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "the remote path: on a contractor the container gets exactly the same mounts and variables"
+# A cycle run for a contractor (outsource on, TEHAS_CONTRACTOR named) renews
+# its token and relays its issue writes through the contractor program, and
+# gives its container nothing more and nothing else (AGENTS.md rule 4).
+local_mounts=$(after -v | LC_ALL=C sort)
+t_stub contractor 'case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; esac'
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_OUTSOURCE=on
+saved_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=outsource "TEHAS_CONTRACTOR=$T/bin/contractor")
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after -v | LC_ALL=C sort)" "$local_mounts"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+t_contains "$(tail -n 1 "$T/renew.calls")" "renew --cmd $T/bin/contractor --arg token "
+# A contractor holds no app token: the container's token is the cycle token
+# the factory made, and no app token was asked for.
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_from_factory"
+t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "ghs_from_factory"
+t_lacks "$(cat "$T"/calls/docker.token 2>/dev/null)" "ghs_app"
+T_ENV=("${saved_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_READ_ONLY=1
 rm -f "$T"/calls/*
@@ -673,6 +696,40 @@ lean_fresh() {
 }
 stub_github
 
+# lean is still being built: off, a lean start of any kind is 78, starts
+# nothing and never runs classic in its place.
+t_case "with lean off, --driver lean is 78, starts no container and names the feature"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver lean"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: --driver lean needs the feature lean, and lean is still being built in this release; not starting a cycle"
+t_eq "$(cycle_args)" ""
+t_eq "$(t_calls docker | grep -c -e --cidfile)" 0
+
+t_case "with lean off, a record that says driver lean is 78 and does not run classic"
+lean_fresh
+caps_lean
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the approval of #7, which names driver lean, needs the feature lean"
+t_eq "$(cycle_args)" ""
+
+t_case "with lean off, --driver classic and a record with no driver run classic work"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver classic"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json "
+
+# From here a test build turns lean on, as the lean cases ran before it was
+# a feature.
+lean_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=lean)
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_LEAN=on
+
 t_case "a record with no driver runs classic work"
 lean_fresh
 caps_lean
@@ -749,6 +806,8 @@ t_run "$work 7 --driver classic --restart"
 t_eq "$t_rc" 2
 t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json --restart "
 
+T_ENV=("${lean_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 caps_good
 
 t_case "the cycle starts the token renewer, and one that cannot start refuses the cycle before its container"

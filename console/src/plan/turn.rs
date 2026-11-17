@@ -116,8 +116,8 @@ const POLL: Duration = Duration::from_millis(250);
 const SESSIONS: &str = ".git/pi-plan-sessions";
 const STOP_ON_SIGNAL: u32 = 10;
 const STOP_ON_LIMIT: u32 = 20;
-const NOTHING_STARTS: u8 = 78;
-const FAILED: u8 = 2;
+const NOTHING_STARTS: u8 = tehas_core::exit::SETTINGS;
+const FAILED: u8 = tehas_core::exit::plan::FAILED;
 
 fn say(line: &str) {
     let _ = writeln!(io::stdout(), "{line}");
@@ -395,6 +395,19 @@ fn note_commit(tree: &str, keep: &str) -> io::Result<()> {
         Ok(())
     } else {
         Err(ErrorKind::Other.into())
+    }
+}
+
+/// A later turn's workspace deepened to the session's commit, which the
+/// branch may have left beyond TEHAS_CLONE_DEPTH since the first turn. A
+/// commit it cannot reach is left to [`pin`], which starts the turn at the tip
+/// and says so.
+pub(super) fn reach_pin(src: &str, tree: &str, keep: &str, branch: &str, depth: u32) {
+    let pin = fs::read_to_string(format!("{keep}/commit")).unwrap_or_default();
+    let pin = pin.trim_end_matches('\n');
+    if tehas_core::grammar::is_hex(pin, 40, 40) {
+        let tip = format!("refs/remotes/origin/{branch}");
+        let _ = tehas_core::depth::reach(src, tree, &[&tip], pin, depth);
     }
 }
 

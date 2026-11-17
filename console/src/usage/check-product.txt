@@ -22,8 +22,9 @@ reads only what is committed there:
 
 --sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp/<name>, the
 repository name of TEHAS_REPO. The clone is made as a cycle's workspace is
-(tehas-cycle sandbox clone): the default branch at origin's tip, with
-origin/<default branch> and origin/HEAD set, then a work branch with one
+(tehas-cycle sandbox clone): the default branch at origin's tip and
+TEHAS_CLONE_DEPTH commits of its history, with origin/<default branch> and
+origin/HEAD set, then a work branch with one
 empty commit, so a gate that diffs against origin/main finds its base and a
 change of nothing. In the image, as this user, it runs the install at the
 root of the clone, then, in a worktree of the clone as pi-rukas makes one,
@@ -35,9 +36,9 @@ install check and runs no gate. All of it is removed afterwards.
 It changes nothing in the product. The result is written to
 $TEHAS_HOME/state/check-product.json, which tehas status reads.
 
-Exit: 0 every check passed; 1 the sandbox could not be run; 64 a wrong
-argument; 78 the instance settings are missing or malformed, or a check
-failed.
+Exit: 0 every check passed; 1 the sandbox could not be run; 3 a check
+failed; 64 a wrong argument; 78 the instance settings are missing or
+malformed.
 
 Instance settings (lib/config.sh): TEHAS_REPO, required; TEHAS_WORK_REPO,
 derived. --sandbox also uses PI_ENSEMBLE_IMAGE.

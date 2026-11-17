@@ -208,7 +208,7 @@ impl Run {
                 self.line(&format!(
                     "asked for pull request #{pr}: not refreshed: {why}"
                 ));
-                return 3;
+                return i32::from(tehas_core::exit::NO);
             }
         };
         let path = self.dir.join(format!("{}.json", c.issue));

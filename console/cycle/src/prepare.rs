@@ -22,7 +22,7 @@
 //! the host runs nothing in it. The host runs git only in a tree no container
 //! has touched.
 
-use crate::start::{self, is_record, record_value, Driver};
+use crate::start::{self, is_record, record_value};
 use crate::{caps, conflict, host, ran_with};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -32,6 +32,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::driver::Driver;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -376,6 +378,14 @@ pub fn check(c: &Check) -> i32 {
         .filter(|_| judge)
         .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
         .unwrap_or(Value::Null);
+    // Every refresh works on its pull request's branch, which may have started
+    // beyond the workspace's depth: the tree step deepens it to hold that start.
+    let continues = rec
+        .as_ref()
+        .filter(|_| refresh)
+        .and_then(|r| r.get("refresh_of"))
+        .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
+        .unwrap_or(Value::Null);
     // A lean refresh is refused below unless the image lists --continue-pr for
     // work-lean. A lean restart passes no flag (run_flags).
     let flags = run_flags(limit, c.restart, refresh, c.driver);
@@ -391,12 +401,34 @@ pub fn check(c: &Check) -> i32 {
     if env("TEHAS_WORK_IMAGES") == "1"
         || env("TEHAS_WORK_FILES") == "1"
         || crate::gives::comments_given(&c.record)
+        || crate::gives::hands_over(&c.record)
     {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
-    let lacking = (caps_rc == 0)
+    // A spec the runner does not read would be dropped without a word.
+    if crate::gives::hands_over(&c.record) && crate::gives::spec_pin(&c.record).is_some() {
+        features.push(' ');
+        features.push_str(caps::READS_SPEC);
+    }
+    let mut lacking = (caps_rc == 0)
         .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))
         .flatten();
+    // An input the runner does not list passes when a polyfill the image
+    // carries declares it. The labels are asked only then.
+    if lacking.as_deref().is_some_and(|l| l.contains("the input ")) {
+        let declared = caps::polyfill_inputs(&answer, &crate::gives::image_labels(&image));
+        let kept: Vec<&str> = names
+            .split(' ')
+            .filter(|n| match declared.iter().find(|(i, _)| i == n) {
+                Some((i, p)) => {
+                    eprintln!("tehas work: the input {i} is read by the polyfill {p} of {image}");
+                    false
+                }
+                None => true,
+            })
+            .collect();
+        lacking = caps::unsupported(&answer, verb, &flags.join(" "), &kept.join(" "), &features);
+    }
     let Some(lacking) = lacking else {
         eprintln!(
             "tehas work: {image} gave no --capabilities answer (exit {caps_rc}), not starting a cycle"
@@ -439,7 +471,8 @@ pub fn check(c: &Check) -> i32 {
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
         "hosts": hosts, "flags": flags, "verb": verb,
-        "comments": {"native": native, "unguard": unguard}, "refresh": refresh_of});
+        "comments": {"native": native, "unguard": unguard}, "refresh": refresh_of,
+        "continues": continues});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -601,7 +634,7 @@ fn put_back(tree: &str) -> bool {
 /// The workspace of this cycle, at the tip the product checkout last fetched for
 /// the branch. pi-rukas writes the three names into it, and a product needs no
 /// .gitignore lines for them.
-fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool {
+fn make_tree(tree: &str, state_dir: &str, branch: &str, depth: u32, set: &mut Aside) -> bool {
     let works = Path::new(tree).parent().unwrap_or(Path::new(""));
     let marked = fs::create_dir_all(works).is_ok()
         && fs::File::create(works.join(".tehas-workspaces")).is_ok();
@@ -619,7 +652,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool
             .is_ok()
     };
     ran(Command::new("rm").args(["-rf", state_dir]))
-        && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch)
+        && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch, depth)
         && exclude(tree)
 }
 
@@ -726,11 +759,9 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
     Some(78)
 }
 
-/// The fault of a sandbox that cannot push: `state/push-fault.json`, one host
-/// fact with no issue in its name, so every start of the issue reads the same
-/// answer while the host stays unable to push. Part 2 holds starts on it and
-/// part 3 puts it in status and health; both read this file.
-pub const PUSH_FAULT: &str = "state/push-fault.json";
+/// The fault of a sandbox that cannot push, one host fact with no issue in its
+/// name. The poll holds starts on it and re-probes it; status and health say it.
+pub const PUSH_FAULT: &str = tehas_core::sandbox::PUSH_FAULT;
 
 /// Why the sandbox cannot push, as `git` said it: the first line of its log,
 /// with what the mask of the host hides replaced. An empty log says nothing.
@@ -742,34 +773,11 @@ fn fault_line(text: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-/// The record put on `file`, or taken off it. A check that passed removes the
-/// fault: the next start is judged on its own check, not on this one's. A line
-/// of its own always makes a fault, whatever the time it carries: only a fault
-/// that says nothing is refused, and a caller always gives one.
-fn record_fault(home: &Path, file: &str, line: &str, at: i64) {
-    let path = home.join(file);
-    if line.is_empty() {
-        let _ = fs::remove_file(&path);
-        return;
-    }
-    let doc = json!({
-        "at": time::iso(at),
-        "login": tehas_core::settings::bot_login(home).unwrap_or_default(),
-        "line": line,
-    })
-    .to_string();
-    let dir = path.parent().unwrap_or(home);
-    if fs::create_dir_all(dir).is_err() {
-        return;
-    }
-    // The one name, so a leftover of a run killed mid-write cannot block the
-    // next, and a reader never sees half of the record.
-    let _ = tehas_core::file::write_atomic(
-        &path,
-        format!("{doc}\n").as_bytes(),
-        0o600,
-        &tehas_core::file::Temp::Predictable,
-    );
+/// The record put on the file, or taken off it. A check that passed removes the
+/// fault: the next start is judged on its own check, not on this one's.
+fn record_fault(home: &Path, line: &str, at: i64) {
+    let login = tehas_core::settings::bot_login(home).unwrap_or_default();
+    tehas_core::sandbox::write_push_fault(home, line, at, &login);
 }
 
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
@@ -826,7 +834,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
     for line in last_lines(preflight, 3, &format!("the push check (exit {rc})")) {
         say(&format!("    {line}"));
     }
-    Some(3)
+    Some(i32::from(NO_PUSH))
 }
 
 /// The last `n` lines of the log, or a line that says it could not be read or
@@ -873,7 +881,7 @@ pub fn push_fault(home: &Path, issue: u64, line: &str) {
     if line.is_empty() {
         return;
     }
-    record_fault(home, PUSH_FAULT, line, time::now());
+    record_fault(home, line, time::now());
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
     let n = issue.to_string();
     if is_attempt(&attempt) {
@@ -1028,6 +1036,31 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
     Some(78)
 }
 
+/// A refresh's workspace deepened to hold its pull request's head and the
+/// commit its branch started from, the merge base with the branch, as the
+/// product checkout has them (tehas_core::depth::reach). Some(78) when it
+/// cannot, with the reason: a shallow tree without that start would answer
+/// `merge-base --is-ancestor` with a wrong no. None for any other start.
+fn continued(state: &Value, tree: &str, branch: &str, depth: u32) -> Option<i32> {
+    let of = state.get("continues").filter(|v| v.is_object())?;
+    let pr = of.get("pr").and_then(Value::as_u64).unwrap_or(0);
+    let head = of.get("head").and_then(Value::as_str).unwrap_or("");
+    let src = env("TEHAS_WORK_REPO");
+    let tip = format!("refs/remotes/origin/{branch}");
+    let held = if is_commit(head) {
+        tehas_core::depth::merge_base(&src, &tip, head)
+            .ok_or_else(|| format!("{src} holds no merge base of origin/{branch} and {head}"))
+            .and_then(|base| tehas_core::depth::reach(&src, tree, &[&tip, head], &base, depth))
+    } else {
+        Err("the head of the request is no commit".to_string())
+    };
+    let why = held.err()?;
+    eprintln!(
+        "tehas work: the workspace of the refresh of pull request #{pr} cannot hold the commit its branch started from: {why}, not starting a cycle"
+    );
+    Some(78)
+}
+
 /// The second step. Its exit status. What it moves aside is in `set`.
 pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     let Some(mut state) = read_state(&t.file) else {
@@ -1039,7 +1072,14 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     if t.stop.came() {
         return STOPPED;
     }
-    if !make_tree(&tree, &state_dir, &t.branch, set) {
+    let depth = match tehas_core::depth::from_env() {
+        Ok(depth) => depth,
+        Err(line) => {
+            eprintln!("{line}, not starting a cycle");
+            return 78;
+        }
+    };
+    if !make_tree(&tree, &state_dir, &t.branch, depth, set) {
         eprintln!("tehas work: could not make the workspace {tree}, not starting a cycle");
         return 78;
     }
@@ -1053,6 +1093,9 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             "tehas work: {tree} holds what the last cycle left, or this start's clone when it left none, and {tree}.before-retry what the cycle before it left, if any"
         );
         return 78;
+    }
+    if let Some(rc) = continued(&state, &tree, &t.branch, depth) {
+        return rc;
     }
     if let Some(rc) = refresh_conflict(home, t, &state, &tree) {
         return rc;
@@ -1069,13 +1112,13 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         // A check the sandbox refused is the host's fault, not the issue's. One
         // that could not be run at all is not: it wrote no words of its own, and
         // the filesystem fault that stopped it is no refusal of a push.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             push_fault(home, t.issue, &preflight_line(&preflight));
         }
         return rc;
     }
     // The host can push: whatever an earlier start recorded of it is gone.
-    record_fault(home, PUSH_FAULT, "", 0);
+    record_fault(home, "", 0);
     if !steps.is_empty() {
         if t.stop.came() {
             return STOPPED;
@@ -1292,7 +1335,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     // Inspected once: the id the record gets is the one the container runs.
     let seen = (!r.attempt.is_empty()).then(|| inspect(r)).flatten();
     if !r.attempt.is_empty() && !on_record(home, r, &state, &seen) {
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
     let mut env_words = list(&state, "env");
@@ -1944,7 +1987,7 @@ mod tests {
         assert!(tehas_core::grammar::an_end("push-fault"));
         // A check that passed takes the fault away, so the next start is
         // judged on its own check and not on this one's.
-        record_fault(d.path(), PUSH_FAULT, "", 0);
+        record_fault(d.path(), "", 0);
         assert!(!file.exists());
     }
 

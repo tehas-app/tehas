@@ -77,7 +77,9 @@ seconds and durations are seconds, as integers, except `runner_ms` and
 columns are only added. A change of a column's meaning raises the version.
 v0.30.0 wrote 4 already, so this release migrates no older file: a file at 1, 2
 or 3 is kept aside under its version, as any other version is, and a new one is
-made.
+made. A file at 4 that lacks a column added within 4 since, `runs.contractor_id`
+from v1.0.0, gains it, empty, the first time it is opened; nothing else in it
+changes.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
@@ -111,7 +113,8 @@ the cycle, which gathers them into a private file for the call
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`
-snapshot and the image's pi-rukas commit. It reads the rest from the host: the
+snapshot, the image's pi-rukas commit and, for a cycle run on a contractor, the
+contractor's name. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log,
 `state/cycles/<n>.lean-state.json` for a lean run, and `docs/version.txt`. The
 lean note is the cycle's copy of the driver's own record of its steps, and its
@@ -162,6 +165,7 @@ call; one that a caller killed during the call leaves is removed by
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
+| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet | 4, v1.0.0 |
 
 The outcome of a work run:
 
@@ -574,7 +578,7 @@ TEHAS_ANALYTICS=off
 
 Every command reads it the next time it runs. `off` stops every write, and `tehasbot status` removes
 `live/analytics.json`, so the dashboard's section goes. `tehas analytics` says
-analytics is off and exits 69. The database file is left as it is, and pruning
+analytics is off and exits 78. The database file is left as it is, and pruning
 stops with it: to have the data gone, delete `~/tehas/state/analytics.db` and
 its `-wal` and `-shm`. `on` is the default; anything else stops every command
 with exit 78.

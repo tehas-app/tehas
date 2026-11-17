@@ -57,23 +57,31 @@ matches "$(jq -r '.approval.at' <<<"$t_out")" "$ISO"
 t_eq "$(jq -r '.approval.titleSha256 | length' <<<"$t_out")" 64
 t_eq "$(jq -r '.approval | keys_unsorted | join(" ")' <<<"$t_out")" "at bodySha256 by how titleSha256"
 
-t_case "an unknown issue is refused with a clear message and nothing is recorded"
+t_case "an unknown issue is the answer no, exit 3, and nothing is recorded"
 reset
 t_run "$start_cmd 99"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "tehas start: acme/widget has no issue #99; nothing was recorded"
 t_eq "$(t_row approval-current 99 -- '.approval')" null
 
-t_case "a pull request and a closed issue are refused"
+t_case "a pull request and a closed issue are refused with 3"
 reset
 issue open ', "pull_request": {"url": "x"}'
 t_run "$start_cmd 12"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "#12 is a pull request"
 issue closed
 t_run "$start_cmd 12"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "#12 is closed"
+t_eq "$(t_row approval-current 12 -- '.approval')" null
+
+t_case "GitHub that does not answer is a failure, exit 1, and nothing is recorded"
+reset
+t_stub gh 'echo "gh: HTTP 502: Bad Gateway" >&2; exit 1'
+t_run "$start_cmd 12"
+t_eq "$t_rc" 1
+t_contains "$t_out" "GitHub did not answer for #12"
 t_eq "$(t_row approval-current 12 -- '.approval')" null
 
 t_case "--clear withdraws an approval that waits, and a second --clear has nothing to do"

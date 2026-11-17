@@ -1541,6 +1541,50 @@ fn limit(home: &Path, now: i64) -> J {
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
+/// The fault of a sandbox that cannot push, `state/push-fault.json`, read as
+/// the dispatcher reads it: never through a link, and under one bound. Null
+/// when there is no file. Otherwise `{at, login, line}`, each a string or null:
+/// a file that is there and says nothing usable is still a fault.
+fn push_fault(home: &Path) -> J {
+    let path = home.join(tehas_core::sandbox::PUSH_FAULT);
+    let read = match tehas_core::file::read_regular(&path, tehas_core::file::READ_BOUND) {
+        Ok((b, _)) => std::str::from_utf8(&b).ok().and_then(J::parse),
+        Err(tehas_core::file::ReadError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
+            return J::Null
+        }
+        Err(_) => None,
+    };
+    let f = read.unwrap_or(J::Null);
+    let field = |k: &str| match f.get(k) {
+        J::Str(s) => J::Str(s.clone()),
+        _ => J::Null,
+    };
+    obj(vec![
+        ("at", field("at")),
+        ("login", field("login")),
+        ("line", field("line")),
+    ])
+}
+
+/// The line of the fault for `tehas status` and this page's `output`: git's own
+/// words when the file holds them, a line of the host's own for a fault that
+/// says nothing. The bot's login in brackets when the file names one.
+pub fn push_fault_line(fault: &J) -> String {
+    let said = |k: &str| fault.get(k).as_str().unwrap_or("").to_string();
+    let line = said("line");
+    let line = if line.is_empty() {
+        "the sandbox cannot push to origin".to_string()
+    } else {
+        line
+    };
+    let login = said("login");
+    if login.is_empty() {
+        line
+    } else {
+        format!("{line} ({login})")
+    }
+}
+
 /// The start order, as the store answers `order-show`. A home with no store
 /// has no order; a store that does not answer gives an unreadable one.
 fn order(home: &Path) -> J {
@@ -1578,6 +1622,10 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let limit = limit(home, now);
     let order = order(home);
     let manager_check = manager(g.manager.as_deref());
+    // The host's own record of a sandbox that cannot push: what the poll holds
+    // starts on, and what a person has to fix.
+    let push_fault = push_fault(home);
+    let push_line = (!push_fault.is_null()).then(|| push_fault_line(&push_fault));
     let (host_messages_check, host_messages) = host_messages(home);
     let message_line = host_messages.as_deref().and_then(host_message_line);
     let messages_unreadable = host_messages.is_none();
@@ -1718,7 +1766,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         None
     };
 
-    let status = if queue.is_null() || failed {
+    let status = if queue.is_null() || failed || (push_line.is_some() && !paused) {
         "fail"
     } else if old_queue
         || message_line.is_some()
@@ -1745,6 +1793,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
 
     let output = if queue.is_null() {
         "No queue snapshot yet: the dispatcher has not written one.".to_string()
+    } else if let Some(line) = push_line.filter(|_| !paused) {
+        // A sandbox that cannot push is the host's own fault and the wider thing
+        // wrong with it, so it is said before the limit, a hold or a stall; a
+        // pause is the operator's deliberate word and stands above it.
+        format!("The sandbox cannot push: {line}. The App's install needs Contents write on the product repository.")
     } else if failed {
         format!(
             "The last cycle failed: #{} ended as {}.",
@@ -1996,6 +2049,10 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("github", github_check),
         ("hostMessages", host_messages_check),
     ];
+    // Only when the host has one, so a health file of any other host is as it was.
+    if !push_fault.is_null() {
+        checks.push(("pushFault", push_fault));
+    }
     if let Some(i) = manager_check {
         checks.push(("manager", i));
     }
@@ -2071,9 +2128,11 @@ mod tests {
                 r#"{"v":1,"cycles":1,"plan":true,"note":{"cycles":9}}"#,
                 r#"{"state":"ok","cycles":1,"plan":true}"#,
             ),
+            (r#"{"v":1.0,"cycles":01,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1.0,"plan":true}"#, unreadable),
             (
-                r#"{"v":1.0,"cycles":01,"plan":true}"#,
-                r#"{"state":"ok","cycles":1.0,"plan":true}"#,
+                r#"{"v":1.0,"cycles":1,"plan":true}"#,
+                r#"{"state":"ok","cycles":1,"plan":true}"#,
             ),
         ];
         let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();
@@ -2367,6 +2426,116 @@ mod tests {
             r#"{"generatedAt":"2026-10-17T14:00:10Z","pause":{"label":false,"lifted":true}}"#,
         );
         assert_eq!(h.report(&Given::default()).get("status").text(), "warn");
+    }
+
+    /// The fault of a sandbox that cannot push, read straight off
+    /// `state/push-fault.json` as this page reads `state/limit.json`: the file
+    /// on `checks.pushFault`, and its line in the one thing the page says.
+    #[test]
+    fn a_push_fault_fails_the_page_with_git_s_line_and_the_login() {
+        let h = home("push-fault");
+        assert!(
+            h.report(&Given::default())
+                .at(&["checks", "pushFault"])
+                .is_null(),
+            "no file"
+        );
+        h.write(
+            "state/push-fault.json",
+            r#"{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"remote: Permission to acme/widget denied to tehas-bot"}"#,
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r).0, "fail");
+        assert_eq!(
+            r.at(&["checks", "pushFault", "line"]).dump(),
+            r#""remote: Permission to acme/widget denied to tehas-bot""#
+        );
+        assert_eq!(
+            r.get("output").text(),
+            "The sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot (tehas-bot). The App's install needs Contents write on the product repository."
+        );
+        // A fault that says nothing still fails, with a line of the host's own
+        // and no login in brackets.
+        h.write("state/push-fault.json", "not json");
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r).0, "fail");
+        assert_eq!(
+            r.get("output").text(),
+            "The sandbox cannot push: the sandbox cannot push to origin. The App's install needs Contents write on the product repository."
+        );
+        // The fault off: the page passes again.
+        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "pass");
+    }
+
+    /// The page reads the fault as the dispatcher's own reader of the same file
+    /// does: never through a link, and under one bound. A file that is there and
+    /// cannot be read is still a fault of the host, never no fault: a page that
+    /// called it clean would contradict the poll, which holds every start on it.
+    #[test]
+    fn a_push_fault_the_page_cannot_read_is_still_a_fault() {
+        use std::os::unix::fs::symlink;
+        let h = home("push-fault-unreadable");
+        // A link at the name is not the host's own record: the page reads no
+        // file through it, and says the host cannot push rather than nothing.
+        fs::write(
+            h.0.join("state/elsewhere.json"),
+            "{\"line\":\"not the fault\"}",
+        )
+        .unwrap();
+        symlink("elsewhere.json", h.0.join("state/push-fault.json")).unwrap();
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r).0, "fail");
+        assert_eq!(
+            r.get("output").text(),
+            "The sandbox cannot push: the sandbox cannot push to origin. The App's install needs Contents write on the product repository."
+        );
+        // A file over the bound is no fault the page can parse, and still a
+        // fault the host has.
+        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::write(
+            h.0.join("state/push-fault.json"),
+            "x".repeat(tehas_core::file::READ_BOUND_LEN),
+        )
+        .unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "fail");
+        // A directory of that name, which the old reader opened and read as no
+        // fault at all, is a fault too.
+        fs::remove_file(h.0.join("state/push-fault.json")).unwrap();
+        fs::create_dir(h.0.join("state/push-fault.json")).unwrap();
+        assert_eq!(said(&h.report(&Given::default())).0, "fail");
+        fs::remove_dir(h.0.join("state/push-fault.json")).unwrap();
+        // Nothing at the name is the only thing that is no fault.
+        assert_eq!(said(&h.report(&Given::default())).0, "pass");
+    }
+
+    /// A push fault is said before a slice hold or a limit: the host cannot
+    /// push at all, which is the earlier and wider thing wrong with it.
+    #[test]
+    fn a_push_fault_is_said_before_a_limit_or_a_pause() {
+        let h = home("push-fault-first");
+        h.write(
+            "state/push-fault.json",
+            r#"{"at":"2026-10-17T13:00:00Z","login":"tehas-bot","line":"denied"}"#,
+        );
+        h.write(
+            "state/limit.json",
+            r#"{"v":1,"cycles":2,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}"#,
+        );
+        assert!(h
+            .report(&Given::default())
+            .get("output")
+            .text()
+            .starts_with("The sandbox cannot push: denied"));
+        h.write(
+            "state/pause.json",
+            r#"{"by":"someone","at":"2026-10-17T13:00:00Z","reason":"weekend"}"#,
+        );
+        assert_eq!(
+            h.report(&Given::default()).get("output").text(),
+            "The factory is paused.",
+            "a pause is the operator's own word and comes first"
+        );
     }
 
     #[test]

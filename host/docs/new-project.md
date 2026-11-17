@@ -139,8 +139,10 @@ pi-rukas's: its `docs/lean.md` is the reference.
 ### The lean driver's settings
 
 Only the lean driver reads `.pi/work.json`, at the run's base commit, never from
-the working tree. Without it lean takes its defaults. A person writes it: it is
-under `.pi/`, so a cycle never changes it (AGENTS.md rule 7).
+the working tree. Without it lean takes its defaults, and they name no
+`verify.test`: a spec with a `test` criterion then ends not ready, `no test
+runner configured`. A person writes it: it is under `.pi/`, so a cycle never
+changes it (AGENTS.md rule 7).
 
 ```json
 {
@@ -272,7 +274,7 @@ tehas init-product
 ```
 
 `tehas check-product` says which files of the contract above the default
-branch lacks, and exits 78 when one is missing. `tehas init-product` writes the
+branch lacks, and exits 3 when one is missing. `tehas init-product` writes the
 missing `AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` on a branch and
 opens a pull request with the bot. The gate is guessed from the stack: check
 it, then merge it. See [tehas check-product](/tools-setup#tehas-check-product).

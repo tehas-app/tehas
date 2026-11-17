@@ -2,6 +2,10 @@
  "suite": "no shell suite: the bash poll never read tehas:lean",
  "later": [],
  "not_ported": [],
+ "settings": {
+  "TEHAS_LEAN": "on",
+  "TEHAS_TEST_FEATURES": "lean"
+ },
  "cases": [
   {
    "case": "no label gives a start with no driver",
@@ -4220,6 +4224,466 @@
        "labels": [
         {
          "name": "tehas:awaiting-merge"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "lean off: tehas:lean from an allowed account starts nothing, classic included, takes the ask off and says why once",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean asks for the lean driver, still being built in this release; nothing starts until it comes off"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:lean"
+      ]
+     }
+    ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   }
+  },
+  {
+   "case": "lean off: a dry run says what tehas:lean would do and writes nothing",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "would take tehas:ready off #7: tehas:lean asks for lean, still being built in this release"
+    ],
+    "nothing": true
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   },
+   "dry": true
+  },
+  {
+   "case": "lean off: no label still gives a classic start",
+   "queue": [
+    "7"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "label"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   }
+  },
+  {
+   "case": "lean off: tehas:classic still gives a classic start",
+   "queue": [
+    "7 tehas:classic"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=mallory"
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   }
+  },
+  {
+   "case": "lean off: a retry tick that follows a lean start starts nothing and unticks once",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean asks for the lean driver, still being built in this release; nothing starts until it comes off"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "Retry was ticked and nothing was started: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then ticks Retry."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   }
+  },
+  {
+   "case": "lean off: an outage retry that follows a lean start spends the retry and says why once",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7,
+      "how": "outage"
+     },
+     {
+      "issue": 7,
+      "say": "Tehas did not start this issue again after the provider outage: `tehas:lean` asks for the lean driver, which is still being built in this release, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` takes `tehas:lean` off, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "view": {
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      },
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_TEST_FEATURES": ""
+   }
+  },
+  {
+   "case": "lean off: a refresh that follows a lean start is dropped and says why",
+   "settings": {
+    "TEHAS_MAX_CYCLES": 2,
+    "TEHAS_TEST_FEATURES": ""
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "refresh_said": "lean "
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        },
+        {
+         "name": "tehas:lean"
         }
        ]
       }

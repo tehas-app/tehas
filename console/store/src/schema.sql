@@ -1,4 +1,4 @@
--- The schema of state/tehas.db, schema v16: every table, column, key and
+-- The schema of state/tehas.db, schema v17: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
@@ -15,7 +15,10 @@
 -- what was printed, and a contractor gives only its public key, so there is
 -- no private key of any kind in the file. Schema 16 lets actions.state say
 -- 'unknown', a write GitHub may have taken, and writes 'millwright' in every
--- row that still said 'fixer' (db::STEP_16).
+-- row that still said 'fixer' (db::STEP_16). Schema 17 adds to the outsource
+-- tables (db::STEP_17, which init runs after outsource.sql): jobs.token_sha256,
+-- the sha256 of a job's token and never the token, and the report_* columns of
+-- contractors, what a contractor last said it has.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named

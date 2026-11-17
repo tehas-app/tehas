@@ -1,0 +1,41 @@
+{
+  "api": 1,
+  "time": "2026-10-17T13:59:40Z",
+  "age": 40,
+  "stale": false,
+  "state": "fail",
+  "reasons": [
+    "The sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot (tehas-bot). The App's install needs Contents write on the product repository."
+  ],
+  "paused": {
+    "local": false,
+    "label": false
+  },
+  "pushFault": {
+    "at": "2026-10-17T13:50:00Z",
+    "login": "tehas-bot",
+    "line": "remote: Permission to acme/widget denied to tehas-bot"
+  },
+  "limit": {
+    "state": "none"
+  },
+  "running": [],
+  "planning": [],
+  "demand": null,
+  "hold": null,
+  "held": [],
+  "room": null,
+  "versions": {
+    "platform": {
+      "release": null,
+      "commit": null,
+      "latest": null,
+      "behind": null
+    },
+    "rukas": {
+      "version": null,
+      "latest": null,
+      "behind": null
+    }
+  }
+}

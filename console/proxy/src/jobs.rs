@@ -7,6 +7,11 @@
 //! while the job runs, and forgets it the moment the job ends or its
 //! contractor is revoked.
 //!
+//! A proxy on a host keeps the sha256 of each token it mints in the job's row
+//! of the store ([`Issuer::backed`]), and a token it does not hold is checked
+//! against those hashes: a proxy that restarts takes the token of a job still
+//! going, and the store never holds a token.
+//!
 //! A token is 32 bytes of `/dev/urandom` in the URL-safe alphabet tehas uses
 //! for its MCP keys, so it survives a JSON body and a header alike. It is
 //! asked for by name and never by value, as every token of a cycle's container
@@ -39,11 +44,63 @@ pub struct Entry {
 /// Cloning an issuer is another handle on the same tokens, which is what the
 /// listener's threads, the control line and a test's own case all share.
 #[derive(Default, Clone)]
-pub struct Issuer(Arc<Mutex<HashMap<String, Entry>>>);
+pub struct Issuer {
+    held: Arc<Mutex<HashMap<String, Entry>>>,
+    store: Option<Arc<dyn Backing>>,
+}
+
+/// Where the hashes of the tokens are kept: the job rows of the store.
+pub trait Backing: Send + Sync {
+    /// Keep the hash of a job's new token. False when it was not kept.
+    fn keep(&self, job: i64, sha256: &str) -> bool;
+    /// The job a hash names while a call of its token may be answered.
+    fn recall(&self, sha256: &str) -> Option<Live>;
+}
+
+/// The sha256 of a token, as the store keeps it.
+pub fn token_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Whether a word could be a token this proxy minted: the length and the
+/// alphabet. Nothing else is looked up.
+fn token_shaped(token: &str) -> bool {
+    token.len() == BYTES && token.bytes().all(|b| ALPHABET.contains(&b))
+}
 
 impl Issuer {
     pub fn new() -> Issuer {
         Issuer::default()
+    }
+
+    /// An issuer whose tokens' hashes are kept by `store`: a token is minted
+    /// only once its hash is kept, and a token-shaped word this process does
+    /// not hold is looked up by its hash.
+    pub fn backed(store: Arc<dyn Backing>) -> Issuer {
+        Issuer {
+            held: Arc::default(),
+            store: Some(store),
+        }
+    }
+
+    /// The job a token this process does not hold names, from the kept
+    /// hashes, put in the table with `requests` counted.
+    fn recall(&self, token: &str, requests: u64) -> Option<Live> {
+        let store = self.store.as_ref()?;
+        if !token_shaped(token) {
+            return None;
+        }
+        let live = store.recall(&token_hash(token))?;
+        let mut held = self.lock();
+        let entry = held
+            .entry(token.to_string())
+            .or_insert(Entry { live, requests: 0 });
+        entry.requests += requests;
+        Some(entry.live.clone())
     }
 
     /// The token a contractor is given for this job, kept until [`forget`]
@@ -57,9 +114,41 @@ impl Issuer {
         contractor: &str,
         random: &mut dyn FnMut() -> Option<String>,
     ) -> Option<String> {
+        self.issue_kept(job, attempt, contractor, random, true)
+    }
+
+    /// [`Self::issue`] for the control line, which may name a job the store
+    /// does not hold: the hash is kept when the store takes it, and the token
+    /// is held either way, so a token the store did not keep ends with this
+    /// process.
+    pub fn issue_held(
+        &self,
+        job: i64,
+        attempt: i64,
+        contractor: &str,
+        random: &mut dyn FnMut() -> Option<String>,
+    ) -> Option<String> {
+        self.issue_kept(job, attempt, contractor, random, false)
+    }
+
+    fn issue_kept(
+        &self,
+        job: i64,
+        attempt: i64,
+        contractor: &str,
+        random: &mut dyn FnMut() -> Option<String>,
+        must_keep: bool,
+    ) -> Option<String> {
         // No randomness, or too little of it, is no token: nothing is kept and
         // the caller is told, so a job never gets a token that cannot work.
         let token = random().filter(|t| t.len() >= 8)?;
+        // A job's token whose hash the store did not keep would die with this
+        // process, so none is given.
+        if let Some(store) = &self.store {
+            if !store.keep(job, &token_hash(&token)) && must_keep {
+                return None;
+            }
+        }
         let _ = self.lock().insert(
             token.clone(),
             Entry {
@@ -79,10 +168,20 @@ impl Issuer {
     /// token names a job, since a request of a token never issued counts for
     /// nobody. [`Issuer::asked`] is the count of the requests that name none.
     pub fn look(&self, token: &str) -> Option<Live> {
-        let mut held = self.lock();
-        let entry = held.get_mut(token)?;
-        entry.requests += 1;
-        Some(entry.live.clone())
+        {
+            let mut held = self.lock();
+            if let Some(entry) = held.get_mut(token) {
+                entry.requests += 1;
+                return Some(entry.live.clone());
+            }
+        }
+        self.recall(token, 1)
+    }
+
+    /// The job and contractor a token names, without counting a request.
+    pub fn peek(&self, token: &str) -> Option<Live> {
+        let held = self.lock().get(token).map(|e| e.live.clone());
+        held.or_else(|| self.recall(token, 0))
     }
 
     /// Put one token in the table by hand. A test of the rules of one request
@@ -209,11 +308,11 @@ impl Issuer {
     /// Another handle on the same tokens, which is what the listener's request
     /// threads and its control line share.
     pub fn shared(&self) -> Issuer {
-        Issuer(Arc::clone(&self.0))
+        self.clone()
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Entry>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -341,6 +440,64 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         assert!(!made.contains(['+', '/', '=', ' ', '\r', '\n', '"']));
+    }
+
+    /// A store of hashes: what a host's job rows keep, and whether it takes a
+    /// hash at all.
+    #[derive(Default)]
+    struct Kept {
+        rows: Mutex<HashMap<String, Live>>,
+        down: std::sync::atomic::AtomicBool,
+    }
+
+    impl Backing for Kept {
+        fn keep(&self, job: i64, sha256: &str) -> bool {
+            if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+                return false;
+            }
+            let live = Live {
+                job,
+                attempt: 1,
+                contractor: "gpu1".to_string(),
+            };
+            self.rows.lock().unwrap().insert(sha256.to_string(), live);
+            true
+        }
+        fn recall(&self, sha256: &str) -> Option<Live> {
+            self.rows.lock().unwrap().get(sha256).cloned()
+        }
+    }
+
+    #[test]
+    fn a_backed_token_is_kept_as_its_hash_and_named_again_after_a_restart() {
+        let kept = Arc::new(Kept::default());
+        let before = Issuer::backed(kept.clone());
+        let token = before.issue(7, 1, "gpu1", &mut random).unwrap();
+        let rows = kept.rows.lock().unwrap().clone();
+        assert_eq!(rows.keys().collect::<Vec<_>>(), vec![&token_hash(&token)]);
+        assert!(!rows.keys().any(|k| k == &token));
+        // The process is gone; a new one holds nothing until the token comes.
+        let after = Issuer::backed(kept.clone());
+        assert!(after.is_empty());
+        assert_eq!(after.look(&token).map(|l| l.job), Some(7));
+        assert_eq!(after.jobs(), vec![7]);
+        assert_eq!(after.take_counts(), vec![("gpu1".to_string(), 7, 1)]);
+        // A word of another shape is never looked up.
+        assert_eq!(after.peek("token-of-7"), None);
+        // An issuer with no store names nothing it did not mint.
+        assert_eq!(Issuer::new().look(&token), None);
+    }
+
+    #[test]
+    fn a_token_whose_hash_is_not_kept_is_not_given() {
+        let kept = Arc::new(Kept::default());
+        kept.down.store(true, std::sync::atomic::Ordering::SeqCst);
+        let issuer = Issuer::backed(kept);
+        assert_eq!(issuer.issue(7, 1, "gpu1", &mut random), None);
+        assert!(issuer.is_empty());
+        // The control line's token is held all the same, in this process only.
+        let held = issuer.issue_held(7, 1, "gpu1", &mut random).unwrap();
+        assert!(issuer.holds(&held));
     }
 
     #[test]

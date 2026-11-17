@@ -1,0 +1,44 @@
+tehas prototype file: open a ticket for the Protolab with your own login.
+
+Still being built in this release: TEHAS_PROTOTYPE_FILE=on stops every command
+with 78, and with it off this command exits 78 and files nothing.
+
+It opens an issue in TEHAS_REPO with the title and the text you give, a line
+for the zip and a line for the spec when you name them, and puts
+tehas:prototype on it. With TEHAS_ISSUE_TYPES mapping prototype to a type, the
+issue is opened with that type in place of the label.
+
+Every call is your own gh, signed in with gh auth login, never the factory's
+GitHub App: the Protolab takes the label, the links and the zip line only from
+an account in TEHAS_ALLOWED_LABELERS. A gh signed in as the bot or another
+app is refused, and so is a login that is not on the list or whose user id is
+not the recorded one. Nothing is filed then.
+
+Usage:
+  tehas prototype file --title TEXT [--body-file FILE|-]
+                       [--zip ADDRESS --zip-sha256 HEX]
+                       [--spec LINK --spec-sha256 HEX]
+
+  --title        the issue's title, one line
+  --body-file    the ticket's text, from a file or - for standard input
+  --zip          a zip of the prototype: a file attached on GitHub, or, with
+                 protolab-zip-url on, an https address on a host of
+                 TEHAS_PROTOLAB_ZIP_HOSTS. Written as the line
+                 Zip: <address> sha256:<hex>
+  --spec         the spec, a file attached on GitHub. Written as the line
+                 Spec: <link> sha256:<hex>
+  --*-sha256     the sha256 of the file's bytes, 64 lower-case hex digits
+
+The two lines go after the text, the zip's first. A text that has such a line
+of its own, or leaves a code fence open, is refused.
+
+It prints one line:
+
+  filed #42 as alice with tehas:prototype: https://github.com/acme/widget/issues/42
+
+Exit: 0 filed and marked; 1 your gh could not say who you are, or a call of
+GitHub failed (an issue opened but not marked is named, to mark by hand);
+3 the login is the bot's, or not an allowed account, and nothing is filed;
+64 a bad argument, which files nothing; 78 the feature is off, a zip outside
+GitHub with protolab-zip-url off, or the instance settings are missing or
+malformed.

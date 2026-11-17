@@ -63,6 +63,7 @@ case "$name $1" in
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
     cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
+  "store job-stamp") cat "$d/job" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -182,6 +183,7 @@ fn world() -> World {
             refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
+            outsource: false,
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
@@ -214,6 +216,10 @@ fn world() -> World {
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
             read_only: false,
+            container_mb: 8 * 1024,
+            push_probe_cmd: None,
+            push_probe_wait: Duration::from_secs(5),
+            aliases: String::new(),
         },
         ended: None,
         spend: None,
@@ -324,6 +330,359 @@ impl World {
 /// come from `End`, the code that really starts them.
 fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
     End::host_of(dry).runs_host_commands(w, printed);
+}
+
+/// The fault of a start whose push check was refused, as the cycle writes it.
+fn push_fault_file(t: &World, at: &str) {
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(
+        t.w.home.join("state/push-fault.json"),
+        format!(
+            "{{\"at\":\"{at}\",\"login\":\"tehas-bot\",\"line\":\"remote: Permission to acme/widget denied to tehas-bot\"}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// What the fault says now, or None when the file is off.
+fn push_fault_of(t: &World) -> Option<Value> {
+    let text = fs::read_to_string(t.w.home.join("state/push-fault.json")).ok()?;
+    serde_json::from_str(text.trim_end()).ok()
+}
+
+/// A stand-in for the probe, with the body given.
+fn probe(t: &mut World, name: &str, body: &str) {
+    let exe = t.dir.join(name);
+    tehas_core::testing::write_exe(&exe, body).unwrap();
+    t.w.host.push_probe_cmd = Some(exe.to_string_lossy().into_owned());
+}
+
+const OLD: &str = "2026-10-30T23:40:00Z";
+
+#[test]
+fn a_probe_that_passes_takes_the_fault_off_and_lets_the_poll_start() {
+    let mut t = world();
+    probe(&mut t, "probe-ok", "#!/bin/sh\nexit 0\n");
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"]
+    );
+    assert!(holds, "the record is the rules' to read");
+    assert!(push_fault_of(&t).is_none(), "a passing probe takes it off");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    assert!(
+        t.calls().iter().any(|c| c.starts_with("start 7")),
+        "{:?}",
+        t.calls()
+    );
+}
+
+#[test]
+fn a_probe_that_is_refused_writes_the_fault_fresh() {
+    let mut t = world();
+    probe(
+        &mut t,
+        "probe-bad",
+        "#!/bin/sh\nprintf '%s\\n' 'remote: Permission to acme/widget denied to tehas-bot' >&2\nexit 1\n",
+    );
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot"]
+    );
+    assert!(holds, "the renewed record holds the starts");
+    let f = push_fault_of(&t).expect("the fault stands");
+    assert_eq!(
+        f["line"],
+        "remote: Permission to acme/widget denied to tehas-bot"
+    );
+    assert_ne!(f["at"], OLD, "the fault is written fresh");
+    assert!(
+        !t.w.home.join("logs/dispatch-preflight.log").exists(),
+        "the probe's log is removed once read"
+    );
+}
+
+#[test]
+fn a_dry_run_asks_nothing_and_keeps_the_hold() {
+    let mut t = world();
+    probe(&mut t, "probe-ok", "#!/bin/sh\ntouch \"$0.ran\"\nexit 0\n");
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(true);
+    assert!(lines.is_empty() && holds);
+    assert_eq!(push_fault_of(&t).unwrap()["at"], OLD);
+    assert!(!t.dir.join("probe-ok.ran").exists(), "nothing was run");
+}
+
+/// A probe the host could not run is no answer of the sandbox: nothing is
+/// written, and the poll starts as it did before there was a probe, so the
+/// start's own check decides. Holding instead would hold forever on a host
+/// fault the probe cannot see past.
+#[test]
+fn a_probe_the_host_could_not_run_records_nothing_and_holds_nothing() {
+    type Set = Box<dyn Fn(&mut World)>;
+    let mut cases: Vec<(&str, Set, &str)> = vec![
+        (
+            "no log",
+            Box::new(|t: &mut World| {
+                probe(t, "probe-ok", "#!/bin/sh\nexit 0\n");
+                fs::write(t.w.home.join("logs"), "").unwrap();
+            }),
+            "no place to write the check's log",
+        ),
+        (
+            "no image",
+            Box::new(|t: &mut World| t.w.host.image = String::new()),
+            "no sandbox image to ask",
+        ),
+        (
+            "small ceiling",
+            Box::new(|t: &mut World| t.w.host.container_mb = 6),
+            "tehas.slice gives a container less than the 10m it needs",
+        ),
+        (
+            "no token",
+            Box::new(|_: &mut World| {}),
+            "no cycle token from the app",
+        ),
+        (
+            "no copy of the checkout",
+            Box::new(|t: &mut World| {
+                let bin = t.w.home.join("bin");
+                fs::create_dir_all(&bin).unwrap();
+                tehas_core::testing::write_exe(
+                    bin.join("tehasbot"),
+                    "#!/bin/sh\necho cycle-token-x\n",
+                )
+                .unwrap();
+            }),
+            "the checkout could not be copied for the check",
+        ),
+    ];
+    for (name, body) in [
+        (
+            "no client",
+            "#!/bin/sh\nprintf '%s\\n' \"timeout: failed to run command 'docker': No such file or directory\" >&2\nexit 127\n",
+        ),
+        (
+            "no image pulled",
+            "#!/bin/sh\nprintf '%s\\n' 'docker: Error response from daemon: No such image:' >&2\nexit 125\n",
+        ),
+        (
+            "no daemon",
+            "#!/bin/sh\nprintf '%s\\n' 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\nexit 1\n",
+        ),
+    ] {
+        cases.push((
+            name,
+            Box::new(move |t: &mut World| probe(t, "probe-host", body)),
+            "",
+        ));
+    }
+    for (name, set, why) in cases {
+        let mut t = world();
+        push_fault_file(&t, OLD);
+        set(&mut t);
+        let (lines, holds) = t.w.push_probe(false);
+        assert_eq!(lines.len(), 1, "{name}: {lines:?}");
+        assert!(
+            lines[0].starts_with("WARN: the sandbox could not be asked whether it can push: ")
+                && lines[0].contains(why)
+                && lines[0].ends_with(": no fault recorded"),
+            "{name}: {lines:?}"
+        );
+        assert!(!holds, "{name}: no answer, no hold");
+        assert_eq!(
+            push_fault_of(&t).unwrap()["at"],
+            OLD,
+            "{name}: the fault keeps its time"
+        );
+    }
+}
+
+/// A product checkout with `origin/main`, as the poll's fetch leaves it, made
+/// with the host's own git: the probe copies it as a cycle's start does.
+fn checkout_with_origin(t: &World) {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    let upstream = t.dir.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git(&upstream, &["init", "-q", "-b", "main"]);
+    git(
+        &upstream,
+        &["commit", "-q", "--allow-empty", "-m", "product"],
+    );
+    let checkout = std::path::PathBuf::from(&t.w.host.checkout);
+    fs::create_dir_all(&checkout).unwrap();
+    git(&checkout, &["init", "-q", "-b", "main"]);
+    git(
+        &checkout,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example-owner/example-product.git",
+        ],
+    );
+    let up = upstream.to_string_lossy().into_owned();
+    git(
+        &checkout,
+        &[
+            "fetch",
+            "-q",
+            &up,
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    );
+    // What a cycle's push check is never given: the host checkout's own hooks
+    // and the files beside its history.
+    fs::write(checkout.join(".git/hooks/pre-push"), "#!/bin/sh\nexit 0\n").unwrap();
+    fs::write(checkout.join("untracked.txt"), "host only\n").unwrap();
+}
+
+/// On a host the probe is the cycle's own push check: docker run of the image
+/// with git as its entrypoint, the cycle's git configuration that hands git the
+/// token through gh, and the App's narrowed cycle token as GH_TOKEN by name,
+/// never as an argument. Like the cycle's, it runs in a fresh copy of the
+/// checkout that carries only the remote, never in the host's checkout, and
+/// with the host's own image, never one pulled inside the poll.
+#[test]
+fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
+    let mut t = world();
+    push_fault_file(&t, OLD);
+    checkout_with_origin(&t);
+    let bin = t.w.home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    tehas_core::testing::write_exe(
+        bin.join("tehasbot"),
+        "#!/bin/sh\n[ \"$*\" = 'github-token --cycle' ] && echo cycle-token-x && exit 0\necho app-token-y\n",
+    )
+    .unwrap();
+    let seen = t.dir.join("docker.seen");
+    let tree_seen = t.dir.join("tree.seen");
+    let docker = t.dir.join("docker-probe");
+    tehas_core::testing::write_exe(
+        &docker,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"GH_TOKEN=$GH_TOKEN\" \"$@\" > '{}'\nprev=''\nfor a; do [ \"$prev\" = -w ] && ls -A \"$a\" > '{}' && git -C \"$a\" remote get-url origin >> '{}'; prev=$a; done\nexit 0\n",
+            seen.display(),
+            tree_seen.display(),
+            tree_seen.display()
+        ),
+    )
+    .unwrap();
+    t.w.docker = docker.to_string_lossy().into_owned();
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"]
+    );
+    assert!(holds);
+    assert!(push_fault_of(&t).is_none());
+    let seen = fs::read_to_string(&seen).unwrap();
+    let words: Vec<&str> = seen.lines().collect();
+    assert_eq!(words[0], "GH_TOKEN=cycle-token-x", "{seen}");
+    assert!(
+        !words[1..].iter().any(|w| w.contains("cycle-token-x")),
+        "{seen}"
+    );
+    let checkout = &t.w.host.checkout;
+    assert!(
+        !words.iter().any(|w| w.contains(checkout.as_str())),
+        "the host's checkout is given to no container: {seen}"
+    );
+    // Every word, in order, as a cycle's push check has them, the poll's own
+    // docker and --pull=never aside.
+    let tree = t.w.home.join("state/push-probe");
+    let tree = tree.to_string_lossy();
+    let user = tehas_core::sandbox::user();
+    let got: Vec<String> = words[1..]
+        .iter()
+        .map(|w| w.replace(tree.as_ref(), "@TREE@").replace(&user, "@USER@"))
+        .collect();
+    let want = [
+        "run",
+        "--pull=never",
+        "--rm",
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "CHOWN",
+        "--cap-add",
+        "FOWNER",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--tmpfs",
+        "/tmp:rw,exec,nosuid,nodev,size=4096m,mode=1777",
+        "--user",
+        "@USER@",
+        "-e",
+        "HOME=/home/vscode",
+        "-e",
+        "GH_TOKEN",
+        "-e",
+        "PI_ENSEMBLE_SANDBOX_MODE=1",
+        "-e",
+        "PI_ENSEMBLE_WORKSPACE_ROOT=@TREE@",
+        "-e",
+        "CBM_CACHE_DIR=/home/vscode/.tehas-cache",
+        "-e",
+        "GIT_CONFIG_COUNT=4",
+        "-e",
+        "GIT_CONFIG_KEY_0=credential.https://github.com.helper",
+        "-e",
+        "GIT_CONFIG_VALUE_0=",
+        "-e",
+        "GIT_CONFIG_KEY_1=credential.https://github.com.helper",
+        "-e",
+        "GIT_CONFIG_VALUE_1=!gh auth git-credential",
+        "-e",
+        "GIT_CONFIG_KEY_2=user.name",
+        "-e",
+        "GIT_CONFIG_VALUE_2=",
+        "-e",
+        "GIT_CONFIG_KEY_3=user.email",
+        "-e",
+        "GIT_CONFIG_VALUE_3=",
+        "-e",
+        "GIT_TERMINAL_PROMPT=0",
+        "-w",
+        "@TREE@",
+        "-v",
+        "@TREE@:@TREE@",
+        "--entrypoint",
+        "git",
+        "tehas-sandbox:test",
+        "push",
+        "--dry-run",
+        "origin",
+        "HEAD:refs/heads/tehas-preflight",
+    ];
+    assert_eq!(got, want, "{seen}");
+    // The copy carries the remote and the commit, none of the host's files or
+    // hooks, and is gone once the probe has its answer.
+    let in_tree = fs::read_to_string(&tree_seen).unwrap();
+    assert_eq!(
+        in_tree, ".git\nhttps://github.com/example-owner/example-product.git\n",
+        "{in_tree}"
+    );
+    assert!(
+        !t.w.home.join("state/push-probe").exists(),
+        "the copy is removed"
+    );
 }
 
 fn label() -> Value {
@@ -826,6 +1185,63 @@ fn steps(t: &World) -> Vec<String> {
         .collect()
 }
 
+/// A start whose `Spec:` line stops it, with no label of a person's to take
+/// off: what asked for it is used up, so the next poll does not pick it again.
+fn spec_stopped(n: u64, given: &str) -> Value {
+    let mut a = start_of(n, given);
+    a["remove"] = json!([]);
+    a["spec"] = json!({"why": "its `Spec:` line is not a link and its sha256", "off": []});
+    a
+}
+
+#[test]
+fn a_spec_that_stops_a_host_start_takes_the_hosts_approval_off_the_record() {
+    let mut t = world();
+    let a = t.apply(json!([spec_stopped(7, "host"), start_of(8, "label")]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        &a.log[..2],
+        &[
+            "skip #7: its `Spec:` line is not a link and its sha256",
+            "the host's approval of #7 of 2026-10-26T10:00:00Z is off the record: run `tehas start 7` again once its `Spec:` line is right",
+        ]
+    );
+    let w = t.writes();
+    assert_eq!(w[0], "store approval-record 7 --undo --at 1793008800");
+    // The host reads the log: nothing is said on the issue.
+    assert!(!w.iter().any(|c| c.starts_with("gh ") && c.contains(" 7 ")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+    assert!(w.iter().any(|c| c == "start 8"));
+}
+
+#[test]
+fn a_spec_that_stops_an_outage_retry_spends_the_retry() {
+    let mut t = world();
+    let a = t.apply(json!([spec_stopped(7, "outage-retry")]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    assert!(w.iter().any(|c| c == "store park-retry 7"), "{w:?}");
+    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")
+        && c.contains("Tehas started nothing on this issue: its `Spec:` line is not a link")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+}
+
+#[test]
+fn a_spec_that_stops_a_refresh_drops_its_request() {
+    let mut t = world();
+    let request = t.w.home.join("state/refresh/7.json");
+    fs::write(&request, "{}").unwrap();
+    let mut a = spec_stopped(7, "refresh");
+    a["refresh_pr"] = json!(12);
+    let got = t.apply(json!([a]));
+    assert_eq!(got.exit, None);
+    assert!(!request.exists());
+    let w = t.writes();
+    assert!(!w.iter().any(|c| c.contains("tehas:refreshing")));
+    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+}
+
 #[test]
 fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let mut t = world();
@@ -907,6 +1323,61 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
+fn with_outsource_off_the_start_comment_asks_no_stamp() {
+    let mut t = world();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(!all.contains("job-stamp"), "{all}");
+}
+
+#[test]
+fn with_outsource_on_the_start_comment_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.apply(json!([start_of(7, "label")]));
+    let c = t.writes();
+    assert!(
+        c.iter()
+            .any(|w| w == "store job-stamp --issue 7 --since 1793008800 --open"),
+        "{c:#?}"
+    );
+    let all = c.join("\n");
+    assert!(all.contains("is removed.\n\nBuilt by: in-house\n"), "{all}");
+
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
+
+    // A store that cannot say leaves the comment without a stamp.
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.fail("store", "job-stamp");
+    let a = t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: #7: the store did not say who builds it")),
+        "{:#?}",
+        a.log
+    );
+}
+
+#[test]
 fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let mut t = world();
     let mut a = start_of(7, "label");
@@ -915,6 +1386,17 @@ fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(input["driver"], "lean");
+}
+
+#[test]
+fn an_outsourced_start_binds_its_contractor_in_the_record() {
+    let mut t = world();
+    let mut a = start_of(7, "label");
+    a["contractor"] = json!("box-1");
+    t.apply(json!([a]));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["contractor"], "box-1");
 }
 
 #[test]
@@ -1178,6 +1660,30 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn with_outsource_on_a_refresh_start_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    t.apply(json!([a]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas refresh started"), "{all}");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
 }
 
 #[test]

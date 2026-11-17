@@ -78,6 +78,29 @@ fn at_15(name: &str) -> TestDir {
     home
 }
 
+/// A store at 16: the last release's, brought forward to 16 and no further,
+/// as a host on a pre-release of 1.0 before schema 17 holds it.
+fn at_16(name: &str) -> TestDir {
+    let home = release(name, 14);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if *to == 15 || *to == 16 {
+            run(&mut c).unwrap();
+        }
+    }
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 16);
+    home
+}
+
+/// The columns of a contractor's report, which schema 17 adds.
+const REPORT_COLUMNS: [&str; 5] = [
+    "report_image",
+    "report_rukas",
+    "report_mem_mb",
+    "report_disk_kb",
+    "report_at",
+];
+
 /// The SQL of the step to `to`, as one transaction runs it.
 fn step_sql(to: i64) -> &'static str {
     match to {
@@ -85,6 +108,7 @@ fn step_sql(to: i64) -> &'static str {
         14 => db::STEP_14,
         15 => db::OUTSOURCE_SCHEMA,
         16 => db::STEP_16,
+        17 => db::STEP_17,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -209,13 +233,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_16() {
-    assert_eq!(db::SCHEMA_VERSION, 16);
-    let home = home("schema-16");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 16);
+fn init_writes_schema_17() {
+    assert_eq!(db::SCHEMA_VERSION, 17);
+    let home = home("schema-17");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "16"
+        "17"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -231,6 +255,14 @@ fn init_writes_schema_16() {
     assert!(!columns(&c, "planning_answers").contains(&"fixer".to_string()));
     for t in ["planning", "plan_history"] {
         assert!(columns(&c, t).contains(&"auto".to_string()), "{t}");
+    }
+    // Schema 17: a job keeps its token's hash, a contractor its last report.
+    assert!(columns(&c, "jobs").contains(&"token_sha256".to_string()));
+    for col in REPORT_COLUMNS {
+        assert!(
+            columns(&c, "contractors").contains(&col.to_string()),
+            "{col}"
+        );
     }
     let made = tables(&c);
     for t in DROPPED {
@@ -294,7 +326,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 }
 
 #[test]
-fn a_store_of_each_0_30_release_comes_to_16_with_every_row() {
+fn a_store_of_each_0_30_release_comes_to_17_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -364,6 +396,9 @@ fn a_store_of_each_0_30_release_comes_to_16_with_every_row() {
     let home = at_15("release-15");
     migrate(&home).unwrap();
     same_shape_as_init(&home, &b, "15");
+    let home = at_16("release-16");
+    migrate(&home).unwrap();
+    same_shape_as_init(&home, &b, "16");
 }
 
 /// Plan 6.7: an update stopped at any step, then run again. A step is one
@@ -371,7 +406,7 @@ fn a_store_of_each_0_30_release_comes_to_16_with_every_row() {
 /// and a stop inside a step leaves it where the step began. Either way the
 /// next migrate goes on from there to the schema init writes, with every row.
 #[test]
-fn a_migrate_stopped_at_any_step_comes_to_16_when_it_runs_again() {
+fn a_migrate_stopped_at_any_step_comes_to_17_when_it_runs_again() {
     let made = home("stopped-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -623,6 +658,45 @@ fn the_step_from_15_names_the_millwright_in_every_old_row() {
     );
 }
 
+/// The step to 17 keeps every outsource row and adds its columns empty: a job
+/// given out before it has no token's hash, a contractor no report.
+#[test]
+fn the_step_from_16_keeps_the_outsource_rows_and_adds_its_columns_empty() {
+    let home = at_16("step-17-rows");
+    conn(&home)
+        .execute_batch(&format!(
+            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
+             INSERT INTO contractors (name, public_key, added_at, last_seen_at) VALUES ('box1', '{KEY}', 100, 200);
+             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
+               VALUES (7, 'box1', 1, 'running', 100, 4000, 100);
+             INSERT INTO job_history (job, at, to_state, said_by) VALUES (1, 100, 'offered', 'factory');
+             INSERT INTO issue_attempts (issue, given) VALUES (7, 1);"
+        ))
+        .unwrap();
+    assert!(conn(&home)
+        .execute_batch("UPDATE jobs SET token_sha256 = 'x'")
+        .is_err());
+    let before = rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
+    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(count(&home, "jobs WHERE token_sha256 IS NULL"), 1);
+    for col in REPORT_COLUMNS {
+        assert_eq!(
+            count(&home, &format!("contractors WHERE {col} IS NULL")),
+            1,
+            "{col}"
+        );
+    }
+    assert_eq!(
+        one::<i64>(
+            &home,
+            "SELECT last_seen_at FROM contractors WHERE name = 'box1'"
+        ),
+        200
+    );
+}
+
 #[test]
 fn the_steps_are_the_ladder_from_v0_30_up_to_the_schema_this_binary_writes() {
     // The list migrate walks is one entry per schema, in order, each once: a
@@ -667,6 +741,7 @@ fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
     for (name, old) in [
         ("12", release("load-old-12", 12)),
         ("15", at_15("load-old-15")),
+        ("16", at_16("load-old-16")),
     ] {
         let from = one::<i64>(&old, "PRAGMA user_version");
         let into = home(&format!("load-old-into-{name}"));

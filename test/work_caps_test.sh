@@ -221,6 +221,49 @@ t_lacks "$t_out" "does not support"
 caps_good
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+# The image's labels: the polyfills it names, and the inputs of one of them.
+polyfill_labels() { # <list> <inputs of example>
+  jq -n --arg l "$1" --arg i "$2" \
+    '{"tehas.rukas.polyfills": $l, "tehas.rukas.polyfill.example.inputs": $i}' >"$T/image.labels"
+}
+
+t_case "an input the runner does not list passes when a polyfill the image names declares it"
+caps_fresh
+polyfill_labels "example@0.1.0" "PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_SCOPE"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_EXAMPLE_URL=https://example.test/q PI_ENSEMBLE_EXAMPLE_SCOPE=r1
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "does not support"
+t_contains "$t_out" "the input PI_ENSEMBLE_EXAMPLE_URL is read by the polyfill example"
+t_contains "$(after -e)" "PI_ENSEMBLE_EXAMPLE_URL"
+
+t_case "an input of a polyfill the image does not name stops the cycle: 78, named"
+caps_fresh
+polyfill_labels "issue-comments@0.1.0" "PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_SCOPE"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_EXAMPLE_URL"
+t_contains "$t_out" "the input PI_ENSEMBLE_EXAMPLE_SCOPE"
+
+t_case "a polyfill declares one input and the other still stops the cycle: 78, named"
+caps_fresh
+polyfill_labels "example@0.1.0" "PI_ENSEMBLE_EXAMPLE_URL"
+t_run "$work 7"
+caps_refused
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-lacking
+the input PI_ENSEMBLE_EXAMPLE_SCOPE"
+rm -f "$T/home/tehas/state/cycles/7.refused"
+
+t_case "a polyfill does not open an input the runner keeps to itself"
+caps_fresh
+polyfill_labels "example@0.1.0" "PI_ENSEMBLE_SUBAGENT_MODE"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SUBAGENT_MODE=1
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODE"
+rm -f "$T/image.labels"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "the switches of pi-rukas's own docker wrapper are not given to the container"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_DOCKER_SOCKET"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_SSH"
@@ -328,11 +371,16 @@ t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s
   --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" --input-file "$T/lean-input.json" \
   --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
 t_started "$T/home/tehas" 7
+lean_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=lean)
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_LEAN=on
 t_run "$work 7"
 caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_contains "$t_out" "driver lean, work-lean"
 rm -f "$T/home/tehas/state/cycles/7.lean-refused" "$T/home/tehas/state/cycles/7.refused"
+T_ENV=("${lean_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 t_store_db "$T/home/tehas"
 caps_good
 

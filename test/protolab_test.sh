@@ -37,6 +37,22 @@ case "$1 $2" in
   "api graphql")
     case "$*" in
       *issueTypes*) cat "$T/fx/types.json" 2>/dev/null || exit 1 ;;
+      *editor*)
+        # The texts of a ticket: its row of issues.json and comments-<n>.json,
+        # as GraphQL answers them, the comments only when the row counts
+        # some. Comments counted but not there fail.
+        echo "$*" >>"$T/calls/texts"
+        n="$*"; n=${n#*number=}; n=${n%% *}
+        c=$T/fx/comments-$n.json
+        if ! jq -e --argjson n "$n" "any(.[]; .number == \$n and .comments > 0)" "$T/fx/issues.json" >/dev/null; then
+          c=/dev/null
+        elif [ ! -e "$c" ]; then
+          exit 1
+        fi
+        jq -s -c --argjson n "$n" --slurpfile is "$T/fx/issues.json" "
+          (.[0] // []) as \$cs | (\$is[0][] | select(.number == \$n)) as \$i
+          | {data: {repository: {issue: {body: \$i.body, author: \$i.user, editor: \$i.editor,
+              comments: {nodes: [\$cs[] | {body, author: .user, editor}]}}}}}" "$c" ;;
       *number=*) n="$*"; n=${n#*number=}; cat "$T/fx/typed-${n%% *}.json" 2>/dev/null || exit 1 ;;
     esac ;;
   "api repos/acme/widget/issues/"*)
@@ -49,8 +65,11 @@ esac'
 
 # curl hands out $T/fx/net/<address, with _ for every other character>. A file
 # <name>.type is the content type it prints, <name>.rc an exit status to fail
-# with. What arrives on standard input (the header file) is kept per call.
-t_stub curl '
+# with, <name>.moved the address a 302 sends it on to. What arrives on
+# standard input (the header file) is kept per call. A case may stub curl its
+# own way; net_curl puts this one back.
+net_curl() {
+  t_stub curl '
 out="" url="" max=0 header=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,11 +83,18 @@ done
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
+if [ -f "$T/fx/net/$key.moved" ]; then
+  : >"$out"
+  printf "text/html\n302\n%s" "$(cat "$T/fx/net/$key.moved")"
+  exit 0
+fi
 [ -f "$T/fx/net/$key" ] || exit 22
 [ "$(stat -c %s "$T/fx/net/$key")" -le "$max" ] || exit 63
 cp "$T/fx/net/$key" "$out"
 cat "$T/fx/net/$key.type" 2>/dev/null
 exit 0'
+}
+net_curl
 
 A=https://github.com/user-attachments/assets
 F=https://github.com/user-attachments/files
@@ -90,14 +116,14 @@ labeled() {
     [{event: "labeled", label: {name: $l}, created_at: $at,
       actor: (if $who == "" then null else {login: $who} end)}]' >"$fx/events-$1.json"
 }
-# issue <number> <title> <body> [association] [comments] [updated]
+# issue <number> <title> <body> [author] [comments] [updated]
 # Every ticket is at the prototype stage at the hand of an allowed account,
 # unless a case writes its own events.
 issue() {
-  jq -n -c --argjson n "$1" --arg title "$2" --arg body "$3" --arg who "${4:-OWNER}" \
+  jq -n -c --argjson n "$1" --arg title "$2" --arg body "$3" --arg who "${4:-alice}" \
     --argjson comments "${5:-0}" --arg updated "${6:-2026-10-09T08:00:00Z}" '
     {number: $n, title: $title, body: $body, html_url: "https://github.com/acme/widget/issues/\($n)",
-     user: {login: "alice"}, author_association: $who, updated_at: $updated, comments: $comments}'
+     user: {login: $who}, updated_at: $updated, comments: $comments}'
   labeled "$1" alice
 }
 issues() { printf '%s\n' "$@" | jq -s . >"$fx/issues.json"; }
@@ -136,10 +162,10 @@ net "$A/66666666-2222-3333-4444-555555555555" "MP4DATA" "video/mp4"
 issues "$(issue 7 'Map <script>alert(1)</script> & pins' \
   "Look: ![shot]($A/11111111-2222-3333-4444-555555555555)
 [proto.html]($F/21/proto.html) [style.css]($F/22/style.css) [all.tar]($F/23/all.tar)
-and https://example.com/not-ours.png" OWNER 2)"
+and https://example.com/not-ours.png" alice 2)"
 jq -n --arg video "$A/66666666-2222-3333-4444-555555555555" --arg other "$F/31/stranger.html" '[
-  {author_association: "COLLABORATOR", body: $video},
-  {author_association: "NONE", body: "[stranger.html](\($other))"}]' >"$fx/comments-7.json"
+  {user: {login: "alice"}, body: $video},
+  {user: {login: "mallory"}, body: "[stranger.html](\($other))"}]' >"$fx/comments-7.json"
 t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "#7: 4 files, 32 bytes, 1 left out"
@@ -157,7 +183,7 @@ t_contains "$page" "4 FILES, 32 B OF 10 MB"
 
 t_case "a type the lab does not host and a link from outside are left out, and said"
 t_contains "$page" "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
-t_contains "$page" "1 link from outside the repository"
+t_contains "$page" "1 link from outside the allowed accounts"
 t_lacks "$(t_calls curl)" "all.tar"
 t_lacks "$(t_calls curl)" "stranger.html"
 t_lacks "$(t_calls curl)" "example.com"
@@ -189,7 +215,7 @@ t_eq "$(t_calls curl)" ""
 t_eq "$(t_calls gh | grep -c comments)" 0
 
 t_case "a changed ticket is built again"
-issues "$(issue 7 'Map and pins' "![shot]($A/11111111-2222-3333-4444-555555555555)" OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 7 'Map and pins' "![shot]($A/11111111-2222-3333-4444-555555555555)" alice 0 2026-10-09T09:00:00Z)"
 t_protolab
 t_contains "$t_out" "#7: 1 files, 7 bytes, 0 left out"
 t_eq "$(files_of 7)" "./image-1.png "
@@ -203,15 +229,60 @@ t_protolab
 t_eq "$(jq -r .url "$live/protolab.json")" "https://lab.example"
 t_contains "$(cat "$site/index.html")" "Nothing in the lab."
 
-t_case "text by someone outside the repository brings nothing in"
+t_case "text by an account off the allowed list brings nothing in"
 reset
 net "$F/40/theirs.html" "<p>theirs</p>"
-issues "$(issue 8 'From a stranger' "[theirs.html]($F/40/theirs.html)" NONE)"
+issues "$(issue 8 'From a stranger' "[theirs.html]($F/40/theirs.html)" mallory)"
 t_protolab
 t_eq "$(files_of 8)" ""
 t_eq "$(t_calls curl)" ""
 t_contains "$(cat "$site/8/index.html")" "No image, video or HTML file is attached"
-t_contains "$(cat "$site/8/index.html")" "1 link from outside the repository"
+t_contains "$(cat "$site/8/index.html")" "1 link from outside the allowed accounts"
+
+t_case "the bot, an account off the list, an outside edit and a quote bring nothing in"
+reset
+for f in 50/bot 51/carol 52/edited 53/quoted 54/body 55/mine; do net "$F/$f.html" "<p>${f#*/}</p>"; done
+issues "$(issue 9 'Guarded' "[body.html]($F/54/body.html)" alice 4 | jq -c '. + {editor: {login: "tehas-bot[bot]"}}')"
+jq -n --arg F "$F" '[
+  {user: {login: "tehas-bot[bot]"}, body: "[bot.html](\($F)/50/bot.html)"},
+  {user: {login: "carol"}, body: "[carol.html](\($F)/51/carol.html)"},
+  {user: {login: "alice"}, editor: {login: "mallory"}, body: "[edited.html](\($F)/52/edited.html)"},
+  {user: {login: "alice"}, body: "> [quoted.html](\($F)/53/quoted.html)\nand [mine.html](\($F)/55/mine.html)"}]' >"$fx/comments-9.json"
+t_protolab
+t_contains "$t_out" "#9: 1 files"
+t_eq "$(files_of 9)" "./mine.html "
+t_eq "$(t_calls curl | grep -c 'files/5[0-4]/')" 0
+t_contains "$(cat "$site/9/index.html")" "5 links from outside the allowed accounts"
+
+t_case "a change with no new link and no new title fetches no file again"
+reset
+net "$F/56/kept.html" "<p>kept</p>"
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)")"
+t_protolab
+t_contains "$t_out" "#10: 1 files"
+keys=$(jq -c keys_unsorted "$site/10/.meta.json")
+rm -f "$T"/calls/*
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)" alice 1 2026-10-12T08:00:00Z)"
+jq -n '[{user: {login: "alice"}, body: "Looks good."}]' >"$fx/comments-10.json"
+t_protolab
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(t_calls curl)" ""
+t_contains "$(t_calls texts)" "number=10"
+t_contains "$(cat "$site/10/index.html")" "12 OCT 2026"
+t_eq "$(jq -r .updatedAt "$site/10/.meta.json")" "2026-10-12T08:00:00Z"
+t_eq "$(jq -c keys_unsorted "$site/10/.meta.json")" "$keys"
+t_eq "$(files_of 10)" "./kept.html "
+# Nothing changed since: the texts are not read again.
+rm -f "$T"/calls/*
+t_protolab
+t_eq "$(t_calls texts)" ""
+# A new link is a new build.
+net "$F/57/more.html" "<p>more</p>"
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)" alice 1 2026-10-12T09:00:00Z)"
+jq -n --arg F "$F" '[{user: {login: "alice"}, body: "[more.html](\($F)/57/more.html)"}]' >"$fx/comments-10.json"
+t_protolab
+t_contains "$t_out" "#10: 2 files"
 
 t_case "a ticket whose prototype label came from an account outside the list gets no page"
 reset
@@ -230,7 +301,7 @@ issues "$(issue 21 'Kept then taken' 'no files')"
 labeled 21 alice
 t_protolab
 t_contains "$t_out" "#21: 0 files, 0 bytes, 0 left out"
-issues "$(issue 21 'Kept then taken' 'no files' OWNER 0 2026-10-09T11:00:00Z)"
+issues "$(issue 21 'Kept then taken' 'no files' alice 0 2026-10-09T11:00:00Z)"
 labeled 21 mallory
 t_protolab
 t_contains "$t_out" "#21: tehas:prototype was applied by 'mallory', not an allowed account"
@@ -270,7 +341,7 @@ issues "$(issue 26 'Held' 'no files')"
 labeled 26 alice
 t_protolab
 before=$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 26 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+issues "$(issue 26 'Held' 'no files' alice 0 2026-10-09T12:00:00Z)"
 rm -f "$fx/events-26.json"
 t_protolab
 t_contains "$t_out" "#26: its label events could not be read, nothing built or removed"
@@ -284,7 +355,7 @@ reset
 issues "$(issue 27 'Held' 'no files')"
 t_protolab
 before=$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 27 'Held' 'no files' OWNER 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
+issues "$(issue 27 'Held' 'no files' alice 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
 echo '{"message":"Bad credentials"}' >"$fx/events-27.json"
 echo '{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"}}' >"$fx/events-28.json"
 t_protolab
@@ -322,7 +393,7 @@ reset
 issues "$(issue 29 'Held' 'no files')"
 t_protolab
 before=$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 29 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+issues "$(issue 29 'Held' 'no files' alice 0 2026-10-09T12:00:00Z)"
 touch "$fx/label-fails"
 t_protolab
 t_eq "$t_rc" 0
@@ -334,7 +405,7 @@ reset
 issues "$(issue 50 'First title' 'no files')"
 t_protolab
 t_contains "$t_out" "#50: 0 files"
-issues "$(issue 50 'Their title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 50 'Their title' 'no files' alice 0 2026-10-09T09:00:00Z)"
 renamed 50 mallory 2026-10-09T09:00:00Z 'First title' 'Their title'
 t_protolab
 t_contains "$t_out" "#50: its title was changed by 'mallory' since alice approved it, left as it was"
@@ -350,7 +421,7 @@ t_contains "$(cat "$site/50/index.html")" "Their title"
 
 t_case "a title changed by an allowed account after the label is published"
 reset
-issues "$(issue 51 'Better title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 51 'Better title' 'no files' alice 0 2026-10-09T09:00:00Z)"
 renamed 51 alice 2026-10-09T09:00:00Z 'Old title' 'Better title'
 t_protolab
 t_contains "$t_out" "#51: 0 files"
@@ -469,7 +540,7 @@ t_eq "$t_rc" 0
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
 t_case "comments that cannot be read leave the ticket's page as it was"
-issues "$(issue 13 'Stays' '' OWNER 3 2026-10-09T10:00:00Z)"
+issues "$(issue 13 'Stays' '' alice 3 2026-10-09T10:00:00Z)"
 t_protolab
 t_contains "$t_out" "#13: could not be read, left as it was"
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
@@ -663,6 +734,169 @@ t_protolab
 t_contains "$(cat "$site/53/index.html")" "$(left_out good.zip 'This host cannot unpack a zip.')"
 t_contains "$t_out" "attach: absent"
 
+# --- protolab-zip-url: a zip named by address and sha256 -------------------
+X=https://files.example.org/p
+sum_of() { sha256sum "$1" | cut -d' ' -f1; }
+good_sum=$(sum_of "$zips/good.zip")
+# zip_url: the feature on, as a test build may have it, with one allowed host,
+# and the curl of the start of this file.
+zip_url() {
+  reset
+  net_curl
+  t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+  T_ENV=(TEHAS_TEST_FEATURES=protolab-zip-url)
+}
+
+t_case "zip by address: off, a Zip: line is text and nothing is fetched for it"
+reset
+net_curl
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 80 'Off' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "#80: 0 files, 0 bytes, 0 left out"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: set on in a release, every run is refused with 78 before GitHub is asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+t_protolab
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release"
+t_eq "$(t_calls gh)" ""
+
+t_case "zip by address: one from an allowed host with its sha256 is unpacked as an attached zip"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 81 'By address' "The prototype.
+Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "#81: 4 files"
+t_eq "$(files_of 81)" "./good/app.js ./good/data/sample.json ./good/index.html ./good/prototype.md "
+t_contains "$(cat "$site/81/index.html")" '<iframe src="files/good/index.html"'
+t_eq "$(find "$site" -name '*.zip' -o -name '.part' | wc -l)" 0
+# No redirect is followed by curl, and the token goes nowhere but GitHub.
+t_contains "$(t_calls curl)" "-sSf --path-as-is"
+t_lacks "$(t_calls curl)" "-sSfL"
+t_lacks "$(cat "$T/calls/curl-headers" 2>/dev/null)" "files.example.org"
+
+t_case "zip by address: bytes of another sha256 are refused and nothing of them kept"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 82 'Other bytes' "Zip: $X/good.zip sha256:$(printf '%064d' 0)")"
+t_protolab
+t_contains "$t_out" "#82: 0 files, 0 bytes, 1 left out"
+t_contains "$(cat "$site/82/index.html")" "$(left_out good.zip 'Not the bytes its sha256 names.')"
+t_eq "$(find "$site/82/files" -type f | wc -l)" 0
+
+t_case "zip by address: a host off the list is never asked"
+zip_url
+net_file "https://other.example.org/good.zip" "$zips/good.zip"
+issues "$(issue 83 'Elsewhere' "Zip: https://other.example.org/good.zip sha256:$good_sum
+Zip: http://files.example.org/p/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#83: 0 files, 0 bytes, 2 left out"
+t_contains "$(cat "$site/83/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_lacks "$(t_calls curl)" "example.org"
+
+t_case "zip by address: an empty list of hosts allows none"
+zip_url
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 84 'No hosts' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/84/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: a redirect is followed on the listed hosts and nowhere else"
+zip_url
+printf %s "$X/moved/good.zip" >"$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).moved"
+net_file "$X/moved/good.zip" "$zips/good.zip"
+printf %s "https://evil.example/good.zip" >"$fx/net/$(printf %s "$X/away.zip" | tr -c 'A-Za-z0-9' _).moved"
+net_file "https://evil.example/good.zip" "$zips/good.zip"
+issues "$(issue 85 'Moved' "Zip: $X/good.zip sha256:$good_sum
+Zip: $X/away.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#85: 4 files"
+t_eq "$(files_of 85)" "./good/app.js ./good/data/sample.json ./good/index.html ./good/prototype.md "
+t_contains "$(cat "$site/85/index.html")" "$(left_out away.zip 'Sent on to an address the instance does not allow.')"
+t_lacks "$(t_calls curl)" "evil.example"
+
+t_case "zip by address: held to the 40 files a ticket, after the attached files"
+zip_url
+net "$F/5/first.html" "<p>first</p>"
+net_file "$X/many.zip" "$zips/many.zip"
+issues "$(issue 86 'Many by address' "[first.html]($F/5/first.html)
+Zip: $X/many.zip sha256:$(sum_of "$zips/many.zip")")"
+t_protolab
+t_eq "$(find "$site/86/files" -type f | wc -l)" 40
+t_eq "$(grep -o 'More than 40 files.' "$site/86/index.html" | wc -l)" 6
+
+t_case "zip by address: held to the 10 MB a ticket by what it unpacks to"
+zip_url
+net_file "$X/bomb.zip" "$zips/bomb.zip"
+issues "$(issue 87 'Bomb by address' "Zip: $X/bomb.zip sha256:$(sum_of "$zips/bomb.zip")")"
+t_protolab
+t_eq "$(find "$T/home" -name big.txt | wc -l)" 0
+t_contains "$(cat "$site/87/index.html")" "$(left_out bomb/big.txt 'Over the 10 MB limit of a ticket.')"
+
+t_case "zip by address: a line from outside the list, or quoted, or of another form, fetches nothing"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 88 'Theirs' "> Zip: $X/good.zip sha256:$good_sum
+Zip: $X/good.zip" alice 1)"
+jq -n --arg line "Zip: $X/theirs.zip sha256:$good_sum" '[{user: {login: "mallory"}, body: $line}]' >"$fx/comments-88.json"
+t_protolab
+t_contains "$t_out" "#88: 0 files, 0 bytes, 1 left out"
+page=$(cat "$site/88/index.html")
+t_contains "$page" "2 links from outside the allowed accounts"
+t_contains "$page" "<span>good.zip</span><span class=\"asset-fact\">Not a zip and its sha256"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: a download that fails for now is tried again on the next run"
+zip_url
+printf 7 >"$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
+issues "$(issue 89 'Later' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/89/index.html")" "$(left_out good.zip 'Could not be fetched. The lab tries again.')"
+rm "$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
+net_file "$X/good.zip" "$zips/good.zip"
+t_protolab
+t_contains "$t_out" "#89: 4 files"
+
+t_case "zip by address: a host added to the list builds the ticket again, and one taken off does too"
+zip_url
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 90 'Host later' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/90/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on "TEHAS_PROTOLAB_ZIP_HOSTS='other.example.org files.example.org'"
+t_protolab
+t_contains "$t_out" "#90: 4 files"
+t_protolab
+t_eq "$t_out" ""
+# The same hosts in another order are the same list.
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on "TEHAS_PROTOLAB_ZIP_HOSTS='files.example.org other.example.org'"
+t_protolab
+t_eq "$t_out" ""
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on TEHAS_PROTOLAB_ZIP_HOSTS=other.example.org
+t_protolab
+t_contains "$t_out" "#90: 0 files, 0 bytes, 1 left out"
+t_eq "$(find "$site/90/files" -type f | wc -l)" 0
+
+t_case "zip by address: switched off, a page built with it on is built again without the zip"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 91 'Switched' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#91: 4 files"
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+t_protolab
+t_contains "$t_out" "#91: 0 files, 0 bytes, 0 left out"
+t_eq "$(find "$site/91/files" -type f | wc -l)" 0
+
 t_case "a name with no slash keeps the same address as before"
 reset
 net "$F/11/solo.html" "<h1>solo</h1>"
@@ -675,10 +909,10 @@ t_contains "$(cat "$site/48/index.html")" 'href="files/solo.css"'
 t_case "comments past the limit of one argument are read"
 reset
 net "$F/21/proto.html" "<h1>proto</h1>"
-issues "$(issue 8 'Long thread' 'no files' OWNER 100)"
+issues "$(issue 8 'Long thread' 'no files' alice 100)"
 # 100 comments of 2 KB: over 128 KiB, which no one argument can hold.
 jq -n --arg pad "$(head -c 2000 /dev/zero | tr '\0' x)" --arg link "$F/21/proto.html" \
-  '[range(100) | {author_association: "OWNER", body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
+  '[range(100) | {user: {login: "alice"}, body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
 t_protolab
 t_eq "$t_rc" 0
 t_eq "$(files_of 8)" "./proto.html "
@@ -794,7 +1028,7 @@ t_protolab
 t_contains "$t_out" "#62: 1 files"
 t_lacks "$(t_calls gh)" "api user"
 t_eq "$(cat "$T/calls/curl-headers")" "Authorization: Bearer app-token"
-issues "$(issue 62 'By setting' 'no files' OWNER 0 2026-10-09T14:00:00Z)"
+issues "$(issue 62 'By setting' 'no files' alice 0 2026-10-09T14:00:00Z)"
 labeled 62 'tehas-app-bot[bot]'
 t_protolab
 t_contains "$t_out" "#62: tehas:prototype was applied by 'tehas-app-bot[bot]', not an allowed account"

@@ -1,0 +1,616 @@
+{
+ "suite": "no shell suite: placement under the outsource feature, which the bash poll never had",
+ "later": [],
+ "not_ported": [],
+ "cases": [
+  {
+   "case": "with no outsource setting a start is as before",
+   "queue": [
+    "7"
+   ],
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice)"
+    ],
+    "log_lacks": [
+     "in-house",
+     "outsourced"
+    ],
+    "no_actions": [
+     {
+      "contractor": "box-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_OUTSOURCE on in a release, where the feature is still being built, changes nothing",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "in-house",
+     "outsourced"
+    ],
+    "no_actions": [
+     {
+      "contractor": "box-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "on, a repository the setting does not name runs in-house",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/other"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: TEHAS_OUTSOURCE_REPOS does not name acme/widget"
+    ],
+    "no_actions": [
+     {
+      "contractor": "box-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "on and allowed, the contractor with the most room takes the start",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 8192,
+        "disk_kb": 104857600
+       }
+      },
+      {
+       "name": "box-2",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "contractor": "box-2"
+     }
+    ],
+    "log": [
+     "start #7 (labelled by alice), outsourced to box-2"
+    ]
+   }
+  },
+  {
+   "case": "on and allowed, no contractor that fits runs in-house",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: no contractor fits"
+    ],
+    "no_actions": [
+     {
+      "contractor": "box-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "on and allowed, no contractor at all runs in-house",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: no contractor fits"
+    ]
+   }
+  },
+  {
+   "case": "an issue that lost its retries runs in-house",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget",
+    "TEHAS_OUTSOURCE_RETRIES": "2"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 2
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: it lost 2 outsourced jobs, TEHAS_OUTSOURCE_RETRIES is 2"
+    ],
+    "no_actions": [
+     {
+      "contractor": "box-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "contractors the poll could not read keep the start in-house",
+   "queue": [
+    "7"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": {
+      "failed": true
+     },
+     "busy": [],
+     "lost": {
+      "7": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: the contractors could not be read"
+    ]
+   }
+  },
+  {
+   "case": "one contractor takes one start of a poll, the next runs in-house",
+   "queue": [
+    "7",
+    "8"
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget",
+    "TEHAS_MAX_CYCLES": 2
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7,
+     8
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "contractor": "box-1"
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 8,
+      "contractor": "box-1"
+     }
+    ],
+    "log": [
+     "start #7 (labelled by alice), outsourced to box-1",
+     "start #8 (labelled by alice), in-house: no contractor fits"
+    ]
+   }
+  },
+  {
+   "case": "a contractor with a running cycle's open job is busy",
+   "queue": [
+    "7"
+   ],
+   "hold": [
+    5
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget",
+    "TEHAS_MAX_CYCLES": 2
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [
+      "box-1"
+     ],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "start #7 (labelled by alice), in-house: no contractor fits"
+    ]
+   }
+  },
+  {
+   "case": "an outsourced cycle counts against TEHAS_MAX_CYCLES, so a free contractor starts nothing more",
+   "queue": [
+    "7"
+   ],
+   "hold": [
+    5
+   ],
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      },
+      {
+       "name": "box-2",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [
+      "box-1"
+     ],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says where the start would run",
+   "queue": [
+    "7"
+   ],
+   "dry": true,
+   "settings": {
+    "TEHAS_OUTSOURCE": "on",
+    "TEHAS_TEST_FEATURES": "outsource",
+    "TEHAS_OUTSOURCE_REPOS": "acme/widget"
+   },
+   "snapshot": {
+    "outsource": {
+     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "contractors": [
+      {
+       "name": "box-1",
+       "revoked": false,
+       "draining": false,
+       "resting": false,
+       "last_seen_at": 1793404790,
+       "jobs_done": 0,
+       "jobs_lost": 0,
+       "report": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mem_mb": 16384,
+        "disk_kb": 104857600
+       }
+      }
+     ],
+     "busy": [],
+     "lost": {
+      "7": 0,
+      "8": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "would run a cycle for #7 (labelled by alice), outsourced to box-1"
+    ]
+   }
+  }
+ ]
+}

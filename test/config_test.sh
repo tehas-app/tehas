@@ -82,6 +82,22 @@ t_run "$load; echo rc=\$? \$TEHAS_CHILD_TIMEOUT"
 t_eq "$t_out" "rc=0 $child_max"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a cycle's tree gets 100 commits of history unless the instance says otherwise, 0 is all of it"
+t_run "$load && echo \$TEHAS_CLONE_DEPTH"
+t_eq "$t_out" 100
+t_contains "$(grep '^#TEHAS_CLONE_DEPTH=' "$T_ROOT/instances/example/optional.env")" "=100"
+t_contains "$(grep '^| .TEHAS_CLONE_DEPTH.' "$T_ROOT/host/docs/tools.md")" "| \`100\`"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONE_DEPTH=0
+t_run "$load && echo \$TEHAS_CLONE_DEPTH"
+t_eq "$t_out" 0
+for bad in -1 01 full 1000000000; do
+  t_instance "${T_MINIMAL[@]}" "TEHAS_CLONE_DEPTH=$bad"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "TEHAS_CLONE_DEPTH is not valid: expected a whole number of 0 or more"
+done
+t_instance "${T_MINIMAL[@]}"
+
 t_case "a child bound longer than the cycle's own limit is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=21600 TEHAS_CHILD_TIMEOUT=3601
 t_run "$load; echo rc=\$?"
@@ -730,11 +746,29 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the default driver is classic unless the instance says lean"
-for pair in "|classic" "TEHAS_DRIVER=|classic" "TEHAS_DRIVER=classic|classic" "TEHAS_DRIVER=lean|lean"; do
+for pair in "|classic" "TEHAS_DRIVER=|classic" "TEHAS_DRIVER=classic|classic"; do
   t_instance "${T_MINIMAL[@]}" "${pair%%|*}"
   t_run "$load; echo rc=\$? \"[\$TEHAS_DRIVER]\""
   t_eq "$t_out" "rc=0 [${pair#*|}]"
 done
+# lean is still being built: a test build turns it on.
+t_instance "${T_MINIMAL[@]}" TEHAS_DRIVER=lean TEHAS_LEAN=on
+saved_env=(${T_ENV[@]+"${T_ENV[@]}"})
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_FEATURES=lean)
+t_run "$load; echo rc=\$? \"[\$TEHAS_DRIVER]\""
+t_eq "$t_out" "rc=0 [lean]"
+T_ENV=(${saved_env[@]+"${saved_env[@]}"})
+t_instance "${T_MINIMAL[@]}"
+
+t_case "lean is still being built: its switch and a lean default stop every command"
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}" TEHAS_DRIVER=lean
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release; set TEHAS_DRIVER to classic or take the line out"
+t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a driver this version does not know stops every command"
@@ -1398,9 +1432,16 @@ t_eq "$t_out" "[]"
 
 t_case "the MCP server's settings come from the host's environment and are kept"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_MCP=1 TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second" TEHAS_MCP_DASHBOARD_KEYS="zyxwvutsrqponmlkjihgfedcba012345")
+T_ENV=(TEHAS_MCP=on TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second-key-of-32-characters-long" TEHAS_MCP_DASHBOARD_KEYS="zyxwvutsrqponmlkjihgfedcba012345")
 t_run "$load && echo \"\$TEHAS_MCP [\$TEHAS_MCP_KEYS] [\$TEHAS_MCP_DASHBOARD_KEYS]\""
-t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second] [zyxwvutsrqponmlkjihgfedcba012345]"
+t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second-key-of-32-characters-long] [zyxwvutsrqponmlkjihgfedcba012345]"
+
+t_case "an MCP key of the wrong shape stops the load, named by its place and never shown"
+T_ENV=(TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second")
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MCP_KEYS is not valid: key 2 is not at least 32 characters"
+t_lacks "$t_out" "second"
 T_ENV=()
 
 t_case "keys for the MCP server in the instance directory are refused"
@@ -1671,7 +1712,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "bc2efb33b8bc3e72c9ab5755b204ca1a73c4f35cac2bffb528113e15f529576c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "67954b003b5ea0501506a39774065877ddd67f26c39af8423acd0044cf8f0db9"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1769,7 +1810,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "d1a1d5be30c5fbb7168599ecbbe1e3dc9785df5f1b257975063fc1b878eb2ecd"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "cfff7ebbc88c46fbb26381478e4b49f9dc36036c1dd3c147505d2abe8d268995"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
