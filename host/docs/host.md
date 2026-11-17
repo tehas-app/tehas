@@ -11,7 +11,9 @@ One Linux machine and one Unix user. In the example: `tehas-tehas`, user `boss`
 matters is the sandbox: agents only ever run inside it, without the Docker
 socket.
 
-Preparing a fresh machine is on the [bootstrap page](/bootstrap).
+Preparing a fresh machine is on the [bootstrap page](/bootstrap). What of a
+factory is public and stays compatible through 1.x, and what is internal, is
+on [the contract](/contract).
 
 ## Layout
 

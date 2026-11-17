@@ -774,7 +774,11 @@ pub fn drain(given: &[String]) -> u8 {
         "{}",
         drain_report(&said, &running, passed, &limit, asked.json)
     );
-    u8::from(!passed || !running.is_empty())
+    if !passed || !running.is_empty() {
+        tehas_core::exit::NO
+    } else {
+        tehas_core::exit::OK
+    }
 }
 
 /// The name the commands which honour a limit read it by: what `tehas drain`

@@ -138,7 +138,7 @@ builds it with cargo first, in the few lines of bash that are left of
 `libexec/setup`.
 
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
-such as 78 from `install.sh`), 64 on an unknown option or app options that do
+such as 78 from `install.sh` or 3 from a product check that failed), 64 on an unknown option or app options that do
 not go together, 78 for a setting that is missing, malformed or differs,
 a pasted address without the run's state, or when there is no
 console and no checkout to build one from.
@@ -204,8 +204,9 @@ It changes nothing in the product. The result goes to
 `product` line and `./install.sh --check` as its `Product:` line; neither runs
 the check itself, and the `Product:` line does not change install.sh's exit
 status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
-image, or the clone failed), 64 on a wrong argument, 78 when the settings are
-missing or malformed, a check failed, or no console stands beside the command.
+image, or the clone failed), 3 when a check failed, 64 on a wrong argument, 78
+when the settings are missing or malformed, or no console stands beside the
+command.
 The command loads the settings; the checks and the run are the console's
 (`console check-product`, `console/src/product.rs`).
 

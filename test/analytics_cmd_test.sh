@@ -56,21 +56,33 @@ for args in "export copy.db" "export copy.db --json"; do
 done
 t_eq "$(t_calls analytics)" ""
 
-t_case "the program's exit status is the command's: a file that exists is 73"
+t_case "a failure of the program is exit 1: a file that exists, a database that cannot be read"
 reset
 t_stub_analytics 'echo "analytics: copy.db exists already" >&2; exit 73'
 t_run "$cmd copy --to copy.db --json"
-t_eq "$t_rc" 73
+t_eq "$t_rc" 1
 t_contains "$t_out" "exists already"
+t_stub_analytics 'echo "analytics: the report failed" >&2; exit 70'
+t_run "$cmd report"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the report failed"
 
-t_case "with TEHAS_ANALYTICS=off it says so, exits 69 and asks the program nothing"
+t_case "the program's 0, 64, 78 and 141 are the command's"
+for rc in 0 64 78 141; do
+  reset
+  t_stub_analytics "exit $rc"
+  t_run "$cmd report"
+  t_eq "$t_rc" "$rc"
+done
+
+t_case "with TEHAS_ANALYTICS=off it says so, exits 78 and asks the program nothing"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
 t_stub_analytics
 before=$(cd "$T/home" && find . | LC_ALL=C sort)
 for args in report "copy --to copy.db --json"; do
   t_run "$cmd $args"
-  t_eq "$t_rc" 69
+  t_eq "$t_rc" 78
   t_contains "$t_out" "TEHAS_ANALYTICS=off"
 done
 t_eq "$(t_calls analytics)" ""
@@ -78,10 +90,10 @@ t_eq "$(cd "$T/home" && find . | LC_ALL=C sort)" "$before"
 t_eq "$([ -e copy.db ] && echo written)" ""
 t_eq "$(outside)" ""
 
-t_case "a host without the program is exit 69 and says so"
+t_case "a host without the program is exit 1 and says so"
 reset
 t_run "$cmd report"
-t_eq "$t_rc" 69
+t_eq "$t_rc" 1
 t_contains "$t_out" "is not installed"
 
 t_case "missing or malformed settings are exit 78 and ask the program nothing"

@@ -107,7 +107,7 @@ the demand, the pause switches, the running cycles, what holds cycles back
 and the room under each cap. [The factory API](/api#tehas-status---json) has
 every field. Without a health file it prints nothing on standard output.
 
-Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
+Exit 0 on `pass` and `warn`. Exit 3 on `fail`, on a stale file, or when there
 is no health file yet. Exit 64 on any argument but `--json`.
 
 ## tehas api
@@ -303,7 +303,7 @@ newest end of its runs in Unix seconds, both left out when it has none, and
 call. See [the factory API](/api#tehas-analytics-copy), and
 [Analytics](/analytics) for what the database holds.
 
-Exit 0; 64 on a bad argument; 69 when `TEHAS_ANALYTICS=off`, or the program is
-not installed, which reads and writes nothing; 70 when the database cannot be
-read; 73 when `<file>` exists or cannot be made; 78 when the settings are
-missing or malformed.
+Exit 0; 1 when the program is not installed, the database cannot be read, or
+`<file>` exists or cannot be made; 64 on a bad argument; 78 when the settings
+are missing or malformed, or `TEHAS_ANALYTICS=off`, which reads and writes
+nothing.
