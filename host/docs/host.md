@@ -640,6 +640,10 @@ unpacked beside the others in `~/tehas/versions/<version>`, and
 `TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
 [tehas update](/tools-update#tehas-update).
 
+A host on 0.30.x drains before it updates to 1.0, and fixes first every line
+`tehas update --check` lists: see
+[Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
+
 An update does not wait for the running cycles. Each cycle and planning turn
 runs from its own copy of the code in `~/tehas/run`, made when it started, and
 `install.sh` replaces each file by renaming a new one over it, so what runs
