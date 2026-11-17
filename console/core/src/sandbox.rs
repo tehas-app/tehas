@@ -774,12 +774,18 @@ pub fn seed(state: &str, index: &str) -> bool {
 pub const ALIASES_WHY: &str =
     "expected name:address pairs separated by commas, such as models.example:192.0.2.10";
 
-/// One pair: a host name, then an IPv4 or IPv6 address or Docker's
-/// `host-gateway`. Nothing else may reach a `docker run` line.
+/// One pair: a host name, `:` or `=`, then an IPv4 or IPv6 address, the
+/// IPv6 one bare or in brackets, or Docker's `host-gateway`. These are the
+/// forms `docker run --add-host` takes; nothing else may reach its line.
 fn alias(pair: &str) -> bool {
-    let Some((name, address)) = pair.split_once(':') else {
+    let Some((name, address)) = pair.split_once([':', '=']) else {
         return false;
     };
+    let v6 = |a: &str| a.parse::<std::net::Ipv6Addr>().is_ok();
+    let bracketed = address
+        .strip_prefix('[')
+        .and_then(|a| a.strip_suffix(']'))
+        .is_some_and(v6);
     let name_ok = !name.is_empty()
         && !name.starts_with(['-', '.'])
         && name
@@ -788,7 +794,8 @@ fn alias(pair: &str) -> bool {
     name_ok
         && (address == "host-gateway"
             || address.parse::<std::net::Ipv4Addr>().is_ok()
-            || address.parse::<std::net::Ipv6Addr>().is_ok())
+            || v6(address)
+            || bracketed)
 }
 
 /// The --add-host options: the names the sandbox cannot resolve by itself,
@@ -1421,6 +1428,16 @@ mod tests {
                 "--add-host=gw:host-gateway"
             ]
         );
+        // The two other forms Docker takes: `name=address`, and an IPv6
+        // address in brackets.
+        assert_eq!(
+            hosts("a=192.0.2.9,b:[2001:db8::1],c=[2001:db8::2]").unwrap(),
+            [
+                "--add-host=a=192.0.2.9",
+                "--add-host=b:[2001:db8::1]",
+                "--add-host=c=[2001:db8::2]"
+            ]
+        );
         assert!(hosts("").unwrap().is_empty());
     }
 
@@ -1437,6 +1454,10 @@ mod tests {
             "mod els:192.0.2.8",
             "models:192.0.2.8\nb:192.0.2.9",
             "models:example.org",
+            "models:[192.0.2.8]",
+            "models:[2001:db8::1",
+            "models=",
+            "=192.0.2.8",
         ] {
             assert_eq!(hosts(bad), Err(ALIASES_WHY.to_string()), "{bad}");
             assert!(network(bad).is_err(), "{bad}");
