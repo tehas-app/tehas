@@ -61,7 +61,8 @@ pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 /// `park_lifted` a `lifted_note` and `spec` a `spec_pin`; the readers check
 /// the entries. `driver` is
 /// written only when it is `DRIVER`: no driver means classic, which is every
-/// record written before it existed.
+/// record written before it existed. `contractor` is the contractor the
+/// dispatcher placed an outsourced start on, in a contractor name's shape.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
 const INPUT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const DRIVER: &str = "lean";
@@ -263,6 +264,8 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             lifted_note(value)
         } else if key == "driver" {
             value == DRIVER
+        } else if key == "contractor" {
+            value.as_str().and_then(crate::outsource::host).is_some()
         } else if key == "spec" {
             spec_pin(value)
         } else {

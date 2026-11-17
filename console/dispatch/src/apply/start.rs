@@ -1088,8 +1088,10 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
-        if let Some(d) = a.get("driver") {
-            input.insert("driver".into(), d.clone());
+        for k in ["driver", "contractor"] {
+            if let Some(v) = a.get(k) {
+                input.insert(k.into(), v.clone());
+            }
         }
         // The pin spec_holds fetched the spec's bytes to.
         if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
