@@ -199,7 +199,8 @@ tag by default, is not the commit the image was built on. It does this also when
 skips it when this run built the image already or a step failed. An image that
 cannot be moved, for example because upstream has not published that commit's
 image yet, makes the update exit 1. `--check` runs `build.sh --check` and
-exits 3 when the commit moved. See
+exits 3 when the commit moved; a build check that fails or gives no answer
+makes it exit 1, and 78 when the instance's settings do not load. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
 The follow-ups are steps named by id in the console, which install.sh prints as
