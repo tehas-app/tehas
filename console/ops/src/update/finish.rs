@@ -17,6 +17,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::exit;
 
 /// What `run` gives install.sh. It runs it; this says so.
 pub(super) const INSTALL_LIMIT: u32 = 1800;
@@ -426,17 +427,18 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
         }
         return 1;
     }
+    let (to_update, not_to_fix) = (
+        check && found_to_update(out),
+        check && found_not_to_fix(out),
+    );
     if check {
-        let mut found = false;
-        if found_to_update(out) {
+        if to_update {
             tell("install: install.sh --check found something to update");
-            found = true;
         }
-        if found_not_to_fix(out) {
+        if not_to_fix {
             tell("install: install.sh --check found something tehas update does not fix; its lines above say what");
-            found = true;
         }
-        if !found {
+        if !to_update && !not_to_fix {
             tell(&format!("install: install.sh --check exited {rc}"));
         }
     } else {
@@ -445,11 +447,14 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
         ));
     }
     // The statuses install.sh documents. Anything else is a step that failed:
-    // bash answers 126 or 127 when the file lost its exec bit.
+    // bash answers 126 or 127 when the file lost its exec bit. Something to
+    // update is the answer of --check; a fault an update does not fix is not.
     if rc == 78 {
-        78
+        exit::SETTINGS
+    } else if rc == 1 && to_update && !not_to_fix {
+        exit::NO
     } else {
-        1
+        exit::FAILED
     }
 }
 
@@ -490,7 +495,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
         if run.follows_rukas() && !run.rukas_step("--check") {
             found = true;
         }
-        return u8::from(found);
+        return if found { exit::NO } else { exit::OK };
     }
 
     let mut steps = sorted(&asked);

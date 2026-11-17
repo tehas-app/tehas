@@ -64,8 +64,8 @@ for name in "${samples[@]}"; do
   [ ! -e "$fixtures/$name.protolab.json" ] ||
     cp "$fixtures/$name.protolab.json" "$T/home/tehas/live/protolab.json"
   t_run "$T_ROOT/bin/tehas status --json"
-  # The health file is days old: stale, so the exit status is 1.
-  t_eq "$t_rc" 1
+  # The health file is days old: stale, so the exit status is 3.
+  t_eq "$t_rc" 3
   t_eq "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' <<<"$t_out")" \
     "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' "$api/status.$name.json")"
 done

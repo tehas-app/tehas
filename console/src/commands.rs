@@ -48,9 +48,10 @@ use crate::{
 use std::env;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tehas_core::exit;
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 fn strings(words: &[&str], rest: &[String]) -> Vec<String> {
@@ -116,8 +117,9 @@ fn analytics_words(given: &[String]) -> Result<(), u8> {
     Ok(())
 }
 
-/// The analytics program takes over from here, with nothing on its standard
-/// input, and its exit statuses are the command's.
+/// The analytics program answers, with nothing on its standard input. Its own
+/// statuses are internal: the command passes on 0, 64, 78 and 141, and any
+/// other is a failure, 1. Analytics switched off is a setting, 78.
 fn analytics(given: &[String]) -> u8 {
     if let Err(rc) = analytics_words(given) {
         return rc;
@@ -126,7 +128,7 @@ fn analytics(given: &[String]) -> u8 {
         eprintln!(
             "tehas analytics: analytics is off on this host (TEHAS_ANALYTICS=off); nothing is recorded"
         );
-        return 69;
+        return exit::SETTINGS;
     }
     let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
     let bin = home.join("libexec/analytics");
@@ -135,7 +137,7 @@ fn analytics(given: &[String]) -> u8 {
             "tehas analytics: {} is not installed; install.sh builds it",
             bin.display()
         );
-        69
+        exit::FAILED
     };
     if !bin
         .metadata()
@@ -143,12 +145,29 @@ fn analytics(given: &[String]) -> u8 {
     {
         return not_installed();
     }
-    let _ = Command::new(&bin)
+    let ran = Command::new(&bin)
         .args(given)
         .stdin(Stdio::null())
         .env("TEHAS_HOME", &home)
-        .exec();
-    not_installed()
+        .status();
+    match ran {
+        Ok(status) => analytics_status(status.code(), status.signal()),
+        Err(_) => not_installed(),
+    }
+}
+
+/// The command's status for the program's exit code or the signal that ended
+/// it.
+fn analytics_status(code: Option<i32>, signal: Option<i32>) -> u8 {
+    let pipe = i32::from(exit::CLOSED) - 128;
+    match (code, signal) {
+        (Some(0), _) => exit::OK,
+        (Some(64), _) => exit::USAGE,
+        (Some(78), _) => exit::SETTINGS,
+        (Some(141), _) => exit::CLOSED,
+        (None, Some(sig)) if sig == pipe => exit::CLOSED,
+        _ => exit::FAILED,
+    }
 }
 
 pub fn tehas(given: &[String]) -> u8 {
@@ -445,6 +464,23 @@ mod tests {
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn the_analytics_program_s_own_statuses_are_a_failure() {
+        for (code, want) in [
+            (0, 0),
+            (64, 64),
+            (78, 78),
+            (141, 141),
+            (65, 1),
+            (70, 1),
+            (73, 1),
+        ] {
+            assert_eq!(analytics_status(Some(code), None), want, "{code}");
+        }
+        assert_eq!(analytics_status(None, Some(13)), 141);
+        assert_eq!(analytics_status(None, Some(9)), 1);
     }
 
     #[test]

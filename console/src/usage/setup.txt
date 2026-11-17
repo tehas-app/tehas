@@ -63,7 +63,7 @@ Usage:
   tehas setup [options]
 
 Exit: 0 done; 1 a check or a step failed (a step's own status when it has
-one); 64 an unknown option, --app-id or --app-key-file alone or with
+one, such as 3 from a product check that failed); 64 an unknown option, --app-id or --app-key-file alone or with
 --new-app, or --app-owner or --app-name without it; 78 a setting is missing,
 malformed, or differs from the one there without --force, a pasted address
 without this run's state, a key with no app ID (or an app ID with no key) for

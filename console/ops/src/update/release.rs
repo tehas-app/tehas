@@ -981,7 +981,11 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         } else if !host.checkout().join("install.sh").is_file() {
             // No install.sh to ask.
             plan.over = !plan.found;
-            return plan.found as u8;
+            return if plan.found {
+                tehas_core::exit::NO
+            } else {
+                tehas_core::exit::OK
+            };
         }
         return 0;
     }

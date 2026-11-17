@@ -1058,7 +1058,7 @@ instance
 platform 0
 rukas_build 1
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(t_calls build)" "build --check"
 t_contains "$t_out" "pi-rukas: stub"
 

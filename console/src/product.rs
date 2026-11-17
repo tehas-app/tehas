@@ -6,8 +6,8 @@
 //!
 //!   console check-product [--sandbox]
 //!     The checks, one line each, and state/check-product.json. Exit 0 every
-//!     check passed, 1 the sandbox could not be run, 64 usage, 78 a check
-//!     failed or a setting is missing.
+//!     check passed, 1 the sandbox could not be run, 3 a check failed, 64
+//!     usage, 78 a setting is missing.
 //!   console check-product table
 //!     The row of test/sandbox_test.sh's table of runs for the one container
 //!     started here, read off the arguments it is started with.
@@ -26,7 +26,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use tehas_core::install::{self, Step};
-use tehas_core::{sandbox, time};
+use tehas_core::{exit, sandbox, time};
 
 const HEAD: &str = "tehas/init-product";
 const COMMIT: &str = "The tehas contract files";
@@ -271,7 +271,11 @@ fn checks(sandbox: bool) -> Result<u8, u8> {
     }
 
     write_result(&home, &run.failures, sandboxed);
-    Ok(if run.failures.is_empty() { 0 } else { 78 })
+    Ok(if run.failures.is_empty() {
+        exit::OK
+    } else {
+        exit::NO
+    })
 }
 
 fn in_commit(repo: &str, head: &str, path: &str) -> bool {
