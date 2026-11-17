@@ -105,15 +105,16 @@ fn status_of_no_token(child: &mut Child, addr: &str) -> Option<u16> {
 #[test]
 fn off_says_why_and_binds_nothing() {
     let dir = home("proxy-off", "http://127.0.0.1:9/v1");
-    let addr = format!("127.0.0.1:{}", free_port());
+    // The test holds the port, so a proxy that tried to bind it would end
+    // with 1: exit 0 and the off line say it never tried. Asking afterwards
+    // whether anything listens there would race other tests for the port.
+    let held = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = held.local_addr().unwrap().to_string();
     let out = proxy(dir.path(), "0", &addr, &[]).output().unwrap();
-    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(String::from_utf8_lossy(&out.stderr).contains("outsource is off"));
-    assert!(
-        TcpStream::connect(&addr).is_err(),
-        "an off proxy bound {addr}"
-    );
     assert!(!dir.path().join("tehas/state/outsource").exists());
+    drop(held);
 }
 
 #[test]
