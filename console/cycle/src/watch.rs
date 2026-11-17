@@ -23,6 +23,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tehas_core::exit::work;
 use tehas_core::sandbox;
 use tehas_core::{call, time};
 
@@ -556,10 +557,10 @@ pub fn decide(s: &Seen) -> Decided {
 /// container; a runner that wrote its result says how the cycle ended.
 pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
     if d.killed {
-        return 137;
+        return i32::from(work::KILLED);
     }
     if s.stalled || s.timed || s.disk {
-        return 2;
+        return i32::from(work::STOPPED);
     }
     let own = s.rc.to_string();
     let mut codes = vec![own];
@@ -568,7 +569,7 @@ pub fn exit_of(s: &Seen, d: &Decided) -> i32 {
     }
     if s.outcome.is_none() {
         if !s.error_only {
-            return 2;
+            return i32::from(work::STOPPED);
         }
         codes.truncate(1);
     }

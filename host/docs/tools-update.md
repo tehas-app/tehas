@@ -35,7 +35,10 @@ checkout is refused with 64. Any other word is refused with 78 and
 row of kind `setting` still set in `instance.env` or in `~/.config/tehas/env`
 stops every command of the new version with 78, and the line names the new
 key or why the old one went. tehas does not edit the lines: the instance
-directory is a checkout of a settings repository.
+directory is a checkout of a settings repository. A row of kind `value` names
+a value that changed, an exit status among them, such as
+`tehas check-product exit=78` that is now 3; [the contract](/contract#exit-statuses)
+has every command's statuses.
 
 Before an update installs anything, install.sh asks the new version's console
 to judge the instance. When the instance still sets such a row, that check
@@ -79,7 +82,7 @@ update once `v1.0.0` is out, and stays where it is until then. `tehas status
 of each release between them: its section of the changelog, with its
 `Adopter action`. Going back with `--to`, it prints the notes of the releases
 that would be undone. Then it runs `install.sh --check` of the version
-installed. It downloads nothing, changes nothing, and exits 1 when there is a
+installed. It downloads nothing, changes nothing, and exits 3 when there is a
 version to move to.
 
 `tehas update` and `tehas update --to vX.Y.Z` then:
@@ -186,7 +189,8 @@ holds it waits for it, and if it is still held prints
 `another update is running`, naming the seconds it waited, and exits 1 before
 git, install.sh, Docker or systemd is called. The wait is
 `TEHAS_UPDATE_LOCK_WAIT` - a whole number of seconds, 10 by default, 0 to
-refuse at once, at most 300; anything else is the default. It is read from the
+refuse at once, at most 300. Any other value stops both commands with 78
+before the lock. It is a [host setting](/tools#host-settings), read from the
 environment, not from `instance.env`, and both commands ask the console for it
 (`console update wait update`). A first `install.sh` from a checkout has no
 console yet and waits 10.
@@ -210,7 +214,8 @@ tag by default, is not the commit the image was built on. It does this also when
 skips it when this run built the image already or a step failed. An image that
 cannot be moved, for example because upstream has not published that commit's
 image yet, makes the update exit 1. `--check` runs `build.sh --check` and
-exits 1 when the commit moved. See
+exits 3 when the commit moved; a build check that fails or gives no answer
+makes it exit 1, and 78 when the instance's settings do not load. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
 The follow-ups are steps named by id in the console, which install.sh prints as
@@ -318,10 +323,14 @@ all: a recipe it cannot cut, or something that is not a plain file at the name o
 the copy it stages - and runs `install.sh
 --check`, which reports the checkout, the slice, the installed files, any
 follow-up an earlier run left undone, and the tests; it merges nothing, installs
-nothing, builds nothing and starts nothing, and exits 1 when there is something
-to update. A host whose `/etc/systemd/system/tehas.slice` is missing or is not
-the file this version ships is something to update, and only root can do it:
-`tehas update --check` stays red until `sudo ./bootstrap.sh slice` has been run.
+nothing, builds nothing and starts nothing. It exits 3 when there is something
+to update: a checkout behind, steps left over from an earlier run, files that
+differ, or a pi-rukas commit the image is not on. It exits 1 when it found
+something an update does not fix: the host's tools, the slice, root's copy of
+the command or the tests, even beside something to update. A host whose
+`/etc/systemd/system/tehas.slice` is missing or is not the file this version
+ships is one of those, and only root can fix it: `tehas update --check` stays
+red until `sudo ./bootstrap.sh slice` has been run.
 
 What `install.sh` prints passes through as it printed it, apart from the `next:`
 lines this command runs itself. That includes a `Login: NOT CURRENT` report for
@@ -359,8 +368,8 @@ cd ~/tehas/platform
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings are invalid or the home is not provably tehas's (nothing
-was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid or the home is
+not provably tehas's (nothing was changed).
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
