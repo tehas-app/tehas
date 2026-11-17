@@ -59,6 +59,7 @@
           "progress": {
             "description": "Where the cycle's step is, as its driver reports it. Driver-specific and may change in a minor release: a program shows it, and does not decide on it. Left out when nothing of it is known.",
             "type": "object",
+            "minProperties": 1,
             "additionalProperties": false,
             "properties": {
               "step": {"type": "string"},

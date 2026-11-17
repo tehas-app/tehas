@@ -25,6 +25,7 @@
           "progress": {
             "description": "Where the step a cycle ended in was, as its driver reported it. Driver-specific and may change in a minor release: a program shows it, and does not decide on it. Left out when nothing of it is known.",
             "type": "object",
+            "minProperties": 1,
             "additionalProperties": false,
             "properties": {
               "step": {"type": "string", "minLength": 1, "maxLength": 40},

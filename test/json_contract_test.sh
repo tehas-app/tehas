@@ -172,6 +172,7 @@ surfaces=(
   # object whole, so a word a line of that sample does not hold would be found
   # wrong there before it is found wrong here.
   'check	del(.next) | .runs[3].zz = 1	.runs[3].zz: not in the schema'
+  'check	del(.next) | .runs[0].progress = {}	.runs[0].progress: fewer than 1 properties'
   'check	del(.next) | .runs[3].kind = "cycle"	.runs[3].kind: "cycle" is not one of ["work","plan"]'
   # The bounds of the schema, each of a field of one line: the least value the
   # schema lets through and one step past it, as the command prints or refuses
@@ -1018,7 +1019,7 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
       has("enum") or has("type")) | keys_unsorted[] | select(IN("$schema", "$id",
         "title", "description", "type", "const", "enum", "required",
         "additionalProperties", "properties", "items", "minimum", "maximum",
-        "minLength", "maxLength", "pattern", "maxItems", "format") | not)]' "$schema")" "[]"
+        "minLength", "maxLength", "pattern", "maxItems", "minProperties", "format") | not)]' "$schema")" "[]"
   t_contains "$(jq -r '.description' "$schema")" "test/json_contract_test.sh"
 
   # The state of every sample, taken from what the console prints and not from

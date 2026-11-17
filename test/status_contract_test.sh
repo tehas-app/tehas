@@ -112,6 +112,10 @@ jq '.running[0].step = "review" | .running[0].progress.zz = 1 | .readOnly = fals
 out=$(check "$T/bad.json")
 t_contains "$out" ".running[0].step: not in the schema"
 t_contains "$out" ".running[0].progress.zz: not in the schema"
+
+t_case "a progress with nothing in it is left out, never printed empty"
+jq '.running[0].progress = {}' "$api/status.busy.json" >"$T/bad.json"
+t_contains "$(check "$T/bad.json")" ".running[0].progress: fewer than 1 properties"
 t_contains "$out" ".readOnly: false, not true"
 
 t_case "a null where the schema allows none is refused, and allowed where it does"
