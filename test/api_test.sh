@@ -45,7 +45,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "panels"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-check"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "finish"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status-versions"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "store-copy"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-copy"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-load"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-bridge"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "cycle-writes"
@@ -53,23 +53,52 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "settings-rules"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "start-order"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "host-message"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-starts"
-t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-pr-lane"
-t_eq "$(jq -r '.features | last' <<<"$t_out")" "host-start"
-t_eq "$(jq -r '.features | length' <<<"$t_out")" 30
+for gone in store-copy host-message-health refresh-pr-starts refresh-pr-lane refresh-pr-json; do
+  t_eq "$gone $(jq --arg w "$gone" '.features | index($w)' <<<"$t_out")" "$gone null"
+done
+t_eq "$(jq -r '.features | last' <<<"$t_out")" "flags"
+t_eq "$(jq -r '.features | length' <<<"$t_out")" 27
 t_eq "$(jq -r '.features | index("host-bridge-tokens")' <<<"$t_out")" null
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-starts"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-starts` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-lane"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-lane` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"refresh-pr-json"'
-t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr-json` ('
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
+manual=$(cat "$T_ROOT"/host/docs/*.md)
+for old in refresh-pr-starts refresh-pr-lane refresh-pr-json host-message-health '`store-copy`'; do
+  t_lacks "$manual" "$old"
+done
 t_eq "$(jq -r 'has("refreshScan")' <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
+
+t_case "api --json: flags names every registered feature, a building one off and not in features"
+reset
+installed v0.8.0+cb6912a
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false}'
+t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
+t_run "$api"
+t_contains "$t_out" "flags       outsource=off"
+
+t_case "api --json: a test that turns a building feature on sees it on in flags only"
+reset
+installed v0.8.0+cb6912a
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+T_ENV=(TEHAS_TEST_FEATURES=outsource)
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true}'
+t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+
+t_case "api: a building feature switched on is refused with 78 and its name"
+reset
+installed v0.8.0+cb6912a
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_run "$api --json"
+t_eq "$t_rc" 78
+t_contains "$t_out" "outsource is still being built"
 
 t_case "api --json: the millwright is the app's login when the factory has one"
 reset

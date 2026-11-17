@@ -42,7 +42,7 @@ pause_events() { # <event> <login or "">
 
 t_case "pause writes the flag: who set it, when, and the reason"
 reset
-t_run "$pause 'waiting for the gate'"
+t_run "$pause --reason 'waiting for the gate'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "paused at "
 t_contains "$t_out" "waiting for the gate"
@@ -62,13 +62,13 @@ t_eq "$(jq -r .reason "$flag")" ""
 
 t_case "the reason is kept to 200 characters"
 reset
-t_run "$pause $(printf 'x%.0s' {1..400})"
+t_run "$pause --reason $(printf 'x%.0s' {1..400})"
 t_eq "$(jq -r .reason "$flag" | wc -c)" 201
 
 t_case "pause again succeeds and keeps the first flag"
 reset
-t_run "$pause first"
-t_run "$pause second"
+t_run "$pause --reason first"
+t_run "$pause --reason second"
 t_eq "$t_rc" 0
 t_contains "$t_out" "already paused"
 t_contains "$t_out" "the flag is unchanged"
@@ -79,14 +79,14 @@ reset
 mkdir -p "${flag%/*}"
 echo '{"at": 7}' >"$flag"
 chmod 600 "$flag"
-t_run "$pause fresh"
+t_run "$pause --reason fresh"
 t_eq "$t_rc" 0
 t_contains "$t_out" "is not a pause flag"
 t_eq "$(jq -r .reason "$flag")" "fresh"
 
 t_case "resume removes the flag, and says so"
 reset
-t_run "$pause x"
+t_run "$pause --reason x"
 t_run "$resume"
 t_eq "$t_rc" 0
 t_contains "$t_out" "resumed: the pause flag is gone"
@@ -128,7 +128,7 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_case "resume says when the label still holds the host"
 reset
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$T/labels.json"
-t_run "$pause x"
+t_run "$pause --reason x"
 t_run "$resume"
 t_eq "$t_rc" 0
 t_contains "$t_out" "the factory stays paused: tehas:pause is still on issue #1"
@@ -166,17 +166,22 @@ t_lacks "$t_out" "stays paused"
 t_case "resume that cannot read the control issue says so and still removes the flag"
 reset
 rm -f "$T/labels.json"
-t_run "$pause x"
+t_run "$pause --reason x"
 t_run "$resume"
 t_eq "$t_rc" 0
 t_contains "$t_out" "the labels of issue #1 could not be read"
 t_eq "$([ -e "$flag" ] && echo there)" ""
 
-t_case "an argument is a usage error, before the settings are read"
+t_case "a bare reason or a stray argument is a usage error, before the settings are read"
 reset
+t_run "$pause 'waiting for the gate'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "the reason is given as --reason TEXT"
 t_run "$pause too many arguments here"
 t_eq "$t_rc" 64
-t_contains "$t_out" "usage: tehas pause [reason]"
+t_contains "$t_out" "usage: tehas pause [--reason TEXT]"
+t_run "$pause --reason"
+t_eq "$t_rc" 64
 t_run "$resume 7"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas resume"
@@ -196,7 +201,7 @@ t_case "without instance settings nothing is written, exit 78"
 reset
 t_no_instance
 rm -rf "$T/home/tehas/state"
-t_run "$pause why"
+t_run "$pause --reason why"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"
 t_eq "$([ -e "$T/home/tehas/state" ] && echo there)" ""

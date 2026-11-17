@@ -242,7 +242,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   <model> does not declare image input in models.json`: the instance gives a
   cycle images and its `models.json` does not list `"image"` in the model's
   `input`. Only issues that link an attachment wait; the rest start. Add
-  `"image"`, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
+  `"image"`, or set `TEHAS_WORK_IMAGES=off`, and run `install.sh`.
 - `hold #N: ... but <model> does not answer an image`: the model endpoint
   refused a request with a one-pixel image, or took more than 30 seconds. The
   model runs without its vision part, or the backend is busy. The request is
@@ -253,7 +253,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   pi-rukas has no reader for the manifest tehas writes beside the images.
   Only issues that link an attachment wait, and the model is not asked.
   Run `tehas update`, which rebuilds onto upstream's newest release, which has
-  the reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
+  the reader, or set `TEHAS_WORK_IMAGES=off` and run `install.sh`. An image put
   back from before 2026-10-14 is what starts the hold: see
   [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
 - `hold #N: its text says <the words> and links no attachment, so the cycle

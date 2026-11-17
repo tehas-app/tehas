@@ -45,6 +45,8 @@ fn proxy(home: &Path, on: &str, addr: &str, args: &[&str]) -> Command {
         .env("TEHAS_HOME", home.join("tehas"))
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("TEHAS_OUTSOURCE", on)
+        // Outsource is a building feature: only a test turns it on.
+        .env("TEHAS_TEST_FEATURES", "outsource")
         .env("TEHAS_OUTSOURCE_PROXY_ADDR", addr)
         .env("TEHAS_OUTSOURCE_TIMEOUT", "600")
         .env("TEHAS_OUTSOURCE_PROXY_IDLE", "900")
@@ -94,6 +96,22 @@ fn off_says_why_and_binds_nothing() {
         "an off proxy bound {addr}"
     );
     assert!(!dir.path().join("tehas/state/outsource").exists());
+}
+
+#[test]
+fn a_building_feature_stays_off_without_the_test_variable() {
+    let dir = home("proxy-building", "http://127.0.0.1:9/v1");
+    let addr = format!("127.0.0.1:{}", free_port());
+    let out = proxy(dir.path(), "on", &addr, &[])
+        .env_remove("TEHAS_TEST_FEATURES")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("outsource is off"));
+    assert!(
+        TcpStream::connect(&addr).is_err(),
+        "a building proxy bound {addr}"
+    );
 }
 
 #[test]

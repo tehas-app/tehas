@@ -1,11 +1,8 @@
 //! What `tehas update` decides and does. libexec/update execs `run`, which does
-//! the whole of it; the other verbs are its steps, which an older libexec/update
-//! runs one by one, and the questions install.sh asks.
+//! the whole of it; the other verbs are the console's half of the hand-over,
+//! `api` and `finish`, and the questions install.sh asks.
 //!
 //!   console update run <console> <arguments>
-//!   console update args <arguments>
-//!   console update gate <arguments>
-//!   console update prepare --plan <file> <arguments>
 //!   console update api
 //!   console update assets <host dir> <stage dir>
 //!   console update finish --plan <file> --install-out <file> \
@@ -29,11 +26,11 @@
 //!   console update steps ids|units|valid <line>|owed|for <source>...|record <source>...
 //!   console update wait update|dispatch
 //!
-//! `run` is in src/update/run.rs and holds the lock, src/update/lock.rs.
-//! `args` judges the arguments before any setting is read, and answers --help.
-//! `gate` says, with the settings loaded and before the lock, whether this run
-//! may go on. `prepare` runs under the lock: it reads the steps an earlier run
-//! owes, then moves the code, the checkout in src/update/checkout.rs or a release
+//! `run` is in src/update/run.rs and holds the lock, src/update/lock.rs. Its
+//! steps are here: `parse` judges the arguments before any setting is read, and
+//! answers --help. `gate` says, with the settings loaded and before the lock,
+//! whether this run may go on. `prepare` runs under the lock: it reads the steps
+//! an earlier run owes, then moves the code, the checkout in src/update/checkout.rs or a release
 //! in src/update/release.rs. It leaves what comes next in the plan file. `api`
 //! says which of these this console speaks: install.sh may have replaced it while
 //! the update ran, and the one left has to finish it. `finish` reads install.sh's
@@ -61,8 +58,7 @@
 //! test's stub, answers. Each call outside goes through `timeout`, and only
 //! what the message says it waited for is waited for.
 //!
-//! Exit: as each verb says; 64 usage, 78 a setting is missing, 98 `gate`: go on
-//! with no lock, 99 the run is over and went well, nothing more to do.
+//! Exit: as each verb says; 64 usage, 78 a setting is missing.
 
 mod assets;
 mod checkout;
@@ -90,13 +86,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// What `console update api` answers. `run`, and an older libexec/update, pass
-/// this plan and these arguments to `finish`; a console that answers anything
+/// What `console update api` answers. `run` passes this plan and these
+/// arguments to `finish`; a console that answers anything
 /// else cannot finish it.
 const API: u8 = 1;
-
-/// This verb was the whole of the run, and it went well.
-pub(crate) const ANSWERED: u8 = 99;
 
 /// `gate`: go on, with no lock to take: --check changes nothing on the host.
 const NO_LOCK: u8 = 98;
@@ -149,6 +142,18 @@ pub(crate) struct Plan {
     pub leftover: Vec<String>,
     /// The lines of that record no step here knows.
     pub unknown: Vec<String>,
+    /// The run is over and went well: nothing is left for install.sh or
+    /// `finish`. Not written to the plan file.
+    pub over: bool,
+}
+
+/// What `prepare` leaves for `run`.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Prepared {
+    /// The plan file is written: run install.sh, then `finish`.
+    Planned,
+    /// The run is over and went well.
+    Over,
 }
 
 impl Plan {
@@ -329,11 +334,12 @@ struct Asked {
     accept: Vec<String>,
 }
 
-/// The arguments of `tehas update`, or the status they end the run with. The
+/// The arguments of `tehas update`, none when --help answered them, or the
+/// status they end the run with. The
 /// pair of --pending and another mode is refused whichever way round it was
 /// written and before the settings are read: a program that asks for two modes
 /// gets 64, not the answer of the one that happened to be read last.
-fn parse(given: &[String]) -> Result<Asked, u8> {
+fn parse(given: &[String]) -> Result<Option<Asked>, u8> {
     let joined = given.join(" ");
     let help = format!(" {joined} ");
     if help.contains(" -h ") || help.contains(" --help ") {
@@ -345,7 +351,7 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
             return Err(64);
         }
         let _ = io::stdout().write_all(USAGE.as_bytes());
-        return Err(ANSWERED);
+        return Ok(None);
     }
     let (mut checked, mut pending) = (false, false);
     let mut to = String::new();
@@ -405,17 +411,11 @@ fn parse(given: &[String]) -> Result<Asked, u8> {
     } else {
         Mode::Update
     };
-    Ok(Asked {
+    Ok(Some(Asked {
         mode,
         to: (!to.is_empty()).then_some(to),
         accept,
-    })
-}
-
-/// `console update args <arguments>`: --help answers on a host with no settings
-/// yet, and an argument this command does not know reaches neither git nor Docker.
-fn args(given: &[String]) -> u8 {
-    parse(given).map_or_else(|rc| rc, |_| 0)
+    }))
 }
 
 /// What is decided with the settings loaded, before the lock. --to names its
@@ -461,18 +461,14 @@ fn pass(host: &Host, asked: &Asked) -> u8 {
     0
 }
 
-/// `console update gate <arguments>`. Exit: 0 take the lock and go on, 98 go on
-/// with no lock, else the status of the run.
-fn gate(given: &[String]) -> u8 {
-    let asked = match parse(given) {
-        Ok(asked) => asked,
-        Err(rc) => return rc,
-    };
+/// With the settings loaded, before the lock: 0 take the lock and go on, 98 go
+/// on with no lock, else the status of the run.
+fn gate(asked: &Asked) -> u8 {
     let host = match host_or_refuse() {
         Ok(host) => host,
         Err(rc) => return rc,
     };
-    match pass(&host, &asked) {
+    match pass(&host, asked) {
         0 if asked.mode == Mode::Check => NO_LOCK,
         // The ids before anything moves: a login that changed hands stops
         // the update, and --accept-id is the person's word that it did not.
@@ -507,69 +503,47 @@ fn leftover(host: &Host, plan: &mut Plan) -> u8 {
     plan.unknown = unknown;
     if plan.mode == Mode::Pending && nothing {
         say("update: nothing is owed");
-        return ANSWERED;
+        plan.over = true;
     }
     0
 }
 
-/// `console update prepare --plan <file> <arguments>`, under the lock. Exit: 0
-/// run what the plan says, 99 the run is over and went well, else its status.
-fn prepare(given: &[String]) -> u8 {
-    let [flag, file, rest @ ..] = given else {
-        tell("console update prepare: --plan is required");
-        return 64;
-    };
-    if flag != "--plan" {
-        tell("console update prepare: --plan is required");
-        return 64;
-    }
-    let asked = match parse(rest) {
-        Ok(asked) => asked,
-        Err(rc) => return rc,
-    };
-    let host = match host_or_refuse() {
-        Ok(host) => host,
-        Err(rc) => return rc,
-    };
+/// Under the lock: what the run does next, with the plan written to `file`, or
+/// the status it ends with.
+fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
+    let host = host_or_refuse()?;
     let mut plan = Plan {
         mode: asked.mode,
         ..Plan::default()
     };
-    let rc = leftover(&host, &mut plan);
-    if rc != 0 {
-        return rc;
-    }
+    let ok = |rc: u8| if rc == 0 { Ok(()) } else { Err(rc) };
+    ok(leftover(&host, &mut plan))?;
     // --pending reads no checkout and no remote: the record is the whole of the
     // work, so a host whose checkout is at a release tag finishes its install.
     if plan.mode != Mode::Pending {
-        plan.from = match release::source(&host) {
-            Ok(from) => from.to_string(),
-            Err(rc) => return rc,
-        };
-        let rc = if plan.from == "git" {
+        plan.from = release::source(&host)?.to_string();
+        ok(if plan.from == "git" {
             checkout::pull(&host, &mut plan)
         } else {
             release::go(&host, asked.to.as_deref(), &mut plan)
-        };
-        if rc != 0 {
-            return rc;
-        }
+        })?;
     }
-    if plan.write(Path::new(file)).is_err() {
+    if plan.over {
+        return Ok(Prepared::Over);
+    }
+    if plan.write(file).is_err() {
         tell(&format!(
-            "tehas update: could not write {file}; run tehas update again to finish"
+            "tehas update: could not write {}; run tehas update again to finish",
+            file.display()
         ));
-        return 1;
+        return Err(1);
     }
-    0
+    Ok(Prepared::Planned)
 }
 
 pub fn main(given: &[String]) -> u8 {
     match given.split_first() {
         Some((verb, rest)) if verb == "run" => run::main(rest),
-        Some((verb, rest)) if verb == "args" => args(rest),
-        Some((verb, rest)) if verb == "gate" => gate(rest),
-        Some((verb, rest)) if verb == "prepare" => prepare(rest),
         Some((verb, [])) if verb == "api" => {
             say(&API.to_string());
             0
@@ -592,7 +566,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | args | gate | prepare | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }
@@ -637,6 +611,7 @@ mod tests {
             reused: false,
             leftover: vec!["docs --force-recreate".into(), "sandbox".into()],
             unknown: vec!["rm -rf something=else".into()],
+            over: false,
         };
         assert_eq!(Plan::parse(&plan.text()).unwrap(), plan);
         assert_eq!(
@@ -659,7 +634,7 @@ mod tests {
 
     #[test]
     fn the_arguments_name_a_mode_and_a_version() {
-        let asked = |given: &[&str]| parse(&words(given));
+        let asked = |given: &[&str]| parse(&words(given)).map(Option::unwrap);
         assert_eq!(asked(&[]), Ok(Asked::default()));
         assert_eq!(asked(&["--check"]).unwrap().mode, Mode::Check);
         assert_eq!(asked(&["--pending"]).unwrap().mode, Mode::Pending);
@@ -694,9 +669,9 @@ mod tests {
         ] {
             assert_eq!(parse(&words(bad)), Err(64), "{bad:?}");
         }
-        assert_eq!(args(&words(&["--help"])), ANSWERED);
-        assert_eq!(args(&words(&["-h"])), ANSWERED);
-        assert_eq!(args(&words(&["--pending"])), 0);
+        assert_eq!(parse(&words(&["--help"])), Ok(None));
+        assert_eq!(parse(&words(&["-h"])), Ok(None));
+        assert!(matches!(parse(&words(&["--pending"])), Ok(Some(_))));
     }
 
     #[test]
@@ -767,11 +742,11 @@ mod tests {
                 mode,
                 ..Plan::default()
             };
-            leftover(&h, &mut plan)
+            (leftover(&h, &mut plan), plan.over)
         };
-        assert_eq!(run(Mode::Pending), ANSWERED);
-        assert_eq!(run(Mode::Update), 0);
-        assert_eq!(run(Mode::Check), 0);
+        assert_eq!(run(Mode::Pending), (0, true));
+        assert_eq!(run(Mode::Update), (0, false));
+        assert_eq!(run(Mode::Check), (0, false));
     }
 
     #[test]

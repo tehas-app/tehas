@@ -40,7 +40,7 @@ The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the review loop's `tehas-review.timer` (weekly, and a
-run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
+run does nothing unless `TEHAS_REVIEW=on`), the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
 [The MCP server](/mcp-server) is how it is switched on), and one
