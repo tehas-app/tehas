@@ -399,7 +399,6 @@ mod tests {
         fs::create_dir_all(&config).unwrap();
         fs::write(config.join("env"), "TEHAS_INDUSTRY_VERSION=v0.9.0\n").unwrap();
         let file = format!("{}/instance.env", inst(&d));
-        let creds = format!("{}/env", config.display());
         let first = renamed::rows()
             .into_iter()
             .find(|r| r.old == "TEHAS_TICKET_CONCURRENCY")
@@ -416,7 +415,6 @@ mod tests {
                 "TEHAS_CYCLE_CPUS",
                 "TEHAS_TICKET_CONCURRENCY",
                 "TEHAS_OWNER",
-                "TEHAS_INDUSTRY_VERSION"
             ],
             "{said:?}"
         );
@@ -424,10 +422,9 @@ mod tests {
         assert!(said[0].contains("auto sizing is removed"), "{said:?}");
         assert!(said[1].contains("renamed it TEHAS_MAX_CYCLES"), "{said:?}");
         assert!(
-            said[3].contains("renamed it TEHAS_MANAGER_VERSION"),
+            !said.iter().any(|l| l.contains("TEHAS_INDUSTRY_VERSION")),
             "{said:?}"
         );
-        assert!(said[3].ends_with(&format!("(see {creds})")), "{said:?}");
         // A load refused for another reason is said first, then the rows.
         let (_d, vars) = instance(&[
             ("instance.env", "TEHAS_BOT_LOGIN=acme[bot]\n"),

@@ -134,7 +134,7 @@ t_contains "$t_out" "INVALID"
 t_contains "$t_out" "TEHAS_INDEXING is no longer read: tehas 1.0 renamed it TEHAS_SITE_INDEXING"
 t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is no longer read: tehas 1.0 renamed it TEHAS_MAX_CYCLES"
 t_contains "$t_out" "TEHAS_OWNER is no longer read: tehas 1.0 renamed it TEHAS_ASSIGNEE"
-t_contains "$t_out" "TEHAS_INDUSTRY_VERSION is no longer read: tehas 1.0 renamed it TEHAS_MANAGER_VERSION"
+t_lacks "$t_out" "TEHAS_INDUSTRY_VERSION"
 t_lacks "$t_out" "TEHAS_EASY_MERGE"
 t_run "$install"
 t_eq "$t_rc" 78

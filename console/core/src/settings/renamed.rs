@@ -50,18 +50,22 @@ pub fn rows() -> Vec<Row> {
 /// version does anyway, as an earlier version read it. An empty line asked for
 /// no improvement loop and no report; a skip of 0 asks nothing of a loop that
 /// is gone, and an easy merge of 0 asks for the full refresh every refresh is.
+/// The manager's version under its old name is only shown, never decided on,
+/// and the program that manages the factory writes it on every create: it is
+/// dropped, so a factory it made before it writes the new name still runs.
 pub fn quiet(old: &str, value: &str) -> bool {
-    matches!(
-        (old, value),
-        ("TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_EASY_MERGE", "0" | "")
-            | (
-                "TEHAS_IMPROVE_REPO"
-                    | "TEHAS_IMPROVE_RUKAS_REPO"
-                    | "TEHAS_IMPROVE_MAX_OPEN"
-                    | "TEHAS_CYCLE_REPORT",
-                ""
-            )
-    )
+    old == "TEHAS_INDUSTRY_VERSION"
+        || matches!(
+            (old, value),
+            ("TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_EASY_MERGE", "0" | "")
+                | (
+                    "TEHAS_IMPROVE_REPO"
+                        | "TEHAS_IMPROVE_RUKAS_REPO"
+                        | "TEHAS_IMPROVE_MAX_OPEN"
+                        | "TEHAS_CYCLE_REPORT",
+                    ""
+                )
+        )
 }
 
 /// The value the last line of `text` that sets `name` gives it, with the
