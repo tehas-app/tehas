@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 16;
+pub const SCHEMA_VERSION: i64 = 17;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -35,7 +35,8 @@ pub const OUTSOURCE_TABLES: [&str; 5] = [
 
 /// The DDL of the five outsource tables, kept in `outsource.sql` beside
 /// schema.sql. It is the DDL of the step to 15 as well, so `init` and
-/// `migrate` lay the same tables.
+/// `migrate` lay the same tables. The columns schema 17 adds to them are
+/// [`STEP_17`]'s, which `init` runs after it.
 pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
 
 /// The key of `meta` whose value `1` says the instance outsources.
@@ -178,6 +179,23 @@ UPDATE approvals SET how = 'millwright' WHERE how = 'fixer';
 UPDATE approvals SET started_how = 'millwright' WHERE started_how = 'fixer';
 UPDATE OR IGNORE planning_notes SET kind = 'millwright-refused' WHERE kind = 'fixer-refused';
 DELETE FROM planning_notes WHERE kind = 'fixer-refused';
+";
+
+/// The step from 16 to 17: what outsource keeps across a restart of the model
+/// proxy and what a contractor last said it has. `jobs.token_sha256` is the
+/// sha256 of the token the proxy issued for the job, never the token: a proxy
+/// that restarts checks a presented token against it. The `report_*` columns
+/// of `contractors` are its last report (image id, pi-rukas version, free
+/// memory and disk) and the second the factory took it. Every column is added
+/// null, so no row changes, and only a verb of the feature writes one.
+pub const STEP_17: &str = "
+ALTER TABLE jobs ADD COLUMN token_sha256 TEXT;
+CREATE INDEX jobs_token ON jobs (token_sha256);
+ALTER TABLE contractors ADD COLUMN report_image TEXT;
+ALTER TABLE contractors ADD COLUMN report_rukas TEXT;
+ALTER TABLE contractors ADD COLUMN report_mem_mb INTEGER;
+ALTER TABLE contractors ADD COLUMN report_disk_kb INTEGER;
+ALTER TABLE contractors ADD COLUMN report_at INTEGER;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -465,7 +483,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 19] = [
+pub const COUNTED_INDEXES: [&str; 20] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -485,6 +503,7 @@ pub const COUNTED_INDEXES: [&str; 19] = [
     "jobs_open",
     "jobs_check_in",
     "job_history_job",
+    "jobs_token",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
@@ -1071,6 +1090,7 @@ pub fn write_schema(
     }
     tx.execute_batch(SCHEMA).map_err(classify)?;
     tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
+    tx.execute_batch(STEP_17).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1204,6 +1224,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 15 is one this binary wrote before an action could be
     // unknown.
     (16, step_16),
+    // A store at 16 is one this binary wrote before a job token or a
+    // contractor's report outlived the proxy.
+    (17, |c| step(c, 17, STEP_17)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and

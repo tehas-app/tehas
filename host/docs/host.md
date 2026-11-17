@@ -760,16 +760,18 @@ JSON answer:
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
   the name of the version it came with, such as `tehas-12-<time>.db`, beside
-  the copy the answer names, `tehas-16-<time>.db`. A run that stopped between
+  the copy the answer names, `tehas-17-<time>.db`. A run that stopped between
   two steps leaves the store at the last one with its rows; the next install
   goes on from there.
 - The oldest store it brings forward is the one v0.30.0 wrote, at schema 12.
   v0.30.1 wrote 13 and v0.30.2 to v0.30.6 wrote 14. The step to 13 keeps on
   each approval what its start was, the step to 14 rebuilds `cycles` so its
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
-  the step to 15 adds the five outsource tables, empty, and the step to 16
+  the step to 15 adds the five outsource tables, empty, the step to 16
   lets the action journal keep a write as `unknown` and writes `millwright`
-  in every row that still said `fixer`. Every step keeps every row.
+  in every row that still said `fixer`, and the step to 17 adds to the
+  outsource tables, empty, the hash of a job's token and a contractor's last
+  report. Every step keeps every row.
 - A store older than that, from a release before v0.30, is refused and left
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v0.30.0 wrote: update to a v0.30 release first, then to this

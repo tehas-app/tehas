@@ -31,7 +31,7 @@ pub fn tool() -> Value {
     );
     json!({
         "name": NAME,
-        "description": "The contractors of outsource: the counts by status, how many cycles are outsourced now, and each contractor with its status, the issue of the job in its hand, when it last called, and its jobs done and lost. As the factory last wrote them at a poll; stale is true when that is more than ten minutes ago. Only while outsource is on.",
+        "description": "The contractors of outsource: the counts by status, how many cycles are outsourced now, and each contractor with its status, the issue of the job in its hand, when it last called, its jobs done and lost, and its last report (image id, pi-rukas version, free memory and disk). As the factory last wrote them at a poll; stale is true when that is more than ten minutes ago. Only while outsource is on.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": {"type": "integer", "description": "The API version, 1."},
@@ -46,6 +46,11 @@ pub fn tool() -> Value {
                     "lastSeenAt": {"type": "string", "description": "When it last called, UTC; left out when it never has."},
                     "jobsDone": int("Jobs it finished."),
                     "jobsLost": int("Jobs it lost."),
+                    "image": {"type": "string", "description": "The id of the sandbox image it last reported; left out when it did not say."},
+                    "rukas": {"type": "string", "description": "The pi-rukas version that image is labelled with; left out when it did not say."},
+                    "memMb": int("The free memory it last reported, in MiB; left out when it did not say."),
+                    "diskKb": int("The free disk it last reported, in KiB; left out when it did not say."),
+                    "reportedAt": {"type": "string", "description": "When the factory took its last report, UTC; left out when it never sent one."},
                 },
             }},
         }, "required": ["api"]},
@@ -63,7 +68,8 @@ pub fn spec() -> Value {
         "counts": counts,
         "contractors": [{
             "name": true, "status": true, "issue": true, "lastSeenAt": true,
-            "jobsDone": true, "jobsLost": true,
+            "jobsDone": true, "jobsLost": true, "image": true, "rukas": true,
+            "memMb": true, "diskKb": true, "reportedAt": true,
         }],
     })
 }

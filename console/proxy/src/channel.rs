@@ -4,7 +4,7 @@
 //! | Path | Who calls | What it does |
 //! | --- | --- | --- |
 //! | `join` | a host with a one-time code | registers its name and key |
-//! | `hello` | a contractor, by its key | "still here", between jobs |
+//! | `hello` | a contractor, by its key | "still here", between jobs, with its report |
 //! | `job` | a contractor, by its key | takes the offer in its hand, if any |
 //! | `check-in` | a job, by its token | "still here", while it runs |
 //! | `token` | a job, by its token | a fresh cycle token for the repository |
@@ -212,7 +212,11 @@ impl<'a> Channel<'a> {
             Call::Join => self.join(&body),
             Call::Hello | Call::Job => match self.contractor(asked) {
                 Ok((name, draining)) if asked.call == Call::Hello => {
-                    let _ = self.factory.store(&["contractor-seen", "--name", &name]);
+                    let mut args =
+                        vec!["contractor-seen".to_string(), "--name".into(), name.clone()];
+                    args.extend(report_args(&body["report"]));
+                    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                    let _ = self.factory.store(&args);
                     Answer::ok(json!({ "hello": name, "draining": draining }))
                 }
                 Ok((name, draining)) => self.job(&name, draining),
@@ -472,6 +476,40 @@ impl<'a> Channel<'a> {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&job);
     }
+}
+
+/// The flags of `store contractor-seen` for the report a hello carried:
+/// `{image, rukas, mem_mb, disk_kb}`, each left out when it is missing or of
+/// no shape the store takes. A hello with a report of nothing usable still
+/// replaces the last one, so an old report never stands for a new box.
+pub fn report_args(report: &Value) -> Vec<String> {
+    let Some(r) = report.as_object() else {
+        return Vec::new();
+    };
+    let text = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or_default();
+    let amount = |k: &str| {
+        r.get(k)
+            .and_then(Value::as_i64)
+            .filter(|n| (0..=store::outsource::AMOUNT_MAX).contains(n))
+    };
+    let mut out = Vec::new();
+    if let Some(id) = store::outsource::image_id(text("image")) {
+        out.extend(["--image".to_string(), id]);
+    }
+    if let Some(v) = store::outsource::rukas_version(text("rukas")) {
+        out.extend(["--rukas".to_string(), v]);
+    }
+    for (key, flag) in [("mem_mb", "--mem-mb"), ("disk_kb", "--disk-kb")] {
+        if let Some(n) = amount(key) {
+            out.extend([flag.to_string(), n.to_string()]);
+        }
+    }
+    // Nothing usable is said as an empty report: free memory of 0 fits no
+    // cycle, and the last report is replaced.
+    if out.is_empty() {
+        out.extend(["--mem-mb".to_string(), "0".to_string()]);
+    }
+    out
 }
 
 /// Whether a setting may leave the factory with a job

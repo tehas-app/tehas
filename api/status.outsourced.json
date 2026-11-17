@@ -113,7 +113,12 @@
         "issue": 15,
         "lastSeenAt": "2026-10-17T13:59:30Z",
         "jobsDone": 4,
-        "jobsLost": 1
+        "jobsLost": 1,
+        "image": "sha256:4f5c2a9e8b7d6c1f0a3b2e5d4c7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
+        "rukas": "v0.14.50",
+        "memMb": 30517,
+        "diskKb": 52428800,
+        "reportedAt": "2026-10-17T13:59:30Z"
       },
       {
         "name": "box2",

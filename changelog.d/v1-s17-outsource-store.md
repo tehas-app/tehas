@@ -1,0 +1,3 @@
+### Changes
+
+- The state store is at schema 17. `install.sh` brings a store of any v0.30 release, or of 15 or 16, forward with every row; the new columns start empty. With outsource on, a job keeps the sha256 of its model proxy token (never the token), so a running job's token still works after the proxy restarts. A contractor's `hello` carries a report (sandbox image id, pi-rukas version, free memory and disk), the store keeps the last one, placement can fit a contractor whose report has the room, and `live/contractors.json`, `tehas status --json` and the MCP tool `factory_contractors` show it. With outsource off nothing writes these columns and status, the live files and the MCP catalog are as before. Outsource is still being built, so no factory has it on yet.
