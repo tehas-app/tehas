@@ -477,6 +477,20 @@ pub fn store(
     extra: &[(&str, &str)],
 ) -> Result<Value, Value> {
     let verb = args.first().copied().unwrap_or("");
+    store_answering(program, args, verb, bound, grace, extra)
+}
+
+/// [`store`] for a verb whose answer names another word: `contractor-list`
+/// answers `contractors`.
+pub fn store_answering(
+    program: &str,
+    args: &[&str],
+    answer: &str,
+    bound: Duration,
+    grace: Duration,
+    extra: &[(&str, &str)],
+) -> Result<Value, Value> {
+    let verb = args.first().copied().unwrap_or("");
     let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
     let r = run_full(program, &args, None, bound, grace, extra);
     // The exit ladder is the batch's and the bash's, in one place.
@@ -490,7 +504,7 @@ pub fn store(
         && !r.out.trim().contains('\n')
         && v.get("api") == Some(&json!(1))
         && v.get("ok") == Some(&json!(true))
-        && v.get("verb").and_then(Value::as_str) == Some(verb)
+        && v.get("verb").and_then(Value::as_str) == Some(answer)
     {
         Ok(v)
     } else {
