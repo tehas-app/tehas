@@ -76,11 +76,12 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false}'
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":false,"spec-pipe":false}'
 t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
+t_eq "$(jq -r '.features | index("spec-pipe")' <<<"$t_out")" null
 t_eq "$(jq -r 'keys_unsorted | join(" ")' <<<"$t_out")" "api tehas commit repo features flags millwright poll"
 t_run "$api"
-t_contains "$t_out" "flags       outsource=off"
+t_contains "$t_out" "flags       outsource=off spec-pipe=off"
 
 t_case "api --json: a test that turns a building feature on sees it on in flags only"
 reset
@@ -89,7 +90,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
 T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true}'
+t_eq "$(jq -c '.flags' <<<"$t_out")" '{"outsource":true,"spec-pipe":false}'
 t_eq "$(jq -r '.features | index("outsource")' <<<"$t_out")" null
 
 t_case "api: a building feature switched on is refused with 78 and its name"

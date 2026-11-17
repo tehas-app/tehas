@@ -536,6 +536,13 @@ apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
 plans from, and its `/plan` writes one; [Choosing the
 driver](/operating#choosing-the-driver) says what the block must look like.
 
+With `TEHAS_SPEC_PIPE=on`, a start whose issue has a `Spec:` line tehas cannot
+read starts nothing either: the poll takes the label off and says once why,
+for example `` its `Spec:` line is not a link and its sha256 `` or `` the link
+of its `Spec:` line is not a file attached on GitHub ``. Write the one line
+`Spec: <link of the attached file> sha256:<64 hex digits of its bytes>`, or
+take it out, and apply `tehas:ready` again.
+
 The caps this factory has posted are explained one by one in the next
 section.
 

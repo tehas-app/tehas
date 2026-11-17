@@ -237,6 +237,19 @@
       "reason": "expected a positive whole number"
     },
     {
+      "name": "TEHAS_SPEC_PIPE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_REVIEW",
       "rule": "one-of",
       "when": "always",
