@@ -112,10 +112,9 @@ starting cycles:
 6. **Logs and the state store.** The logs in `~/tehas/logs` of cycles
    (`work-*`, `dispatch-work-*`), planning turns (`plan-*.jsonl`,
    `dispatch-plan-*.log`), index runs (`index-*`), reviews (`review-*.json`,
-   `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
-   older than 7 days, whether or not the
-   improvement loop is on. Then `store backup`, a copy a day of the state store
-   kept seven days, and `store prune`, which also removes the history of issues
+   `review-*.jsonl`), and the analyst logs an earlier version left
+   (`improve-analyst*.log`), older than 7 days. Then `store backup`, a copy a
+   day of the state store kept seven days, and `store prune`, which also removes the history of issues
    whose cycle ended more than its window ago, each of them keeping its last row
    of each history. The window and what the rule keeps are under
    [Backups and restore](/operating#backups-and-restore). All of it is one call,
@@ -200,7 +199,7 @@ Keeps a running preview of every open pull request whose head branch is in
 the product repository and that was opened by an owner, member or
 collaborator of it: a container `tehas-preview-<pr>` that the edge router
 answers with at `uat-<pr>.<domain>`. Deterministic, no model. It needs
-`TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
+`TEHAS_PREVIEWS=on` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
 and cannot reach, is on [Previews](/edge).
 
 The head of the repository's default branch has a preview too: a container

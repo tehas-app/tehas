@@ -252,7 +252,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls analytics)" ""
 reset
 analytics_stub
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_ANALYTICS=off
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ANALYTICS=off
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"

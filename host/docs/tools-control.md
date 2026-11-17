@@ -19,10 +19,9 @@ limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for al
 
 Sets, shows or clears the limit in `~/tehas/state/limit.json` (mode 600). The
 dispatcher reads it on every poll: room for new cycles is the smaller of
-`--cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, and its
-hold is `limit`. With `--plan off` no new planning session starts, and
-[tehasbot improve](/tools-protolab#tehasbot-improve) waits; an answer to a planning question
-still runs. One that expired or cannot be read holds every start, answers and
+`--cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, and its
+hold is `limit`. With `--plan off` no new planning session starts; an answer to a planning
+question still runs. One that expired or cannot be read holds every start, answers and
 retry ticks included, while the poll goes on cleaning up. See
 [Limit and drain](/operating#limit-and-drain) and
 [the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an
@@ -135,8 +134,8 @@ the docs container, because `live/` is a bind mount:
 ## tehas pause
 
 ```
-tehas pause              # pause this host
-tehas pause waiting for the gate   # and say why
+tehas pause                                   # pause this host
+tehas pause --reason "waiting for the gate"   # and say why
 ```
 
 Writes the pause flag, `~/tehas/state/pause.json`, holding who set it, when and
@@ -146,16 +145,17 @@ tick. A cycle already running finishes, and the poll still stops one whose issue
 is closed or whose pull request is merged or closed, and still clears an issue
 marked `tehas:running` with no cycle behind it. The flag is read without asking
 GitHub anything, so a host can be paused when GitHub cannot be reached. Pausing a
-paused host succeeds and keeps the first flag. The reason is one argument, kept
-to 200 characters, and it reaches pages that may be public.
+paused host succeeds and keeps the first flag. The reason is the value of
+`--reason`, kept to 200 characters, and it reaches pages that may be public. A
+reason given without `--reason` is refused with 64 and names the flag.
 
 The reading, the checks of the reason, the write and the words of the answer are
-the console's (`~/tehas/libexec/console flags pause`); the command checks the
-number of its arguments, loads the settings, and stops with 78 without an
+the console's (`~/tehas/libexec/console flags pause`); the command checks its
+arguments, loads the settings, and stops with 78 without an
 instance or a console. A flag is written through `pause.json.new`, mode 600, and
 put in place by a rename, so what is there is always a whole flag.
 
-Exit 0 when the host is paused, 64 on more than one argument, 78 when the
+Exit 0 when the host is paused, 64 on a bad argument, 78 when the
 instance settings are missing or malformed, which writes nothing, 1 when the flag
 could not be written, a directory in its way among them.
 

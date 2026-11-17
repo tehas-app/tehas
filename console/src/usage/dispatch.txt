@@ -42,10 +42,10 @@ Rules, in order:
      whose work is done or that nobody has heard from is stopped and a mark
      with no cycle behind it is cleared. The poll ends after that, before
      rule 4.
-  2. At most TEHAS_TICKET_CONCURRENCY cycles run at once. With
+  2. At most TEHAS_MAX_CYCLES cycles run at once. With
      TEHAS_REFRESH_SLOTS above 0, while a refresh request waits or a refresh
      runs, refreshes run in a lane of their own: at most TEHAS_REFRESH_SLOTS
-     of them, not counted against TEHAS_TICKET_CONCURRENCY, and new cycles
+     of them, not counted against TEHAS_MAX_CYCLES, and new cycles
      leave as many containers of the slice's room as the lane has free. A running cycle is
      a refresh when the state store says it started as one.
      An open issue marked tehas:running whose cycle holds no lock on this
@@ -100,7 +100,7 @@ Rules, in order:
      start", the retry rule 4a makes and a park of a run by hand all start as
      they did.
   4b. A refresh request, state/refresh/<issue>.json from
-     tehasbot refresh --pr N, starts a cycle that merges the branch into the
+     tehas refresh --pr N, starts a cycle that merges the branch into the
      bot's pull request of that issue and pushes to the same branch, on the
      word of the person whose approval the pull request's cycle rests on.
      Only with a sandbox image whose pi-rukas takes --continue-pr; otherwise
@@ -112,7 +112,7 @@ Rules, in order:
      person approved, renamed or edited by nobody else since; the pull
      request is still the one open pull request that closes it, the bot's,
      at the head the request names, and GitHub says it is CONFLICTING.
-     Fewer than TEHAS_REFRESH_MAX refreshes of it since that approval, and
+     Fewer than TEHAS_REFRESH_MAX_PER_PR refreshes of it since that approval, and
      none that parked. A request that fails a check goes, and the log says
      why; one held by its cap or a park says so on the issue once. A pull
      request that carries tehas:refreshing waits. The start puts
@@ -177,7 +177,8 @@ Rules, in order:
      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
      ticks a retry box on it, starts nothing, and the label stays where it
      is. The poll says so once, as it says a label of an account that is not
-     allowed. The one exception is TEHAS_MILLWRIGHT_LOGIN, which is never the bot:
+     allowed. The one exception is the millwright, the app's login or the app
+     TEHAS_MILLWRIGHT_APP names:
      its tehas:ready starts a cycle on an issue an allowed account approved
      before, whose body is still the body that account approved, at most
      TEHAS_MILLWRIGHT_MAX_RETRIES times since. Otherwise the poll
@@ -230,8 +231,8 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_CONTROL_ISSUE       issue that carries tehas:pause, required
   TEHAS_ALLOWED_LABELERS    space-separated logins, required
   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
-                            cycles allowed [TEHAS_TICKET_CONCURRENCY + 2]
-  TEHAS_TICKET_CONCURRENCY  the most cycles side by side [the host's CPUs
+                            cycles allowed [TEHAS_MAX_CYCLES + 2]
+  TEHAS_MAX_CYCLES  the most cycles side by side [the host's CPUs
                             minus one]
   TEHAS_CYCLE_RESERVE       memory one container is promised, the unit the
                             slice's room is counted in [2g]
@@ -241,14 +242,15 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
                             record [0]
-  TEHAS_MILLWRIGHT_LOGIN         the millwright's account, none when unset
+  TEHAS_MILLWRIGHT_APP           a second app that is the millwright [the
+                            factory's own app]
   TEHAS_MILLWRIGHT_MAX_RETRIES   the millwright's starts on one issue since a person's
                             approval [2]
   TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
                             the millwright's answers in one planning session [3]
   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
                             commit holds new cycles back, none when unset
-  TEHAS_REFRESH_MAX         refreshes of one pull request since the
+  TEHAS_REFRESH_MAX_PER_PR         refreshes of one pull request since the
                             person's approval [2]
   TEHAS_REFRESH_SLOTS       refreshes side by side in their own lane, 0 to
                             share the cycles' slots [1]

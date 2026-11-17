@@ -1,5 +1,5 @@
-//! The kinds of an issue that are not states: a proposal of the improvement
-//! loop, and a ticket at the prototype stage. Each is a label unless
+//! The kinds of an issue that are not states: a proposal the factory files,
+//! and a ticket at the prototype stage. Each is a label unless
 //! `TEHAS_ISSUE_TYPES` maps it to one of the owner's issue types, written as
 //! `improvement=Improvement prototype=Prototype`. A kind left out of the
 //! setting stays its label.

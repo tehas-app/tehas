@@ -8,7 +8,7 @@ description: "Writing this host's instance and starting the factory, and the che
 ## tehas setup
 
 ```
-tehas setup --repo tehas-app/tehas --labellers janit --new-app \
+tehas setup --repo tehas-app/tehas --labelers janit --new-app \
   --endpoint http://gb1:8086/v1
 ```
 
@@ -22,7 +22,7 @@ exit 78.
 | Option | What it is |
 | --- | --- |
 | `--repo <owner/name>` | The product repository |
-| `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
+| `--labelers "<a> <b>"` | The logins whose labels count, written to `TEHAS_ALLOWED_LABELERS`. Never the bot |
 | `--new-app` | Make the [GitHub App](/github-app) the factory acts as (below) |
 | `--app-owner <login>` | The organisation or user that owns the new app. Without it, the repository's owner |
 | `--app-name <name>` | The new app's name, up to 34 characters. Without it, `<repository>-factory` |
@@ -35,9 +35,10 @@ exit 78.
 | `--no-build` | Leave out the sandbox image and the product's gates |
 | `--force` | Replace a setting that is there and differs |
 
-`--token-file` is refused with exit 78: the factory acts as a GitHub App.
-`--app-installation` is accepted with a warning and ignored: the app's
-installation on the repository is looked up. Run again on an instance that
+`--labellers`, `--token-file` and `--app-installation` are unknown options:
+each exits 64 and says why. `--labellers` is now `--labelers`; the factory
+acts as a GitHub App, so there is no token file; the app's installation on
+the repository is looked up. Run again on an instance that
 names an app and has its key, setup checks that app; `--new-app` then makes
 none. A key in `~/.config/tehas/github-app.pem` with no
 `TEHAS_GITHUB_APP_ID`, or an app ID with no key, stops `--new-app` with 78 and
@@ -78,8 +79,7 @@ In order, stopping at the first step that fails:
    `contents`, `issues` and `pull_requests` at `write`. It reads the app's
    slug (`GET /app`) and the ID of its bot, `<slug>[bot]`
    (`GET /users/<slug>[bot]`). Each other repository `instance.env` names
-   (`TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_REVIEW_REPO`,
-   `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
+   (`TEHAS_REVIEW_REPO`, `TEHAS_RELEASE_REPO`) that the app does not reach is named with the install
    link, and the run goes on. Then it makes the control issue. A check that
    fails stops the run with 1 and nothing written, except the key and the ID
    `--new-app` wrote. The token is kept in no file.
@@ -121,7 +121,7 @@ In order, stopping at the first step that fails:
    `tehas check-product --sandbox` where that command is installed. Where it is
    not, it says the gates were not run.
 7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
-   server, runs `tehasbot github-token --check` (one mint, the login, the reach
+   server, runs `tehas github check` (one mint, the login, the reach
    of `TEHAS_REPO`, never the token) and prints the dashboard's address.
 
 A second run changes nothing that is right: a value that is there is kept, the
@@ -140,7 +140,7 @@ builds it with cargo first, in the few lines of bash that are left of
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
 such as 78 from `install.sh`), 64 on an unknown option or app options that do
 not go together, 78 for a setting that is missing, malformed or differs,
-`--token-file`, a pasted address without the run's state, or when there is no
+a pasted address without the run's state, or when there is no
 console and no checkout to build one from.
 
 ## tehas labels
@@ -159,7 +159,7 @@ pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands`,
 `epic` (see [epics](/operating#3-what-happens-next)), `tehas:finish` (see
 [finishing a stopped cycle](/operating#finishing-a-stopped-cycle)),
 `tehas:prototype` (see [the Protolab](/tools-protolab#tehasbot-protolab)), and
-`tehas:improvement` and `cross-project` (the improvement loop's).
+`tehas:improvement` (a proposal the factory files, such as a review's).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. The labels are
 the lines of `~/tehas/lib/labels.tsv`, which `install.sh` copies from

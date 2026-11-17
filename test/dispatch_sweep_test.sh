@@ -156,7 +156,7 @@ t_eq "$(left)" "widget-5 "
 
 t_case "TEHAS_WORKSPACE_KEEP_DAYS sets the days an open issue's workspace is kept"
 reset_said
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORKSPACE_KEEP_DAYS=2
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORKSPACE_KEEP_DAYS=2
 rm -rf "$works"
 kept 5 "3 days ago"
 kept 6 "1 day ago"

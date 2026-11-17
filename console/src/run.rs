@@ -17,7 +17,6 @@
 //! So a bad setting is 78 before GitHub, Docker or git and before any write
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
-//!   improve   exit 0 before step 3 when TEHAS_IMPROVE_REPO is unset, the loop is off
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
 //!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
@@ -34,7 +33,7 @@
 //! settings are missing or malformed.
 
 use crate::commands::{self, ANSWERED};
-use crate::{clean, disk, github, improve, plan, preview, product, protolab, review, settings};
+use crate::{clean, disk, github, plan, preview, product, protolab, review, settings};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -44,7 +43,6 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use tehas_core::settings as core_settings;
-use tehas_core::slice::{self, Host, Load};
 
 /// bash, not an exec of this program: glibc's exec gives a file the kernel
 /// refuses to /bin/sh, and a poll that is no program has to end 78.
@@ -109,7 +107,7 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
         refresh.env("TEHAS_REFRESH_LOG", log);
     }
     let failed = refresh.exec();
-    eprintln!("tehasbot refresh: {program}: {failed}");
+    eprintln!("tehas refresh: {program}: {failed}");
     if failed.kind() == ErrorKind::NotFound {
         127
     } else {
@@ -127,24 +125,6 @@ fn protolab_run() -> u8 {
         }
     }
     protolab::main(&["run".to_string()])
-}
-
-/// A run with nothing to read starts no container and asks no slice; one without
-/// a usable slice stops before the console calls GitHub, and its records wait.
-fn improve_run(libexec: &str) -> u8 {
-    let prompt = format!("{libexec}/../lib/improve-prompt.md");
-    let words = |verb: &str| [verb.to_string(), prompt.clone()];
-    match improve::main(&words("due")) {
-        0 => {}
-        10 => return 0,
-        rc => return rc,
-    }
-    let load = Load::from_env();
-    if let Err(why) = slice::usable(&Host::here(), &load.reserve, &load.containers) {
-        eprintln!("tehas improve: {why}");
-        return 78;
-    }
-    improve::main(&words("run"))
 }
 
 /// A free figure that cannot be read changes nothing.
@@ -238,7 +218,26 @@ fn init_product(rest: &[String]) -> Result<u8, u8> {
     Ok(product::init(&words))
 }
 
-/// `tehasbot refresh --pr N [--json]`, N a whole number above 0: the one form
+/// PATH with the home's shim and bin first, where they exist, so a refresh
+/// a caller runs without a login shell reads GitHub through the factory's
+/// own gh. The rest keeps its order.
+fn factory_path(home: &Path, path: Option<OsString>) -> OsString {
+    let first: Vec<_> = ["shim", "bin"]
+        .iter()
+        .map(|d| home.join(d))
+        .filter(|d| d.is_dir())
+        .collect();
+    let rest: Vec<_> = path
+        .as_deref()
+        .map(env::split_paths)
+        .into_iter()
+        .flatten()
+        .filter(|d| !first.contains(d))
+        .collect();
+    env::join_paths(first.into_iter().chain(rest)).unwrap_or_else(|_| path.unwrap_or_default())
+}
+
+/// `tehas refresh --pr N [--json]`, N a whole number above 0: the one form
 /// of refresh that runs under the settings. tehas-dispatch's
 /// `refresh::asked_pr` decides the same, and a test holds the two together.
 fn asks_one(rest: &[String]) -> bool {
@@ -266,15 +265,6 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
     // The load drops every TEHAS_ name it does not keep.
     let settle = env::var_os("TEHAS_PREVIEW_SETTLE").unwrap_or_default();
     let vars = settings::load_here(uid, bash)?;
-    match name[..] {
-        ["tehasbot", "improve"] if var("TEHAS_IMPROVE_REPO").is_empty() => {
-            tehas_core::outln!(
-                "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
-            );
-            return Ok(0);
-        }
-        _ => {}
-    }
     settings::require(commands::required(words), &vars)?;
     Ok(match name[..] {
         ["tehas", "check-product"] => product::check(rest),
@@ -297,12 +287,13 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
-        ["tehasbot", "improve"] => improve_run(libexec),
         ["tehasbot", "preview"] => preview_run(rest, settle),
         ["tehasbot", "protolab"] => protolab_run(),
         ["tehasbot", "refresh"] => {
-            let log = format!("{}/logs/refresh.log", var("TEHAS_HOME"));
-            hand_to_dispatcher(libexec, rest, Some(log))
+            let home = var("TEHAS_HOME");
+            let path = factory_path(Path::new(&home), env::var_os("PATH"));
+            env::set_var("PATH", path);
+            hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
         ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
@@ -338,6 +329,35 @@ mod tests {
 
     fn scratch(name: &str) -> tehas_core::testdir::TestDir {
         tehas_core::testdir::TestDir::new(&format!("run-{name}"))
+    }
+
+    #[test]
+    fn a_refresh_finds_the_homes_shim_and_bin_first_and_keeps_the_rest() {
+        let d = scratch("path");
+        let home = d.join("tehas");
+        let shim = home.join("shim");
+        let bin = home.join("bin");
+        let path = |p: &str| Some(OsString::from(p));
+        assert_eq!(factory_path(&home, path("/usr/bin:/bin")), "/usr/bin:/bin");
+        fs::create_dir_all(&shim).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        let (s, b) = (shim.to_str().unwrap(), bin.to_str().unwrap());
+        assert_eq!(
+            factory_path(&home, path("/usr/bin:/bin")),
+            OsString::from(format!("{s}:{b}:/usr/bin:/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, path(&format!("{s}:{b}:/usr/bin"))),
+            OsString::from(format!("{s}:{b}:/usr/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, path(&format!("/usr/bin:{s}"))),
+            OsString::from(format!("{s}:{b}:/usr/bin"))
+        );
+        assert_eq!(
+            factory_path(&home, None),
+            OsString::from(format!("{s}:{b}"))
+        );
     }
 
     #[test]

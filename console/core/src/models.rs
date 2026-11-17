@@ -284,11 +284,60 @@ fn strip(provider: &mut J) -> Option<()> {
     Some(())
 }
 
+/// The variable that holds a contractor's job token for `provider`, as
+/// pi-rukas v0.14.86 and later read it: `PI_ENSEMBLE_API_KEY_` and the name
+/// upper-cased, every other character `_`.
+pub fn proxy_key_name(provider: &str) -> String {
+    let id: String = provider
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("PI_ENSEMBLE_API_KEY_{id}")
+}
+
+/// A contractor's provider: on the model proxy at `url`, its key the reference
+/// to [`proxy_key_name`], and every model's own endpoint and key the same. The
+/// factory's endpoints and key names are not in the file a contractor gets.
+fn behind_proxy(name: &str, p: &mut J, url: &str) -> Option<()> {
+    let key = J::str(format!("${{{}}}", proxy_key_name(name)));
+    let J::Obj(entry) = p else {
+        return matches!(p, J::Null).then_some(());
+    };
+    if let Some((_, J::Arr(models))) = entry.iter_mut().find(|(k, _)| k == "models") {
+        for m in models.iter_mut().filter(|m| matches!(m, J::Obj(_))) {
+            for (k, v) in [("baseUrl", J::str(url)), ("apiKey", key.clone())] {
+                if let J::Obj(fields) = m {
+                    if let Some(field) = fields.iter_mut().find(|(f, _)| f == k) {
+                        field.1 = v;
+                    }
+                }
+            }
+        }
+    }
+    set(p, "baseUrl", J::str(url));
+    set(p, "apiKey", key);
+    Some(())
+}
+
 /// The file as a container is given it: each provider on its picked endpoint
 /// and without the backup keys, and the providers moved to their backup, in
 /// the file's order. Key order and number text stay as the file has them.
-/// None for what no provider list can be read in.
-pub fn resolved(text: &str, used: &[(String, String)], curl: Curl) -> Option<(J, Vec<String>)> {
+/// With `proxy`, the container is a contractor's: every provider is on the
+/// model proxy at that address instead, no endpoint is asked, and nothing
+/// moves. None for what no provider list can be read in, and, with `proxy`,
+/// for a list of providers that names none.
+pub fn resolved(
+    text: &str,
+    used: &[(String, String)],
+    curl: Curl,
+    proxy: Option<&str>,
+) -> Option<(J, Vec<String>)> {
     let mut doc = J::parse(text)?;
     if !matches!(doc, J::Obj(_) | J::Null) {
         return None;
@@ -305,6 +354,10 @@ pub fn resolved(text: &str, used: &[(String, String)], curl: Curl) -> Option<(J,
         Some(J::Obj(list)) => {
             for (name, p) in list {
                 strip(p)?;
+                if let Some(url) = proxy {
+                    behind_proxy(name, p, url)?;
+                    continue;
+                }
                 if pick(&file, name, used, curl) != "backup" {
                     continue;
                 }
@@ -317,6 +370,9 @@ pub fn resolved(text: &str, used: &[(String, String)], curl: Curl) -> Option<(J,
             }
         }
         Some(J::Arr(list)) => {
+            if proxy.is_some() && !list.is_empty() {
+                return None;
+            }
             for p in list {
                 strip(p)?;
             }
@@ -343,7 +399,7 @@ pub fn write(out: &Path) -> Option<Written> {
         eprintln!("tehas: {why}");
         return None;
     }
-    let (done, moved) = resolved(&text, &used(), &curl)?;
+    let (done, moved) = resolved(&text, &used(), &curl, None)?;
     let new = out.with_extension("json.new");
     fs::write(&new, format!("{}\n", done.pretty())).ok()?;
     fs::rename(&new, out).ok()?;
@@ -677,7 +733,7 @@ mod tests {
 
     #[test]
     fn main_answers_and_the_backup_keys_go() {
-        let (done, moved) = resolved(TWO, &two_used(), &only("http://m/")).unwrap();
+        let (done, moved) = resolved(TWO, &two_used(), &only("http://m/"), None).unwrap();
         assert_eq!(
             done.dump(),
             r#"{"providers":{"main":{"baseUrl":"http://m/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","models":[{"id":"big","cost":0.10}]},"word":{"baseUrl":"http://w/v1","apiKey":"unused"}},"z":1}"#
@@ -687,7 +743,7 @@ mod tests {
 
     #[test]
     fn main_is_down_and_the_backup_takes_its_place() {
-        let (done, moved) = resolved(TWO, &two_used(), &only("http://b/")).unwrap();
+        let (done, moved) = resolved(TWO, &two_used(), &only("http://b/"), None).unwrap();
         assert_eq!(
             done.dump(),
             r#"{"providers":{"main":{"baseUrl":"http://b/v1","apiKey":"${TEHAS_MODEL_KEY_FLEET}","models":[{"id":"big","cost":0.10}]},"word":{"baseUrl":"http://w/v1","apiKey":"unused"}},"z":1}"#
@@ -704,13 +760,13 @@ mod tests {
             ("a".to_string(), "big".to_string()),
             ("z".to_string(), "big".to_string()),
         ];
-        let (_, moved) = resolved(text, &used, &only("http://b/")).unwrap();
+        let (_, moved) = resolved(text, &used, &only("http://b/"), None).unwrap();
         assert_eq!(moved, ["z", "a"]);
     }
 
     #[test]
     fn both_down_stays_on_main() {
-        let (done, moved) = resolved(TWO, &two_used(), &only("x/")).unwrap();
+        let (done, moved) = resolved(TWO, &two_used(), &only("x/"), None).unwrap();
         assert!(done.dump().contains(r#""baseUrl":"http://m/v1""#));
         assert!(moved.is_empty());
     }
@@ -718,23 +774,70 @@ mod tests {
     #[test]
     fn no_call_is_made_without_a_backup() {
         let text = r#"{"providers":{"word":{"baseUrl":"http://w/v1","apiKey":"unused"}}}"#;
-        let (done, _) = resolved(text, &two_used(), &|_, _| panic!("no call")).unwrap();
+        let (done, _) = resolved(text, &two_used(), &|_, _| panic!("no call"), None).unwrap();
         assert_eq!(done.dump(), text);
     }
 
     #[test]
     fn what_no_provider_list_can_be_read_in_is_refused() {
         let no = |_: &[String], _: &str| down();
-        assert!(resolved("[]", &[], &no).is_none());
-        assert!(resolved(r#"{"providers":{"a":7}}"#, &[], &no).is_none());
-        assert!(resolved(r#"{"providers":[7]}"#, &[], &no).is_none());
-        assert!(resolved("not json", &[], &no).is_none());
+        assert!(resolved("[]", &[], &no, None).is_none());
+        assert!(resolved(r#"{"providers":{"a":7}}"#, &[], &no, None).is_none());
+        assert!(resolved(r#"{"providers":[7]}"#, &[], &no, None).is_none());
+        assert!(resolved("not json", &[], &no, None).is_none());
+    }
+
+    #[test]
+    fn a_contractor_s_providers_are_all_on_the_proxy_and_no_endpoint_is_asked() {
+        let (done, moved) = resolved(
+            TWO,
+            &two_used(),
+            &|_, _| panic!("a contractor's file asked an endpoint"),
+            Some("http://192.0.2.7:8090"),
+        )
+        .unwrap();
+        assert_eq!(
+            done.dump(),
+            r#"{"providers":{"main":{"baseUrl":"http://192.0.2.7:8090","apiKey":"${PI_ENSEMBLE_API_KEY_MAIN}","models":[{"id":"big","cost":0.10}]},"word":{"baseUrl":"http://192.0.2.7:8090","apiKey":"${PI_ENSEMBLE_API_KEY_WORD}"}},"z":1}"#
+        );
+        assert!(moved.is_empty());
+    }
+
+    #[test]
+    fn a_contractor_s_file_names_no_endpoint_or_key_of_the_factory() {
+        let text = r#"{"providers":{"my-vllm":{"backupBaseUrl":"http://b/v1",
+          "models":[{"id":"a","baseUrl":"http://m/v2","apiKey":"$TEHAS_MODEL_KEY_M"},{"id":"b"}]},
+          "off":null}}"#;
+        let (done, _) = resolved(text, &[], &|_, _| panic!("no call"), Some("http://p:1")).unwrap();
+        let dump = done.dump();
+        for factory in ["http://m/", "http://b/", "TEHAS_MODEL_KEY"] {
+            assert!(!dump.contains(factory), "{factory} in {dump}");
+        }
+        assert_eq!(
+            dump,
+            r#"{"providers":{"my-vllm":{"models":[{"id":"a","baseUrl":"http://p:1","apiKey":"${PI_ENSEMBLE_API_KEY_MY_VLLM}"},{"id":"b"}],"baseUrl":"http://p:1","apiKey":"${PI_ENSEMBLE_API_KEY_MY_VLLM}"},"off":null}}"#
+        );
+        // A list of providers names none, so it cannot be put behind the proxy.
+        let no = |_: &[String], _: &str| down();
+        assert!(resolved(
+            r#"{"providers":[{"baseUrl":"http://m"}]}"#,
+            &[],
+            &no,
+            Some("http://p:1")
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn the_key_name_follows_pi_rukas() {
+        assert_eq!(proxy_key_name("main"), "PI_ENSEMBLE_API_KEY_MAIN");
+        assert_eq!(proxy_key_name("my-vllm.2"), "PI_ENSEMBLE_API_KEY_MY_VLLM_2");
     }
 
     #[test]
     fn a_list_of_providers_loses_its_backup_keys_and_moves_nothing() {
         let text = r#"{"providers":[{"baseUrl":"m","backupBaseUrl":"b"}]}"#;
-        let (done, moved) = resolved(text, &[], &|_, _| panic!("no call")).unwrap();
+        let (done, moved) = resolved(text, &[], &|_, _| panic!("no call"), None).unwrap();
         assert_eq!(done.dump(), r#"{"providers":[{"baseUrl":"m"}]}"#);
         assert!(moved.is_empty());
     }

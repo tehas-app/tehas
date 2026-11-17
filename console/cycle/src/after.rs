@@ -1,19 +1,21 @@
 //! What follows a cycle's record: the live view, the run and its end in the
-//! analytics, the improvement record, the build output of its workspace, the
-//! status, and the next poll. Each step's failure is a WARN line. None changes
+//! analytics, the build output of its workspace, the status, and the next
+//! poll. Each step's failure is a WARN line. None changes
 //! how the cycle ended, and every step runs whatever the one before it did.
 //!
 //! The approval is the one step before the end: `cycle-end` removes the
 //! record of a start that never ran, so `approved` reads it first.
 
 use crate::host;
-use crate::improve::{self, Ended};
+use crate::ran_with::ran_with;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
 
@@ -24,6 +26,77 @@ const ANALYTICS_LIMIT: u32 = 5;
 /// A line of the cycle's log, as its bash writes one.
 pub fn log(line: &str) {
     let _ = writeln!(std::io::stdout(), "{} {line}", iso(now()));
+}
+
+/// What one cycle ended with, as its report says it.
+#[derive(Clone, Debug, Default)]
+pub struct Ended {
+    pub issue: u64,
+    pub started: i64,
+    pub rc: i64,
+    pub status: String,
+    pub step: String,
+    pub pr: String,
+    pub kills: String,
+    pub image: String,
+    pub rukas: String,
+    pub cap: String,
+    pub reason: String,
+    /// Whether the handoff of pi-rukas reached a comment, None when the
+    /// cycle had none.
+    pub handoff_delivered: Option<bool>,
+}
+
+/// A file or directory of `prefix` and six more characters, made new.
+fn fresh(
+    dir: &Path,
+    prefix: &str,
+    mut make: impl FnMut(&Path) -> std::io::Result<()>,
+) -> Option<PathBuf> {
+    static N: AtomicU32 = AtomicU32::new(0);
+    for _ in 0..100 {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        let mut seed = nanos
+            ^ std::process::id().rotate_left(13)
+            ^ N.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9e37_79b9);
+        let tail: String = (0..6)
+            .map(|_| {
+                let c = b"abcdefghijklmnopqrstuvwxyz0123456789"[(seed % 36) as usize];
+                seed = seed / 36 + 0x2f1b_3c4d;
+                c as char
+            })
+            .collect();
+        let p = dir.join(format!("{prefix}{tail}"));
+        match make(&p) {
+            Ok(()) => return Some(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
+/// A file made new with mode 0600 under `dir`, holding `text`.
+fn private_file(dir: &Path, prefix: &str, text: &str) -> Option<PathBuf> {
+    let mut opened = None;
+    let p = fresh(dir, prefix, |p| {
+        opened = Some(
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(p)?,
+        );
+        Ok(())
+    })?;
+    let wrote = opened.as_mut().map(|f| writeln!(f, "{text}"));
+    if !matches!(wrote, Some(Ok(()))) {
+        let _ = fs::remove_file(&p);
+        return None;
+    }
+    Some(p)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -172,11 +245,9 @@ pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&V
         ("approval", J::parse(approved).unwrap_or(J::Null)),
         (
             "settings",
-            settings
-                .map(improve::ran_with)
-                .map_or(J::Null, |(c, h, n)| {
-                    obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
-                }),
+            settings.map(ran_with).map_or(J::Null, |(c, h, n)| {
+                obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
+            }),
         ),
         ("rukas", rukas.map_or(J::Null, J::from)),
     ])
@@ -203,7 +274,7 @@ fn analytics_run(home: &Path, a: &After) {
     }
     let real_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
     let file = real_dir
-        .then(|| improve::private_file(&dir, "analytics-facts.", &facts.dump()))
+        .then(|| private_file(&dir, "analytics-facts.", &facts.dump()))
         .flatten();
     let Some(file) = file else {
         log("WARN analytics run: no facts written");
@@ -237,15 +308,6 @@ pub fn after(home: &Path, a: &After) {
     }
     analytics_run(home, a);
     analytics(home, &["event", &n.to_string(), "ended"]);
-    if !env("TEHAS_IMPROVE_REPO").is_empty() {
-        let view = host::store(home, &["settings-view", &n.to_string()]);
-        if let Err(said) = improve::write(home, e, &view, now()) {
-            if let Some(line) = said {
-                eprintln!("{line}");
-            }
-            log(&format!("WARN: no record of #{n} for the improvement loop"));
-        }
-    }
     clean(home, a);
     if !a.signalled {
         let _ = Command::new(&a.status_cmd).args(&a.status_args).status();
@@ -254,8 +316,11 @@ pub fn after(home: &Path, a: &After) {
 }
 
 /// Nothing builds in a kept workspace again, and the cycle still holds its
-/// lock.
+/// lock. A cycle that ran elsewhere built nothing here.
 fn clean(home: &Path, a: &After) {
+    if a.workdir.is_empty() {
+        return;
+    }
     let scratch = crate::scratch::dir(
         &env("TEHAS_SCRATCH_DIR"),
         &env("TEHAS_WORK_DIR"),

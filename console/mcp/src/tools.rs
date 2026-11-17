@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
+use tehas_core::outcome;
 use tehas_core::queue_lists;
 
 /// The most of a console a call returns, and the default.
@@ -77,23 +78,9 @@ const STAGES: [&str; 6] = [
     queue_lists::COMPLETED,
 ];
 
-/// A status word a cycle can carry. The runner's own words, tehas's own for a
-/// cycle it stopped, and `unknown` when nothing was reported.
-const CYCLE_STATUSES: [&str; 13] = [
-    "running",
-    "merged",
-    "handoff",
-    "aborted",
-    "interrupted",
-    "refused",
-    "killed",
-    "stalled",
-    "timeout",
-    "lost",
-    "closed",
-    "completed",
-    "unknown",
-];
+/// A status word a cycle can carry: the core's one vocabulary. An answer
+/// serves a word outside it as `unknown` (`cycle_status`).
+const CYCLE_STATUSES: [&str; 16] = outcome::STATUSES;
 /// The overall state of a health check.
 const CHECK_STATES: [&str; 3] = ["pass", "warn", "fail"];
 /// The state of the limit, as `tehas limit` reports it.
@@ -313,12 +300,12 @@ fn status_schema() -> Value {
             ),
         ),
         (
-            "industry",
+            "manager",
             obj(
                 vec![
-                    ("version", given("The tehas-industry version, such as v0.9.0.")),
+                    ("version", given("The version of the program that manages this factory, such as v0.9.0.")),
                 ],
-                "The tehas-industry that runs this factory. Left out for a factory that runs on its own.",
+                "The program that manages this factory. Left out for a factory that runs on its own.",
             ),
         ),
         (
@@ -488,7 +475,7 @@ fn attempt_row() -> Value {
                 "how",
                 one_of(
                     &sessions::HOWS,
-                    "What started it. millwright and fixer name the same person.",
+                    "What started it.",
                 ),
             ),
             ("started", given("When it started, UTC.")),
@@ -929,7 +916,7 @@ fn build_entries() -> Value {
         },
         {
             "name": "factory_console",
-            "description": "One running cycle's step, status and the end of its console as the dashboard shows it.",
+            "description": "One running cycle's step, status and the end of its console as the dashboard shows it, masked.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1225,7 +1212,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "hostMessages": {"list": [{"id": true, "level": true, "text": true, "link": true,
                                        "at": true}],
                              "unreadable": true},
-            "industry": {"version": true},
+            "manager": {"version": true},
             // The two keys of `hold`, copied from the poll's own report by
             // `held`, which names the file's fields through `tehas_core::hold`.
             // A report whose word is not one of the thirteen is no hold, so
@@ -1389,6 +1376,23 @@ pub(crate) fn merge(out: &mut Map<String, Value>, v: Option<Value>) {
     }
 }
 
+/// The `status` of a cycle, or of each cycle of a list, as a word of the
+/// vocabulary its schema lists: a word the files hold that is no word of it is
+/// served as `unknown`.
+pub(crate) fn cycle_status(v: &mut Value) {
+    match v {
+        Value::Array(a) => a.iter_mut().for_each(cycle_status),
+        Value::Object(m) => cycle_status_in(m),
+        _ => {}
+    }
+}
+
+pub(crate) fn cycle_status_in(m: &mut Map<String, Value>) {
+    if let Some(Value::String(w)) = m.get_mut("status") {
+        *w = outcome::status(w).to_string();
+    }
+}
+
 fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     let health = read(live, "health.json")?;
     let st = read(live, "status.json")?;
@@ -1424,7 +1428,14 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     }
     put(&mut out, "limit", pick(&checks["limit"], &spec["limit"]));
     put(&mut out, "queue", pick(&checks["queue"], &spec["queue"]));
-    put(&mut out, "cycles", pick(&checks["cycles"], &spec["cycles"]));
+    put(
+        &mut out,
+        "cycles",
+        pick(&checks["cycles"], &spec["cycles"]).map(|mut c| {
+            cycle_status(&mut c);
+            c
+        }),
+    );
     put(&mut out, "demand", pick(&checks["demand"], &spec["demand"]));
     put(
         &mut out,
@@ -1439,8 +1450,8 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     );
     put(
         &mut out,
-        "industry",
-        pick(&checks["industry"], &spec["industry"]),
+        "manager",
+        pick(&checks["manager"], &spec["manager"]),
     );
     // "why is nothing starting" is the most useful thing to say to someone
     // waiting, and dispatch.json is published already: the hold is copied from
@@ -1581,6 +1592,9 @@ fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
         "failed",
         pick(&health["checks"]["failed"], &spec["failed"]),
     );
+    for list in out.values_mut() {
+        cycle_status(list);
+    }
     Ok(out)
 }
 
@@ -1619,19 +1633,49 @@ fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
             ]),
         ),
     );
+    cycle_status_in(&mut out);
     // The only file name this opens, and only when running.json gives it.
     let name = format!("console-{issue}.txt");
     if cycle["console"].as_str() == Some(name.as_str()) {
-        if let Some(text) = read_tail(&live.join(&name), bytes) {
+        if let Some(text) = masked_tail(&live.join(&name), bytes) {
             out.insert("console".into(), json!(text));
         }
     }
     Ok(out)
 }
 
-/// The last `n` bytes of a file, cut forward to the start of a character.
-/// Only those bytes are read: a console only grows.
-fn read_tail(path: &Path, n: u64) -> Option<String> {
+// How far before the tail the console is read, so that a secret the tail cuts
+// is masked with the line it is on.
+const CONSOLE_LEAD: u64 = 4096;
+
+/// The last `n` bytes of the masked console. The lines before the tail, as far
+/// as CONSOLE_LEAD, are masked whole first and then cut, as a log is: a value
+/// cut from the name that marks it would be missed by the mask.
+fn masked_tail(path: &Path, n: u64) -> Option<String> {
+    let (text, whole) = read_tail(path, n.saturating_add(CONSOLE_LEAD))?;
+    // A first line the read cut is left out when another line follows it.
+    let text = match text.split_once('\n') {
+        Some((_, rest)) if !whole => rest,
+        _ => text.as_str(),
+    };
+    let masked: String = text
+        .split_inclusive('\n')
+        .map(|line| match line.strip_suffix('\n') {
+            Some(body) => format!("{}\n", mask(body)),
+            None => mask(line),
+        })
+        .collect();
+    let start = masked
+        .len()
+        .saturating_sub(usize::try_from(n).unwrap_or(usize::MAX));
+    let start = (start..=masked.len()).find(|i| masked.is_char_boundary(*i))?;
+    Some(masked[start..].to_string())
+}
+
+/// The last `n` bytes of a file, cut forward to the start of a character, and
+/// whether they are the whole file. Only those bytes are read: a console only
+/// grows.
+fn read_tail(path: &Path, n: u64) -> Option<(String, bool)> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let len = f.metadata().ok()?.len();
@@ -1642,7 +1686,10 @@ fn read_tail(path: &Path, n: u64) -> Option<String> {
         .iter()
         .position(|b| b & 0b1100_0000 != 0b1000_0000)
         .unwrap_or(text.len());
-    Some(String::from_utf8_lossy(&text[start..]).into_owned())
+    Some((
+        String::from_utf8_lossy(&text[start..]).into_owned(),
+        len <= n,
+    ))
 }
 
 fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {

@@ -32,7 +32,7 @@ Press **Create GitHub App**. GitHub then opens a page whose address ends in
 prompt. Setup turns the code into the app, writes the key to
 `~/.config/tehas/github-app.pem` (mode 600) and the app's ID to `instance.env`
 as `TEHAS_GITHUB_APP_ID`, and prints the install link. Install the app on the
-product repository, and on the repository improvement findings go to if it is
+product repository, and on the repository review findings go to if it is
 another one. Setup waits up to 10 minutes for that, then goes on.
 
 `--app-owner <login>` sets the organisation or user that owns the app (the
@@ -48,7 +48,7 @@ tehas setup --app-id <App ID> --app-key-file <downloaded>.private-key.pem
 ```
 
 [tehas setup](/tools-setup#tehas-setup) lists every step. Setup ends with
-`tehasbot github-token --check`.
+`tehas github check`.
 
 ## Make the app by hand
 
@@ -87,7 +87,7 @@ Create the app. On its **General** page note the **App ID**, and under
 **Private keys** generate one: a `.pem` file downloads. Keep it secret; it is
 the app's only credential. Install the app (**Install App**, then **Install**
 next to the organisation) on the product repository, and on the repository
-improvement findings go to if it is another one.
+review findings go to if it is another one.
 
 Then give the app to the host with `tehas setup --app-id <App ID>
 --app-key-file <key>`, or by hand as the tehas user:
@@ -122,7 +122,7 @@ Then check it:
 
 ```bash
 . ~/tehas/env.sh
-tehasbot github-token --check
+tehas github check
 ```
 
 It prints the app, the installation, the bot's login, when the token runs out
@@ -136,9 +136,10 @@ are refused: any command stops with exit 78 and says
 `<NAME> is no longer used: the factory acts as a GitHub App.` Take them out,
 make or give the app as above, and run any command again.
 `TEHAS_GITHUB_APP_INSTALLATION`, `TEHAS_BOT_LOGIN` and
-`TEHAS_MILLWRIGHT_LOGIN` in `instance.env` print one warning each and are
-ignored once `~/tehas/state/github/login` exists; take them out too.
-`tehas setup --token-file` is refused, and `--app-installation` is ignored.
+`TEHAS_MILLWRIGHT_LOGIN` are not settings: the installation is looked up and
+both logins are the one in `~/tehas/state/github/login`. Since tehas 1.0 a
+line that sets one stops every command with exit 78; take them out too.
+`tehas setup --token-file` and `--app-installation` are unknown options (exit 64).
 
 ## What tehas does with it
 
@@ -213,10 +214,10 @@ so adds no line. Which call is a write, and the line, are decided by
 `console gh`, which the shim execs; a read goes on to gh at once. A host whose
 console is missing or cannot be run still has a working `gh`, with the token,
 and logs nothing until the console is repaired. The poll line of `tehas
-status` counts it, and `tehasbot github-writes` shows the last day by hour and
+status` counts it, and `tehas github writes` shows the last day by hour and
 by its busiest minute against GitHub's limits. A write GitHub refuses for a
 rate limit is sent once more after a minute, and only that call
-([the commands page](/tools-github#tehasbot-github-writes)).
+([the commands page](/tools-github#tehas-github-writes)).
 
 [The commands page](/tools-github#tehasbot-github-token) has the details.
 

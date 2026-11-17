@@ -560,7 +560,7 @@ t_eq "$(blob '[.version, .issue, .until, (.items | map([.source, .id, .text]))]'
 t_eq "$(stat -c %a "$imgs/comments.json")" 644
 t_eq "$(find "$imgs/retry-context.md" 2>/dev/null | wc -l)" 0
 
-t_case "the comments are kept beside the manifest for the improvement loop"
+t_case "the comments are kept beside the manifest"
 t_eq "$(cmp "$imgs/comments.json" "$T/home/tehas/state/cycles/7.comments.json" && echo same)" same
 
 t_case "a cycle without comments leaves none of an earlier cycle's beside the manifest"

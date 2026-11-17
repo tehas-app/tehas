@@ -27,7 +27,7 @@
 use crate::flags::epoch;
 use crate::jq::{first, obj, J};
 use crate::store;
-use crate::update::release::{candidate, older, tag_ok};
+use crate::update::release::{older, prerelease, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -570,46 +570,9 @@ fn in_flight(p: &J) -> bool {
     matches!(p.get("state"), J::Null) || p.get("state").as_str() == Some("running")
 }
 
-/// The slots of the last poll: the counts a factory whose settings say
-/// `auto` derived from the host on that poll, and the one word for what gave
-/// them. Empty for the numbers an instance wrote, which need no telling.
-fn slots_line(s: &J) -> String {
-    let a = s.get("cycle");
-    if s.is_null() || s.get("cyclesHow").as_str() != Some("auto") {
-        return String::new();
-    }
-    let cpus = match a.get("cpus") {
-        J::Null => "?".to_string(),
-        v => v.text(),
-    };
-    format!(
-        "slots     cycles auto: {}, {}-bound{} ({} CPUs over TEHAS_CYCLE_CPUS={}, {} containers of tehas.slice over TEHAS_CONTAINER_MEMORY={}, ceiling {})\n",
-        s.get("cycles").text(),
-        a.get("bound").or(&J::Str("host".to_string())).text(),
-        floor_words(a.get("bound").as_str().unwrap_or("host"), a.get("floored").is_true()),
-        cpus,
-        a.get("cycleCpus").or(&J::Str("?".to_string())).text(),
-        s.get("containers").text(),
-        a.get("containerMemory").or(&J::Str("?".to_string())).text(),
-        a.get("ceiling").or(&J::Str("?".to_string())).text(),
-    )
-}
-
-/// What a count at its floor adds to the slots line, as the dispatcher's own
-/// words say it: `no reading` when nothing answered, `at the floor` when a
-/// reading answered less than the floor.
-fn floor_words(bound: &str, floored: bool) -> &'static str {
-    match (floored, bound) {
-        (false, _) => "",
-        (true, "host") => ", no reading",
-        (true, _) => ", at the floor",
-    }
-}
-
 /// The slice check of the dispatcher's last poll.
 fn slice_line(h: &J, now: i64) -> String {
     let s = h.at(&["checks", "slice"]);
-    let slots = slots_line(s.get("slots"));
     let gib = |v: &J| J::num((v.as_f64().unwrap_or(0.0) / 1_073_741_824.0 * 10.0).round() / 10.0);
     let resources = match s.get("why") {
         J::Null | J::Bool(false) => true,
@@ -619,13 +582,13 @@ fn slice_line(h: &J, now: i64) -> String {
         "slice     unknown: no poll has reported in 10 min".to_string()
     } else if !resources {
         format!(
-            "{slots}slice     {} ({})",
+            "slice     {} ({})",
             s.get("hold").or(&J::Str("holding".to_string())).text(),
             age(s.get("time"), now)
         )
     } else {
         format!(
-            "{slots}slice     room for {} cycles ({} GiB of {} GiB promised, reserve {}{}, {})",
+            "slice     room for {} cycles ({} GiB of {} GiB promised, reserve {}{}, {})",
             s.get("room").or(&J::num(0.0)).text(),
             gib(s.get("committed")).text(),
             gib(s.get("max")).text(),
@@ -640,7 +603,7 @@ fn slice_line(h: &J, now: i64) -> String {
 }
 
 /// Whether version a is newer than version b, both released versions: a
-/// release candidate is older than its version. Anything else is never newer.
+/// prerelease is older than its version. Anything else is never newer.
 fn newer(a: &J, b: &J) -> bool {
     match (a.as_str(), b.as_str()) {
         (Some(x), Some(y)) => tag_ok(x) && tag_ok(y) && older(y, x),
@@ -667,8 +630,8 @@ fn platform_line(h: &J, now: i64) -> Option<String> {
             "newest unknown".to_string()
         } else if newer(newest, release) {
             format!("{} is out", newest.text())
-        } else if newer(release, newest) && release.as_str().is_some_and(candidate) {
-            format!("newest {}, the candidate is newer", newest.text())
+        } else if newer(release, newest) && release.as_str().is_some_and(prerelease) {
+            format!("newest {}, the prerelease is newer", newest.text())
         } else {
             format!("newest {}", newest.text())
         };
@@ -731,7 +694,9 @@ fn text_or_null(v: &J) -> J {
 }
 
 /// `versions`: the platform and the pi-rukas, as health read them (#1534),
-/// each value null when it cannot be read and never left out (#1680).
+/// each value null when it cannot be read and never left out (#1680). The
+/// platform's commit is the one its release was built from, or the
+/// checkout's.
 fn versions(checks: &J) -> J {
     let p = checks.get("platform");
     let release = text_or_null(p.get("release"));
@@ -754,6 +719,7 @@ fn versions(checks: &J) -> J {
             "platform",
             obj(vec![
                 ("release", release),
+                ("commit", text_or_null(p.get("commit"))),
                 ("latest", latest),
                 ("behind", behind),
             ]),
@@ -798,17 +764,22 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
                 ("issue", c.get("issue").clone()),
                 ("since", c.get("startedAt").clone()),
             ];
+            // Where the step is, each only when known. Driver-specific, so it
+            // is one object the contract marks "may change".
+            let mut p = Vec::new();
             if !c.get("step").is_null() {
-                f.push(("step", c.get("step").clone()));
+                p.push(("step", c.get("step").clone()));
             }
-            // Where the step is, each only when known (#1579).
             for k in ["stepNumber", "stepTotal", "round", "roundLimit"] {
                 if matches!(c.get(k), J::Num(_)) {
-                    f.push((k, c.get(k).clone()));
+                    p.push((k, c.get(k).clone()));
                 }
             }
             if c.get("stepSince").as_str().and_then(epoch).is_some() {
-                f.push(("stepSince", c.get("stepSince").clone()));
+                p.push(("stepSince", c.get("stepSince").clone()));
+            }
+            if !p.is_empty() {
+                f.push(("progress", obj(p)));
             }
             obj(f)
         })
@@ -898,12 +869,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         ]
         .into_iter()
         .map(|(name, key)| (name, s.get(key).clone()))
-        .filter(|(_, v)| !v.is_null())
-        // With `auto` the count in force is the poll's, not the setting's,
-        // so the object carries it and the word for what bounded it. The
-        // numbers a factory wrote add nothing and are absent, as `limit`
-        // is without a limit.
-        .chain(std::iter::once(("slots", s.get("slots").clone())))
         .filter(|(_, v)| !v.is_null())
         .collect())
     };
@@ -1182,65 +1147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_slice_of_auto_slots_says_the_count_and_what_gave_it() {
-        let auto = h(
-            r#"{"checks":{"slice":{"why":"","room":3,"committed":0,"max":21474836480,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false},
-                          "container":{"bound":"memory","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}}}}"#,
-        );
-        assert_eq!(
-            slice_line(&auto, NOW),
-            "slots     cycles auto: 6, cpu-bound (24 CPUs over TEHAS_CYCLE_CPUS=4, 6 containers of tehas.slice over TEHAS_CONTAINER_MEMORY=8g, ceiling 16)\nslice     room for 3 cycles (0 GiB of 20 GiB promised, reserve 2g, 20 s ago)"
-        );
-        // A poll that derived nothing writes no slots object, and the line is
-        // the one of every factory that sets numbers.
-        let numbers = h(
-            r#"{"checks":{"slice":{"why":"","room":2,"committed":4294967296,"max":21474836480,"reserve":"2g","time":"2026-10-17T14:00:00Z"}}}"#,
-        );
-        assert!(!slice_line(&numbers, NOW).starts_with("slots"));
-        // A host whose readings said nothing is said as it is.
-        let held = h(
-            r#"{"checks":{"slice":{"why":"","room":0,"committed":0,"max":0,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":1,"containers":2,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"host","slots":0,"cpus":null,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
-        );
-        assert!(
-            slice_line(&held, NOW)
-                .starts_with("slots     cycles auto: 1, host-bound, no reading (? CPUs"),
-            "{}",
-            slice_line(&held, NOW)
-        );
-        // A host that answered too few CPUs for one cycle is held at the
-        // floor by its own reading, which is not "no reading".
-        let few = h(
-            r#"{"checks":{"slice":{"why":"","room":0,"committed":0,"max":0,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":1,"containers":2,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":0,"cpus":4,"cycleCpus":"7","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
-        );
-        assert!(
-            slice_line(&few, NOW).starts_with(
-                "slots     cycles auto: 1, cpu-bound, at the floor (4 CPUs over TEHAS_CYCLE_CPUS=7"
-            ),
-            "{}",
-            slice_line(&few, NOW)
-        );
-    }
-
-    #[test]
-    fn the_floor_words_are_the_dispatchers() {
-        for bound in ["cpu", "memory", "ceiling", "host"] {
-            for floored in [false, true] {
-                assert_eq!(
-                    floor_words(bound, floored),
-                    tehas_dispatch::slots::floor_words(bound, floored),
-                    "{bound} {floored}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn the_platform_a_release_or_a_checkout() {
         let out = h(
             r#"{"checks":{"platform":{"release":"v0.16.1","newest":"v0.16.2","fetchedAt":"2026-10-17T13:40:20Z"}}}"#,
@@ -1265,11 +1171,11 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_ahead_of_the_newest_release_says_so() {
+    fn a_prerelease_ahead_of_the_newest_release_says_so() {
         let rc = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.22.1"}}}"#);
         assert_eq!(
             platform_line(&rc, NOW).unwrap(),
-            "platform  v0.23.0-rc.2, newest v0.22.1, the candidate is newer, never fetched"
+            "platform  v0.23.0-rc.2, newest v0.22.1, the prerelease is newer, never fetched"
         );
         let out = h(r#"{"checks":{"platform":{"release":"v0.23.0-rc.2","newest":"v0.23.0"}}}"#);
         assert_eq!(
@@ -1296,14 +1202,14 @@ mod tests {
             h(r#"{"status":"pass","output":"Idle.","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert_eq!(
             status_json(&health, NOW, false).dump(),
-            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
+            r#"{"api":1,"time":"2026-10-17T14:00:00Z","age":20,"stale":false,"state":"pass","reasons":[],"paused":{"local":false,"label":false},"running":[],"planning":[],"demand":null,"hold":null,"held":[],"room":null,"versions":{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}}"#
         );
     }
 
     #[test]
     fn the_versions_are_what_health_read_and_null_where_it_read_nothing() {
         let v = |checks: &str| versions(&h(checks)).dump();
-        let none = r#"{"platform":{"release":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#;
+        let none = r#"{"platform":{"release":null,"commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#;
         assert_eq!(v("{}"), none);
         assert_eq!(v(r#"{"platform":null,"rukas":null}"#), none);
         assert_eq!(
@@ -1312,7 +1218,7 @@ mod tests {
                  "rukas":{"follow":"release:0","target":"abc1234","targetVersion":"v0.14.54",
                           "image":"def5678","imageVersion":"v0.14.53","clone":"abc1234","behind":true}}"#
             ),
-            r#"{"platform":{"release":"v0.24.0","latest":"v0.25.0","behind":true},"rukas":{"version":"v0.14.53","latest":"v0.14.54","behind":true}}"#
+            r#"{"platform":{"release":"v0.24.0","commit":null,"latest":"v0.25.0","behind":true},"rukas":{"version":"v0.14.53","latest":"v0.14.54","behind":true}}"#
         );
         // A release with no newest known; a pi-rukas with commits and no
         // versions, as on a host that follows a branch.
@@ -1321,21 +1227,34 @@ mod tests {
                 r#"{"platform":{"release":"v0.25.0","newest":null,"behind":0},
                  "rukas":{"target":"abc1234","targetVersion":null,"image":"abc1234","imageVersion":null,"behind":false}}"#
             ),
-            r#"{"platform":{"release":"v0.25.0","latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":false}}"#
+            r#"{"platform":{"release":"v0.25.0","commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":false}}"#
         );
-        // A candidate ahead of the newest release is not behind.
+        // A prerelease ahead of the newest release is not behind, and the
+        // commit it was built from is named.
+        assert_eq!(
+            v(
+                r#"{"platform":{"release":"v1.0.0-alpha.1","commit":"0123456789abcdef0123456789abcdef01234567","newest":"v0.30.7"}}"#
+            ),
+            r#"{"platform":{"release":"v1.0.0-alpha.1","commit":"0123456789abcdef0123456789abcdef01234567","latest":"v0.30.7","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        // A commit that is no text is null.
+        assert_eq!(
+            v(r#"{"platform":{"release":"v0.25.0","commit":7}}"#),
+            r#"{"platform":{"release":"v0.25.0","commit":null,"latest":null,"behind":null},"rukas":{"version":null,"latest":null,"behind":null}}"#
+        );
+        // A prerelease ahead of the newest release is not behind.
         assert_eq!(
             v(r#"{"platform":{"release":"v0.26.0-rc.1","newest":"v0.25.0"}}"#),
-            r#"{"platform":{"release":"v0.26.0-rc.1","latest":"v0.25.0","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":"v0.26.0-rc.1","commit":null,"latest":"v0.25.0","behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
         // A checkout host: no release, behind by its commit count.
         assert_eq!(
             v(r#"{"platform":{"commit":"cb6912a0","behind":19,"upstream":"origin/main"}}"#),
-            r#"{"platform":{"release":null,"latest":null,"behind":true},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":null,"commit":"cb6912a0","latest":null,"behind":true},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
         assert_eq!(
             v(r#"{"platform":{"commit":"cb6912a0","behind":0,"upstream":"origin/main"}}"#),
-            r#"{"platform":{"release":null,"latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
+            r#"{"platform":{"release":null,"commit":"cb6912a0","latest":null,"behind":false},"rukas":{"version":null,"latest":null,"behind":null}}"#
         );
     }
 
@@ -1369,10 +1288,11 @@ mod tests {
     fn a_running_cycle_says_where_its_step_is_as_far_as_it_is_known() {
         let health = h(r#"{"status":"pass","checks":{"cycles":[
               {"issue":12,"startedAt":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},
-              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","step":"develop","stepNumber":"7","stepSince":"soon"}]}}"#);
+              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","step":"develop","stepNumber":"7","stepSince":"soon"},
+              {"issue":14,"startedAt":"2026-10-17T13:50:20Z","step":null}]}}"#);
         assert_eq!(
             status_json(&health, NOW, false).get("running").dump(),
-            r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},{"issue":13,"since":"2026-10-17T13:50:20Z","step":"develop"}]"#
+            r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"}},{"issue":13,"since":"2026-10-17T13:50:20Z","progress":{"step":"develop"}},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
         );
     }
 

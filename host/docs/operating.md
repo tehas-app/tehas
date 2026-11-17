@@ -107,18 +107,18 @@ issue text.
 | ------------------------------------------- | ------- | ------------------ | ------------ |
 | The issue's title and body                  | Read | Read, at the start | The title |
 | Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
-| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
-| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
+| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
+| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
-| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
+| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
+| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same | Unpacked, its files shown as above |
 | Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
 
 - **A cycle** is given the issue's title and body. With
-  `TEHAS_WORK_IMAGES=1` [tehas work](/tools-work#tehas-work) also fetches the
+  `TEHAS_WORK_IMAGES=on` [tehas work](/tools-work#tehas-work) also fetches the
   images the body links, at most 8 and 10 MB, and mounts them read-only in
   the cycle's container with a manifest. They are taken when an allowed
   account labelled the issue, whoever opened it, or when an owner, member or
@@ -129,14 +129,14 @@ The rules behind each column:
   2026-10-14, and the host follows its main, so an image built since then
   says yes. One that says no holds every issue whose text links an
   attachment while the setting stands; the other issues start. The steps
-  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
+  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=on`
   the model also describes each image in words, into `images.md` beside
   them, and names the issue in `X-Tehas-Issue` on each of those requests; with
-  `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
-  neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
+  `TEHAS_WORK_FILES=on` the text files come too. pi-rukas reads
+  neither yet. `TEHAS_WORK_COMMENTS=on` adds the attachments of comments, by
   the rule in the table.
-- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
-  `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: what comes out of an archive
+- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=on`, and needs
+  `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`: what comes out of an archive
   goes into the directory of one of those. It is taken by its first bytes, not
   by a name ending in `.zip`: a link named `.zip` that holds something else is
   left out and said. At most 2 archives per issue, each downloaded at most
@@ -343,9 +343,7 @@ Blocked by #12 and #34.
 
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. Only the bot's own such comment counts as said. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
-An issue labelled `tehas:improvement` and `cross-project` together is not started: the finding says the change belongs in another repository of the stack as well as this one, so one cycle here cannot make it, and a cycle on it spends a slot and its tokens before it parks. The dispatcher starts nothing and the log says why; it takes no label off and writes no comment, because the issue is a proposal the loop filed and a person decides what becomes of it. Read the `Names` line, which says the other repositories the loop read, and either work on both sides yourself or close it. Either label alone starts a cycle as any other issue would: `cross-project` on an issue the loop did not file is a person's label and means nothing to the dispatcher, and a finding that names no other repository is worked on here. The hold is on `tehas:ready` and on a ticked retry alike; a `tehas:plan` session on such an issue is allowed, since planning where the change goes on each side is what it is for.
-
-An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
+An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=on` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
 An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
 
@@ -354,7 +352,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
-| `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
+| `tehas:running`         | A cycle owns it; with `TEHAS_ASSIGNEE` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; the poll's tidy and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
@@ -364,8 +362,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:replaced`        | Closed: a refine filed the issue that replaces it | Work on the issue named in `Replaced by` |
 | `tehas:refined`         | A refine filed its first part; later parts remain | Apply `tehas:refine` for the next part, or close it |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
-| `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
-| `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
+| `tehas:improvement`     | Filed by the factory, a proposal  | Read it; apply `tehas:ready` if it should be built |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:lean`            | The lean driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:classic`         | Under `TEHAS_DRIVER=lean`: the classic driver is chosen for it. See [Choosing the driver](#choosing-the-driver) | Take it off to run the issue on lean |
@@ -373,7 +370,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 | `tehas:finish`          | Asks the factory to open the draft pull request of a stopped cycle. See [Finishing a stopped cycle](#finishing-a-stopped-cycle) | Wait: the next poll takes it off and comments with the URL or why not |
 
-With `TEHAS_OWNER` set on the instance, the call that marks an issue
+With `TEHAS_ASSIGNEE` set on the instance, the call that marks an issue
 `tehas:running` for a cycle also assigns it to that account, so GitHub shows
 the issue as taken and nobody starts on it by accident. GitHub assigns no
 app's bot, which is why the owner is a person. The owner is never unassigned:
@@ -576,7 +573,6 @@ What a lean run does, as pi-rukas's `docs/lean.md` describes it:
   builds once more, and a second red hands back. A pull request that conflicts
   or falls behind after the run is tehas's, not lean's, and it is never
   refreshed with `--continue-pr`: a lean refresh is refused with 78 as above.
-  The [easy merge](#refreshes) is meant for it, and it runs on no host yet.
 - The cycle's time limit, `TEHAS_WORK_TIMEOUT`, covers the whole run, the wait
   for the pull request's checks included.
 
@@ -640,9 +636,10 @@ check, and warns when the list is not empty; see
 ### The report in Rust
 
 `tehas-cycle cycle` reports a cycle in its own process once `tehas work` has
-ended: the report of `libexec/cycle` in bash is gone. `TEHAS_CYCLE_REPORT`
-takes only `rust`, which changes nothing; `bash`, or any other value, is exit
-78. The report goes by the settings the cycle started with and does not load
+ended: the report of `libexec/cycle` in bash is gone, and so is
+`TEHAS_CYCLE_REPORT`. An instance that still sets it to a value, `rust` too,
+stops with 78 until the line is taken out; a blank value is ignored. The
+report goes by the settings the cycle started with and does not load
 `instance.env` again: a file changed or broken during a cycle does not stop
 it. A host without `libexec/tehas-cycle` starts no cycle: `tehasbot cycle`
 stops with 78. There is no way back to the bash report short of installing a
@@ -660,6 +657,15 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
+- A write that timed out or that GitHub answered with a 5xx may have reached
+  GitHub, so the report reads it back before it tries again: a comment by its
+  text, a label by name. Found, it is done. Not found, it is sent again with
+  the tries it has left; a park question that was not found gets the plain
+  park comment, as a refused one does. Only when that read fails too does the
+  write stay as it is: its row stays open as `unknown`, the report logs
+  `WARN: a write on #N may have been posted`, a park question is not followed
+  by the plain park comment, and a handoff comment is not recorded as a failed
+  end. The first poll after the cycle reads the row and settles it.
 - Bodies go to gh on standard input, not as an argument.
 - A call to GitHub has a bound of two minutes.
 
@@ -787,7 +793,7 @@ away and keep the issue as it is. Both retries start over in a new workspace.
   `comments.json` beside the images, each cut at 4,000 characters and the
   whole at 64 KB with the oldest dropped and counted, and mounts that
   directory even when the instance gives a cycle no images or files. It needs
-  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=1` the images
+  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=on` the images
   and files those comments link come too, by the usual rules.
 - `Retry with the issue text only` gives the cycle the title and body, nothing
   else: its approval names no comment of the issue or of the pull request, so
@@ -854,8 +860,8 @@ holds the issue for that poll.
 The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from the millwright,
-the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
-`TEHAS_WORK_FILES=1`), and the note
+the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=on` or
+`TEHAS_WORK_FILES=on`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
@@ -1202,8 +1208,8 @@ GitHub says the issue is open: on an issue closed since the turn that asked,
 a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
-(`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
+(`TEHAS_WORK_IMAGES=on`), a planning session is given them too, by the same
+rules, once at its start, and with `TEHAS_WORK_FILES=on` its text files. The
 bot says what it fetched, which it left out, and whether the session was shown
 them. If one cannot be fetched, no session starts and the bot says so. A reply
 can carry a picture or a file too: the next turn adds what the reply links to
@@ -1262,6 +1268,9 @@ GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree — one it carries whose newest event in the timeline is not an
 application, or that has no event at all — has its events read on their own;
+so does a candidate whose newest `tehas:ready` or `tehas:blocked` on the page is
+no newer than the approval its last cycle started on, since that start took the
+label off and a timeline cut right after it still ends on an application;
 an issue the page gave no timeline at all is always
 read again, and the only label the queue does not ask about is `tehas:running`,
 which the bot applies itself and whose park rests on the lock file rather than
@@ -1271,7 +1280,14 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A read of GitHub that failed on a bad
+or as not done, and never made again. A write that timed out, or that GitHub
+answered with a 5xx, may have reached GitHub: its row is left open as
+`unknown`, the log says `may have been posted`, and the next poll reads it the
+same way before anything is sent again. What the read finds decides the write
+when the poll decides it again: found done, it is done and not sent (a park
+tell or a hold's note is then on record as said); not found, it is abandoned
+and the poll sends it once; a read that failed leaves the row open and the
+write is not sent that poll. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
@@ -1388,7 +1404,7 @@ lines in `tehas history` carry `auto`.
 
 Two switches stop the factory. Either one is enough.
 
-**`tehas pause [reason]`** sets the switch on this host: a flag,
+**`tehas pause [--reason TEXT]`** sets the switch on this host: a flag,
 `~/tehas/state/pause.json`, holding who set it, when and why, in a file only the
 account that ran the command can read. It asks GitHub nothing, so a host can be
 paused when GitHub cannot be reached. `tehas pause` again succeeds and keeps the
@@ -1431,11 +1447,11 @@ in the dispatcher's log. On its own it changes nothing in this factory: no
 cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
 its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
-tehas-industry. Take the label off to end it.
+an industry of factories. Take the label off to end it.
 
 ## Read-only
 
-With `TEHAS_READ_ONLY=1` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
+With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
 
 One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
@@ -1457,7 +1473,7 @@ tehas limit clear            # back to no limit
 ```
 
 `--cycles` is the most cycles at once; `--plan off` also holds new planning
-sessions and improvement runs, though an answer to a planning question still
+sessions, though an answer to a planning question still
 runs. Without `--for` or `--until` the limit stays until cleared. Running
 cycles are never stopped. A limit that has expired, or a file that cannot be
 read, holds every start until it is set again or cleared, and `tehas status`
@@ -1544,7 +1560,7 @@ it ran, and keeps 365 days of them. Two commands read them:
 
 ```
 tehas analytics report                    # the ten-day report in the terminal
-tehas analytics export copy.db --json     # a copy of the database, to fetch
+tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 ```
 
 The report is the one on the plain dashboard. The copy is for deeper analysis
@@ -1556,16 +1572,11 @@ recording, and both commands then say so and exit 69.
 
 - A limit set with `tehas limit`, when there is one: see
   [Limit and drain](#limit-and-drain).
-- At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
+- At most `TEHAS_MAX_CYCLES` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room. With
   refreshes on, refreshes have a lane of their own (see
-  [refreshes](#refreshes)) and do not count here. `auto` is refused by the
-  settings check today, so the setting is a number; the ceiling the dispatcher
-  would answer is taken from the host on every poll: the host's CPUs
-  over `TEHAS_CYCLE_CPUS`, between 1 and `TEHAS_CYCLE_CEILING`, read afresh
-  each poll so a VM that gained CPUs is used and one that lost them holds new
-  starts. It never stops a running cycle; the poll's line would say `auto: 6,
-  cpu-bound` and `tehas status` would say what the two counts came from.
+  [refreshes](#refreshes)) and do not count here. The setting is a whole
+  number.
 - No new cycle while the host runs short of disk: less than
   `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
   or on the one Docker keeps its images on, whichever has less. The poll reads
@@ -1595,16 +1606,12 @@ recording, and both commands then say so and exit 69.
   steps and may each grow to their ceiling later; then the whole slice
   reclaims and the kernel kills in the biggest container. So at most
   `TEHAS_SLICE_CONTAINERS` cycles run at once, whatever
-  `TEHAS_TICKET_CONCURRENCY` says, and a dev session or a planning turn takes
+  `TEHAS_MAX_CYCLES` says, and a dev session or a planning turn takes
   one of them. The number is a setting of its own, not
-  `TEHAS_TICKET_CONCURRENCY`: containers that are not cycles would still
+  `TEHAS_MAX_CYCLES`: containers that are not cycles would still
   oversubscribe the slice, and on a host with many CPUs the ceiling would
   fall below the reserve. To run more cycles side by side, raise it and the
   host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
-  For `auto`, refused by the settings check today, the number would be the
-  slice's `MemoryMax` over `TEHAS_CONTAINER_MEMORY` (8g by default), read on
-  every poll between 2 and 16, so a host given more memory would hold more
-  containers on its own.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
@@ -1626,7 +1633,7 @@ recording, and both commands then say so and exit 69.
   poll starts as it does today, and the start whose check passes takes the
   file off again. Running cycles, planning turns and refreshes are not held by
   it: what a refresh pushes already stands on the remote.
-- With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
+- With `TEHAS_WORK_IMAGES=on`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
@@ -1673,7 +1680,7 @@ recording, and both commands then say so and exit 69.
   (`checks.units`, which is `null` when that read did not answer rather than
   empty), and the next `install.sh` resets it and starts it again.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
-  cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
+  cycle, so a bad one can fail up to `TEHAS_MAX_CYCLES` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle
   does, and the time limits bound the cost.
 - When a poll starts fewer cycles than there are free slots and issues
@@ -1681,10 +1688,10 @@ recording, and both commands then say so and exit 69.
   same line: `holding: <n> of <free> free slots start: ...` when the
   awaiting-merge limit or the slice's room cut it, else the hold that stopped
   all of them.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
+- Inside a cycle, `TEHAS_WORKSTREAMS` workstreams side by side: 1 by default,
   and more only with one cycle at a time. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
-  or are being worked on. The default is `TEHAS_TICKET_CONCURRENCY` plus 2, so
+  or are being worked on. The default is `TEHAS_MAX_CYCLES` plus 2, so
   every slot can be used while two pull requests wait. Unreviewed pull
   requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
@@ -1716,12 +1723,12 @@ on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
 which tehas sets from it). How long a run takes depends on how many cycles
 share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
-with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
+with `TEHAS_MAX_CYCLES` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:
 
 - the gate's wall time on this host, measured with that many cycles running;
 - `TEHAS_VERIFY_TIMEOUT`, at or above that time with a margin;
-- `TEHAS_TICKET_CONCURRENCY`, no higher than keeps the gate inside the bound.
+- `TEHAS_MAX_CYCLES`, no higher than keeps the gate inside the bound.
 
 A bound below the gate's time under load parks cycles with
 `verify-timeout:<step>` for code that was never judged. On 26 Oct 2026 three
@@ -1744,7 +1751,7 @@ measurement beside it:
 - Raise `TEHAS_VERIFY_TIMEOUT` to the longest run plus a margin. Keep
   `TEHAS_WORK_STALL` above it, which the settings check enforces, and leave
   `TEHAS_WORK_TIMEOUT` room for the gate runs of every step.
-- Or lower `TEHAS_TICKET_CONCURRENCY` until the gate fits the bound. Fewer
+- Or lower `TEHAS_MAX_CYCLES` until the gate fits the bound. Fewer
   cycles run, and each gate gets a bigger share.
 
 What this repository's own gate takes is measured on [The host](/host#the-gate-under-load).
@@ -1757,122 +1764,10 @@ still alive. Both are for pi-rukas to change: on a bound kill, go to the
 handoff with what it has, and name the test file still running. Until then,
 size `TEHAS_WORK_TIMEOUT` for two bounds a step.
 
-## The improvement loop
-
-Optional. It is off unless the instance sets `TEHAS_IMPROVE_REPO` and the timer
-`tehas-improve.timer` is enabled; see [Commands](/tools).
-
-Every three hours a model reads the cycles that ended since the last run and
-says what could be better: in the dispatcher, the cycle, pi-rukas, the
-console, the gates or this manual. A finding that is not already in the issue
-stack is filed as an issue of its own in that repository.
-
-- **A finding about pi-rukas has a repository of its own** where the instance
-  sets `TEHAS_IMPROVE_RUKAS_REPO`. The model gives each finding a category,
-  and one of the category `pi-rukas` is filed there, because a cycle on the
-  product cannot fix it. Both repositories are read for duplicates. Each
-  has the limit of 10 open issues to itself, so one that is full does not
-  hold the other back. How a fix then reaches the host is
-  under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
-- **Or none at all.** With `TEHAS_IMPROVE_RUKAS_SKIP=1` a finding of the
-  category `pi-rukas` is not filed anywhere, and the run line counts it as
-  `skipped`. This is for a host whose pi-rukas developers read its cycles
-  themselves, through the [MCP server](/mcp-server). It cannot be set with
-  `TEHAS_IMPROVE_RUKAS_REPO`, and no issue there is checked again.
-- **A finding at the boundary is two issues.** The category `boundary` is
-  for a problem with a half in the factory and a half in pi-rukas, or a
-  shape the two have to agree on. Each half is filed in its own repository,
-  the two link each other, and both carry `cross-project` as well. Without
-  a repository for pi-rukas it is one issue that names both halves.
-- **The model reads what each cycle ran with**: the `PI_ENSEMBLE_*`
-  variables its container was given, the `TEHAS_*` settings that shape a
-  cycle, how many cycles were running as its container started, and the
-  provider retry line of its preflight log. `tehas work` puts the first
-  three on the cycle's record in the state store as the container starts.
-  What the model reads may
-  reach a public issue, so only short plain values are written: numbers,
-  booleans and words of letters, digits and `_.,:=-`. Any other value is
-  `[withheld]`: every URL, host, path and address, anything that may be a
-  token, and every value whose name says it may be a secret or a host.
-- **Each issue names the product's issues** whose cycles it rests on, as
-  `owner/name#7`, so GitHub links the two both ways.
-- **Each issue says what working on it means**, in the line `Working on it`,
-  because the text of an issue is the task a cycle is given. A finding about
-  the factory is built in the repository it is filed in, once a person applies
-  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas; no cycle on the
-  product works around it. Where the
-  instance has no repository for pi-rukas, such a finding is filed with the
-  rest and tells a cycle to change no code and hand off.
-- **An issue worked on again is checked against the filed issue.** When a
-  later cycle of a product issue is read and an issue the loop filed rests on
-  an earlier cycle of it, the model says whether the problem came back. That
-  is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
-  what the new cycle showed, its whole log, and the pi-rukas commit the cycle
-  ran: the `buildCommit` of its runner's result, or for a record written
-  before tehas kept it, the sandbox image's label. Of a closed issue in the
-  repository for pi-rukas, the loop asks GitHub whether the commit that closed
-  it is in that pi-rukas commit, the question `git merge-base --is-ancestor` answers. When it is
-  not, the comment says `not in this build` instead of `yes`. When the
-  record names no commit, or GitHub does not answer, it says `build unknown`.
-  The record names no commit of the factory, so an issue there that a
-  commit closed always says `build unknown`. This is how a fix in pi-rukas is verified: deploy it,
-  apply `tehas:ready` to the product issue again, and read the comment. A
-  model wrote it, so check it against the log. The loop closes and reopens
-  nothing. At most 10 comments a run, and none in a run that waits because
-  every repository is full.
-- **The label is `tehas:improvement`**, with `cross-project` beside it on the
-  two halves of a boundary finding, and on a finding of any category that
-  speaks of a repository of the stack beside the one its issue is filed in -
-  the text names it as `owner/name:`, or an open or recently closed issue
-  there cites one of the cycles the finding rests on. It is the dispatcher's
-  tell that one cycle here cannot make the change on its own, and it holds such
-  an issue back from starting; see
-  [what happens next](#3-what-happens-next). The issue says those
-  repositories in its `Names` line, so a person reads where the other half of
-  the work is before labelling. The names are read from the stack the host
-  gave the loop, never from a name a model wrote, and none is used that the
-  stack does not hold. tehas does not act on
-  `tehas:improvement`, and the loop never applies `tehas:ready`. A filed issue is a proposal a
-  model wrote: read it, correct it, and apply `tehas:ready` yourself if it
-  should be built. Close it if not.
-- **At most 3 issues a run, and none in a repository where 10 are open** with
-  the label, or the number `TEHAS_IMPROVE_MAX_OPEN` gives. The loop reads text
-  anyone may have written into an issue or a log, so the limit is what keeps
-  a steered or a mistaken model from filling the stack while nobody reads. Close some or build some and the loop files there again. A run
-  waits, and reads nothing, only when every repository is full.
-- **The whole log is linked.** Each issue links the logs of the cycles it
-  names, gzipped, as assets of the release `tehas-improve-logs` in
-  `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository
-  they are public. A log goes up masked as the console masks it: tokens,
-  passwords, private addresses. A log that still holds something shaped like a
-  token, or that could not be masked, is not uploaded, and the issue says so.
-- **One line per run** in `~/tehas/logs/improve.log`:
-
-```
-2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58 rechecked=1
-```
-
-`cycles` is how many were read and `findings` what the model gave. `invalid`
-were dropped for not being the shape asked for, `duplicates` were already in
-the stack or given twice (`of` names the issues the model pointed at), and `over` were more
-than the limits allow and are dropped. `filed` and `issues` are what was
-opened. An issue in the repository for pi-rukas is written with its
-repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
-on issues that were worked on again; one GitHub refused follows as
-`not-commented=acme/rukas#12`. `skipped=2` says two findings about pi-rukas
-were not filed. A run reads at most five cycles, the oldest
-first; `left=2` at the end says two wait for the next run. `stopped=124
-returned=2` says the analyst hit its bound of 60 minutes: what it had written
-was filed, and the two cycles it named nowhere wait for a later run.
-
-To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
-stop leaving records and a run does nothing. Or stop the timer with
-`systemctl --user disable --now tehas-improve.timer`.
-
 ## Kinds as issue types
 
 Optional. Two labels say what an issue is rather than where it is:
-`tehas:improvement`, a proposal of the improvement loop, and
+`tehas:improvement`, a proposal the factory filed, and
 `tehas:prototype`, a ticket at the prototype stage. An organisation can use
 its own issue types for them instead. Without the setting, the labels work
 as described above.
@@ -1881,8 +1776,7 @@ To set it up:
 
 1. As an owner of the organisation, add the issue types in its settings,
    under Planning, Issue types: for example `Improvement` and `Prototype`.
-   tehas never creates them. Where the improvement loop files in a second
-   repository (`TEHAS_IMPROVE_RUKAS_REPO`), its owner needs the type too.
+   tehas never creates them.
 2. Map each kind to its type in `instance.env`, one `kind=Type` pair for
    each, separated by a space. A kind left out stays its label:
 
@@ -1895,20 +1789,17 @@ To set it up:
 
 What changes:
 
-- **improvement**: the loop files its issues with the type and puts no
-  `tehas:improvement` on them; `cross-project` stays a label. Its limit of
-  open issues counts the issues of the type and those with the label. The
-  dispatcher holds an issue of the type exactly as it holds one labelled
-  `tehas:improvement`: the millwright does not start it, and with
-  `cross-project` nobody does. The label still holds where a person left it,
-  so turning the setting on lets nothing start that was held.
+- **improvement**: the dispatcher holds an issue of the type exactly as it
+  holds one labelled `tehas:improvement`: the millwright does not start it.
+  The label still holds where a person left it, so turning the setting on lets
+  nothing start that was held. The review still files under the label.
 - **prototype**: the Protolab lists the open issues of the type, and a ticket
   counts when an account in `TEHAS_ALLOWED_LABELERS` made the newest change to
   its type, the change that set it. A type set by anyone else, or a change the
   Protolab cannot see, counts as no type, as a label from anyone else does.
   With the setting on, `tehas:prototype` puts nothing in the lab.
 
-A type the organisation does not have fails closed: the poll, the loop or the
+A type the organisation does not have fails closed: the poll or the
 Protolab pass that reads the setting stops with 78 before it writes anything,
 and the log names the type and the repository. A repository of a personal
 account has no issue types, so the setting is not for it. To go back to the
@@ -1917,7 +1808,7 @@ the ones that should still carry the label.
 
 ## The review loop
 
-Optional. It is off unless the instance sets `TEHAS_REVIEW=1` and the timer
+Optional. It is off unless the instance sets `TEHAS_REVIEW=on` and the timer
 `tehas-review.timer` is enabled; see [Commands](/tools). The two are separate
 on purpose: `install.sh` and `tehas update` copy the units and enable nothing,
 and a host that turns the setting on without the timer reviews nothing on a
@@ -1947,7 +1838,7 @@ but its findings.
 To turn it on, write the two lines in `instance.env` and enable the timer:
 
 ```
-TEHAS_REVIEW=1
+TEHAS_REVIEW=on
 TEHAS_REVIEW_REPO=example-owner/example-backlog
 ```
 
@@ -1959,7 +1850,7 @@ systemctl --user enable --now tehas-review.timer
 holds one run's document. See [tehasbot review](/tools-plan#tehasbot-review) for the
 container, the record and the exits.
 
-To turn it off, set `TEHAS_REVIEW=0` (or remove it) in `instance.env`: a run
+To turn it off, set `TEHAS_REVIEW=off` (or remove it) in `instance.env`: a run
 exits at once and calls nothing, so the timer costs one short process a week.
 `systemctl --user disable --now tehas-review.timer` stops the weekly run as well.
 
@@ -2038,9 +1929,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   list, or nothing
   about the host's containers, removes no image: an unknown is never a reason
   to take one away.
-- the logs of cycles, planning turns, index runs and the improvement loop's
-  analyst in `~/tehas/logs` older than 7 days, whether or not the improvement
-  loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+- the logs of cycles, planning turns, index runs and reviews in
+  `~/tehas/logs` older than 7 days, and the analyst logs an earlier version
+  left. Long-lived logs such as `dispatch.log` and `clean.log` stay.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
   journal, old heartbeats of cycles that have ended, and the cycle and plan
@@ -2135,10 +2026,14 @@ what the account may do, and this section is that.
 The millwright was called the fixer. Its old names are no longer read: a
 `TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
 and the label `tehas:fixer-escalated` and the marker
-`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
-written as `how: "fixer"` still counts as the millwright's, and
-[`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
-the new names.
+`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. The state
+store's schema 16 writes `millwright` in every row that still said `fixer`
+(a start, a line of history, an approval, a refused note), so `tehas history`
+and `tehas export` name the millwright one way, and the MCP session tools
+answer `millwright` for a run recorded under the old word. The `plan.json` of
+`tehas export` lists an answer's mark as `millwright` alone. [`tehas
+api`](/api#tehas-api) lists only the new names: `millwright-grant` and
+`millwright`.
 
 - **It is the bot.** The millwright is the factory's GitHub App, the login in
   `~/tehas/state/github/login`; it is not a setting. `tehasbot github-token
@@ -2149,8 +2044,9 @@ the new names.
   from the bot counts only within the grant below, and never as a person's
   approval. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the settings
   stops with 78. Before the app's login is known there is no millwright, and
-  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
-  `instance.env` prints a warning and is ignored. The approval record names
+  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` is
+  not a setting: a line in `instance.env` stops every command with 78. The
+  approval record names
   the millwright without `[bot]`.
 - **Or a second app.** `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env`
   makes that app the millwright in place of the factory's own. The factory
@@ -2166,11 +2062,11 @@ the new names.
   label comes off and the issue says why. So the millwright never starts work
   nobody asked for: it never readies a `tehas:improvement` proposal.
 - **With the feed, it may start an issue a person wrote.** Optional, off
-  unless `TEHAS_MILLWRIGHT_FEED=1`, and only in the Rust dispatcher. On an
+  unless `TEHAS_MILLWRIGHT_FEED=on`, and only in the Rust dispatcher. On an
   issue no person approved a cycle of, the millwright's `tehas:ready` starts
   the first cycle when an account in `TEHAS_ALLOWED_LABELERS` wrote the issue,
   nobody outside the list changed its title or text since, it carries none of
-  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:improvement`, `needs-human-attention` and
   `tehas:millwright-escalated`, and no allowed labeller took `tehas:ready` off
   it before. Writing the issue is the person's approval of its text. A body
   the millwright reshaped is not the author's, so it needs a person's
@@ -2181,7 +2077,7 @@ the new names.
   millwright's grant cannot retry it: a person approves the next cycle. The
   other checks of any start still apply: epics, the size limit, the slots.
 - **With epics, it may start and plan an epic's parts.** Optional, off
-  unless `TEHAS_MILLWRIGHT_EPICS=1`. An allowed labeller's `tehas:ready` on an
+  unless `TEHAS_MILLWRIGHT_EPICS=on`. An allowed labeller's `tehas:ready` on an
   epic (an issue with open sub-issues) approves its open sub-issues while the
   epic stays open, keeps open sub-issues and carries no
   `needs-human-attention`. The approval is read from the epic's own label
@@ -2191,9 +2087,10 @@ the new names.
   tehas itself wrote the issue and last changed its title and text (tehas's
   planner writes a sub-issue's plan as tehas), nobody else changed them
   since the millwright's label, and the issue carries none of
-  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:improvement`, `needs-human-attention` and
   `tehas:millwright-escalated`. Otherwise the label comes off and the issue
-  says why. The start is recorded as the person's label on the epic, `how:
+  says why. An issue whose edit record could not be read is refused the
+  same way: it is not taken as never edited. The start is recorded as the person's label on the epic, `how:
   "label"` by that person, and the session as theirs, so the millwright
   answers its questions within its grant and retries the cycle as it would
   any a person approved. These starts are not fed cycles: they do not count
@@ -2295,8 +2192,8 @@ nothing and the dispatcher says so.
 
 **Who asks.** The factory does not look for conflicts on its own. What
 schedules its refreshes (an industry, an operator, a script) asks for one pull
-request at a time with `tehasbot refresh --pr N` (see
-[tehasbot refresh](/tools-github#tehasbot-refresh)). It reads that pull request
+request at a time with `tehas refresh --pr N` (see
+[tehas refresh](/tools-github#tehas-refresh)). It reads that pull request
 now and keeps it when it is the bot's, closes exactly one open issue carrying
 `tehas:awaiting-merge`, or `needs-human-attention` after a handoff that left
 the pull request open, without `tehas:running` and not the control issue, is
@@ -2331,7 +2228,7 @@ approval it rests on after the millwright):
 - the pull request is still the bot's, the one open pull request that closes
   the issue, at the head the request named, and GitHub still says
   `CONFLICTING`. A person who pushed to it since is handling it;
-- fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
+- fewer than `TEHAS_REFRESH_MAX_PER_PR` refreshes of it since that approval (2 unless
   the instance says otherwise), and none that parked. A start that failed
   counts as none: where the mark of a refresh could not be put on the pull
   request, or the cycle never ran, the dispatcher writes the record back as it
@@ -2348,10 +2245,10 @@ request that carries `tehas:refreshing` waits.
 **The refresh lane.** Refreshes run in a lane of their own, so a conflicting
 pull request is refreshed while every cycle slot is busy. At most
 `TEHAS_REFRESH_SLOTS` refreshes run at once (1 unless the instance says
-otherwise), and they do not count against `TEHAS_TICKET_CONCURRENCY`. The slice
+otherwise), and they do not count against `TEHAS_MAX_CYCLES`. The slice
 holds `TEHAS_SLICE_CONTAINERS` containers whatever the slots say, so new cycles leave room in it
 for the lane: while the lane has a slot free, a cycle does not take the last
-room of the slice. On a host with `TEHAS_TICKET_CONCURRENCY=4` and one lane
+room of the slice. On a host with `TEHAS_MAX_CYCLES=4` and one lane
 slot that is three cycles and one refresh. The poll says
 `holding: tehas.slice has room for 1 more and the refresh lane keeps 1`, or
 `holding: 3 of 4 free slots start: ... the refresh lane keeps 1`. With every
@@ -2467,17 +2364,14 @@ the `Adopter action` of each release between, do what they ask, then run
 [Rolling back tehas](/host#rolling-back-tehas)). An update does not wait for
 the running cycles and needs no drain: each cycle and planning turn runs from
 its own copy of the code, so it ends on the version it began on, and the next
-one starts on the new version (see [Updating tehas](/host#updating-tehas)). The
-one exception is a host that still has record files of a tehas from before the
-state store: that update moves them into the store, refuses while a cycle or a
-planning turn runs, and installs nothing. Drain it first with
-`tehas drain --wait 3600`, let planning turns end, update, then
-`tehas limit clear` (see [tehas drain](/tools-control#tehas-drain), and `install.sh` in
-[the tools](/tools)). The update moves each old record file it imported to
-`~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
-While a record file of the older tehas is still in `state/`, every poll stops
-with exit 78 and logs `ERROR: records of an older tehas at <path>; run
-install.sh again`: run `install.sh` again, and it imports what is left. How it works is in
+one starts on the new version (see [Updating tehas](/host#updating-tehas)).
+This release updates a host on v0.30.0 or later. A host on an older release
+updates to a v0.30 release first: the store refuses an older database, and the
+record files a tehas before the state store kept are no longer imported. While
+such a file is still in `state/`, every poll stops with exit 78 and logs
+`ERROR: records of an older tehas at <path>; this release does not import them`:
+move it out of `state/`. A v0.30 release cannot import it either once this
+release has migrated the store, as it refuses the newer schema. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
@@ -2503,7 +2397,8 @@ Two things run there:
   run's title is `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
-  and every push to main runs where it always has.
+  into main and every push to main runs where it always has. A pull request
+  onto another branch runs no gate.
 
 ### How a release is gated and tagged
 

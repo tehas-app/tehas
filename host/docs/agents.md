@@ -54,7 +54,7 @@ one. A request without a key gets 401.
 - `factory_status`: whether the factory works, the queue, the running cycles, whether it is paused
 - `factory_issues`: the issues in one stage, such as `queued`, `running` or `stopped`
 - `factory_endings`: the cycles that ended last, and the failed ones among them
-- `factory_console`: the tail of one running cycle's console
+- `factory_console`: the tail of one running cycle's console, masked
 - `factory_stats`: the ten-day report the dashboard shows
 - `factory_issue`: one issue's story: its stage, its title, the running cycle and every run of the last 30 days
 - `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
@@ -97,8 +97,8 @@ The tools, their arguments and the limits are in [The MCP server](/mcp-server).
 - **Authorizing work.** `tehas:ready` spends compute and only counts from an
   account on the allow list. An agent writes the issue; a person labels it.
 - **What the factory proposes for itself.** An issue labelled
-  `tehas:improvement` was filed by the improvement loop, from a model's reading
-  of finished cycles. It is a proposal like any agent's issue: a person
+  `tehas:improvement` was filed by the factory, such as the findings of a
+  review run. It is a proposal like any agent's issue: a person
   decides, and a person applies `tehas:ready`.
 - **Merging.** Nothing merges on its own.
 - **Secrets and accounts** when installing: the bot's token, the allow list and

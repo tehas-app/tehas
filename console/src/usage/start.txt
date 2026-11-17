@@ -38,7 +38,7 @@ Each command prints one line:
   #12 has no approval from the host waiting: nothing to withdraw
 
 With --json, {"api": 1, "issue": 12, "approval": {"at": "...", "by": "host",
-"how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}.
+"how": "host", "bodySha256": "...", "titleSha256": "..."}, "cleared": false}.
 --clear answers the approval it took back, or null, and cleared true when it
 took one.
 

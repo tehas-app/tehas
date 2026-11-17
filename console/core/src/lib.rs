@@ -13,6 +13,7 @@ pub mod egress;
 pub mod end_fault;
 pub mod env_file;
 pub mod events;
+pub mod features;
 pub mod file;
 pub mod forge;
 pub mod github_fails;
@@ -33,6 +34,7 @@ pub mod mask;
 pub mod models;
 pub mod order;
 pub mod out;
+pub mod outcome;
 pub mod pause;
 pub mod plan;
 #[cfg(feature = "mask")]
@@ -49,10 +51,10 @@ pub mod settings;
 #[cfg(feature = "mask")]
 pub mod size;
 pub mod slice;
-pub mod slow;
 pub mod snapshot;
 pub mod testdir;
 pub mod testing;
 pub mod text;
 pub mod textcheck;
 pub mod time;
+pub mod version;

@@ -92,9 +92,6 @@ const NOTES: [(&str, &str, &str); 2] = [
 /// the current word, and no note of this release carries the old one.
 const NOTE_KINDS: [(&str, &str); 2] = [(NOTES[0].0, NOTES[0].2), (NOTES[1].0, NOTES[1].2)];
 
-/// The word a refused note is written as, whatever spelling it was given.
-pub const MILLWRIGHT_REFUSED: &str = NOTES[0].0;
-
 /// Whether `kind` names a note of either spelling, and the word it is written
 /// as. `plan-note` is the only writer and the words come from `NOTE_KINDS`, so
 /// a kind is known here or it was never a `plan-note` argument.
@@ -427,7 +424,7 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     let Some((mut p, options)) = row else {
         return Ok("null".to_string());
     };
-    // `plan-end --option` and `store import` write the column with `j`, from
+    // `plan-end --option` writes the column with `j`, from
     // labels, so it holds a JSON list of text or nothing. A NULL and a stored
     // `[]` answer alike, as `plan-begin`'s `'[]'` contract requires. Anything
     // else is damage, named as it is: a question would go out with boxes
@@ -447,26 +444,12 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     };
     p.insert(3, ("options", options.to_string()));
     let mut q = c
-        // The mark is one column and two names: the column is selected twice
-        // so that row_json answers it under both spellings, as the pair of
-        // keys `plan-show` gives until part 5 of #686 moves the shell's readers.
         .prepare(
-            "SELECT turn, by_account, millwright, millwright FROM planning_answers WHERE issue = ?1 ORDER BY turn",
+            "SELECT turn, by_account, millwright FROM planning_answers WHERE issue = ?1 ORDER BY turn",
         )
         .q()?;
-    // Both spellings of the mark, the same value: `plan-show` answers them as
-    // one pair of keys until part 5 of #686 moves the shell's readers.
     let answers: Vec<String> = q
-        .query_map([issue], |r| {
-            // The mark is one column answered under two names: the third entry
-            // reads the column again and the `?` of each name renders it as a
-            // boolean, so the pair shares one value and carries both spellings.
-            row_json(r, &["turn", "by", "millwright?", "millwright?"]).map(|mut p| {
-                let mark = p[2].1.clone();
-                p[3] = ("fixer", mark);
-                p
-            })
-        })
+        .query_map([issue], |r| row_json(r, &["turn", "by", "millwright?"]))
         .q()?
         .map(|r| r.map(|p| obj(&p)))
         .collect::<Result<_, _>>()

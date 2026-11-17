@@ -13,4 +13,4 @@ COPY host/docs /srv/docs
 COPY host/fun /srv/fun
 COPY preview/live /srv/live
 # A preview is never for search engines, and counts no visitors.
-ENV TEHAS_INDEXING=0
+ENV TEHAS_SITE_INDEXING=0

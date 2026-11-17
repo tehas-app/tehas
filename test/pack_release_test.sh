@@ -320,7 +320,8 @@ notes=$T_ROOT/scripts/release-notes.sh
 changelog=$T/CHANGELOG.md
 printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Adopter action' '' 'None.' '' \
   '## v1.2.3 (2026-10-21)' '' '### Changes' '' '- v1.2.30 is not this' '' \
-  '### Adopter action' '' 'Set TEHAS_X.' '' '## v1.2.30 (2026-10-22)' '' 'later' >"$changelog"
+  '### Adopter action' '' 'Set TEHAS_X.' '' '## v1.2.30 (2026-10-22)' '' 'later' '' \
+  '## v2.0.0-alpha.1 (2026-11-17)' '' 'first alpha' >"$changelog"
 
 t_case "release-notes prints the tag's section without its heading or the next one"
 t_run "'$notes' v1.2.3 '$changelog'"
@@ -330,6 +331,9 @@ t_eq "$t_out" "$(printf '%s\n' '### Changes' '' '- v1.2.30 is not this' '' '### 
 t_case "release-notes matches the version exactly, and reads Unreleased and standard input"
 t_run "'$notes' v1.2.30 '$changelog'"
 t_eq "$t_out" later
+t_run "'$notes' v2.0.0-alpha.1 '$changelog'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "first alpha"
 t_run "'$notes' Unreleased - <'$changelog'"
 t_eq "$t_rc" 0
 t_eq "$t_out" "$(printf '%s\n' '### Adopter action' '' 'None.')"
@@ -339,6 +343,8 @@ t_run "'$notes' v1.2.4 '$changelog'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no section for v1.2.4"
 t_run "'$notes' v1.2 '$changelog'"
+t_eq "$t_rc" 64
+t_run "'$notes' v2.0.0-gamma.1 '$changelog'"
 t_eq "$t_rc" 64
 t_run "'$notes'"
 t_eq "$t_rc" 64
@@ -455,8 +461,8 @@ check_sources() { # <lines of source paths>: each has to be covered by the lists
         # install.sh looks for a bare name under host/ when the tree's own top
         # level does not hold it; either way one of the two lists has to name it
         # or the file has to be in the host/ that is packed whole.
-        printf '%s\n' "${want_plain[@]}" | grep -qx "host/$src" ||
-          printf '%s\n' "${want_plain[@]}" | grep -qx "$src" ||
+        grep -qx "host/$src" < <(printf '%s\n' "${want_plain[@]}") ||
+          grep -qx "$src" < <(printf '%s\n' "${want_plain[@]}") ||
           [ -f "$T_ROOT/host/$src" ] ||
           t_bad "$src: install.sh reads it and neither list of lib/release.list has it"
         ;;

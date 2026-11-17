@@ -1,7 +1,6 @@
 //! cycle-start, cycle-image, cycle-end, cycle-show, cycle-note and
 //! cycle-stop-asked.
 
-use crate::cycle::END_REASONS;
 use crate::db;
 use crate::lock;
 use crate::verbs_tests::*;
@@ -9,6 +8,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use tehas_core::outcome::END_REASONS;
 use tehas_core::secret::secret;
 
 fn attempt_args(issue: i64, attempt: i64) -> (String, String) {
@@ -1812,4 +1812,22 @@ fn settings_view_answers_for_the_start_asked_about() {
     assert_eq!(ok(&home, &["settings-view", "7"])["view"], v["view"]);
     let (rc, _) = call(&home, &["settings-view", "7", "--attempt", "0"]).unwrap_err();
     assert_eq!(rc, 64);
+}
+
+/// The CHECK list of `cycles.end_reason` is the core's `END_REASONS`, word
+/// for word, so the store and every reader of the vocabulary agree.
+#[test]
+fn the_end_reason_check_is_the_core_vocabulary() {
+    let schema = include_str!("schema.sql");
+    let line = schema
+        .lines()
+        .find(|l| l.trim_start().starts_with("end_reason"))
+        .expect("an end_reason column");
+    let list = line.split("IN (").nth(1).and_then(|r| r.split(')').next());
+    let words: Vec<&str> = list
+        .expect("a CHECK list")
+        .split(',')
+        .map(|w| w.trim().trim_matches('\''))
+        .collect();
+    assert_eq!(words, END_REASONS);
 }

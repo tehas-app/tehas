@@ -4,11 +4,11 @@
   "title": "tehas disk --json",
   "description": "The object tehas disk --json prints, version 1: one entry per file system the factory cares about, and with --full what fills them. The feature disk of tehas api says the release has the command. host/docs/api.md, under tehas disk, says what each field means and how it is read: that a figure that could not be read is null and carries why and is never 0, which bound a place that ran out of one names with cut, and which calls make the figures. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. The keys under filesystems and full are the same object tehas disk --cycles --json carries, restated here because there is no $ref in api/; test/disk_test.sh reads a real answer of the command and fails when either copy no longer names what the command prints. test/json_contract_test.sh checks the samples beside this file, and what the command prints, against it.",
   "type": "object",
-  "required": ["api", "generatedAt", "filesystems"],
+  "required": ["api", "time", "filesystems"],
   "additionalProperties": false,
   "properties": {
     "api": {"const": 1},
-    "generatedAt": {"type": "string", "format": "date-time"},
+    "time": {"type": "string", "format": "date-time"},
     "dockerRoot": {"type": "string", "maxLength": 4096},
     "filesystems": {
       "type": "array",

@@ -61,7 +61,7 @@ fn the_arguments_are_strict() {
     .contains("--abandoned is not taken with --result"));
     assert!(
         usage(&["journal-settle", "--action", "1", "--result", "fine"])
-            .contains("--result is not one of ok, empty, read-failed, timed-out")
+            .contains("--result is not one of ok, empty, read-failed, timed-out, unknown")
     );
     assert!(usage(&["journal-attempt", "--action", "x"]).contains("is not an action number"));
     assert!(usage(&["poll-begin", "--at", "1"]).contains("unknown flag"));
@@ -215,6 +215,77 @@ fn open_lists_the_unsettled_oldest_first() {
         .map(|a| a["id"].as_i64().unwrap())
         .collect();
     assert_eq!(ids, vec![early, late]);
+}
+
+/// #1754: a write GitHub may have taken (a timeout, a 5xx) is not settled. The
+/// row stays open as `unknown`, with no time and no result, until a read says
+/// what happened.
+#[test]
+fn an_unknown_write_stays_open_until_a_read_settles_it() {
+    let home = home("journal-unknown");
+    let id = intend(&home, 8000, "7").to_string();
+    // Only a call has an unknown end, and a call is made once attempted.
+    assert_eq!(
+        refused(
+            &home,
+            &["journal-settle", "--action", &id, "--result", "unknown"]
+        ),
+        (1, "action".into())
+    );
+    ok_at(&home, 8001, &["journal-attempt", "--action", &id]);
+    let u = ok_at(
+        &home,
+        8002,
+        &["journal-settle", "--action", &id, "--result", "unknown"],
+    );
+    assert_eq!(u["state"], "unknown");
+    assert_eq!(u["result"], json!(null));
+    assert_eq!(
+        count(
+            &home,
+            "actions WHERE state = 'unknown' AND settled_at IS NULL AND result IS NULL"
+        ),
+        1
+    );
+    let open = ok(&home, &["journal-open"]);
+    assert_eq!(open["actions"][0]["state"], "unknown");
+    assert_eq!(open["actions"][0]["attempted_at"], 8001);
+    // Unknown is said once; the next answer is a read's.
+    assert_eq!(
+        refused(
+            &home,
+            &["journal-settle", "--action", &id, "--result", "unknown"]
+        ),
+        (1, "action".into())
+    );
+    let d = ok_at(
+        &home,
+        8100,
+        &["journal-settle", "--action", &id, "--result", "ok"],
+    );
+    assert_eq!(d["state"], "done");
+    assert_eq!(ok(&home, &["journal-open"])["actions"], json!([]));
+    assert_eq!(
+        one::<String>(
+            &home,
+            "SELECT group_concat(detail, ',') FROM journal WHERE step = 'settle' ORDER BY id"
+        ),
+        "unknown,ok"
+    );
+    // A read that finds it did not happen abandons it.
+    let other = intend(&home, 8200, "8").to_string();
+    ok(&home, &["journal-attempt", "--action", &other]);
+    ok(
+        &home,
+        &["journal-settle", "--action", &other, "--result", "unknown"],
+    );
+    assert_eq!(
+        ok(
+            &home,
+            &["journal-settle", "--action", &other, "--abandoned"]
+        )["state"],
+        "abandoned"
+    );
 }
 
 #[test]

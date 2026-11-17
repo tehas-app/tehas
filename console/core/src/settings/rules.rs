@@ -41,16 +41,29 @@ pub const ROLES: [&str; 5] = [
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
-const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
+/// One grammar for every switch. The manual writes `on` and `off`; `1` and `0`
+/// are what instances wrote before, and stay.
+pub const SWITCH_WORDS: [&str; 4] = ["on", "off", "1", "0"];
+const SWITCH: Rule = Rule::OneOf(&SWITCH_WORDS, "expected on or off");
+
+/// What a switch's value says: on, off, or None for a value no switch takes.
+pub fn switch(value: &str) -> Option<bool> {
+    match value {
+        "on" | "1" => Some(true),
+        "off" | "0" => Some(false),
+        _ => None,
+    }
+}
 const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
 #[derive(Clone, Copy)]
 pub enum Rule {
     Repo,
-    /// The counts refuse `auto` by name until cycles can use it.
     Count,
-    CountOrAuto,
+    /// A count that names why `auto`, which an earlier version wrote, is
+    /// refused.
+    Cycles,
     SliceContainers,
     /// Exactly one space between logins and none around them: the dispatcher
     /// matches " login " inside " list ", and a stray space would make an
@@ -100,10 +113,19 @@ pub enum Rule {
     Follow,
     /// A check run's name goes into a URL and into the log.
     BranchCheck,
+    /// Which repositories may outsource a cycle, as `Rule::Logins` separates
+    /// them: one space between entries and none around them, each entry the
+    /// shape of [`Rule::Repo`]. The empty value is no repository, which is the
+    /// default of TEHAS_OUTSOURCE_REPOS.
+    Repos,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
+    /// outsource model proxy listens on exactly this: no port means a proxy
+    /// with no port to listen on, which is no proxy.
+    ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
 }
@@ -115,7 +137,7 @@ impl Rule {
         match self {
             Rule::Repo => "repo",
             Rule::Count => "count",
-            Rule::CountOrAuto => "count-or-auto",
+            Rule::Cycles => "cycles",
             Rule::SliceContainers => "slice-containers",
             Rule::Logins => "logins",
             Rule::Person(_) => "person",
@@ -141,8 +163,10 @@ impl Rule {
             Rule::CleanDirs => "clean-dirs",
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
+            Rule::Repos => "repos",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
+            Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
         }
     }
@@ -153,7 +177,7 @@ impl Rule {
         match self {
             Rule::Repo => "widget",
             Rule::Count => "0",
-            Rule::CountOrAuto => "auto",
+            Rule::Cycles => "0",
             Rule::SliceContainers => "1",
             Rule::Logins => "alice  bob",
             Rule::Person(_) => "acme-app[bot]",
@@ -180,8 +204,10 @@ impl Rule {
             Rule::CleanDirs => "a/target",
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
+            Rule::Repos => "acme/widget  other/widget",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
+            Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
         }
     }
@@ -235,18 +261,14 @@ const fn required(name: &'static str, rule: Rule) -> Setting {
 /// told about first. An optional setting left out is checked only when it is
 /// there, as TEHAS_BUILD_TIMEOUT is: its default belongs to install.sh.
 pub const TABLE: &[Setting] = &[
-    always("TEHAS_INDEXING", SWITCH, "0"),
+    always("TEHAS_SITE_INDEXING", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
     always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
     always("TEHAS_WORK_FILES", SWITCH, "0"),
     always("TEHAS_WORK_COMMENTS", SWITCH, "0"),
     always("TEHAS_WORK_ZIPS", SWITCH, "0"),
-    always(
-        "TEHAS_ANALYTICS",
-        Rule::OneOf(&["on", "off"], "expected on or off"),
-        "on",
-    ),
-    always("TEHAS_ANALYTICS_COOKIE", SWITCH, "0"),
+    always("TEHAS_ANALYTICS", SWITCH, "on"),
+    always("TEHAS_SITE_ANALYTICS_COOKIE", SWITCH, "0"),
     always(
         "TEHAS_DESIGN",
         Rule::OneOf(&["beesknees26", "pixel"], "expected beesknees26 or pixel"),
@@ -258,17 +280,25 @@ pub const TABLE: &[Setting] = &[
         Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
         "classic",
     ),
-    always("TEHAS_EASY_MERGE", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
-    always("TEHAS_IMPROVE_RUKAS_SKIP", SWITCH, "0"),
-    always("TEHAS_REVIEW", SWITCH, "0"),
-    always("TEHAS_CONCURRENCY", Rule::Count, "1"),
-    row(
-        "TEHAS_TICKET_CONCURRENCY",
-        Rule::CountOrAuto,
-        When::Always,
-        None,
+    always("TEHAS_OUTSOURCE", SWITCH, "0"),
+    always("TEHAS_OUTSOURCE_TIMEOUT", Rule::Count, "600"),
+    always("TEHAS_OUTSOURCE_GRACE", Rule::Count, "120"),
+    always("TEHAS_OUTSOURCE_RETRIES", Rule::Count, "2"),
+    always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
+    given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
+    always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
+    // The model proxy. Its idle bound is checked against the check-in timeout
+    // by the load: a stream must outlive the job that waits on it.
+    always(
+        "TEHAS_OUTSOURCE_PROXY_ADDR",
+        Rule::ListenAddress,
+        "127.0.0.1:8090",
     ),
+    always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
+    always("TEHAS_REVIEW", SWITCH, "0"),
+    always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
+    row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
     row("TEHAS_MAX_AWAITING", Rule::Count, When::Always, None),
     always("TEHAS_WORK_TIMEOUT", Rule::Count, "21600"),
@@ -282,7 +312,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
     always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
-    always("TEHAS_REFRESH_MAX", Rule::Count, "2"),
+    always("TEHAS_REFRESH_MAX_PER_PR", Rule::Count, "2"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
     always("TEHAS_PREVIEWS", SWITCH, "0"),
     always("TEHAS_EGRESS", SWITCH, "0"),
@@ -316,20 +346,13 @@ pub const TABLE: &[Setting] = &[
     ),
     given("TEHAS_RELEASE_REPO", Rule::Repo),
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
-    given(
-        "TEHAS_CYCLE_REPORT",
-        Rule::OneOf(&["rust"], "expected rust: the report in bash is gone"),
-    ),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
-    given_or("TEHAS_ANALYTICS_SRC", Rule::ScriptAddress, ""),
-    given_or("TEHAS_ANALYTICS_SITE", Rule::SiteName, ""),
-    given_or("TEHAS_IMPROVE_REPO", Rule::Repo, ""),
-    given_or("TEHAS_IMPROVE_RUKAS_REPO", Rule::Repo, ""),
-    given_or("TEHAS_IMPROVE_MAX_OPEN", Rule::Count, "10"),
+    given_or("TEHAS_SITE_ANALYTICS_SRC", Rule::ScriptAddress, ""),
+    given_or("TEHAS_SITE_ANALYTICS_NAME", Rule::SiteName, ""),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
     given("TEHAS_GITHUB_RENEW_EVERY", Rule::Count),
     given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
-    given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
+    given_or("TEHAS_ASSIGNEE", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given(crate::kinds::SETTING, Rule::IssueTypes),
@@ -339,7 +362,6 @@ pub const TABLE: &[Setting] = &[
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
     required("PI_ENSEMBLE_SUBAGENT_MODEL", Rule::OneWord),
     required("PI_ENSEMBLE_SUBAGENT_PROVIDER", Rule::OneWord),
-    required("TEHAS_CONTAINER_MEMORY", Rule::ContainerSize),
     row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
@@ -379,12 +401,12 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
     match rule {
         Rule::Repo => refuse(is_repo(v), "expected owner/name"),
         Rule::Count => count(v),
-        Rule::CountOrAuto => {
-            refuse(v != "auto", AUTO)?;
+        Rule::Cycles => {
+            refuse(v != "auto", AUTO_GONE)?;
             count(v)
         }
         Rule::SliceContainers => {
-            refuse(v != "auto", AUTO)?;
+            refuse(v != "auto", SLICE_AUTO_GONE)?;
             let n = if leading(v, 2) { v.parse().ok() } else { None };
             refuse(
                 matches!(n, Some(2..=16)),
@@ -433,6 +455,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected a size of at least 6m, such as 512m or 2g",
         ),
         Rule::HostAddress => refuse(all(v, class(".:-")), "expected an address or host name"),
+        Rule::ListenAddress => refuse(listen_address(v), LISTEN_WHY),
         Rule::LabAddress => {
             let rest = v
                 .strip_prefix("https://")
@@ -481,6 +504,12 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             v.split(' ').all(|w| all(w, class("._()/-"))),
             "expected the name of a check, words of letters, digits and ._()/- separated by single spaces",
         ),
+        // The empty value is the default: no repository may outsource. An
+        // entry is a repository of the same shape TEHAS_REPO takes.
+        Rule::Repos => refuse(
+            v.is_empty() || v.split(' ').all(is_repo),
+            "expected owner/name repositories separated by single spaces",
+        ),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
@@ -493,7 +522,8 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
     }
 }
 
-const AUTO: &str = "expected a whole number (auto is not usable yet)";
+const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
+const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
 const POSITIVE: &str = "expected a positive whole number";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
@@ -506,6 +536,19 @@ fn class(more: &'static str) -> impl Fn(char) -> bool + Copy {
 fn digits(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit())
 }
+/// The address the outsource model proxy listens on: an address of
+/// [`Rule::HostAddress`] and a port, split at the last colon. A port is a
+/// number from 1 to 65535 with no leading zero; an IPv6 address keeps its own
+/// colons, so the last one is the only separator.
+fn listen_address(v: &str) -> bool {
+    let Some((addr, port)) = v.rsplit_once(':') else {
+        return false;
+    };
+    all(addr, class(".:-")) && leading(port, 5) && port.parse::<u32>().is_ok_and(|p| p <= 65535)
+}
+
+const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.0.1:8090";
+
 /// `[1-9][0-9]*`, at most `max` digits.
 fn leading(s: &str, max: usize) -> bool {
     digits(s) && !s.starts_with('0') && s.len() <= max
@@ -720,18 +763,18 @@ mod tests {
     }
 
     #[test]
-    fn auto_is_named_only_where_the_poll_reads_it() {
-        takes("TEHAS_TICKET_CONCURRENCY", "3");
-        refuses("TEHAS_TICKET_CONCURRENCY", "auto", AUTO);
-        refuses("TEHAS_TICKET_CONCURRENCY", "AUTO", POSITIVE);
-        refuses("TEHAS_CONCURRENCY", "auto", POSITIVE);
+    fn auto_is_named_as_removed_where_an_earlier_version_took_it() {
+        takes("TEHAS_MAX_CYCLES", "3");
+        refuses("TEHAS_MAX_CYCLES", "auto", AUTO_GONE);
+        refuses("TEHAS_MAX_CYCLES", "AUTO", POSITIVE);
+        refuses("TEHAS_WORKSTREAMS", "auto", POSITIVE);
     }
 
     #[test]
     fn the_slice_holds_two_to_sixteen() {
         takes("TEHAS_SLICE_CONTAINERS", "2");
         takes("TEHAS_SLICE_CONTAINERS", "16");
-        refuses("TEHAS_SLICE_CONTAINERS", "auto", AUTO);
+        refuses("TEHAS_SLICE_CONTAINERS", "auto", SLICE_AUTO_GONE);
         for bad in ["1", "17", "06", "1.5", "99999999999999999999"] {
             refuses(
                 "TEHAS_SLICE_CONTAINERS",
@@ -752,9 +795,9 @@ mod tests {
 
     #[test]
     fn the_owner_is_one_person_and_never_a_bot() {
-        takes("TEHAS_OWNER", "janit");
+        takes("TEHAS_ASSIGNEE", "janit");
         for bad in ["acme-app[bot]", "a b", "-a", "alice bob", "a;b"] {
-            refuses("TEHAS_OWNER", bad, LOGIN_OWNER);
+            refuses("TEHAS_ASSIGNEE", bad, LOGIN_OWNER);
         }
     }
 
@@ -783,8 +826,6 @@ mod tests {
 
     #[test]
     fn a_word_setting_takes_its_words() {
-        takes("TEHAS_ANALYTICS", "off");
-        refuses("TEHAS_ANALYTICS", "On", "expected on or off");
         takes("TEHAS_DESIGN", "pixel");
         takes("TEHAS_DESIGN", "beesknees26");
         for v in ["Pixel", "paper", "beesknees", "floor"] {
@@ -792,33 +833,51 @@ mod tests {
         }
         takes("TEHAS_UPDATE_FROM", "git");
         refuses("TEHAS_UPDATE_FROM", "tag", "expected git or release");
-        takes("TEHAS_CYCLE_REPORT", "rust");
-        for v in ["perl", "bash"] {
-            refuses(
-                "TEHAS_CYCLE_REPORT",
-                v,
-                "expected rust: the report in bash is gone",
-            );
+    }
+
+    #[test]
+    fn every_switch_takes_on_off_1_and_0() {
+        let switches: Vec<&str> = TABLE
+            .iter()
+            .filter(|s| words(s.name) == Some(&SWITCH_WORDS[..]))
+            .map(|s| s.name)
+            .collect();
+        for name in [
+            "TEHAS_SITE_INDEXING",
+            "TEHAS_PREVIEWS",
+            "TEHAS_MILLWRIGHT_FEED",
+            "TEHAS_MILLWRIGHT_EPICS",
+            "TEHAS_ANALYTICS",
+            "TEHAS_OUTSOURCE",
+        ] {
+            assert!(switches.contains(&name), "{name}");
+        }
+        assert_eq!(switches.len(), 16);
+        for name in switches {
+            for v in ["on", "off", "1", "0"] {
+                takes(name, v);
+            }
+            for v in ["2", "On", "OFF", "yes", "true", " on", ""] {
+                refuses(name, v, "expected on or off");
+            }
         }
     }
 
     #[test]
-    fn a_switch_is_0_or_1() {
-        for name in [
-            "TEHAS_INDEXING",
-            "TEHAS_PREVIEWS",
-            "TEHAS_MILLWRIGHT_FEED",
-            "TEHAS_MILLWRIGHT_EPICS",
-        ] {
-            takes(name, "1");
-            refuses(name, "2", "expected 0 or 1");
+    fn a_switch_word_says_on_or_off() {
+        assert_eq!(switch("on"), Some(true));
+        assert_eq!(switch("1"), Some(true));
+        assert_eq!(switch("off"), Some(false));
+        assert_eq!(switch("0"), Some(false));
+        for v in ["", "yes", "On", "01", " 1"] {
+            assert_eq!(switch(v), None, "{v}");
         }
     }
 
     #[test]
     fn a_script_address_is_https_with_a_path() {
-        takes("TEHAS_ANALYTICS_SRC", "https://a.example:8443/x/ea.js");
-        takes("TEHAS_ANALYTICS_SRC", "https://a.example/");
+        takes("TEHAS_SITE_ANALYTICS_SRC", "https://a.example:8443/x/ea.js");
+        takes("TEHAS_SITE_ANALYTICS_SRC", "https://a.example/");
         let why = "expected the https address of a script";
         for bad in [
             "http://a.example/x.js",
@@ -827,7 +886,7 @@ mod tests {
             "https://a.example:/x.js",
             "https:///x.js",
         ] {
-            refuses("TEHAS_ANALYTICS_SRC", bad, why);
+            refuses("TEHAS_SITE_ANALYTICS_SRC", bad, why);
         }
     }
 
@@ -869,9 +928,9 @@ mod tests {
 
     #[test]
     fn a_site_is_one_word() {
-        takes("TEHAS_ANALYTICS_SITE", "a.b_c-d");
+        takes("TEHAS_SITE_ANALYTICS_NAME", "a.b_c-d");
         refuses(
-            "TEHAS_ANALYTICS_SITE",
+            "TEHAS_SITE_ANALYTICS_NAME",
             "two words",
             "expected one word of letters, digits, dots and dashes",
         );
@@ -880,7 +939,7 @@ mod tests {
     #[test]
     fn a_container_size_is_at_least_6m_with_no_leading_zero() {
         takes("TEHAS_CYCLE_RESERVE", "6m");
-        takes("TEHAS_CONTAINER_MEMORY", "6291456");
+        takes("TEHAS_CYCLE_RESERVE", "6291456");
         let why = "expected a size of at least 6m, such as 512m or 2g";
         for bad in [
             "lots",
@@ -905,6 +964,40 @@ mod tests {
             "not an address",
             "expected an address or host name",
         );
+    }
+
+    #[test]
+    fn a_listen_address_is_an_address_and_a_port() {
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "127.0.0.1:8090");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "0.0.0.0:1");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "tehas.example:8090");
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "192.0.2.7:65535");
+        // An IPv6 address keeps its own colons: the last one is the port's.
+        takes("TEHAS_OUTSOURCE_PROXY_ADDR", "fe80::1:8090");
+        let why = "expected an address or host name and a port, as 127.0.0.1:8090";
+        for bad in [
+            "127.0.0.1",
+            "127.0.0.1:",
+            ":8090",
+            "127.0.0.1:0",
+            "127.0.0.1:08090",
+            "127.0.0.1:65536",
+            "127.0.0.1:8090 ",
+            "127.0.0.1:8090/x",
+            "127.0.0.1:notaport",
+            "not an address:8090",
+            "",
+        ] {
+            refuses("TEHAS_OUTSOURCE_PROXY_ADDR", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_outsource_switch_takes_the_switch_words() {
+        for v in ["on", "off", "1", "0"] {
+            takes("TEHAS_OUTSOURCE", v);
+        }
+        refuses("TEHAS_OUTSOURCE", "yes", "expected on or off");
     }
 
     #[test]
@@ -1170,6 +1263,45 @@ mod tests {
     }
 
     #[test]
+    fn the_outsource_settings_take_their_shape() {
+        for name in [
+            "TEHAS_OUTSOURCE_TIMEOUT",
+            "TEHAS_OUTSOURCE_GRACE",
+            "TEHAS_OUTSOURCE_RETRIES",
+            "TEHAS_OUTSOURCE_REST",
+            "TEHAS_OUTSOURCE_JOIN_TTL",
+        ] {
+            takes(name, "600");
+            for bad in ["0", "05", "10m", "-1", "two", ""] {
+                refuses(name, bad, POSITIVE);
+            }
+            refuses(name, "1000000000", "expected at most 9 digits");
+        }
+        for v in ["yes", "2", "On"] {
+            refuses("TEHAS_OUTSOURCE", v, "expected on or off");
+        }
+    }
+
+    #[test]
+    fn the_outsource_repositories_are_owner_and_name_one_space_apart() {
+        takes("TEHAS_OUTSOURCE_REPOS", "");
+        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget");
+        takes("TEHAS_OUTSOURCE_REPOS", "acme/widget other/widget.js_2");
+        let why = "expected owner/name repositories separated by single spaces";
+        for bad in [
+            "acme/widget  other/widget",
+            " acme/widget",
+            "acme/widget ",
+            "acme",
+            "a/b/c",
+            "/b",
+            "acme/widget not-a-repo",
+        ] {
+            refuses("TEHAS_OUTSOURCE_REPOS", bad, why);
+        }
+    }
+
+    #[test]
     fn a_model_is_one_word() {
         for name in [
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -1187,7 +1319,7 @@ mod tests {
 
     #[test]
     fn a_name_with_no_rule_takes_anything() {
-        takes("TEHAS_CYCLE_CPUS", "any thing");
+        takes("TEHAS_NO_SUCH_SETTING", "any thing");
         takes("PI_ENSEMBLE_HOST_ALIASES", "");
     }
 

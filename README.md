@@ -38,10 +38,6 @@ And if you're wondering... tehas is Estonian for factory :)
    own gates and reviews the result.
 5. The bot opens a pull request and comments on the issue. A person merges it.
 
-An instance can also read its own work. With the improvement loop switched
-on, a model reads the cycles that ended, every three hours, and files what
-could be better as issues for a person to judge.
-
 The queue is the labels on GitHub. The host keeps its own records, each
 cycle, park, question and planning session, in one SQLite database,
 `~/tehas/state/tehas.db`, written only through the store command. Locks,
@@ -114,7 +110,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | --- | --- |
 | [Overview](host/docs/overview.md) | How an issue moves through the factory |
 | [Features](host/docs/features.md) | Every part, and how far each has been tested |
-| [Operating](host/docs/operating.md) | Writing an issue, the labels, pausing, retrying, the improvement loop |
+| [Operating](host/docs/operating.md) | Writing an issue, the labels, pausing, retrying |
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
@@ -154,8 +150,11 @@ TMPDIR. Their line counts the tests that passed, and the gate fails when
 `cargo test` printed no `test result:` line. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
-and on every push to main: the `verify` check, from
-[`.github/workflows/verify.yml`](.github/workflows/verify.yml). It runs on the
+into main and on every push to main: the `verify` check, from
+[`.github/workflows/verify.yml`](.github/workflows/verify.yml). A pull request
+onto another branch, such as a release train, runs no gate: its author quotes
+`scripts/verify.sh --changed` in it, and the train's pull request into main
+gates the batch. It runs on the
 organisation's own runner, installs shellcheck and jq at the versions in
 `host/versions.env` and checks each against a published checksum, scans the
 repository's lockfiles against published advisories with OSV-Scanner at its
@@ -198,7 +197,6 @@ host.
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
-| `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
 | `lib/paths.sh` | The home of each tool a host installs, and the `PATH` that finds them |
 | `lib/github-app.sh` | A login shell as the factory's GitHub App |
 | `api/` | The JSON Schemas and the samples of the factory API's JSON objects: `tehas status --json`, `tehas state copy`, `tehas state load`, the industry alerts and the rest, each made from the code by the tests; a program that reads an object copies its sample into its own tests |

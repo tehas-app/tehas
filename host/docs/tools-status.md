@@ -87,11 +87,11 @@ that release and the newest there is, instead of a commit:
 platform  v0.9.0, newest v0.9.0, fetched 20 min ago
 platform  v0.9.0, v0.9.1 is out, fetched 20 min ago
 platform  v0.9.0, newest unknown, never fetched
-platform  v0.10.0-rc.1, newest v0.9.0, the candidate is newer, fetched 20 min ago
+platform  v0.10.0-alpha.1, newest v0.9.0, the prerelease is newer, fetched 20 min ago
 ```
 
-A host on a release candidate keeps the newest release it last read, even
-though it is older than the candidate.
+A host on a prerelease (an alpha, a beta or a release candidate) keeps the
+newest release it last read, even though it is older than the prerelease.
 
 It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
@@ -120,7 +120,8 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
+features    status millwright-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk state-check finish
+flags       outsource=off
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -265,7 +266,7 @@ from 1 to 64.
 
 ```
 tehas analytics report                    # the ten-day report, for a person
-tehas analytics export <file> [--json]    # a copy of the database
+tehas analytics copy --to <file> [--json] # a copy of the database
 ```
 
 The factory's own record of its last 365 days: runs, their steps and roles,
@@ -287,8 +288,9 @@ Handoff rate       100%  (n=1)
 Cycle time         median 30s, p90 30s  (n=1)
 ```
 
-`export` writes a consistent copy of the database to `<file>` with SQLite's
-`VACUUM INTO`, mode 600. It never replaces a file. With `--json` it then prints
+`copy --to` writes a consistent copy of the database to `<file>` with
+SQLite's `VACUUM INTO`, mode 600. It never replaces a file. `export`, the
+name before 1.0, exits 64 and names `copy --to`. With `--json` it then prints
 what the copy holds, read from the copy:
 
 ```json
@@ -298,7 +300,7 @@ what the copy holds, read from the copy:
 `schema` is the copy's schema version, `from` and `to` the oldest start and the
 newest end of its runs in Unix seconds, both left out when it has none, and
 `runs` how many there are. It takes no lock a cycle holds and makes no network
-call. See [the factory API](/api#tehas-analytics-export), and
+call. See [the factory API](/api#tehas-analytics-copy), and
 [Analytics](/analytics) for what the database holds.
 
 Exit 0; 64 on a bad argument; 69 when `TEHAS_ANALYTICS=off`, or the program is

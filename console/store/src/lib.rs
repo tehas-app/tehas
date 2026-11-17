@@ -11,18 +11,17 @@ mod db;
 #[cfg(debug_assertions)]
 mod exercise;
 mod history;
-mod import;
 mod journal;
 mod live;
 mod load;
 mod lock;
 mod order;
+mod outsource;
 mod park;
 mod plan;
 mod poll;
 mod review_issue;
 mod say;
-mod slow;
 mod upkeep;
 mod verbs;
 
@@ -35,8 +34,6 @@ mod cycle_tests;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]
-mod import_tests;
-#[cfg(test)]
 mod journal_tests;
 #[cfg(test)]
 mod live_tests;
@@ -44,6 +41,8 @@ mod live_tests;
 mod load_tests;
 #[cfg(test)]
 mod lock_tests;
+#[cfg(test)]
+mod outsource_tests;
 #[cfg(test)]
 mod park_tests;
 #[cfg(test)]
@@ -86,7 +85,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--json|--say] | check [--json] | import [--dry-run] [--json|--say] | slow <file> --out <file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--json] | check [--json] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -132,21 +131,24 @@ pub enum Verb {
     Init {
         force: bool,
         settings: Settings,
+        /// Whether the instance has the feature on, as the command that loaded
+        /// its settings said: `--outsource`, which the store cannot read for
+        /// itself. It decides whether the verbs of the feature write; see
+        /// `db::has_outsource`.
+        outsource: bool,
     },
     Migrate {
         backup: PathBuf,
         settings: Settings,
+        /// As `Init`'s.
+        outsource: bool,
     },
+    /// `migrate --dry-run`: whether this store would migrate the database,
+    /// read only. install.sh asks it before it copies anything.
+    MigrateDry,
     Check,
-    Import {
-        dry_run: bool,
-    },
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
-    Slow {
-        file: PathBuf,
-        out: PathBuf,
-    },
     ReviewIssue(ReviewIssue),
     ReviewFile(ReviewFile),
     /// The calls of one `store batch`, already read from standard input and
@@ -173,13 +175,6 @@ fn parse(args: &[String]) -> Option<Verb> {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
         }
-        // The record writer's one selection that is not a copy: the driver's
-        // slow notices of a cycle, kept in the record so a stuck child reads
-        // without the console (tehas_core::slow).
-        [verb, file, flag, out] if verb == "slow" && flag == "--out" => Some(Verb::Slow {
-            file: PathBuf::from(file),
-            out: PathBuf::from(out),
-        }),
         // The review issue of one run's document. The two names are checked
         // here and not in the verb, so a call that stops at its arguments is
         // the usage error it is: nothing was read and nothing was written.
@@ -307,19 +302,25 @@ fn parse(args: &[String]) -> Option<Verb> {
                 gh: PathBuf::from(gh.unwrap_or_else(|| "gh".to_string())),
             }))
         }
-        [verb, rest @ ..] if verb == "import" => {
-            flags(rest, &["--json", "--dry-run"])?;
-            Some(Verb::Import {
-                dry_run: rest.iter().any(|a| a == "--dry-run"),
-            })
-        }
+        [verb, rest @ ..] if verb == "migrate" && rest.iter().any(|a| a == "--dry-run") => rest
+            .iter()
+            .all(|a| a == "--dry-run" || a == "--json")
+            .then_some(Verb::MigrateDry),
         [verb, rest @ ..] if verb == "migrate" => {
             let mut backup: Option<String> = None;
+            let mut outsource = false;
             let mut given: BTreeMap<&str, &str> = BTreeMap::new();
             let mut i = 0;
             while i < rest.len() {
                 match rest[i].as_str() {
                     "--json" => i += 1,
+                    // The feature as the command that loaded the instance's
+                    // settings said it, once for the two verbs that make the
+                    // store. The store reads no setting of a host itself.
+                    "--outsource" if !outsource => {
+                        outsource = true;
+                        i += 1;
+                    }
                     "--backup" => {
                         // Twice is two answers, and the verb writes one file.
                         if backup.is_some() {
@@ -351,10 +352,12 @@ fn parse(args: &[String]) -> Option<Verb> {
             Some(Verb::Migrate {
                 backup: dir,
                 settings: settings(given)?,
+                outsource,
             })
         }
         [verb, rest @ ..] if verb == "init" => {
             let mut force = false;
+            let mut outsource = false;
             let mut given: BTreeMap<&str, &str> = BTreeMap::new();
             let mut i = 0;
             while i < rest.len() {
@@ -362,6 +365,10 @@ fn parse(args: &[String]) -> Option<Verb> {
                     "--json" => i += 1,
                     "--force" if !force => {
                         force = true;
+                        i += 1;
+                    }
+                    "--outsource" if !outsource => {
+                        outsource = true;
                         i += 1;
                     }
                     flag if flag.starts_with("--") => {
@@ -377,6 +384,7 @@ fn parse(args: &[String]) -> Option<Verb> {
             Some(Verb::Init {
                 force,
                 settings: settings(given)?,
+                outsource,
             })
         }
         #[cfg(debug_assertions)]
@@ -549,12 +557,30 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
                 report.schema
             ))
         }
-        Verb::Init { force, settings } => init(&file, *force, settings, now),
-        Verb::Import { dry_run } => import::run(home, *dry_run, now),
-        Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
+        Verb::Init {
+            force,
+            settings,
+            outsource,
+        } => init(&file, *force, settings, *outsource, now),
+        Verb::Migrate {
+            backup,
+            settings,
+            outsource,
+        } => migrate(&file, backup, settings, *outsource, now),
+        Verb::MigrateDry => {
+            let conn = db::open_read_only(&file).map_err(line)?;
+            let from: i64 = conn
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .map_err(db::classify)
+                .map_err(line)?;
+            db::migrable(&file, from).map_err(line)?;
+            Ok(format!(
+                "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"dry_run\":true,\"from\":{from},\"to\":{}}}",
+                db::SCHEMA_VERSION
+            ))
+        }
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
-        Verb::Slow { file, out } => slow::run(file, out),
         Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
         // The names of the host go to the mask once, before the first call of
         // it, as the console's `review run` sets them before it masks the two
@@ -609,7 +635,13 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
 /// of itself there. So the answer a wrong `<dir>` gets is the same refusal
 /// whatever it names, and it comes before the copy: the verb cannot be made to
 /// put a copy of the store in a place the host did not agree to read.
-fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
+fn migrate(
+    file: &Path,
+    dir: &Path,
+    settings: &Settings,
+    outsource: bool,
+    now: i64,
+) -> Result<String, (u8, String)> {
     // The write lock first, before the version is read: a verb that writes the
     // store meets a lock another verb holds before it has decided anything, and
     // SQLite will not answer `busy` for a read-only open. Then it is given back,
@@ -631,17 +663,20 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
         db::set_file_mode(file).map_err(line)?;
     }
     let mut conn = db::lock(file).map_err(line)?;
-    let copies = db::backup_dir(&home_of(file), dir).map_err(|e| {
-        let _ = db::settle(&conn);
-        line(e)
-    })?;
+    // A store this binary does not migrate is refused before any copy of it
+    // is written, so it is left exactly as it was.
     let from: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(db::classify)
+        .and_then(|from| db::migrable(file, from).map(|()| from))
         .map_err(|e| {
             let _ = db::settle(&conn);
             line(e)
         })?;
+    let copies = db::backup_dir(&home_of(file), dir).map_err(|e| {
+        let _ = db::settle(&conn);
+        line(e)
+    })?;
     db::settle(&conn).map_err(line)?;
     // The version of the copy the verb reports. For a database that needs a
     // step it is the one the step takes the store to, known before it runs: a
@@ -662,15 +697,19 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
     if target != from {
         db::backup(&conn, &copies, from, now).map_err(line)?;
     }
-    // The step is its own transaction and its own lock, and it is the only one:
-    // a database already at the version this binary writes has no step to run,
-    // so nothing asks for the lock again and the file is not opened for writing
-    // at all. Both copies are on disk by now, so a step that fails halfway
+    // The step is its own transaction and its own lock: a database already at
+    // the version this binary writes has no step to run. Every migrate then
+    // writes the feature row of meta in a transaction of its own, so a store
+    // can reach the new version and fail to set it, which leaves it off. Both
+    // copies are on disk by now, so a step that fails halfway
     // leaves a store nobody was told to open and a copy a person can restore
     // from, rather than a migrated store behind a name that was never written.
     if from < db::SCHEMA_VERSION {
         db::migrate(&mut conn, file, from, now, settings).map_err(line)?;
     }
+    // Every migrate says the feature, so the store follows the setting of the
+    // install that ran it.
+    db::set_outsource(&mut conn, outsource).map_err(line)?;
     // Read back, not assumed: the answer reports the version the file holds,
     // and a step that left it anywhere else is reported as what it did.
     let to: i64 = conn
@@ -706,7 +745,13 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
 /// where a person can read it, which is why the refusal is made on the header
 /// bytes and not by handing the file to SQLite, whose answer for one of the
 /// two is the same word.
-fn init(file: &Path, force: bool, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
+fn init(
+    file: &Path,
+    force: bool,
+    settings: &Settings,
+    outsource: bool,
+    now: i64,
+) -> Result<String, (u8, String)> {
     let existed = match std::fs::symlink_metadata(file) {
         Ok(m) if m.is_file() => true,
         Ok(_) => return Err(line(db::guard(file))),
@@ -784,7 +829,14 @@ fn init(file: &Path, force: bool, settings: &Settings, now: i64) -> Result<Strin
         &settings.commit,
         &settings.instance,
         &settings.repo,
-    );
+    )
+    .and_then(|()| {
+        if outsource {
+            db::set_outsource(&mut conn, true)
+        } else {
+            Ok(())
+        }
+    });
     // Named both before and after the transaction ends: SQLite may make the
     // siblings at the first write or only as the commit closes it.
     let settled = match written {

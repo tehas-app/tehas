@@ -407,22 +407,22 @@ fn status_names_the_release_of_a_release_host() {
 }
 
 #[test]
-fn status_names_the_pi_rukas_the_image_runs_and_the_industry() {
+fn status_names_the_pi_rukas_the_image_runs_and_the_manager() {
     let out = call(&live(), "factory_status", &json!({})).unwrap();
     assert_eq!(out["rukas"]["imageVersion"], "v0.14.54");
     assert_eq!(out["rukas"]["behind"], false);
-    assert_eq!(out["industry"]["version"], "v0.9.0");
+    assert_eq!(out["manager"]["version"], "v0.9.0");
     // A factory with neither has neither.
     let dir = copy("no-rukas");
     let file = dir.join("health.json");
     let mut health: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     let checks = health["checks"].as_object_mut().unwrap();
     checks.remove("rukas");
-    checks.remove("industry");
+    checks.remove("manager");
     std::fs::write(&file, health.to_string()).unwrap();
     let out = call(&dir, "factory_status", &json!({})).unwrap();
     assert!(out.get("rukas").is_none());
-    assert!(out.get("industry").is_none());
+    assert!(out.get("manager").is_none());
 }
 
 #[test]
@@ -548,6 +548,28 @@ fn a_cut_never_splits_a_character() {
     assert_eq!(out["console"], "\nlast line\n");
 }
 
+// The console is masked as a log is, and a secret cut at the start of the
+// tail is masked with the line it is on before the cut.
+#[test]
+fn the_console_tail_is_masked() {
+    let c = copy("console-mask");
+    let tail = "0123456789abcdef\nlast line\n";
+    std::fs::write(
+        c.join("console-7.txt"),
+        format!("first\nexport DB_PASSWORD=zyxwvutsrq{tail}"),
+    )
+    .unwrap();
+    let out = call(&c, "factory_console", &json!({"issue": 7})).unwrap();
+    let text = out["console"].as_str().unwrap();
+    assert_eq!(text, "first\nexport DB_PASSWORD=***\nlast line\n");
+    let bytes = tail.len() as u64;
+    let out = call(&c, "factory_console", &json!({"issue": 7, "bytes": bytes})).unwrap();
+    let text = out["console"].as_str().unwrap();
+    assert!(text.len() <= tail.len(), "{text}");
+    assert!(!text.contains("0123"), "{text}");
+    assert!(text.ends_with("***\nlast line\n"), "{text}");
+}
+
 #[test]
 fn a_console_file_is_opened_only_by_its_own_name() {
     for name in [
@@ -630,7 +652,7 @@ fn factory_disk_is_listed_and_answers() {
     let c = copy("disk");
     std::fs::write(
         c.join("disk.json"),
-        r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
+        r#"{"api":1,"time":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
             "filesystems":[{"paths":["/home/boss/tehas"],"mount":"overlay","freeBytes":223,"totalBytes":307}],
             "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"}],
                     "stoppedContainers":2,"hostname":"a name no answer gives"}}"#,
@@ -638,13 +660,21 @@ fn factory_disk_is_listed_and_answers() {
     .unwrap();
     let out = call(&c, "factory_disk", &json!({})).unwrap();
     assert_eq!(out["api"], 1);
-    assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
+    assert_eq!(out["time"], "2026-10-31T23:09:32Z");
+    assert!(out.get("generatedAt").is_none());
     assert_eq!(out["stale"], true);
-    assert_eq!(out["dockerRoot"], "/var/lib/docker");
+    assert!(out.get("dockerRoot").is_none());
+    assert_eq!(out["filesystems"][0]["paths"], json!(["home"]));
+    assert_eq!(out["full"]["places"][0]["path"], "logs");
     assert_eq!(out["filesystems"][0]["freeBytes"], 223);
     assert_eq!(out["full"]["stoppedContainers"], 2);
     let text = out.to_string();
-    for bad in ["hostname", "a name no answer gives"] {
+    for bad in [
+        "hostname",
+        "a name no answer gives",
+        "/home/boss",
+        "/var/lib/docker",
+    ] {
         assert!(!text.contains(bad), "{bad} reached the answer: {text}");
     }
     // The schema a client is told and the allowlist the answer is copied with
@@ -737,8 +767,8 @@ fn every_key_is_listed() {
                 "hostMessages.list[].link",
                 "hostMessages.list[].at",
                 "hostMessages.unreadable",
-                "industry",
-                "industry.version",
+                "manager",
+                "manager.version",
                 "hold",
                 "hold.why",
                 "hold.text",
@@ -1167,4 +1197,75 @@ fn snapshot_sessions_skip_bad_lines_and_the_old() {
         .map(|v| v["id"].as_i64().unwrap())
         .collect();
     assert_eq!(ids, [1, 3, 6]);
+}
+
+// The schema of every cycle status: exactly the words of the core's
+// vocabulary, in the tools that serve one.
+#[test]
+fn every_cycle_status_enum_is_the_core_vocabulary() {
+    let catalog = list_scoped(Scope::Full);
+    let schema = |name: &str| -> Value {
+        catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is listed"))["outputSchema"]
+            .clone()
+    };
+    let want: Vec<Value> = tehas_core::outcome::STATUSES
+        .iter()
+        .map(|w| json!(w))
+        .collect();
+    let st = schema("factory_status");
+    let en = schema("factory_endings");
+    let issue = schema("factory_issue");
+    let enums = [
+        &st["properties"]["cycles"]["items"]["properties"]["status"],
+        &en["properties"]["endings"]["items"]["properties"]["status"],
+        &en["properties"]["failed"]["items"]["properties"]["status"],
+        &schema("factory_console")["properties"]["status"],
+        &issue["properties"]["running"]["properties"]["status"],
+    ];
+    for e in enums {
+        assert_eq!(e["enum"].as_array(), Some(&want), "{e}");
+    }
+}
+
+// A status word no writer of the vocabulary says is served as `unknown`, so
+// an answer never holds a word its schema does not list; a known one is kept.
+#[test]
+fn a_status_outside_the_vocabulary_is_served_as_unknown() {
+    let c = copy("status-words");
+    let edit = |file: &str, f: &dyn Fn(&mut Value)| {
+        let p = c.join(file);
+        let mut v: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        f(&mut v);
+        std::fs::write(&p, v.to_string()).unwrap();
+    };
+    edit("endings.json", &|v| v[0]["status"] = json!("landed"));
+    edit("health.json", &|v| {
+        v["checks"]["failed"][0]["status"] = json!("not an end");
+        v["checks"]["cycles"][0]["status"] = json!("verifying");
+    });
+    edit("running.json", &|v| {
+        v["cycles"][0]["status"] = json!("Running")
+    });
+
+    let ends = call(&c, "factory_endings", &json!({})).unwrap();
+    assert_eq!(ends["endings"][0]["status"], "unknown");
+    assert_eq!(ends["endings"][1]["status"], "merged");
+    assert_eq!(ends["failed"][0]["status"], "unknown");
+    let st = call(&c, "factory_status", &json!({})).unwrap();
+    assert_eq!(st["cycles"][0]["status"], "unknown");
+    let con = call(&c, "factory_console", &json!({"issue": 7})).unwrap();
+    assert_eq!(con["status"], "unknown");
+    let one = call(&c, "factory_issue", &json!({"issue": 7})).unwrap();
+    assert_eq!(one["running"]["status"], "unknown");
+
+    // The fixtures' own words are words of the vocabulary and stay.
+    let ends = call(&live(), "factory_endings", &json!({})).unwrap();
+    assert_eq!(ends["endings"][0]["status"], "interrupted");
+    let con = call(&live(), "factory_console", &json!({"issue": 7})).unwrap();
+    assert_eq!(con["status"], "running");
 }

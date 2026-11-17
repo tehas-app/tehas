@@ -914,6 +914,38 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
 }
 
 #[test]
+fn every_outcome_of_a_run_is_an_outcome_word() {
+    use tehas_core::outcome::{OUTCOMES, STATUSES};
+    let statuses = STATUSES.iter().map(|s| Some(s.to_string())).chain([None]);
+    for status in statuses {
+        for exit_code in [None, Some(0), Some(3), Some(30)] {
+            for pr in [None, Some(4)] {
+                for kind in [None, Some("cap"), Some("model")] {
+                    for parked in [false, true] {
+                        let r = run::Run {
+                            status: status.clone(),
+                            exit_code,
+                            pr,
+                            failure_kind: kind.map(str::to_string),
+                            ..run::Run::default()
+                        };
+                        let o = run::outcome(&r, parked);
+                        assert!(OUTCOMES.contains(&o), "{o} from {status:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn every_failed_status_is_a_cycle_status() {
+    for s in run::FAILED {
+        assert!(tehas_core::outcome::STATUSES.contains(&s), "{s}");
+    }
+}
+
+#[test]
 fn outcomes_follow_how_the_cycle_ended() {
     let home = scratch("outcomes");
     let t = 1_792_000_000;
@@ -1508,289 +1540,39 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
 }
 
-/// The database as a schema 2 program made it, from that program's schema.sql
-/// and its `create`, in WAL mode, with a finished run, its step and its role.
-fn schema_2_database(file: &Path, now: i64) -> Connection {
+/// A file another program has made and not yet given a schema: what `settle`
+/// meets while that program's `create` holds the write lock.
+fn empty_database(file: &Path) -> Connection {
     let c = Connection::open(file).unwrap();
-    c.execute_batch(include_str!("../tests/fixtures/schema-2.sql"))
-        .unwrap();
-    for (key, value) in [
-        ("schema", "2".to_string()),
-        ("retention_days", "365".to_string()),
-        ("created", now.to_string()),
-    ] {
-        c.execute(
-            "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-            rusqlite::params![key, value],
-        )
-        .unwrap();
-    }
-    c.pragma_update(None, "user_version", 2).unwrap();
-    c.pragma_update(None, "journal_mode", "WAL").unwrap();
-    c.execute_batch(&format!(
-        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, pr, input, gate_runs, gate_ms)
-           VALUES ('work-7-1', 'work', 7, {s}, {e}, 60, 'pr', 70, 10, 1, 5000);
-         INSERT INTO run_steps (run_id, step, round) VALUES ('work-7-1', 'implement', 1);
-         INSERT INTO run_roles (run_id, role) VALUES ('work-7-1', 'developer');",
-        s = now - 120,
-        e = now - 60,
-    ))
-    .unwrap();
-    c
-}
-
-// Every object as SQLite holds it, less the white space: ALTER TABLE puts the
-// new column on the old table's last line.
-fn stored_schema(conn: &Connection) -> Vec<(String, String)> {
-    let mut q = conn
-        .prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name")
-        .unwrap();
-    let rows = q
-        .query_map([], |r| {
-            let sql: String = r.get(1)?;
-            Ok((r.get(0)?, sql.split_whitespace().collect()))
-        })
-        .unwrap();
-    rows.map(Result::unwrap).collect()
-}
-
-#[test]
-fn a_schema_2_database_migrates_in_place_and_keeps_its_runs() {
-    let home = scratch("migrate");
-    let file = db::path(&home);
-    let now = 1_792_000_000;
-    drop(schema_2_database(&file, now));
-    let (conn, moved) = db::open(&file, now).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
-    assert_eq!(one::<String>(&conn, "PRAGMA journal_mode"), "wal");
-    assert_eq!(
-        one::<String>(
-            &conn,
-            "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
-        ),
-        format!(
-            "created={now} retention_days=365 schema={}",
-            db::SCHEMA_VERSION
-        )
-    );
-    assert_eq!(
-        one::<String>(
-            &conn,
-            "SELECT id || ' ' || gate_ms || ' ' || coalesce(driver, 'none') FROM runs"
-        ),
-        "work-7-1 5000 none"
-    );
-    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_steps"), 1);
-    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_roles"), 1);
-    // Nothing went aside.
-    let names: Vec<String> = fs::read_dir(home.join("state"))
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .filter(|n| n.contains(".schema-") || n.ends_with(".broken"))
-        .collect();
-    assert_eq!(names, Vec::<String>::new());
-    // A second open has nothing left to do.
-    let (again, moved) = db::open(&file, now + 1).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(one::<i64>(&again, "SELECT count(*) FROM runs"), 1);
-}
-
-#[test]
-fn a_migrated_database_holds_what_a_new_one_does() {
-    let home = scratch("migrated");
-    let file = db::path(&home);
-    drop(schema_2_database(&file, 1_792_000_000));
-    let (migrated, _) = db::open(&file, 1_792_000_000).unwrap();
-    let fresh = scratch("fresh");
-    let (new, _) = db::open(&db::path(&fresh), 1_792_000_000).unwrap();
-    assert_eq!(stored_schema(&migrated), stored_schema(&new));
-    let driver_is_checked = migrated.execute("UPDATE runs SET driver = 'other'", []);
-    assert!(driver_is_checked.is_err());
-    // What schema.pinned pins of a run is what a migrated database takes.
-    let run = run::Run {
-        id: "work-8-1".into(),
-        issue: 8,
-        started: 1,
-        driver: Some("lean".into()),
-        ..run::Run::default()
-    };
-    run::insert(&migrated, &run).unwrap();
-    assert_eq!(
-        one::<String>(&migrated, "SELECT driver FROM runs WHERE issue = 8"),
-        "lean"
-    );
-}
-
-/// The database as a schema 3 program made it, with a run the approval
-/// bound to lean and a role.
-fn schema_3_database(file: &Path, now: i64) -> Connection {
-    let c = Connection::open(file).unwrap();
-    c.execute_batch(include_str!("../tests/fixtures/schema-3.sql"))
-        .unwrap();
-    for (key, value) in [
-        ("schema", "3".to_string()),
-        ("retention_days", "365".to_string()),
-        ("created", now.to_string()),
-    ] {
-        c.execute(
-            "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-            rusqlite::params![key, value],
-        )
-        .unwrap();
-    }
-    c.pragma_update(None, "user_version", 3).unwrap();
-    c.pragma_update(None, "journal_mode", "WAL").unwrap();
-    c.execute_batch(&format!(
-        "INSERT INTO runs (id, kind, issue, started, ended, outcome, driver)
-           VALUES ('work-7-1', 'work', 7, {s}, {e}, 'pr', 'lean');
-         INSERT INTO run_roles (run_id, role, input) VALUES ('work-7-1', 'developer', 10);",
-        s = now - 120,
-        e = now - 60,
-    ))
-    .unwrap();
+    c.execute_batch("PRAGMA journal_mode = WAL").unwrap();
     c
 }
 
 #[test]
-fn a_schema_3_database_migrates_in_place_and_holds_what_a_new_one_does() {
-    let home = scratch("migrate-3");
+fn a_write_lock_held_through_the_create_is_an_error_and_changes_nothing() {
+    let home = scratch("create-busy");
     let file = db::path(&home);
     let now = 1_792_000_000;
-    drop(schema_3_database(&file, now));
-    let (migrated, moved) = db::open(&file, now).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(
-        one::<i64>(&migrated, "PRAGMA user_version"),
-        db::SCHEMA_VERSION
-    );
-    assert_eq!(
-        one::<String>(&migrated, "SELECT value FROM meta WHERE key = 'schema'"),
-        db::SCHEMA_VERSION.to_string()
-    );
-    assert_eq!(
-        one::<String>(
-            &migrated,
-            "SELECT driver || ' ' || coalesce(tool_calls, 'none') || ' '
-                    || coalesce(result_driver, 'none') FROM runs"
-        ),
-        "lean none none"
-    );
-    assert_eq!(
-        one::<String>(
-            &migrated,
-            "SELECT input || ' ' || coalesce(tool_calls, 'none') FROM run_roles"
-        ),
-        "10 none"
-    );
-    let fresh = scratch("fresh-4");
-    let (new, _) = db::open(&db::path(&fresh), now).unwrap();
-    assert_eq!(stored_schema(&migrated), stored_schema(&new));
-    assert!(migrated
-        .execute("UPDATE runs SET result_driver = 'other'", [])
-        .is_err());
-}
-
-#[test]
-fn programs_that_open_a_schema_2_database_at_once_all_get_it() {
-    for round in 0..20 {
-        let home = scratch(&format!("migrate-concurrent-{round}"));
-        let file = db::path(&home);
-        let now = 1_792_000_000;
-        drop(schema_2_database(&file, now));
-        let openers: Vec<_> = (0..8)
-            .map(|i| {
-                let file = file.clone();
-                std::thread::spawn(move || {
-                    let (conn, moved) = db::open(&file, now).unwrap();
-                    db::event(&conn, i, "ready", now).unwrap();
-                    moved
-                })
-            })
-            .collect();
-        for o in openers {
-            assert_eq!(o.join().unwrap(), None, "a database was moved aside");
-        }
-        assert!(!home.join("state/analytics.db.schema-2").exists());
-        let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
-        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM runs"), 1);
-        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
-    }
-}
-
-#[test]
-fn a_database_another_program_migrated_meanwhile_is_left_as_it_is() {
-    let home = scratch("migrate-race");
-    let file = db::path(&home);
-    let now = 1_792_000_000;
-    drop(schema_2_database(&file, now));
-    // This one read user_version 2; the other took the write lock first.
-    let mut late = Connection::open(&file).unwrap();
-    db::open(&file, now).unwrap();
-    assert!(db::settle(&mut late, 2, now).is_ok());
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), db::SCHEMA_VERSION);
-}
-
-#[test]
-fn a_connection_open_through_the_migration_goes_on_working() {
-    let home = scratch("migrate-open");
-    let file = db::path(&home);
-    let now = 1_792_000_000;
-    let old = schema_2_database(&file, now);
-    // A reader in the middle of a read does not hold the migration up, and
-    // goes on seeing the rows it was reading.
-    let reader = Connection::open(&file).unwrap();
-    reader.execute_batch("BEGIN").unwrap();
-    assert_eq!(one::<i64>(&reader, "SELECT count(*) FROM runs"), 1);
-    let (_conn, moved) = db::open(&file, now).unwrap();
-    assert_eq!(moved, None);
-    assert_eq!(one::<i64>(&reader, "SELECT count(*) FROM runs"), 1);
-    reader.execute_batch("COMMIT").unwrap();
-    assert_eq!(
-        one::<i64>(
-            &reader,
-            "SELECT count(*) FROM pragma_table_info('runs') WHERE name = 'driver'"
-        ),
-        1
-    );
-    // A schema 2 program that had the file open writes on, by its columns.
-    old.execute(
-        "INSERT INTO runs (id, kind, issue, started, outcome) VALUES ('work-8-1', 'work', 8, 1, 'pr')",
-        [],
-    )
-    .unwrap();
-    assert_eq!(
-        one::<i64>(&old, "SELECT count(*) FROM runs WHERE driver IS NULL"),
-        2
-    );
-}
-
-#[test]
-fn a_write_lock_held_through_the_migration_is_an_error_and_changes_nothing() {
-    let home = scratch("migrate-busy");
-    let file = db::path(&home);
-    let now = 1_792_000_000;
-    let holder = schema_2_database(&file, now);
+    let holder = empty_database(&file);
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut late = Connection::open(&file).unwrap();
     late.busy_timeout(std::time::Duration::ZERO).unwrap();
     assert!(matches!(
-        db::settle(&mut late, 2, now),
+        db::settle(&mut late, 0, now),
         Err(db::Unusable::Busy(_))
     ));
     holder.execute_batch("COMMIT").unwrap();
-    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 2);
-    assert!(db::settle(&mut late, 2, now).is_ok());
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 0);
+    assert!(db::settle(&mut late, 0, now).is_ok());
     assert_eq!(one::<i64>(&late, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
 #[test]
 fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
-    let home = scratch("migrate-long-lock");
+    let home = scratch("create-long-lock");
     let file = db::path(&home);
     let now = 1_792_000_000;
-    let holder = schema_2_database(&file, now);
+    let holder = empty_database(&file);
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let release = std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(6));
@@ -1802,44 +1584,28 @@ fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
+/// v0.30.0 wrote schema 4 already, so a database of an older schema is no
+/// 0.30 host's: it is kept aside under its version, as any other is.
 #[test]
-fn a_migration_that_fails_takes_nothing_with_it_and_moves_nothing() {
-    let home = scratch("migrate-fails");
-    let file = db::path(&home);
-    let now = 1_792_000_000;
-    let c = schema_2_database(&file, now);
-    c.execute_batch("ALTER TABLE runs ADD COLUMN driver TEXT")
-        .unwrap();
-    drop(c);
-    assert!(db::open(&file, now).is_err());
-    let c = Connection::open(&file).unwrap();
-    assert_eq!(one::<i64>(&c, "PRAGMA user_version"), 2);
-    assert_eq!(
-        one::<String>(&c, "SELECT value FROM meta WHERE key = 'schema'"),
-        "2"
-    );
-    assert_eq!(one::<i64>(&c, "SELECT count(*) FROM runs"), 1);
-    assert!(!home.join("state/analytics.db.schema-2").exists());
-}
-
-#[test]
-fn a_database_of_schema_1_is_still_kept_aside() {
-    let home = scratch("schema-1");
-    let file = db::path(&home);
-    {
-        let c = Connection::open(&file).unwrap();
-        c.execute_batch(
-            "CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 1",
-        )
-        .unwrap();
+fn a_database_of_schema_1_to_3_is_kept_aside() {
+    for v in 1..=3 {
+        let home = scratch(&format!("schema-{v}"));
+        let file = db::path(&home);
+        {
+            let c = Connection::open(&file).unwrap();
+            c.execute_batch(&format!(
+                "CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = {v}"
+            ))
+            .unwrap();
+        }
+        let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+        assert_eq!(
+            moved,
+            Some(home.join(format!("state/analytics.db.schema-{v}"))),
+            "schema {v} has no migration"
+        );
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     }
-    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
-    assert_eq!(
-        moved,
-        Some(home.join("state/analytics.db.schema-1")),
-        "schema 1 has no migration"
-    );
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
 #[test]
@@ -1943,7 +1709,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     execute(&home, &Cmd::Run(7, given(&home, 7)), now).unwrap();
     execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
-    execute(&home, &Cmd::Export(out.clone(), false), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), false), now).unwrap();
     assert_eq!(
         fs::metadata(&out).unwrap().permissions().mode() & 0o777,
         0o600
@@ -1988,7 +1754,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     assert!(seen > 10);
     // An export never replaces a file.
     assert_eq!(
-        execute(&home, &Cmd::Export(out.clone(), true), now)
+        execute(&home, &Cmd::Copy(out.clone(), true), now)
             .unwrap_err()
             .0,
         73
@@ -2193,13 +1959,16 @@ fn the_arguments_are_checked() {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
     assert_eq!(
-        parse(&args("export /tmp/x.db")),
-        Some(Cmd::Export("/tmp/x.db".into(), false))
+        parse(&args("copy --to /tmp/x.db")),
+        Some(Cmd::Copy("/tmp/x.db".into(), false))
     );
-    assert_eq!(
-        parse(&args("export /tmp/x.db --json")),
-        Some(Cmd::Export("/tmp/x.db".into(), true))
-    );
+    for json in ["copy --to /tmp/x.db --json", "copy --json --to /tmp/x.db"] {
+        assert_eq!(
+            parse(&args(json)),
+            Some(Cmd::Copy("/tmp/x.db".into(), true)),
+            "{json}"
+        );
+    }
     assert_eq!(parse(&args("report --json")), Some(Cmd::Report));
     assert_eq!(parse(&args("report")), Some(Cmd::ReportText));
     for bad in [
@@ -2213,12 +1982,16 @@ fn the_arguments_are_checked() {
         "sample now",
         "report --text",
         "report --json now",
-        "export",
-        "export --json",
-        "export -x.db",
-        "export x.db --yaml",
-        "export x.db --json --json",
-        "export x.db --json now",
+        "export /tmp/x.db",
+        "export /tmp/x.db --json",
+        "copy",
+        "copy x.db",
+        "copy --to",
+        "copy --json",
+        "copy --to -x.db",
+        "copy --to x.db --yaml",
+        "copy --to x.db --json --json",
+        "copy --to x.db --json now",
     ] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
@@ -2437,7 +2210,6 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
         limit_room: Some(1),
         refresh_room: Some(2),
         endpoint: Some("backup".into()),
-        slots: Some(json!({"cycles": 6, "cyclesHow": "auto"})),
         held: Vec::new(),
     };
     let mut v = r.to_value();
@@ -4578,21 +4350,6 @@ fn a_drivers_entry_gives_the_one_attempt_success_and_the_hand_back_by_step() {
 }
 
 #[test]
-fn a_migrated_run_reads_classic_in_the_report() {
-    let home = scratch("report-migrated");
-    let file = db::path(&home);
-    let now = 1_792_022_400;
-    drop(schema_2_database(&file, now));
-    let (conn, _) = db::open(&file, now).unwrap();
-    let got = crate::report::build(&conn, now).unwrap();
-    assert_eq!(got["drivers"]["classic"]["none"]["n"], 1);
-    assert_eq!(got["drivers"]["classic"]["none"]["ran"], 1);
-    // One run is under VERSION_FLOOR, so it has no share.
-    assert_eq!(got["drivers"]["classic"]["none"].get("prShare"), None);
-    assert_eq!(got["drivers"]["lean"], json!({}));
-}
-
-#[test]
 fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
     let home = scratch("report-version-tokens");
     let day0 = 1_792_022_400;
@@ -4618,14 +4375,10 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
 fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
     let median =
         |conn: &Connection| one::<Option<f64>>(conn, "SELECT median_tokens FROM v_versions");
-    // On a new database and on one migrated from schema 2.
     let new = scratch("view-tokens-new");
     let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
-    let old = scratch("view-tokens-migrated");
-    drop(schema_2_database(&db::path(&old), 1_792_022_400));
-    let (migrated, _) = db::open(&db::path(&old), 1_792_022_400).unwrap();
-    migrated.execute("DELETE FROM runs", []).unwrap();
-    for conn in [&fresh, &migrated] {
+    {
+        let conn = &fresh;
         driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
         driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
         assert_eq!(median(conn), None);
@@ -4785,7 +4538,7 @@ fn an_export_of_no_runs_leaves_out_from_and_to() {
     let home = scratch("export-empty");
     let now = 1_792_022_400;
     let out = home.join("copy.db");
-    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), true), now).unwrap();
     assert_eq!(
         db::copy_summary(&out).unwrap(),
         format!(r#"{{"api":1,"schema":{},"runs":0}}"#, db::SCHEMA_VERSION)
@@ -4805,7 +4558,7 @@ fn an_export_of_no_runs_leaves_out_from_and_to() {
         .unwrap();
     }
     let out = home.join("copy2.db");
-    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), true), now).unwrap();
     assert_eq!(
         db::copy_summary(&out).unwrap(),
         format!(
@@ -4878,7 +4631,7 @@ fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
     use std::os::unix::ffi::OsStrExt;
     let home = scratch("export-utf8");
     let out = home.join(std::ffi::OsStr::from_bytes(b"copy-\xff.db"));
-    let err = execute(&home, &Cmd::Export(out.clone(), false), 1_792_022_400).unwrap_err();
+    let err = execute(&home, &Cmd::Copy(out.clone(), false), 1_792_022_400).unwrap_err();
     assert_eq!(err.0, 73, "{err:?}");
     assert!(!out.exists());
 }

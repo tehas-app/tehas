@@ -47,11 +47,25 @@ reset
 ended handoff develop feature/issue-7 verify-timeout:develop
 jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=verify-timeout -->\nNot pushed."}' \
   "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-# The park's question and the comment in its place both fail.
+# The park's question and the comment in its place both fail, and the read
+# after each 503 finds no comment.
 : >"$fx/post-fails"
 echo "HTTP 503: Service Unavailable" >"$fx/comment-fails"
+echo '[]' >"$fx/comments.json"
 t_run "$cycle 7"
 t_contains "$t_out" "WARN: the handoff of #7 reached no comment"
 t_eq "$(said)" '["handoff",true,"HTTP 503",[],""]'
+
+t_case "a handoff comment that may have been posted is no failed end"
+reset
+ended handoff develop feature/issue-7 verify-timeout:develop
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=verify-timeout -->\nNot pushed."}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+# The comment fails 503 and no read tells whether GitHub took it.
+: >"$fx/post-fails"
+echo "HTTP 503: Service Unavailable" >"$fx/comment-fails"
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: the handoff of #7 may not have reached a comment"
+t_eq "$(ls "$record" 2>/dev/null)" ""
 
 t_done

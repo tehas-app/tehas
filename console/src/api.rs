@@ -10,11 +10,12 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// What this release can do. A feature is added here in the release that
-/// brings it, and taken out only with the feature itself.
-const FEATURES: [&str; 31] = [
+/// brings it, and taken out only with the feature itself. The shipped features
+/// of the registry (core/src/features.rs) follow these; a building one is not
+/// a word of `features`.
+const FEATURES: [&str; 27] = [
     "status",
     "millwright-grant",
-    "fixer-grant",
     "all-hands",
     "limit",
     "drain",
@@ -29,7 +30,7 @@ const FEATURES: [&str; 31] = [
     "state-check",
     "finish",
     "status-versions",
-    "store-copy",
+    "state-copy",
     "state-load",
     "freeze",
     "host-bridge",
@@ -38,11 +39,8 @@ const FEATURES: [&str; 31] = [
     "start-order",
     "host-message",
     "refresh-pr",
-    "host-message-health",
-    "refresh-pr-starts",
-    "refresh-pr-lane",
-    "refresh-pr-json",
     "host-start",
+    "flags",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -71,17 +69,6 @@ fn version_text(file: &Path) -> String {
     text.split('\n').next().unwrap_or_default().to_string()
 }
 
-fn is_tag(v: &str) -> bool {
-    let Some(numbers) = v.strip_prefix('v') else {
-        return false;
-    };
-    let parts: Vec<&str> = numbers.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
-}
-
 /// The release and the commit of a version text: `v0.8.0+cb6912a` both, a
 /// bare tag the release, anything else with no `+` the commit.
 fn split_version(v: &str) -> (Option<String>, Option<String>) {
@@ -89,7 +76,7 @@ fn split_version(v: &str) -> (Option<String>, Option<String>) {
         return (None, None);
     }
     let parts: Vec<&str> = v.split('+').collect();
-    if parts.len() == 1 && is_tag(v) {
+    if parts.len() == 1 && tehas_core::version::is_tag(v) {
         return (Some(v.to_string()), None);
     }
     let tehas = (parts.len() == 2).then(|| parts[0].to_string());
@@ -111,7 +98,31 @@ fn poll_of(answer: &J) -> J {
     ])
 }
 
-fn object(version: &str, repo: &str, login: &str, poll: J) -> J {
+/// Every word of `features`: this release's, then its shipped features'.
+fn features() -> Vec<&'static str> {
+    let mut words = FEATURES.to_vec();
+    words.extend(tehas_core::features::shipped());
+    words
+}
+
+/// `flags`: every registered feature, building ones too, and whether it is on.
+fn flags_object(flags: &[(&str, bool)]) -> J {
+    obj(flags
+        .iter()
+        .map(|(name, on)| (*name, J::Bool(*on)))
+        .collect())
+}
+
+/// The `flags` line for a person: each feature with on or off.
+fn flags_line(flags: &[(&str, bool)]) -> String {
+    let words: Vec<String> = flags
+        .iter()
+        .map(|(name, on)| format!("{name}={}", if *on { "on" } else { "off" }))
+        .collect();
+    words.join(" ")
+}
+
+fn object(version: &str, repo: &str, login: &str, flags: &[(&str, bool)], poll: J) -> J {
     let (tehas, commit) = split_version(version);
     let millwright = if login.is_empty() {
         J::Null
@@ -125,17 +136,23 @@ fn object(version: &str, repo: &str, login: &str, poll: J) -> J {
         ("repo", J::str(repo)),
         (
             "features",
-            J::Arr(FEATURES.iter().map(|f| J::str(*f)).collect()),
+            J::Arr(features().into_iter().map(J::str).collect()),
         ),
-        ("millwright", millwright.clone()),
-        ("fixer", millwright),
+        ("flags", flags_object(flags)),
+        ("millwright", millwright),
         ("poll", poll),
     ])
 }
 
 /// The lines for a person. The poll line is the store's own words, with its
 /// first word brought to the column of the others.
-fn lines(version: &str, repo: &str, login: &str, poll_line: &str) -> Vec<String> {
+fn lines(
+    version: &str,
+    repo: &str,
+    login: &str,
+    flags: &[(&str, bool)],
+    poll_line: &str,
+) -> Vec<String> {
     let (tehas, commit) = split_version(version);
     let release = tehas.unwrap_or_else(|| "unknown".to_string());
     let commit = commit.map_or(String::new(), |c| format!(" ({c})"));
@@ -144,7 +161,8 @@ fn lines(version: &str, repo: &str, login: &str, poll_line: &str) -> Vec<String>
         "api         1".to_string(),
         format!("tehas       {release}{commit}"),
         format!("repo        {repo}"),
-        format!("features    {}", FEATURES.join(" ")),
+        format!("features    {}", features().join(" ")),
+        format!("flags       {}", flags_line(flags)),
         format!("millwright  {mill}"),
     ];
     if !poll_line.is_empty() {
@@ -165,17 +183,18 @@ pub fn main(given: &[String]) -> u8 {
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let login = env::var("TEHAS_MILLWRIGHT_LOGIN").unwrap_or_default();
     let version = version_text(&home.join("docs/version.txt"));
+    let flags = tehas_core::features::flags();
     if json {
         let now = tehas_core::time::now().to_string();
         let poll = store::line(&home, &["poll-show", "--api", "--now", &now])
             .ok()
             .and_then(|text| J::parse(&text))
             .map_or(J::Null, |answer| poll_of(&answer));
-        tehas_core::outln!("{}", object(&version, &repo, &login, poll).dump());
+        tehas_core::outln!("{}", object(&version, &repo, &login, &flags, poll).dump());
     } else {
         let poll = store::call(&home, &["poll-show"]).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
-        for line in lines(&version, &repo, &login, line) {
+        for line in lines(&version, &repo, &login, &flags, line) {
             tehas_core::outln!("{line}");
         }
     }
@@ -195,6 +214,8 @@ mod tests {
     fn a_version_text_is_split_as_install_wrote_it() {
         assert_eq!(split_version("v0.8.0+cb6912a"), pair("v0.8.0", "cb6912a"));
         assert_eq!(split_version("v0.10.2"), pair("v0.10.2", "-"));
+        assert_eq!(split_version("v1.0.0-alpha.1"), pair("v1.0.0-alpha.1", "-"));
+        assert_eq!(split_version("v1.0.0-gamma.1"), pair("-", "v1.0.0-gamma.1"));
         assert_eq!(split_version("cb6912a"), pair("-", "cb6912a"));
         assert_eq!(split_version(""), pair("-", "-"));
         assert_eq!(split_version("v1.2"), pair("-", "v1.2"));
@@ -206,13 +227,32 @@ mod tests {
     #[test]
     fn the_keys_stay_in_the_order_of_the_api() {
         let poll = J::parse(r#"{"z":1,"a":2}"#).unwrap();
-        let printed = object("v1.2.3", "acme/widget", "mill", poll).dump();
+        let flags = [("outsource", false), ("other", true)];
+        let printed = object("v1.2.3", "acme/widget", "mill", &flags, poll).dump();
         assert!(printed.starts_with(
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","store-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-message-health","refresh-pr-starts","refresh-pr-lane","refresh-pr-json","host-start"],"millwright":"mill","fixer":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
+    }
+
+    #[test]
+    fn a_building_feature_is_a_flag_and_no_word_of_features() {
+        let words = features();
+        let flags = tehas_core::features::flags();
+        assert!(flags.iter().any(|(name, _)| *name == "outsource"));
+        assert!(!words.contains(&"outsource"));
+        assert!(words.contains(&"flags"));
+        for gone in [
+            "store-copy",
+            "host-message-health",
+            "refresh-pr-starts",
+            "refresh-pr-lane",
+            "refresh-pr-json",
+        ] {
+            assert!(!words.contains(&gone), "{gone}");
+        }
     }
 
     #[test]
@@ -229,10 +269,12 @@ mod tests {
 
     #[test]
     fn the_poll_line_takes_the_column_of_the_others() {
-        let got = lines("cb6912a", "a/b", "", "poll  last 2 s wall");
+        let flags = [("outsource", false), ("other", true)];
+        let got = lines("cb6912a", "a/b", "", &flags, "poll  last 2 s wall");
         assert_eq!(got[1], "tehas       unknown (cb6912a)");
-        assert_eq!(got[4], "millwright  none");
-        assert_eq!(got[5], "poll        last 2 s wall");
-        assert_eq!(lines("", "a/b", "", "").len(), 5);
+        assert_eq!(got[4], "flags       outsource=off other=on");
+        assert_eq!(got[5], "millwright  none");
+        assert_eq!(got[6], "poll        last 2 s wall");
+        assert_eq!(lines("", "a/b", "", &flags, "").len(), 6);
     }
 }

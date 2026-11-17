@@ -14,7 +14,6 @@
 
 use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
-    ANSWERED,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -24,6 +23,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::version;
 
 /// Seconds for each call out: a remote that stops answering fails the update.
 const API_LIMIT: u32 = 60;
@@ -36,31 +36,16 @@ const SETTINGS_SAID: usize = 64 * 1024;
 /// The name of the image a version ran with.
 const IMAGE_TAG: &str = "tehas/pi-rukas:release-";
 
-fn digits(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
-}
-
-/// The number N of a release candidate's `-rc.N`, and the version before it.
-fn candidate_of(version: &str) -> Option<(&str, &str)> {
-    let (base, n) = version.rsplit_once("-rc.")?;
-    digits(n).then_some((base, n))
-}
-
-/// The shape of a published version: vX.Y.Z, or a release candidate of one,
-/// vX.Y.Z-rc.N.
+/// The shape of a published version: vX.Y.Z, or a prerelease of one,
+/// vX.Y.Z-alpha.N, -beta.N or -rc.N.
 pub fn tag_ok(tag: &str) -> bool {
-    let Some(rest) = tag.strip_prefix('v') else {
-        return false;
-    };
-    let rest = candidate_of(rest).map_or(rest, |(base, _)| base);
-    let parts: Vec<&str> = rest.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| digits(p))
+    version::is_tag(tag)
 }
 
-/// A release candidate, vX.Y.Z-rc.N: published as a prerelease, installed only
+/// A prerelease of any stage: published as a GitHub prerelease, installed only
 /// when named.
-pub fn candidate(tag: &str) -> bool {
-    tag_ok(tag) && candidate_of(tag).is_some()
+pub fn prerelease(tag: &str) -> bool {
+    version::is_prerelease(tag)
 }
 
 fn order(c: u8) -> i32 {
@@ -73,16 +58,18 @@ fn order(c: u8) -> i32 {
 }
 
 /// The order of `sort -V`, without its handling of file name suffixes, except
-/// that a release candidate comes before its version: v1.0.0-rc.9 before
+/// that the prereleases of a version come before it, alpha before beta before
+/// rc: v1.0.0-alpha.2 before v1.0.0-beta.1 before v1.0.0-rc.9 before
 /// v1.0.0-rc.10 before v1.0.0.
 fn version_order(a: &str, b: &str) -> Ordering {
-    let parts = |s| candidate_of(s).map_or((s, None), |(base, n)| (base, Some(n)));
+    let parts =
+        |s| version::prerelease(s).map_or((s, None), |(base, stage, n)| (base, Some((stage, n))));
     let ((x, m), (y, n)) = (parts(a), parts(b));
     sort_v(x.as_bytes(), y.as_bytes()).then_with(|| match (m, n) {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
-        (Some(m), Some(n)) => sort_v(m.as_bytes(), n.as_bytes()),
+        (Some((s, m)), Some((t, n))) => s.cmp(&t).then_with(|| sort_v(m.as_bytes(), n.as_bytes())),
     })
 }
 
@@ -157,8 +144,9 @@ fn truthy(v: &Value) -> bool {
 }
 
 /// Published releases only, newest first by version, not by date: vX.Y.Z,
-/// and the release candidates, which GitHub holds as prereleases. An answer
-/// that is not a list of releases is an error, and no answer is none.
+/// and the alphas, betas and release candidates, which GitHub holds as
+/// prereleases. An answer that is not a list of releases is an error, and no
+/// answer is none.
 fn published(text: &str) -> Result<Vec<Published>, ()> {
     let mut found = Vec::new();
     for answer in serde_json::Deserializer::from_str(text).into_iter::<Value>() {
@@ -172,7 +160,7 @@ fn published(text: &str) -> Result<Vec<Published>, ()> {
             let release = item.as_object().ok_or(())?;
             let held = |name: &str| release.get(name).is_some_and(truthy);
             let tag = release.get("tag_name").and_then(Value::as_str);
-            if held("draft") || (held("prerelease") && !tag.is_some_and(candidate)) {
+            if held("draft") || (held("prerelease") && !tag.is_some_and(prerelease)) {
                 continue;
             }
             let tag = tag.ok_or(())?;
@@ -195,11 +183,20 @@ fn published(text: &str) -> Result<Vec<Published>, ()> {
     Ok(found)
 }
 
-/// The newest release that is no release candidate.
+/// The newest release that is no prerelease.
 pub(crate) fn newest(list: &[Published]) -> Option<&str> {
     list.iter()
         .map(|r| r.tag.as_str())
-        .find(|tag| !candidate(tag))
+        .find(|tag| !prerelease(tag))
+}
+
+/// What an update moves to: the version named, when it is published, or else
+/// the newest release. A prerelease only when it is named.
+pub(crate) fn target<'a>(list: &'a [Published], to: Option<&'a str>) -> Option<&'a str> {
+    match to {
+        Some(to) => list.iter().any(|r| r.tag == to).then_some(to),
+        None => newest(list),
+    }
 }
 
 /// The sections after `from` up to and including `to`, oldest first.
@@ -911,12 +908,11 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             return 1;
         }
     }
-    // A release candidate is never the newest: a host runs one only when it is
-    // named with --to.
+    // A prerelease is never the newest: a host runs one only when it is named
+    // with --to.
     let newest = newest(&list).unwrap_or_default().to_string();
-    let mut target = match to {
-        Some(to) => to.to_string(),
-        None if !newest.is_empty() => newest.clone(),
+    let mut target = match target(&list, to) {
+        Some(target) => target.to_string(),
         None => {
             let named = repo(host).unwrap_or_default();
             tell(&format!(
@@ -964,11 +960,11 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         ));
         target = installed.clone();
     }
-    // The candidates of a version are read as that version's notes, so only the
-    // one moved to or from is shown.
+    // The prereleases of a version are read as that version's notes, so only
+    // the one moved to or from is shown.
     let list: Vec<Published> = list
         .into_iter()
-        .filter(|r| !candidate(&r.tag) || r.tag == target || r.tag == from_note)
+        .filter(|r| !prerelease(&r.tag) || r.tag == target || r.tag == from_note)
         .collect();
     notes(&target, &installed, &from_note, &list);
 
@@ -984,7 +980,8 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             plan.tree = current.display().to_string();
         } else if !host.checkout().join("install.sh").is_file() {
             // No install.sh to ask.
-            return if plan.found { 1 } else { ANSWERED };
+            plan.over = !plan.found;
+            return plan.found as u8;
         }
         return 0;
     }
@@ -1125,13 +1122,15 @@ mod tests {
     }
 
     #[test]
-    fn a_version_is_vxyz_or_a_candidate_of_one_and_nothing_else() {
+    fn a_version_is_vxyz_or_a_prerelease_of_one_and_nothing_else() {
         for good in [
             "v1.2.3",
             "v0.0.0",
             "v10.20.30",
             "v0.22.0-rc.1",
             "v0.22.0-rc.10",
+            "v1.0.0-alpha.1",
+            "v1.0.0-beta.3",
         ] {
             assert!(tag_ok(good), "{good}");
         }
@@ -1150,14 +1149,43 @@ mod tests {
             "v1.2.3-rc.1-rc.2",
             "v1.2.3-RC.1",
             "v1.2-rc.1",
-            "v1.2.3-beta.1",
+            "v1.2.3-gamma.1",
+            "v1.2.3-alpha",
+            "v1.2.3-Beta.1",
             "v1.2.3\n",
         ] {
             assert!(!tag_ok(bad), "{bad:?}");
         }
-        assert!(candidate("v0.22.0-rc.1"));
-        assert!(!candidate("v0.22.0"));
-        assert!(!candidate("v0.22-rc.1"));
+        assert!(prerelease("v0.22.0-rc.1"));
+        assert!(prerelease("v1.0.0-alpha.1"));
+        assert!(prerelease("v1.0.0-beta.1"));
+        assert!(!prerelease("v0.22.0"));
+        assert!(!prerelease("v0.22-rc.1"));
+    }
+
+    #[test]
+    fn alpha_comes_before_beta_before_rc_before_the_release() {
+        let order = [
+            "v0.30.7",
+            "v1.0.0-alpha.1",
+            "v1.0.0-alpha.2",
+            "v1.0.0-alpha.10",
+            "v1.0.0-beta.1",
+            "v1.0.0-beta.2",
+            "v1.0.0-rc.1",
+            "v1.0.0-rc.2",
+            "v1.0.0",
+            "v1.0.1-alpha.1",
+            "v1.0.1",
+        ];
+        for (i, a) in order.iter().enumerate() {
+            for (j, b) in order.iter().enumerate() {
+                assert_eq!(older(a, b), i < j, "{a} {b}");
+            }
+        }
+        // A host on a beta is behind its release, and ahead of the one before.
+        assert!(!stale("v1.0.0", "v1.0.0-beta.1"));
+        assert!(stale("v0.30.7", "v1.0.0-beta.1"));
     }
 
     #[test]
@@ -1221,6 +1249,49 @@ mod tests {
         assert_eq!(tags, ["v1.10.0", "v1.9.0", "v1.8.0"]);
         assert_eq!(list[1].body, "nine");
         assert_eq!(list[0].body, "");
+    }
+
+    #[test]
+    fn a_prerelease_of_any_stage_is_listed_but_never_the_newest() {
+        let answer = json!([
+            {"tag_name": "v0.30.7"},
+            {"tag_name": "v1.0.0-alpha.1", "prerelease": true},
+            {"tag_name": "v1.0.0-beta.1", "prerelease": true},
+            {"tag_name": "v1.0.0-alpha.2", "prerelease": true},
+            {"tag_name": "v1.0.0-rc.1", "prerelease": true},
+        ]);
+        let list = published(&answer.to_string()).unwrap();
+        let tags: Vec<&str> = list.iter().map(|r| r.tag.as_str()).collect();
+        assert_eq!(
+            tags,
+            [
+                "v1.0.0-rc.1",
+                "v1.0.0-beta.1",
+                "v1.0.0-alpha.2",
+                "v1.0.0-alpha.1",
+                "v0.30.7"
+            ]
+        );
+        assert_eq!(newest(&list), Some("v0.30.7"));
+    }
+
+    #[test]
+    fn an_ordinary_update_skips_a_prerelease_and_a_named_one_is_taken() {
+        let list = [
+            rel("v1.0.0-beta.1"),
+            rel("v1.0.0-alpha.1"),
+            rel("v0.30.7"),
+            rel("v0.30.6"),
+        ];
+        assert_eq!(target(&list, None), Some("v0.30.7"));
+        assert_eq!(
+            target(&list, Some("v1.0.0-alpha.1")),
+            Some("v1.0.0-alpha.1")
+        );
+        assert_eq!(target(&list, Some("v0.30.6")), Some("v0.30.6"));
+        assert_eq!(target(&list, Some("v1.0.0-alpha.2")), None);
+        assert_eq!(target(&list[..2], None), None);
+        assert_eq!(target(&[], None), None);
     }
 
     #[test]

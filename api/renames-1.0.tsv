@@ -1,0 +1,59 @@
+kind	old	new	note
+field	export.plan.json.answers[].fixer		read answers[].millwright
+value	history.runs[].how=fixer	millwright	an old run recorded as fixer says millwright
+value	mcp.factory_sessions.how=fixer	millwright	the runs and their how say millwright; fixer is no longer a filter
+command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an alias through 1.x; it prints the same words and object
+command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
+command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias
+field	status.running[].step	status.running[].progress.step	driver-specific, may change
+field	status.running[].stepNumber	status.running[].progress.stepNumber	driver-specific, may change
+field	status.running[].stepTotal	status.running[].progress.stepTotal	driver-specific, may change
+field	status.running[].round	status.running[].progress.round	driver-specific, may change
+field	status.running[].roundLimit	status.running[].progress.roundLimit	driver-specific, may change
+field	status.running[].stepSince	status.running[].progress.stepSince	driver-specific, may change
+field	history.cycles	history.runs	holds cycles and planning turns
+field	history.cycles[].step	history.runs[].progress.step	driver-specific, may change
+field	history.cycles[].stepNumber	history.runs[].progress.stepNumber	driver-specific, may change
+field	history.cycles[].stepTotal	history.runs[].progress.stepTotal	driver-specific, may change
+field	history.cycles[].round	history.runs[].progress.round	driver-specific, may change
+field	export.cycles	export.runs	tehas export --json prints the history object; each history.json of the directory is a line of it
+field	start.approval.body_sha256	start.approval.bodySha256	camelCase like every other object
+field	start.approval.title_sha256	start.approval.titleSha256	camelCase like every other object
+field	refresh.head_sha	refresh.headSha	camelCase like every other object; the object also gains api
+field	disk.generatedAt	disk.time	also in live/disk.json and tehas disk --cycles --json
+field	factory_disk.generatedAt	factory_disk.time	as tehas disk
+field	factory_disk.dockerRoot		not served over MCP
+command	tehas setup --labellers	tehas setup --labelers	spelled as TEHAS_ALLOWED_LABELERS; the old spelling exits 64 and names the new one
+command	tehas setup --token-file		refused since the GitHub App; now an unknown option (64)
+command	tehas setup --app-installation		was ignored; now an unknown option (64)
+command	tehas analytics export	tehas analytics copy --to	same copy and the same --json object; the old form exits 64 and names the new one
+command	tehas pause <reason>	tehas pause --reason	a bare reason is refused with 64 and names --reason
+word	store-copy	state-copy	tehas state copy; every tehas state verb has a state- word
+word	refresh-pr-starts	refresh-pr	folded into one word
+word	refresh-pr-lane	refresh-pr	folded into one word
+word	refresh-pr-json	refresh-pr	folded into one word
+word	host-message-health	host-message	folded into one word
+value	TEHAS_ENERGY=<word>	on	TEHAS_ENERGY takes on, off, 1 or 0 like every switch; any other word stops every command with 78
+setting	TEHAS_IMPROVE_REPO		the improvement loop is removed
+setting	TEHAS_IMPROVE_RUKAS_REPO		the improvement loop is removed
+setting	TEHAS_IMPROVE_RUKAS_SKIP		the improvement loop is removed
+setting	TEHAS_IMPROVE_MAX_OPEN		the improvement loop is removed
+setting	TEHAS_EASY_MERGE		the easy merge is removed and every refresh is the full refresh cycle
+setting	TEHAS_CYCLE_REPORT		the cycle's report has one form
+setting	TEHAS_CONTAINER_MEMORY		auto sizing is removed and this sized only the auto count
+setting	TEHAS_CYCLE_CPUS		auto sizing is removed and this sized only the auto count
+setting	TEHAS_CYCLE_CEILING		auto sizing is removed and this bounded only the auto count
+setting	TEHAS_MILLWRIGHT_LOGIN		the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names
+setting	TEHAS_BOT_LOGIN		the bot is the GitHub App's login, kept in state/github/login
+setting	TEHAS_GITHUB_APP_INSTALLATION		the installation is looked up from TEHAS_GITHUB_APP_ID
+field	status.room.slots		auto sizing is removed and the object was filled only for the auto count
+setting	TEHAS_INDEXING	TEHAS_SITE_INDEXING	search engines may index the site; same values
+setting	TEHAS_ANALYTICS_SRC	TEHAS_SITE_ANALYTICS_SRC	the site's visitor tracker; TEHAS_ANALYTICS is unchanged
+setting	TEHAS_ANALYTICS_SITE	TEHAS_SITE_ANALYTICS_NAME	the site's visitor tracker; same values
+setting	TEHAS_ANALYTICS_COOKIE	TEHAS_SITE_ANALYTICS_COOKIE	the site's visitor tracker; same values
+setting	TEHAS_CONCURRENCY	TEHAS_WORKSTREAMS	workstreams inside one cycle; same values
+setting	TEHAS_TICKET_CONCURRENCY	TEHAS_MAX_CYCLES	the most cycles side by side; same values
+setting	TEHAS_REFRESH_MAX	TEHAS_REFRESH_MAX_PER_PR	refreshes of one pull request since its approval; same values
+setting	TEHAS_OWNER	TEHAS_ASSIGNEE	the login a claimed issue is assigned to; same values
+setting	TEHAS_INDUSTRY_VERSION	TEHAS_MANAGER_VERSION	in ~/.config/tehas/env, written by the program that manages the factory; same values; the old name is ignored, not refused
+field	factory_status.industry	factory_status.manager	the program that manages the factory, as health's checks.manager has it

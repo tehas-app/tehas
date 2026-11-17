@@ -147,9 +147,9 @@ t_eq "$(wc -l < "$T/tmp-same" | tr -d ' ')" 0
 # for the layout and a description for a reader who finds only the page.
 t_case "each tools page has its title and description"
 for page in "${TOOLS_PAGES[@]}"; do
-  head -n 4 "$page" | grep -q '^title: ' \
+  grep -q '^title: ' < <(head -n 4 "$page") \
     || t_bad "$(basename "$page") has no title"
-  head -n 4 "$page" | grep -q '^description: "' \
+  grep -q '^description: "' < <(head -n 4 "$page") \
     || t_bad "$(basename "$page") has no description"
 done
 
@@ -157,8 +157,9 @@ done
 # hold the 44 `## ` sections tools.md held on the base commit, each once. The
 # one heading the split adds is `## The pages`, the list the commands page
 # gives of them. A section left in two pages, or dropped with the page it was
-# moved out of, shows here.
-t_case "the tools pages hold the 44 sections of tools.md, each once"
+# moved out of, shows here. `## tehas github check` came after the split, when
+# the check of the token got a tehas name of its own.
+t_case "the tools pages hold the 44 sections of the commands, each once"
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 45
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
@@ -223,8 +224,8 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 30
-t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 15
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 32
+t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 14
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"
 [ "$(grep -c . "$T/list-tehas" | tr -d ' ')" -ge 25 ] ||
@@ -251,7 +252,7 @@ for which in tehas tehasbot; do
         infence && index($0, prog " ") == 1 && substr($2, 1, 1) ~ /[a-z]/ {
           for (i = 2; i <= NF; i++) if ($i == cmd) { print "yes"; exit }
         }
-      ' "$page" | grep -q yes && { found=1; break; }
+      ' "$page" | grep yes >/dev/null && { found=1; break; }
     done
     [ "$found" = 1 ] || echo "$which $word: no command block of the tools pages names it"
   done < <(sort -u "$T/verbs-$which")
@@ -264,11 +265,11 @@ t_eq "$(wc -l < "$T/tmp-verbs" | tr -d ' ')" 0
 # word the blocks name and the front routes, and one of each program that no
 # page names and no route answers.
 t_case "the front's verbs are its own, and not the commands of the pages"
-printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehas" &&
+grep -qxF -f "$T/verbs-tehas" <<<bogus &&
   t_bad "the verbs read hold bogus, a command no route answers"
 grep -qxF -f "$T/list-tehas" <(printf 'work\n') ||
   t_bad "the command blocks read hold no work, which every list of tehas gives"
-printf '%s\n' bogus | grep -qxF -f "$T/verbs-tehasbot" &&
+grep -qxF -f "$T/verbs-tehasbot" <<<bogus &&
   t_bad "the verbs read hold bogus, a command no route answers"
 grep -qxF -f "$T/list-tehasbot" <(printf 'clean\n') ||
   t_bad "the command blocks read hold no clean, which the block of tehasbot gives"
@@ -298,25 +299,13 @@ t_says() { # <page> <text>
   grep -qF -- "$2" "$1" || t_bad "$(basename "$1") says nothing of: $2"
 }
 
-t_case "the update page says what the importer refuses instead of dropping"
-t_says "$update" '**The records of an older tehas.**'
-t_says "$update" "takes nothing on trust"
-for value in 'is not an issue URL' 'a negative `rc`' 'a negative `turns`' \
-  'than the 20 `plan-end` keeps' 'no branch of'; do
-  t_says "$update" "$value"
-done
-
 t_case "the update page says what journal-open marks"
 t_says "$update" 'store journal-open'
 t_says "$update" '"args_unreadable": true'
 
-t_case "the commands page says the planning settings' bound is refused, not read as a default"
-t_says "$docs/tools.md" 'TEHAS_PLAN_MAX_TURNS'
-t_says "$docs/tools.md" 'refuses a `turns` that is negative'
-
 # ---------------------------------------------------------------------------
 # The compose lines of the manual, and the environment they are run in. The two
-# files of host/edge read TEHAS_DESIGN, TEHAS_INDEXING, TEHAS_ANALYTICS_* and
+# files of host/edge read TEHAS_DESIGN, TEHAS_SITE_INDEXING, TEHAS_ANALYTICS_* and
 # TEHAS_HOST_ADDR from the shell that starts them, so a line that runs compose
 # straight recreates a container from the defaults: a host of TEHAS_DESIGN=pixel
 # is drawn in beesknees26, and the ports bind to 127.0.0.1. `edge/` stands for
@@ -492,8 +481,7 @@ t_row() { # <command> <page>
       backtick=$(printf '\140')
       case $text in *"$command"$backtick*) printf '%s\t%s\n' "$number" "$text"; break ;; esac
     done)
-  if [ -n "$line" ] && printf '%s\n' "${line#*$'\t'}" |
-    grep -qF ". ~/tehas/env.sh && $command"; then
+  if [ -n "$line" ] && grep -qF ". ~/tehas/env.sh && $command" <<<"${line#*$'\t'}"; then
     return 0
   fi
   t_bad "the row running [$command] does not source env.sh on its own line: [$line]"

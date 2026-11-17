@@ -1,15 +1,21 @@
--- The schema of state/tehas.db, schema v14: every table, column, key and
+-- The schema of state/tehas.db, schema v16: every table, column, key and
 -- index of the state store spec, sections 3.1 to 3.9, 3.13 and 5. Its version
 -- is SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
 -- migrated from an older version (db::migrate) and one init made hold the
 -- same columns. SQLite cannot change a CHECK in place, so cycles is
--- written as db::STEP_14 rebuilds it and planning_notes as db::STEP_4 does. Sections 3.10 to 3.12
--- are gone: schema 11 drops the eighteen tables no verb writes (#1770), which
--- is db::STEP_11. Nothing here references them, so they are dropped rather
--- than rebuilt. Schema 12 adds start_order (db::STEP_12). Schema 13 adds the
+-- written as db::STEP_14 rebuilds it and actions as db::STEP_16 does. The
+-- oldest store db::migrate takes is the one v0.30.0 wrote, schema 12 (db::OLDEST):
+-- sections 3.10 to 3.12 were gone by then. Schema 13 adds the
 -- started_* columns of approvals (db::STEP_13). Schema 14 lets cycles.how say
--- 'host', a start `tehas start` approved (db::STEP_14).
+-- 'host', a start `tehas start` approved (db::STEP_14). Schema 15 adds the
+-- five outsource tables of section 3.15, in outsource.sql (db::step_15). Every
+-- store holds them; only a factory with TEHAS_OUTSOURCE=1 writes a row of
+-- them. No secret is in them: an invite code is kept only as the sha256 of
+-- what was printed, and a contractor gives only its public key, so there is
+-- no private key of any kind in the file. Schema 16 lets actions.state say
+-- 'unknown', a write GitHub may have taken, and writes 'millwright' in every
+-- row that still said 'fixer' (db::STEP_16).
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -366,7 +372,7 @@ CREATE TABLE actions (
   issue       INTEGER NOT NULL,
   args_json   TEXT NOT NULL,
   before_snapshot INTEGER NOT NULL,
-  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned')),
+  state       TEXT NOT NULL CHECK (state IN ('intended','attempted','done','failed','abandoned','unknown')),
   intended_at INTEGER NOT NULL,
   attempted_at INTEGER,
   settled_at  INTEGER,

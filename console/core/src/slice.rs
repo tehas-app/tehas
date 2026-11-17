@@ -241,7 +241,7 @@ pub struct Load {
     pub reserve: String,
     /// TEHAS_SLICE_CONTAINERS.
     pub containers: String,
-    /// TEHAS_TICKET_CONCURRENCY.
+    /// TEHAS_MAX_CYCLES.
     pub cycles: String,
     /// TEHAS_REFRESH_SLOTS.
     pub slots: String,
@@ -254,7 +254,7 @@ impl Load {
         Load {
             reserve: var("TEHAS_CYCLE_RESERVE"),
             containers: var_or("TEHAS_SLICE_CONTAINERS", "4"),
-            cycles: var("TEHAS_TICKET_CONCURRENCY"),
+            cycles: var("TEHAS_MAX_CYCLES"),
             slots: var("TEHAS_REFRESH_SLOTS"),
         }
     }
@@ -562,7 +562,7 @@ fn charge(dir: &str, s: &Scope, reserve: u64) -> Result<u64, String> {
 /// ceilings never sum to more than the max. Room by use alone lets in cycles
 /// at their small first steps that may each grow to a ceiling later; then the
 /// whole slice reclaims and the kernel kills in the biggest. The cap does not
-/// depend on TEHAS_TICKET_CONCURRENCY, so a dev session or a planning turn
+/// depend on TEHAS_MAX_CYCLES, so a dev session or a planning turn
 /// counts against it too.
 fn fit(
     max: u64,
@@ -894,7 +894,7 @@ mod tests {
         assert_eq!(cpus(0, &load(1)), None);
     }
 
-    // From test/slice_test.sh: <host CPUs> <TEHAS_TICKET_CONCURRENCY> <quota>
+    // From test/slice_test.sh: <host CPUs> <TEHAS_MAX_CYCLES> <quota>
     // <pids limit>.
     #[test]
     fn the_quota_is_the_hosts_cpus_less_one_whatever_the_cycles_side_by_side() {
@@ -945,7 +945,7 @@ mod tests {
         }
     }
 
-    // From test/slice_test.sh: <host CPUs> <TEHAS_TICKET_CONCURRENCY> <slice
+    // From test/slice_test.sh: <host CPUs> <TEHAS_MAX_CYCLES> <slice
     // max in GiB> <gate runs at once>.
     #[test]
     fn a_container_runs_a_gate_for_each_two_cpus_of_its_share_and_2_gib_of_its_ceiling() {

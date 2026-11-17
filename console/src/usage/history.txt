@@ -32,11 +32,11 @@ it not counted, and is on the park of a run only: see the manual.
 
 With --json, one object on standard output and nothing else:
 
-  {"api": 1, "cycles": [
+  {"api": 1, "runs": [
      {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
       "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
       "status": 0, "outcome": "handoff", "pr": "https://github.com/...",
-      "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
+      "progress": {"step": "review"}, "cap": "awaiting-human-merge", "parkReason": "merge",
       "failureKind": "review", "failureCause": "...", "provider": false,
       "parked": true, "repeat": 1, "by": "alice", "how": "label"},
      {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,

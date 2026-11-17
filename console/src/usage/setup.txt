@@ -3,7 +3,7 @@ tehas setup: write this host's instance and start the factory, once.
 Asks for what it is not given, when there is a terminal to ask on:
 
   --repo <owner/name>        the product repository
-  --labellers "<a> <b>"      the logins whose labels count; never the bot
+  --labelers "<a> <b>"       the logins whose labels count; never the bot
   --new-app                  make the GitHub App the factory acts as, in the
                              browser: setup prints one link, and you paste
                              back the address GitHub opens after you create
@@ -23,8 +23,9 @@ Asks for what it is not given, when there is a terminal to ask on:
   --no-build                 leave out the sandbox image and the gates
   --force                    replace a setting that is there and differs
 
---token-file is refused: the factory acts as a GitHub App.
---app-installation is ignored: the installation is looked up.
+--labellers, --token-file and --app-installation are unknown options, each
+named: --labellers is now --labelers; the factory acts as a GitHub App; the
+installation is looked up.
 
 Then, in this order, stopping at the first step that fails:
   1. checks the endpoint offers the model. With --new-app it makes the app:
@@ -50,7 +51,7 @@ Then, in this order, stopping at the first step that fails:
   6. builds the sandbox image unless it is there, and runs the product's
      gates in it with tehas check-product --sandbox where that is installed
   7. enables the dispatch timer and path, starts the docs server, runs
-     tehasbot github-token --check and prints the dashboard's address
+     tehas github check and prints the dashboard's address
 
 A second run changes nothing that is right, and a second --new-app on an
 instance that names an app checks that app and makes none. A setting that
@@ -64,7 +65,7 @@ Usage:
 Exit: 0 done; 1 a check or a step failed (a step's own status when it has
 one); 64 an unknown option, --app-id or --app-key-file alone or with
 --new-app, or --app-owner or --app-name without it; 78 a setting is missing,
-malformed, or differs from the one there without --force, --token-file, a
-pasted address without this run's state, a key with no app ID (or an app ID
-with no key) for --new-app, a git config file git could not open, or there is
+malformed, or differs from the one there without --force, a pasted address
+without this run's state, a key with no app ID (or an app ID with no key) for
+--new-app, a git config file git could not open, or there is
 no console and no checkout to build it from.

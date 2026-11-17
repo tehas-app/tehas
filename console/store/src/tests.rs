@@ -33,6 +33,7 @@ fn init(home: &Path, force: bool) -> Result<String, (u8, String)> {
         &Verb::Init {
             force,
             settings: settings(),
+            outsource: false,
         },
         1_792_000_000,
     )
@@ -354,9 +355,12 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
     assert_eq!(value["verb"], "check");
     assert_eq!(value["ok"], true);
     let rows = value["rows"].as_object().unwrap();
-    assert_eq!(rows.len(), db::COUNTED_TABLES.len());
-    for table in db::COUNTED_TABLES {
-        assert!(rows.contains_key(table), "{table} is not counted");
+    assert_eq!(
+        rows.len(),
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
+    );
+    for table in db::COUNTED_TABLES.iter().chain(&db::OUTSOURCE_TABLES) {
+        assert!(rows.contains_key(*table), "{table} is not counted");
     }
 }
 
@@ -374,13 +378,14 @@ fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
         .map(|r| r.unwrap())
         .collect();
     let mut counted: Vec<&str> = db::COUNTED_TABLES.to_vec();
+    counted.extend(db::OUTSOURCE_TABLES);
     counted.sort_unstable();
     let mut counted: Vec<String> = counted.iter().map(|s| s.to_string()).collect();
     counted.sort_unstable();
     assert_eq!(names, counted, "the schema and the counts have diverged");
     assert_eq!(
         counted.len(),
-        db::COUNTED_TABLES.len(),
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len(),
         "a table is counted twice"
     );
     // The indexes by name too, so the test that damages one of them names a
@@ -1639,7 +1644,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     assert_eq!(report["integrity"], "ok");
     assert_eq!(
         report["rows"].as_object().unwrap().len(),
-        db::COUNTED_TABLES.len()
+        db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()
     );
     let conn = db::open_read_only(&file).unwrap();
     let tables: i64 = one(
@@ -1651,7 +1656,10 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
     );
     drop(conn);
-    assert_eq!(tables, db::COUNTED_TABLES.len() as i64);
+    assert_eq!(
+        tables,
+        (db::COUNTED_TABLES.len() + db::OUTSOURCE_TABLES.len()) as i64
+    );
     assert_eq!(indexes, db::COUNTED_INDEXES.len() as i64);
     // What a migration leaves in `state/`, and what each of the two copies
     // holds. A verb that changed the version leaves two files: the copy the
@@ -2001,6 +2009,7 @@ fn the_arguments_migrate_accepts_are_the_ones_it_states() {
         Some(Verb::Migrate {
             backup: PathBuf::from(dir),
             settings: settings(),
+            outsource: false,
         })
     );
     let mut jsoned = vec!["--json"];
@@ -2043,6 +2052,7 @@ fn migrate_at(home: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)>
         &Verb::Migrate {
             backup: dir.to_path_buf(),
             settings: settings(),
+            outsource: false,
         },
         now,
     )
@@ -2107,7 +2117,8 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         parse(&init_args(full)),
         Some(Verb::Init {
             force: false,
-            settings: settings()
+            settings: settings(),
+            outsource: false,
         })
     );
     let mut forced = vec!["--force", "--json"];
@@ -2116,7 +2127,8 @@ fn the_arguments_init_accepts_are_the_ones_it_states() {
         parse(&init_args(&forced)),
         Some(Verb::Init {
             force: true,
-            settings: settings()
+            settings: settings(),
+            outsource: false,
         })
     );
     assert_eq!(parse(&init_args(&["--json"])), None);
@@ -2357,110 +2369,6 @@ fn checkpoint(file: &Path) {
         if sibling.exists() {
             fs::remove_file(&sibling).unwrap();
         }
-    }
-}
-
-// --- the record writer's slow notices ---------------------------------------
-// The record of a cycle keeps the driver's `dispatch-slow` lines so a stuck
-// child is read without the console (tehas_core::slow).
-
-fn slow(home: &Path, stream: &str, name: &str) -> Result<String, (u8, String)> {
-    let dir = scratch(name);
-    let given = dir.join("work-7.jsonl");
-    let out = dir.join("slow.jsonl");
-    fs::write(&given, stream).unwrap();
-    let r = execute(
-        home,
-        &Verb::Slow {
-            file: given,
-            out: out.clone(),
-        },
-        1_792_000_000,
-    );
-    r.map(|line| match fs::read_to_string(&out) {
-        Ok(kept) => format!("{line}\n{kept}"),
-        // No file: the answer stands alone, which is what a cycle with no
-        // notice gives the record.
-        Err(_) => line,
-    })
-}
-
-#[test]
-fn slow_keeps_the_notices_of_a_cycle_and_answers_with_their_count() {
-    let home = scratch("slow-home");
-    let stream = concat!(
-        "{\"v\":1,\"type\":\"agent_start\"}\n",
-        "{\"v\":1,\"kind\":\"dispatch-slow\",\"step\":\"lens-review\",\"turns\":257}\n",
-        "{\"v\":1,\"kind\":\"dispatch-slow\",\"command\":\"bash -c probe\",\"count\":24,\"identicalResultCount\":24}\n",
-    );
-    let answer = slow(&home, stream, "slow-kept").unwrap();
-    let (line, kept) = answer.split_once('\n').unwrap();
-    assert!(line.contains("\"verb\":\"slow\""), "{line}");
-    assert!(line.contains("\"lines\":2"), "{line}");
-    assert_eq!(kept.lines().count(), 2, "{kept}");
-    assert!(kept.contains("\"identicalResultCount\":24"), "{kept}");
-}
-
-#[test]
-fn slow_leaves_no_file_when_the_cycle_had_no_notice() {
-    let home = scratch("slow-none");
-    let answer = slow(
-        &home,
-        "{\"v\":1,\"kind\":\"dispatch-completed\",\"ok\":true}\n",
-        "slow-none",
-    )
-    .unwrap();
-    assert!(
-        answer.starts_with("{\"api\":1,\"verb\":\"slow\",\"ok\":true,\"lines\":0}"),
-        "{answer}"
-    );
-    // Nothing after the answer: the caller's file was never made.
-    assert!(!answer.contains('\n'), "{answer}");
-}
-
-#[test]
-fn slow_refuses_a_file_it_cannot_read() {
-    let home = scratch("slow-link");
-    let dir = scratch("slow-link-files");
-    let real = dir.join("elsewhere");
-    fs::write(&real, "{\"kind\":\"dispatch-slow\"}\n").unwrap();
-    let link = dir.join("work-7.jsonl");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-    let out = dir.join("slow.jsonl");
-    let (code, why) = execute(
-        &home,
-        &Verb::Slow {
-            file: link,
-            out: out.clone(),
-        },
-        1_792_000_000,
-    )
-    .unwrap_err();
-    assert_eq!(code, 1, "{why}");
-    assert!(!out.exists(), "a refusal wrote the record's file");
-}
-
-#[test]
-fn slow_names_a_file_argument_and_refuses_any_other_shape() {
-    assert_eq!(
-        parse(&["slow".into(), "/a".into(), "--out".into(), "/b".into()]),
-        Some(Verb::Slow {
-            file: PathBuf::from("/a"),
-            out: PathBuf::from("/b"),
-        })
-    );
-    for args in [
-        vec!["slow".to_string()],
-        vec!["slow".to_string(), "/a".to_string()],
-        vec!["slow".to_string(), "/a".to_string(), "--out".to_string()],
-        vec![
-            "slow".to_string(),
-            "/a".to_string(),
-            "--into".to_string(),
-            "/b".to_string(),
-        ],
-    ] {
-        assert_eq!(parse(&args), None, "{args:?}");
     }
 }
 

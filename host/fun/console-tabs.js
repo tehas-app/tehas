@@ -1,7 +1,7 @@
 // The tabs of the console: which cycles can be shown and which one is.
 // See DESIGN.md, "Production Console".
 //
-// The factory runs up to TEHAS_TICKET_CONCURRENCY cycles side by side, and
+// The factory runs up to TEHAS_MAX_CYCLES cycles side by side, and
 // each has a console of its own. live/running.json lists the running cycles
 // and the one that finished last. view() turns that file into the tabs. It
 // has no side effects and draws nothing, so it is tested without a browser

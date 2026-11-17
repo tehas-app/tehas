@@ -79,7 +79,7 @@ the issue as it is now; the commit the first turn's workspace was at;
 `plan-sessions/`, pi-rukas's record of the session, which it keeps in the
 clone's git directory (plain files inside the clone only, none through a
 link, at most 1 MB each and 1024 files and 32 MB together); `exit`, the
-runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=1` the
+runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=on` the
 issue's images. A turn that fails and leaves no record, its container killed
 or never started, leaves the record an earlier turn kept, so a retry goes on
 from it. Every later turn's workspace is at that commit and gets the
@@ -96,7 +96,7 @@ The issue a confirm files is in the runner's answer. The turn's comment names
 it in one line, `Filed in this turn: <address>`, and the session on the state
 store keeps it. pi-rukas files a session once: a second confirm files nothing more.
 
-With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
+With `TEHAS_WORK_IMAGES=on` the first turn fetches the images the issue links,
 by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
 and says on the issue what it fetched and whether the session was shown them.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
@@ -104,13 +104,13 @@ them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` and `PI_ENSEMBLE_PLAN_ISSUE`, the
 issue's number. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. With
-`TEHAS_WORK_DESCRIBE=1` the first turn also writes `images.md`, as
+`TEHAS_WORK_DESCRIBE=on` the first turn also writes `images.md`, as
 `tehas work` does, with the issue's number in `X-Tehas-Issue` on each request,
-and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
+and every turn's copy holds it. With `TEHAS_WORK_FILES=on`
 the first turn fetches the text files too, by the rules of `tehas work`, into
 the same directory.
 
-With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a turn is given no
+With `TEHAS_WORK_IMAGES=off` and `TEHAS_WORK_FILES=off` a turn is given no
 attachments, and an instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is dropped
 there too: the container is given no variable naming a directory it does not
 have. A turn given nothing says nothing about what the issue links; that is
@@ -146,7 +146,7 @@ session and says on the issue to apply `tehas:plan` again.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn asked something, drafted a plan, or filed it                |
 | 2    | The runner failed, refused the turn or ran out of time, the turn said and asked nothing, its session is gone, or its outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
+| 4    | With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, `tehas.slice` cannot be used, or the image runs no planning turns; nothing ran |
 
@@ -221,7 +221,7 @@ named in the line that says so.
 | 10, 20 | findings, or serious findings: the status the runner gave |
 | 2 | the runner failed, ran out of time, or its record could not be written down |
 | 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
-| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
+| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, the image's runner has no `lens-review` verb in its `--capabilities`, or the review would be given a `PI_ENSEMBLE_*` setting that answer does not list as an input. A family such as `PI_ENSEMBLE_MODEL_<ROLE>` takes its listed members, and a setting whose name says it is secret (it holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case) is not checked. Nothing was cloned and nothing ran |
 
 ### What a review files
 

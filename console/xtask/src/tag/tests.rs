@@ -34,6 +34,16 @@ fn the_arguments_are_read_in_order() {
     assert!(!a.verify && !a.pins && a.dry);
     assert_eq!((a.message.as_str(), a.remote.as_str()), ("by hand", "up"));
     assert_eq!(args(&["--major", "--patch"]).part, Part::Patch);
+    assert_eq!(args(&[]).pre, None);
+    assert_eq!(args(&["--pre", "beta"]).pre, Some(Pre::Beta));
+    assert_eq!(
+        parse(&s(&["--pre", "gamma"]), Path::new("/")),
+        Err("--pre needs alpha, beta or rc".into())
+    );
+    assert_eq!(
+        parse(&s(&["--pre"]), Path::new("/")),
+        Err("--pre needs alpha, beta or rc".into())
+    );
     let a = args(&["--local-gate", "--gate-wait", "5"]);
     assert!(a.local_gate && a.verify);
     assert_eq!(a.gate_wait, 5);
@@ -108,6 +118,37 @@ fn the_newest_release_is_the_first_vxyz() {
     );
     assert_eq!(newest("vnext\nv1\n"), None);
     assert_eq!(newest(""), None);
+}
+
+#[test]
+fn the_newest_release_passes_over_prereleases() {
+    assert_eq!(
+        newest("v1.0.0-rc.1\nv1.0.0-beta.2\nv1.0.0-alpha.1\nv0.30.7\n"),
+        Some("v0.30.7".into())
+    );
+}
+
+#[test]
+fn the_next_prerelease_counts_on_within_its_stage() {
+    let tags = "v1.0.0-alpha.2\nv1.0.0-alpha.10\nv1.0.0-alpha.1\nv0.30.7\nv0.31.0-beta.4\n";
+    let next = |tags, stage| next_prerelease(tags, "v1.0.0", stage);
+    assert_eq!(
+        next(tags, Pre::Alpha),
+        Ok(("v1.0.0-alpha.11".into(), Some("v1.0.0-alpha.10".into())))
+    );
+    assert_eq!(next(tags, Pre::Beta), Ok(("v1.0.0-beta.1".into(), None)));
+    assert_eq!(next(tags, Pre::Rc).unwrap().0, "v1.0.0-rc.1");
+    assert_eq!(next("", Pre::Alpha), Ok(("v1.0.0-alpha.1".into(), None)));
+    // A stage does not go back.
+    let beta = "v1.0.0-beta.1\nv1.0.0-alpha.3\n";
+    assert_eq!(
+        next(beta, Pre::Alpha),
+        Err("v1.0.0-beta.1 is out; an alpha of v1.0.0 cannot come after it".into())
+    );
+    assert_eq!(
+        next(beta, Pre::Beta),
+        Ok(("v1.0.0-beta.2".into(), Some("v1.0.0-beta.1".into())))
+    );
 }
 
 #[test]
@@ -335,6 +376,43 @@ fn a_new_head_is_tagged_and_pushed_and_the_worktree_removed() {
         r.git(&["-C", "work", "worktree", "list"]).lines().count(),
         1
     );
+}
+
+#[test]
+fn a_prerelease_is_tagged_on_the_next_version_and_counted_on() {
+    let r = Remote::new();
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
+    assert_eq!(r.run(&["--major", "--pre", "alpha", "--dry-run"]), 0);
+    assert_eq!(r.tags(), "v0.1.0");
+    assert_eq!(r.run(&["--major", "--pre", "alpha"]), 0);
+    assert_eq!(r.tags(), "v0.1.0 v1.0.0-alpha.1");
+    // The same head again is left as it is.
+    assert_eq!(r.run(&["--major", "--pre", "alpha"]), 0);
+    assert_eq!(r.tags(), "v0.1.0 v1.0.0-alpha.1");
+    r.changelog("## Unreleased\n\n### Changes\n\n- y\n\n### Adopter action\n\nNone.\n");
+    assert_eq!(r.run(&["--major", "--pre", "alpha"]), 0);
+    assert_eq!(r.run(&["--major", "--pre", "beta"]), 0);
+    assert_eq!(
+        r.tags(),
+        "v0.1.0 v1.0.0-alpha.1 v1.0.0-alpha.2 v1.0.0-beta.1"
+    );
+    r.changelog("## Unreleased\n\n### Changes\n\n- z\n\n### Adopter action\n\nNone.\n");
+    assert_eq!(r.run(&["--major", "--pre", "alpha"]), 1);
+    // The release itself still follows the newest release, not a prerelease.
+    assert_eq!(r.run(&["--major"]), 0);
+    assert_eq!(
+        r.tags(),
+        "v0.1.0 v1.0.0 v1.0.0-alpha.1 v1.0.0-alpha.2 v1.0.0-beta.1"
+    );
+}
+
+#[test]
+fn a_prerelease_is_tagged_on_a_head_that_carries_the_newest_release() {
+    let r = Remote::new();
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
+    assert_eq!(r.run(&["--minor"]), 0);
+    assert_eq!(r.run(&["--major", "--pre", "alpha"]), 0);
+    assert_eq!(r.tags(), "v0.1.0 v0.2.0 v1.0.0-alpha.1");
 }
 
 #[test]

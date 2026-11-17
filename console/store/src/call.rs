@@ -86,7 +86,7 @@ pub fn call_with(
     execute(home, &verb, now).map_err(|(rc, why)| (rc, store(why)))
 }
 
-/// What `--say` prints for one call of `init`, `migrate` or `import`: the same
+/// What `--say` prints for one call of `init` or `migrate`: the same
 /// checks as `call`, then the verb's answer in the words a person reads.
 pub fn said(home: &Path, args: &[String]) -> say::Said {
     let refused = |code: u8, line: String| say::Said {
@@ -108,7 +108,7 @@ pub fn said(home: &Path, args: &[String]) -> say::Said {
         Ok(t) => t,
         Err(why) => return refused(78, format!("store: {why}")),
     };
-    say::say(home, &verb, execute(home, &verb, now), now)
+    say::say(home, &verb, execute(home, &verb, now))
 }
 
 /// The home of a call: the same rule for every verb, judged before anything

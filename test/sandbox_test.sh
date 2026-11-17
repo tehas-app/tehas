@@ -179,6 +179,30 @@ done <<<"$(docker_runs "$dockerfile")"
   t_eq "$apt_installs" 1
 t_eq "$apt_unclean" ""
 
+t_case "npm run as root leaves no cache in the cycle user's home"
+# The base sets HOME=/home/vscode and USER root keeps it, so npm run as root
+# writes its cache to /home/vscode/.npm owned by root, and the cycle's own npm
+# then fails on it with EACCES. Each RUN that runs npm puts its cache in /tmp
+# and removes it, and the build stops when root owns anything in /home/vscode/.npm.
+npm_runs=0
+npm_bad=""
+while IFS= read -r run; do
+  case "$run" in *"npm ci"* | *"npm install"*) ;; *) continue ;; esac
+  npm_runs=$((npm_runs + 1))
+  case "$run" in *"export npm_config_cache=/tmp/npm-cache"*) ;; *) npm_bad="${npm_bad}no cache in /tmp: ${run:0:60}
+" ;; esac
+  case "$run" in *"rm -rf "*"/tmp/npm-cache"*) ;; *) npm_bad="${npm_bad}cache kept: ${run:0:60}
+" ;; esac
+  case "$run" in *'find /home/vscode/.npm -user root'*'exit 1'*) ;; *) npm_bad="${npm_bad}home not checked: ${run:0:60}
+" ;; esac
+done <<<"$(docker_runs "$dockerfile")"
+# One step runs npm today, the Playwright pin. The count keeps a file with no
+# npm step from passing the rule.
+t_eq "$npm_runs" 1
+t_eq "$npm_bad" ""
+# Root's npm does not write to /root/.npm in this image.
+t_lacks "$recipe" '/root/.npm'
+
 t_case "the wigolo the base ships broken is off PATH, and no tehas prompt names it"
 t_contains "$recipe" 'rm -rf /usr/lib/node_modules/wigolo'
 t_contains "$recipe" 'if command -v wigolo >/dev/null 2>&1; then'
@@ -1192,7 +1216,7 @@ cat >"$T/scan/two-in-one-statement" <<'EOF'
 image=/opt/fixture/sandbox:tag
 docker run --rm "$image" one; docker run --rm "$image" two
 EOF
-# improve runs its container behind timeout and that program's own options.
+# A container run behind timeout and that program's own options.
 cat >"$T/scan/behind-timeout" <<'EOF'
 image=/opt/fixture/sandbox:tag
 runner=/opt/fixture/bin/runner
@@ -1248,7 +1272,8 @@ timeout -k 9 docker run --rm --init \
   --entrypoint "$runner_two" "$image" \
   sub --dry-run
 EOF
-# improve names pi on a line of its own, continued from the run above it.
+# A run that names its program on a line of its own, continued from the run
+# above it.
 cat >"$T/scan/continued-line" <<'EOF'
 image=/opt/fixture/sandbox:tag
 timeout -k 30 90 docker run --rm --init \
@@ -1397,7 +1422,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" review table; "$T_CONSOLE" plan table; "$T_CONSOLE" dev table; "$T_CYCLE" index table; "$T_CYCLE" sandbox table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"
@@ -1407,7 +1432,6 @@ done <<<"$program_runs"
 t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
 check-product	PI_ENSEMBLE_IMAGE	bash
 dev	PI_ENSEMBLE_IMAGE	pi
-improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
 plan	PI_ENSEMBLE_IMAGE	/opt/pi-rukas/bin/pi-rukas-headless
