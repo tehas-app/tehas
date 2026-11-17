@@ -397,21 +397,28 @@ impl Poll<'_> {
     }
 
     /// Rule 5: a tehas:plan or tehas:refine of an allowed account starts a
-    /// session, and the poll ends there.
+    /// session, and the poll ends there. A list that failed or is no list
+    /// starts no session; the poll goes on, as with a failed history of
+    /// refreshes in `refreshing`.
     pub(super) fn plan_new(&mut self, room: &Room) -> Step {
         let mut lists = Vec::new();
+        let mut unreadable = false;
         for l in [self.s.plans.clone(), self.s.refines.clone()] {
             let Some(l) = l else {
                 self.need("plans");
                 return Ok(());
             };
-            if l.get("failed") == Some(&json!(true)) {
-                return Err(self.fail("ERROR: gh issue list failed", 1));
+            match l.as_array() {
+                Some(a) => lists.extend(a.clone()),
+                None => unreadable = true,
             }
-            let Some(a) = l.as_array() else {
-                return Err(self.fail("ERROR: unreadable list of issues to plan", 1));
-            };
-            lists.extend(a.clone());
+        }
+        if unreadable {
+            self.log(
+                "WARN: the issues to plan could not be read, so no planning session starts this poll"
+                    .to_string(),
+            );
+            return Ok(());
         }
         let mut entries: Vec<(u64, &'static str)> = Vec::new();
         for i in &lists {
