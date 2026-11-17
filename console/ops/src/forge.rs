@@ -29,17 +29,7 @@ pub const CALL_BOUND: Duration = Duration::from_secs(30);
 /// no repository is no repository to ask, which is the 78 of a run that cannot
 /// reach GitHub and never a request aimed at something else.
 pub fn repo_shaped(repo: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.len() <= REPO_PART_MAX
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
-    };
-    let Some((owner, name)) = repo.split_once('/') else {
-        return false;
-    };
-    // One slash and no more: a third part is no `owner/name`.
-    !name.contains('/') && part(owner) && part(name)
+    tehas_core::settings::rules::is_repo(repo) && repo.split('/').all(|p| p.len() <= REPO_PART_MAX)
 }
 
 /// `TEHAS_REPO`, trimmed: the repository of the instance, or None when the name

@@ -1,6 +1,6 @@
 //! The reading of an instance's `state/limit.json`, the limit `tehas limit`
 //! sets. Every reader of the file asks here, so the console, the dispatcher and
-//! the health page give the same answer for the same bytes. `flags.rs` in the
+//! the health page give the same answer for the same bytes. `holds.rs` in the
 //! console says what the file holds and the words a reading prints.
 //!
 //! `state` is `none` when no file is there, `ok`, `expired` once `until` has
@@ -418,36 +418,8 @@ fn edges(c: char) -> bool {
 }
 
 /// Seconds since the epoch of an ISO 8601 UTC time, as jq's `fromdateiso8601`
-/// reads it: the shape is checked byte for byte, and a day out of range is
-/// counted on rather than refused, as jq counts it.
-pub fn epoch(s: &str) -> Option<i64> {
-    let b = s.as_bytes();
-    let digits =
-        |r: std::ops::Range<usize>| b.get(r).is_some_and(|w| w.iter().all(u8::is_ascii_digit));
-    if b.len() != 20
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-        || b[19] != b'Z'
-        || !digits(0..4)
-        || !digits(5..7)
-        || !digits(8..10)
-        || !digits(11..13)
-        || !digits(14..16)
-        || !digits(17..19)
-    {
-        return None;
-    }
-    let at = |r: std::ops::Range<usize>| s[r].parse::<i64>().ok();
-    let (y, m, d) = (at(0..4)?, at(5..7)?, at(8..10)?);
-    let (hh, mm, ss) = (at(11..13)?, at(14..16)?, at(17..19)?);
-    if !(1..=12).contains(&m) || hh > 23 || mm > 59 || ss > 60 {
-        return None;
-    }
-    Some(crate::time::days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
-}
+/// reads it: core's reader of the form, by the name its callers use.
+pub use crate::time::from_iso_jq as epoch;
 
 #[cfg(test)]
 mod tests {

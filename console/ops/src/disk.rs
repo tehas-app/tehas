@@ -66,6 +66,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tehas_core::disk::figure;
+use tehas_core::file::Temp;
 use tehas_core::time;
 
 pub mod cycles;
@@ -1023,15 +1024,7 @@ fn put(out: &Path, answer: &Value) -> std::io::Result<()> {
         .parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no directory"))?;
     fs::create_dir_all(parent)?;
-    let mut side = out.as_os_str().to_owned();
-    side.push(format!(".{}.new", std::process::id()));
-    let side = PathBuf::from(side);
-    fs::write(&side, &text).inspect_err(|_| {
-        let _ = fs::remove_file(&side);
-    })?;
-    fs::rename(&side, out).inspect_err(|_| {
-        let _ = fs::remove_file(&side);
-    })
+    tehas_core::file::write_atomic(out, text.as_bytes(), 0o644, &Temp::Pid)
 }
 
 /// The lines a person is given: one per file system, then what fills them.

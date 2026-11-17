@@ -680,7 +680,9 @@ fn is_path(v: &str) -> bool {
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
 }
-fn is_login(s: &str) -> bool {
+/// A GitHub login or an app's slug: ASCII letters, digits and `-`, not
+/// starting with `-`. The one rule of the workspace for that shape.
+pub fn is_login(s: &str) -> bool {
     all(s, class("-")) && !s.starts_with('-')
 }
 /// A contractor's name, the shape the state store takes at a join.
@@ -689,7 +691,10 @@ fn is_contractor(s: &str) -> bool {
         && s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
         && all(s, class("._-"))
 }
-fn is_repo(s: &str) -> bool {
+/// A repository as `owner/name`: one `/`, each half ASCII letters, digits and
+/// `_.-`. The one rule of the workspace for that shape; a caller with a
+/// length bound of its own adds it.
+pub fn is_repo(s: &str) -> bool {
     matches!(s.split_once('/'), Some((o, n)) if all(o, class("_.-")) && all(n, class("_.-")))
 }
 /// A host name or address, then `:<port>` if there is one.
@@ -850,7 +855,7 @@ fn follow(v: &str) -> Result<(), String> {
     }
     if let Some(sha) = v.strip_prefix("commit:") {
         // The whole commit: an abbreviation could name another one later.
-        if sha.len() == 40 && all(sha, |c| matches!(c, '0'..='9' | 'a'..='f')) {
+        if crate::grammar::commit_id(sha) {
             return Ok(());
         }
         return Err("expected commit: and 40 lower-case hex digits".into());
@@ -861,6 +866,28 @@ fn follow(v: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_repository_is_owner_and_name_of_safe_characters() {
+        for good in ["tehas-app/tehas", "a/b", "A_1.x/y-z.git", "-/."] {
+            assert!(is_repo(good), "{good}");
+        }
+        for bad in [
+            "", "tehas", "/tehas", "tehas/", "a/b/c", "a b/c", "a/b\n", "ä/b", "a//b",
+        ] {
+            assert!(!is_repo(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_login_is_letters_digits_and_dashes_not_led_by_one() {
+        for good in ["janit", "a", "tehas-app", "a-", "A1-b2"] {
+            assert!(is_login(good), "{good}");
+        }
+        for bad in ["", "-a", "a_b", "a.b", "a b", "a[bot]", "ä"] {
+            assert!(!is_login(bad), "{bad:?}");
+        }
+    }
 
     fn why(name: &str, v: &str) -> Option<String> {
         check(name, v, &Trees::default()).err()
