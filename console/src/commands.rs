@@ -22,6 +22,7 @@
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
+//!   console tehas prototype file ...
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -185,6 +186,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
+        "prototype" => crate::prototype::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -376,7 +378,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehasbot", "protolab"] => &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"],
+        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
+            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
+        }
         _ => &[],
     }
 }
@@ -410,6 +414,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
+        "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
         "review" => include_str!("usage/review.txt"),

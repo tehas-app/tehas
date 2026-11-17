@@ -40,6 +40,12 @@ pub const FEATURES: &[Feature] = &[
         setting: "TEHAS_PROTOLAB_ZIP_URL",
         since: "v1.0.0-alpha.3",
     },
+    Feature {
+        name: "prototype-file",
+        stage: Stage::Building,
+        setting: "TEHAS_PROTOTYPE_FILE",
+        since: "v1.0.0-alpha.3",
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -157,6 +163,20 @@ mod tests {
         assert_eq!(
             refuse_building(&vars(&[("TEHAS_PROTOLAB_ZIP_URL", "1")])),
             Err("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn the_prototype_file_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "prototype-file";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_PROTOTYPE_FILE", "on")])));
+        let tested = vars(&[("TEHAS_PROTOTYPE_FILE", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_PROTOTYPE_FILE", "on")])),
+            Err("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out".to_string())
         );
     }
 
