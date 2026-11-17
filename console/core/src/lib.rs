@@ -8,11 +8,13 @@ pub mod approval;
 pub mod call;
 pub mod cycle_notes;
 pub mod disk;
+pub mod driver;
 pub mod egress;
 #[cfg(feature = "mask")]
 pub mod end_fault;
 pub mod env_file;
 pub mod events;
+pub mod exit;
 pub mod features;
 pub mod file;
 pub mod forge;
