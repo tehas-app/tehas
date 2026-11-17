@@ -21,7 +21,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use tehas_core::call;
 use tehas_core::forge::is_label;
 
 #[derive(Debug, PartialEq)]
@@ -68,28 +68,38 @@ fn table(text: &str) -> Result<Vec<Label<'_>>, usize> {
 }
 
 fn make(repo: &str, label: &Label) -> bool {
-    Command::new("gh")
-        .args(["label", "create", label.name, "--repo", repo, "--color"])
-        .args([label.color, "--description", label.description, "--force"])
-        .stdout(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    let args = [
+        "label",
+        "create",
+        label.name,
+        "--repo",
+        repo,
+        "--color",
+        label.color,
+        "--description",
+        label.description,
+        "--force",
+    ];
+    let ran = gh(&args);
+    eprint!("{}", ran.err);
+    ran.ok()
+}
+
+/// gh under its bound, what it printed held for the caller.
+fn gh(args: &[&str]) -> call::Ran {
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    call::run("gh", &args, call::GH_BOUND)
 }
 
 /// The GitHub node id of the label `name`, None when gh could not read it.
 fn node_id(repo: &str, name: &str) -> Option<String> {
-    let out = Command::new("gh")
-        .args([
-            "api",
-            &format!("repos/{repo}/labels/{name}"),
-            "--jq",
-            ".node_id",
-        ])
-        .stderr(Stdio::inherit())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let id = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    let path = format!("repos/{repo}/labels/{name}");
+    let ran = gh(&["api", &path, "--jq", ".node_id"]);
+    eprint!("{}", ran.err);
+    if !ran.ok() {
+        return None;
+    }
+    let id = ran.out.trim().to_string();
     (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
 }
 
