@@ -2,13 +2,15 @@
 //! spec's "How it works", "Durability" and "Dying gracefully".
 //!
 //! A running job checks in on its own timer, whatever the cycle prints, so a
-//! long quiet model turn does not lose it. It ends one of five ways:
+//! long quiet model turn does not lose it. It ends one of six ways (stale is
+//! an end of `Lost`):
 //!
 //! | End | When | Stop the cycle | Push its branch | Report |
 //! | --- | --- | --- | --- | --- |
 //! | finished | the cycle ended on its own | no | no, the cycle pushed | the result |
 //! | offline | no check-in answered for the timeout | yes, with the grace | yes | stopped, or the result |
 //! | lost | the factory refused a check-in for the job's state | yes | yes | stopped, or the result |
+//! | stale | a newer attempt of the issue replaced this one (`stale`) | yes | no | nothing |
 //! | revoked | the factory said `revoked` | yes | no | nothing |
 //! | drained | `tehas-contractor drain`, and the grace passed | yes | yes | stopped: a release |
 //!
@@ -19,6 +21,9 @@
 use serde_json::{json, Map, Value};
 
 use crate::http::Reply;
+
+/// The factory's word for an attempt a newer one of the same issue replaced.
+pub const STALE: &str = "stale";
 
 /// What the factory gave: one cycle for a limited time.
 #[derive(Debug, Clone, PartialEq)]
@@ -197,7 +202,7 @@ fn finished(world: &dyn World, job: &Job, code: i32) -> End {
 }
 
 /// The orderly end of a job the contractor stops: the stop signal, the grace,
-/// the salvage push unless revoked, the report, and the wipe.
+/// the salvage push and the report while the job is still current, and the wipe.
 fn die(world: &dyn World, job: &Job, work: &mut dyn Work, grace: u64, end: End) -> End {
     let why = match &end {
         End::Offline => "stopped: contractor offline".to_string(),
@@ -220,7 +225,10 @@ fn die(world: &dyn World, job: &Job, work: &mut dyn Work, grace: u64, end: End) 
         }
         world.pause(1);
     }
-    if end != End::Revoked {
+    // A revoked contractor pushes nothing, and neither does an attempt that a
+    // newer one replaced: its push would move the branch the replacement works on.
+    let current = !matches!(&end, End::Revoked) && end != End::Lost(STALE.to_string());
+    if current {
         if !world.salvage(job) {
             world.say(&format!("job {}: its branch could not be pushed", job.id));
         }

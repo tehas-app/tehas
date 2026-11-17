@@ -44,22 +44,24 @@ reads `PI_ENSEMBLE_BASE_URL_<PROVIDER>` and `PI_ENSEMBLE_API_KEY_<PROVIDER>` as
 a run's own endpoint and key and keeps the key out of every log and file. An
 image that follows `release:0` today has it.
 
-The job token is a secret of the proxy's own. It lives in the proxy's memory,
-is written once to a file made with mode 0600 in a job directory of mode 0700
-under the state,
-and dies with the job and with revocation. It is never in a command line, never
-in a log and never in the store.
+The job token is a secret of the proxy's own. It lives in the proxy's memory
+and nowhere else on the factory. It is issued when a contractor takes its job
+with the channel's `job` call, and goes to the contractor in that answer. It
+dies with the job, with revocation, and with a restart of the proxy. It is
+never in a command line, never in a log and never in the store.
 
 ## How it is switched on
 
 `tehas-proxy` reads the settings `tehas_load` exports, and the state store under
-`TEHAS_HOME`. Its control socket is `~/tehas/state/outsource/proxy.sock`; a
-job's token is written to `~/tehas/state/outsource/jobs/<job>/job-token`.
+`TEHAS_HOME`. Its control socket is `~/tehas/state/outsource/proxy.sock`. The
+socket can also issue a job's token by hand (`tehas-proxy --issue`), written
+to `~/tehas/state/outsource/jobs/<job>/job-token` with mode 0600.
 
 | Setting | Default | What it is |
 | --- | --- | --- |
 | `TEHAS_OUTSOURCE` | `off` | `on` runs the proxy, once the feature ships. While it is being built, `on` stops every command with 78, and so does any value but `on`, `off`, `1` or `0` |
 | `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
+| `TEHAS_OUTSOURCE_CONTRACTORS` | empty | The contractors the channel answers, by name, one space apart. Empty refuses every contractor |
 | `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
 | `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
 
@@ -183,6 +185,10 @@ A key is sent as a bearer, with the contractor's name in
 `x-tehas-contractor`. The store holds the sha256 of the key and of the code,
 never either one.
 
+Every call, the join included, is refused with 403 `not allowed` when
+`TEHAS_OUTSOURCE_CONTRACTORS` does not list the contractor's name. A refused
+join does not spend its code.
+
 What each call needs:
 
 - `check-in`, `token` and `relay`: the job is running, it is the issue's
@@ -191,10 +197,15 @@ What each call needs:
   silence and its attempt is still current. A result of an attempt that a newer
   one replaced is refused with 409 `stale`.
 
-Only a revoked contractor is answered `revoked`. That is the one answer that
-tells a contractor to push nothing. Any other refusal names the state, and a
-contractor that gets one, or no answer at all, pushes its branch so a
-replacement can continue it.
+Only a revoked contractor is answered `revoked`. A contractor that gets it
+pushes nothing. Nor does one told `stale`: a newer attempt of the issue has
+replaced its job, and a push would move the branch the replacement works
+on. Any other refusal names the state, and a contractor that gets one, or no
+answer for the timeout, pushes its branch so a replacement can continue it.
+
+A state store that gives no answer (busy, locked, failing) is not a refusal.
+The call is answered 503 with no `refused` word, and the contractor takes it
+as no answer and asks again. Any 503 is read that way.
 
 A job carries its issue, its attempt, the timeout, its token, the
 `models.json` with every provider behind the proxy, and a short list of
@@ -237,7 +248,10 @@ tehas outsource drain <contractor> [--json]     ask a contractor to take no new 
 
 `invite` prints `tehas-contractor join <address> <name> <code>`. The address
 is `TEHAS_OUTSOURCE_PROXY_ADDR`, the code lives `TEHAS_OUTSOURCE_JOIN_TTL`
-seconds, and the store keeps only its sha256. `list` gives each contractor one
+seconds, and the store keeps only its sha256. Before the command it notes an
+address no other host can reach (a loopback or wildcard address: put the
+factory's own address in its place) and a name `TEHAS_OUTSOURCE_CONTRACTORS`
+does not list. `list` gives each contractor one
 of the statuses `idle`, `working`, `stopping`, `silent` (not heard of for
 `TEHAS_OUTSOURCE_TIMEOUT` seconds), `resting`, `draining` or `revoked`, the
 issue it is on, when it was last heard of, and its jobs done and lost.
@@ -266,7 +280,15 @@ At rest it holds its name, its key and the factory's address, in
 `~/.config/tehas/contractor.json` (mode 0600), and nothing else. A job
 leaves the job's token, its settings, the cycle token, a `models.json` whose
 every provider is the factory's proxy, and a clone of the product. All of it
-is wiped when the job ends and when the program starts.
+is wiped when the job ends and when the program starts. The `models.json`
+names the factory at the address this host joined with, whatever address the
+proxy binds.
+
+The wipe removes `repos`, `work` and `state/cycles` under `TEHAS_HOME`, which a
+factory keeps too. So `run` refuses with 78, before it removes anything, a
+home that holds a factory (a state store, a settings checkout, an instance
+directory), and a `~/.pi/agent/models.json` it did not write. A contractor runs
+on a host of its own.
 
 A running job checks in on its own timer, a quarter of the job's timeout, so a
 long quiet model turn does not lose it. It ends one of five ways:
@@ -276,6 +298,7 @@ long quiet model turn does not lose it. It ends one of five ways:
 | finished | the cycle ended | no | by the cycle | the result |
 | offline | no check-in answered for the timeout | yes | yes | stopped, or the result if one was written |
 | lost | the factory refused a check-in for the job's state | yes | yes | the same |
+| stale | a newer attempt of the issue replaced the job | yes | no | nothing |
 | revoked | the factory said `revoked` | yes | no | nothing |
 | drained | `tehas-contractor drain`, and the grace passed | yes | yes | stopped: a release that costs nothing |
 
@@ -283,6 +306,12 @@ The cycle is never killed outright. It gets its stop signal and
 `TEHAS_WORK_GRACE` seconds to finish its step and write its notes; only then
 is it killed and its container stopped. A report the factory does not answer
 is retried for the job's timeout.
+
+The salvage push runs no git in the workspace, whose hooks and git config the
+container could write. It fetches the issue's branch (`feature/issue-<n>`, or
+that with a `-` and more) out of the workspace into a repository of its own,
+and pushes it from there, with hooks off, to the product's repository and
+never to an address the workspace names.
 
 `doctor` exits 3 when it finds something: a model endpoint or key in the
 environment, a `models.json`, a cycle token or a checkout left with no job
@@ -304,5 +333,10 @@ Still owed, each in its own issue:
 - #2277, the counts in `tehas status`, the dashboard and the MCP server.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
-- TLS and signed requests on the channel. Version 1 is plain http with bearer
-  keys: bind the proxy's address on a network you control.
+- #2354, TLS and signed requests on the channel. Version 1 is plain http with
+  bearer keys: bind the proxy's address on a network you control.
+- Job tokens that outlive a restart of the proxy. They are held in its memory
+  only, so a restart refuses every running job's check-in with 401 `no job`,
+  and each such job takes the lost path and costs its issue a retry. Keeping
+  a hash of each token in the store needs a store schema change, which this
+  release does not make.

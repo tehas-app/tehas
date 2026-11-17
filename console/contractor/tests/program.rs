@@ -88,6 +88,9 @@ impl Factory for TestFactory {
     fn random(&self) -> Option<String> {
         tehas_proxy::jobs::random()
     }
+    fn allowed(&self, name: &str) -> bool {
+        name == "box1"
+    }
 }
 
 struct Quiet;
@@ -325,9 +328,11 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
         instance.contains("PI_ENSEMBLE_API_KEY_MAIN='"),
         "{instance}"
     );
-    assert!(fs::read_to_string(seen.join("models.json"))
-        .unwrap()
-        .contains("http://factory/v1"));
+    // The job's models name the factory at the address this host joined with,
+    // not the one the factory gave.
+    let models = fs::read_to_string(seen.join("models.json")).unwrap();
+    assert!(models.contains(&format!("http://{at}/v1")), "{models}");
+    assert!(!models.contains("http://factory/v1"), "{models}");
     assert_eq!(
         fs::read_to_string(seen.join("clone")).unwrap().trim(),
         "cloned"
@@ -380,5 +385,53 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
         for secret in [CYCLE_TOKEN, instance_token.as_str(), "ghs_", "sk-"] {
             assert!(!text.contains(secret), "{} holds {secret}", path.display());
         }
+    }
+}
+
+#[test]
+fn run_refuses_a_home_that_holds_a_factory_and_removes_nothing() {
+    let d = TestDir::new("contractor-factory-home");
+    let user_home = d.path().join("factory-owner");
+    let tehas_home = user_home.join("tehas");
+    let kept = [
+        tehas_home.join("state/tehas.db"),
+        tehas_home.join("repos/widget/README"),
+        tehas_home.join("work/widget-7/notes"),
+        tehas_home.join("state/cycles/7.result.json"),
+        user_home.join(".pi/agent/models.json"),
+    ];
+    for f in &kept {
+        fs::create_dir_all(f.parent().unwrap()).unwrap();
+        fs::write(f, "the factory's").unwrap();
+    }
+    tehas_contractor::identity::write(
+        &user_home.join(".config/tehas/contractor.json"),
+        &tehas_contractor::identity::Identity {
+            factory: "127.0.0.1:1".to_string(),
+            name: "box1".to_string(),
+            key: "k".to_string(),
+        },
+    )
+    .unwrap();
+    let ran = Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
+        .arg("run")
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", &user_home)
+        .env("TEHAS_HOME", &tehas_home)
+        .env("TEHAS_OUTSOURCE", "on")
+        .env("TEHAS_TEST_FEATURES", "outsource")
+        .output()
+        .unwrap();
+    let log = String::from_utf8_lossy(&ran.stderr);
+    assert_eq!(ran.status.code(), Some(78), "{log}");
+    assert!(log.contains("never beside a factory"), "{log}");
+    for f in &kept {
+        assert_eq!(
+            fs::read_to_string(f).unwrap(),
+            "the factory's",
+            "{}",
+            f.display()
+        );
     }
 }
