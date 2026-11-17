@@ -579,7 +579,7 @@ impl Writer {
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
         if let Some(spec) = a.get("spec") {
-            if let Some(then) = self.spec_holds(n, &given, spec, log) {
+            if let Some(then) = self.spec_holds(n, a, spec, log) {
                 return then;
             }
         }
@@ -810,17 +810,21 @@ impl Writer {
     /// spec fetches it, pinned to the sha256 the `Spec:` line names, before
     /// anything of the start is changed. None when its bytes are the ones
     /// named: the approval then keeps the pin. A spec of other bytes, a link
-    /// GitHub refuses or a line tehas cannot read starts nothing: the labels
-    /// that asked come off and the issue is told why, except for a start the
-    /// host or the poll itself made, which is logged alone. A fetch that may
-    /// work later ends the poll with 1 and changes nothing.
+    /// GitHub refuses or a line tehas cannot read starts nothing, and what
+    /// asked for the start is used up, so the next poll does not pick it
+    /// again: the labels that asked come off, the host's approval comes off
+    /// the record, an outage's retry is spent and a refresh request dropped.
+    /// The issue is told why, except for a start of the host's, which is
+    /// logged. A fetch that may work later ends the poll with 1 and changes
+    /// nothing.
     fn spec_holds(
         &mut self,
         n: u64,
-        given: &str,
+        a: &Value,
         spec: &Value,
         log: &mut Vec<String>,
     ) -> Option<Then> {
+        let given = text(a, "given").to_string();
         let why = match spec.get("why").and_then(Value::as_str) {
             Some(why) => why.to_string(),
             None => {
@@ -846,6 +850,9 @@ impl Writer {
                     Some(why) => why,
                     None => {
                         let said = match unpinned {
+                            attach::fetch::Unpinned::Fetch(f) if f.http > 0 => {
+                                format!("curl exited {}, HTTP {}", f.code, f.http)
+                            }
                             attach::fetch::Unpinned::Fetch(f) => format!("curl exited {}", f.code),
                             attach::fetch::Unpinned::Unreadable(e) => e,
                             attach::fetch::Unpinned::Other(sum) => sum,
@@ -859,8 +866,23 @@ impl Writer {
             }
         };
         log.push(format!("skip #{n}: {why}"));
+        match given.as_str() {
+            crate::decide::HOST => {
+                let at = text(a, "at");
+                if let Some(t) = epoch(at) {
+                    if self.restore(n, t, log) {
+                        log.push(format!("the host's approval of #{n} of {at} is off the record: run `tehas start {n}` again once its `{}` line is right", tehas_core::grammar::SPEC_MARK));
+                    }
+                }
+            }
+            "outage-retry" => {
+                self.park_retry(n, &json!({"how": "outage"}), log);
+            }
+            "refresh" => self.refresh_drop(n, log),
+            _ => {}
+        }
         let off = super::strings(spec, "off");
-        if off.is_empty() && given != "retry-tick" {
+        if off.is_empty() && given == crate::decide::HOST {
             return Some(Then::Skipped);
         }
         let names: Vec<&str> = off.iter().map(String::as_str).collect();

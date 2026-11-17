@@ -78,13 +78,14 @@ pub fn no_mark_said(ask: &str, why: &str) -> String {
 pub const SPEC_MOST: i64 = 1024 * 1024;
 
 /// Why the bytes fetched for a spec stop its start: the pinned fetch found
-/// other bytes, or GitHub refused the link (curl's 22) or it is too big
-/// (curl's 63). None for a fetch that may work at the next poll.
+/// other bytes, or GitHub refused the link (curl's 22 on an answer of 4xx) or
+/// it is too big (curl's 63). None for a fetch that may work at the next poll,
+/// a 5xx among them.
 pub fn spec_unpinned(r: &attach::fetch::Unpinned) -> Option<String> {
     use attach::fetch::{Unpinned, REFUSED, TOO_BIG};
     match r {
         Unpinned::Other(got) => Some(format!("the bytes of its spec are not the ones its `{SPEC_MARK}` line names: they have sha256 {got}, so the spec is not the one that was approved")),
-        Unpinned::Fetch(f) if f.code == REFUSED => Some(format!("GitHub refused the link of its `{SPEC_MARK}` line")),
+        Unpinned::Fetch(f) if f.code == REFUSED && (400..500).contains(&f.http) => Some(format!("GitHub refused the link of its `{SPEC_MARK}` line (HTTP {})", f.http)),
         Unpinned::Fetch(f) if f.code == TOO_BIG => Some(format!("its spec is larger than {} KiB, the most tehas fetches for one", SPEC_MOST / 1024)),
         _ => None,
     }
@@ -555,6 +556,14 @@ mod tests {
             Unpinned::Fetch(Fetched {
                 code,
                 content_type: String::new(),
+                http: 0,
+            })
+        };
+        let answered = |code, http| {
+            Unpinned::Fetch(Fetched {
+                code,
+                content_type: String::new(),
+                http,
             })
         };
         let h = "d".repeat(64);
@@ -562,10 +571,18 @@ mod tests {
             spec_unpinned(&Unpinned::Other(h.clone())),
             Some(format!("the bytes of its spec are not the ones its `Spec:` line names: they have sha256 {h}, so the spec is not the one that was approved"))
         );
-        assert_eq!(
-            spec_unpinned(&fetch(22)),
-            Some("GitHub refused the link of its `Spec:` line".into())
-        );
+        for http in [400, 403, 404, 410] {
+            assert_eq!(
+                spec_unpinned(&answered(22, http)),
+                Some(format!(
+                    "GitHub refused the link of its `Spec:` line (HTTP {http})"
+                ))
+            );
+        }
+        // An outage of GitHub or its storage is tried again at the next poll.
+        for http in [0, 500, 502, 503] {
+            assert_eq!(spec_unpinned(&answered(22, http)), None, "{http}");
+        }
         assert_eq!(
             spec_unpinned(&fetch(63)),
             Some("its spec is larger than 1024 KiB, the most tehas fetches for one".into())
