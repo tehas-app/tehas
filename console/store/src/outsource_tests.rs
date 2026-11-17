@@ -1800,7 +1800,7 @@ fn the_stamp_of_a_start_is_only_a_job_still_open() {
     );
 }
 
-// --- schema 17: the report and the token's hash -------------------------------
+// --- schema 17 and 18: the report and the tokens' hashes ----------------------
 
 const IMAGE: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 /// The hash of a job's token, as the proxy passes it.
@@ -1885,7 +1885,15 @@ fn a_store_with_the_feature_off_takes_no_report_and_no_token_hash() {
     let home = off("report-off");
     let args = ["contractor-seen", "--name", "box1", "--image", IMAGE];
     assert_eq!(out(&home, &args)["verb"], "refused");
-    let args = ["job-token", "--job", "1", "--sha256", TOKEN_SHA];
+    let args = [
+        "job-token",
+        "--job",
+        "1",
+        "--scope",
+        "model",
+        "--sha256",
+        TOKEN_SHA,
+    ];
     assert_eq!(out(&home, &args)["verb"], "refused");
     let args = ["job-by-token", "--sha256", TOKEN_SHA];
     assert_eq!(out(&home, &args)["verb"], "refused");
@@ -1899,10 +1907,22 @@ fn tokened(name: &str) -> (TestDir, String) {
         .as_i64()
         .unwrap()
         .to_string();
-    let v = out(&home, &["job-token", "--job", &job, "--sha256", TOKEN_SHA]);
+    let v = keep(&home, &job, "model", TOKEN_SHA);
+    assert_eq!(v["verb"], "kept", "{v}");
+    let v = keep(&home, &job, "job", JOB_SHA);
     assert_eq!(v["verb"], "kept", "{v}");
     out(&home, &["job-check-in", "--job", &job]);
     (home, job)
+}
+
+/// The hash of a job's token of the job scope, as the proxy passes it.
+const JOB_SHA: &str = "3333333333333333333333333333333333333333333333333333333333333333";
+
+fn keep(home: &Path, job: &str, scope: &str, sha: &str) -> Value {
+    out(
+        home,
+        &["job-token", "--job", job, "--scope", scope, "--sha256", sha],
+    )
 }
 
 fn by_token(home: &Path) -> Value {
@@ -1921,10 +1941,22 @@ fn a_kept_token_hash_names_its_running_job_and_nothing_else() {
     );
     assert_eq!(v["contractor"], "box1");
     assert_eq!(v["state"], "running");
+    assert_eq!(v["scope"], "model");
     assert_eq!(
-        count(&home, &format!("jobs WHERE token_sha256 = '{TOKEN_SHA}'")),
+        count(
+            &home,
+            &format!(
+                "jobs WHERE model_token_sha256 = '{TOKEN_SHA}' AND job_token_sha256 = '{JOB_SHA}'"
+            )
+        ),
         1
     );
+    let v = out(&home, &["job-by-token", "--sha256", JOB_SHA]);
+    assert_eq!(
+        (v["verb"].as_str(), v["scope"].as_str()),
+        (Some("job"), Some("job"))
+    );
+    assert_eq!(v["job"].to_string(), job);
     let other = "2222222222222222222222222222222222222222222222222222222222222222";
     let v = out(&home, &["job-by-token", "--sha256", other]);
     assert_eq!(v["verb"], "none");
@@ -1933,9 +1965,50 @@ fn a_kept_token_hash_names_its_running_job_and_nothing_else() {
     assert_eq!(by_token(&home)["state"], "stopping");
     out(&home, &["job-finish", "--job", &job]);
     assert_eq!(by_token(&home)["verb"], "none");
+    assert_eq!(
+        out(&home, &["job-by-token", "--sha256", JOB_SHA])["verb"],
+        "none"
+    );
     // A finished job takes no new hash.
-    let v = out(&home, &["job-token", "--job", &job, "--sha256", other]);
+    let v = keep(&home, &job, "model", other);
     assert_eq!(v["verb"], "refused");
+}
+
+#[test]
+fn a_token_hash_has_one_scope_and_a_new_one_replaces_its_scope_only() {
+    let (home, job) = tokened("token-scopes");
+    // The hash of one scope is never taken for the other.
+    let v = keep(&home, &job, "job", TOKEN_SHA);
+    assert_eq!(v["verb"], "refused", "{v}");
+    let v = keep(&home, &job, "model", JOB_SHA);
+    assert_eq!(v["verb"], "refused", "{v}");
+    assert_eq!(by_token(&home)["scope"], "model");
+    // A new model hash replaces the model one and leaves the job one.
+    let other = "4444444444444444444444444444444444444444444444444444444444444444";
+    assert_eq!(keep(&home, &job, "model", other)["verb"], "kept");
+    assert_eq!(by_token(&home)["verb"], "none");
+    let v = out(&home, &["job-by-token", "--sha256", other]);
+    assert_eq!(v["scope"], "model");
+    let v = out(&home, &["job-by-token", "--sha256", JOB_SHA]);
+    assert_eq!(v["scope"], "job");
+    // A scope is named, and only one of the two words.
+    let job = job.as_str();
+    for args in [
+        vec!["job-token", "--job", job, "--sha256", other],
+        vec![
+            "job-token",
+            "--job",
+            job,
+            "--scope",
+            "both",
+            "--sha256",
+            other,
+        ],
+        vec!["job-token", "--job", job, "--scope", "", "--sha256", other],
+    ] {
+        let (code, _) = refused_out(&home, &args);
+        assert_eq!(code, 64, "{args:?}");
+    }
 }
 
 #[test]
@@ -1943,6 +2016,10 @@ fn a_token_hash_of_a_revoked_contractor_or_a_replaced_attempt_names_no_job() {
     let (home, _) = tokened("token-revoked");
     out(&home, &["contractor-revoke", "--name", "box1"]);
     assert_eq!(by_token(&home)["verb"], "none");
+    assert_eq!(
+        out(&home, &["job-by-token", "--sha256", JOB_SHA])["verb"],
+        "none"
+    );
     // Lost to a silence, it still names the job until the next attempt.
     let (home, job) = tokened("token-silent");
     out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
@@ -1962,6 +2039,6 @@ fn a_token_hash_of_a_revoked_contractor_or_a_replaced_attempt_names_no_job() {
         .as_i64()
         .unwrap()
         .to_string();
-    out(&home, &["job-token", "--job", &job, "--sha256", TOKEN_SHA]);
+    keep(&home, &job, "model", TOKEN_SHA);
     assert_eq!(by_token(&home)["verb"], "none");
 }

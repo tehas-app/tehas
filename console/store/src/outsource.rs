@@ -98,16 +98,20 @@
 //!     that job's. Answered under its own verb, as a caller of libexec/store
 //!     reads it. The stamp of the issue's comments, its pull request and its
 //!     commits.
-//!   store job-token --job <id> --sha256 <hex>
-//!     The sha256 of the token the model proxy issued for an open job, never
+//!   store job-token --job <id> --scope model|job --sha256 <hex>
+//!     The sha256 of a token the model proxy issued for an open job, never
 //!     the token: a proxy that restarts checks a presented token against it.
-//!     answers `kept`, or `refused` for a job that is not open, or `stale`.
+//!     A job has one token per scope: `model`, the container's, for the model
+//!     paths, and `job`, the contractor program's, for the job channel. A new
+//!     hash of a scope replaces the last one of that scope. answers `kept`, or
+//!     `refused` for a job that is not open or a hash the other scope holds,
+//!     or `stale`.
 //!   store job-by-token --sha256 <hex>
 //!     The job whose token has this hash, while a call of its token may still
 //!     be answered: running or stopping, or lost to a silence and not to a
 //!     revocation, of the issue's current attempt, on a contractor that is not
-//!     revoked. answers `job` with its number, issue, attempt, contractor and
-//!     state, or `none`.
+//!     revoked. answers `job` with its number, issue, attempt, contractor,
+//!     state and the token's scope, or `none`.
 //!   store job-attempts --issue <n>
 //!     The record of what the outsourced attempts of an issue have cost, in
 //!     the words "this issue has spent its outsourced attempts" are read:
@@ -135,6 +139,10 @@ pub const STATES: [&str; 6] = [
 /// Why a job is lost, the three the spec names: the timeout passed, the
 /// contractor was revoked, or an offer was never taken.
 pub const LOST_REASONS: [&str; 3] = ["timeout", "revoked", "expired"];
+
+/// The scopes of a job's tokens: `model` may call only the model paths and
+/// `job` only the job channel.
+pub const TOKEN_SCOPES: [&str; 2] = ["model", "job"];
 
 /// The word of every row of job_history that the factory moved the job. A
 /// contractor's rows name the contractor instead, so a person reading a job's
@@ -223,6 +231,7 @@ pub enum Call {
     },
     Token {
         job: i64,
+        scope: &'static str,
         sha: String,
     },
     ByToken(String),
@@ -614,12 +623,17 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "job-token" => Args::parse(
             "job-token",
             rest,
-            &[("--job", Kind::Value), ("--sha256", Kind::Value)],
+            &[
+                ("--job", Kind::Value),
+                ("--scope", Kind::Value),
+                ("--sha256", Kind::Value),
+            ],
             false,
         )
         .and_then(|a| {
             Ok(Call::Token {
                 job: a.strict_need("--job", "a job number", verbs::number)?,
+                scope: a.strict_need("--scope", "model or job", one_of(&TOKEN_SCOPES))?,
                 sha: a.strict_need("--sha256", "64 hex digits", verbs::sha256)?,
             })
         }),
@@ -670,7 +684,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Auth { name, key } => auth(home, name, key),
         Call::Offered(name) => offered(home, name, now),
         Call::Stamp { issue, since, open } => stamp(home, *issue, *since, *open),
-        Call::Token { job, sha } => token(home, *job, sha, now),
+        Call::Token { job, scope, sha } => token(home, *job, scope, sha, now),
         Call::ByToken(sha) => by_token(home, sha),
     }
 }
@@ -1218,10 +1232,15 @@ fn stamp(home: &Path, issue: i64, since: i64, open: bool) -> Result<String, Fail
     })
 }
 
-/// The hash of an open job's token, kept for a proxy that restarts. The token
-/// itself never reaches the store.
-fn token(home: &Path, id: i64, sha: &str, now: i64) -> Result<String, Fail> {
+/// The hash of an open job's token of one scope, kept for a proxy that
+/// restarts. The token itself never reaches the store.
+fn token(home: &Path, id: i64, scope: &str, sha: &str, now: i64) -> Result<String, Fail> {
     let sha = sha.to_string();
+    // The column of each scope, and of the other one.
+    let (column, other) = match scope {
+        "model" => ("model_token_sha256", "job_token_sha256"),
+        _ => ("job_token_sha256", "model_token_sha256"),
+    };
     work(home, move |c| {
         let job = held(c, id)?;
         if stale(c, &job)? {
@@ -1234,8 +1253,24 @@ fn token(home: &Path, id: i64, sha: &str, now: i64) -> Result<String, Fail> {
                 &format!("{} takes no token", job.state),
             ));
         }
+        // One token is never of both scopes: a hash the other scope holds is
+        // refused, so a lookup names one scope.
+        let doubled: bool = c
+            .query_row(
+                &format!("SELECT {other} IS ?1 FROM jobs WHERE id = ?2"),
+                params![sha, id],
+                |r| r.get(0),
+            )
+            .q()?;
+        if doubled {
+            return Ok(held_line(
+                "refused",
+                &job,
+                "the hash is the job's token of the other scope",
+            ));
+        }
         c.execute(
-            "UPDATE jobs SET token_sha256 = ?1, updated_at = ?2 WHERE id = ?3",
+            &format!("UPDATE jobs SET {column} = ?1, updated_at = ?2 WHERE id = ?3"),
             params![sha, now, id],
         )
         .q()?;
@@ -1251,19 +1286,22 @@ fn by_token(home: &Path, sha: &str) -> Result<String, Fail> {
     look(home, move |c| {
         let job = c
             .query_row(
-                "SELECT j.id, j.issue, j.contractor, j.attempt, j.state FROM jobs j
+                "SELECT j.id, j.issue, j.contractor, j.attempt, j.state,
+                        CASE WHEN j.model_token_sha256 = ?1 THEN 'model' ELSE 'job' END
+                   FROM jobs j
                    JOIN contractors k ON k.name = j.contractor
-                  WHERE j.token_sha256 = ?1 AND k.revoked_at IS NULL
+                  WHERE (j.model_token_sha256 = ?1 OR j.job_token_sha256 = ?1)
+                    AND k.revoked_at IS NULL
                     AND (j.state IN ('running', 'stopping')
                          OR (j.state = 'lost' AND j.lost_reason IS NOT 'revoked'))
                   ORDER BY j.id DESC LIMIT 1",
                 params![sha],
-                read_job,
+                |r| Ok((read_job(r)?, r.get::<_, String>(5)?)),
             )
             .optional()
             .q()?;
-        let job = match job {
-            Some(job) if !superseded(c, &job)? => job,
+        let (job, scope) = match job {
+            Some((job, scope)) if !superseded(c, &job)? => (job, scope),
             _ => return Ok(line("none", &[])),
         };
         Ok(line(
@@ -1274,6 +1312,7 @@ fn by_token(home: &Path, sha: &str) -> Result<String, Fail> {
                 ("attempt", j(job.attempt)),
                 ("contractor", j(job.contractor.as_str())),
                 ("state", j(job.state.as_str())),
+                ("scope", j(scope.as_str())),
             ],
         ))
     })
