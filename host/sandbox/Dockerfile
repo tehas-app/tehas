@@ -252,6 +252,17 @@ RUN export npm_config_cache=/tmp/npm-cache \
 COPY gh-shim /usr/local/bin/gh
 RUN chmod 755 /usr/local/bin/gh && [ -x /usr/bin/gh ]
 
+# vipune sends a cycle's calls to the factory's memory through the relay when
+# the host marks it (host/sandbox/vipune-shim, behind outsource), and runs the
+# image's own vipune otherwise. The real one moves out of PATH to the path the
+# stand-in and the factory's memory call it by. After the model check above,
+# which calls the real one by name.
+COPY vipune-shim /usr/local/lib/tehas/vipune-shim
+RUN mv /usr/local/bin/vipune /usr/local/lib/tehas/vipune \
+ && mv /usr/local/lib/tehas/vipune-shim /usr/local/bin/vipune \
+ && chmod 755 /usr/local/bin/vipune /usr/local/lib/tehas/vipune \
+ && db=$(mktemp -d) && vipune version --db-path "$db/v.db" && rm -rf "$db"
+
 # Every command a cycle's instructions name, and every command tehas gives a
 # container (by --entrypoint or after the image), has to answer there. A tool
 # that quietly leaves the image costs a cycle a call each time an agent reaches

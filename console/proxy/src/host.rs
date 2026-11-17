@@ -1,12 +1,14 @@
 //! The factory of the job channel on a host: the state store under
 //! `TEHAS_HOME`, the narrowed cycle token `tehasbot github-token --cycle`
-//! keeps, gh for a relayed write, and the files a cycle's report reads.
+//! keeps, gh for a relayed write, the pinned vipune for a relayed vipune call
+//! ([`tehas_cycle::memory`]), and the files a cycle's report reads.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::{json, Value};
+use tehas_cycle::memory::{InImage, Planned, Vipune};
 use tehas_cycle::relay::{self, Scope, Via};
 
 use crate::channel::{self, Factory};
@@ -21,6 +23,8 @@ pub struct OfHost {
     pub timeout: i64,
     /// The names `TEHAS_OUTSOURCE_CONTRACTORS` lists.
     pub contractors: Vec<String>,
+    /// The sandbox image whose vipune answers a job's calls (PI_ENSEMBLE_IMAGE).
+    pub image: String,
 }
 
 /// How long the token command may take.
@@ -29,6 +33,10 @@ const TOKEN_WAIT: &str = "60";
 impl OfHost {
     fn cycles(&self) -> PathBuf {
         self.home.join("state").join("cycles")
+    }
+
+    fn vipune(&self) -> InImage {
+        InImage::of_home(&self.home, &self.image)
     }
 }
 
@@ -63,6 +71,22 @@ impl Factory for OfHost {
         scope: &mut Scope,
     ) -> Result<(String, String, i32), String> {
         relay::answer_request(args, input, &self.repo, &Via::from_env(&self.home), scope)
+    }
+
+    fn repo(&self) -> String {
+        self.repo.clone()
+    }
+
+    fn memory(&self, cycle: &str, planned: &Planned) -> (String, String, i32) {
+        self.vipune().call(cycle, planned, &self.repo)
+    }
+
+    fn forget_memory(&self, cycle: &str) {
+        self.vipune().forget(cycle);
+    }
+
+    fn memory_jobs(&self) -> Vec<i64> {
+        memory_jobs_in(&self.vipune().dir)
     }
 
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String> {
@@ -131,4 +155,44 @@ fn keep_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
     let new = dir.join(format!(".{name}.new"));
     fs::write(&new, bytes).map_err(|e| format!("{name} could not be written: {e}"))?;
     fs::rename(&new, dir.join(name)).map_err(|e| format!("{name} could not be kept: {e}"))
+}
+
+/// The jobs whose database is in `dir`: `job-<id>.db`.
+fn memory_jobs_in(dir: &Path) -> Vec<i64> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter_map(|n| {
+            n.strip_prefix("job-")?
+                .strip_suffix(".db")?
+                .parse::<i64>()
+                .ok()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_jobs_with_a_database_are_read_from_their_names() {
+        let d = tehas_core::testdir::TestDir::new("proxy-memory-jobs");
+        for f in [
+            "job-7.db",
+            "job-7.db-wal",
+            "job-12.db",
+            "issue-3.db",
+            "job-x.db",
+        ] {
+            fs::write(d.join(f), "").unwrap();
+        }
+        let mut jobs = memory_jobs_in(&d.join(""));
+        jobs.sort_unstable();
+        assert_eq!(jobs, [7, 12]);
+        assert!(memory_jobs_in(&d.join("none")).is_empty());
+    }
 }

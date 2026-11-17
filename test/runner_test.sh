@@ -1075,7 +1075,7 @@ run
 lintglobs=()
 for g in "$repo"/bin/* "$repo"/libexec/* "$repo"/lib/*.sh "$repo"/scripts/*.sh "$repo"/test/*.sh \
   "$repo"/install.sh "$repo"/bootstrap.sh "$repo"/host/env.sh "$repo"/host/shim/gh \
-  "$repo"/host/sandbox/build.sh "$repo"/host/sandbox/gh-shim "$repo"/host/login/tehas; do
+  "$repo"/host/sandbox/build.sh "$repo"/host/sandbox/gh-shim "$repo"/host/sandbox/vipune-shim "$repo"/host/login/tehas; do
   [ -f "$g" ] || continue
   case "$g" in */scripts/publish-lib.sh) continue ;; esac
   lintglobs+=("$g")
