@@ -100,6 +100,9 @@ pub enum Rule {
     CleanAfter,
     /// Days a kept workspace of an open issue waits before the sweep.
     KeepDays,
+    /// Commits of history a cycle's tree is given, 0 for all of it: the count
+    /// grammar of [`is_count`], 0 included.
+    CloneDepth,
     /// An idle poll's budget for `store poll-idle --budget`: the three figures
     /// in this order, any left out; another order would bound the wrong
     /// figure. Each figure as the store's count reads it, no leading 0.
@@ -157,6 +160,7 @@ impl Rule {
             Rule::RefreshSlots => "refresh-slots",
             Rule::CleanAfter => "clean-after",
             Rule::KeepDays => "keep-days",
+            Rule::CloneDepth => "clone-depth",
             Rule::PollBudget => "poll-budget",
             Rule::MeasureBound => "measure-bound",
             Rule::ScratchDir => "scratch-dir",
@@ -198,6 +202,7 @@ impl Rule {
             Rule::RefreshSlots => "9",
             Rule::CleanAfter => "123456",
             Rule::KeepDays => "0",
+            Rule::CloneDepth => "-1",
             Rule::PollBudget => "wall=1,cpu=1",
             Rule::MeasureBound => "0",
             Rule::ScratchDir => "scratch",
@@ -327,6 +332,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SLICE_CONTAINERS", Rule::SliceContainers, "4"),
     always("TEHAS_CLEAN_AFTER", Rule::CleanAfter, "24"),
     always("TEHAS_WORKSPACE_KEEP_DAYS", Rule::KeepDays, "7"),
+    always("TEHAS_CLONE_DEPTH", Rule::CloneDepth, "100"),
     always(
         "TEHAS_POLL_BUDGET",
         Rule::PollBudget,
@@ -490,6 +496,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             leading(v, 4),
             "expected a whole number of days of at least 1",
         ),
+        Rule::CloneDepth => refuse(is_count(v), CLONE_DEPTH_WHY),
         Rule::PollBudget => poll_budget(v),
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
         Rule::ScratchDir => refuse(
@@ -525,6 +532,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
 const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
 const POSITIVE: &str = "expected a positive whole number";
+const CLONE_DEPTH_WHY: &str = "expected a whole number of 0 or more, 0 for full history";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
     !s.is_empty() && s.chars().all(ok)
@@ -1128,6 +1136,16 @@ mod tests {
                 bad,
                 "expected a whole number from 0 to 8",
             );
+        }
+    }
+
+    #[test]
+    fn a_clone_depth_is_a_whole_number_and_0_is_full_history() {
+        for good in ["0", "1", "100", "999999999"] {
+            takes("TEHAS_CLONE_DEPTH", good);
+        }
+        for bad in ["", "-1", "01", "1000000000", "100 ", "full", "é"] {
+            refuses("TEHAS_CLONE_DEPTH", bad, CLONE_DEPTH_WHY);
         }
     }
 
