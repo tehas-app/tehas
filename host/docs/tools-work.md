@@ -379,7 +379,8 @@ added within a version. The manifest is kept as
 `<issue>.comments.json` when the cycle has them. When the next fetch is for the
 same approval, a restart of the same cycle, a link that gives other bytes than
 the kept manifest says stops the start with exit 4 and the link named; each
-file of an archive is held to its own bytes by its link and its path. The directory is remade for every cycle and removed by
+file of an archive is held to its own bytes by its link and its path, and
+an archive to the same set of paths: a file added or gone stops it too. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
 images were fetched, each with its link and sha256, what was left out, and
 whether the cycle was shown them. An image that could not be fetched stops the
