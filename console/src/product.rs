@@ -740,10 +740,15 @@ fn propose(branch: &str, dry: bool) -> Result<u8, u8> {
         ));
         return Err(1);
     }
-    let opened = ran(Command::new("gh")
-        .args(["pr", "create", "--repo", &name, "--base", branch])
-        .args(["--head", HEAD, "--title", COMMIT, "--body", &body]));
-    Ok(if opened { 0 } else { 1 })
+    let args = [
+        "pr", "create", "--repo", &name, "--base", branch, "--head", HEAD, "--title", COMMIT,
+        "--body", &body,
+    ];
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let opened = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
+    tehas_core::out!("{}", opened.out);
+    eprint!("{}", opened.err);
+    Ok(if opened.ok() { 0 } else { 1 })
 }
 
 #[derive(Debug, PartialEq)]

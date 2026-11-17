@@ -30,8 +30,7 @@
 use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use tehas_core::time;
+use tehas_core::{call, time};
 
 /// At most this many pages of open issues are read: a thousand.
 const PAGES: usize = 10;
@@ -77,27 +76,24 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 fn gh(owner: &str, name: &str, cursor: Option<&str>) -> Result<String, String> {
-    let mut cmd = Command::new("gh");
-    cmd.args(["api", "graphql", "-f"])
-        .arg(format!("query={QUERY}"))
-        .args([
-            "-f",
-            &format!("owner={owner}"),
-            "-f",
-            &format!("name={name}"),
-        ]);
+    let mut args = vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={QUERY}"),
+        "-f".to_string(),
+        format!("owner={owner}"),
+        "-f".to_string(),
+        format!("name={name}"),
+    ];
     if let Some(c) = cursor {
-        cmd.args(["-f", &format!("cursor={c}")]);
+        args.extend(["-f".to_string(), format!("cursor={c}")]);
     }
-    let out = cmd
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|e| format!("gh: {e}"))?;
-    if !out.status.success() {
+    let out = call::run("gh", &args, call::GH_BOUND);
+    if !out.ok() {
         return Err("GitHub did not answer".into());
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.out)
 }
 
 /// The issue nodes of every page `ask` answers, given the cursor of the next.

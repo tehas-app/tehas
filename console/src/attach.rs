@@ -97,17 +97,15 @@ fn empty_manifest(issue: &str, files: bool) -> String {
 // one that links nothing goes on. Err is why.
 fn gives_nothing(issue: &str, dir: &str) -> Result<(), String> {
     let unread = "the issue could not be read for its images";
-    let data = Command::new("gh")
-        .args([
-            "api",
-            &format!("repos/{}/issues/{issue}", var("TEHAS_REPO")),
-        ])
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .ok_or(unread)?;
-    let data = String::from_utf8_lossy(&data.stdout);
+    let args = [
+        "api".to_string(),
+        format!("repos/{}/issues/{issue}", var("TEHAS_REPO")),
+    ];
+    let ran = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
+    if !ran.ok() {
+        return Err(unread.to_string());
+    }
+    let data = ran.out;
     let doc: Value = serde_json::from_str(&data).map_err(|_| unread)?;
     let body = doc.as_object().map(|o| o.get("body"));
     if !matches!(body, Some(None | Some(Value::Null | Value::String(_)))) {

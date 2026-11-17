@@ -2,7 +2,7 @@
 //! it. A removal goes by this, so an answer that does not say is `Unclear`.
 
 use serde_json::Value;
-use std::process::{Command, Stdio};
+use tehas_core::call;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Pull {
@@ -79,20 +79,9 @@ fn of_call(worked: bool, stdout: &str, stderr: &str, n: u64, repo: &str) -> Pull
 }
 
 pub fn ask(n: u64, repo: &str) -> Pull {
-    let out = Command::new("gh")
-        .args(["api", &format!("repos/{repo}/pulls/{n}")])
-        .stdin(Stdio::null())
-        .output();
-    let Ok(out) = out else {
-        return Pull::Unclear;
-    };
-    of_call(
-        out.status.success(),
-        &String::from_utf8_lossy(&out.stdout),
-        &String::from_utf8_lossy(&out.stderr),
-        n,
-        repo,
-    )
+    let args = ["api".to_string(), format!("repos/{repo}/pulls/{n}")];
+    let out = call::run("gh", &args, call::GH_BOUND);
+    of_call(out.ok(), &out.out, &out.err, n, repo)
 }
 
 #[cfg(test)]
