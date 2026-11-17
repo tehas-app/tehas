@@ -19,10 +19,10 @@ read, written or removed. Its line in logs/refresh.log is "asked for pull
 request #N: wrote the request of #M" or "asked for pull request #N: not
 refreshed: <why>".
 With --json it also prints one object on standard output for exit 0, 3 and
-1: {"asked", "pr", "issue", "head_sha", "why"}. asked is true when the
-request was written, and why is then null; otherwise why is the reason, the
-same words as on stderr. issue and head_sha are null when GitHub did not
-name them.
+1: {"api", "asked", "pr", "issue", "headSha", "why"}, api being 1. asked is
+true when the request was written, and why is then null; otherwise why is
+the reason, the same words as on stderr. issue and headSha are null when
+GitHub did not name them.
 
 It decides only that a pull request may need a refresh. Whether a refresh
 starts is the dispatcher's, which checks each request again at the start

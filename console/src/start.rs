@@ -140,8 +140,8 @@ fn shown(a: &Value) -> Value {
         "at": a.get("at").and_then(Value::as_i64).map(time::iso),
         "by": a.get("by"),
         "how": a.get("how"),
-        "body_sha256": a.get("body_sha256"),
-        "title_sha256": a.get("title_sha256"),
+        "bodySha256": a.get("body_sha256"),
+        "titleSha256": a.get("title_sha256"),
     })
 }
 

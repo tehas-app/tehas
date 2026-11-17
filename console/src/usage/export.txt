@@ -1,8 +1,10 @@
 tehas export: copy what a person reading a cycle needs into a directory,
 masked, and change nothing in the factory.
 
-For every cycle tehas history would list, this writes <dir>/<cursor>/ with
-the cycle's result, its logs, its agents' transcripts and its Protolab page:
+It writes <dir>/export.json, {"version": 1}, the layout of the directory.
+For every cycle tehas history would list, it writes <dir>/cycles/<cursor>/
+with the cycle's result, its logs, its agents' transcripts and its Protolab
+page:
 
   result.json        state/cycles/<issue>.result.json and .progress.json, as
                      the cycle left them
@@ -43,10 +45,11 @@ Usage: tehas export [--json] --after CURSOR <dir>
                    reads the archive can be someone else. Its name may not be
                    "." or ".."
 
-With --json, the object tehas history prints for what was copied, so the
-cursor to keep is the "next" of the object:
+With --json, the object tehas history prints for what was copied, with the
+layout's version and the directory, so the cursor to keep is the "next" of the
+object:
 
-  {"api": 1, "cycles": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
+  {"api": 1, "version": 1, "runs": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
 
 Exit: 0 copied, also when there was nothing to copy; 1 the state store did
 not answer (busy) for the history, which copies nothing, or a cycle could not
