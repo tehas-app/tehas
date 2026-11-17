@@ -55,6 +55,22 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: records of an older tehas at $home/state/cycles/7.approved.json; this release does not import them: move them out of state/"
 rm -f "$home/state/cycles/7.approved.json"
 
+t_case "a planning bound the poll cannot read ends it with 78 before the lock and any call"
+# A poll started with no load reads both bounds itself; the load refuses the
+# same words first (test/config_test.sh).
+reset
+rm -f "$home/state/dispatch.taken"
+loaded=". \"$T_ROOT/lib/config.sh\" && tehas_load >/dev/null 2>&1; TEHAS_HEALTH_CMD=\"$T_HEALTH\""
+t_run "$loaded TEHAS_PLAN_MAX_TURNS=two \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number"
+t_eq "$(t_calls gh)" ""
+t_eq "$([ -e "$home/state/dispatch.taken" ] && echo taken)" ""
+t_run "$loaded TEHAS_PLAN_TIMEOUT=7201 \"$T_DISPATCH\" poll"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: TEHAS_PLAN_TIMEOUT (7201) is more than 7200"
+t_eq "$(t_calls gh)" ""
+
 t_case "a dry run logs what a poll would do"
 reset
 echo '[]' >"$fx/ready.json"

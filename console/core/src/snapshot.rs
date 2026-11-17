@@ -3,6 +3,11 @@
 //! a session, in the order the writer selects them, and the shape numbers of
 //! the headers are here so that a field is added or renamed once, in one list
 //! both sides read, and not in a writer's list and a reader's that can drift.
+//! The rule that finds a run's log files by the stamp in their names is here
+//! too: the writer lists an ended run's logs with it, and the reader finds a
+//! running cycle's logs with it.
+
+use std::path::Path;
 
 /// What a field holds, spelled once for both sides: the column kind the writer
 /// reads from SQLite and the JSON type the reader names in its schema. `Time`
@@ -157,6 +162,137 @@ pub const ROLE_FIELDS: [Field; 11] = [
     ("ms", Shape::Int, "Milliseconds of model time."),
 ];
 
+/// How long before a run's start its log's stamp may be: the stamp is taken
+/// as the cycle begins, the run's start a little before or after.
+pub const STAMP_BEFORE: i64 = 120;
+
+// 261020-100000 as Unix seconds, UTC.
+fn stamp_secs(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    let ok = b.len() == 13
+        && b[6] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 6 || c.is_ascii_digit());
+    ok.then_some(())?;
+    let t = format!(
+        "20{}-{}-{}T{}:{}:{}Z",
+        &s[0..2],
+        &s[2..4],
+        &s[4..6],
+        &s[7..9],
+        &s[9..11],
+        &s[11..13]
+    );
+    crate::time::from_iso(&t)
+}
+
+fn regular_size(p: &Path) -> Option<u64> {
+    std::fs::symlink_metadata(p)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+}
+
+/// The names in the logs directory, read once for all runs.
+pub fn log_names(logs: &Path) -> Vec<String> {
+    std::fs::read_dir(logs)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect()
+}
+
+/// The log files of a run that exist as regular files: (word, file name,
+/// bytes). A log belongs to the run when the stamp in its name, taken when
+/// the cycle began, is no more than STAMP_BEFORE seconds before the run's
+/// start and not after its end (now for a run that has not ended). When
+/// several stamps fall in that window only the latest is the run's: an
+/// earlier one is a short run of the same issue that ended just before.
+pub fn log_files(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    started: i64,
+    ended: Option<i64>,
+    now: i64,
+) -> Vec<(String, String, u64)> {
+    files_between(
+        logs,
+        names,
+        kind,
+        issue,
+        started - STAMP_BEFORE,
+        ended.unwrap_or(now),
+    )
+}
+
+/// The log files of a running cycle, as `log_files` finds a run's. `started`
+/// is the store's start of the cycle, and the log's stamp is taken after it,
+/// so no stamp before it is the cycle's: until the cycle writes its own log,
+/// the logs of a run that ended just before are not taken for its.
+pub fn running_log_files(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    started: i64,
+    now: i64,
+) -> Vec<(String, String, u64)> {
+    files_between(logs, names, kind, issue, started, now)
+}
+
+fn files_between(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    from: i64,
+    upto: i64,
+) -> Vec<(String, String, u64)> {
+    let (own, tails): (&str, &[(&str, &str)]) = match kind {
+        "work" => (
+            "work",
+            &[
+                ("transcript", ".jsonl"),
+                ("err", ".jsonl.err"),
+                ("preflight", ".jsonl.preflight"),
+                ("console", ".jsonl.console"),
+                ("result", ".jsonl.result.json"),
+            ],
+        ),
+        "plan" => ("plan", &[("progress", ".jsonl"), ("result", ".json")]),
+        _ => return Vec::new(),
+    };
+    let prefix = format!("{own}-{issue}-");
+    let mut stamps: Vec<&str> = names
+        .iter()
+        .filter_map(|n| n.strip_prefix(&prefix)?.get(..13))
+        .filter(|s| stamp_secs(s).is_some_and(|t| t >= from && t <= upto))
+        .collect();
+    stamps.sort_unstable();
+    stamps.dedup();
+    let mut found = Vec::new();
+    for stamp in stamps.iter().rev() {
+        for (word, tail) in tails {
+            let name = format!("{prefix}{stamp}{tail}");
+            if let Some(bytes) = regular_size(&logs.join(&name)) {
+                found.push(((*word).to_string(), name, bytes));
+            }
+        }
+        if !found.is_empty() {
+            break;
+        }
+    }
+    let dispatch = format!("dispatch-{own}-{issue}.log");
+    if let Some(bytes) = regular_size(&logs.join(&dispatch)) {
+        found.push(("dispatch".to_string(), dispatch, bytes));
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,5 +321,24 @@ mod tests {
         }
         // Only a full session answers it, so no summary or attempt list may name it.
         assert_eq!(RUN_FIELDS[RUN_FIELDS.len() - 1].0, "concurrent");
+    }
+
+    #[test]
+    fn a_running_cycle_takes_no_stamp_before_its_start() {
+        let dir = crate::testdir::TestDir::new("running-logs");
+        let logs = dir.path();
+        let t = 1_794_000_000;
+        let before = crate::time::stamp(t - 30);
+        std::fs::write(logs.join(format!("work-9-{before}.jsonl")), "x").unwrap();
+        let names = log_names(logs);
+        // An ended run that started at t would take it; the running cycle not.
+        assert_eq!(log_files(logs, &names, "work", 9, t, None, t + 60).len(), 1);
+        assert!(running_log_files(logs, &names, "work", 9, t, t + 60).is_empty());
+        let own = crate::time::stamp(t);
+        std::fs::write(logs.join(format!("work-9-{own}.jsonl")), "y").unwrap();
+        let names = log_names(logs);
+        let found = running_log_files(logs, &names, "work", 9, t, t + 60);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, format!("work-9-{own}.jsonl"));
     }
 }

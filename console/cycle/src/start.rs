@@ -28,6 +28,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tehas_core::approval::{self, Refusal};
 use tehas_core::call;
+use tehas_core::driver::Driver;
 use tehas_core::text::disarm;
 
 /// `[1-9][0-9]{0,8}`: an attempt as the store gives it.
@@ -132,43 +133,6 @@ fn read_record(home: &Path, issue: &str, attempt: &str) -> (Option<PathBuf>, &'s
     }
 }
 
-/// The engine a cycle runs: classic `work`, or `work-lean`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Driver {
-    Classic,
-    Lean,
-}
-
-impl Driver {
-    /// The driver a person names with --driver.
-    pub fn named(word: &str) -> Option<Driver> {
-        match word {
-            "classic" => Some(Driver::Classic),
-            "lean" => Some(Driver::Lean),
-            _ => None,
-        }
-    }
-
-    /// The runner's verb.
-    pub fn verb(self) -> &'static str {
-        match self {
-            Driver::Classic => "work",
-            Driver::Lean => "work-lean",
-        }
-    }
-}
-
-/// The driver an approval binds: none is classic. None for one this tehas does
-/// not know, which never runs as classic.
-pub fn record_driver(record: &Value) -> Option<Driver> {
-    match record.get("driver") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => Some(Driver::Classic),
-        Some(Value::String(s)) if s.is_empty() => Some(Driver::Classic),
-        Some(Value::String(s)) => Driver::named(s),
-        Some(_) => None,
-    }
-}
-
 pub fn record_value(file: &Path) -> Option<Value> {
     let text = fs::read_to_string(file).ok()?;
     runner::values(&text)?.pop()
@@ -197,7 +161,7 @@ pub fn record(
     let n = issue.to_string();
     let (file, why) = read_record(home, &n, attempt);
     let bound = match file.as_deref().and_then(record_value) {
-        Some(r) => record_driver(&r),
+        Some(r) => Driver::of_record(&r),
         None => Some(Driver::Classic),
     };
     let Some(driver) = asked.or(bound) else {
@@ -368,7 +332,7 @@ pub fn text(home: &Path, t: &Text) -> Result<Option<PathBuf>, i32> {
         };
         eprintln!("tehas work: {shown}, not starting a cycle");
         tell(t.issue, &t.repo, t.wait, why);
-        Err(4)
+        Err(i32::from(tehas_core::exit::work::NOT_STARTED))
     };
     if !t.why.is_empty() {
         return stop(&t.why, false);
@@ -401,7 +365,6 @@ pub fn text(home: &Path, t: &Text) -> Result<Option<PathBuf>, i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::os::unix::fs::PermissionsExt;
     use tehas_core::testdir::TestDir;
     use tehas_core::text::has_marker;
@@ -454,37 +417,6 @@ mod tests {
         let other = home("link-other");
         std::os::unix::fs::symlink(&other, h.join("tmp")).unwrap();
         assert!(private_file(&h, "approval", b"x").is_none());
-    }
-
-    #[test]
-    fn a_record_with_no_driver_is_classic_and_an_unknown_one_is_none() {
-        assert_eq!(
-            record_driver(&json!({"driver": "lean"})),
-            Some(Driver::Lean)
-        );
-        assert_eq!(
-            record_driver(&json!({"driver": "classic"})),
-            Some(Driver::Classic)
-        );
-        for no in [
-            json!({}),
-            json!({"driver": null}),
-            json!({"driver": false}),
-            json!({"driver": ""}),
-        ] {
-            assert_eq!(record_driver(&no), Some(Driver::Classic), "{no}");
-        }
-        for odd in [json!({"driver": "other"}), json!({"driver": 1})] {
-            assert_eq!(record_driver(&odd), None, "{odd}");
-        }
-    }
-
-    #[test]
-    fn a_driver_is_a_verb_of_the_runner() {
-        assert_eq!(Driver::named("lean").map(Driver::verb), Some("work-lean"));
-        assert_eq!(Driver::named("classic").map(Driver::verb), Some("work"));
-        assert_eq!(Driver::named("Lean"), None);
-        assert_eq!(Driver::named(""), None);
     }
 
     #[test]

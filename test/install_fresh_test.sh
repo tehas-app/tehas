@@ -318,6 +318,36 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "Tests:        not checked (running inside the tests)"
 t_eq "$([ -e "$T/suite-ran" ] && echo ran)" ""
 
+t_case "--check proves the app's cycle token from the product checkout, and a refused push exits 1"
+# The installed tehasbot gives the kept token and login of the app's world. git
+# is real but for the proof's push, which records its token and is refused
+# while $T/push-refused holds the remote's words.
+t_app_world
+real_git=$(command -v git)
+product=$th/repos/widget
+"$real_git" init -q --initial-branch=main "$product"
+"$real_git" -C "$product" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
+"$real_git" -C "$product" remote add origin "$T/product-origin"
+t_stub git "case \"\$*\" in
+  *'push --dry-run origin HEAD:refs/heads/tehas-preflight')
+    printf '%s\\n' \"\${GH_TOKEN:-}\" >\"\$T/push-token\"
+    if [ -e \"\$T/push-refused\" ]; then cat \"\$T/push-refused\" >&2; exit 128; fi
+    exit 0 ;;
+esac
+exec '$real_git' \"\$@\""
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Cycle token:  OK (tehas-bot[bot] can push to origin)"
+t_eq "$(cat "$T/push-token")" ghs_cycle
+printf '%s\n' "remote: Write access to repository not granted." \
+  "fatal: unable to access 'https://github.com/acme/widget.git/': The requested URL returned error: 403" >"$T/push-refused"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Cycle token:  CANNOT PUSH (tehas-bot[bot] was refused a dry-run push to origin)"
+t_contains "$t_out" "    remote: Write access to repository not granted."
+t_contains "$t_out" "The requested URL returned error: 403"
+rm -rf "$product" "$T/push-refused" "$T/push-token" "$T/bin/git" "$th/state"/github*
+
 
 t_case "a second install makes no labels and enables nothing"
 rm -f "$T"/calls/*
