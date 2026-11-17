@@ -468,6 +468,10 @@ instance_findings() {
 # judges the settings sees the same one.
 : "${TEHAS_HOME:=$HOME/tehas}"
 export TEHAS_HOME
+# The load refuses a home that is no absolute path as well, as a setting of the
+# host; this says first why it is not tehas's, in the words --check and tehas
+# update read. 1b asks again for a home the instance names.
+refuse_home
 # tehas_load below writes the load's warnings again, so a run with no finding
 # shows them once, from there.
 findings=$(instance_findings)

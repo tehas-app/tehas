@@ -268,6 +268,25 @@ Delete the line. An instance with no `TEHAS_MAX_CYCLES` line goes from
 one cycle at a time, the default of the earlier version, to the host's CPUs
 minus one; set the line to keep a lower ceiling.
 
+## Host settings
+
+These are the host's, not the instance's: the environment a command runs in,
+or `~/.config/tehas/env`, gives them, and `instance.env` does not. Each is
+checked when it holds a value, and one that its rule refuses stops every
+command with 78 and a line that names it and not its value.
+`api/settings-rules.json` lists them under `host`.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `TEHAS_HOME` | `~/tehas` | The tehas home. An absolute path of letters, digits and `._-` between slashes, with no `..` and no slash at the end |
+| `TEHAS_INSTANCE_DIR` | the first line of `~/.config/tehas/instance-dir`, else `~/.config/tehas` | The instance directory. An absolute path, as `TEHAS_HOME` |
+| `TEHAS_MODEL_KEY_<NAME>` | unset | A model endpoint's token, which `models.json` names as `$TEHAS_MODEL_KEY_<NAME>`. One word of printable characters with no quote, backslash, `$` or backtick. Only in `~/.config/tehas/env`: `instance.env` that sets one is refused |
+| `TEHAS_MCP` | unset, off | Whether the [MCP server](/mcp-server) runs: `on` or `off` (`1` or `0`) |
+| `TEHAS_MCP_KEYS`, `TEHAS_MCP_DASHBOARD_KEYS` | unset | The MCP server's keys, separated by white space, each at least 32 characters of `A-Za-z0-9_-`. A refusal names a key by its place. Only in `~/.config/tehas/env` |
+| `TEHAS_ENERGY` | unset | The energy section: `off` takes it away, `on` asks for it, unset leaves it to the sampler |
+| `TEHAS_ENERGY_URL` | unset | The cluster address the energy sampler asks, with no token, in place of the model endpoint's. An `http://` or `https://` address |
+| `TEHAS_UPDATE_LOCK_WAIT` | `10` | Seconds `tehas update` and `install.sh` wait for another update's lock. A whole number from 0, refuse at once, to 300. From the environment of that run only: `tehas update` and `install.sh` check it themselves and stop with 78 on any other value |
+
 ## The gates (run by the cycle, usable by hand)
 
 A product names its gates in `.pi/verify-cmd`, `.pi/verify-cmd-full` and
