@@ -173,6 +173,23 @@ pub fn record(
         );
         return Err(78);
     };
+    // Lean while its feature is off is refused, never run as classic.
+    if driver == Driver::Lean {
+        let what = if asked.is_some() {
+            "--driver lean".to_string()
+        } else {
+            format!("the approval of #{n}, which names driver lean,")
+        };
+        if let Err(why) =
+            tehas_core::features::needs("lean", &what, &|k| std::env::var(k).unwrap_or_default())
+        {
+            if let Some(f) = &file {
+                let _ = fs::remove_file(f);
+            }
+            eprintln!("tehas work: {why}; not starting a cycle");
+            return Err(78);
+        }
+    }
     Ok(Recorded { file, why, driver })
 }
 

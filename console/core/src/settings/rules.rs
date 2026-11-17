@@ -325,6 +325,7 @@ pub const TABLE: &[Setting] = &[
         Rule::OneOf(&["classic", "lean"], "expected classic or lean"),
         "classic",
     ),
+    always("TEHAS_LEAN", SWITCH, "0"),
     always("TEHAS_READ_ONLY", SWITCH, "0"),
     always("TEHAS_OUTSOURCE", SWITCH, "0"),
     always("TEHAS_OUTSOURCE_TIMEOUT", Rule::Count, "600"),
@@ -980,10 +981,11 @@ mod tests {
             "TEHAS_SPEC_PIPE",
             "TEHAS_PROTOLAB_ZIP_URL",
             "TEHAS_PROTOTYPE_FILE",
+            "TEHAS_LEAN",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 19);
+        assert_eq!(switches.len(), 20);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

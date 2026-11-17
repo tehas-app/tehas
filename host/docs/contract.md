@@ -238,6 +238,29 @@ exit 78 and says `prototype-file` is still being built.
 [`tehas prototype file`](/tools-protolab#tehas-prototype-file) says what the
 feature does once it ships.
 
+### lean
+
+Building. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
+and says `lean` is still being built, and so does `TEHAS_DRIVER=lean`, which
+names the feature it needs.
+
+- `tehas api --json` has `"lean": false` in `flags`, and no word `lean` in
+  `features`.
+- `TEHAS_DRIVER` takes `classic`; every cycle runs the classic driver.
+- `tehas work --driver lean` exits 78 and starts no cycle. `--driver classic`
+  works as before.
+- The labels `tehas:lean` and `tehas:classic` stay in the label set, so
+  `tehas labels` does not remove them. `tehas:lean` is inert: a start that
+  would run lean starts nothing, the label that asked comes off and the issue
+  says once that lean is still being built. Classic never runs in its place.
+  `tehas:classic` and an issue with no driver label run classic.
+- An approval record that names driver `lean`, kept from before, is refused
+  with 78 by `tehas work`; it does not run as classic.
+- No command, no `--json` field, no MCP tool.
+
+[Choosing the driver](/operating#choosing-the-driver) says what the feature
+does once it ships.
+
 ## Exit statuses
 
 A status means the same in every public command, but for the exceptions a

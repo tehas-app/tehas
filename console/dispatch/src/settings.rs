@@ -70,6 +70,9 @@ pub struct Settings {
     pub driver_default: Driver,
     /// The `spec-pipe` feature is on: a start reads the issue's `Spec:` line.
     pub spec_pipe: bool,
+    /// The `lean` feature is on. Off, a start that would run lean starts
+    /// nothing and says why; classic never runs in its place.
+    pub lean: bool,
     /// The outsource feature's settings, None while it is off: every start
     /// then runs on this host, as before the feature.
     pub outsource: Option<crate::place::Rules>,
@@ -141,6 +144,7 @@ impl Settings {
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
             driver_default: Driver::default_of(&s("TEHAS_DRIVER", "classic")),
             spec_pipe: tehas_core::features::on_in("spec-pipe", &|k| s(k, "")),
+            lean: tehas_core::features::on_in("lean", &|k| s(k, "")),
             outsource: crate::place::Rules::of(&|k| {
                 v.get(k).map_or(String::new(), |x| {
                     x.as_str().map_or(x.to_string(), str::to_string)
@@ -156,6 +160,12 @@ impl Settings {
         let driver = v.get("TEHAS_DRIVER").and_then(Value::as_str).unwrap_or("");
         if !driver.is_empty() && Driver::named(driver).is_none() {
             return Some("TEHAS_DRIVER is not valid: expected classic or lean".into());
+        }
+        if driver == Driver::Lean.word() {
+            let get = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            if let Err(why) = tehas_core::features::needs("lean", "TEHAS_DRIVER=lean", &get) {
+                return Some(why);
+            }
         }
         let k = tehas_core::kinds::SETTING;
         let value = v.get(k).and_then(Value::as_str).unwrap_or("");
@@ -221,12 +231,31 @@ mod tests {
     }
 
     #[test]
+    fn lean_is_on_only_where_the_registry_lets_it_be_and_a_lean_default_needs_it() {
+        assert!(!Settings::parse(&json!({})).lean);
+        assert!(!Settings::parse(&json!({"TEHAS_LEAN": "1"})).lean);
+        let tested = json!({"TEHAS_LEAN": "1", "TEHAS_TEST_FEATURES": "lean"});
+        assert!(Settings::parse(&tested).lean);
+        assert_eq!(
+            Settings::refused(&json!({"TEHAS_DRIVER": "lean", "TEHAS_LEAN": "1"})).as_deref(),
+            Some("TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release")
+        );
+        let off = json!({"TEHAS_DRIVER": "lean", "TEHAS_TEST_FEATURES": "lean"});
+        assert_eq!(
+            Settings::refused(&off).as_deref(),
+            Some("TEHAS_DRIVER=lean needs the feature lean: set TEHAS_LEAN=on")
+        );
+    }
+
+    #[test]
     fn the_driver_is_classic_unless_the_setting_says_lean() {
         let default = |v: Value| Settings::parse(&v).driver_default;
         assert_eq!(default(json!({})), Driver::Classic);
         assert_eq!(default(json!({"TEHAS_DRIVER": "classic"})), Driver::Classic);
         assert_eq!(default(json!({"TEHAS_DRIVER": "lean"})), Driver::Lean);
-        assert_eq!(Settings::refused(&json!({"TEHAS_DRIVER": "lean"})), None);
+        let lean =
+            json!({"TEHAS_DRIVER": "lean", "TEHAS_LEAN": "1", "TEHAS_TEST_FEATURES": "lean"});
+        assert_eq!(Settings::refused(&lean), None);
         assert_eq!(Settings::refused(&json!({"TEHAS_DRIVER": "classic"})), None);
         for bad in ["Lean", "work-lean", " lean"] {
             assert_eq!(
