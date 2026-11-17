@@ -264,3 +264,18 @@ could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
+
+## tehas outsource
+
+```
+tehas outsource invite [--name NAME] [--json]
+tehas outsource list [--json]
+tehas outsource status [--json]
+tehas outsource revoke <contractor> [--json]
+tehas outsource drain <contractor> [--json]
+```
+
+The contractors that run this factory's cycles: invite a host, list them,
+count them, end one at once, or ask one to take no new job. Outsource is still
+being built in this release, so every subcommand exits 78. See
+[outsource](/outsource#the-commands).
