@@ -2,11 +2,12 @@
 //! one holds, and the order of the work. Settings come from the environment
 //! `console run` loaded.
 
-use super::{front_page, live_file, number_of, refs, ticket_page, Refs};
+use super::{front_page, live_file, number_of, refs, ticket_page, Refs, Zip};
 use crate::edge;
 use crate::forge::{gh_program, repo, runnable, CALL_BOUND};
 use crate::jq::{obj, J};
-use attach::fetch::{self, Fetched, Full};
+use attach::fetch::{self, Fetched, Full, Pin, Unpinned};
+use attach::link::{is_external, is_link};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -26,6 +27,9 @@ const LIMIT: i64 = 10 * 1024 * 1024;
 const MAX_FILES: i64 = 40;
 const OVER: &str = "Over the 10 MB limit of a ticket.";
 const NOT_HOSTED: &str = "Not a type the lab hosts.";
+const RETRY: &str = "Could not be fetched. The lab tries again.";
+/// The name of a feature this pass checks.
+const ZIP_URL: &str = "protolab-zip-url";
 
 /// One line of what a pass did. A log that went away does not stop the pass.
 fn say(line: &str) {
@@ -43,6 +47,10 @@ struct Lab {
     url: String,
     design: String,
     token: String,
+    /// Whether a ticket may name a zip by address: protolab-zip-url is on.
+    zips: bool,
+    /// TEHAS_PROTOLAB_ZIP_HOSTS: the hosts such a zip may come from.
+    zip_hosts: String,
 }
 
 pub fn run() -> u8 {
@@ -80,6 +88,8 @@ pub fn run() -> u8 {
         url: setting("TEHAS_PROTOLAB_URL"),
         design: setting("TEHAS_DESIGN"),
         token: String::new(),
+        zips: tehas_core::features::on(ZIP_URL),
+        zip_hosts: setting("TEHAS_PROTOLAB_ZIP_HOSTS"),
     };
     let rc = pass(&mut lab, &live);
     let _ = edge::remove(&lab.work);
@@ -92,7 +102,8 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     let mut gh = Bounded::new(program.clone(), CALL_BOUND);
     lab.token = token(&mut gh);
     let home_url = home_url(&lab.domain, &lab.url);
-    let generator = generator(&lab.domain, &lab.design);
+    let zips = lab.zips.then_some(lab.zip_hosts.as_str());
+    let generator = generator(&lab.domain, &lab.design, zips);
 
     // The bot's own login, asked once before anything of a ticket is read,
     // built or removed: whatever a cycle labels, it labels as the bot. A login
@@ -222,7 +233,8 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
             ));
             continue;
         }
-        let Some(found) = texts(lab, &mut gh, n).map(|t| refs(&t, &|w| allowed(w, &lab.allowed)))
+        let Some(found) =
+            texts(lab, &mut gh, n).map(|t| refs(&t, &|w| allowed(w, &lab.allowed), lab.zips))
         else {
             say(&format!("#{n}: could not be read, left as it was"));
             continue;
@@ -290,21 +302,32 @@ fn home_url(domain: &str, url: &str) -> String {
 /// What every stamp starts with: the console writes the pages, so a page whose
 /// words changed is built again, and so is one drawn in another design. Read
 /// through /proc, which still works while an update has replaced the file.
-fn generator(domain: &str, design: &str) -> String {
+/// With zips by address on, the hosts they may come from are part of it too,
+/// so a host added or taken off, or the switch turned, builds every page again.
+fn generator(domain: &str, design: &str, zips: Option<&str>) -> String {
     let bytes = fs::read("/proc/self/exe").unwrap_or_default();
     let mut hash = DefaultHasher::new();
     bytes.hash(&mut hash);
-    stamp_of(hash.finish(), bytes.len(), domain, design)
+    stamp_of(hash.finish(), bytes.len(), domain, design, zips)
 }
 
-fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
+fn stamp_of(hash: u64, len: usize, domain: &str, design: &str, zips: Option<&str>) -> String {
     let domain = if domain.is_empty() { "path" } else { domain };
     let design = if design == "pixel" {
         "pixel"
     } else {
         "beesknees26"
     };
-    format!("{hash:016x}-{len}-{domain}-{design}")
+    let mut stamp = format!("{hash:016x}-{len}-{domain}-{design}");
+    if let Some(hosts) = zips {
+        let mut hosts: Vec<&str> = hosts.split(' ').filter(|h| !h.is_empty()).collect();
+        hosts.sort_unstable();
+        hosts.dedup();
+        let mut hash = DefaultHasher::new();
+        hosts.hash(&mut hash);
+        stamp.push_str(&format!("-zips-{:016x}", hash.finish()));
+    }
+    stamp
 }
 
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
@@ -460,6 +483,19 @@ fn build(
     for link in &found.fetch {
         take(lab, &dir, link, &mut held)?;
     }
+    for mark in &found.zips {
+        match mark {
+            Ok(zip) => take_zip(lab, &dir, zip, &mut held),
+            Err(word) => held.skip(
+                &(if word.is_empty() {
+                    "Zip:".to_string()
+                } else {
+                    clean_name(word)
+                }),
+                NOT_A_MARK,
+            ),
+        }
+    }
 
     let (bytes, files, skipped) = (held.used, held.files.len(), held.skipped.len());
     let of = |key: &str| J::parse(&ticket[key].to_string()).unwrap_or(J::Null);
@@ -586,16 +622,8 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         };
     }
-    let left = match fetch::room(held.count, MAX_FILES, held.used, LIMIT) {
-        Ok(left) => left,
-        Err(Full::Count) => {
-            held.skip(&name, &more_than());
-            return Some(());
-        }
-        Err(Full::Bytes) => {
-            held.skip(&name, OVER);
-            return Some(());
-        }
+    let Some(left) = room(&name, held) else {
+        return Some(());
     };
 
     let part = dir.join(".part");
@@ -614,7 +642,7 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         }
         _ => {
-            held.skip(&name, "Could not be fetched. The lab tries again.");
+            held.skip(&name, RETRY);
             held.retry = true;
             return Some(());
         }
@@ -648,6 +676,83 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
     let _ = fs::set_permissions(files.join(&name), fs::Permissions::from_mode(0o644));
     held.file(&name, J::str(kind), size);
     Some(())
+}
+
+/// The bytes left for one more file, or None when it is left out, and said.
+fn room(name: &str, held: &mut Held) -> Option<i64> {
+    match fetch::room(held.count, MAX_FILES, held.used, LIMIT) {
+        Ok(left) => Some(left),
+        Err(Full::Count) => {
+            held.skip(name, &more_than());
+            None
+        }
+        Err(Full::Bytes) => {
+            held.skip(name, OVER);
+            None
+        }
+    }
+}
+
+const NOT_A_MARK: &str =
+    "Not a zip and its sha256: the line is Zip:, the address and sha256: with 64 lower-case hex digits.";
+const NOT_ALLOWED: &str = "Not from a host the instance allows.";
+
+/// A zip the ticket names by address and sha256: a file attached on GitHub,
+/// fetched as one, or an address on a host of TEHAS_PROTOLAB_ZIP_HOSTS, which
+/// is followed only to addresses on those hosts. Bytes of another sha256 are
+/// refused. It is unpacked as an attached zip, under the same limits.
+fn take_zip(lab: &Lab, dir: &Path, zip: &Zip, held: &mut Held) {
+    let name = clean_name(&zip.link);
+    let within = |a: &str| is_external(a, &lab.zip_hosts);
+    if !is_link(&zip.link) && !within(&zip.link) {
+        held.skip(&name, NOT_ALLOWED);
+        return;
+    }
+    let Some(left) = room(&name, held) else {
+        return;
+    };
+    let part = dir.join(".part");
+    let pin = Pin {
+        link: &zip.link,
+        sha256: &zip.sha256,
+        most: left,
+    };
+    let got = if is_link(&zip.link) {
+        fetch::fetch_pinned(&pin, &part, &lab.token)
+    } else {
+        fetch::fetch_pinned_within(&pin, &part, &lab.token, &within)
+    };
+    let failed = match got {
+        Ok(_) => None,
+        Err(Unpinned::Fetch(Fetched { code, .. })) => match code {
+            fetch::TOO_BIG => Some(OVER),
+            fetch::REFUSED => Some("The host did not hand it out."),
+            fetch::MOVED => Some("Sent on to an address the instance does not allow."),
+            _ => {
+                held.retry = true;
+                Some(RETRY)
+            }
+        },
+        Err(Unpinned::Other(_)) => Some("Not the bytes its sha256 names."),
+        Err(Unpinned::Unreadable(_)) => {
+            held.retry = true;
+            Some(RETRY)
+        }
+    };
+    let size = fs::metadata(&part).map_or(0, |m| m.len() as i64);
+    let failed = failed.or(if size == 0 {
+        Some("Empty.")
+    } else if size > left {
+        Some(OVER)
+    } else {
+        None
+    });
+    if let Some(reason) = failed {
+        let _ = fs::remove_file(&part);
+        held.skip(&name, reason);
+        return;
+    }
+    unpack(lab, dir, &name, left, held);
 }
 
 fn more_than() -> String {
@@ -1053,13 +1158,26 @@ mod tests {
     #[test]
     fn the_stamp_says_the_console_the_domain_and_the_design() {
         assert_eq!(
-            stamp_of(255, 7, "", ""),
+            stamp_of(255, 7, "", "", None),
             "00000000000000ff-7-path-beesknees26"
         );
         assert_eq!(
-            stamp_of(255, 7, "a.org", "pixel"),
+            stamp_of(255, 7, "a.org", "pixel", None),
             "00000000000000ff-7-a.org-pixel"
         );
+    }
+
+    #[test]
+    fn with_zips_on_the_stamp_says_the_hosts_in_any_order() {
+        let off = stamp_of(255, 7, "", "", None);
+        let none = stamp_of(255, 7, "", "", Some(""));
+        let one = stamp_of(255, 7, "", "", Some("a.org"));
+        let two = stamp_of(255, 7, "", "", Some("a.org b.org"));
+        assert!(none.starts_with(&format!("{off}-zips-")));
+        assert_ne!(none, one);
+        assert_ne!(one, two);
+        assert_eq!(two, stamp_of(255, 7, "", "", Some("b.org a.org")));
+        assert!(!two.contains(' '));
     }
 
     #[test]
