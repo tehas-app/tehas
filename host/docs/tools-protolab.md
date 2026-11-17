@@ -116,7 +116,9 @@ files, and counts against the same 10 megabytes and 40 files. What is left
 out is listed on the page with its reason: a line of another form, a host off
 the list, a redirect off it, other bytes. A download that fails for now is
 tried again on the next pass. With the switch off, a `Zip:` line is text, as
-it always was.
+it always was. A host added to the list or taken off, or the switch turned,
+builds every page again on the next pass, so a page never keeps a zip its
+instance no longer allows.
 
 A prototype is somebody's HTML and script. That is why the Protolab is a
 server of its own on another port, and why every attached file is answered

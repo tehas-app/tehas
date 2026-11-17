@@ -865,6 +865,38 @@ net_file "$X/good.zip" "$zips/good.zip"
 t_protolab
 t_contains "$t_out" "#89: 4 files"
 
+t_case "zip by address: a host added to the list builds the ticket again, and one taken off does too"
+zip_url
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 90 'Host later' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/90/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on "TEHAS_PROTOLAB_ZIP_HOSTS='other.example.org files.example.org'"
+t_protolab
+t_contains "$t_out" "#90: 4 files"
+t_protolab
+t_eq "$t_out" ""
+# The same hosts in another order are the same list.
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on "TEHAS_PROTOLAB_ZIP_HOSTS='files.example.org other.example.org'"
+t_protolab
+t_eq "$t_out" ""
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on TEHAS_PROTOLAB_ZIP_HOSTS=other.example.org
+t_protolab
+t_contains "$t_out" "#90: 0 files, 0 bytes, 1 left out"
+t_eq "$(find "$site/90/files" -type f | wc -l)" 0
+
+t_case "zip by address: switched off, a page built with it on is built again without the zip"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 91 'Switched' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#91: 4 files"
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+t_protolab
+t_contains "$t_out" "#91: 0 files, 0 bytes, 0 left out"
+t_eq "$(find "$site/91/files" -type f | wc -l)" 0
+
 t_case "a name with no slash keeps the same address as before"
 reset
 net "$F/11/solo.html" "<h1>solo</h1>"
