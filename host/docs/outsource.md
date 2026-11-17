@@ -139,8 +139,8 @@ proxy's memory. `tehas-proxy --counts` prints them and clears them. A count
 names no token, no path and no byte of a body.
 
 The endpoint's own token figures, `usage` of an answer or of the last chunk of
-a stream, are read of each answer but not kept yet: they reach the state
-store, `tehas status` and the dashboard with #2277. The proxy never guesses a
+a stream, are read of each answer but not kept yet: keeping them needs a store
+schema change, which this release does not make. The proxy never guesses a
 token count, and an answer it could not finish writing gives no figures.
 
 ## What it never does
@@ -162,8 +162,9 @@ token count, and an answer it could not finish writing gives no figures.
 
 Outsource not on: `tehas-proxy` says `outsource is off: no model proxy
 is listening` and ends 0. Nothing binds a port, nothing is written under the
-state, `tehas status` says no word about the feature, and the rest of the suite
-is as it was.
+state, `live/contractors.json` is not there, `tehas status` and its `--json`
+say no word about the feature, the MCP server has no `factory_contractors`,
+and the rest of the suite is as it was.
 
 ## The job channel
 
@@ -306,6 +307,40 @@ Off, or while the feature is being built, every subcommand exits 78 and
 touches nothing. Exit: 0 done; 1 the store refused, or no such contractor; 64
 a bad argument.
 
+## Where a person and a program see the contractors
+
+With outsource on, each run of `tehasbot status` (every poll, and the end of a
+cycle) writes `~/tehas/live/contractors.json` from the state store. With it
+off, the same run takes the file away, so a factory with the feature off has
+none. The file holds, at `time`, the counts by status and how many cycles are
+outsourced (`counts`), and per contractor its `name`, `status` (the words of
+`tehas outsource list`), `issue` (the issue of the job in its hand, left out
+when it holds none), `lastSeenAt`, `jobsDone` and `jobsLost`. No address, no
+key and no host name but the contractor's own. The docs server does not serve
+it under `/live/` yet: the dashboard's Contractors panel, which reads it, is
+still to come.
+
+Three readers show it, and each only while the file is there:
+
+- `tehas status` prints an `outsource:` line after the cycles, the same line
+  as `tehas outsource status`, and each running cycle ends with
+  `outsourced to <contractor>` or `in-house`:
+
+  ```
+  cycle     #15 running, step develop, started 2 min ago, outsourced to box1
+  cycle     #12 running, step review, started 40 min ago, in-house
+  outsource: 1 idle, 1 working, 1 resting; 1 cycle(s) outsourced
+  ```
+
+- `tehas status --json` has `contractors`: the counts, and the contractors as
+  `list`. See [tehas status --json](/api#tehas-status-json).
+  `running` and `room` count an outsourced cycle as they count one on this
+  host: this host's supervisor holds the cycle's lock while the contractor
+  runs it.
+- The MCP server's `factory_contractors` answers the file, read only. A
+  dashboard key is served it too. With outsource off the tool is not listed
+  and a call of it is an unknown tool. See [the MCP server](/mcp-server#the-tools).
+
 ## The contractor program
 
 `tehas-contractor` runs on the contractor's host. Its help and every line it
@@ -372,9 +407,13 @@ Still owed, each in its own issue:
   supervisor waiting on it. Until then no job is offered, so a contractor that
   asks gets none.
 - The image digest and pi-rukas version of a contractor's cycle as the job
-  is given out. The job's row has no column for them, and adding one is a
-  store schema change, which this release does not make.
-- #2277, the counts in `tehas status`, the dashboard and the MCP server.
+  is given out, and of each contractor in `contractors.json`. The store has
+  no column for them, and adding one is a store schema change, which this
+  release does not make.
+- The dashboard's Contractors panel, and serving `contractors.json` under
+  `/live/` for it.
+- The endpoint's token figures per contractor and per job, kept in the store.
+  The same reason.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
 - #2354, TLS and signed requests on the channel. Version 1 is plain http with
