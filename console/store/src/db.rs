@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 17;
+pub const SCHEMA_VERSION: i64 = 18;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The five tables of section 3.15, the outsource state. Every store of this
@@ -35,8 +35,8 @@ pub const OUTSOURCE_TABLES: [&str; 5] = [
 
 /// The DDL of the five outsource tables, kept in `outsource.sql` beside
 /// schema.sql. It is the DDL of the step to 15 as well, so `init` and
-/// `migrate` lay the same tables. The columns schema 17 adds to them are
-/// [`STEP_17`]'s, which `init` runs after it.
+/// `migrate` lay the same tables. The columns schemas 17 and 18 add to them
+/// are [`STEP_17`]'s and [`STEP_18`]'s, which `init` runs after it.
 pub const OUTSOURCE_SCHEMA: &str = include_str!("outsource.sql");
 
 /// The key of `meta` whose value `1` says the instance outsources.
@@ -196,6 +196,21 @@ ALTER TABLE contractors ADD COLUMN report_rukas TEXT;
 ALTER TABLE contractors ADD COLUMN report_mem_mb INTEGER;
 ALTER TABLE contractors ADD COLUMN report_disk_kb INTEGER;
 ALTER TABLE contractors ADD COLUMN report_at INTEGER;
+";
+
+/// The step from 17 to 18: a job's tokens in two scopes, one row per job. The
+/// job scope is the contractor program's token, which may call only the job
+/// channel and the job's downloads; the model scope is the token in the
+/// container's models.json, which may call only the model paths and the
+/// egress tunnel. `token_sha256` is renamed `job_token_sha256` and keeps its
+/// value, and `model_token_sha256` is added null. Each holds a sha256, never
+/// a token.
+pub const STEP_18: &str = "
+ALTER TABLE jobs RENAME COLUMN token_sha256 TO job_token_sha256;
+DROP INDEX jobs_token;
+CREATE INDEX jobs_job_token ON jobs (job_token_sha256);
+ALTER TABLE jobs ADD COLUMN model_token_sha256 TEXT;
+CREATE INDEX jobs_model_token ON jobs (model_token_sha256);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -483,7 +498,7 @@ pub fn install_test_bounds() -> (Duration, Duration) {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 20] = [
+pub const COUNTED_INDEXES: [&str; 21] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -503,7 +518,8 @@ pub const COUNTED_INDEXES: [&str; 20] = [
     "jobs_open",
     "jobs_check_in",
     "job_history_job",
-    "jobs_token",
+    "jobs_model_token",
+    "jobs_job_token",
 ];
 
 /// The tables of schema.sql, each exactly once, which the test
@@ -1091,6 +1107,7 @@ pub fn write_schema(
     tx.execute_batch(SCHEMA).map_err(classify)?;
     tx.execute_batch(OUTSOURCE_SCHEMA).map_err(classify)?;
     tx.execute_batch(STEP_17).map_err(classify)?;
+    tx.execute_batch(STEP_18).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -1227,6 +1244,9 @@ pub(crate) const STEPS: &[(i64, Step)] = &[
     // A store at 16 is one this binary wrote before a job token or a
     // contractor's report outlived the proxy.
     (17, |c| step(c, 17, STEP_17)),
+    // A store at 17 is one this binary wrote before a job's token had a
+    // scope.
+    (18, |c| step(c, 18, STEP_18)),
 ];
 
 /// One schema step to `to`, in one transaction with `meta.schema` and
