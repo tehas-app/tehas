@@ -350,6 +350,7 @@ fn rules_json() -> String {
         ("required", strings(&INSTANCE_SETTINGS)),
         ("roles", strings(&rules::ROLES)),
         ("settings", J::Arr(TABLE.iter().map(rule_row).collect())),
+        ("host", J::Arr(rules::HOST.iter().map(rule_row).collect())),
     ]);
     format!("{}\n", object.pretty())
 }
@@ -463,6 +464,25 @@ mod tests {
             include_str!("../../../api/settings-rules.json"),
             "write api/settings-rules.json again: console settings rules --json"
         );
+    }
+
+    #[test]
+    fn the_settings_of_the_host_are_published_beside_the_instance_ones() {
+        let object = J::parse(&rules_json()).unwrap();
+        let names: Vec<String> = object
+            .get("host")
+            .items()
+            .iter()
+            .map(|row| row.get("name").text())
+            .collect();
+        assert_eq!(names.len(), rules::HOST.len());
+        for name in [
+            "TEHAS_HOME",
+            "TEHAS_MODEL_KEY_<NAME>",
+            "TEHAS_UPDATE_LOCK_WAIT",
+        ] {
+            assert!(names.iter().any(|n| n == name), "{name}");
+        }
     }
 
     #[test]

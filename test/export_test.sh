@@ -357,7 +357,7 @@ t_eq "$(jq -r '.runs | length' <<<"$t_out")" 1
 
 t_case "every file is masked with the host's names: aliases, each role's endpoints, the email"
 reset
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gpu-one:192.0.2.5,solo-host \
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gpu-one:192.0.2.5,solo-host:192.0.2.6 \
   PI_ENSEMBLE_SUBAGENT_PROVIDER=alpha PI_ENSEMBLE_SUBAGENT_MODEL=m1 \
   PI_ENSEMBLE_PROVIDER_OPS=beta PI_ENSEMBLE_MODEL_OPS=m2
 mkdir -p "$T/home/.pi/agent"

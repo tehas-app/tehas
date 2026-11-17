@@ -429,7 +429,7 @@ reset
 one 9 true running develop 900 300
 one 12 false merged review 600 200
 t_run "$status; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[.last.issue, .last.status]' "$live/running.json")" '[9,"lost"]'
 t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "9.json "

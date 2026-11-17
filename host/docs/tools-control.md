@@ -39,9 +39,9 @@ tehas drain [--wait SECONDS] [--json]
 
 Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
-end. Exit 0 when none is running, 1 when some still are or a poll held its
+end. Exit 0 when none is running, 3 when some still are or a poll held its
 lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
-exit 0 or 1 prints the answer. `tehas limit clear` ends it.
+exit 0 or 3 prints the answer. `tehas limit clear` ends it.
 
 While the factory stands drained the dispatcher's hold line names the way out:
 it ends `; tehas limit clear starts the factory`, after the words a limit of no

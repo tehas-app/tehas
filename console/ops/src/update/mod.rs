@@ -52,7 +52,8 @@
 //! gives install.sh the
 //! checksum of each program's source, see src/update/sources.rs. `wait` says how long a lock is waited
 //! for, see src/update/wait.rs. `files` makes install.sh's copies, see
-//! src/update/files.rs.
+//! src/update/files.rs. Whether the app's cycle token can push, which a real
+//! run and the --check report both prove, is src/update/push.rs.
 //!
 //! Every program is spawned by name from PATH, so a host's own tool, or a
 //! test's stub, answers. Each call outside goes through `timeout`, and only
@@ -69,6 +70,7 @@ mod host;
 mod lock;
 mod pi;
 mod programs;
+mod push;
 pub mod release;
 mod report;
 mod run;
