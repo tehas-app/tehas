@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 /// signal gets this long.
 pub const GRACE: Duration = Duration::from_secs(10);
 
+/// A call of gh whose caller names no bound of its own: long past any answer
+/// GitHub gives, so a call that hangs ends.
+pub const GH_BOUND: Duration = Duration::from_secs(120);
+
 /// What a call gave: its exit status and what it printed, or None when it
 /// could not be run or ran out of time.
 pub struct Ran {
