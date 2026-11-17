@@ -287,6 +287,140 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas review` takes a setting of a documented family, such as `PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST`, when the image lists the family, instead of stopping with exit 78.
 - The MCP tool `factory_console` masks the console tail it returns, as the log tools do.
 - The pinned ctx7 moves from 0.11.0 to 0.11.1.
+- A cycle's workspace holds only recent history: the default branch alone and
+  `TEHAS_CLONE_DEPTH` commits of it, 100 by default, where it held every branch
+  of the product checkout with its full history. The clone stays local, so
+  GitHub traffic does not change; the host no longer packs and copies the
+  product's whole history for every cycle. Planning turns, reviews, the code
+  index and `tehas check-product` clone the same way; a later planning turn
+  and a review deepen theirs to the commit they start from. A refresh deepens its
+  workspace until it holds the commit the pull request's branch started from,
+  so pi-rukas's ancestry checks answer as in a full clone, and stops with 78
+  and the reason when it cannot. `tehas finish` takes a shallow workspace. A
+  value that is not a whole number of 0 or more stops every command with 78
+  (#2359).
+- The manual says a repository with no `.pi/work.json` has no `verify.test` for lean, so a spec with a `test` criterion ends not ready, and the features page records the first lean cycle seen on a factory: the not-ready path, end to end.
+- The poll ends a sandbox push fault on its own. Once
+  `state/push-fault.json` is ten minutes old, the poll runs the dry-run push
+  a start runs, with the App's cycle token and no cycle spent on it, in a
+  fresh copy of the checkout as a start's workspace is. It asks only while
+  the poll could start a cycle. A pass
+  takes the file off and the queue starts; a refusal writes the fault fresh
+  and holds starts for another ten minutes. When the poll cannot ask at all,
+  it records nothing and the next start's own check decides, as before
+  (#2130).
+- While the fault stands, `tehas status` prints
+  `push      the sandbox cannot push: <git's line> (<login>)`,
+  `tehasbot health` fails with it, and `tehas status --json` carries an
+  optional `pushFault` object (#2130).
+- `tehas update` and `install.sh --check` prove that the GitHub App's cycle token can push, with a dry-run push from the product checkout. When it cannot, they print `Cycle token:  CANNOT PUSH` with the app's login, git's message and what the app needs, and exit 1; a drained factory stays drained (#1740).
+- A new optional feature, `spec-pipe` (`TEHAS_SPEC_PIPE`), is registered and still being built: a release refuses it set to `on` with exit 78, and `tehas api --json` lists it in `flags` as `false`. With it on, an issue names its spec with one line of its body, `Spec: <link> sha256:<64 hex digits>`, the link a file attached on GitHub; a line tehas cannot read starts nothing and the poll says why once.
+- With the `spec-pipe` feature on (still being built, so a release refuses it), a start of an issue with a `Spec:` line fetches the file and holds its bytes to the sha256 the line names, and the start's approval keeps the link and that sha256. Bytes of another sha256 or a link GitHub refuses with a 4xx start nothing: the label comes off, or the host's approval, outage retry or refresh request that asked is used up, and the issue says why once. A 5xx or a network failure changes nothing and the next poll tries again.
+- With the spec pipe on (still being built, so a release refuses it), a cycle is given the spec its approval pinned, fetched again and held to that sha256, and the approved title and body as `approved.json`, both named in the manifest of the issue's directory under `spec` and `approvedText`. A cycle with a spec starts only on a sandbox image whose pi-rukas lists `issueSpec`.
+- The manual has a front-end page, `/frontend`: what the dashboard and the front pages may use, how their parts are named, the island contract, the styling rules, the kit and the byte budgets.
+- A workspace test holds each page and island under its line in `host/fun/pages.max`, set at today's sizes. A page that grows fails the gate until its line is raised in the same change. Nothing on screen changes.
+- `tehas update` reads releases from the repository built into tehas, or the
+  one `TEHAS_RELEASE_REPO` in `instance.env` names, and checks their signature
+  with the key built into tehas. It no longer reads the repository from
+  `~/tehas/versions.env` or the key from `~/tehas/release/minisign.pub`, both
+  of which a release writes. An instance that names another repository with
+  `TEHAS_RELEASE_REPO` still checks with the built-in key.
+- `tehas update` asks the console whether it can run the update by its exit
+  status as well as its answer, so a console that answers and fails is not
+  asked to update.
+- A shell test runs the update on a home a v0.30.x install left
+  (`test/update_from_030_test.sh`). [Update](/tools-update) says
+  how a v0.30.x host moves to 1.0.
+- A new manual page, the contract, says what is public and stays compatible through 1.x and what is internal: the settings and the knob rule, the cycle inputs, analytics.db at schema 4, the pull request spec block, what a feature still being built leaves visible, and one table of exit statuses per public command.
+- Every public command gives an exit status one meaning: 1 is a failure, 3 is "the command worked and the answer is no or not yet", 78 is settings only.
+- `tehas status` exits 3, not 1, on `fail`, a stale health file or no health file yet.
+- `tehas drain` exits 3, not 1, when cycles still run at the end of the wait.
+- `tehas update --check` exits 3, not 1, when there is something to update. It still exits 1 when it finds something an update does not fix, or when the sandbox build's own check fails. `sandbox/build.sh --check` exits 3, not 1, when the pi-rukas commit moved.
+- `tehas start` exits 3, not 1, when GitHub has no open issue of that number. GitHub not answering is still 1.
+- `tehas check-product` exits 3, not 78, when a check fails.
+- `tehas setup` exits 1 when a step fails, and 78 only when the step stopped on its settings. It no longer passes on a step's other statuses.
+- `tehas analytics` exits 78, not 69, when analytics is off, and 1, not 69, 70 or 73, when the program is not installed, the database cannot be read or the file cannot be made.
+- The forge page describes an internal trait: tehas 1.0 promises no forge interface.
+- `api/renames-1.0.tsv` lists each changed exit status as a row of kind `value`.
+- The MCP tool `factory_log` reads a running cycle's logs: give `issue` instead of `id`, or the running cycle's id, `work-<issue>-<startedAt>`, which names it only while it runs. Before, a cycle's logs could be read only after it ended.
+- The MCP tools `factory_sessions`, `factory_session` and `factory_failures` check each answer against the schema they publish. `factory_sessions` leaves out a session whose snapshot line has a field of another type or a word outside its list, and counts it in `leftOut`, for that page; `factory_session` answers such a session with an error that names the field. Their schemas list the words of `outcome`, `kind` and `how`.
+- `factory_failures` counts in `outcomes` only the seven outcome words. A run with any other word, like a run with none, counts in `outcomesUnknown`.
+- `factory_park` gives `latestOutcome` when a later work run of the issue ended without a park, such as `stopped` for a run interrupted or whose issue closed under it, so the park it answers is not taken for the issue's last word.
+- `factory_outcomes` marks a week entry with no readable week `unwindowed: true` when `since` or `until` is given: it is kept, as no window can bound it (#2244).
+- `tehas top --json` is named as not a public object: it is the dashboard's snapshot and may change in any release (#2241).
+- The dispatcher's poll reads `TEHAS_PLAN_TIMEOUT` and `TEHAS_PLAN_MAX_TURNS`
+  by the rules the settings load uses. A value it cannot read stops the poll
+  with exit 78 before the lock and before any call, instead of becoming the
+  default (#2233).
+- A limit file whose `cycles` is not plain digits, such as `1.0` or `01`,
+  reads as `unreadable` everywhere. Before, the status said `ok` while the
+  dispatcher read it as 0 cycles and started nothing.
+- `TEHAS_EGRESS_HOSTS` has one rule for the settings check and the proxy's
+  list. A word the check refuses, such as `a_b.example.com` or `x.org:0443`,
+  can no longer reach the proxy by another reading.
+- `PI_ENSEMBLE_HOST_ALIASES` is a ruled setting: each comma-separated entry
+  must be `name:address` or `name=address`, the address an IPv4 or IPv6
+  address (bare or in brackets) or `host-gateway`. Any other value stops the
+  load with exit 78, and no container is started with it.
+- `tehas disk` and `tehas setup` refuse a value they read from a settings file
+  that a shell would expand (a `$` or a backtick outside single quotes), with a
+  line that names the key and not its value. Before, they took it as written
+  while the shell that sources the same file expanded it. For `tehas setup`
+  this covers the model key and the instance values it reuses.
+- `TEHAS_WORK_REPO` is a ruled setting: an absolute path, else the load stops
+  with exit 78.
+- The host's own settings have rules too, listed under `host` in
+  `api/settings-rules.json` and in a Host settings table of the manual:
+  `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, `TEHAS_MODEL_KEY_<NAME>`, `TEHAS_MCP`,
+  `TEHAS_MCP_KEYS`, `TEHAS_MCP_DASHBOARD_KEYS`, `TEHAS_ENERGY`,
+  `TEHAS_ENERGY_URL` and `TEHAS_UPDATE_LOCK_WAIT`. A value its rule refuses
+  stops every command with exit 78, with a line that never shows the value.
+  `TEHAS_UPDATE_LOCK_WAIT` outside 0 to 300 now stops `tehas update` and
+  `install.sh` with 78 instead of becoming 10.
+- Every other `TEHAS_*` name tehas reads is internal and listed with why, and
+  a test holds new names to a rule or to that list.
+- A cycle input that the image's pi-rukas does not list no longer stops the cycle, or a weekly review, when a polyfill the image carries declares it. The polyfill is named in the image label `tehas.rukas.polyfills` and lists its inputs in the label `tehas.rukas.polyfill.<name>.inputs`. A name the runner lists in any scope is never opened this way.
+- Outsource, still being built and refused in a release, gains its commands
+  and its contractor. `tehas outsource invite|list|status|revoke|drain`
+  manage the contractors of a factory. The model proxy's listener also
+  answers the job channel: a contractor joins with a one-time code, takes the
+  job in its hand, checks in, renews the cycle's token, relays its issue
+  writes, which the factory checks as the local relay does and makes with its
+  own token, and posts the result. `tehas-contractor join|run|drain|doctor`
+  runs a job with the same `tehas work` and container as the factory, and
+  stops its cycle in an orderly way when it loses the factory: the stop
+  signal, the grace, a push of the branch while the job is current, a report,
+  and a wipe of the job's files. A cycle on a contractor gets exactly the
+  mounts and variables of a cycle at home. With outsource off nothing changes
+  (#2274).
+- A new setting, `TEHAS_OUTSOURCE_CONTRACTORS`, lists the contractors the job
+  channel answers. Empty, the default, refuses every contractor (#2274).
+- Outsource, still being built, gains placement in the dispatcher. With the
+  feature on, a start from the ready queue goes to a contractor only when its
+  repository is in `TEHAS_OUTSOURCE_REPOS`, the issue has lost fewer than
+  `TEHAS_OUTSOURCE_RETRIES` jobs, and a contractor fits: heard from within
+  `TEHAS_OUTSOURCE_TIMEOUT`, not revoked, draining, resting or busy, with this
+  host's image and the room a cycle needs. The one with the most room wins.
+  Anything else, or a read that fails, runs the cycle in-house. The start's
+  line in `dispatch.log` says where it runs. A release still refuses
+  `TEHAS_OUTSOURCE=on`, so nothing changes on a factory (#2275).
+- With outsource on, the factory stamps who built each cycle: the start comment, the report's comments and the pull request's body end with `Built by contractor: <name> (job <id>)` or `Built by: in-house`, and each commit a contractor's cycle adds to its pull request carries a `Built-by:` trailer, which the factory rewrites when it is missing or wrong. Commits on the branch from before the cycle are left as they are. Outsource is still being built, so no instance writes the stamp yet (tehas#2276).
+- `state/analytics.db` gains `runs.contractor_id`, the contractor that ran a cycle, inside schema 4: a file written by 0.30.x gains the column, empty, the first time it is opened, and `tehas analytics copy` carries it. It stays empty until outsource ships (tehas#2276).
+- With outsource on, the contractors show where a person and a program look: `tehasbot status` writes `live/contractors.json`, `tehas status` prints an `outsource:` line and says of each running cycle whether it is outsourced to a contractor or in-house, `tehas status --json` has an optional `contractors` object (with a new sample, `api/status.outsourced.json`), and the MCP server has `factory_contractors`, served to dashboard keys too. With outsource off nothing changes: no file, no field, no line and no tool. Outsource is still being built, so no factory has it on yet (#2277).
+- The Protolab can take a zip named by address and sha256, `Zip: <address> sha256:<hex>`, from the hosts of the new `TEHAS_PROTOLAB_ZIP_HOSTS`, empty by default. Bytes of another sha256 are refused, redirects are followed only on those hosts, and the zip is held to the limits of an attached one. The feature `protolab-zip-url` is still being built: `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with 78, and `tehas api --json` lists it in `flags` as `false`.
+- `tehas prototype file` opens a ticket for the Protolab with the ticket text, a `Zip:` line and a `Spec: <link> sha256:<hex>` line, and labels it `tehas:prototype`, all with the caller's own gh login; a gh signed in as the bot, or a login off `TEHAS_ALLOWED_LABELERS`, is refused with exit 3. Still being built: `TEHAS_PROTOTYPE_FILE=on` is refused with exit 78 and `flags` lists `prototype-file` as `false`.
+- The Protolab takes a file only from text an account in `TEHAS_ALLOWED_LABELERS` wrote and nobody off the list edited last, never from a quoted line. Being an owner, member or collaborator of the repository is no longer enough, and the bot's own comments never count.
+- A ticket that changed with no new link and no new title, such as after a plain comment, fetches no file again: its page only takes the new time.
+- The lean driver is a feature still being built, `lean` in
+  `tehas api --json` `flags`, switched by the new setting `TEHAS_LEAN`. It
+  stays off in this release: `TEHAS_LEAN=on` and `TEHAS_DRIVER=lean` stop
+  every command with 78 and name the feature, and `tehas work --driver lean`
+  exits 78. A start that would run lean (`tehas:lean`, or a retry, outage
+  retry or refresh of a lean start) starts nothing: the poll takes the label
+  that asked off and says once that lean is still being built. Classic never
+  runs in its place. `tehas:classic` and an unlabelled start run classic as
+  before. The labels stay in the label set.
+- The state store is at schema 17. `install.sh` brings a store of any v0.30 release, or of 15 or 16, forward with every row; the new columns start empty. With outsource on, a job keeps the sha256 of its model proxy token (never the token), so a running job's token still works after the proxy restarts. A contractor's `hello` carries a report (sandbox image id, pi-rukas version, free memory and disk), the store keeps the last one, placement can fit a contractor whose report has the room, and `live/contractors.json`, `tehas status --json` and the MCP tool `factory_contractors` show it. With outsource off nothing writes these columns and status, the live files and the MCP catalog are as before. Outsource is still being built, so no factory has it on yet.
 
 ### Held back
 
@@ -360,6 +494,41 @@ A program that reads `tehas api --json` reads `millwright` instead of `fixer`, a
 A host on a release older than v0.30.0 updates to a v0.30 release first (`tehas update --to v0.30.6`), then to this one.
 
 A reader of `tehas export`'s `plan.json` that reads `answers[].fixer` reads `answers[].millwright`. An MCP client that filters `factory_sessions` by `how: "fixer"` filters by `millwright`. `api/renames-1.0.tsv` lists the renamed key and the `how` value.
+
+Nothing to do for the new default. To keep full history in every workspace,
+as before, set `TEHAS_CLONE_DEPTH=0` in `instance.env`.
+
+An instance that sets `TEHAS_RELEASE_REPO` to a repository whose releases are
+signed with another key can no longer update from it: take the line out to
+update from tehas's own releases.
+
+A script or a program that reads these exit statuses reads the new numbers: 3 where it read 1 from `tehas status`, `tehas drain`, `tehas update --check` and `tehas start`, 3 where it read 78 from `tehas check-product`, 78 or 1 where it read 69, 70 or 73 from `tehas analytics`, and 1 where it read 78 from a `tehas setup` whose product check failed.
+
+If a command stops with exit 78 after the update:
+
+- `PI_ENSEMBLE_HOST_ALIASES is not valid`: write each entry as
+  `name:address`, such as `models.example:192.0.2.10`.
+- `TEHAS_WORK_REPO is not valid`: give an absolute path of letters, digits
+  and `._-`, with no slash at the end.
+- `TEHAS_HOME is not valid` or `TEHAS_INSTANCE_DIR is not valid`: give an
+  absolute path of letters, digits and `._-`, with no slash at the end.
+- `<name> is not valid` for a `TEHAS_MODEL_KEY_<NAME>`, `TEHAS_MCP`,
+  `TEHAS_MCP_KEYS`, `TEHAS_MCP_DASHBOARD_KEYS`, `TEHAS_ENERGY` or
+  `TEHAS_ENERGY_URL`: fix that line of `~/.config/tehas/env`.
+- `TEHAS_UPDATE_LOCK_WAIT is not valid`: give a whole number from 0 to 300,
+  or unset it.
+- `holds a $ or a backtick` from `tehas disk` or `tehas setup`: write the
+  value itself in that file, such as `TEHAS_HOME` or `TEHAS_SCRATCH_DIR` in
+  `instance.env`.
+
+A limit file edited by hand with `cycles` such as `1.0` or `01` now holds
+every start as `unreadable`: run `tehas limit set` to write it again.
+
+Files linked by a member or collaborator who is not in `TEHAS_ALLOWED_LABELERS` leave the Protolab at the first pass after the update. Add the person to the list, or have an allowed account link the files.
+
+An instance with `TEHAS_DRIVER=lean` in `instance.env` must take the line out
+or set it to `classic` before updating, or every command stops with 78. Take
+`tehas:lean` off any issue that should run, so it runs on classic.
 
 ## v0.30.6 (2026-11-15)
 
