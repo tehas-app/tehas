@@ -71,6 +71,35 @@ done
 t_eq "$(jq -r 'has("refreshScan")' <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
+t_case "api --json: every word and field of 0.30 is still there or a row of the renames file"
+reset
+installed v0.8.0+cb6912a
+t_run "$api --json"
+t_eq "$t_rc" 0
+renames=$T_ROOT/api/renames-1.0.tsv
+# What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
+for word in status millwright-grant fixer-grant all-hands limit drain history export \
+  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
+  finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
+  start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
+  refresh-pr-sweep refresh-pr-json host-start; do
+  row=$(awk -F '\t' -v w="$word" '$1 == "word" && $2 == w' "$renames")
+  has=$(jq --arg w "$word" '.features | index($w) != null' <<<"$t_out")
+  t_eq "$word: $has $([ -n "$row" ] && echo row)" "$word: $([ -n "$row" ] && echo "false row" || echo "true ")"
+done
+for key in api tehas commit repo features millwright fixer refreshScan poll; do
+  row=$(awk -F '\t' -v k="api.$key" '$1 == "field" && $2 == k' "$renames")
+  has=$(jq --arg k "$key" 'has($k)' <<<"$t_out")
+  t_eq "$key: $has $([ -n "$row" ] && echo row)" "$key: $([ -n "$row" ] && echo "false row" || echo "true ")"
+done
+# A word or a field that took the old one's place is there.
+while read -r new; do
+  t_eq "$new: $(jq --arg w "$new" '.features | index($w) != null' <<<"$t_out")" "$new: true"
+done < <(awk -F '\t' '$1 == "word" && $3 != "" { print $3 }' "$renames")
+while read -r new; do
+  t_eq "$new: $(jq --arg k "$new" 'has($k)' <<<"$t_out")" "$new: true"
+done < <(awk -F '\t' '$1 == "field" && $3 ~ /^api\./ { print substr($3, 5) }' "$renames")
+
 t_case "api --json: flags names every registered feature, a building one off and not in features"
 reset
 installed v0.8.0+cb6912a

@@ -521,7 +521,7 @@ for line in TEHAS_REFRESH_CONFLICTS=yes TEHAS_REFRESH_CONFLICTS=2 TEHAS_REFRESH_
   t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "${line%%=*} is not valid and no longer read: this version of tehas has no timed refresh scan"
+  t_contains "$t_out" "${line%%=*} is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out"
 done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
