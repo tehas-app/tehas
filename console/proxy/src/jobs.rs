@@ -7,6 +7,12 @@
 //! while the job runs, and forgets it the moment the job ends or its
 //! contractor is revoked.
 //!
+//! A job has two tokens, one per [`Scope`], minted together when the job is
+//! given out and ended together. The model token goes into the container's
+//! models.json and reaches only the model paths; the job token goes to the
+//! contractor program and reaches only the job channel. A token of one scope
+//! is refused on the other's paths.
+//!
 //! A proxy on a host keeps the sha256 of each token it mints in the job's row
 //! of the store ([`Issuer::backed`]), and a token it does not hold is checked
 //! against those hashes: a proxy that restarts takes the token of a job still
@@ -29,12 +35,61 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 pub const BYTES: usize = 32;
 const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_";
 
-/// What one token names, and the number of requests that carried it. The
-/// counts go to the store per contractor and per job, so rule 5 outlives the
-/// token.
+/// What a token may reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// The container's token, in its models.json: the model paths, and the
+    /// egress tunnel route when it is built (`/outsource/v1/egress`).
+    Model,
+    /// The contractor program's token: the job channel, and the job's
+    /// downloads under `/outsource/v1/` when they are built. Never given to
+    /// the container.
+    Job,
+}
+
+impl Scope {
+    /// The word the store keeps the scope by.
+    pub fn word(self) -> &'static str {
+        match self {
+            Scope::Model => "model",
+            Scope::Job => "job",
+        }
+    }
+
+    pub fn of(word: &str) -> Option<Scope> {
+        match word {
+            "model" => Some(Scope::Model),
+            "job" => Some(Scope::Job),
+            _ => None,
+        }
+    }
+}
+
+/// The two tokens of one job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pair {
+    /// For the container's models.json.
+    pub model: String,
+    /// For the contractor program.
+    pub job: String,
+}
+
+/// Why a token was not taken for a scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Miss {
+    /// It names no job this process holds or the store keeps.
+    Unknown,
+    /// It names a live job, in the other scope.
+    Scope,
+}
+
+/// What one token names, its scope, and the number of requests that carried
+/// it. The counts go to the store per contractor and per job, so rule 5
+/// outlives the token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub live: Live,
+    pub scope: Scope,
     pub requests: u64,
 }
 
@@ -51,10 +106,12 @@ pub struct Issuer {
 
 /// Where the hashes of the tokens are kept: the job rows of the store.
 pub trait Backing: Send + Sync {
-    /// Keep the hash of a job's new token. False when it was not kept.
-    fn keep(&self, job: i64, sha256: &str) -> bool;
-    /// The job a hash names while a call of its token may be answered.
-    fn recall(&self, sha256: &str) -> Option<Live>;
+    /// Keep the hash of a job's new token of one scope. False when it was not
+    /// kept.
+    fn keep(&self, job: i64, scope: Scope, sha256: &str) -> bool;
+    /// The job and scope a hash names while a call of its token may be
+    /// answered.
+    fn recall(&self, sha256: &str) -> Option<(Live, Scope)>;
 }
 
 /// The sha256 of a token, as the store keeps it.
@@ -87,40 +144,79 @@ impl Issuer {
         }
     }
 
-    /// The job a token this process does not hold names, from the kept
-    /// hashes, put in the table with `requests` counted.
-    fn recall(&self, token: &str, requests: u64) -> Option<Live> {
+    /// The job and scope a token this process does not hold names, from the
+    /// kept hashes, put in the table with `requests` counted when the scope
+    /// is `counted`.
+    fn recall(&self, token: &str, counted: Option<Scope>) -> Option<(Live, Scope)> {
         let store = self.store.as_ref()?;
         if !token_shaped(token) {
             return None;
         }
-        let live = store.recall(&token_hash(token))?;
+        let (live, scope) = store.recall(&token_hash(token))?;
         let mut held = self.lock();
-        let entry = held
-            .entry(token.to_string())
-            .or_insert(Entry { live, requests: 0 });
-        entry.requests += requests;
-        Some(entry.live.clone())
+        let entry = held.entry(token.to_string()).or_insert(Entry {
+            live,
+            scope,
+            requests: 0,
+        });
+        if counted == Some(entry.scope) {
+            entry.requests += 1;
+        }
+        Some((entry.live.clone(), entry.scope))
     }
 
-    /// The token a contractor is given for this job, kept until [`forget`]
-    /// says the job is over. Two jobs of one issue take turns, so the attempt
-    /// number is part of what is remembered: a late request of the attempt
-    /// before carries no token that is still on the list.
+    /// The two tokens of this job: the model token for the container and the
+    /// job token for the contractor, kept until [`forget`] says the job is
+    /// over. Two jobs of one issue take turns, so the attempt number is part
+    /// of what is remembered: a late request of the attempt before carries no
+    /// token that is still on the list. Both or neither: a job is never given
+    /// one scope without the other.
     pub fn issue(
         &self,
         job: i64,
         attempt: i64,
         contractor: &str,
         random: &mut dyn FnMut() -> Option<String>,
-    ) -> Option<String> {
-        self.issue_kept(job, attempt, contractor, random, true)
+    ) -> Option<Pair> {
+        let model = minted(random)?;
+        let job_token = minted(random).filter(|t| *t != model)?;
+        // A token whose hash the store did not keep would die with this
+        // process, so none is given.
+        if let Some(store) = &self.store {
+            if !store.keep(job, Scope::Model, &token_hash(&model))
+                || !store.keep(job, Scope::Job, &token_hash(&job_token))
+            {
+                return None;
+            }
+        }
+        let live = Live {
+            job,
+            attempt,
+            contractor: contractor.to_string(),
+        };
+        let mut held = self.lock();
+        for (token, scope) in [(&model, Scope::Model), (&job_token, Scope::Job)] {
+            held.insert(
+                token.clone(),
+                Entry {
+                    live: live.clone(),
+                    scope,
+                    requests: 0,
+                },
+            );
+        }
+        drop(held);
+        Some(Pair {
+            model,
+            job: job_token,
+        })
     }
 
-    /// [`Self::issue`] for the control line, which may name a job the store
-    /// does not hold: the hash is kept when the store takes it, and the token
-    /// is held either way, so a token the store did not keep ends with this
-    /// process.
+    /// A model token for the control line, which writes it where a
+    /// container's models.json is made from and may name a job the store does
+    /// not hold: the hash is kept when the store takes it, and the token is
+    /// held either way, so a token the store did not keep ends with this
+    /// process. The control line never makes a job token.
     pub fn issue_held(
         &self,
         job: i64,
@@ -128,65 +224,54 @@ impl Issuer {
         contractor: &str,
         random: &mut dyn FnMut() -> Option<String>,
     ) -> Option<String> {
-        self.issue_kept(job, attempt, contractor, random, false)
-    }
-
-    fn issue_kept(
-        &self,
-        job: i64,
-        attempt: i64,
-        contractor: &str,
-        random: &mut dyn FnMut() -> Option<String>,
-        must_keep: bool,
-    ) -> Option<String> {
-        // No randomness, or too little of it, is no token: nothing is kept and
-        // the caller is told, so a job never gets a token that cannot work.
-        let token = random().filter(|t| t.len() >= 8)?;
-        // A job's token whose hash the store did not keep would die with this
-        // process, so none is given.
+        let token = minted(random)?;
         if let Some(store) = &self.store {
-            if !store.keep(job, &token_hash(&token)) && must_keep {
-                return None;
-            }
+            let _ = store.keep(job, Scope::Model, &token_hash(&token));
         }
-        let _ = self.lock().insert(
-            token.clone(),
-            Entry {
-                live: Live {
-                    job,
-                    attempt,
-                    contractor: contractor.to_string(),
-                },
-                requests: 0,
-            },
-        );
+        self.put_scoped(&token, Scope::Model, job, attempt, contractor, 0);
         Some(token)
     }
 
-    /// The job and contractor a token names, and the count of requests that
-    /// carried it going up by one: the count of rule 5 for a request whose
-    /// token names a job, since a request of a token never issued counts for
-    /// nobody. [`Issuer::asked`] is the count of the requests that name none.
-    pub fn look(&self, token: &str) -> Option<Live> {
+    /// The job and contractor a token of `scope` names, and the count of
+    /// requests that carried it going up by one: the count of rule 5 for a
+    /// request whose token names a job, since a request of a token never
+    /// issued counts for nobody. [`Issuer::asked`] is the count of the
+    /// requests that name none. A token of the other scope is
+    /// [`Miss::Scope`] and counts for nobody.
+    pub fn look(&self, token: &str, scope: Scope) -> Result<Live, Miss> {
         {
             let mut held = self.lock();
             if let Some(entry) = held.get_mut(token) {
+                if entry.scope != scope {
+                    return Err(Miss::Scope);
+                }
                 entry.requests += 1;
-                return Some(entry.live.clone());
+                return Ok(entry.live.clone());
             }
         }
-        self.recall(token, 1)
+        match self.recall(token, Some(scope)) {
+            Some((live, s)) if s == scope => Ok(live),
+            Some(_) => Err(Miss::Scope),
+            None => Err(Miss::Unknown),
+        }
     }
 
-    /// The job and contractor a token names, without counting a request.
+    /// The scope of a token that names a live job, without counting.
+    pub fn scope_of(&self, token: &str) -> Option<Scope> {
+        let held = self.lock().get(token).map(|e| e.scope);
+        held.or_else(|| self.recall(token, None).map(|(_, s)| s))
+    }
+
+    /// The job and contractor a token of either scope names, without
+    /// counting a request.
     pub fn peek(&self, token: &str) -> Option<Live> {
         let held = self.lock().get(token).map(|e| e.live.clone());
-        held.or_else(|| self.recall(token, 0))
+        held.or_else(|| self.recall(token, None).map(|(l, _)| l))
     }
 
-    /// Put one token in the table by hand. A test of the rules of one request
-    /// uses it; a token of a job on a host is issued, never put, since the
-    /// proxy is the one holder of a token and mints it of `/dev/urandom`.
+    /// Put one model token in the table by hand. A test of the rules of one
+    /// request uses it; a token of a job on a host is issued, never put, since
+    /// the proxy is the one holder of a token and mints it of `/dev/urandom`.
     #[doc(hidden)]
     pub fn put(&self, token: &str, job: i64, attempt: i64, contractor: &str) {
         self.put_counted(token, job, attempt, contractor, 0)
@@ -204,6 +289,20 @@ impl Issuer {
         contractor: &str,
         requests: u64,
     ) {
+        self.put_scoped(token, Scope::Model, job, attempt, contractor, requests)
+    }
+
+    /// [`Self::put`] of a token of either scope.
+    #[doc(hidden)]
+    pub fn put_scoped(
+        &self,
+        token: &str,
+        scope: Scope,
+        job: i64,
+        attempt: i64,
+        contractor: &str,
+        requests: u64,
+    ) {
         let _ = self.lock().insert(
             token.to_string(),
             Entry {
@@ -212,6 +311,7 @@ impl Issuer {
                     attempt,
                     contractor: contractor.to_string(),
                 },
+                scope,
                 requests,
             },
         );
@@ -233,10 +333,12 @@ impl Issuer {
         self.lock().contains_key(token)
     }
 
-    /// The job is over, or its contractor is revoked: the token dies now, and
-    /// a request that carries it from here on is the one of a job that ended.
+    /// The job is over, or its contractor is revoked: the token dies now with
+    /// the job's token of the other scope, and a request that carries either
+    /// from here on is the one of a job that ended.
     pub fn forget(&self, token: &str) -> bool {
-        self.lock().remove(token).is_some()
+        let job = self.lock().get(token).map(|e| e.live.job);
+        job.is_some_and(|job| self.forget_jobs(&[job]) > 0)
     }
 
     /// Every job that ended or whose contractor was revoked, said by
@@ -271,21 +373,22 @@ impl Issuer {
         gone
     }
 
-    /// What to write to the store: the requests each live token carried, by
-    /// contractor and by job, and the counts cleared. A call that is refused
-    /// before its token is read carries no token, so it counts for nobody.
+    /// What to write to the store: the requests each live job's tokens
+    /// carried, both scopes together, by contractor and by job, and the counts
+    /// cleared. A call that is refused before its token is read carries no
+    /// token, so it counts for nobody.
     pub fn take_counts(&self) -> Vec<(String, i64, u64)> {
         let mut held = self.lock();
-        let mut out: Vec<(String, i64, u64)> = held
-            .values()
-            .filter(|e| e.requests > 0)
-            .map(|e| (e.live.contractor.clone(), e.live.job, e.requests))
-            .collect();
+        let mut sums: std::collections::BTreeMap<(String, i64), u64> = Default::default();
+        for e in held.values().filter(|e| e.requests > 0) {
+            *sums
+                .entry((e.live.contractor.clone(), e.live.job))
+                .or_default() += e.requests;
+        }
         for entry in held.values_mut() {
             entry.requests = 0;
         }
-        out.sort();
-        out
+        sums.into_iter().map(|((c, j), n)| (c, j, n)).collect()
     }
 
     /// The jobs this process holds a token of, each once, in order: the jobs
@@ -316,6 +419,13 @@ impl Issuer {
     }
 }
 
+/// One token of `random`. No randomness, or too little of it, is no token:
+/// nothing is kept and the caller is told, so a job never gets a token that
+/// cannot work.
+fn minted(random: &mut dyn FnMut() -> Option<String>) -> Option<String> {
+    random().filter(|t| t.len() >= 8)
+}
+
 /// The random of a host: 32 bytes of `/dev/urandom`, written in the alphabet.
 /// A reader that cannot be opened or cannot fill is None, and the caller who
 /// mints a token refuses the job rather than mint one of a weak shape.
@@ -340,27 +450,38 @@ pub fn token_of(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    /// An issuer that gave out these jobs, and the model token of each.
     fn issuer_with(jobs: &[(i64, i64, &str)]) -> (Issuer, Vec<String>) {
+        let (issuer, pairs) = issued(jobs);
+        (issuer, pairs.into_iter().map(|p| p.model).collect())
+    }
+
+    fn issued(jobs: &[(i64, i64, &str)]) -> (Issuer, Vec<Pair>) {
         let issuer = Issuer::new();
-        let mut tokens = Vec::new();
+        let mut pairs = Vec::new();
+        let mut n = 0;
         for (job, attempt, contractor) in jobs {
-            let n = tokens.len();
-            tokens.push(
+            pairs.push(
                 issuer
                     .issue(*job, *attempt, contractor, &mut || {
+                        n += 1;
                         Some(format!("token-{n}-for-job-{job}"))
                     })
                     .unwrap(),
             );
         }
-        (issuer, tokens)
+        (issuer, pairs)
+    }
+
+    fn look(issuer: &Issuer, token: &str) -> Option<Live> {
+        issuer.look(token, Scope::Model).ok()
     }
 
     #[test]
     fn a_token_names_its_job_and_the_contractor_it_was_issued_to() {
         let (issuer, tokens) = issuer_with(&[(7, 2, "gpu1"), (8, 1, "gpu2")]);
         assert_eq!(
-            issuer.look(&tokens[0]),
+            look(&issuer, &tokens[0]),
             Some(Live {
                 job: 7,
                 attempt: 2,
@@ -368,42 +489,80 @@ mod tests {
             })
         );
         assert_eq!(
-            issuer.look(&tokens[1]),
+            look(&issuer, &tokens[1]),
             Some(Live {
                 job: 8,
                 attempt: 1,
                 contractor: "gpu2".to_string()
             })
         );
-        assert_eq!(issuer.look("tok-9"), None);
-        assert_eq!(issuer.look(""), None);
+        assert_eq!(look(&issuer, "tok-9"), None);
+        assert_eq!(look(&issuer, ""), None);
+    }
+
+    #[test]
+    fn a_job_has_a_token_of_each_scope_and_each_is_refused_on_the_other_s_paths() {
+        let (issuer, pairs) = issued(&[(7, 2, "gpu1")]);
+        let pair = &pairs[0];
+        assert_ne!(pair.model, pair.job);
+        assert_eq!(issuer.len(), 2);
+        assert_eq!(issuer.look(&pair.model, Scope::Model).map(|l| l.job), Ok(7));
+        assert_eq!(issuer.look(&pair.job, Scope::Job).map(|l| l.job), Ok(7));
+        assert_eq!(issuer.look(&pair.model, Scope::Job), Err(Miss::Scope));
+        assert_eq!(issuer.look(&pair.job, Scope::Model), Err(Miss::Scope));
+        assert_eq!(issuer.look("token-of-none", Scope::Job), Err(Miss::Unknown));
+        assert_eq!(issuer.scope_of(&pair.job), Some(Scope::Job));
+        // A refused scope counts for nobody; the two taken count for the job once each.
+        assert_eq!(issuer.take_counts(), vec![("gpu1".to_string(), 7, 2)]);
+        // One lifetime: the end of the job takes both.
+        assert_eq!(issuer.forget_jobs(&[7]), 2);
+        assert_eq!(issuer.look(&pair.job, Scope::Job), Err(Miss::Unknown));
+        assert_eq!(issuer.look(&pair.model, Scope::Model), Err(Miss::Unknown));
+    }
+
+    #[test]
+    fn two_equal_tokens_are_no_pair() {
+        let issuer = Issuer::new();
+        let same = &mut || Some("the-same-token-twice".to_string());
+        assert_eq!(issuer.issue(7, 1, "gpu1", same), None);
+        assert!(issuer.is_empty());
     }
 
     #[test]
     fn a_forgotten_token_names_nothing_at_all() {
-        let (issuer, tokens) = issuer_with(&[(7, 1, "gpu1")]);
+        let (issuer, pairs) = issued(&[(7, 1, "gpu1")]);
+        let tokens = [pairs[0].model.clone()];
         assert!(issuer.holds(&tokens[0]));
         assert!(issuer.forget(&tokens[0]));
         assert!(!issuer.holds(&tokens[0]));
-        assert_eq!(issuer.look(&tokens[0]), None);
+        assert!(!issuer.holds(&pairs[0].job), "one lifetime for both");
+        assert_eq!(look(&issuer, &tokens[0]), None);
         assert!(!issuer.forget(&tokens[0]), "a second forget is no forget");
         assert!(issuer.is_empty());
     }
 
     #[test]
     fn revoking_a_contractor_takes_every_token_it_holds_and_no_other() {
-        let (issuer, tokens) = issuer_with(&[(1, 1, "gpu1"), (2, 1, "gpu1"), (3, 1, "gpu2")]);
-        assert_eq!(issuer.forget_contractor("gpu1"), 2);
-        assert!(!issuer.holds(&tokens[0]));
-        assert!(!issuer.holds(&tokens[1]));
-        assert!(issuer.holds(&tokens[2]), "another contractor lost its job");
+        let (issuer, pairs) = issued(&[(1, 1, "gpu1"), (2, 1, "gpu1"), (3, 1, "gpu2")]);
+        assert_eq!(issuer.forget_contractor("gpu1"), 4);
+        for p in &pairs[..2] {
+            assert!(!issuer.holds(&p.model) && !issuer.holds(&p.job));
+        }
+        assert!(
+            issuer.holds(&pairs[2].model),
+            "another contractor lost its job"
+        );
+        assert!(
+            issuer.holds(&pairs[2].job),
+            "another contractor lost its job"
+        );
         assert_eq!(issuer.forget_contractor("nobody"), 0);
     }
 
     #[test]
     fn a_job_that_ended_takes_its_token_back() {
         let (issuer, tokens) = issuer_with(&[(1, 1, "gpu1"), (2, 3, "gpu2")]);
-        assert_eq!(issuer.forget_jobs(&[1]), 1);
+        assert_eq!(issuer.forget_jobs(&[1]), 2);
         assert!(!issuer.holds(&tokens[0]));
         assert!(issuer.holds(&tokens[1]));
     }
@@ -446,12 +605,12 @@ mod tests {
     /// hash at all.
     #[derive(Default)]
     struct Kept {
-        rows: Mutex<HashMap<String, Live>>,
+        rows: Mutex<HashMap<String, (Live, Scope)>>,
         down: std::sync::atomic::AtomicBool,
     }
 
     impl Backing for Kept {
-        fn keep(&self, job: i64, sha256: &str) -> bool {
+        fn keep(&self, job: i64, scope: Scope, sha256: &str) -> bool {
             if self.down.load(std::sync::atomic::Ordering::SeqCst) {
                 return false;
             }
@@ -460,10 +619,13 @@ mod tests {
                 attempt: 1,
                 contractor: "gpu1".to_string(),
             };
-            self.rows.lock().unwrap().insert(sha256.to_string(), live);
+            self.rows
+                .lock()
+                .unwrap()
+                .insert(sha256.to_string(), (live, scope));
             true
         }
-        fn recall(&self, sha256: &str) -> Option<Live> {
+        fn recall(&self, sha256: &str) -> Option<(Live, Scope)> {
             self.rows.lock().unwrap().get(sha256).cloned()
         }
     }
@@ -472,20 +634,29 @@ mod tests {
     fn a_backed_token_is_kept_as_its_hash_and_named_again_after_a_restart() {
         let kept = Arc::new(Kept::default());
         let before = Issuer::backed(kept.clone());
-        let token = before.issue(7, 1, "gpu1", &mut random).unwrap();
+        let pair = before.issue(7, 1, "gpu1", &mut random).unwrap();
+        let token = pair.model.clone();
         let rows = kept.rows.lock().unwrap().clone();
-        assert_eq!(rows.keys().collect::<Vec<_>>(), vec![&token_hash(&token)]);
-        assert!(!rows.keys().any(|k| k == &token));
-        // The process is gone; a new one holds nothing until the token comes.
+        let mut keys: Vec<&String> = rows.keys().collect();
+        keys.sort();
+        let mut want = [token_hash(&pair.model), token_hash(&pair.job)];
+        want.sort();
+        assert_eq!(keys, want.iter().collect::<Vec<_>>());
+        assert!(!rows.keys().any(|k| k == &pair.model || k == &pair.job));
+        // The process is gone; a new one holds nothing until a token comes,
+        // and each comes back in its own scope only.
         let after = Issuer::backed(kept.clone());
         assert!(after.is_empty());
-        assert_eq!(after.look(&token).map(|l| l.job), Some(7));
+        assert_eq!(after.look(&pair.job, Scope::Model), Err(Miss::Scope));
+        assert_eq!(after.look(&pair.model, Scope::Job), Err(Miss::Scope));
+        assert_eq!(look(&after, &token).map(|l| l.job), Some(7));
+        assert_eq!(after.look(&pair.job, Scope::Job).map(|l| l.job), Ok(7));
         assert_eq!(after.jobs(), vec![7]);
-        assert_eq!(after.take_counts(), vec![("gpu1".to_string(), 7, 1)]);
+        assert_eq!(after.take_counts(), vec![("gpu1".to_string(), 7, 2)]);
         // A word of another shape is never looked up.
         assert_eq!(after.peek("token-of-7"), None);
         // An issuer with no store names nothing it did not mint.
-        assert_eq!(Issuer::new().look(&token), None);
+        assert_eq!(look(&Issuer::new(), &token), None);
     }
 
     #[test]
@@ -495,9 +666,11 @@ mod tests {
         let issuer = Issuer::backed(kept);
         assert_eq!(issuer.issue(7, 1, "gpu1", &mut random), None);
         assert!(issuer.is_empty());
-        // The control line's token is held all the same, in this process only.
+        // The control line's token is held all the same, in this process only,
+        // and it is a model token.
         let held = issuer.issue_held(7, 1, "gpu1", &mut random).unwrap();
         assert!(issuer.holds(&held));
+        assert_eq!(issuer.scope_of(&held), Some(Scope::Model));
     }
 
     #[test]

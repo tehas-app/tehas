@@ -101,6 +101,9 @@ pub enum Refused {
     Revoked,
     /// The path is outside [`PATHS`].
     Path(String),
+    /// The token is a job's token of the job scope, which the model paths
+    /// never take.
+    Scope,
 }
 
 impl Refused {
@@ -111,7 +114,7 @@ impl Refused {
     pub fn status(&self) -> u16 {
         match self {
             Refused::UnknownToken => 401,
-            Refused::JobOver(_) | Refused::Elsewhere | Refused::Revoked => 403,
+            Refused::JobOver(_) | Refused::Elsewhere | Refused::Revoked | Refused::Scope => 403,
             Refused::Path(_) => 404,
         }
     }
@@ -133,6 +136,7 @@ impl Refused {
             }
             Refused::Revoked => "a contractor that is revoked or unknown".to_string(),
             Refused::Path(path) => format!("the path {path}"),
+            Refused::Scope => "a token of the job channel on a model path".to_string(),
         };
         format!("refused {who}: {what}")
     }
@@ -148,6 +152,7 @@ pub fn judge(token: Option<&str>, ask: &Ask<'_>, records: &dyn Records) -> Resul
     }
     let live = match token.and_then(|t| records.live(t)) {
         Some(live) => live,
+        None if token.is_some_and(|t| records.wrong_scope(t)) => return Err(Refused::Scope),
         None => return Err(Refused::UnknownToken),
     };
     match records.state_of(live.job) {
@@ -188,6 +193,11 @@ pub trait Records {
     /// The job and contractor this token was issued for, None for a token
     /// this process never issued or one whose job has been cleaned up.
     fn live(&self, token: &str) -> Option<Live>;
+    /// Whether the token names a live job in the job scope: a token of the
+    /// contractor program, refused here with 403 rather than as unknown.
+    fn wrong_scope(&self, _token: &str) -> bool {
+        false
+    }
     /// The state of a job as the factory's record has it. None for a job the
     /// records do not know: the proxy refuses it as one that is over.
     fn state_of(&self, job: i64) -> Option<State>;
