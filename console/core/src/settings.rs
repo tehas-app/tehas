@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+pub mod carried;
 pub mod load;
 pub mod renamed;
 pub mod rules;
