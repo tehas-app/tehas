@@ -44,7 +44,9 @@ listed here when a release has it.
    under `/live/` is for the dashboard, not for a program.
 2. **`--json` prints one JSON object** on standard output and nothing else.
    Messages go to standard error. Without `--json` the same command prints for
-   a person.
+   a person. An object this page describes is public. `tehas top --json` is not:
+   it prints the snapshot a frame of the screen is drawn from, for the
+   dashboard, and it may change in any release.
 3. **Every object carries `"api": 1`.** Within version 1 fields are only
    added, never renamed, removed or given a new meaning. A breaking change is
    version 2, and the release that brings it says so.
