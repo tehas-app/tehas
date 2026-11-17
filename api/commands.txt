@@ -1,0 +1,70 @@
+# The tehas commands, their subcommands and the flags each takes, one line per
+# command and one per subcommand, in order: the command, the subcommand, its
+# flags, then two marks. `building=<feature>` marks a command of a feature
+# still being built, which is not public until that feature ships.
+# `internal=<flag>,...` marks flags that a unit or the dashboard writes, not a
+# person or a program; they are not public. Within 1.x a public command,
+# subcommand or flag is only added. The tests of console/src/front.rs hold
+# this list to the commands tehas knows and to the synopsis lines of each
+# command's text, so a row or a flag added or taken out without this file
+# fails the gate. `--help` is every command's and is not listed.
+analytics
+analytics copy --json --to
+analytics report
+api --json
+check-product --sandbox
+dev --author --issue
+disk --cycles --full --json --publish internal=--publish
+dispatch --dry-run
+drain --json --wait
+export --after --json
+freeze --json --reason
+github
+github check
+github writes
+help
+history --after --issue --json
+host-message --json
+host-message clear
+host-message list --json
+host-message set --level --link --text
+index --before-cycle internal=--before-cycle
+init-product --dry-run
+labels
+limit --json
+limit clear
+limit set --cycles --for --plan --reason --until
+mcp
+mcp key
+order --json
+order clear
+order set --for --issues --only --reason --until
+outsource building=outsource
+outsource drain --json building=outsource
+outsource invite --json --name building=outsource
+outsource list --json building=outsource
+outsource revoke --json building=outsource
+outsource status --json building=outsource
+panel --json
+panel clear
+panel set --label --url
+pause --reason
+plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
+prototype building=prototype-file
+prototype file --body-file --spec --spec-sha256 --title --zip --zip-sha256 building=prototype-file
+refresh --json --pr
+resume
+setup --app-id --app-key-file --app-name --app-owner --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo
+start --clear --json
+state
+state check --json
+state copy --json --to
+state load --from --json
+state pack --rehearse
+state unpack --rehearse
+status --json
+stop --keep-workspace
+thaw --json
+top --every --json --once internal=--json
+update --accept-id --check --pending --to
+work --driver --restart
