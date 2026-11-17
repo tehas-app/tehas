@@ -8,6 +8,7 @@
 //! be asked this stops with exit 1 rather than report the service as absent.
 //! Each step comes off the record only after it has run.
 
+use super::push;
 use super::release;
 use super::steps::{self, read_record, record_file, sorted, write_record};
 use super::{host_or_refuse, output, say, tell, timed, Host, Mode, Plan};
@@ -92,6 +93,7 @@ fn found_not_to_fix(out: &str) -> bool {
             || says(l, "Slice:", &["MISSING", "DIFFERS"])
             || says(l, "Login:", &["NOT CURRENT"])
             || says(l, "Tests:", &["FAILED"])
+            || says(l, "Cycle token:", &["CANNOT PUSH"])
     })
 }
 
@@ -459,6 +461,30 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
 pub(super) const DRAINED_LINE: &str =
     "the factory is drained: tehas limit clear starts the factory, and this version has run no cycle yet";
 
+/// The line a drained factory is left with when its cycle token cannot push.
+pub(super) const STAYS_DRAINED_LINE: &str =
+    "the factory stays drained: every cycle would stop at the sandbox's push check; fix the app, run tehas update --check, then tehas limit clear";
+
+/// The line a factory that runs is left with when its cycle token cannot push.
+pub(super) const NOT_DRAINED_LINE: &str =
+    "the factory is not drained: each start stops at the sandbox's push check until the token can push; tehas drain holds it";
+
+/// A real run proves the app's cycle token can push before the factory starts
+/// work on this version (src/update/push.rs). Whether it can.
+fn cycle_token_pushes(host: &Host) -> bool {
+    let Some(tree) = push::product(&host.home) else {
+        return true;
+    };
+    let proof = push::prove(&host.home, &tree, &mut push::Real);
+    let lines = push::lines(&proof, &push::repo());
+    if proof.pushes() {
+        lines.iter().for_each(|l| say(l));
+    } else {
+        lines.iter().for_each(|l| tell(l));
+    }
+    proof.pushes()
+}
+
 /// The follow-ups of a run: the lines install.sh printed and the ones its record
 /// holds, which are not the same list, since a run that died partway records
 /// what it copied and prints no report.
@@ -537,16 +563,28 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     {
         run.rukas_later(&plan.tree);
     }
-    // The last line of a real update: a version installed into a factory that
-    // `tehas drain` stopped is installed but never proven, because nothing
-    // starts while the drain holds. --check and --pending say nothing new.
-    if status == 0 && plan.mode == Mode::Update && crate::flags::home_drained(&run.host.home) {
-        say(DRAINED_LINE);
-    }
     if status == 0 && plan.from == "release" {
         release::keep(run.host);
     }
-    status
+    if status != 0 || plan.mode != Mode::Update {
+        return status;
+    }
+    // The last line of a real update: a version installed into a factory that
+    // `tehas drain` stopped is installed but never proven, because nothing
+    // starts while the drain holds. --check and --pending say nothing new.
+    let drained = crate::flags::home_drained(&run.host.home);
+    if !cycle_token_pushes(run.host) {
+        tell(if drained {
+            STAYS_DRAINED_LINE
+        } else {
+            NOT_DRAINED_LINE
+        });
+        return 1;
+    }
+    if drained {
+        say(DRAINED_LINE);
+    }
+    0
 }
 
 /// `console update finish --plan <file> --install-out <file> --install-err
@@ -623,6 +661,13 @@ mod tests {
         assert!(DRAINED_LINE.contains("this version has run no cycle yet"));
     }
 
+    #[test]
+    fn a_token_that_cannot_push_leaves_a_drained_factory_drained_and_says_so() {
+        assert!(STAYS_DRAINED_LINE.starts_with("the factory stays drained: "));
+        assert!(STAYS_DRAINED_LINE.ends_with("then tehas limit clear"));
+        assert!(NOT_DRAINED_LINE.contains("tehas drain"));
+    }
+
     /// The bytes at the name every reader of the drained state opens.
     fn limit_at(home: &Path, doc: &str) {
         let file = home.join(crate::flags::LIMIT_FILE);
@@ -680,10 +725,15 @@ mod tests {
             "Slice:        DIFFERS (sudo)",
             "Login:        NOT CURRENT",
             "Tests:        FAILED",
+            "Cycle token:  CANNOT PUSH (a[bot] was refused a dry-run push to origin)",
         ] {
             assert!(found_not_to_fix(line), "{line}");
+            assert!(!found_to_update(line), "{line}");
         }
         assert!(!found_not_to_fix("Dependencies: OK\nSlice:        OK\n"));
+        assert!(!found_not_to_fix(
+            "Cycle token:  OK (a[bot] can push to origin)"
+        ));
     }
 
     #[test]

@@ -331,7 +331,8 @@ so it is named as a line rather than run as a step.
 When `install.sh --check` exits 1, `--check` says which kind it found.
 `Installed: DRIFT` and `Follow-ups: NOT DONE` are `something to update`.
 `Dependencies: NOT OK`, `Slice: MISSING` or `DIFFERS`, `Login: NOT CURRENT`,
-`Home: REFUSED` and `Tests: FAILED` are `something tehas update does not fix`:
+`Home: REFUSED`, `Tests: FAILED` and `Cycle token: CANNOT PUSH` are
+`something tehas update does not fix`:
 running the update
 leaves them as they are. A refused home prints `Dependencies:`, `Installed:`
 and `Tests:` as `not checked` under it, and nothing else: the script trusts
@@ -390,6 +391,23 @@ A real run that replaced `versions.env` prints `later: <checkout>/bootstrap.sh
 user`. The pins moved, and the tools on the host, pi-rukas among them, follow
 them only when that runs; until then `--check` says `Dependencies: NOT OK`. It
 is no step of `tehas update`, because it fetches from the network.
+
+**The cycle token.** A real run that ended well then proves that the GitHub
+App's cycle token can push, before the factory starts work on this version. It
+asks `tehasbot github-token --cycle` for the token and makes a dry-run push with
+it from the product checkout (`TEHAS_WORK_REPO`) to its `origin`, to the branch
+the sandbox's own push check names. The token reaches git through its
+environment, never a command line. It prints `Cycle token:  OK (<login> can push
+to origin)`. A refused push, or no token, prints `Cycle token:  CANNOT PUSH`,
+the app's login, git's last lines and what the app needs, and the run exits 1.
+What was installed stays installed. A drained factory ends with `the factory
+stays drained: ...` in place of the line below; a factory that is not drained
+ends with `the factory is not drained: ...`, and the poll's push-fault hold
+stops it from starting one issue after another. `install.sh --check`, and so
+`tehas update --check`, make the same proof and report the same line, as
+something `tehas update` does not fix. A host with no product checkout proves
+nothing and prints no line. See
+[Troubleshooting](/troubleshooting#tehas-update-says-the-cycle-token-cannot-push).
 
 A real run that ended well on a factory `tehas drain` stopped prints one more
 line last: `the factory is drained: tehas limit clear starts the factory, and
