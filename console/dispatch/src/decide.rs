@@ -520,6 +520,7 @@ impl<'a> Poll<'a> {
                 rc,
             ));
         }
+        self.bot = bot.clone();
         if !self.dry {
             let demand = self.demand();
             self.d.demand = Some(demand);
@@ -528,7 +529,6 @@ impl<'a> Poll<'a> {
             Some(h) => (Some(h), false),
             None => self.pause_label()?,
         };
-        self.bot = bot.clone();
         self.clean_up(&bot)?;
         self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
         // 1b. The pause switches end the poll here.
@@ -635,6 +635,7 @@ impl<'a> Poll<'a> {
             return Value::Null;
         };
         let (mut waiting, mut oldest) = (0, String::new());
+        let mut counted: Vec<u64> = Vec::new();
         for i in list.iter().filter(|i| !has(&i.labels, "tehas:running")) {
             let Some(n) = i.number else { continue };
             if n == self.c.control || self.plan_open(n) || self.running(n) {
@@ -646,6 +647,18 @@ impl<'a> Poll<'a> {
             };
             let (by, at) = label_actor(ev, "tehas:ready");
             if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
+                continue;
+            }
+            counted.push(n);
+            waiting += 1;
+            if !at.is_empty() && (oldest.is_empty() || at < oldest) {
+                oldest = at;
+            }
+        }
+        // A Retry ticked on a park waits as a ready issue does: rule 4 starts
+        // it once there is room, so with no room it is demand (#1776).
+        for (n, at) in self.retries_ticked() {
+            if counted.contains(&n) {
                 continue;
             }
             waiting += 1;
@@ -704,6 +717,48 @@ impl<'a> Poll<'a> {
             m.insert("labelAlone".into(), json!(alone));
         }
         Value::Object(m)
+    }
+
+    /// The parked issues with a question on record where one allowed account
+    /// ticked a Retry, and when: what rule 4 would start with room. An issue
+    /// whose question or comments this poll did not read is left out.
+    fn retries_ticked(&self) -> Vec<(u64, String)> {
+        let Some(list) = self.s.asking.as_ref().and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for i in list {
+            let Some(n) = i.get("number").and_then(Value::as_u64) else {
+                continue;
+            };
+            let labels: Vec<String> = i
+                .get("labels")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|l| l.get("name").and_then(Value::as_str).map(String::from))
+                .collect();
+            if n == self.c.control
+                || self.plan_open(n)
+                || self.running(n)
+                || has(&labels, "tehas:running")
+                || has(&labels, "tehas:awaiting-merge")
+                || !has(&labels, "needs-human-attention")
+            {
+                continue;
+            }
+            let Some(Ok(q)) = self.s.issues.get(&n).and_then(|x| x.question.as_ref()) else {
+                continue;
+            };
+            if q.get("kind").and_then(Value::as_str) != Some("park") {
+                continue;
+            }
+            let park = json!({"question": q.get("id").cloned().unwrap_or(Value::Null)});
+            if let Some(Ok(at)) = self.retry_ticked_at(n, &park) {
+                out.push((n, at));
+            }
+        }
+        out
     }
 
     /// The issues `tehas:blocked` holds by the label alone: rule 6 would wait
@@ -2561,6 +2616,18 @@ impl<'a> Poll<'a> {
     /// has no question or nothing in it counts; Some(Err) when its comments
     /// could not be read.
     fn retry_ticked(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
+        self.retry_tick(n, p)
+            .map(|r| r.map(|t| t["by"].as_str().unwrap_or("").to_string()))
+    }
+
+    /// When the Retry that retry_ticked reads was ticked.
+    fn retry_ticked_at(&self, n: u64, p: &Value) -> Option<Result<String, ()>> {
+        self.retry_tick(n, p)
+            .map(|r| r.map(|t| t["at"].as_str().unwrap_or("").to_string()))
+    }
+
+    /// The tick of retry_ticked, as questions::answer reads it.
+    fn retry_tick(&self, n: u64, p: &Value) -> Option<Result<Value, ()>> {
         let qid = match p.get("question") {
             Some(Value::String(s)) if !s.is_empty() => s.clone(),
             Some(Value::Number(x)) => x.to_string(),
@@ -2591,7 +2658,7 @@ impl<'a> Poll<'a> {
             .and_then(|i| ans["labels"].get(usize::try_from(i).ok()?))
             .and_then(Value::as_str)
             .and_then(tehas_core::question::retry_of)?;
-        Some(Ok(ans["tick"]["by"].as_str().unwrap_or("").to_string()))
+        Some(Ok(ans["tick"].clone()))
     }
 
     /// The park's hold of `n` goes into the poll's report, so status names

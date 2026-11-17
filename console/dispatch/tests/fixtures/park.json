@@ -793,6 +793,18 @@
     ]
    }
   },
+  {"case": "with the limit at 0, a retry ticked by an allowed account is demand: it waits as a ready issue does",
+   "world": "parked", "park_q": ["x", " ", " ", "alice"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
+   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 1, "oldest": "2026-01-01T01:00:00Z"}}},
+  {"case": "with the limit at 0, an unticked park question is no demand",
+   "world": "parked", "park_q": [" ", " ", " ", ""], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
+   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 0}}},
+  {"case": "with the limit at 0, a retry ticked by a stranger is no demand",
+   "world": "parked", "park_q": ["x", " ", " ", "mallory"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
+   "expect": {"picked": [], "demand_is": {"waiting": 0}}},
+  {"case": "with the limit at 0, Leave it parked is no demand",
+   "world": "parked", "park_q": [" ", " ", "x", "alice"], "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}},
+   "expect": {"exit": 0, "picked": [], "demand_is": {"waiting": 0}}},
   {
    "case": "the tick of the issue alone starts a cycle whose record names no comment",
    "world": "parked",
