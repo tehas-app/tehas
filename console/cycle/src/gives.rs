@@ -954,8 +954,9 @@ mod tests {
         let d = scratch(name);
         let bin = d.join("libexec/attach");
         fs::create_dir_all(bin.parent().unwrap()).unwrap();
-        fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        // Written whole before it is made executable: a file a test of another
+        // thread forks while it is open for writing cannot be run (ETXTBSY).
+        tehas_core::testing::write_exe(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
         d
     }
 
