@@ -11,7 +11,9 @@ One Linux machine and one Unix user. In the example: `tehas-tehas`, user `boss`
 matters is the sandbox: agents only ever run inside it, without the Docker
 socket.
 
-Preparing a fresh machine is on the [bootstrap page](/bootstrap).
+Preparing a fresh machine is on the [bootstrap page](/bootstrap). What of a
+factory is public and stays compatible through 1.x, and what is internal, is
+on [the contract](/contract).
 
 ## Layout
 
@@ -324,7 +326,7 @@ moving the checkout. See [tehas update](/tools-update#tehas-update).
 One update runs at a time. `tehas update` and a real run of `install.sh` hold
 `~/tehas/state/update.lock`; a second one started meanwhile waits
 `TEHAS_UPDATE_LOCK_WAIT` seconds for it (10 by default, 0 to refuse at once,
-at most 300), and if it is still held prints `another update is running` and
+at most 300, anything else 78), and if it is still held prints `another update is running` and
 exits 1 before it changes anything. The update hands its lock to the
 `install.sh` it runs. `--check` takes no lock.
 
@@ -655,11 +657,9 @@ and no `~/tehas/current`, so `tehas update` keeps pulling the checkout. To move
 it to releases, once a signed release is published:
 
 1. Install minisign, which checks the signature: `sudo apt-get install minisign`.
-2. Check that `~/tehas/release/minisign.pub` is there. `install.sh` has put it
-   there since the key was added; run `tehas update` once from the checkout if
-   it is missing.
-3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
-4. Run `tehas update --check`, read the Adopter action of each release it
+   The key it checks with is built into tehas.
+2. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
+3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
 The checkout stays where it is and is no longer read. To go back to it, set
@@ -1398,7 +1398,8 @@ capability dropped, 128m of memory and 512 processes. It connects only to:
 - `registry.npmjs.org`, `crates.io`, `static.crates.io` and `index.crates.io`
   on 443, for npm and cargo;
 - the host and port of every `baseUrl` and `backupBaseUrl` in models.json;
-- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
+- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`, each word
+  read by the one rule the settings load checks it with.
 
 Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches

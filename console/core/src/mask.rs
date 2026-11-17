@@ -347,8 +347,8 @@ fn names_of(
 ) -> Vec<String> {
     let mut names: Vec<&str> = vec![];
     for pair in aliases.lines().next().unwrap_or("").split(',') {
-        match pair.split_once(':') {
-            Some((a, b)) => names.extend([a, b]),
+        match pair.split_once([':', '=']) {
+            Some((a, b)) => names.extend([a, b.trim_start_matches('[').trim_end_matches(']')]),
             None => names.push(pair),
         }
     }
@@ -1069,6 +1069,11 @@ mod host_name_tests {
                 "2001:db8::1",
                 "bot@example.com"
             ]
+        );
+        // Docker's other two forms of a pair give the same two names.
+        assert_eq!(
+            names_of("gpu2=192.0.2.7,gpu3:[2001:db8::3]", &file, &[], ""),
+            ["gpu2", "192.0.2.7", "gpu3", "2001:db8::3"]
         );
     }
 }

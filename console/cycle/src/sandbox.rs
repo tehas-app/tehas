@@ -260,9 +260,15 @@ pub fn main(args: &[String]) -> Option<i32> {
     Some(match a.as_slice() {
         ["ok"] => ok(),
         ["limits", who, what] => limits(who, what),
-        ["hosts"] => print(&sandbox::hosts(
-            &env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default(),
-        )),
+        ["hosts"] => {
+            match sandbox::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()) {
+                Ok(words) => print(&words),
+                Err(why) => {
+                    eprintln!("tehas-cycle: PI_ENSEMBLE_HOST_ALIASES is not valid: {why}");
+                    78
+                }
+            }
+        }
         ["env", kind, tree, name, email] => env_options(Kind::parse(kind)?, tree, name, email),
         ["mounts", kind, tree, host, state, runs] => mounts(
             Kind::parse(kind)?,
