@@ -578,6 +578,11 @@ impl Writer {
         let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
+        if let Some(spec) = a.get("spec") {
+            if let Some(then) = self.spec_holds(n, &given, spec, log) {
+                return then;
+            }
+        }
         log.push(match a.get("log").and_then(Value::as_str) {
             Some(line) => line.to_string(),
             None => format!("start #{n} ({} by {by})", text(a, "verb")),
@@ -801,6 +806,81 @@ impl Writer {
         Then::Failed
     }
 
+    /// spec_holds: with the spec-pipe feature on, a start whose body marks a
+    /// spec fetches it, pinned to the sha256 the `Spec:` line names, before
+    /// anything of the start is changed. None when its bytes are the ones
+    /// named: the approval then keeps the pin. A spec of other bytes, a link
+    /// GitHub refuses or a line tehas cannot read starts nothing: the labels
+    /// that asked come off and the issue is told why, except for a start the
+    /// host or the poll itself made, which is logged alone. A fetch that may
+    /// work later ends the poll with 1 and changes nothing.
+    fn spec_holds(
+        &mut self,
+        n: u64,
+        given: &str,
+        spec: &Value,
+        log: &mut Vec<String>,
+    ) -> Option<Then> {
+        let why = match spec.get("why").and_then(Value::as_str) {
+            Some(why) => why.to_string(),
+            None => {
+                let Some(file) = self.scratch("spec") else {
+                    log.push(format!(
+                        "ERROR: #{n}: no file in $TEHAS_HOME/tmp to fetch its spec into, not starting a cycle"
+                    ));
+                    return Some(Then::Failed);
+                };
+                let pin = attach::fetch::Pin {
+                    link: text(spec, "link"),
+                    sha256: text(spec, "sha256"),
+                    most: crate::text::SPEC_MOST,
+                };
+                let token = self.calls.gh_token.clone().unwrap_or_default();
+                let got = attach::fetch::fetch_pinned(&pin, &file, &token);
+                let _ = std::fs::remove_file(&file);
+                let unpinned = match got {
+                    Ok(_) => return None,
+                    Err(u) => u,
+                };
+                match crate::text::spec_unpinned(&unpinned) {
+                    Some(why) => why,
+                    None => {
+                        let said = match unpinned {
+                            attach::fetch::Unpinned::Fetch(f) => format!("curl exited {}", f.code),
+                            attach::fetch::Unpinned::Unreadable(e) => e,
+                            attach::fetch::Unpinned::Other(sum) => sum,
+                        };
+                        log.push(format!(
+                            "ERROR: the spec of #{n} could not be fetched ({said}), not starting a cycle"
+                        ));
+                        return Some(Then::Failed);
+                    }
+                }
+            }
+        };
+        log.push(format!("skip #{n}: {why}"));
+        let off = super::strings(spec, "off");
+        if off.is_empty() && given != "retry-tick" {
+            return Some(Then::Skipped);
+        }
+        let names: Vec<&str> = off.iter().map(String::as_str).collect();
+        let fail = format!(
+            "WARN: label change on #{n} failed: {}",
+            names
+                .iter()
+                .map(|l| format!("--remove-label {l}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let say = crate::text::spec_refused_said(&off, &why);
+        if off.is_empty() {
+            self.say(n, &say, log);
+        } else {
+            self.label(n, &json!({"remove": off, "fail": fail, "say": say}), log);
+        }
+        Some(Then::Skipped)
+    }
+
     /// approved_record: the approval on record with its inputs. Its time,
     /// or the store's word and line; an empty word is a read that failed.
     /// `left_out` gets the authors of a comments retry whose permission on
@@ -822,6 +902,13 @@ impl Writer {
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
         if let Some(d) = a.get("driver") {
             input.insert("driver".into(), d.clone());
+        }
+        // The pin spec_holds fetched the spec's bytes to.
+        if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
+            input.insert(
+                "spec".into(),
+                json!({"link": s["link"], "sha256": s["sha256"]}),
+            );
         }
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();
