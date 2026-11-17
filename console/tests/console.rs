@@ -509,6 +509,9 @@ fn every_host_command_uses_token_env() {
             || rel == "core/src/settings.rs"
             || rel.starts_with("core/src/settings/")
             || rel.starts_with("ops/src/setup")
+            // Asks the person's own gh, never the shim, who is signed in, to
+            // refuse the app's login before it files anything.
+            || rel == "src/prototype.rs"
     };
     let mut found = Vec::new();
     for path in all {
