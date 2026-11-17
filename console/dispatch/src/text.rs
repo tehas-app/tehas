@@ -74,6 +74,35 @@ pub fn no_mark_said(ask: &str, why: &str) -> String {
     format!("{why}. {fix} and applies `{ask}` again.")
 }
 
+/// The most bytes a spec is fetched with: one file of an issue's.
+pub const SPEC_MOST: i64 = 1024 * 1024;
+
+/// Why the bytes fetched for a spec stop its start: the pinned fetch found
+/// other bytes, or GitHub refused the link (curl's 22 on an answer of 4xx) or
+/// it is too big (curl's 63). None for a fetch that may work at the next poll,
+/// a 5xx among them.
+pub fn spec_unpinned(r: &attach::fetch::Unpinned) -> Option<String> {
+    use attach::fetch::{Unpinned, REFUSED, TOO_BIG};
+    match r {
+        Unpinned::Other(got) => Some(format!("the bytes of its spec are not the ones its `{SPEC_MARK}` line names: they have sha256 {got}, so the spec is not the one that was approved")),
+        Unpinned::Fetch(f) if f.code == REFUSED && (400..500).contains(&f.http) => Some(format!("GitHub refused the link of its `{SPEC_MARK}` line (HTTP {})", f.http)),
+        Unpinned::Fetch(f) if f.code == TOO_BIG => Some(format!("its spec is larger than {} KiB, the most tehas fetches for one", SPEC_MOST / 1024)),
+        _ => None,
+    }
+}
+
+/// What the poll says on an issue whose spec stopped its start: the reason
+/// `why` and what a person does next. `off` is the labels that came off,
+/// none for a start no label asked for.
+pub fn spec_refused_said(off: &[String], why: &str) -> String {
+    let fix = format!("A person attaches the spec and writes its link and the sha256 of its bytes on the `{SPEC_MARK}` line, or takes the line out,");
+    let Some(first) = off.first() else {
+        return format!("Tehas started nothing on this issue: {why}. {fix} and approves it again.");
+    };
+    let names = format!("`{}`", off.join("` and `"));
+    format!("Tehas took {names} off this issue and started nothing: {why}. {fix} and applies `{first}` again.")
+}
+
 /// What a plan's start binds: the title and the body together, without the
 /// white space at their ends and the carriage returns, which GitHub may change
 /// on its own.
@@ -518,6 +547,63 @@ mod tests {
         assert!(said.starts_with("it has more than one `Spec:` line. A person writes"));
         assert!(said.ends_with("and applies `tehas:ready` again."));
         assert!(no_mark_said(crate::decide::HOST, "x").ends_with("`tehas start`."));
+    }
+
+    #[test]
+    fn a_spec_of_other_bytes_or_a_refused_link_stops_the_start() {
+        use attach::fetch::{Fetched, Unpinned};
+        let fetch = |code| {
+            Unpinned::Fetch(Fetched {
+                code,
+                content_type: String::new(),
+                http: 0,
+            })
+        };
+        let answered = |code, http| {
+            Unpinned::Fetch(Fetched {
+                code,
+                content_type: String::new(),
+                http,
+            })
+        };
+        let h = "d".repeat(64);
+        assert_eq!(
+            spec_unpinned(&Unpinned::Other(h.clone())),
+            Some(format!("the bytes of its spec are not the ones its `Spec:` line names: they have sha256 {h}, so the spec is not the one that was approved"))
+        );
+        for http in [400, 403, 404, 410] {
+            assert_eq!(
+                spec_unpinned(&answered(22, http)),
+                Some(format!(
+                    "GitHub refused the link of its `Spec:` line (HTTP {http})"
+                ))
+            );
+        }
+        // An outage of GitHub or its storage is tried again at the next poll.
+        for http in [0, 500, 502, 503] {
+            assert_eq!(spec_unpinned(&answered(22, http)), None, "{http}");
+        }
+        assert_eq!(
+            spec_unpinned(&fetch(63)),
+            Some("its spec is larger than 1024 KiB, the most tehas fetches for one".into())
+        );
+        for code in [6, 7, 28, 127, 137] {
+            assert_eq!(spec_unpinned(&fetch(code)), None, "{code}");
+        }
+        assert_eq!(spec_unpinned(&Unpinned::Unreadable("io".into())), None);
+    }
+
+    #[test]
+    fn a_stopped_spec_says_what_came_off_and_what_to_do() {
+        let off = ["tehas:ready".to_string(), "tehas:blocked".to_string()];
+        assert_eq!(
+            spec_refused_said(&off, "why"),
+            "Tehas took `tehas:ready` and `tehas:blocked` off this issue and started nothing: why. A person attaches the spec and writes its link and the sha256 of its bytes on the `Spec:` line, or takes the line out, and applies `tehas:ready` again."
+        );
+        assert_eq!(
+            spec_refused_said(&[], "why"),
+            "Tehas started nothing on this issue: why. A person attaches the spec and writes its link and the sha256 of its bytes on the `Spec:` line, or takes the line out, and approves it again."
+        );
     }
 
     #[test]
