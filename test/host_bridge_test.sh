@@ -91,6 +91,42 @@ if command -v caddy >/dev/null 2>&1; then
   t_eq "$t_rc" 0
 fi
 
+# What the contract freezes: the host owns /host/, so a file put there is never
+# served. Bare /host is left out: the manual's page "The host" is named so.
+t_case "the docs server answers 404 for any path under /host/, even where a file stands"
+if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  mkdir -p "$T/srv/live" "$T/srv/docs/host/ticket" "$T/srv/docs/host/x" "$T/srv/fun" "$T/xdg"
+  printf '{}\n' >"$T/srv/live/status.json"
+  for f in bridge.json index.html ticket/7 x/y; do printf 'tehas\n' >"$T/srv/docs/host/$f"; done
+  paths=(/host/ /host/bridge.json /host/ticket/7 /host/x/y /host/index.html /host/.x /Host/bridge.json)
+  want="" codes="" up=""
+  for p in "${paths[@]}"; do want+="$p 404 "; done
+  # A random port can be taken: caddy then exits on the bind, so try another.
+  for try in 1 2 3 4 5; do
+    port=$((20000 + RANDOM % 20000))
+    sed -e "s|/srv/|$T/srv/|g" -e "s|^:8080 {|:$port {|" "$caddyfile" >"$T/Caddyfile"
+    XDG_DATA_HOME=$T/xdg XDG_CONFIG_HOME=$T/xdg \
+      caddy run --adapter caddyfile --config "$T/Caddyfile" >"$T/caddy.log" 2>&1 &
+    pid=$!
+    for _ in $(seq 300); do
+      kill -0 "$pid" 2>/dev/null || break
+      [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/status.json")" = 200 ] && { up=1; break; }
+      sleep 0.1
+    done
+    if [ -n "$up" ]; then
+      for p in "${paths[@]}"; do codes+="$p $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port$p") "; done
+    fi
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    [ -n "$up" ] && break
+    grep -q 'address already in use' "$T/caddy.log" || break
+  done
+  [ -n "$up" ] || t_bad "caddy never answered status.json (try $try): $(tail -n 3 "$T/caddy.log" | tr '\n' ' ')"
+  t_eq "$codes" "$want"
+else
+  t_skip "no caddy or no curl here; the lines of the Caddyfile are checked above"
+fi
+
 t_case "both front pages and /dashboard load the reading module before the views, and tehas registers no service worker"
 for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html" "$T_ROOT/host/docs/dashboard.frag"; do
   text=$(cat "$page")
@@ -111,5 +147,17 @@ t_contains "$(cat "$T_ROOT/console/src/api.rs")" '"host-bridge",'
 t_eq "$(grep -c 'host-bridge-tokens' "$T_ROOT/console/src/api.rs" "$T_ROOT/host/docs/api.md" | awk -F: '{n += $2} END {print n}')" 0
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '## The host bridge'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-bridge` ([the host bridge](#the-host-bridge))'
+
+t_case "the contract freezes the host namespace and names the tests that hold it"
+row=$(grep '^| Host namespace |' "$T_ROOT/host/docs/contract.md")
+[ -n "$row" ] || t_bad "contract.md has no row for the host namespace"
+for words in '`/host/`' 'never serves a path under it' 'answers 404 there' 'reads as no host' \
+  '`bridge: 1`' '`api/host-bridge.schema.json`' '`test/host_bridge_test.sh`' '`test/json_contract_test.sh`' \
+  '`test/host_bridge_test.mjs`' '`test/panels_dock_test.mjs`'; do
+  t_contains "$row" "$words"
+done
+for f in test/host_bridge_test.sh test/json_contract_test.sh test/host_bridge_test.mjs test/panels_dock_test.mjs; do
+  [ -f "$T_ROOT/$f" ] || t_bad "the contract names $f, which is not there"
+done
 
 t_done
