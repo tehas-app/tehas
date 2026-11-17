@@ -640,3 +640,113 @@ fn a_restarted_proxy_refuses_the_token_of_a_revoked_contractor() {
     let a = ask(&chan, Call::CheckIn, Some(&token), None, json!({}));
     assert_eq!((a.status, a.refused()), (401, Some("no job")));
 }
+
+/// A model path judged by a proxy's own records of the store at `home`: the
+/// status a request with `token` is answered with, 200 when it may go on.
+fn model_path(home: &Path, issuer: &Issuer, token: &str) -> u16 {
+    use tehas_proxy::records::{OfProxy, OfStore};
+    use tehas_proxy::request::{judge, Ask};
+    let store = OfStore::at(home, issuer);
+    let records = OfProxy::of(&store, issuer);
+    match judge(Some(token), &Ask::new("/v1/chat/completions"), &records) {
+        Ok(_) => 200,
+        Err(why) => why.status(),
+    }
+}
+
+/// The two tokens of a job taken: the job token and the model token.
+fn taken_pair(chan: &Channel) -> (String, String) {
+    let a = by_key(chan, Call::Job);
+    assert_eq!(a.status, 200, "{a:?}");
+    let job = a.body["token"].as_str().unwrap().to_string();
+    let model = a.body["model_token"].as_str().unwrap().to_string();
+    assert_ne!(job, model);
+    (job, model)
+}
+
+#[test]
+fn each_scope_is_refused_on_the_other_s_paths() {
+    let (home, issuer) = offered("chan-scopes");
+    let h = home.path();
+    let fake = Fake::at(h);
+    let chan = Channel::new(&issuer, &fake);
+    let (job, model) = taken_pair(&chan);
+    // The model token reaches the model paths and no call of the channel.
+    assert_eq!(model_path(h, &issuer, &model), 200);
+    for c in [
+        Call::CheckIn,
+        Call::Token,
+        Call::Relay,
+        Call::Result,
+        Call::Stopped,
+    ] {
+        let a = ask(
+            &chan,
+            c,
+            Some(&model),
+            None,
+            json!({ "argv": [], "result": {} }),
+        );
+        assert_eq!((a.status, a.refused()), (403, Some("scope")), "{c:?}");
+    }
+    assert!(fake.kept.lock().unwrap().is_empty());
+    assert!(fake.relayed.lock().unwrap().is_empty());
+    // The job token reaches the channel and no model path.
+    assert_eq!(model_path(h, &issuer, &job), 403);
+    let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
+    assert_eq!(a.status, 200, "{a:?}");
+    // The job ends: both tokens end with it.
+    let a = ask(&chan, Call::Stopped, Some(&job), None, json!({}));
+    assert_eq!(a.status, 200, "{a:?}");
+    assert_eq!(model_path(h, &issuer, &model), 401);
+    assert_eq!(issuer.peek(&model), None);
+}
+
+#[test]
+fn both_scopes_survive_a_restart_and_keep_their_scope() {
+    let (home, _) = offered("chan-restart-scopes");
+    let h = home.path();
+    let fake = Fake::at(h);
+    let before = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let (job, model) = taken_pair(&Channel::new(&before, &fake));
+    let db = std::fs::read(h.join("state/tehas.db")).unwrap();
+    let wal = std::fs::read(h.join("state/tehas.db-wal")).unwrap_or_default();
+    for file in [&db, &wal] {
+        let text = String::from_utf8_lossy(file);
+        assert!(!text.contains(&job) && !text.contains(&model));
+    }
+    drop(before);
+    // A new process: each token comes back in its own scope only.
+    let after = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let chan = Channel::new(&after, &fake);
+    let a = ask(&chan, Call::CheckIn, Some(&model), None, json!({}));
+    assert_eq!((a.status, a.refused()), (403, Some("scope")));
+    assert_eq!(model_path(h, &after, &job), 403);
+    assert_eq!(model_path(h, &after, &model), 200);
+    let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
+    assert_eq!(a.status, 200, "{a:?}");
+}
+
+#[test]
+fn a_revoked_contractor_s_tokens_of_both_scopes_are_refused() {
+    let (home, issuer) = offered("chan-revoked-scopes");
+    let h = home.path();
+    let fake = Fake::at(h);
+    let backed = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let (job, model) = taken_pair(&Channel::new(&backed, &fake));
+    drop(issuer);
+    call(h, &["contractor-revoke", "--name", "box1"]);
+    // The process that issued them: the model path refuses the model token,
+    // and the channel says revoked and takes both back.
+    assert_eq!(model_path(h, &backed, &model), 403);
+    let chan = Channel::new(&backed, &fake);
+    let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
+    assert_eq!((a.status, a.refused()), (403, Some("revoked")));
+    assert!(backed.is_empty(), "a token of the revoked job is held");
+    // A restarted proxy finds neither.
+    let after = Issuer::backed(Arc::new(KeptIn::at(h)));
+    assert_eq!(model_path(h, &after, &model), 401);
+    let chan = Channel::new(&after, &fake);
+    let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
+    assert_eq!((a.status, a.refused()), (401, Some("no job")));
+}

@@ -33,8 +33,13 @@ pub struct Job {
     pub attempt: i64,
     /// Seconds without an answered check-in before the job is given up.
     pub timeout: u64,
-    /// The job's token, for the channel and the model proxy. Dies with the job.
+    /// The job's token of the job scope, for the job channel and nothing
+    /// else. This program holds it; the container never sees it. Dies with
+    /// the job.
     pub token: String,
+    /// The job's token of the model scope, for the container's models.json:
+    /// the model paths and nothing else. Dies with the job.
+    pub model_token: String,
     /// The factory's settings that leave with the job.
     pub settings: Map<String, Value>,
     /// The models.json of the cycle, every provider behind the factory's proxy.
@@ -50,6 +55,10 @@ impl Job {
             attempt: v["attempt"].as_i64()?,
             timeout: v["timeout"].as_u64().filter(|t| *t > 0)?,
             token: v["token"].as_str().filter(|t| !t.is_empty())?.to_string(),
+            model_token: v["model_token"]
+                .as_str()
+                .filter(|t| !t.is_empty() && Some(*t) != v["token"].as_str())?
+                .to_string(),
             settings: v["settings"].as_object().cloned().unwrap_or_default(),
             models: v["models"].clone(),
         })

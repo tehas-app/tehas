@@ -31,12 +31,13 @@
 //! token, which is issued when the job is taken.
 //!
 //! The job tokens are this process's own, held in memory. A contractor is
-//! given its job's token in the answer to the channel's `job` call. The
-//! control socket in the state directory can issue one too, written to a job
-//! directory, and the asking process is told the path and nothing of the
-//! token. A token is never in a command line, never in a log, never in the
-//! store: the store keeps its sha256 in the job's row, so a proxy that
-//! restarts still takes the token of a job that is going.
+//! given its job's two tokens in the answer to the channel's `job` call: the
+//! job token for the channel and the model token for its container. The
+//! control socket in the state directory can issue a model token too, written
+//! to a job directory, and the asking process is told the path and nothing of
+//! the token. A token is never in a command line, never in a log, never in the
+//! store: the store keeps their sha256 in the job's row, so a proxy that
+//! restarts still takes the tokens of a job that is going, each in its scope.
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
 //! malformed, the endpoint is no address this proxy can speak to, or TEHAS_HOME
