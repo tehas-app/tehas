@@ -14,7 +14,7 @@
 # /usr/local/lib/tehas/vipune; this takes its place in /usr/local/bin.
 #
 # TEHAS_VIPUNE_BIN names the real vipune, TEHAS_RELAY_DIR the relay directory
-# and TEHAS_VIPUNE_WAIT the seconds to wait [20]; all three are seams for
+# and TEHAS_VIPUNE_WAIT the seconds to wait [28]; all three are seams for
 # test/vipune_shim_test.sh, and the image sets none.
 #
 # Exit: vipune's own status, or the factory's for a relayed call (64 for a
@@ -45,7 +45,7 @@ echo vipune >"$req/kind" || failed "the request could not be written"
 : >"$req/ready" || failed "the request could not be written"
 
 # pi-rukas gives a vipune call 30 s; the relay reads its directory every 0.5 s.
-tenths=$((${TEHAS_VIPUNE_WAIT:-20} * 10))
+tenths=$((${TEHAS_VIPUNE_WAIT:-28} * 10))
 n=0
 until [ -e "$res/done" ]; do
   [ "$n" -lt "$tenths" ] || failed "the factory's memory did not answer"
