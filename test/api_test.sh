@@ -64,9 +64,10 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
-t_lacks "$(cat "$T_ROOT/host/docs/api.md")" 'refresh-pr-starts'
-t_lacks "$(cat "$T_ROOT/host/docs/api.md")" 'host-message-health'
-t_lacks "$(cat "$T_ROOT/host/docs/api.md")" '`store-copy`'
+manual=$(cat "$T_ROOT"/host/docs/*.md)
+for old in refresh-pr-starts refresh-pr-lane refresh-pr-json host-message-health '`store-copy`'; do
+  t_lacks "$manual" "$old"
+done
 t_eq "$(jq -r 'has("refreshScan")' <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
 

@@ -199,7 +199,7 @@ Keeps a running preview of every open pull request whose head branch is in
 the product repository and that was opened by an owner, member or
 collaborator of it: a container `tehas-preview-<pr>` that the edge router
 answers with at `uat-<pr>.<domain>`. Deterministic, no model. It needs
-`TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
+`TEHAS_PREVIEWS=on` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
 and cannot reach, is on [Previews](/edge).
 
 The head of the repository's default branch has a preview too: a container

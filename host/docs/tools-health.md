@@ -423,7 +423,7 @@ explain.
 `disk`, `resources`, `limit`, `red`, `unknown-gate`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
 and what was missing in it. `resources` is a model endpoint that does not
-answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
+answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=on`,
 a model or sandbox image that cannot take the images. `disk` is less than `TEHAS_CYCLE_MIN_FREE` free on the file system of `~/tehas`
 or on the one Docker keeps its images on, or free space that could not be read.
 Both warn, as a full disk and an unreadable one hold every start: `output` is
@@ -572,7 +572,7 @@ instance and starts only when you enable it; nothing enables it for you. The
 service reads its settings when it starts, so run `systemctl --user restart
 tehas-top.service` after changing the setting. Stopping the service does not hide
 the section: the last file stays until the page calls it stale, and the way to
-remove it is `TEHAS_TOP=0` with one run of `tehasbot top`, or deleting the file.
+remove it is `TEHAS_TOP=off` with one run of `tehasbot top`, or deleting the file.
 
 The file is readable by anyone who can open the dashboard. It names the host's
 cpu count, load averages, memory, its units, and up to fifteen processes by pid

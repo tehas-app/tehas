@@ -210,7 +210,7 @@ tehas status --json
 | `reasons` | Why the state is not `pass`, for a person; empty on `pass` |
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
-| `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=1`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
+| `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=on`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
@@ -1271,7 +1271,7 @@ written, and still: treat all of it as public.
 | `demand.json` | `console/dispatch/src/poll.rs` of `tehas dispatch`, at every real poll | `console/ops/src/health.rs` |
 | `energy.json` | `console/src/energy.rs` run as `tehasbot energy` ([tehasbot energy](/tools-health#tehasbot-energy)) | `host/fun/energy-view.js`, `host/fun/business-view.js`; `console/analytics/src/sample.rs` |
 | `analytics.json` | `console/src/publish.rs`, run by `tehasbot status` from the analytics program's `report --json` | `host/fun/dashboard-view.js`, `host/fun/business-view.js`, `host/fun/analytics-data.js`; the MCP server (`factory_stats`) |
-| `top.json` | `console/src/top.rs` run as `tehasbot top`, when `TEHAS_TOP=1` ([tehasbot top](/tools-health#tehasbot-top)) | `host/fun/host-view.js`, `host/fun/host-data.js`, `host/fun/dashboard-view.js` |
+| `top.json` | `console/src/top.rs` run as `tehasbot top`, when `TEHAS_TOP=on` ([tehasbot top](/tools-health#tehasbot-top)) | `host/fun/host-view.js`, `host/fun/host-data.js`, `host/fun/dashboard-view.js` |
 | `panels.json` | `console/ops/src/panel.rs`, the copy of the person's list ([`tehas panel`](#tehas-panel)) | `host/fun/panels.js` |
 | `disk.json` | `console/ops/src/disk.rs` with `--publish`, run hourly by `tehasbot clean` ([`tehas disk`](#tehas-disk)) | the MCP server (`factory_disk`) |
 | `platform.json` | `console/src/platform.rs`, run by `tehasbot status` | `console/ops/src/health.rs`, which answers it as `checks.platform` |
