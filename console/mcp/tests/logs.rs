@@ -1847,3 +1847,95 @@ fn a_search_of_the_tool_masks_what_the_log_reader_masks() {
         assert_eq!(out["matches"], json!([]), "{want} found in {log}");
     }
 }
+
+// A running cycle has no session in the snapshot yet: the snapshot is written
+// from the runs that ended. Its logs are found as the snapshot's writer finds
+// an ended run's, by the stamp in their names, and the id is the one the run
+// will have in the snapshot when it ends.
+#[test]
+fn a_running_cycles_log_is_read_by_its_issue_or_its_id() {
+    let _t = turn();
+    let env = Env::new(
+        "running",
+        "work",
+        7,
+        &[("transcript", &transcript(7), b"t\n")],
+    );
+    let t = start() + 10;
+    let stamp = tehas_core::time::stamp(t - 3);
+    let older = tehas_core::time::stamp(t - 3600);
+    let live = |running: bool| {
+        std::fs::write(
+            env.dirs.live.join("running.json"),
+            json!({"cycles": [{"issue": 9, "running": running, "status": "running",
+                               "step": "develop", "startedAt": t, "updatedAt": t + 5}],
+                   "last": null})
+            .to_string(),
+        )
+        .unwrap();
+    };
+    live(true);
+    let logs = &env.dirs.logs;
+    std::fs::write(
+        logs.join(format!("work-9-{stamp}.jsonl")),
+        format!("now {}\n", token()),
+    )
+    .unwrap();
+    std::fs::write(
+        logs.join(format!("work-9-{stamp}.jsonl.console")),
+        "console\n",
+    )
+    .unwrap();
+    // A log of an earlier cycle of the issue is not this cycle's.
+    std::fs::write(logs.join(format!("work-9-{older}.jsonl.err")), "old\n").unwrap();
+    std::fs::write(logs.join("dispatch-work-9.log"), "d\n").unwrap();
+    let id = format!("work-9-{t}");
+
+    let read = |args: Value| match call(&env.dirs, "factory_log", &args) {
+        Ok(Output::Json(v)) => v,
+        other => panic!("{args}: {other:?}"),
+    };
+    let fail = |args: Value| match call(&env.dirs, "factory_log", &args) {
+        Err(ToolError::BadArgs(why)) => why,
+        other => panic!("{args}: not a tool error: {other:?}"),
+    };
+    let out = read(json!({"issue": 9, "file": "transcript"}));
+    assert_eq!(out["id"], id);
+    assert!(out["text"].as_str().unwrap().starts_with("now "), "{out}");
+    assert!(!out.to_string().contains(&token()), "{out}");
+    assert_eq!(
+        read(json!({"id": id, "file": "console"}))["text"],
+        "console\n"
+    );
+    assert_eq!(read(json!({"issue": 9, "file": "dispatch"}))["text"], "d\n");
+    let e = fail(json!({"issue": 9, "file": "err"}));
+    assert!(
+        e.contains("no err log") && e.contains("transcript, console, dispatch"),
+        "{e}"
+    );
+
+    // Another start of the issue is not this cycle.
+    let e = fail(json!({"id": format!("work-9-{}", t + 1), "file": "transcript"}));
+    assert!(e.contains("no session"), "{e}");
+    assert!(
+        fail(json!({"issue": 8, "file": "transcript"})).contains("no running cycle for issue 8")
+    );
+    // A cycle the store marked lost is not running.
+    live(false);
+    assert!(
+        fail(json!({"issue": 9, "file": "transcript"})).contains("no running cycle for issue 9")
+    );
+
+    for args in [
+        json!({"file": "transcript"}),
+        json!({"id": id, "issue": 9, "file": "transcript"}),
+        json!({"issue": 0, "file": "transcript"}),
+        json!({"issue": "9", "file": "transcript"}),
+    ] {
+        let e = fail(args.clone());
+        assert!(
+            e.contains("id or issue") || e.contains("issue is"),
+            "{args}: {e}"
+        );
+    }
+}
