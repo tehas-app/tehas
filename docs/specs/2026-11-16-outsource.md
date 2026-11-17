@@ -294,9 +294,15 @@ Contractors get the model through the factory, and only through it.
 - It runs apart from the dispatcher, so a slow stream cannot hold up
   dispatch.
 
-A contractor also reaches GitHub and the product's package registries
-directly. The network allowlist the docs describe is: the factory, GitHub and
-those registries.
+A contractor's only connection for cycle traffic is the factory listener
+(epic #2376). Its container sits on an internal network whose one way out is
+the contractor's local end, which forwards over that connection: model
+requests to the model route, and GitHub, the registries and listed web tools
+through a tunnel route that checks the same list as the in-house egress
+proxy. The workspace comes as a git bundle of the job's tip and the issue's
+files come from the factory. The listener forwards and re-implements nothing
+its upstream does. The contractor host's own traffic, such as OS updates and
+the clock, is not cycle traffic.
 
 ## Security
 
