@@ -8,7 +8,7 @@ description: "Writing this host's instance and starting the factory, and the che
 ## tehas setup
 
 ```
-tehas setup --repo tehas-app/tehas --labellers janit --new-app \
+tehas setup --repo tehas-app/tehas --labelers janit --new-app \
   --endpoint http://gb1:8086/v1
 ```
 
@@ -22,7 +22,7 @@ exit 78.
 | Option | What it is |
 | --- | --- |
 | `--repo <owner/name>` | The product repository |
-| `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
+| `--labelers "<a> <b>"` | The logins whose labels count, written to `TEHAS_ALLOWED_LABELERS`. Never the bot |
 | `--new-app` | Make the [GitHub App](/github-app) the factory acts as (below) |
 | `--app-owner <login>` | The organisation or user that owns the new app. Without it, the repository's owner |
 | `--app-name <name>` | The new app's name, up to 34 characters. Without it, `<repository>-factory` |
@@ -35,9 +35,10 @@ exit 78.
 | `--no-build` | Leave out the sandbox image and the product's gates |
 | `--force` | Replace a setting that is there and differs |
 
-`--token-file` is refused with exit 78: the factory acts as a GitHub App.
-`--app-installation` is accepted with a warning and ignored: the app's
-installation on the repository is looked up. Run again on an instance that
+`--labellers`, `--token-file` and `--app-installation` are unknown options:
+each exits 64 and says why. `--labellers` is now `--labelers`; the factory
+acts as a GitHub App, so there is no token file; the app's installation on
+the repository is looked up. Run again on an instance that
 names an app and has its key, setup checks that app; `--new-app` then makes
 none. A key in `~/.config/tehas/github-app.pem` with no
 `TEHAS_GITHUB_APP_ID`, or an app ID with no key, stops `--new-app` with 78 and
@@ -139,7 +140,7 @@ builds it with cargo first, in the few lines of bash that are left of
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
 such as 78 from `install.sh`), 64 on an unknown option or app options that do
 not go together, 78 for a setting that is missing, malformed or differs,
-`--token-file`, a pasted address without the run's state, or when there is no
+a pasted address without the run's state, or when there is no
 console and no checkout to build one from.
 
 ## tehas labels

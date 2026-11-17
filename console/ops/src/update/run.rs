@@ -2,8 +2,7 @@
 //! libexec/update execs. `<console>` is the path the script ran, so the console
 //! install.sh leaves there, or the `.prev` it kept, can finish the run.
 //!
-//! The steps are the verbs an older libexec/update runs one by one, in this
-//! process: the arguments, the wait for the lock (read before the settings,
+//! The steps, in this process: the arguments, the wait for the lock (read before the settings,
 //! whose load drops it), the settings, `gate`, the lock, `prepare`, install.sh
 //! with its output kept apart, then `finish` by the console that speaks this
 //! one's `api`. The finisher is a child and not an exec: this process keeps the
@@ -15,7 +14,7 @@
 use super::finish::INSTALL_LIMIT;
 use super::lock::Held;
 use super::{code, gate, output, parse, prepare, tell, temp_dir, timed, wait};
-use super::{host_or_refuse, Mode, Plan, ANSWERED, API, NO_LOCK};
+use super::{host_or_refuse, Mode, Plan, Prepared, API, NO_LOCK};
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -84,16 +83,16 @@ pub(super) fn main(given: &[String]) -> u8 {
         tell("console update run: usage: run <console> <arguments>");
         return 64;
     };
-    match parse(rest) {
-        Ok(_) => {}
-        Err(ANSWERED) => return 0,
+    let asked = match parse(rest) {
+        Ok(Some(asked)) => asked,
+        Ok(None) => return 0,
         Err(rc) => return rc,
-    }
+    };
     let wait = wait::update();
     if let Err(rc) = crate::settings::loaded(&INSTANCE_SETTINGS) {
         return rc;
     }
-    let lock = match gate(rest) {
+    let lock = match gate(&asked) {
         0 => {
             let host = match host_or_refuse() {
                 Ok(host) => host,
@@ -115,14 +114,10 @@ pub(super) fn main(given: &[String]) -> u8 {
         return 1;
     };
     let (plan, out, err) = (dir.0.join("plan"), dir.0.join("out"), dir.0.join("err"));
-    let words: Vec<String> = ["--plan".to_string(), plan.display().to_string()]
-        .into_iter()
-        .chain(rest.iter().cloned())
-        .collect();
-    match prepare(&words) {
-        0 => {}
-        ANSWERED => return 0,
-        rc => return rc,
+    match prepare(&plan, &asked) {
+        Ok(Prepared::Planned) => {}
+        Ok(Prepared::Over) => return 0,
+        Err(rc) => return rc,
     }
     let Some(read) = Plan::read(&plan) else {
         tell(&format!(

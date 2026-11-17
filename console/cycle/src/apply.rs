@@ -802,14 +802,16 @@ fn keep_end_fault(
 /// or the record of its failed end is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
     let issue = s.issue;
-    let workdir = format!("{}-{issue}", env("TEHAS_WORK_DIR"));
+    let workdir = host::workdir(s);
     let now = s.now.unwrap_or_else(tehas_core::time::now);
     let facts_json = host::facts(home, s);
     // The driver's record goes with the run before the workspace is cleared of
     // what only its container wrote: the record is the only account of the
     // driver's own steps, and nothing else reads it later.
-    keep_lean_state(home, &workdir, issue, approved_lean(&facts_json));
-    clear_workspace(&workdir);
+    if s.runner.on_host() {
+        keep_lean_state(home, &workdir, issue, approved_lean(&facts_json));
+        clear_workspace(&workdir);
+    }
     let facts = match Facts::from_json(&facts_json) {
         Ok(f) => f,
         Err(e) => {

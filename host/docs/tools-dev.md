@@ -23,7 +23,7 @@ becomes git's name and email in every session of that clone; without one the
 bot's are used. What follows `--` is passed to `pi`.
 
 `--issue <number>` gives the session the images and text files that issue
-links, with `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, by the rules of
+links, with `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, by the rules of
 [tehas work](/tools-work#tehas-work) without an approval record. The person running the
 command approved nothing, so the images are taken when an allowed account
 applied the issue's last `tehas:ready`, or else when an owner, member or

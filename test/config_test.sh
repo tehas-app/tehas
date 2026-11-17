@@ -218,7 +218,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"
 
 t_case "comments are not read unless the instance says so, and only where it gives images or files"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
@@ -230,7 +230,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_COMMENTS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+t_contains "$t_out" "tehas: TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
 
 t_case "a cycle is given no text files unless the instance says so, and they need no images"
 t_instance "${T_MINIMAL[@]}"
@@ -257,7 +257,7 @@ t_eq "$t_out" "1"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_ZIPS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+t_contains "$t_out" "tehas: TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
@@ -388,11 +388,21 @@ t_run "$load && set -u && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
 t_eq "$t_out" "[0][]"
 t_run "$load && echo \"[\$TEHAS_OUTSOURCE_TIMEOUT][\$TEHAS_OUTSOURCE_GRACE][\$TEHAS_OUTSOURCE_RETRIES][\$TEHAS_OUTSOURCE_REST][\$TEHAS_OUTSOURCE_JOIN_TTL]\""
 t_eq "$t_out" "[600][120][2][1800][3600]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 "TEHAS_OUTSOURCE_REPOS='acme/widget other/widget'" >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on "TEHAS_OUTSOURCE_REPOS='acme/widget other/widget'" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_run "$load && echo \"[\$TEHAS_OUTSOURCE][\$TEHAS_OUTSOURCE_REPOS]\""
 t_eq "$t_out" "[1][acme/widget other/widget]"
+T_ENV=()
 
-for bad in "TEHAS_OUTSOURCE=yes" "TEHAS_OUTSOURCE=on" "TEHAS_OUTSOURCE=2" \
+t_case "outsource is still being built: its switch set on stops the load with 78"
+for value in on 1; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OUTSOURCE=$value" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_OUTSOURCE is on and outsource is still being built in this release"
+done
+
+for bad in "TEHAS_OUTSOURCE=yes" "TEHAS_OUTSOURCE=On" "TEHAS_OUTSOURCE=2" \
   "TEHAS_OUTSOURCE_TIMEOUT=soon" "TEHAS_OUTSOURCE_TIMEOUT=0" "TEHAS_OUTSOURCE_TIMEOUT=10m" \
   "TEHAS_OUTSOURCE_GRACE=-1" "TEHAS_OUTSOURCE_RETRIES=two" "TEHAS_OUTSOURCE_RETRIES=0" \
   "TEHAS_OUTSOURCE_REST=1h" "TEHAS_OUTSOURCE_JOIN_TTL=0" \
@@ -539,7 +549,7 @@ t_eq "$t_out" "[1]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_READ_ONLY=yes >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_READ_ONLY is not valid: expected 0 or 1"
+t_contains "$t_out" "tehas: TEHAS_READ_ONLY is not valid: expected on or off"
 
 t_case "the egress limit is off and its hosts empty unless the instance says otherwise"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -772,7 +782,19 @@ t_run "$load && echo \"[\$TEHAS_ANALYTICS]\""
 t_eq "$t_out" "[on]"
 T_ENV=()
 
-for bad in TEHAS_ANALYTICS=1 TEHAS_ANALYTICS=0 TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes "TEHAS_ANALYTICS=on off"; do
+t_case "TEHAS_ANALYTICS takes 1 and 0 as every switch does, and exports on and off"
+for pair in 1:on 0:off; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS=${pair%%:*}" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\$TEHAS_ANALYTICS]\""
+  t_eq "$t_out" "[${pair#*:}]"
+done
+
+t_case "every switch takes on and off, and exports the form its readers compare with"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_INDEXING=on TEHAS_READ_ONLY=off TEHAS_TOP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_TOP]\""
+t_eq "$t_out" "[1][0][1]"
+
+for bad in TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes TEHAS_ANALYTICS=2 "TEHAS_ANALYTICS=on off"; do
   t_case "loading rejects $bad, and says what it takes"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -784,9 +806,9 @@ t_case "the switch of the factory's analytics and the visitor analytics' cookie 
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off TEHAS_ANALYTICS_COOKIE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_ANALYTICS][\$TEHAS_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[off][1]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS_COOKIE=off >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS_COOKIE=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
-t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected 0 or 1"
+t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected on or off"
 
 t_case "a command fails closed on a bad TEHAS_ANALYTICS before it calls GitHub"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -916,7 +938,7 @@ t_case "previews without a domain are refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "tehas: TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+t_contains "$t_out" "tehas: TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set"
 
 t_case "previews with a domain load, with the defaults"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org
@@ -1026,7 +1048,7 @@ t_case "loading the outsource settings of an on instance writes nothing"
 mkdir -p "$T/outsource/cwd" "$T/outsource/tmp"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_REPOS=acme/widget >"$TEHAS_INSTANCE_DIR/instance.env"
 before=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
-T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} "TMPDIR=$T/outsource/tmp")
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_FEATURES=outsource "TMPDIR=$T/outsource/tmp")
 t_run "cd '$T/outsource/cwd' && $load"
 after=$(find "$T/home" "$TEHAS_INSTANCE_DIR" "$T/outsource" | sort)
 t_eq "$after" "$before"
@@ -1297,6 +1319,17 @@ t_run '. "$T_ROOT/host/env.sh"; echo "[${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}
 t_eq "$t_out" "[off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
 rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
 
+t_case "the energy switch takes the switch words, and a load refuses any other"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_ENERGY=0)
+t_run "$load && echo \"[\$TEHAS_ENERGY]\""
+t_eq "$t_out" "[off]"
+T_ENV=(TEHAS_ENERGY=viiwork)
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_ENERGY is not valid: expected on or off"
+T_ENV=()
+
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; \"$T_CONSOLE\" models used"
@@ -1448,6 +1481,7 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "[127.0.0.1:8090] [900]"
 
 t_case "the proxy's address and its idle bound can be set"
+T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091 \
   TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_PROXY_IDLE=7200
 t_run "$load && echo \"\$TEHAS_OUTSOURCE_PROXY_ADDR \$TEHAS_OUTSOURCE_PROXY_IDLE\""
@@ -1473,6 +1507,7 @@ done
 t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=1 TEHAS_OUTSOURCE_PROXY_IDLE=3600 TEHAS_OUTSOURCE_TIMEOUT=3599
 t_run "$load && echo ok"
 t_eq "$t_out" "ok"
+T_ENV=()
 
 t_case "with outsource off the idle bound is not checked"
 t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
@@ -1629,7 +1664,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "b3270ebdea29bd5a3f3df55c39fd230c72df972d86f5de7c056ca49b8c28ec53"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "a19d2b3dea236afba3c3b4ce8d3c8261a435c35bbea2eb83b087eb35331ba23e"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"
@@ -1727,7 +1762,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "505da924f48b45801779a5d0c9e4fc1f836d486328d36ef861c13557cfe1ec0a"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "759e57476c477bd411c37eae33098e2644f32acd9c352cb1709e4d7dcdfce9a0"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
