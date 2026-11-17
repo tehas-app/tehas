@@ -344,11 +344,13 @@ Epic #2362 builds these. In short:
 - **Memory.** A cycle's agents write vipune memories for later cycles. Today
   they are lost with the cycle, in-house too. With the feature on, vipune's
   memory lives only in the factory. A `vipune` stand-in in the image sends
-  each call to the factory, which runs the real vipune on a database of that
-  cycle's own, copied from the active pool, and returns its output unchanged.
-  pi-rukas calls `vipune` as before. A cycle's new memories turn active when
-  its pull request merges. A contractor holds no memory, only the cycle's
-  memory token, which dies with the job.
+  each call through the issue relay, as the container's `gh` does: the host
+  answers it in-house, and a contractor forwards it over the job channel.
+  The factory runs the real vipune on a database of that cycle's own, copied
+  from the active pool, and returns its output unchanged. pi-rukas calls
+  `vipune` as before. A cycle's new memories turn active when its pull
+  request merges. A contractor holds no memory, and the container gets no
+  new route or token for it.
 
 ### Disk encryption
 
