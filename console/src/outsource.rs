@@ -165,6 +165,11 @@ pub fn listed(said: &Value, now: i64, timeout: i64) -> Vec<Value> {
                 "lastSeenAt": r["last_seen_at"],
                 "jobsDone": r["jobs_done"],
                 "jobsLost": r["jobs_lost"],
+                "image": r["report"]["digest"],
+                "rukas": r["report"]["rukas"],
+                "memMb": r["report"]["mem_mb"],
+                "diskKb": r["report"]["disk_kb"],
+                "reportedAt": r["report"]["at"],
             })
         })
         .collect()
@@ -183,14 +188,20 @@ pub const COUNTED: [&str; 8] = [
     "outsourced",
 ];
 
-/// The fields of a contractor in live/contractors.json, in their order.
-pub const SHOWN: [&str; 6] = [
+/// The fields of a contractor in live/contractors.json, in their order. The
+/// last five are its last report, each left out when it did not say.
+pub const SHOWN: [&str; 11] = [
     "name",
     "status",
     "issue",
     "lastSeenAt",
     "jobsDone",
     "jobsLost",
+    "image",
+    "rukas",
+    "memMb",
+    "diskKb",
+    "reportedAt",
 ];
 
 /// The counts of `status --json`.
@@ -232,6 +243,19 @@ pub fn live_file(said: &Value, now: i64, timeout: i64) -> Value {
             }
             for k in ["jobsDone", "jobsLost"] {
                 o.insert(k.into(), json!(c[k].as_i64().unwrap_or_default()));
+            }
+            for k in ["image", "rukas"] {
+                if let Some(v) = c[k].as_str() {
+                    o.insert(k.into(), json!(v));
+                }
+            }
+            for k in ["memMb", "diskKb"] {
+                if let Some(n) = c[k].as_i64() {
+                    o.insert(k.into(), json!(n));
+                }
+            }
+            if let Some(t) = c["reportedAt"].as_i64() {
+                o.insert("reportedAt".into(), json!(time::iso(t)));
             }
             Value::Object(o)
         })
@@ -559,6 +583,36 @@ mod tests {
         assert!(!file.to_string().contains("SECRET"));
         assert_eq!(contractor_on(&file, 7), Some("a"));
         assert_eq!(contractor_on(&file, 8), None);
+    }
+
+    #[test]
+    fn the_live_file_shows_the_last_report_and_leaves_out_what_it_did_not_say() {
+        let image = format!("sha256:{}", "a".repeat(64));
+        let said = json!({ "rows": [
+            json!({ "name": "a", "revoked": false, "last_seen_at": 9_990,
+                    "report": { "digest": image, "rukas": "v0.14.50", "mem_mb": 32000,
+                                "disk_kb": 50_000_000, "at": 9_990 } }).to_string(),
+            json!({ "name": "b", "revoked": false, "last_seen_at": 9_990,
+                    "report": { "digest": null, "rukas": null, "mem_mb": 0,
+                                "disk_kb": null, "at": 9_980 } }).to_string(),
+            json!({ "name": "c", "revoked": false, "report": null }).to_string(),
+        ]});
+        let file = live_file(&said, 10_000, 600);
+        let a = &file["contractors"][0];
+        assert_eq!(a["image"], json!(image));
+        assert_eq!(a["rukas"], "v0.14.50");
+        assert_eq!(
+            (a["memMb"].as_i64(), a["diskKb"].as_i64()),
+            (Some(32000), Some(50_000_000))
+        );
+        assert_eq!(a["reportedAt"], "1970-01-01T02:46:30Z");
+        let b = file["contractors"][1].as_object().unwrap();
+        assert_eq!(b["memMb"], 0);
+        assert!(!b.contains_key("image") && !b.contains_key("diskKb"));
+        let c = file["contractors"][2].as_object().unwrap();
+        for k in &SHOWN[6..] {
+            assert!(!c.contains_key(*k), "{k}");
+        }
     }
 
     #[test]

@@ -154,7 +154,7 @@ before=$(whole)
 unpack "$T/bad.tar"
 t_eq "$t_rc" 1
 t_contains "$t_out" "schema 8"
-t_contains "$t_out" "schema 16"
+t_contains "$t_out" "schema 17"
 t_eq "$(whole)" "$before"
 
 t_case "unpack refuses a manifest that is missing, not first or of an unknown api"
@@ -523,7 +523,7 @@ reset
 rm -rf "$T/copies" && mkdir -p "$T/copies"
 t_run "cd '$T/copies' && $state copy --to new.db"
 t_eq "$t_rc" 0
-t_eq "$t_out" "copied the state store to $T/copies/new.db: schema 16, 0 rows, $(sed -n 's/.*, \([0-9]*\) ms$/\1/p' <<<"$t_out") ms"
+t_eq "$t_out" "copied the state store to $T/copies/new.db: schema 17, 0 rows, $(sed -n 's/.*, \([0-9]*\) ms$/\1/p' <<<"$t_out") ms"
 t_eq "$(ls "$T/copies")" "new.db"
 
 t_case "copy refuses a target that is there in one line, names it, and leaves it"

@@ -13,8 +13,9 @@
 //! The snapshot's `outsource` object, present only with the feature on:
 //!   digest       the sandbox image's id on this host, empty when unread
 //!   contractors  the rows of `store contractor-list`, or {"failed": true};
-//!                a row's `report` is {digest, mem_mb, disk_kb}, what the
-//!                contractor last said it has
+//!                a row's `report` is {digest, rukas, mem_mb, disk_kb, at},
+//!                what the contractor last said it has and the second the
+//!                factory took it; a report older than the timeout is no fit
 //!   busy         the contractors of the running cycles' open jobs, or
 //!                {"failed": true}
 //!   lost         by issue, the jobs it lost, from `store job-attempts`; an
@@ -65,6 +66,9 @@ pub struct Report {
     pub digest: String,
     pub mem_mb: u64,
     pub disk_kb: u64,
+    /// When the factory took it. A report that does not say is taken as of
+    /// the contractor's last call.
+    pub at: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,6 +94,7 @@ impl Contractor {
                 digest: r.get("digest")?.as_str()?.to_string(),
                 mem_mb: r.get("mem_mb")?.as_u64()?,
                 disk_kb: r.get("disk_kb")?.as_u64()?,
+                at: r.get("at").and_then(Value::as_u64),
             })
         });
         Some(Contractor {
@@ -194,7 +199,10 @@ pub fn place(rules: &Rules, o: &Outsourcing, need: &Need, taken: &[String]) -> P
         let free = !c.revoked && !c.draining && !c.resting;
         let idle = !busy.contains(&c.name) && !taken.contains(&c.name);
         let room = c.report.as_ref().is_some_and(|r| {
-            !o.digest.is_empty()
+            let current =
+                r.at.is_none_or(|at| at <= need.now && need.now - at <= rules.timeout);
+            current
+                && !o.digest.is_empty()
                 && r.digest == o.digest
                 && r.mem_mb >= need.mem_mb
                 && r.disk_kb >= need.disk_kb
@@ -364,11 +372,40 @@ mod tests {
                 digest: DIGEST.into(),
                 mem_mb: 4096,
                 disk_kb: 10_485_760,
+                at: Some(NOW),
             }),
         });
         assert_eq!(place(&rules(), &o, &need(), &[]), out("fit"));
         let as_text = world(vec![json!(row("box-1", 8192).to_string())]);
         assert_eq!(place(&rules(), &as_text, &need(), &[]), out("box-1"));
+    }
+
+    /// A row as `store contractor-list` writes it: a string of JSON whose
+    /// report the store took from the contractor's hello.
+    fn stored(name: &str, report: Value) -> Value {
+        json!(json!({"name": name, "job_issue": null, "job_state": null,
+            "revoked": false, "draining": false, "resting": false,
+            "resting_until": null, "last_seen_at": NOW - 10,
+            "jobs_done": 0, "jobs_lost": 0, "report": report})
+        .to_string())
+    }
+
+    #[test]
+    fn a_contractor_whose_stored_report_has_the_room_fits() {
+        let report = json!({"digest": DIGEST, "rukas": "v0.14.50", "mem_mb": 8192,
+            "disk_kb": 50_000_000, "at": NOW - 10});
+        let o = world(vec![stored("box-1", report.clone())]);
+        assert_eq!(place(&rules(), &o, &need(), &[]), out("box-1"));
+        // A report of no image, no report at all, or one older than the
+        // timeout, fits nothing.
+        let mut no_image = report.clone();
+        no_image["digest"] = Value::Null;
+        let mut old = report.clone();
+        old["at"] = json!(NOW - 601);
+        for r in [no_image, Value::Null, old] {
+            let o = world(vec![stored("box-1", r.clone())]);
+            assert_eq!(inhouse(&o, &need()), "no contractor fits", "{r}");
+        }
     }
 
     #[test]
