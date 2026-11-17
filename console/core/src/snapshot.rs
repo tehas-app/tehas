@@ -219,6 +219,39 @@ pub fn log_files(
     ended: Option<i64>,
     now: i64,
 ) -> Vec<(String, String, u64)> {
+    files_between(
+        logs,
+        names,
+        kind,
+        issue,
+        started - STAMP_BEFORE,
+        ended.unwrap_or(now),
+    )
+}
+
+/// The log files of a running cycle, as `log_files` finds a run's. `started`
+/// is the store's start of the cycle, and the log's stamp is taken after it,
+/// so no stamp before it is the cycle's: until the cycle writes its own log,
+/// the logs of a run that ended just before are not taken for its.
+pub fn running_log_files(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    started: i64,
+    now: i64,
+) -> Vec<(String, String, u64)> {
+    files_between(logs, names, kind, issue, started, now)
+}
+
+fn files_between(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    from: i64,
+    upto: i64,
+) -> Vec<(String, String, u64)> {
     let (own, tails): (&str, &[(&str, &str)]) = match kind {
         "work" => (
             "work",
@@ -234,11 +267,10 @@ pub fn log_files(
         _ => return Vec::new(),
     };
     let prefix = format!("{own}-{issue}-");
-    let upto = ended.unwrap_or(now);
     let mut stamps: Vec<&str> = names
         .iter()
         .filter_map(|n| n.strip_prefix(&prefix)?.get(..13))
-        .filter(|s| stamp_secs(s).is_some_and(|t| t >= started - STAMP_BEFORE && t <= upto))
+        .filter(|s| stamp_secs(s).is_some_and(|t| t >= from && t <= upto))
         .collect();
     stamps.sort_unstable();
     stamps.dedup();
@@ -289,5 +321,24 @@ mod tests {
         }
         // Only a full session answers it, so no summary or attempt list may name it.
         assert_eq!(RUN_FIELDS[RUN_FIELDS.len() - 1].0, "concurrent");
+    }
+
+    #[test]
+    fn a_running_cycle_takes_no_stamp_before_its_start() {
+        let dir = crate::testdir::TestDir::new("running-logs");
+        let logs = dir.path();
+        let t = 1_794_000_000;
+        let before = crate::time::stamp(t - 30);
+        std::fs::write(logs.join(format!("work-9-{before}.jsonl")), "x").unwrap();
+        let names = log_names(logs);
+        // An ended run that started at t would take it; the running cycle not.
+        assert_eq!(log_files(logs, &names, "work", 9, t, None, t + 60).len(), 1);
+        assert!(running_log_files(logs, &names, "work", 9, t, t + 60).is_empty());
+        let own = crate::time::stamp(t);
+        std::fs::write(logs.join(format!("work-9-{own}.jsonl")), "y").unwrap();
+        let names = log_names(logs);
+        let found = running_log_files(logs, &names, "work", 9, t, t + 60);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, format!("work-9-{own}.jsonl"));
     }
 }
