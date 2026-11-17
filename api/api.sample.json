@@ -2,7 +2,7 @@
   "api": 1,
   "tehas": "v0.8.0",
   "commit": "cb6912a",
-  "repo": "tehas-app/tehas",
+  "repo": "acme/widget",
   "features": [
     "status",
     "millwright-grant",
@@ -45,21 +45,21 @@
       "at": 1761400000,
       "wallMs": 24000,
       "cpuMs": 3100,
-      "gh": 12,
-      "writes": 2,
+      "gh": 3,
+      "writes": 1,
       "starts": 1,
       "kinds": {
         "label": 1,
-        "comment": 1,
+        "comment": 0,
         "edit": 0,
         "other": 0
       },
-      "ageMin": 4
+      "ageMin": 0
     },
     "hour": {
-      "polls": 14,
-      "cpuMs": 41000,
-      "writes": 2
+      "polls": 2,
+      "cpuMs": 6200,
+      "writes": 1
     }
   }
 }
