@@ -407,9 +407,19 @@ it, or `null` with `cleared: false` when none waited.
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
 | `issue` | The issue |
-| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and `bodySha256` and `titleSha256`, the SHA-256 sums of the text and the title. `null` from a `--clear` that found none |
+| `approval` | What was recorded or taken back. `null` from a `--clear` that found none |
+| `approval.at` | When it was recorded |
+| `approval.by` | `host` |
+| `approval.how` | `host` |
+| `approval.bodySha256` | The SHA-256 sum of the issue's text the approval covers |
+| `approval.titleSha256` | The SHA-256 sum of its title |
 | `cleared` | `true` when `--clear` took an approval back |
+
+`api/start.schema.json` in the source says what the object holds, and
+`api/start.sample.json`, `api/start.cleared.json` and `api/start.none.json`
+are samples of it.
 
 The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 "host"`) and `tehas status` say the cycle was started from the host. The
@@ -668,6 +678,17 @@ with a higher number. The rest of the object is the one
 [`tehas history --json`](#tehas-history) prints for what was copied, and `to`,
 the directory.
 
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `version` | The layout of the export directory, 1 |
+| `runs` | The lines copied, each as [`tehas history --json`](#tehas-history) prints it |
+| `next` | The cursor to keep: the last line's `cursor`, or the one given to `--after` when nothing was copied |
+| `to` | The directory written, an absolute name |
+
+`api/export.schema.json` in the source says what the object holds, and
+`api/export.sample.json` and `api/export.empty.json` are samples of it.
+
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
 `logs/`, its agents' `transcripts/`, its Protolab page under `protolab/`, and
@@ -807,9 +828,15 @@ store's own answer to `store check`, whole and in its order:
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
+| `verb` | `check`, the store's verb that answered |
+| `ok` | `true`. A store that fails its check prints no object |
 | `schema` | The schema version of the store |
 | `integrity` | `ok`: SQLite's integrity check passed. Any other answer is no object: see the exit statuses |
 | `rows` | Each table of the store and its number of rows. A later schema may add tables |
+
+`api/state-check.schema.json` in the source says what the object holds, and
+`api/state-check.sample.json`, a new store's, is a sample of it.
 
 Without `--json` it prints the same as `schema`, `integrity` and one `rows`
 line per table, for a person. It reads only and refuses nothing, so it can be
@@ -930,13 +957,16 @@ SSH, `incus exec` or `kubectl exec`, as it runs any other.
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
 | `schema` | The copy's schema version, `PRAGMA user_version`. A program that knows another version does not read it |
 | `from` | The oldest start of a run in the copy, Unix seconds; left out when it has no run |
 | `to` | The newest end of a run in the copy (its start for a run that has no end), Unix seconds; left out when it has no run |
 | `runs` | How many runs the copy holds |
 
-The fields are read from the copy, not from the factory's database, so they
-describe the file the program fetches. The command takes no lock a cycle holds
+`api/analytics-copy.schema.json` in the source says what the object holds, and
+`api/analytics-copy.sample.json` and `api/analytics-copy.empty.json`, a copy
+with no run, are samples of it. The fields are read from the copy, not from the
+factory's database, so they describe the file the program fetches. The command takes no lock a cycle holds
 and makes no network call. It never replaces a file: name a new one each time.
 A copy fetched again holds the same rows, and more: rows are keyed so that
 storing them twice is harmless (see [Analytics](/analytics#fetching-it)).

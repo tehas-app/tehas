@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/refresh.schema.json",
+  "title": "tehas refresh --pr N --json",
+  "description": "What tehas refresh --pr N --json prints, version 1, on exit 0, 3 and 1: whether the refresh of one pull request was asked for, and why not. host/docs/tools-github.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/refresh_test.sh checks that the command prints the samples beside this file, and test/json_contract_test.sh checks them against it.",
+  "type": "object",
+  "required": ["api", "asked", "pr", "issue", "headSha", "why"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "asked": {"type": "boolean"},
+    "pr": {"type": "integer", "minimum": 1},
+    "issue": {"type": ["integer", "null"], "minimum": 1},
+    "headSha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "why": {"type": ["string", "null"], "minLength": 1}
+  }
+}

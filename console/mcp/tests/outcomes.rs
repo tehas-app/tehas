@@ -2,6 +2,8 @@
 // counts file the host writes for it. The file is written here as the analytics
 // program writes it: a header, then one entry per line, counts only.
 
+use crate::common;
+
 use mcp::outcomes_schema;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
@@ -46,7 +48,7 @@ fn dirs(name: &str) -> (TestDir, Dirs) {
 
 fn call(dir: &Dirs, args: Value) -> Result<Value, ToolError> {
     match mcp::tools::call(dir, "factory_outcomes", &args)? {
-        Output::Json(v) => Ok(v),
+        Output::Json(v) => Ok(common::conforms("factory_outcomes", v)),
         other => panic!("not JSON: {other:?}"),
     }
 }
