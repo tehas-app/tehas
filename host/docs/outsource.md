@@ -241,10 +241,11 @@ itself to the cycle. Otherwise a cycle is as it was.
 With outsource on, the factory says who built each cycle. It writes the
 stamp itself; a contractor never does.
 
-- **The start comment** on the issue ends with a line: `Built by contractor:
-  <name> (job <id>)` for a cycle placed on a contractor, `Built by: in-house`
-  for one run on this host. The contractor is the one holding the issue's job
-  given out since the cycle's approval.
+- **The start comment** on the issue, of a cycle or of a refresh, ends with
+  a line: `Built by contractor: <name> (job <id>)` for a cycle placed on a
+  contractor, `Built by: in-house` for one run on this host. The contractor
+  is the one holding the issue's job, offered or running, given out since the
+  cycle's approval. A retry after a lost job is not that job's.
 - **The report's comments** at the end of the cycle end with the same line.
 - **The pull request's body** gets the line as its last line when the cycle
   ends. An older stamp line in the body is replaced, so the line is there once.
@@ -258,7 +259,8 @@ stamp itself; a contractor never does.
   from a fork, and the end of a cycle after a stop are not rewritten.
 - **The store** keeps who built it in the job's row: `store job-stamp --issue
   <n> --since <approval>` answers the job, its contractor, attempt and state,
-  or null for a cycle run in-house.
+  or null for a cycle run in-house. With `--open` it answers only a job
+  offered or running, which is what a start asks.
 - **The analytics** keep the contractor's name in `runs.contractor_id`
   ([the analytics](/analytics)). An in-house run leaves it empty.
 
