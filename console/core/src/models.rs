@@ -24,7 +24,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// `console models used`: (provider, model), the subagent's first, each pair once.
+/// The models the agents use: (provider, model), the subagent's first, each pair once.
 pub fn used() -> Vec<(String, String)> {
     used_from(|k| std::env::var(k).unwrap_or_default())
 }

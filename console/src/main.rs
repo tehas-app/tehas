@@ -139,11 +139,6 @@
 //!
 //! Who applied a label, read from the label events, see src/label.rs.
 //!
-//!   console models keys-ok | pick <provider> | resolve <out>
-//!
-//! The host's models.json: its keys, the endpoint of a provider, and the file
-//! a container is given, see src/models.rs.
-//!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
 //! tehas.slice as the shell reads it, see ops/src/slice.rs.
@@ -201,7 +196,6 @@ mod gh_writes;
 mod history;
 mod label;
 mod labels;
-mod models;
 mod notice;
 mod now;
 mod order;
@@ -463,7 +457,6 @@ fn main() -> ExitCode {
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
-            Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
