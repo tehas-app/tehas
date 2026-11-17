@@ -106,7 +106,8 @@
 //!                state/cycles/<issue>.lean-refused says so), the image gave
 //!                no capabilities answer or the workspaces' directory was not
 //!                made by tehas (these three say why in
-//!                state/cycles/<issue>.refused), or the product names no gate
+//!                state/cycles/<issue>.refused), the product's install failed
+//!                (said there too), or the product names no gate
 //!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
