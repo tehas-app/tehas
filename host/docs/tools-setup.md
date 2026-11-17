@@ -17,7 +17,9 @@ The first setup of an instance, as the tehas user, after
 yet: run it from the tree it came in, `~/tehas/current/bin/tehas setup` for a
 release or `~/tehas/platform/bin/tehas setup` for a checkout. What it is not
 given it asks for when there is a terminal; without one, a missing setting is
-exit 78.
+exit 78. A setting it takes from an `instance.env` that is already there is
+read, not run: one that holds a `$` or a backtick outside single quotes is
+exit 78, since the shell that sources the file would read it otherwise.
 
 | Option | What it is |
 | --- | --- |
@@ -29,7 +31,7 @@ exit 78.
 | `--app-id <id>`, `--app-key-file <file>` | A GitHub App you have, in place of `--new-app`: its ID and its private key. Both or neither, and not with `--new-app`, else exit 64 |
 | `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
 | `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
-| `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
+| `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input. Without the option, setup reads the key already in that file; a key there that holds a `$` or a backtick outside single quotes is refused with a line that names the key and not its value, since setup reads the file and does not run it |
 | `--provider <name>` | The provider's name in `models.json`. Without it, `main` |
 | `--control-issue <n>` | The control issue. Without it one is made, titled "tehas control" |
 | `--no-build` | Leave out the sandbox image and the product's gates |

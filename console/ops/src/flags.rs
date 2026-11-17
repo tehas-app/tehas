@@ -1386,31 +1386,22 @@ mod tests {
     }
 
     #[test]
-    fn a_number_of_the_file_is_printed_as_jq_prints_it() {
-        // The reading echoes the number back, and jq prints a whole number of
-        // digits byte for byte and everything else as the double it became.
-        for (doc, cycles) in [
-            ("1", "1"),
-            ("0", "0"),
-            ("1e0", "1.0"),
-            ("0.0", "0.0"),
-            ("2.0", "2.0"),
-            ("100000000000000000000.0", "100000000000000000000.0"),
-            // The text of the file is the text jq prints, point and all.
-            ("-0", "-0"),
-            ("-0.0", "-0.0"),
-            ("1.0", "1.0"),
-            ("100.0", "100.0"),
-            ("1e2", "1E+2"),
-            ("1E+2", "1E+2"),
-            ("9999", "9999"),
-        ] {
-            let text = of(&format!(r#"{{"v":1,"cycles":{doc},"plan":true}}"#));
+    fn a_number_of_the_file_is_plain_digits_or_the_limit_is_unreadable() {
+        // The dispatcher reads cycles as an integer, so only plain digits are
+        // a limit; the reading echoes them back byte for byte.
+        for cycles in ["1", "0", "9999", "100000"] {
+            let text = of(&format!(r#"{{"v":1,"cycles":{cycles},"plan":true}}"#));
             assert_eq!(
                 text,
                 format!(r#"{{"state":"ok","cycles":{cycles},"plan":true}}"#),
-                "{doc}"
+                "{cycles}"
             );
+        }
+        for doc in [
+            "1e0", "0.0", "2.0", "-0", "-0.0", "1.0", "1e2", "1E+2", "01",
+        ] {
+            let text = of(&format!(r#"{{"v":1,"cycles":{doc},"plan":true}}"#));
+            assert_eq!(text, r#"{"state":"unreadable"}"#, "{doc}");
         }
     }
 

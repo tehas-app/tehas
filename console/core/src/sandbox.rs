@@ -770,17 +770,43 @@ pub fn seed(state: &str, index: &str) -> bool {
     copied
 }
 
-/// The --add-host options: the names the sandbox cannot resolve by itself, from
-/// PI_ENSEMBLE_HOST_ALIASES as lib/config.sh checked it.
-pub fn hosts(aliases: &str) -> Vec<String> {
-    aliases
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split(',')
-        .filter(|p| !p.is_empty())
-        .map(|p| format!("--add-host={p}"))
-        .collect()
+/// Why a value is no PI_ENSEMBLE_HOST_ALIASES: the settings load says it too.
+pub const ALIASES_WHY: &str =
+    "expected name:address pairs separated by commas, such as models.example:192.0.2.10";
+
+/// One pair: a host name, `:` or `=`, then an IPv4 or IPv6 address, the
+/// IPv6 one bare or in brackets, or Docker's `host-gateway`. These are the
+/// forms `docker run --add-host` takes; nothing else may reach its line.
+fn alias(pair: &str) -> bool {
+    let Some((name, address)) = pair.split_once([':', '=']) else {
+        return false;
+    };
+    let v6 = |a: &str| a.parse::<std::net::Ipv6Addr>().is_ok();
+    let bracketed = address
+        .strip_prefix('[')
+        .and_then(|a| a.strip_suffix(']'))
+        .is_some_and(v6);
+    let name_ok = !name.is_empty()
+        && !name.starts_with(['-', '.'])
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'));
+    name_ok
+        && (address == "host-gateway"
+            || address.parse::<std::net::Ipv4Addr>().is_ok()
+            || v6(address)
+            || bracketed)
+}
+
+/// The --add-host options: the names the sandbox cannot resolve by itself,
+/// from PI_ENSEMBLE_HOST_ALIASES. The settings load checks the value with this
+/// too, and a value it refuses starts no container.
+pub fn hosts(aliases: &str) -> Result<Vec<String>, String> {
+    let pairs: Vec<&str> = aliases.split(',').filter(|p| !p.is_empty()).collect();
+    if !pairs.iter().all(|p| alias(p)) {
+        return Err(ALIASES_WHY.to_string());
+    }
+    Ok(pairs.iter().map(|p| format!("--add-host={p}")).collect())
 }
 
 /// The network options of an agent's container: the --add-host options, and
@@ -788,7 +814,8 @@ pub fn hosts(aliases: &str) -> Vec<String> {
 /// which is started here if it is not up. Err is the line that says why the
 /// proxy is not up: the container is not started on an open network instead.
 pub fn network(aliases: &str) -> Result<Vec<String>, String> {
-    let mut w = hosts(aliases);
+    let mut w =
+        hosts(aliases).map_err(|why| format!("PI_ENSEMBLE_HOST_ALIASES is not valid: {why}"))?;
     if crate::egress::on() {
         crate::egress::ensure(aliases)?;
         w.extend(crate::egress::options());
@@ -1393,10 +1420,48 @@ mod tests {
     #[test]
     fn host_aliases_are_one_option_each() {
         assert_eq!(
-            hosts("models:192.0.2.9,,b:192.0.2.10"),
-            ["--add-host=models:192.0.2.9", "--add-host=b:192.0.2.10"]
+            hosts("models:192.0.2.9,,b:192.0.2.10,v6:2001:db8::1,gw:host-gateway").unwrap(),
+            [
+                "--add-host=models:192.0.2.9",
+                "--add-host=b:192.0.2.10",
+                "--add-host=v6:2001:db8::1",
+                "--add-host=gw:host-gateway"
+            ]
         );
-        assert!(hosts("").is_empty());
+        // The two other forms Docker takes: `name=address`, and an IPv6
+        // address in brackets.
+        assert_eq!(
+            hosts("a=192.0.2.9,b:[2001:db8::1],c=[2001:db8::2]").unwrap(),
+            [
+                "--add-host=a=192.0.2.9",
+                "--add-host=b:[2001:db8::1]",
+                "--add-host=c=[2001:db8::2]"
+            ]
+        );
+        assert!(hosts("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_host_alias_that_is_no_name_and_address_is_refused() {
+        for bad in [
+            "models:192.0.2.8 extra",
+            "models:192.0.2.8 --cap-add=SYS_ADMIN",
+            "models",
+            ":192.0.2.8",
+            "models:",
+            "models:999.0.2.8",
+            "-models:192.0.2.8",
+            "mod els:192.0.2.8",
+            "models:192.0.2.8\nb:192.0.2.9",
+            "models:example.org",
+            "models:[192.0.2.8]",
+            "models:[2001:db8::1",
+            "models=",
+            "=192.0.2.8",
+        ] {
+            assert_eq!(hosts(bad), Err(ALIASES_WHY.to_string()), "{bad}");
+            assert!(network(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
