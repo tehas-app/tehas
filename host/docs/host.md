@@ -1953,6 +1953,20 @@ to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
 
+### The live console on the site
+
+The live console of a running cycle shows what its agents did, the commands
+they ran and the start of each result. It is masked, but it is still the
+factory's logs, and the docs server has no sign-in. So by default the server
+does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
+answer 404, and the console panel of the dashboard says the console is
+unavailable. Everything else under `/live/` is served as before.
+`TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
+reach the site, for an instance whose site is also its demo. A full key of
+[the MCP server](/mcp-server) reads the console either way, with
+`factory_console`; a dashboard key does not. The same `docker compose ... up -d`
+applies after a change.
+
 ### Designs
 
 The site has two designs, and the instance picks one for all of it with

@@ -1389,6 +1389,12 @@ mod tests {
             "TEHAS_ANALYTICS=0",
         ]);
         assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "1");
+        // The docs server serves the consoles only for a 1.
+        assert_eq!(loads(&[]).text("TEHAS_SITE_CONSOLE"), "0");
+        assert_eq!(
+            loads(&["TEHAS_SITE_CONSOLE=on"]).text("TEHAS_SITE_CONSOLE"),
+            "1"
+        );
         assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
         assert_eq!(vars.text("TEHAS_TOP"), "1");
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");

@@ -1268,7 +1268,10 @@ list does not hold, so a file a new writer puts under `live/` is not served
 until both the table and the Caddyfile name it. Every file here is plain and
 written through a side name and a rename, so a reader sees a whole file or the
 last one. The console files mask tokens, keys and passwords as they are
-written, and still: treat all of it as public.
+written, and still: treat all of it as public. The two console names are
+served only where the instance sets `TEHAS_SITE_CONSOLE=on`; without it they
+answer 404 like a name the list does not hold ([The live console on
+the site](/host#the-live-console-on-the-site)).
 
 | Name | Written by | Read by |
 | --- | --- | --- |
