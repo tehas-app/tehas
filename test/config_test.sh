@@ -1671,7 +1671,7 @@ for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
 done >"$T/pairs"
 TEHAS_HOME=/h/tehas TEHAS_INSTANCE_DIR=/i/ TEHAS_WORK_REPO=/w "$T_CONSOLE" settings valid <"$T/pairs" >"$T/verb"
-t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "bc2efb33b8bc3e72c9ab5755b204ca1a73c4f35cac2bffb528113e15f529576c"
+t_eq "$(sha256sum <"$T/verb" | cut -d' ' -f1)" "8e9019c34a1f312778f2c358aa5acafcd2be6e894c75893c2ab564f3e3319d23"
 
 t_stub nproc 'echo 8'
 t_case "each kind of instance leaves the environment and the words bash left"

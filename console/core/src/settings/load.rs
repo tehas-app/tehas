@@ -606,11 +606,22 @@ fn valid(vars: &Vars, name: &str, file: &str) -> Result<(), String> {
         .map_err(|why| format!("{name} is not valid: {why} (see {file})"))
 }
 
-fn check_values(vars: &Vars, file: &str) -> Result<(), String> {
+/// The settings of `when` given that hold a value before the load's
+/// defaults: what the instance gave, not what the load worked out, such as a
+/// TEHAS_WORK_REPO made from a home that is itself refused later.
+fn given(vars: &Vars) -> BTreeSet<&'static str> {
+    TABLE
+        .iter()
+        .filter(|s| s.when == When::Given && has(vars, s.name))
+        .map(|s| s.name)
+        .collect()
+}
+
+fn check_values(vars: &Vars, given: &BTreeSet<&str>, file: &str) -> Result<(), String> {
     for setting in TABLE {
         let asked = match setting.when {
             When::Always => true,
-            When::Given => has(vars, setting.name),
+            When::Given => given.contains(setting.name),
             When::Named => vars.is_set(setting.name),
             When::Required => false,
         };
@@ -840,8 +851,9 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     retired_names(vars, &file)?;
     renamed(vars, host, &file)?;
     app_login(vars, host);
+    let gave = given(vars);
     defaults(vars, host, uid);
-    check_values(vars, &file)?;
+    check_values(vars, &gave, &file)?;
     switches(vars);
     energy(vars)?;
     features::refuse_building(&|name| vars.text(name))
@@ -1066,6 +1078,18 @@ mod tests {
         let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
+    }
+
+    #[test]
+    fn the_checkout_is_checked_as_the_instance_gave_it_and_not_as_derived() {
+        assert_eq!(
+            refused(&["TEHAS_WORK_REPO=repos/app"]),
+            "TEHAS_WORK_REPO is not valid: expected an absolute path (see /i/instance.env)"
+        );
+        // A relative home is install.sh's to refuse, in its own words.
+        let mut vars = start(&[("TEHAS_HOME", "tehas-home")]);
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
+        assert!(vars.text("TEHAS_WORK_REPO").starts_with("tehas-home/"));
     }
 
     #[test]
