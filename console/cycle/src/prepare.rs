@@ -395,9 +395,25 @@ pub fn check(c: &Check) -> i32 {
     {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
-    let lacking = (caps_rc == 0)
+    let mut lacking = (caps_rc == 0)
         .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))
         .flatten();
+    // An input the runner does not list passes when a polyfill the image
+    // carries declares it. The labels are asked only then.
+    if lacking.as_deref().is_some_and(|l| l.contains("the input ")) {
+        let declared = caps::polyfill_inputs(&answer, &crate::gives::image_labels(&image));
+        let kept: Vec<&str> = names
+            .split(' ')
+            .filter(|n| match declared.iter().find(|(i, _)| i == n) {
+                Some((i, p)) => {
+                    eprintln!("tehas work: the input {i} is read by the polyfill {p} of {image}");
+                    false
+                }
+                None => true,
+            })
+            .collect();
+        lacking = caps::unsupported(&answer, verb, &flags.join(" "), &kept.join(" "), &features);
+    }
     let Some(lacking) = lacking else {
         eprintln!(
             "tehas work: {image} gave no --capabilities answer (exit {caps_rc}), not starting a cycle"
