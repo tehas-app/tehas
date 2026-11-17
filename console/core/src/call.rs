@@ -657,11 +657,10 @@ mod tests {
         // the grandchild instead of its bound. So the child leads a group and
         // the whole group is signalled.
         let d = crate::testdir::TestDir::new("bound-group");
-        use std::os::unix::fs::PermissionsExt;
         // The script of the call, written whole by the test rather than by a
         // shell, so no quoting of a heredoc is involved.
         let script = d.join("holds-stdout-of-bound-group.sh");
-        std::fs::write(
+        crate::testing::write_exe(
             &script,
             "#!/bin/bash\n\
              sleep 60 &\n\
@@ -669,7 +668,6 @@ mod tests {
              wait\n",
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let began = Instant::now();
         let r = run_full(
