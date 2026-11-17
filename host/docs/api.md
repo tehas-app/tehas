@@ -258,6 +258,7 @@ tehas status --json
 | `prototypes` | The issues with a [Protolab](/tools-protolab#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab |
 | `prototypes.issue` | The issue number |
 | `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
+| `contractors` | The contractors of [outsource](/outsource), from `live/contractors.json` as `tehasbot status` last wrote it: `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, how many contractors have each status, `outsourced`, how many cycles are on a contractor now, and `list`, each contractor with `name`, `status`, `issue` (the issue of the job in its hand, left out when it holds none), `lastSeenAt` (when it last called, left out when it never has), `jobsDone` and `jobsLost`. Present only while outsource is on: with it off the file is not there and the object has no `contractors`. Outsource is still being built in this release, so no factory has it yet |
 
 Everything in the object is as the health file wrote it at `time`, and is
 `age` seconds old. The dispatcher writes it at each poll, every two minutes,
@@ -270,12 +271,18 @@ issue reads `age` first.
 checks, at a start, that the text is unchanged since the label, that no open
 pull request closes the issue, and the millwright's grant.
 
-The source holds a JSON Schema of this object, `api/status.schema.json`, and
-three samples made by the code that prints it, `api/status.busy.json`,
-`api/status.quiet.json` and `api/status.readonly.json`. Its tests keep them in
-step, and a program can copy the samples into its own tests.
+A cycle outsourced to a contractor is in `running` and takes a place in
+`room` as a cycle on this host does: this host's supervisor holds its lock
+while the contractor runs it.
 
-It reads `~/tehas/live/health.json` and nothing else: no network, no instance
+The source holds a JSON Schema of this object, `api/status.schema.json`, and
+four samples made by the code that prints it, `api/status.busy.json`,
+`api/status.quiet.json`, `api/status.readonly.json` and
+`api/status.outsourced.json`, the one sample with `contractors`. Its tests keep
+them in step, and a program can copy the samples into its own tests.
+
+It reads `~/tehas/live/health.json`, and `protolab.json` and `contractors.json`
+beside it when they are there, and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
 standard output and exits 3. Exit 0 on `pass` and `warn`; 3 on `fail`, a stale
 file or no file; 64 on an argument other than `--json`.

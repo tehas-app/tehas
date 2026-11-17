@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tehas_core::{features, outln, time};
 
 pub const USAGE: &str = include_str!("usage/outsource.txt");
@@ -170,18 +170,116 @@ pub fn listed(said: &Value, now: i64, timeout: i64) -> Vec<Value> {
         .collect()
 }
 
+/// The keys of the counts, in the order an object shows them: one per status,
+/// and how many cycles are outsourced.
+pub const COUNTED: [&str; 8] = [
+    "idle",
+    "working",
+    "stopping",
+    "silent",
+    "resting",
+    "draining",
+    "revoked",
+    "outsourced",
+];
+
+/// The fields of a contractor in live/contractors.json, in their order.
+pub const SHOWN: [&str; 6] = [
+    "name",
+    "status",
+    "issue",
+    "lastSeenAt",
+    "jobsDone",
+    "jobsLost",
+];
+
 /// The counts of `status --json`.
 pub fn counted(list: &[Value]) -> Value {
     let mut out = serde_json::Map::new();
-    for word in [
-        "idle", "working", "stopping", "silent", "resting", "draining", "revoked",
-    ] {
-        let n = list.iter().filter(|c| c["status"] == word).count();
+    for word in &COUNTED[..COUNTED.len() - 1] {
+        let n = list.iter().filter(|c| c["status"] == *word).count();
         out.insert(word.to_string(), json!(n));
     }
     let outsourced = list.iter().filter(|c| !c["issue"].is_null()).count();
     out.insert("outsourced".to_string(), json!(outsourced));
     Value::Object(out)
+}
+
+/// The seconds after which a contractor not heard of is `silent`.
+fn timeout() -> i64 {
+    setting("TEHAS_OUTSOURCE_TIMEOUT").parse().unwrap_or(600)
+}
+
+/// The name of the file under live/ beside health.json.
+pub const LIVE_FILE: &str = "contractors.json";
+
+/// live/contractors.json: the contractors as the dashboard, `tehas status`
+/// and the MCP server show them. Only these fields are copied, so no key and
+/// no address reaches the file. A field with no value is left out.
+pub fn live_file(said: &Value, now: i64, timeout: i64) -> Value {
+    let list = listed(said, now, timeout);
+    let shown: Vec<Value> = list
+        .iter()
+        .map(|c| {
+            let mut o = serde_json::Map::new();
+            o.insert("name".into(), c["name"].clone());
+            o.insert("status".into(), c["status"].clone());
+            if let Some(n) = c["issue"].as_i64() {
+                o.insert("issue".into(), json!(n));
+            }
+            if let Some(t) = c["lastSeenAt"].as_i64() {
+                o.insert("lastSeenAt".into(), json!(time::iso(t)));
+            }
+            for k in ["jobsDone", "jobsLost"] {
+                o.insert(k.into(), json!(c[k].as_i64().unwrap_or_default()));
+            }
+            Value::Object(o)
+        })
+        .collect();
+    json!({
+        "api": 1,
+        "time": time::iso(now),
+        "counts": counted(&list),
+        "contractors": shown,
+    })
+}
+
+/// Writes live/contractors.json with outsource on, and takes it away with
+/// it off, so a factory with the feature off has no such file. Err is why
+/// the file could not be written; the one before is left as it was.
+pub fn publish(home: &Path, live: &Path) -> Result<(), String> {
+    let file = live.join(LIVE_FILE);
+    if !features::on("outsource") {
+        return match std::fs::remove_file(&file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        };
+    }
+    let said = ::store::call(home, &["contractor-list"], &mut std::io::empty())
+        .map_err(|(_, line)| line.trim_end().to_string())?;
+    let said: Value = serde_json::from_str(&said).map_err(|_| "the store gave no answer")?;
+    if said["verb"] == "refused" {
+        return Err(format!(
+            "the store refused: {}",
+            said["said"].as_str().unwrap_or("refused")
+        ));
+    }
+    let body = format!("{}\n", live_file(&said, time::now(), timeout()));
+    let new = live.join(format!("{LIVE_FILE}.{}.new", std::process::id()));
+    let written = std::fs::write(&new, body).and_then(|()| std::fs::rename(&new, &file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+    written.map_err(|e| e.to_string())
+}
+
+/// The contractor the file names on the issue's job, for the cycle's line.
+pub fn contractor_on(file: &Value, issue: i64) -> Option<&str> {
+    file["contractors"]
+        .as_array()?
+        .iter()
+        .find(|c| c["issue"].as_i64() == Some(issue))
+        .and_then(|c| c["name"].as_str())
 }
 
 pub fn main(given: &[String]) -> u8 {
@@ -201,7 +299,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let home = PathBuf::from(setting("TEHAS_HOME"));
     let (asked, json) = asked;
-    let timeout: i64 = setting("TEHAS_OUTSOURCE_TIMEOUT").parse().unwrap_or(600);
+    let timeout = timeout();
     // The outsource verbs answer with the word of what happened, which the
     // store crate's own call gives as it is.
     let call = |args: &[&str]| {
@@ -434,6 +532,33 @@ mod tests {
             "silent"
         );
         assert_eq!(row(json!({ "revoked": false })), "silent");
+    }
+
+    #[test]
+    fn the_live_file_copies_only_what_a_stranger_may_read() {
+        let said = json!({ "rows": [
+            json!({ "name": "a", "revoked": false, "job_issue": 7, "job_state": "running",
+                    "last_seen_at": 9_990, "jobs_done": 3, "jobs_lost": 1,
+                    "public_key": "SECRET", "resting_until": 1 }).to_string(),
+            json!({ "name": "b", "revoked": false }).to_string(),
+        ]});
+        let file = live_file(&said, 10_000, 600);
+        assert_eq!(file["api"], 1);
+        assert_eq!(file["time"], "1970-01-01T02:46:40Z");
+        assert_eq!(
+            file["contractors"],
+            json!([
+                { "name": "a", "status": "working", "issue": 7,
+                  "lastSeenAt": "1970-01-01T02:46:30Z", "jobsDone": 3, "jobsLost": 1 },
+                { "name": "b", "status": "silent", "jobsDone": 0, "jobsLost": 0 },
+            ])
+        );
+        assert_eq!(file["counts"]["working"], 1);
+        assert_eq!(file["counts"]["silent"], 1);
+        assert_eq!(file["counts"]["outsourced"], 1);
+        assert!(!file.to_string().contains("SECRET"));
+        assert_eq!(contractor_on(&file, 7), Some("a"));
+        assert_eq!(contractor_on(&file, 8), None);
     }
 
     #[test]
