@@ -8600,7 +8600,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 78): the sandbox image cannot run lean as this start asks"
    ],
    "writes": [
     [
@@ -8609,7 +8609,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take `tehas:lean` off, then retry; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nTake `tehas:lean` off this issue, then tick a box.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then retry; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\nTo run it on classic instead, take `tehas:lean` off this issue, then tick a box.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -8757,7 +8757,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 78): its run log says why"
    ],
    "writes": [
     [
@@ -8917,7 +8917,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 78): its run log says why"
    ],
    "writes": [
     [
@@ -9077,7 +9077,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 78): its run log says why"
    ],
    "writes": [
     [
@@ -9235,7 +9235,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -9415,7 +9415,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -9577,7 +9577,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -9735,7 +9735,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -10029,7 +10029,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [

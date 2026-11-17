@@ -353,6 +353,9 @@ pub struct Report {
     pub arm: &'static str,
     /// What follows the end; the caller adds the approval and its programs.
     pub after: After,
+    /// A few words of why tehas work refused the start before its runner ran,
+    /// for the notice the end keeps. Empty for any other end.
+    pub refused_why: String,
 }
 
 fn re(pattern: &str, s: &str) -> bool {
@@ -602,8 +605,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     // A link reads as /dev/null: it is there, and holds nothing.
     let progress_seen = matches!(f.file("progress.json"), File::Link | File::Text(_));
     let no_result = !matches!(&result, File::Text(t) if !t.is_empty());
+    // tehas work refused the start before its runner ran: there is no result
+    // and no progress to miss, and one line below names the refusal.
+    let before_runner = matches!(f.rc, 4 | 78) && f.file("runner_exit").text().is_none();
     if no_result {
         result = File::Absent;
+    }
+    if no_result && !before_runner {
         warn(
             &mut r,
             format!("the result of #{issue} holds nothing, so its step is read from its run log"),
@@ -1136,7 +1144,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
     }
     let (usage, unreadable) = runner::usage(&outcome, progress);
-    if unreadable {
+    if unreadable && !before_runner {
         warn(
             &mut r,
             format!("the progress of #{issue} could not be read, so its rows are not summed into the totals"),
@@ -1458,6 +1466,31 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         File::Text(t) if rc == 78 && conflicted.is_none() => crate::prepare::refused_said(t),
         _ => None,
     };
+    if before_runner {
+        let why = match (&refused, &conflicted) {
+            (Some(r), _) => r.short,
+            (None, Some(_)) => "the pull request it refreshes conflicts",
+            _ if rc == 4 => "an image or file the issue links could not be given to it",
+            _ if lean_refused => "the sandbox image cannot run lean as this start asks",
+            _ => "",
+        };
+        if !why.is_empty() {
+            r.refused_why = why.to_string();
+        }
+        let said = if why.is_empty() {
+            "its run log says why"
+        } else {
+            why
+        };
+        r.log.push(format!(
+            "#{issue}: tehas work refused the start before its runner ran (exit {rc}): {said}"
+        ));
+        // Nothing of it ran, so it ends as refused, not as a cycle that
+        // stopped with no word for it.
+        if refused.is_some() {
+            end_status = "refused".into();
+        }
+    }
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {
@@ -1648,8 +1681,11 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         };
         let refused_said = match &refused {
-            Some(said) if !never_started => {
-                format!(" Tehas work refused this start before anything ran. {said}")
+            Some(r) if !never_started => {
+                format!(
+                    " Tehas work refused this start before anything ran. {}",
+                    r.said
+                )
             }
             _ => String::new(),
         };
@@ -1691,25 +1727,32 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 " No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.".to_string()
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
-            if rc != 4 {
+            if rc != 4 && refused.as_ref().is_some_and(|r| r.fault) {
+                // Tehas passed what work-lean never takes: no image and no
+                // label fixes that, so the park asks for neither. Its reason is
+                // no lean refusal, so a Retry is not held for the label.
+                let said = refused.as_ref().map_or("", |r| r.said.as_str());
+                let verb = Driver::Lean.verb();
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and tehas gave `{verb}` what it never takes (runner exit {runner_rc}). This is a fault in tehas, not in the issue or the sandbox image. It does not run classic in its place, and nothing of it ran. {said} Update tehas to a release that fixes it, then retry; {log_where}.");
+            } else if rc != 4 {
                 let lacks = refused
-                    .as_deref()
-                    .unwrap_or("The log names what the image lacks.");
+                    .as_ref()
+                    .map_or("The log names what the image lacks.", |r| r.said.as_str());
                 // Under a lean default taking `tehas:lean` off changes nothing:
                 // `tehas:classic` is what runs classic.
                 let (how, step) = if f.driver_default == Driver::Lean {
                     let classic = Driver::Classic.label();
                     (
                         format!("apply `{classic}`"),
-                        format!("Apply `{classic}` to"),
+                        format!("apply `{classic}` to"),
                     )
                 } else {
                     let lean = Driver::Lean.label();
-                    (format!("take `{lean}` off"), format!("Take `{lean}` off"))
+                    (format!("take `{lean}` off"), format!("take `{lean}` off"))
                 };
-                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To run it on classic, {how}, then retry; {log_where}.");
+                parked = format!("Tehas started no cycle: this start's driver is `lean`, and the sandbox image cannot run it as this start asks (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. {lacks} To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, {how}, then retry; {log_where}.");
                 park_why = tehas_core::question::LEAN_REFUSED;
-                lead = format!("{step} this issue, then tick a box.");
+                lead = format!("To run it on classic instead, {step} this issue, then tick a box.");
             }
         } else if let Some(said) = &conflicted {
             r.arm = "refresh-conflict";

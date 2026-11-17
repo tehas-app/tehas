@@ -526,7 +526,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -684,7 +684,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [
@@ -821,7 +821,7 @@
     "-"
    ],
    "log": [
-    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
    ],
    "writes": [
     [

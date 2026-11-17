@@ -393,8 +393,12 @@ that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
 all (`running`, or none) is `not an end`, and `output` says of the last cycle
 that it "ended as not an end". A start that was refused before anything ran ends
 as `refused` and is no failed cycle: it is left out of `checks.failed`, and
-health says nothing of it as the last cycle's end. Nothing of such a start ran,
-so nothing of it failed. health does not change the overall status. An
+the overall status does not fail on it. Nothing of such a start ran, so nothing
+of it failed. When nothing more pressing is said and no cycle has started
+since, `output` says it, with a few words of why: `The last start was refused
+before anything ran: #7, the sandbox image lacks what it was given.` A start
+refused by an older release has no words of why kept, and the line says its
+park says why. health does not change the overall status. An
 abort that a merge overtook ten seconds later leaves the status `pass`, and is
 still in `checks.failed` until ten more cycles have ended. A monitor that polls
 less often than cycles end reads it to see every failure. The ten endings are
