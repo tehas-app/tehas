@@ -543,6 +543,17 @@ of its `Spec:` line is not a file attached on GitHub ``. Write the one line
 `Spec: <link of the attached file> sha256:<64 hex digits of its bytes>`, or
 take it out, and apply `tehas:ready` again.
 
+A start with a `Spec:` line also fetches the file and checks that its bytes
+have the sha256 the line names. When they do not, or GitHub refuses the link,
+nothing starts and the poll says once why, for example `` the bytes of its
+spec are not the ones its `Spec:` line names: they have sha256 <hex> ``. The
+file attached is not the one the line was written for: attach the spec, write
+its link and the sha256 of its bytes (`sha256sum spec.md`), and apply
+`tehas:ready` again. A start from `tehas start` is not told on the issue: the
+line is in `~/tehas/logs/dispatch.log`. `ERROR: the spec of #<n> could not be
+fetched (curl exited <n>)` is a fetch that failed on the way: nothing changed,
+and the next poll tries again.
+
 The caps this factory has posted are explained one by one in the next
 section.
 

@@ -3144,10 +3144,32 @@ impl<'a> Poll<'a> {
         if let Some(note) = st.park_lifted {
             a["park_lifted"] = note;
         }
+        if self.c.spec_pipe {
+            if let Some(spec) = spec_of(body, &st.remove) {
+                a["spec"] = spec;
+            }
+        }
         for (k, v) in st.extra {
             a[k] = v;
         }
         self.act(a);
+    }
+}
+
+/// The spec a start pins, from the body its approval binds: {link, sha256,
+/// off} for a `Spec:` line, {why, off} for one tehas cannot read, so a start
+/// that did not pass `mark_ok` (a retry, a refresh) fails closed too. `off` is
+/// what comes off when the spec stops the start: of the labels the start takes
+/// off, those that asked for it. None for a body with no such line.
+fn spec_of(body: &str, remove: &[String]) -> Option<Value> {
+    let off: Vec<&String> = remove
+        .iter()
+        .filter(|l| matches!(l.as_str(), "tehas:ready" | "tehas:blocked" | "tehas:plan"))
+        .collect();
+    match text::spec_mark(body) {
+        Ok(None) => None,
+        Ok(Some(m)) => Some(json!({"link": m.link, "sha256": m.sha256, "off": off})),
+        Err(why) => Some(json!({"why": why, "off": off})),
     }
 }
 
@@ -3279,6 +3301,40 @@ mod label_tests {
     #[test]
     fn the_improvement_constant_keeps_its_spelling() {
         assert_eq!(IMPROVEMENT, "tehas:improvement");
+    }
+}
+
+#[cfg(test)]
+mod spec_tests {
+    use super::spec_of;
+    use serde_json::json;
+
+    #[test]
+    fn a_start_pins_the_spec_its_body_marks_and_names_what_asked_for_it() {
+        let h = "e".repeat(64);
+        let link = "https://github.com/user-attachments/files/3/spec.md";
+        let remove = [
+            "tehas:ready",
+            "tehas:blocked",
+            "tehas:question",
+            "tehas:awaiting-merge",
+        ]
+        .map(String::from);
+        assert_eq!(
+            spec_of(&format!("Do it.\n\nSpec: {link} sha256:{h}"), &remove),
+            Some(json!({"link": link, "sha256": h, "off": ["tehas:ready", "tehas:blocked"]}))
+        );
+        assert_eq!(spec_of("Do it.", &remove), None);
+        assert_eq!(
+            spec_of("Spec: docs/spec.md", &["tehas:question".to_string()]),
+            Some(json!({"why": "its `Spec:` line is not a link and its sha256", "off": []}))
+        );
+        assert_eq!(
+            spec_of(&format!("Spec: https://example.com/s.md sha256:{h}"), &[]),
+            Some(
+                json!({"why": "the link of its `Spec:` line is not a file attached on GitHub", "off": []})
+            )
+        );
     }
 }
 
