@@ -139,8 +139,10 @@ pi-rukas's: its `docs/lean.md` is the reference.
 ### The lean driver's settings
 
 Only the lean driver reads `.pi/work.json`, at the run's base commit, never from
-the working tree. Without it lean takes its defaults. A person writes it: it is
-under `.pi/`, so a cycle never changes it (AGENTS.md rule 7).
+the working tree. Without it lean takes its defaults, and they name no
+`verify.test`: a spec with a `test` criterion then ends not ready, `no test
+runner configured`. A person writes it: it is under `.pi/`, so a cycle never
+changes it (AGENTS.md rule 7).
 
 ```json
 {
