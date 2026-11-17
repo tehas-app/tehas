@@ -401,7 +401,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE_SETTINGS,
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "review" | "outsource-proxy"] => {
+            &INSTANCE_SETTINGS
+        }
         ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -718,7 +720,7 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in ["clean", "dispatch", "refresh", "review"] {
+        for all in ["clean", "dispatch", "refresh", "review", "outsource-proxy"] {
             assert_eq!(
                 required(&words(&["tehasbot", all])),
                 INSTANCE_SETTINGS,
