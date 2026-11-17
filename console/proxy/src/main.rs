@@ -18,7 +18,8 @@
 //! TEHAS_OUTSOURCE, the switch; TEHAS_OUTSOURCE_PROXY_ADDR, the address and port to
 //! listen on, never the dashboard's; TEHAS_OUTSOURCE_TIMEOUT, how long a job
 //! may go without a contractor's check-in; TEHAS_OUTSOURCE_PROXY_IDLE, how long one
-//! of its model streams may go silent. The instance's models.json names the
+//! of its model streams may go silent; TEHAS_OUTSOURCE_CONTRACTORS, the names
+//! the job channel answers. The instance's models.json names the
 //! endpoint and the variable of its key of the provider the instance's agents
 //! run on, which is the endpoint a cycle's container is given too. The key is
 //! read from this process's environment, written into one request at a time,
@@ -29,12 +30,12 @@
 //! check-in, token renewal, relayed issue writes, result and stop by the job's
 //! token, which is issued when the job is taken.
 //!
-//! The job tokens are this process's own, held in memory and nowhere else. The
-//! process that starts a contractor's container asks for one over the proxy's
-//! control socket in the state directory and writes it to the job's directory,
-//! where #2274 reads it for the container's models.json. A token is never in a
-//! command line, never in a log, never in the store. The asking process is
-//! told the path it was written to and nothing of the token itself.
+//! The job tokens are this process's own, held in memory and nowhere else. A
+//! contractor is given its job's token in the answer to the channel's `job`
+//! call. The control socket in the state directory can issue one too, written
+//! to a job directory, and the asking process is told the path and nothing of
+//! the token. A token is never in a command line, never in a log, never in the
+//! store, so a restart of the proxy ends every job's token.
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
 //! malformed, or the endpoint is no address this proxy can speak to; 1 it
@@ -177,6 +178,10 @@ fn listen() -> ! {
         repo: env("TEHAS_REPO"),
         addr: at.clone(),
         timeout: i64::try_from(timeout).unwrap_or(i64::MAX),
+        contractors: env("TEHAS_OUTSOURCE_CONTRACTORS")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
     }));
     let channel = Box::leak(Box::new(tehas_proxy::channel::Channel::new(
         issuer, factory,

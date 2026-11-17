@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
@@ -46,6 +47,10 @@ struct Fake {
     kept: Mutex<Vec<(i64, String, i64)>>,
     relayed: Mutex<Vec<Vec<String>>>,
     token: Option<(String, i64)>,
+    /// The names TEHAS_OUTSOURCE_CONTRACTORS lists.
+    allowed: Vec<&'static str>,
+    /// The store gives no answer while this is set: busy, locked, failing.
+    down: AtomicBool,
 }
 
 impl Fake {
@@ -55,12 +60,17 @@ impl Fake {
             kept: Mutex::new(Vec::new()),
             relayed: Mutex::new(Vec::new()),
             token: Some(("ghs_cycle".to_string(), 99)),
+            allowed: vec!["box1"],
+            down: AtomicBool::new(false),
         }
     }
 }
 
 impl Factory for Fake {
     fn store(&self, args: &[&str]) -> Option<Value> {
+        if self.down.load(Ordering::SeqCst) {
+            return None;
+        }
         let text = store::call(&self.home, args, &mut std::io::empty()).ok()?;
         serde_json::from_str(&text).ok()
     }
@@ -107,6 +117,9 @@ impl Factory for Fake {
             *n.borrow_mut() += 1;
             Some(format!("job-token-{}", n.borrow()))
         })
+    }
+    fn allowed(&self, name: &str) -> bool {
+        self.allowed.contains(&name)
     }
 }
 
@@ -459,4 +472,61 @@ fn only_carried_settings_leave_and_no_endpoint_or_key() {
         ]
     );
     assert!(!carried("PI_ENSEMBLE_API_KEY_MAIN"));
+}
+
+#[test]
+fn a_store_with_no_answer_is_answered_busy_and_never_revoked() {
+    let (home, issuer) = offered("chan-busy");
+    let fake = Fake::at(home.path());
+    let chan = Channel::new(&issuer, &fake);
+    let token = taken(&chan);
+    fake.down.store(true, Ordering::SeqCst);
+    let t = Some(token.as_str());
+    for call in [Call::CheckIn, Call::Token, Call::Relay, Call::Result] {
+        let a = ask(&chan, call, t, None, json!({ "result": {}, "argv": [] }));
+        assert_eq!((a.status, a.refused()), (503, None), "{call:?}: {a:?}");
+    }
+    for call in [Call::Hello, Call::Job] {
+        let a = by_key(&chan, call);
+        assert_eq!((a.status, a.refused()), (503, None), "{call:?}: {a:?}");
+    }
+    // The store answers again: the job is still running and its token works.
+    fake.down.store(false, Ordering::SeqCst);
+    let a = ask(&chan, Call::CheckIn, t, None, json!({}));
+    assert_eq!(a.status, 200, "{a:?}");
+}
+
+#[test]
+fn a_name_off_the_allowed_list_is_refused_on_every_call() {
+    let (home, issuer) = offered("chan-allowed");
+    let h = home.path();
+    let code = "the-printed-code";
+    call(
+        h,
+        &["invite-new", "--name", "box2", "--code", &key_hash(code)],
+    );
+    let mut fake = Fake::at(h);
+    let chan_issuer = Issuer::new();
+    {
+        let chan = Channel::new(&chan_issuer, &fake);
+        // box2 is not listed: its join is refused and its code is not spent.
+        let body = json!({ "code": code, "name": "box2", "key": key_hash(KEY) });
+        let a = ask(&chan, Call::Join, None, None, body);
+        assert_eq!((a.status, a.refused()), (403, Some("not allowed")));
+    }
+    let token = taken(&Channel::new(&issuer, &fake));
+    // An empty list refuses every name, box1 included, and its running job.
+    fake.allowed.clear();
+    let chan = Channel::new(&issuer, &fake);
+    for call in [Call::Hello, Call::Job] {
+        let a = by_key(&chan, call);
+        assert_eq!((a.status, a.refused()), (403, Some("not allowed")));
+    }
+    let a = ask(&chan, Call::CheckIn, Some(&token), None, json!({}));
+    assert_eq!((a.status, a.refused()), (403, Some("not allowed")));
+    // The code was never spent: listed now, box2 joins with it.
+    fake.allowed.push("box2");
+    let chan = Channel::new(&chan_issuer, &fake);
+    let body = json!({ "code": code, "name": "box2", "key": key_hash(KEY) });
+    assert_eq!(ask(&chan, Call::Join, None, None, body).status, 200);
 }

@@ -60,6 +60,31 @@ pub fn words(given: &[String]) -> Result<Option<(Asked, bool)>, u8> {
     Ok(Some((asked, json)))
 }
 
+/// What an invite's reader must know before the join can work: an address no
+/// other host can reach, and a name the allowed list leaves out.
+pub fn invite_notes(addr: &str, name: &str, allowed: &str) -> Vec<String> {
+    let mut notes = Vec::new();
+    let host = addr
+        .rsplit_once(':')
+        .map_or(addr, |(h, _)| h)
+        .trim_matches(['[', ']']);
+    let local = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified());
+    if local {
+        notes.push(format!(
+            "{addr} is TEHAS_OUTSOURCE_PROXY_ADDR, which no other host reaches: give the contractor this host's own address with the port"
+        ));
+    }
+    if !allowed.split_whitespace().any(|n| n == name) {
+        notes.push(format!(
+            "{name} is not in TEHAS_OUTSOURCE_CONTRACTORS: add it, or its join is refused"
+        ));
+    }
+    notes
+}
+
 /// A contractor's name, the shape the store takes.
 fn contractor_name(s: &str) -> bool {
     let b = s.as_bytes();
@@ -220,11 +245,12 @@ pub fn main(given: &[String]) -> u8 {
                 Ok(v) => v,
                 Err(rc) => return rc,
             };
-            let command = format!(
-                "tehas-contractor join {} {name} {code}",
-                setting("TEHAS_OUTSOURCE_PROXY_ADDR")
-            );
+            let addr = setting("TEHAS_OUTSOURCE_PROXY_ADDR");
+            let command = format!("tehas-contractor join {addr} {name} {code}");
             if !json {
+                for line in invite_notes(&addr, &name, &setting("TEHAS_OUTSOURCE_CONTRACTORS")) {
+                    eprintln!("tehas outsource: {line}");
+                }
                 outln!("{command}");
                 return 0;
             }
@@ -320,6 +346,26 @@ mod tests {
 
     fn w(s: &[&str]) -> Vec<String> {
         s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn an_invite_notes_an_address_only_this_host_reaches_and_a_name_off_the_list() {
+        assert!(invite_notes("192.0.2.7:8090", "box1", "box1").is_empty());
+        assert!(invite_notes("tehas.example:8090", "box1", "box0 box1").is_empty());
+        for local in [
+            "127.0.0.1:8090",
+            "0.0.0.0:8090",
+            "localhost:8090",
+            "[::1]:8090",
+            "[::]:8090",
+        ] {
+            let notes = invite_notes(local, "box1", "box1");
+            assert_eq!(notes.len(), 1, "{local}");
+            assert!(notes[0].contains("no other host reaches"), "{local}");
+        }
+        let notes = invite_notes("192.0.2.7:8090", "box2", "box1");
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("box2 is not in TEHAS_OUTSOURCE_CONTRACTORS"));
     }
 
     #[test]
