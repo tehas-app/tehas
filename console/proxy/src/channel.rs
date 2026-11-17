@@ -140,7 +140,9 @@ pub trait Factory {
     /// Keep the result of an issue's cycle where its report reads it.
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String>;
     /// What a job carries besides its numbers and token: the settings that
-    /// may leave the factory, and the models.json of the proxy.
+    /// may leave the factory, the models.json of the proxy, and the `uid` and
+    /// `gid` its image and containers run as, which the contractor hands the
+    /// cycle's folders to.
     fn carried(&self) -> Value;
     /// The seconds a job may go without a check-in.
     fn timeout(&self) -> i64;
@@ -352,6 +354,8 @@ impl<'a> Channel<'a> {
             "model_token": tokens.model,
             "settings": carried["settings"],
             "models": carried["models"],
+            "uid": carried["uid"],
+            "gid": carried["gid"],
         }))
     }
 
