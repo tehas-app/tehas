@@ -270,16 +270,29 @@ for name in $names; do
   t_contains "$t_out" "tehas $name"
 done
 
-t_case "each command renamed for 1.0 is a tehas command, and its old name still runs"
+t_case "each command renamed for 1.0 is a tehas command, and an old tehasbot name still runs"
 reset
 rows=0
-while IFS=$'\t' read -r kind old new _; do
+# A tab is IFS white space, so read would fold an empty new column away.
+while IFS= read -r line; do
+  kind=${line%%$'\t'*} rest=${line#*$'\t'}
   [ "$kind" = command ] || continue
+  old=${rest%%$'\t'*} rest=${rest#*$'\t'}
+  new=${rest%%$'\t'*}
   rows=$((rows + 1))
-  read -r _ verb _ <<<"$new"
-  t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $verb"
-  t_eq "$new: $t_rc" "$new: 0"
   read -r cmd word _ <<<"$old"
+  if [ -n "$new" ]; then
+    read -r _ verb _ <<<"$new"
+    t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $verb"
+    t_eq "$new: $t_rc" "$new: 0"
+  fi
+  # A tehas option or form renamed within its command: the command's own
+  # tests pin that the old form exits 64 and names the new one.
+  if [ "$cmd" = tehas ]; then
+    t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $word"
+    t_eq "$old: $t_rc" "$old: 0"
+    continue
+  fi
   t_eq "$old: $cmd" "$old: tehasbot"
   t_contains "$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)" "  tehasbot $word"
 done <"$T_ROOT/api/renames-1.0.tsv"

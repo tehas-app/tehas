@@ -5,6 +5,11 @@ value	mcp.factory_sessions.how=fixer	millwright	the runs and their how say millw
 command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an alias through 1.x; it prints the same words and object
 command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
 command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias
+command	tehas setup --labellers	tehas setup --labelers	spelled as TEHAS_ALLOWED_LABELERS; the old spelling exits 64 and names the new one
+command	tehas setup --token-file		refused since the GitHub App; now an unknown option (64)
+command	tehas setup --app-installation		was ignored; now an unknown option (64)
+command	tehas analytics export	tehas analytics copy --to	same copy and the same --json object; the old form exits 64 and names the new one
+command	tehas pause <reason>	tehas pause --reason	a bare reason is refused with 64 and names --reason
 word	store-copy	state-copy	tehas state copy; every tehas state verb has a state- word
 word	refresh-pr-starts	refresh-pr	folded into one word
 word	refresh-pr-lane	refresh-pr	folded into one word
