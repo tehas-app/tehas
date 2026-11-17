@@ -122,6 +122,9 @@ pub enum Rule {
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// Domains as [`Rule::Domain`] reads them, one space apart, none around
+    /// them. The empty value is no domain at all.
+    Domains,
     /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
     /// outsource model proxy listens on exactly this: no port means a proxy
     /// with no port to listen on, which is no proxy.
@@ -166,6 +169,7 @@ impl Rule {
             Rule::Repos => "repos",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
+            Rule::Domains => "domains",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
         }
@@ -207,6 +211,7 @@ impl Rule {
             Rule::Repos => "acme/widget  other/widget",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
+            Rule::Domains => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
         }
@@ -339,6 +344,8 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
+    always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
+    given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
     given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
@@ -517,6 +524,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         Rule::EgressHosts => refuse(
             v.split(' ').all(is_egress_host),
             "expected host names such as pypi.org or host:port, separated by single spaces",
+        ),
+        Rule::Domains => refuse(
+            v.is_empty() || v.split(' ').all(is_domain),
+            "expected domains such as files.example.org, in lower case, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
     }
@@ -849,10 +860,11 @@ mod tests {
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
+            "TEHAS_PROTOLAB_ZIP_URL",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 16);
+        assert_eq!(switches.len(), 17);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1007,6 +1019,30 @@ mod tests {
             "expected an address such as https://lab.example, with no path and no slash at the end";
         refuses("TEHAS_PROTOLAB_URL", "https://lab.example/", why);
         refuses("TEHAS_PROTOLAB_URL", "lab.example", why);
+    }
+
+    #[test]
+    fn the_zip_hosts_are_domains_in_lower_case_or_none() {
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "");
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "files.example.org");
+        takes(
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "files.example.org cdn.example.net",
+        );
+        let why =
+            "expected domains such as files.example.org, in lower case, separated by single spaces";
+        for bad in [
+            "localhost",
+            "Files.example.org",
+            "files.example.org  cdn.example.net",
+            " files.example.org",
+            "files.example.org ",
+            "files.example.org:443",
+            "https://files.example.org",
+            "*.example.org",
+        ] {
+            refuses("TEHAS_PROTOLAB_ZIP_HOSTS", bad, why);
+        }
     }
 
     #[test]

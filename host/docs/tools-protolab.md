@@ -92,6 +92,31 @@ changed costs one more call, its label events, for the renames. When GitHub cann
 reached, what is there stays. A pass that finds no console to write the pages
 with says so and exits 78 before it calls GitHub.
 
+### A zip by address
+
+Still being built: a release refuses `TEHAS_PROTOLAB_ZIP_URL=on` with exit 78
+and lists `protolab-zip-url` in `flags` as `false`. When it ships, a ticket may
+name a zip that is not attached to it, on a line of its own:
+
+```
+Zip: https://files.example.org/p/proto.zip sha256:<64 lower-case hex digits>
+```
+
+The line counts by the rule of a link above: written by an account in
+`TEHAS_ALLOWED_LABELERS`, edited last by none outside it, and not quoted. A
+line from anyone else is counted on the page as a link from outside. The
+address is a file attached on GitHub, or an https address whose host is one of
+`TEHAS_PROTOLAB_ZIP_HOSTS` exactly, with no port, no account and no `..`.
+Empty, the default, allows no host. A redirect is followed only to an address
+on those hosts, at most three, and no token is sent to them. Bytes whose
+sha256 is not the one on the line are refused and nothing of them is kept. The
+zip is unpacked by `libexec/attach` as an attached one, after the attached
+files, and counts against the same 10 megabytes and 40 files. What is left
+out is listed on the page with its reason: a line of another form, a host off
+the list, a redirect off it, other bytes. A download that fails for now is
+tried again on the next pass. With the switch off, a `Zip:` line is text, as
+it always was.
+
 A prototype is somebody's HTML and script. That is why the Protolab is a
 server of its own on another port, and why every attached file is answered
 with a sandbox policy: the browser gives it an origin with nothing in it. To

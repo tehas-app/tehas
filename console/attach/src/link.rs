@@ -50,11 +50,105 @@ pub fn sends_token(link: &str, token: &str) -> bool {
     link.starts_with(GITHUB) && is_link(link) && !token.is_empty()
 }
 
+/// Whether `link` is an address outside GitHub's storage that tehas may fetch
+/// with a sha256 beside it: https, a host that is one of `hosts` (domains one
+/// space apart, as TEHAS_PROTOLAB_ZIP_HOSTS holds them) exactly, with no port
+/// and no account, and a path of plain characters. As in [`LINK_RULE`], no
+/// part of the path is `.` or `..` or holds an escaped `.`, `/` or `\`. No
+/// fragment. An empty `hosts` allows nothing.
+pub fn is_external(link: &str, hosts: &str) -> bool {
+    let Some(rest) = link.strip_prefix("https://") else {
+        return false;
+    };
+    let Some((host, tail)) = rest.split_once('/') else {
+        return false;
+    };
+    let (path, query) = tail.split_once('?').unwrap_or((tail, ""));
+    !host.is_empty()
+        && hosts.split(' ').any(|h| h == host)
+        && !path.is_empty()
+        && path.split('/').all(plain_part)
+        && query.bytes().all(|b| plain(b) || b == b'%' || b == b'/')
+}
+
+fn plain(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b"._~&=+-".contains(&b)
+}
+
+/// One part of an external path: not empty, not `.` or `..`, plain characters
+/// and escapes of anything but `.`, `/` and `\`.
+fn plain_part(part: &str) -> bool {
+    if part.is_empty() || part.bytes().all(|b| b == b'.') {
+        return false;
+    }
+    let b = part.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let Some(hex) = part.get(i + 1..i + 3) else {
+                return false;
+            };
+            match u8::from_str_radix(hex, 16) {
+                Ok(c) if hex.bytes().all(|h| h.is_ascii_hexdigit()) && !b"./\\".contains(&c) => {}
+                _ => return false,
+            }
+            i += 3;
+        } else if plain(b[i]) {
+            i += 1;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn an_external_link_is_https_on_a_listed_host_with_a_plain_path() {
+        let hosts = "files.example.org cdn.example.net";
+        for link in [
+            "https://files.example.org/p/proto.zip",
+            "https://cdn.example.net/a/b-c_d.e~f.zip",
+            "https://files.example.org/proto%20one.zip",
+            "https://files.example.org/proto.zip?sig=a%2Fb&exp=1",
+        ] {
+            assert!(is_external(link, hosts), "{link}");
+        }
+        for link in [
+            "http://files.example.org/p.zip",
+            "https://files.example.org",
+            "https://files.example.org/",
+            "https://other.example.org/p.zip",
+            "https://example.org/p.zip",
+            "https://sub.files.example.org/p.zip",
+            "https://files.example.org.evil.example/p.zip",
+            "https://Files.example.org/p.zip",
+            "https://files.example.org:8443/p.zip",
+            "https://user@files.example.org/p.zip",
+            "https://evil.example@files.example.org/p.zip",
+            "https://files.example.org/../p.zip",
+            "https://files.example.org/a/./p.zip",
+            "https://files.example.org/a//p.zip",
+            "https://files.example.org/%2e%2e/p.zip",
+            "https://files.example.org/a%2Fb.zip",
+            "https://files.example.org/a%5cb.zip",
+            "https://files.example.org/a%2",
+            "https://files.example.org/a%zz.zip",
+            "https://files.example.org/p.zip#x",
+            "https://files.example.org/p zip",
+            "https://files.example.org/p\"x.zip",
+            "https://files.example.org/p.zip?a=<b>",
+        ] {
+            assert!(!is_external(link, hosts), "{link}");
+        }
+        assert!(!is_external("https://files.example.org/p.zip", ""));
+        assert!(!is_external("https:///p.zip", " "));
+    }
 
     #[test]
     fn a_text_gives_each_link_once_in_its_order() {
