@@ -44,18 +44,23 @@ listed here when a release has it.
    under `/live/` is for the dashboard, not for a program.
 2. **`--json` prints one JSON object** on standard output and nothing else.
    Messages go to standard error. Without `--json` the same command prints for
-   a person.
+   a person. An object this page describes is public. `tehas top --json` is not:
+   it prints the snapshot a frame of the screen is drawn from, for the
+   dashboard, and it may change in any release.
 3. **Every object carries `"api": 1`.** Within version 1 fields are only
    added, never renamed, removed or given a new meaning. A breaking change is
    version 2, and the release that brings it says so.
 4. **A field without a value is left out**, never `null`, unless this page
    says the field itself is `null` when unknown. A program accepts fields it
    does not know.
-5. **Exit statuses**: 0 done; 1 the command ran and the answer is "no" or "not
-   yet"; 64 a bad argument; 78 missing or malformed instance settings; 141
-   standard output closed before the command finished printing (as in
-   `tehas status | head -1`), with nothing on standard error, as a shell
-   command SIGPIPE ended would.
+5. **Exit statuses**: 0 done; 1 failed, a call, a read or a write did not
+   succeed; 3 the command worked and the answer is "no" or "not yet"; 64 a
+   bad argument; 78 missing or malformed instance settings, or a feature that
+   is off; 141 standard output closed before the command finished printing
+   (as in `tehas status | head -1`), with nothing on standard error, as a
+   shell command SIGPIPE ended would. A status means the same in every
+   command. [The contract](/contract#exit-statuses) has the table of each
+   public command.
 6. **Reading makes no network call** and takes no lock a cycle holds, so a
    program can call it every few seconds. It reports what the dispatcher's
    last poll saw, with that poll's time.
@@ -122,7 +127,7 @@ tehas api [--json]
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
   "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags"],
-  "flags": {"outsource": false},
+  "flags": {"outsource": false, "spec-pipe": false},
   "millwright": null,
   "poll": {
     "last": {
@@ -147,7 +152,7 @@ tehas api [--json]
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) and `flags` (the object below is there). A shipped optional feature adds its name of `flags` here; a building one does not |
-| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)) |
+| `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)) and `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
@@ -206,13 +211,17 @@ tehas status --json
 | --- | --- |
 | `time` | When the health file was written: at the dispatcher's last poll, or when a cycle last ended |
 | `age` | Seconds since `time` |
-| `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 1 |
+| `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 3 |
 | `state` | `pass`, `warn` or `fail`, as the [health file](/tools-health#tehasbot-health) says it |
 | `reasons` | Why the state is not `pass`, for a person; empty on `pass` |
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
 | `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=on`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
+| `pushFault` | The sandbox cannot push: a start's push check was refused, so no new cycle starts (see [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)). Each field is `null` when the record does not say. Left out when the sandbox can push, and by a release before it |
+| `pushFault.at` | When the fault was found, or when the poll last asked and the push was still refused |
+| `pushFault.login` | The bot whose token was tried |
+| `pushFault.line` | git's first line of why the push was refused |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
 | `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
@@ -275,7 +284,7 @@ them in step, and a program can copy the samples into its own tests.
 It reads `~/tehas/live/health.json`, and `protolab.json` and `contractors.json`
 beside it when they are there, and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
-standard output and exits 1. Exit 0 on `pass` and `warn`; 1 on `fail`, a stale
+standard output and exits 3. Exit 0 on `pass` and `warn`; 3 on `fail`, a stale
 file or no file; 64 on an argument other than `--json`.
 
 ## tehas limit
@@ -312,7 +321,9 @@ and `state`.
   turn or answer. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
 - **One reading.** `tehas status`, the dispatcher and the health page read the
-  file the same way. A file that names a key twice is `unreadable`.
+  file the same way. A file that names a key twice is `unreadable`, and so is
+  one whose `cycles` is not plain digits: `1.0`, `01` or `1e2` in a file
+  repaired by hand is `unreadable`, never a limit of 0.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
@@ -401,9 +412,10 @@ The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 millwright may retry such a cycle as one a person's label started, and may
 ask for its finish.
 
-Exit 0 recorded, taken back or nothing to take back; 1 GitHub has no open
-issue of that number or did not answer, or the store refused; 64 on a bad
-argument, which writes nothing; 78 without an instance.
+Exit 0 recorded, taken back or nothing to take back; 1 GitHub did not answer,
+or the store refused; 3 GitHub has no open issue of that number (none, a pull
+request or a closed issue); 64 on a bad argument, which writes nothing; 78
+without an instance.
 
 ## tehas drain
 
@@ -435,8 +447,9 @@ running, and one cycle's still running.
 | `limit.until` | Left out: a drain's limit lasts until `tehas limit clear` |
 | `limit.reason` | `draining` |
 
-Exit 0 when no cycle is running; 1 when some still are at the end of the
-wait; 64 on a bad argument; 78 without an instance.
+Exit 0 when no cycle is running; 3 when some still are at the end of the
+wait, or a poll held its lock for the whole of it; 64 on a bad argument; 78
+without an instance.
 
 ## tehas freeze and tehas thaw
 
@@ -925,10 +938,10 @@ A copy fetched again holds the same rows, and more: rows are keyed so that
 storing them twice is harmless (see [Analytics](/analytics#fetching-it)).
 
 The feature `analytics` in [`tehas api`](#tehas-api) says the command exists.
-It does not say analytics is on: exit 0; 64 on a bad argument; 69 when the
-instance has `TEHAS_ANALYTICS=off` or the program is not installed, which
-writes nothing; 70 when the database cannot be read; 73 when `<file>` exists or
-cannot be made; 78 without an instance. `tehas analytics export <file>`, the
+It does not say analytics is on: exit 0; 1 when the program is not installed,
+the database cannot be read, or `<file>` exists or cannot be made; 64 on a bad
+argument; 78 without an instance or when the instance has
+`TEHAS_ANALYTICS=off`, which writes nothing. `tehas analytics export <file>`, the
 name before 1.0, exits 64 and names `tehas analytics copy --to`.
 
 ## tehasbot clean
@@ -1372,8 +1385,8 @@ console settings rules --json
 }
 ```
 
-Every release carries the rules of the instance settings as
-`api/settings-rules.json`, at `tehas-<tag>/api/settings-rules.json` in the
+Every release carries the rules of the instance settings and of the host
+settings as `api/settings-rules.json`, at `tehas-<tag>/api/settings-rules.json` in the
 tarball. It is what `console settings rules --json` of that release prints,
 built from the table the load checks `instance.env` with, so a tool with no
 factory, such as the CI of a settings repository, can check the values. The
@@ -1392,10 +1405,19 @@ lists the feature `settings-rules`.
 | `settings.default` | What the load uses when the instance leaves it out or empty, or `null`: it stays unset, or the load works it out |
 | `settings.words` | Only for a `one-of` row: the values it takes |
 | `settings.reason` | What the check says for a value the rule refuses |
+| `host` | The settings of the host, in the same fields as `settings`: the environment or `~/.config/tehas/env` gives them, never `instance.env`. Each is checked when it holds a value (`when` is always `given`). `TEHAS_MODEL_KEY_<NAME>` stands for every name with that front. `TEHAS_UPDATE_LOCK_WAIT` is checked by `tehas update` and `install.sh` themselves, before the load, and its `default` is theirs |
 
 An empty value means unset and is not checked against the rule, except for a
 `named` setting. An unset setting of `when` `required` is refused by the
 command that requires it.
+
+Every other `TEHAS_*` name tehas reads is internal and may change in any
+release: the tests' commands and hooks that the environment hands the load,
+what the load derives, such as each size setting again in megabytes as
+`<name>_MB`, the dispatcher's wait of an install, and what one program hands
+the next. The list, with why for
+each, is `console/core/src/settings/unruled.rs`, and a test of the workspace
+holds every name the installed source reads to a rule or to that list.
 
 The file holds a rule's name and one reason, not the check itself: to check a
 value, run `libexec/console settings valid <name> <value>` from the tarball of

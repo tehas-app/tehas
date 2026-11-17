@@ -72,6 +72,9 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_CONTAINER_MEMORY, what one container is given: the probe's own
+    /// container is held to it, as a cycle's is.
+    pub container_memory: String,
     /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
     pub checkout: String,
     pub branch: String,
@@ -83,6 +86,16 @@ pub struct Host {
     pub index_start_cmd: Option<String>,
     /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
     pub fetch_wait: Duration,
+    /// TEHAS_PUSH_PROBE_CMD, a test's stand-in for the container that asks
+    /// whether the sandbox can push; none on a host, which runs the words
+    /// `tehas_core::sandbox::push_check` makes. Run when a push fault has aged
+    /// out, before any start.
+    pub push_probe_cmd: Option<String>,
+    /// TEHAS_PREFLIGHT_WAIT, the bound of a cycle's own push check, which
+    /// bounds the probe too [300].
+    pub push_probe_wait: Duration,
+    /// PI_ENSEMBLE_HOST_ALIASES: the probe's container has the cycle's network.
+    pub aliases: String,
     /// TEHAS_PLAN_CMD, or `bin/tehas plan`: what a turn's unit runs.
     pub plan_cmd: Vec<String>,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
@@ -433,7 +446,125 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option
     Some(lifts.then_some(note))
 }
 
+/// Where the probe copies the checkout for its one check, under the home.
+const PROBE_TREE: &str = "state/push-probe";
+
 impl Writer {
+    /// Ask the sandbox whether it can push, when the fault of
+    /// `state/push-fault.json` has aged out: the dry-run container a cycle's
+    /// start runs (`tehas_core::sandbox::push_check`), with the cycle's own
+    /// token, network and git configuration, in a fresh copy of the checkout
+    /// as the cycle's workspace is (`tehas_core::sandbox::clone`), so no
+    /// container is given the host's checkout. The caller reads the file back
+    /// and the rules decide on it.
+    ///
+    /// A pass takes the file off. A refusal writes it fresh with git's line, so
+    /// the hold starts again. A probe the host could not run records nothing,
+    /// and the poll starts as it did before there was a probe: the start's own
+    /// check decides. `TEHAS_PUSH_PROBE_CMD` stands in for the token and the
+    /// container in a test. A dry run asks nothing and keeps the hold.
+    ///
+    /// The lines it says, and whether the record on file still holds the poll.
+    pub fn push_probe(&mut self, dry: bool) -> (Vec<String>, bool) {
+        if dry {
+            return (Vec::new(), true);
+        }
+        let tree = self.home.join(PROBE_TREE);
+        let said = self.push_probe_in(&tree);
+        let _ = std::fs::remove_dir_all(&tree);
+        said
+    }
+
+    fn push_probe_in(&mut self, tree: &std::path::Path) -> (Vec<String>, bool) {
+        let not_asked = |why: &str| {
+            format!("WARN: the sandbox could not be asked whether it can push: {why}: no fault recorded")
+        };
+        let (words, token) = match self.push_probe_words(tree) {
+            Ok(w) => w,
+            Err(why) => return (vec![not_asked(&why)], false),
+        };
+        // Beside the poll's other check's log, `logs/dispatch-index.log`; not
+        // `<log>.preflight`, which names a session's transcript.
+        let log = self.home.join("logs/dispatch-preflight.log");
+        if std::fs::create_dir_all(self.home.join("logs")).is_err() {
+            return (vec![not_asked("no place to write the check's log")], false);
+        }
+        let wait = self.host.push_probe_wait;
+        let said = tehas_core::sandbox::probe_push(&words, token.as_deref(), wait, &log);
+        let _ = std::fs::remove_file(&log);
+        if !said.ran {
+            return (vec![not_asked(&said.line)], false);
+        }
+        let login = tehas_core::settings::bot_login(&self.home).unwrap_or_default();
+        if said.ok {
+            tehas_core::sandbox::write_push_fault(&self.home, "", 0, &login);
+            return (
+                vec!["push probe: the sandbox can push: the fault is off".into()],
+                true,
+            );
+        }
+        let now = tehas_core::time::now();
+        tehas_core::sandbox::write_push_fault(&self.home, &said.line, now, &login);
+        let line = format!("push probe: the sandbox cannot push: {}", said.line);
+        (vec![line], true)
+    }
+
+    /// The probe's command and the token it is given as GH_TOKEN, or why the
+    /// host cannot ask. Every reason is a fault of the host, not an answer of
+    /// the sandbox. `tree` is where the copy of the checkout is made.
+    fn push_probe_words(
+        &self,
+        tree: &std::path::Path,
+    ) -> Result<(Vec<String>, Option<String>), String> {
+        if let Some(cmd) = &self.host.push_probe_cmd {
+            return Ok((vec![cmd.clone()], None));
+        }
+        if self.host.image.is_empty() {
+            return Err("no sandbox image to ask".into());
+        }
+        let ceiling = tehas_core::slice::bytes(&self.host.container_memory)
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(8 * 1024);
+        let Some(security) = tehas_core::sandbox::security(ceiling) else {
+            return Err("TEHAS_CONTAINER_MEMORY is under the 10m a container needs".into());
+        };
+        let network = tehas_core::sandbox::network(&self.host.aliases)?;
+        let Some(token) = crate::read::run::read_cycle_token(&self.home, self.bound) else {
+            return Err("no cycle token from the app".into());
+        };
+        let tree_s = tree.to_string_lossy().into_owned();
+        let _ = std::fs::remove_dir_all(tree);
+        let copied = tree
+            .parent()
+            .is_some_and(|p| std::fs::create_dir_all(p).is_ok())
+            && tehas_core::sandbox::clone(&self.host.checkout, &tree_s, &self.host.branch);
+        if !copied {
+            return Err("the checkout could not be copied for the check".into());
+        }
+        let who = tehas_core::sandbox::Identity {
+            tree: &tree_s,
+            name: "",
+            email: "",
+        };
+        let env =
+            tehas_core::sandbox::env_options(tehas_core::sandbox::Kind::Cycle, &who, &[], &[]);
+        let mut words = tehas_core::sandbox::push_check(
+            &security,
+            &tehas_core::sandbox::user(),
+            &env,
+            &network,
+            &tree_s,
+            &tree_s,
+            &self.host.image,
+        );
+        // The poll's own docker in place of the bare name, and the host's own
+        // image: a pull inside the poll would put docker's words where git's
+        // should be.
+        words[0] = self.docker.clone();
+        words.insert(2, "--pull=never".into());
+        Ok((words, Some(token)))
+    }
+
     /// start_cycles: a run of start actions. The poll's exit status when it
     /// ends there, None when every start was done or skipped.
     pub(super) fn starts(
@@ -580,6 +711,11 @@ impl Writer {
         let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
+        if let Some(spec) = a.get("spec") {
+            if let Some(then) = self.spec_holds(n, a, spec, log) {
+                return then;
+            }
+        }
         log.push(match a.get("log").and_then(Value::as_str) {
             Some(line) => line.to_string(),
             None => format!("start #{n} ({} by {by})", text(a, "verb")),
@@ -836,6 +972,103 @@ impl Writer {
         }
     }
 
+    /// spec_holds: with the spec-pipe feature on, a start whose body marks a
+    /// spec fetches it, pinned to the sha256 the `Spec:` line names, before
+    /// anything of the start is changed. None when its bytes are the ones
+    /// named: the approval then keeps the pin. A spec of other bytes, a link
+    /// GitHub refuses or a line tehas cannot read starts nothing, and what
+    /// asked for the start is used up, so the next poll does not pick it
+    /// again: the labels that asked come off, the host's approval comes off
+    /// the record, an outage's retry is spent and a refresh request dropped.
+    /// The issue is told why, except for a start of the host's, which is
+    /// logged. A fetch that may work later ends the poll with 1 and changes
+    /// nothing.
+    fn spec_holds(
+        &mut self,
+        n: u64,
+        a: &Value,
+        spec: &Value,
+        log: &mut Vec<String>,
+    ) -> Option<Then> {
+        let given = text(a, "given").to_string();
+        let why = match spec.get("why").and_then(Value::as_str) {
+            Some(why) => why.to_string(),
+            None => {
+                let Some(file) = self.scratch("spec") else {
+                    log.push(format!(
+                        "ERROR: #{n}: no file in $TEHAS_HOME/tmp to fetch its spec into, not starting a cycle"
+                    ));
+                    return Some(Then::Failed);
+                };
+                let pin = attach::fetch::Pin {
+                    link: text(spec, "link"),
+                    sha256: text(spec, "sha256"),
+                    most: crate::text::SPEC_MOST,
+                };
+                let token = self.calls.gh_token.clone().unwrap_or_default();
+                let got = attach::fetch::fetch_pinned(&pin, &file, &token);
+                let _ = std::fs::remove_file(&file);
+                let unpinned = match got {
+                    Ok(_) => return None,
+                    Err(u) => u,
+                };
+                match crate::text::spec_unpinned(&unpinned) {
+                    Some(why) => why,
+                    None => {
+                        let said = match unpinned {
+                            attach::fetch::Unpinned::Fetch(f) if f.http > 0 => {
+                                format!("curl exited {}, HTTP {}", f.code, f.http)
+                            }
+                            attach::fetch::Unpinned::Fetch(f) => format!("curl exited {}", f.code),
+                            attach::fetch::Unpinned::Unreadable(e) => e,
+                            attach::fetch::Unpinned::Other(sum) => sum,
+                        };
+                        log.push(format!(
+                            "ERROR: the spec of #{n} could not be fetched ({said}), not starting a cycle"
+                        ));
+                        return Some(Then::Failed);
+                    }
+                }
+            }
+        };
+        log.push(format!("skip #{n}: {why}"));
+        match given.as_str() {
+            crate::decide::HOST => {
+                let at = text(a, "at");
+                if let Some(t) = epoch(at) {
+                    if self.restore(n, t, log) {
+                        log.push(format!("the host's approval of #{n} of {at} is off the record: run `tehas start {n}` again once its `{}` line is right", tehas_core::grammar::SPEC_MARK));
+                    }
+                }
+            }
+            "outage-retry" => {
+                self.park_retry(n, &json!({"how": "outage"}), log);
+            }
+            "refresh" => self.refresh_drop(n, log),
+            _ => {}
+        }
+        let off = super::strings(spec, "off");
+        if off.is_empty() && given == crate::decide::HOST {
+            return Some(Then::Skipped);
+        }
+        let names: Vec<&str> = off.iter().map(String::as_str).collect();
+        let fail = format!(
+            "WARN: label change on #{n} failed: {}",
+            names
+                .iter()
+                .map(|l| format!("--remove-label {l}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let say = crate::text::spec_refused_said(&off, &why);
+        if off.is_empty() {
+            self.say(n, &say, log);
+        } else {
+            self.label(n, &json!({"remove": off, "fail": fail, "say": say}), log);
+        }
+        Some(Then::Skipped)
+    }
+
     /// approved_record: the approval on record with its inputs. Its time,
     /// or the store's word and line; an empty word is a read that failed.
     /// `left_out` gets the authors of a comments retry whose permission on
@@ -857,6 +1090,13 @@ impl Writer {
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
         if let Some(d) = a.get("driver") {
             input.insert("driver".into(), d.clone());
+        }
+        // The pin spec_holds fetched the spec's bytes to.
+        if let Some(s) = a.get("spec").filter(|s| s.get("sha256").is_some()) {
+            input.insert(
+                "spec".into(),
+                json!({"link": s["link"], "sha256": s["sha256"]}),
+            );
         }
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();

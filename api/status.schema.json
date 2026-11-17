@@ -24,6 +24,16 @@
     },
     "readOnly": {"const": true},
     "allHands": {"type": "boolean"},
+    "pushFault": {
+      "type": "object",
+      "required": ["at", "login", "line"],
+      "additionalProperties": false,
+      "properties": {
+        "at": {"type": ["string", "null"]},
+        "login": {"type": ["string", "null"]},
+        "line": {"type": ["string", "null"]}
+      }
+    },
     "limit": {
       "type": "object",
       "required": ["state"],

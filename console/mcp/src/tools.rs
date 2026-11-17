@@ -1192,7 +1192,25 @@ pub(crate) fn call_held(
         _ => unreachable!("known admits only the names matched above"),
     };
     out.insert("api".into(), json!(1));
-    Ok((Output::Json(Value::Object(out)), None))
+    let out = Value::Object(out);
+    // The session tools answer from a file on disk that a hand or a bug can
+    // leave malformed: each answer is checked against the schema the tool
+    // publishes, and one that does not match is the file's error.
+    if matches!(
+        name,
+        "factory_sessions" | "factory_session" | "factory_failures"
+    ) {
+        let schema = entries()
+            .iter()
+            .find(|t| t["name"] == name)
+            .map(|t| &t["outputSchema"])
+            .unwrap_or(&Value::Null);
+        crate::conform::check(&out, schema).map_err(|why| ToolError::File {
+            file: crate::snapshot::FILE.into(),
+            why: format!("gives an answer that does not match the schema of {name}: {why}"),
+        })?;
+    }
+    Ok((Output::Json(out), None))
 }
 
 pub(crate) fn read(live: &Path, file: &str) -> Result<Value, ToolError> {

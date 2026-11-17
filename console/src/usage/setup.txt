@@ -62,8 +62,8 @@ console's, and what it says goes to standard error.
 Usage:
   tehas setup [options]
 
-Exit: 0 done; 1 a check or a step failed (a step's own status when it has
-one); 64 an unknown option, --app-id or --app-key-file alone or with
+Exit: 0 done; 1 a check or a step failed (78 when the step stopped on its
+settings); 64 an unknown option, --app-id or --app-key-file alone or with
 --new-app, or --app-owner or --app-name without it; 78 a setting is missing,
 malformed, or differs from the one there without --force, a pasted address
 without this run's state, a key with no app ID (or an app ID with no key) for

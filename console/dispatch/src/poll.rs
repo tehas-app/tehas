@@ -19,8 +19,8 @@
 use crate::apply::start::Host;
 use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
-use crate::read::build::{fill, snapshot, Sources};
-use crate::read::host::hostname;
+use crate::read::build::{fill, may_start, snapshot, Sources};
+use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
@@ -249,6 +249,67 @@ fn own_words(hook: bool, words: &[&str]) -> Vec<String> {
     }
 }
 
+/// The poll's own defaults for the two bounds of a planning turn: seconds a
+/// turn may run, and turns a session may take.
+const PLAN_DEFAULTS: (u64, u64) = (3600, 20);
+
+/// One bound of a planning turn as the poll was given it, read by the rule
+/// the settings load reads it with, so the poll refuses what the load
+/// refuses. Unset or empty is the poll's default. A value whose bytes are no
+/// text is refused, not taken as unset.
+fn plan_bound(
+    name: &str,
+    given: Option<std::ffi::OsString>,
+    default: u64,
+    max: Option<u64>,
+) -> Result<u64, String> {
+    let invalid = |why: &str| format!("{name} is not valid: {why}");
+    let Some(given) = given else {
+        return Ok(default);
+    };
+    let text = given
+        .to_str()
+        .ok_or_else(|| invalid("expected a positive whole number"))?;
+    if text.is_empty() {
+        return Ok(default);
+    }
+    tehas_core::settings::rules::check(name, text, &Default::default())
+        .map_err(|why| invalid(&why))?;
+    let n: u64 = text
+        .parse()
+        .map_err(|_| invalid("expected a positive whole number"))?;
+    match max {
+        Some(max) if n > max => Err(format!(
+            "{name} ({n}) is more than {max}: a planning turn may take at most two hours"
+        )),
+        _ => Ok(n),
+    }
+}
+
+/// The timeout and the turns of a planning turn, from these two values of
+/// TEHAS_PLAN_TIMEOUT and TEHAS_PLAN_MAX_TURNS.
+fn plan_bounds(
+    timeout: Option<std::ffi::OsString>,
+    turns: Option<std::ffi::OsString>,
+) -> Result<(u64, u64), String> {
+    Ok((
+        plan_bound(
+            "TEHAS_PLAN_TIMEOUT",
+            timeout,
+            PLAN_DEFAULTS.0,
+            Some(tehas_core::settings::rules::PLAN_TIMEOUT_MAX),
+        )?,
+        plan_bound("TEHAS_PLAN_MAX_TURNS", turns, PLAN_DEFAULTS.1, None)?,
+    ))
+}
+
+fn plan_bounds_of_env() -> Result<(u64, u64), String> {
+    plan_bounds(
+        std::env::var_os("TEHAS_PLAN_TIMEOUT"),
+        std::env::var_os("TEHAS_PLAN_MAX_TURNS"),
+    )
+}
+
 fn writer(
     home: &Path,
     settings: &Settings,
@@ -257,6 +318,8 @@ fn writer(
     before: i64,
     retry: &RetryPolicy,
 ) -> Writer {
+    // run_poll refused a bound that does not read before it built this.
+    let plan = plan_bounds_of_env().unwrap_or(PLAN_DEFAULTS);
     let libexec = home.join("libexec");
     let opt = |k: &str| Some(env(k)).filter(|v| !v.is_empty());
     let here = here(home);
@@ -328,6 +391,7 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
+            container_memory: env("TEHAS_CONTAINER_MEMORY"),
             plan_cmd: match opt("TEHAS_PLAN_CMD") {
                 Some(cmd) => vec![cmd],
                 None => vec![
@@ -339,8 +403,8 @@ fn writer(
             pin_cmd: Some(here.join("tehas-cycle"))
                 .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
                 .map(|p| p.to_string_lossy().into_owned()),
-            plan_timeout: env("TEHAS_PLAN_TIMEOUT").parse().unwrap_or(3600),
-            plan_max_turns: env("TEHAS_PLAN_MAX_TURNS").parse().unwrap_or(20),
+            plan_timeout: plan.0,
+            plan_max_turns: plan.1,
             systemd_run: "systemd-run".into(),
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
@@ -358,6 +422,9 @@ fn writer(
                 Ok(n) => Duration::from_secs(n),
                 Err(_) => Duration::from_secs(120),
             },
+            push_probe_cmd: opt("TEHAS_PUSH_PROBE_CMD"),
+            push_probe_wait: secs("TEHAS_PREFLIGHT_WAIT", 300),
+            aliases: env("PI_ENSEMBLE_HOST_ALIASES"),
         },
         ended: None,
         spend: None,
@@ -553,6 +620,12 @@ fn adopt_login(home: &Path, settings: &Settings) -> Option<Settings> {
 
 /// One poll. The exit status the bash poll would end with.
 pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
+    // The poll hands both bounds to the unit of a turn, so a value it cannot
+    // read stops it before the lock, a write or any call.
+    if let Err(why) = plan_bounds_of_env() {
+        say(&format!("ERROR: {why}"));
+        return 78;
+    }
     let state = home.join("state");
     for d in ["state/cycles", "logs", "live"] {
         let _ = std::fs::create_dir_all(home.join(d));
@@ -742,6 +815,19 @@ fn body(
     };
     for l in refresh_warn(&snap) {
         say(l);
+    }
+    // A push fault that has aged out is asked about before the rules read it:
+    // the record left behind is what holds the starts. A probe the host could
+    // not run holds nothing, so the start's own check decides, as before. A
+    // poll that could start nothing asks nothing: the record holds no start.
+    if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before)
+        && may_start(&snap, settings)
+    {
+        let (lines, holds) = w.push_probe(dry);
+        for l in &lines {
+            say(l);
+        }
+        snap["push_fault"] = if holds { push_fault(home) } else { Value::Null };
     }
     let (said, refused) = crate::pins::settle(home, &mut snap, dry);
     for l in &said {
@@ -1234,6 +1320,39 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_planning_bound_is_read_by_the_rule_the_load_reads_it_with() {
+        let os = |v: &str| Some(std::ffi::OsString::from(v));
+        assert_eq!(plan_bounds(None, None), Ok((3600, 20)));
+        assert_eq!(plan_bounds(os(""), os("")), Ok((3600, 20)));
+        assert_eq!(plan_bounds(os("7200"), os("5")), Ok((7200, 5)));
+        assert_eq!(plan_bounds(os("1"), os("999999999")), Ok((1, 999_999_999)));
+        for bad in ["1h", "0", "07200", "-1", " 60", "1e3"] {
+            assert_eq!(
+                plan_bounds(os(bad), None),
+                Err("TEHAS_PLAN_TIMEOUT is not valid: expected a positive whole number".into()),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            plan_bounds(os("7201"), None),
+            Err("TEHAS_PLAN_TIMEOUT (7201) is more than 7200: a planning turn may take at most two hours".into())
+        );
+        for bad in ["two", "0", "+3"] {
+            assert_eq!(
+                plan_bounds(None, os(bad)),
+                Err("TEHAS_PLAN_MAX_TURNS is not valid: expected a positive whole number".into()),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            plan_bounds(None, os("1000000000")),
+            Err("TEHAS_PLAN_MAX_TURNS is not valid: expected at most 9 digits".into())
+        );
+        use std::os::unix::ffi::OsStringExt;
+        assert!(plan_bounds(None, Some(std::ffi::OsString::from_vec(vec![0xff]))).is_err());
+    }
 
     #[test]
     fn the_console_is_told_the_verb_and_a_stand_in_is_told_nothing() {

@@ -578,7 +578,7 @@ TEHAS_ANALYTICS=off
 
 Every command reads it the next time it runs. `off` stops every write, and `tehasbot status` removes
 `live/analytics.json`, so the dashboard's section goes. `tehas analytics` says
-analytics is off and exits 69. The database file is left as it is, and pruning
+analytics is off and exits 78. The database file is left as it is, and pruning
 stops with it: to have the data gone, delete `~/tehas/state/analytics.db` and
 its `-wal` and `-shm`. `on` is the default; anything else stops every command
 with exit 78.
