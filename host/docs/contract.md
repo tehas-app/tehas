@@ -57,6 +57,10 @@ Internal:
 - the `Forge` trait of [the forge page](/forge): tehas 1.0 promises no forge
   interface;
 - `tehas top --json`, a snapshot for the screen;
+- the flags of `tehas plan`, which the dispatcher writes for a planning turn,
+  `tehas index --before-cycle`, the dispatcher's, and `tehas disk --publish`,
+  the cleaner's. `api/commands.txt` marks them and `tehas top --json`
+  `internal`;
 - every feature still being built, below.
 
 ## What is frozen and how
@@ -65,12 +69,12 @@ Internal:
 | --- | --- | --- |
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
-| Commands | The `tehas` commands and each command's flags | The usage texts and the shell tests of each command |
+| Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
-| Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | [The factory API](/api#tehas-api) |
+| Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, `test/status_contract_test.sh` |
 | MCP | The tools, their input and output schemas | The MCP server's tests |
 | `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
