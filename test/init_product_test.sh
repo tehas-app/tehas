@@ -9,7 +9,7 @@
 # (console/src/product.rs), and the tests of its parts are beside its source.
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$T/tree/libexec" "$T/tree/bin"
-ln -s "$T_ROOT/lib" "$T/tree/lib"
+t_lib_link "$T/tree"
 ln -s "$T_ROOT/bin/tehas" "$T/tree/bin/tehas"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 init="$T/tree/bin/tehas init-product"

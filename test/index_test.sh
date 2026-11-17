@@ -17,7 +17,7 @@ T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 mkdir -p "$T/tree/libexec"
-ln -s "$T_ROOT/lib" "$T/tree/lib"
+t_lib_link "$T/tree"
 cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
 index=$T/tree/libexec/index
 t_verb "$index" tehas index
