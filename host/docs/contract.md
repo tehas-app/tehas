@@ -35,8 +35,11 @@ Public:
 - the update from any 0.30.x release by `tehas update`, with the state store
   and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
-- [analytics.db at schema 4](#analyticsdb);
-- [the pull request spec block](#the-pull-request-spec-block).
+- [analytics.db at schema 4](#analyticsdb).
+
+[The pull request spec block](#the-pull-request-spec-block) is described
+below but not built yet: it becomes public with the release that writes and
+checks it.
 
 Internal:
 
@@ -70,9 +73,8 @@ Internal:
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | [The factory API](/api#tehas-api) |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, `test/status_contract_test.sh` |
 | MCP | The tools, their input and output schemas | The MCP server's tests |
-| `tehas update` | From any 0.30.x release, with the release repository and its signing key pinned in tehas | The update's shell tests |
+| `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
-| PR spec block | [The block below](#the-pull-request-spec-block) | Its parser's tests |
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change.
@@ -143,8 +145,9 @@ takes a consistent copy.
 
 ## The pull request spec block
 
-A pull request built from an approved spec carries this block in its body,
-version 1:
+Not built yet: nothing writes or checks this block today, and it is not part of
+the frozen surface until the release that does. When it lands, a pull request
+built from an approved spec carries this block in its body, version 1:
 
 ```
 <!-- tehas:spec v1 -->
@@ -155,8 +158,8 @@ Spec: <file name> sha256:<64 hex>
 ```
 
 One line per requirement. A spec with no requirement ids gets one line per top
-heading. tehas checks only that the block is there and that the hash is the
-one approved; the lines are for the person who reviews.
+heading. tehas will check only that the block is there and that the hash is
+the one approved; the lines are for the person who reviews.
 
 ## Features still being built
 
@@ -190,7 +193,8 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 ## Exit statuses
 
-A status means the same in every public command:
+A status means the same in every public command, but for the exceptions a
+command's table below names:
 
 | Status | Meaning |
 | --- | --- |
@@ -201,8 +205,10 @@ A status means the same in every public command:
 | 78 | settings missing or malformed, or a feature that is off |
 | 141 | standard output closed before the command finished printing |
 
-A command whose work is a session or a cycle passes on that run's own status
-as well; those are listed with the command. Each command's tables below say
+The exceptions: a command whose work is a session or a cycle (`tehas work`,
+`tehas plan`, `tehas dev`) passes on that run's own status and has statuses of
+its own, listed with the command, and `tehas mcp` exits 0 when `TEHAS_MCP` is
+off, so that the unit that runs it stays stopped rather than failed. Each command's tables below say
 which of these it uses and when. The constants are in
 `console/core/src/exit.rs`. Every command exits 141, with nothing on standard
 error, when its reader goes away, as in `tehas status | head -1`.
@@ -426,16 +432,16 @@ its result, and has statuses of its own beside them. Here 3 is tehas's own
 | Status | When |
 | --- | --- |
 | 0 | Done |
-| 1 | A check or a step failed. A step with a status of its own passes it on: 78 from `install.sh`, 3 from a product check that failed |
+| 1 | A check or a step failed, a product check among them |
 | 64 | An unknown option, or app options that do not go together |
-| 78 | A setting is missing, malformed or differs without `--force`, or there is no console and no checkout to build one |
+| 78 | A setting is missing, malformed or differs without `--force`, a step stopped on its settings (78 from `install.sh`), or there is no console and no checkout to build one |
 
 ### tehas update
 
 | Status | When |
 | --- | --- |
 | 0 | Updated, or already up to date |
-| 1 | The update failed: another update holds the lock, the checkout or the release cannot be moved, a step or `install.sh` failed or timed out, systemd did not reload the units, the image could not be moved; or `--check` found something an update does not fix (the host's tools, the slice, root's copy of the command, the tests) |
+| 1 | The update failed: another update holds the lock, the checkout or the release cannot be moved, a step or `install.sh` failed or timed out, systemd did not reload the units, the image could not be moved; or `--check` found something an update does not fix (the host's tools, the slice, root's copy of the command, the tests), or the sandbox build's own check failed |
 | 3 | `--check` found something to update and nothing an update does not fix: a checkout behind, a release to switch to, files that differ, steps left over, or a pi-rukas commit the image is not on |
 | 64 | A bad argument or a combination it refuses |
 | 78 | The settings are missing or malformed (a setting tehas 1.0 renamed or removed among them), a login cannot be resolved or its id changed, or there is no console or no platform to update from |
