@@ -259,10 +259,46 @@ repository's contract files were on a work branch when the instance was set up.
 ## Known limits
 
 - One host, one project. Cycles that run side by side do not know of each other: two issues that touch the same files give conflicting pull requests.
-- The cycle's container holds a GitHub token, so agent code can do what that
-  token can. With [a GitHub App](/github-app) installed on one repository, that
-  token reaches that repository only and lasts an hour; with a bot account's
-  token, give each instance its own account. See [The host](/host).
+- The cycle's container holds a GitHub token for its repository, so agent code
+  can do what that token can, and its network is open unless `TEHAS_EGRESS=on`
+  (tehas#51). With [a GitHub App](/github-app) the token reaches the product
+  repository only and lasts an hour; with a bot account's token, give each
+  instance its own account. Turn on the egress limit to keep the container to
+  GitHub, the registries and the model endpoints: see
+  [Where a container may connect](/host#where-a-container-may-connect).
+- The cycle's container holds the model key, as `$TEHAS_MODEL_KEY_<NAME>`. Give
+  the factory a key of its own, with its own spending limit, so that you can
+  revoke it without stopping anything else.
+- The cycle's token can comment on any pull request of the repository, not only
+  the one its cycle opens: pull requests take one write permission for both.
+  Keep the factory on a repository whose pull requests it may write to.
+- GitHub's bad minutes cost more than the step they hit (tehas#823). A poll
+  that cannot read the queue after its retries does nothing, and the next poll
+  tries again; one that cannot read the issues to plan starts nothing either
+  (tehas#1702). A cycle whose push or pull request failed on GitHub's side is
+  finished by a later poll, three tries within the hour. Its other last steps,
+  such as the handoff comment, are not tried again: read the run log, and use
+  [`tehas:finish`](/operating#finishing-a-stopped-cycle) for a cycle left
+  without its pull request.
+- tehas checks the issue's title and body against the approval when it starts a
+  cycle, and the cycle then reads the issue from GitHub again. An edit made in
+  between reaches the cycle. Until pi-rukas reads the text tehas hands over, let
+  only people you trust edit the product's issues.
+- The lean driver is still being built, and a host has not yet been seen to run
+  it to a merged change. A release refuses it: see the lean rows above.
+- Files under `live/` are for the dashboard, not for programs, and may change in
+  any release. A program reads the commands' `--json` instead: see
+  [the factory API](/api).
+- A host is assumed to sit on a private network. The MCP server is not
+  hardened for the open internet: reach it over the private network or through
+  your own proxy with TLS, and give out keys only to clients you trust.
+- A ticked retry is not counted as waiting work (tehas#1776). A program that
+  sets the factory's limit from its waiting work can hold the limit at 0, and
+  the retry then never starts. Apply `tehas:ready` to the issue again, or raise
+  the limit.
+- A kept installation token is used until it runs out, up to an hour, after it
+  stops reaching the repository, for example when the App is taken off it.
+  `tehas github check` says whether the token reaches the repository.
 - A pull request closed without merging leaves `tehas:awaiting-merge` on its
   issue until someone removes it.
 - The cleaner frees build output, Docker's build cache, host scratch, the
