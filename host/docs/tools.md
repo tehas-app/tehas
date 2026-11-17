@@ -246,14 +246,15 @@ label `tehas.rukas.polyfill.<name>.inputs`, full names separated by spaces or
 commas. In the instance's `sandbox.Dockerfile`:
 
 ```
-LABEL tehas.rukas.polyfills="project-knowledge@0.2.0" \
-      tehas.rukas.polyfill.project-knowledge.inputs="PI_ENSEMBLE_KNOWLEDGE_URL PI_ENSEMBLE_KNOWLEDGE_TOKEN"
+LABEL tehas.rukas.polyfills="example@0.1.0" \
+      tehas.rukas.polyfill.example.inputs="PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_TOKEN"
 ```
 
 Only a `PI_ENSEMBLE_*` name that the runner does not list at all counts: a
 polyfill adds an input, it does not open one the runner keeps to itself. The
 labels are read only when the runner's answer lacks an input, and the run log
-says each input a polyfill took. Unlike a
+says each input a polyfill took. `tehas review` checks the names of its own
+container by the same rule. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for
 `PI_ENSEMBLE_REVIEW_THRESHOLD` is to ignore it. The channel also carries
