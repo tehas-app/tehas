@@ -81,7 +81,8 @@ Internal:
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
-describe one driver's steps and the Protolab, and may change.
+describe one driver's steps and the Protolab, and may change. The fields of
+`contractors` may change while outsource is still being built.
 
 ## Settings and the knob rule
 

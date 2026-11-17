@@ -153,6 +153,11 @@ t_contains "$(jq -r '.properties.room.description' "$schema")" "outsourced to a 
 t_case "the schema says the fields of prototypes may change"
 t_contains "$(jq -r '.properties.prototypes.description' "$schema")" "may change in a minor release"
 
+t_case "the schema and the manual say contractors may change while outsource is being built"
+t_contains "$(jq -r '.properties.contractors.description' "$schema")" "may change while outsource is still being built"
+t_contains "$(grep -F "| \`contractors\` |" "$T_ROOT/host/docs/api.md")" "may change while outsource is still being built"
+t_contains "$(tr '\n' ' ' <"$T_ROOT/host/docs/contract.md")" "fields of \`contractors\` may change while outsource is still being built"
+
 t_case "a sample's words name no other program than tehas"
 # A program copies the samples into its own tests, so a reason in them is
 # read as an example of what a factory says.
