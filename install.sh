@@ -728,7 +728,8 @@ copy_files() {
   [ -z "$stage" ] || args+=(--from "$stage")
   # versions.env calls for the build only for the lines the image reads (record_step).
   [ "$versions_owed" = 1 ] || args+=(--no-steps versions.env)
-  out=$("$console" update files "${args[@]}" "$@" "$root" "$host") || rc=$?
+  # The settings go with it: a feature that is on adds its units to the steps.
+  out=$(export "${!TEHAS_@}"; "$console" update files "${args[@]}" "$@" "$root" "$host") || rc=$?
   while IFS= read -r line; do
     case $line in
       "") ;;
@@ -763,7 +764,7 @@ record_step() { # one source path from the file table
   # to the host's own pins calls for nothing here. The file is still copied, and
   # still counted as drift for --check and for its later: line below.
   if [ "$1" = versions.env ] && [ "$versions_owed" != 1 ]; then return 0; fi
-  "$steps_console" update steps record "$1" || {
+  (export "${!TEHAS_@}"; "$steps_console" update steps record "$1") || {
     echo "tehas: $steps_console could not record the follow-ups of $1; the copies so far are installed" >&2
     exit 1
   }
@@ -1316,7 +1317,7 @@ for src in "${changed[@]-}"; do
   if [ "$src" = versions.env ] && [ "$versions_owed" != 1 ]; then continue; fi
   step_sources+=("$src")
 done
-seen_steps=$("$steps_console" update steps for "${step_sources[@]}" | sed 's/^/next: /') || {
+seen_steps=$(export "${!TEHAS_@}"; "$steps_console" update steps for "${step_sources[@]}" | sed 's/^/next: /') || {
   echo "tehas: $steps_console could not name the follow-ups; they are in the record of steps owed" >&2
   exit 1
 }

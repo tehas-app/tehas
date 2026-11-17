@@ -51,6 +51,16 @@ t_run "$install --check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Installed:    OK"
 
+t_case "with outsource on a changed env.sh restarts the proxy with the other units"
+echo "# an older env.sh" >>"$th/env.sh"
+t_env TEHAS_TEST_FEATURES=outsource
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas-clean.timer tehas-outsource-proxy.service"
+t_contains "$(cat "$th/state/update-pending")" "tehas-clean.timer tehas-outsource-proxy.service"
+rm -f "$th/state/update-pending"
+t_env
+
 t_case "with outsource on a changed proxy is built again and its unit is asked to restart"
 rm -f "$T"/calls/*
 t_env TEHAS_TEST_FEATURES=outsource CONSOLE_BUILD=a-newer-source
@@ -79,5 +89,16 @@ t_env
 t_case "the units step accepts the proxy's unit"
 t_run "'$T_CONSOLE' update steps valid 'units tehas-outsource-proxy.service'"
 t_eq "$t_rc" 0
+
+t_case "with outsource off a changed env.sh asks for the units without the proxy"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# an older env.sh" >>"$th/env.sh"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "next: units "
+t_lacks "$t_out" "tehas-outsource-proxy.service"
 
 t_done

@@ -98,8 +98,14 @@ fn is_unit(word: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"_.:@+-".contains(&b))
 }
 
-/// The steps these changed sources call for, in the order they run.
+/// The steps these changed sources call for, in the order they run, with the
+/// features the settings in the environment turn on.
 pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
+    steps_for_in(sources, &|name| std::env::var(name).unwrap_or_default())
+}
+
+/// [`steps_for`] with the settings `get` reads.
+fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String> {
     let any = |test: &dyn Fn(&str) -> bool| sources.iter().any(|s| test(s));
     let mut steps = Vec::new();
     // A server runs the program it started with: a new one reaches it only
@@ -126,13 +132,16 @@ pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
                     | "env.sh"
             )
     }) {
-        // A feature's unit only when its own file or its program changed: it
-        // is installed only while the feature is on, and the line stays as it
-        // was while off.
+        // A feature's unit while the feature is on, as the others. While it
+        // is off, only when its own file or its program changed, so the line
+        // stays as it was.
+        let (_, on) = tehas_core::features::installs_in(get);
         let mut units: Vec<&str> = UNITS.to_vec();
         for unit in tehas_core::features::units().chain(servers.iter().copied()) {
             if !units.contains(&unit)
-                && (servers.contains(&unit) || any(&|s| s == format!("systemd/{unit}")))
+                && (on.contains(&unit)
+                    || servers.contains(&unit)
+                    || any(&|s| s == format!("systemd/{unit}")))
             {
                 units.push(unit);
             }
@@ -351,7 +360,8 @@ pub(crate) fn record_lines(home: &Path, lines: &[String]) -> Result<(), ()> {
 /// `console update steps ids|units|valid <line>|owed|for <source>...|record <source>...`:
 /// the tables, one name per line, whether a line is a step (0 yes, 1 no), the
 /// lines of the record, the steps changed sources call for, and those steps
-/// added to the record. Exit: 1 the record could not be read or written.
+/// added to the record. The last two read the feature switches from the
+/// environment. Exit: 1 the record could not be read or written.
 pub fn verb(given: &[String]) -> u8 {
     if let Some((word, sources)) = given.split_first() {
         match word.as_str() {
@@ -412,7 +422,19 @@ mod tests {
     }
 
     fn asked(sources: &[&str]) -> Vec<String> {
-        steps_for(&lines(sources))
+        steps_for_in(&lines(sources), &|_| String::new())
+    }
+
+    /// With outsource on, as a test turns a building feature on.
+    fn asked_on(sources: &[&str]) -> Vec<String> {
+        steps_for_in(&lines(sources), &|name| {
+            match name {
+                "TEHAS_OUTSOURCE" => "on",
+                "TEHAS_TEST_FEATURES" => "outsource",
+                _ => "",
+            }
+            .to_string()
+        })
     }
 
     #[test]
@@ -514,6 +536,26 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn with_outsource_on_env_sh_and_the_unit_files_restart_the_proxy_too() {
+        let all = format!("units {}", UNITS.join(" "));
+        let with_proxy = format!("{all} tehas-outsource-proxy.service");
+        for source in [
+            "env.sh",
+            "systemd/tehas-top.service",
+            "libexec/with-settings",
+        ] {
+            assert_eq!(asked_on(&[source]), [with_proxy.as_str()], "{source}");
+            assert_eq!(asked(&[source]), [all.as_str()], "{source}");
+        }
+        assert_eq!(
+            asked_on(&["libexec/tehas-proxy"]),
+            ["units tehas-outsource-proxy.service"]
+        );
+        assert!(asked_on(&["libexec/dispatch"]).is_empty());
+        assert!(valid(&with_proxy));
     }
 
     #[test]
