@@ -52,20 +52,34 @@ pub fn rows() -> Vec<Row> {
 /// is gone, and an easy merge of 0 asks for the full refresh every refresh is.
 /// The manager's version under its old name is only shown, never decided on,
 /// and the program that manages the factory writes it on every create: it is
-/// dropped, so a factory it made before it writes the new name still runs.
+/// dropped, so a factory it made before it writes the new name still runs. A
+/// value the timed refresh scan took asks for nothing now that every refresh
+/// is asked for one pull request at a time.
 pub fn quiet(old: &str, value: &str) -> bool {
     old == "TEHAS_INDUSTRY_VERSION"
+        || (old == "TEHAS_REFRESH_EVERY" && minutes(value))
         || matches!(
             (old, value),
             ("TEHAS_IMPROVE_RUKAS_SKIP" | "TEHAS_EASY_MERGE", "0" | "")
+                | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
                 | (
                     "TEHAS_IMPROVE_REPO"
                         | "TEHAS_IMPROVE_RUKAS_REPO"
                         | "TEHAS_IMPROVE_MAX_OPEN"
-                        | "TEHAS_CYCLE_REPORT",
+                        | "TEHAS_CYCLE_REPORT"
+                        | "TEHAS_REFRESH_EVERY",
                     ""
                 )
         )
+}
+
+/// A value TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no leading 0.
+/// The digits check matters: u32's parse also takes a leading '+'.
+fn minutes(v: &str) -> bool {
+    v.bytes().all(|b| b.is_ascii_digit())
+        && !v.starts_with('0')
+        && v.len() <= 4
+        && v.parse::<u32>().is_ok_and(|n| (1..=1440).contains(&n))
 }
 
 /// The value the last line of `text` that sets `name` gives it, with the
