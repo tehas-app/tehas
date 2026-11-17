@@ -29,13 +29,9 @@ pub const INSTANCE_SETTINGS: [&str; 5] = [
 /// settings from the environment with no shell before it that loaded them, so
 /// these three are named here rather than in the poll: without TEHAS_HOME it
 /// has no libexec/store and no state directory to read, TEHAS_INSTANCE_DIR is
-/// the file every refusal names, and TEHAS_TICKET_CONCURRENCY is a load's
+/// the file every refusal names, and TEHAS_MAX_CYCLES is a load's
 /// derivation from the host, not a count a poll may guess.
-pub const DISPATCHER_ALSO: [&str; 3] = [
-    "TEHAS_HOME",
-    "TEHAS_INSTANCE_DIR",
-    "TEHAS_TICKET_CONCURRENCY",
-];
+pub const DISPATCHER_ALSO: [&str; 3] = ["TEHAS_HOME", "TEHAS_INSTANCE_DIR", "TEHAS_MAX_CYCLES"];
 
 /// A name set to nothing, or to spaces only, as `tehas_require` counts it.
 fn first_unset<'a>(names: &[&'a str], get: impl Fn(&str) -> String) -> Option<&'a str> {

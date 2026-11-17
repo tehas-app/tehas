@@ -4,7 +4,7 @@
 {{- if or (not (has $proto (list "http" "https"))) (not (regexMatch "^[A-Za-z0-9.-]+(:[0-9]+)?$" .Req.Host)) }}{{ httpError 400 }}{{ end -}}
 {{- $base := printf "%s://%s" $proto .Req.Host -}}
 User-agent: *
-{{- if eq (env "TEHAS_INDEXING") "1" }}
+{{- if eq (env "TEHAS_SITE_INDEXING") "1" }}
 Disallow: /live/
 Disallow: /health
 

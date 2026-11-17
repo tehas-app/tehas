@@ -126,7 +126,7 @@
   {
    "case": "the ready control issue takes no slot from a real issue",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -258,7 +258,7 @@
   {
    "case": "the control issue gets at most one skip line per poll",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [

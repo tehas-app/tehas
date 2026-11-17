@@ -78,7 +78,7 @@ impl Settings {
                 .and_then(|x| x.as_i64().or_else(|| x.as_str()?.parse().ok()))
                 .unwrap_or(d)
         };
-        let concurrency = n("TEHAS_TICKET_CONCURRENCY", 7);
+        let concurrency = n("TEHAS_MAX_CYCLES", 7);
         let min_free = s("TEHAS_CYCLE_MIN_FREE", "10g");
         // As written: a missing one is the number config.sh would have
         // exported.
@@ -126,7 +126,7 @@ impl Settings {
             work_files: s("TEHAS_WORK_FILES", "0") == "1",
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
-            refresh_max: n("TEHAS_REFRESH_MAX", 2),
+            refresh_max: n("TEHAS_REFRESH_MAX_PER_PR", 2),
             fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             millwright_feed: s("TEHAS_MILLWRIGHT_FEED", "0") == "1",
             millwright_max_feeds: n("TEHAS_MILLWRIGHT_MAX_FEEDS", 2),

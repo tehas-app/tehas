@@ -177,7 +177,7 @@ t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .recorded] | tostring')" '
 
 t_case "the turn limit ends the session in place of another turn"
 planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_PLAN_MAX_TURNS=2
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_PLAN_MAX_TURNS=2
 t_plan "$T/home/tehas" 7 '{"turns":2,"options":["Adopt all","Change some"],"comment":4001}'
 comments 7 "$(plan_body x ' ' ' ' 2)" alice
 t_run "$dispatch"
@@ -224,7 +224,7 @@ t_eq "$(t_row history-show 7 --kind plan -- '.rows[-1] | [.turn, .outcome] | tos
 
 t_case "a refine the poll started on its own hands the issue back when it ends without a plan"
 planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_PLAN_MAX_TURNS=2
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_PLAN_MAX_TURNS=2
 t_plan "$T/home/tehas" 7 '{"turns":2,"options":["Adopt all","Change some"],"comment":4001,"label":"tehas:refine","auto":true}'
 comments 7 "$(plan_body x ' ' ' ' 2)" alice
 t_run "$dispatch"
@@ -240,7 +240,7 @@ t_contains "$(t_calls gh)" "pi-rukas has no record of it on"
 t_contains "$(t_calls gh)" "--remove-label tehas:plan --add-label needs-human-attention"
 # A refine a label started ends as a plan does.
 planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_PLAN_MAX_TURNS=2
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_PLAN_MAX_TURNS=2
 t_plan "$T/home/tehas" 7 '{"turns":2,"options":["Adopt all","Change some"],"comment":4001,"label":"tehas:refine"}'
 comments 7 "$(plan_body x ' ' ' ' 2)" alice
 t_run "$dispatch"

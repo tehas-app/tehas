@@ -16,7 +16,7 @@
   ],
   "settings": [
     {
-      "name": "TEHAS_INDEXING",
+      "name": "TEHAS_SITE_INDEXING",
       "rule": "one-of",
       "when": "always",
       "default": "0",
@@ -107,7 +107,7 @@
       "reason": "expected on or off"
     },
     {
-      "name": "TEHAS_ANALYTICS_COOKIE",
+      "name": "TEHAS_SITE_ANALYTICS_COOKIE",
       "rule": "one-of",
       "when": "always",
       "default": "0",
@@ -250,14 +250,14 @@
       "reason": "expected on or off"
     },
     {
-      "name": "TEHAS_CONCURRENCY",
+      "name": "TEHAS_WORKSTREAMS",
       "rule": "count",
       "when": "always",
       "default": "1",
       "reason": "expected a positive whole number"
     },
     {
-      "name": "TEHAS_TICKET_CONCURRENCY",
+      "name": "TEHAS_MAX_CYCLES",
       "rule": "cycles",
       "when": "always",
       "default": null,
@@ -367,7 +367,7 @@
       "reason": "expected on or off"
     },
     {
-      "name": "TEHAS_REFRESH_MAX",
+      "name": "TEHAS_REFRESH_MAX_PER_PR",
       "rule": "count",
       "when": "always",
       "default": "2",
@@ -579,14 +579,14 @@
       "reason": "expected an absolute path such as /mnt/scratch"
     },
     {
-      "name": "TEHAS_ANALYTICS_SRC",
+      "name": "TEHAS_SITE_ANALYTICS_SRC",
       "rule": "script-address",
       "when": "given",
       "default": "",
       "reason": "expected the https address of a script"
     },
     {
-      "name": "TEHAS_ANALYTICS_SITE",
+      "name": "TEHAS_SITE_ANALYTICS_NAME",
       "rule": "site-name",
       "when": "given",
       "default": "",
@@ -614,7 +614,7 @@
       "reason": "expected the login of a GitHub App, <slug>[bot]"
     },
     {
-      "name": "TEHAS_OWNER",
+      "name": "TEHAS_ASSIGNEE",
       "rule": "person",
       "when": "given",
       "default": "",

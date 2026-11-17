@@ -385,24 +385,24 @@ mod tests {
 
     #[test]
     fn every_renamed_setting_of_a_0_30_instance_is_listed_at_once() {
-        // A 0.30 instance with three lines tehas 1.0 removed, one that loads
-        // quietly, and one in the host's credential file: the load names the
-        // first, and the findings list all four that do not.
+        // A 0.30 instance with three lines tehas 1.0 renamed or removed, one
+        // that loads quietly, and one in the host's credential file: the load
+        // names the first, and the findings list all four that do not.
         let (d, vars) = instance(&[
             (
                 "instance.env",
-                "TEHAS_REPO=acme/widget\nTEHAS_BOT_LOGIN=acme[bot]\nTEHAS_EASY_MERGE=0\nexport TEHAS_IMPROVE_REPO=acme/backlog\nTEHAS_CYCLE_CPUS=4\n",
+                "TEHAS_REPO=acme/widget\nTEHAS_TICKET_CONCURRENCY=3\nTEHAS_EASY_MERGE=0\nexport TEHAS_OWNER=alice\nTEHAS_CYCLE_CPUS=4\n",
             ),
             ("models.json", MODELS),
         ]);
         let config = d.0.join(".config/tehas");
         fs::create_dir_all(&config).unwrap();
-        fs::write(config.join("env"), "TEHAS_CYCLE_CEILING=6\n").unwrap();
+        fs::write(config.join("env"), "TEHAS_INDUSTRY_VERSION=v0.9.0\n").unwrap();
         let file = format!("{}/instance.env", inst(&d));
         let creds = format!("{}/env", config.display());
         let first = renamed::rows()
             .into_iter()
-            .find(|r| r.old == "TEHAS_CYCLE_CPUS")
+            .find(|r| r.old == "TEHAS_TICKET_CONCURRENCY")
             .unwrap();
         let line = format!("{} (see {file})", first.why());
         let said = findings(vars, &me(), |_| Err(format!("tehas: {line}")));
@@ -413,15 +413,20 @@ mod tests {
         assert_eq!(
             names,
             [
-                "TEHAS_IMPROVE_REPO",
                 "TEHAS_CYCLE_CPUS",
-                "TEHAS_BOT_LOGIN",
-                "TEHAS_CYCLE_CEILING"
+                "TEHAS_TICKET_CONCURRENCY",
+                "TEHAS_OWNER",
+                "TEHAS_INDUSTRY_VERSION"
             ],
             "{said:?}"
         );
         assert!(said.contains(&format!("tehas: {line}")), "{said:?}");
-        assert!(said[1].contains("auto sizing is removed"), "{said:?}");
+        assert!(said[0].contains("auto sizing is removed"), "{said:?}");
+        assert!(said[1].contains("renamed it TEHAS_MAX_CYCLES"), "{said:?}");
+        assert!(
+            said[3].contains("renamed it TEHAS_MANAGER_VERSION"),
+            "{said:?}"
+        );
         assert!(said[3].ends_with(&format!("(see {creds})")), "{said:?}");
         // A load refused for another reason is said first, then the rows.
         let (_d, vars) = instance(&[

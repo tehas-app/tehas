@@ -3,9 +3,9 @@
 #
 # TEHAS_HOST_ADDR is the address it binds to, from the instance settings
 # (source env.sh before running docker compose). Without it the server stays on
-# the loopback address, reachable from the host only. TEHAS_INDEXING=1 lets
+# the loopback address, reachable from the host only. TEHAS_SITE_INDEXING=1 lets
 # search engines index the pages; without it every page says noindex.
-# TEHAS_ANALYTICS_SRC and TEHAS_ANALYTICS_SITE put a visitor analytics script
+# TEHAS_SITE_ANALYTICS_SRC and TEHAS_SITE_ANALYTICS_NAME put a visitor analytics script
 # in every page; without them there is none. TEHAS_DESIGN draws every page
 # and picks the front page: beesknees26 (the business page) or pixel (the
 # factory floor); without it beesknees26.
@@ -20,10 +20,10 @@ services:
     # host/versions.env records the version and this digest together.
     image: caddy@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
     environment:
-      TEHAS_INDEXING: "${TEHAS_INDEXING:-0}"
-      TEHAS_ANALYTICS_SRC: "${TEHAS_ANALYTICS_SRC:-}"
-      TEHAS_ANALYTICS_SITE: "${TEHAS_ANALYTICS_SITE:-}"
-      TEHAS_ANALYTICS_COOKIE: "${TEHAS_ANALYTICS_COOKIE:-0}"
+      TEHAS_SITE_INDEXING: "${TEHAS_SITE_INDEXING:-0}"
+      TEHAS_SITE_ANALYTICS_SRC: "${TEHAS_SITE_ANALYTICS_SRC:-}"
+      TEHAS_SITE_ANALYTICS_NAME: "${TEHAS_SITE_ANALYTICS_NAME:-}"
+      TEHAS_SITE_ANALYTICS_COOKIE: "${TEHAS_SITE_ANALYTICS_COOKIE:-0}"
       TEHAS_DESIGN: "${TEHAS_DESIGN:-beesknees26}"
     volumes:
       - "./docs.Caddyfile:/etc/caddy/Caddyfile:ro"

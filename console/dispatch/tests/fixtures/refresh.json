@@ -5,7 +5,7 @@
   {
    "case": "a leftover tehas:refreshing is taken off a pull request whose issue has no cycle",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -54,7 +54,7 @@
   {
    "case": "the leftover is cleared while the factory is paused",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -106,7 +106,7 @@
   {
    "case": "the mark of a running refresh stays when the bot applied it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -170,7 +170,7 @@
   {
    "case": "the mark of a running refresh stays when TEHAS_BOT_LOGIN names the app without [bot]",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BOT_LOGIN": "acme-app"
    },
    "snapshot": {
@@ -235,7 +235,7 @@
   {
    "case": "a tehas:refreshing applied by anyone else is taken off, also while a refresh runs",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -303,7 +303,7 @@
   {
    "case": "a tehas:refreshing on a pull request no refresh of this host names is taken off while a request waits",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -361,7 +361,7 @@
   {
    "case": "a history of refreshes the store cannot read clears no mark",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -410,7 +410,7 @@
   {
    "case": "an approval the store cannot read clears no mark",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -457,7 +457,7 @@
   {
    "case": "a dry run says the mark would come off and changes nothing",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "dry": true,
    "snapshot": {
@@ -501,7 +501,7 @@
   {
    "case": "a list of marked pull requests that cannot be read clears no mark and goes on",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -546,7 +546,7 @@
   {
    "case": "marked pull requests that are not a list say the same WARN once and go on",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -589,7 +589,7 @@
   {
    "case": "a poll that cannot read the marked pull requests still starts a ready issue with room for it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "awaiting": [
@@ -654,7 +654,7 @@
   {
    "case": "a refresh starts, and the request goes",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -777,7 +777,7 @@
   {
    "case": "a refresh whose pull request read failed names the read and gh's words",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -841,7 +841,7 @@
   {
    "case": "a refresh whose pull request read failed with no words of gh's names the read alone",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -907,7 +907,7 @@
   {
    "case": "a refresh of an issue whose edit record is missing names that record, not a gh call",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1017,7 +1017,7 @@
   {
    "case": "a refresh is the full one and says nothing of an easy merge, even with the retired setting given",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_EASY_MERGE": "1"
    },
    "snapshot": {
@@ -1149,9 +1149,9 @@
    }
   },
   {
-   "case": "a refresh counts against TEHAS_REFRESH_MAX on the approval it rests on",
+   "case": "a refresh counts against TEHAS_REFRESH_MAX_PER_PR on the approval it rests on",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1274,7 +1274,7 @@
   {
    "case": "a refresh after a refresh counts on from it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1397,7 +1397,7 @@
   {
    "case": "a refresh of a fixer's start rests on the person's approval",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
@@ -1514,7 +1514,7 @@
   {
    "case": "a planning session open on the issue drops the refresh (A13)",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1649,7 +1649,7 @@
   {
    "case": "an image without --continue-pr holds refreshes: said once, and in tehas status's demand",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1767,7 +1767,7 @@
   {
    "case": "an image without --continue-pr: the next poll does not say it again",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -1878,7 +1878,7 @@
   {
    "case": "a refresh that waits for room counts in the demand",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 1
+    "TEHAS_MAX_CYCLES": 1
    },
    "snapshot": {
     "ready": [],
@@ -1988,7 +1988,7 @@
   {
    "case": "a changed body drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2102,7 +2102,7 @@
   {
    "case": "a body edited by someone else since the approval drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2218,7 +2218,7 @@
   {
    "case": "a changed title drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2340,7 +2340,7 @@
   {
    "case": "a moved head drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2454,7 +2454,7 @@
   {
    "case": "a pull request that no longer conflicts drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2568,7 +2568,7 @@
   {
    "case": "a pull request whose state GitHub has not computed waits",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2676,7 +2676,7 @@
   {
    "case": "a closed pull request drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2790,7 +2790,7 @@
   {
    "case": "a pull request of another account drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -2904,7 +2904,7 @@
   {
    "case": "a draft pull request is refreshed",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3020,7 +3020,7 @@
   {
    "case": "a second open pull request drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3138,7 +3138,7 @@
   {
    "case": "a running cycle drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3258,7 +3258,7 @@
   {
    "case": "tehas:millwright-escalated on the issue drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3375,7 +3375,7 @@
   {
    "case": "tehas:running on the issue drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3492,7 +3492,7 @@
   {
    "case": "tehas:plan on the issue drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3609,7 +3609,7 @@
   {
    "case": "an issue that no longer waits for a merge drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3719,7 +3719,7 @@
   {
    "case": "a handed-off issue's pull request is refreshed: the issue is marked running, with no label to take off",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3825,7 +3825,7 @@
   {
    "case": "a pull request with no draft state drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -3938,7 +3938,7 @@
   {
    "case": "tehas:question on the issue is refreshed, and the start takes it off",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4061,7 +4061,7 @@
   {
    "case": "a handed-off issue that carries tehas:question is refreshed, and the start takes it off",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4179,7 +4179,7 @@
   {
    "case": "a handed-off issue's draft pull request is refreshed",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4289,7 +4289,7 @@
   {
    "case": "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 1
+    "TEHAS_MAX_CYCLES": 1
    },
    "snapshot": {
     "ready": [],
@@ -4402,7 +4402,7 @@
   {
    "case": "a handed-off issue whose pull request says tehas:running drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4501,7 +4501,7 @@
   {
    "case": "no person's approval on record drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4610,7 +4610,7 @@
   {
    "case": "an approval by an account no longer allowed drops the refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4724,7 +4724,7 @@
   {
    "case": "an approval the store cannot read keeps the refresh waiting: the request stays",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4828,7 +4828,7 @@
   {
    "case": "a history the store cannot read keeps the refresh waiting: the request stays",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -4937,7 +4937,7 @@
   {
    "case": "a pull request that carries tehas:refreshing waits",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5049,7 +5049,7 @@
   {
    "case": "at its cap a refresh is held and said on the issue once",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5178,7 +5178,7 @@
   {
    "case": "at its cap, the next request is dropped and not said again",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5306,10 +5306,10 @@
    }
   },
   {
-   "case": "TEHAS_REFRESH_MAX sets the cap",
+   "case": "TEHAS_REFRESH_MAX_PER_PR sets the cap",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_MAX": 3
+    "TEHAS_MAX_CYCLES": 2,
+    "TEHAS_REFRESH_MAX_PER_PR": 3
    },
    "snapshot": {
     "ready": [],
@@ -5430,7 +5430,7 @@
   {
    "case": "after a refresh that parked a refresh is held and said on the issue once",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5553,7 +5553,7 @@
   {
    "case": "a parked refresh with no start counts as a park since the approval",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5668,7 +5668,7 @@
   {
    "case": "a parked refresh whose start the poll cannot read counts as a park",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5783,7 +5783,7 @@
   {
    "case": "a refresh that was not parked is offered though its start is unread",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -5894,7 +5894,7 @@
   {
    "case": "a parked refresh that started before the approval does not hold one",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -6002,7 +6002,7 @@
   {
    "case": "a park of a cycle that was no refresh does not hold one",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -6110,7 +6110,7 @@
   {
    "case": "the pause flag holds a refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -6220,7 +6220,7 @@
   {
    "case": "with TEHAS_REFRESH_SLOTS=0 full slots hold a refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 1,
+    "TEHAS_MAX_CYCLES": 1,
     "TEHAS_REFRESH_SLOTS": 0
    },
    "snapshot": {
@@ -6329,7 +6329,7 @@
   {
    "case": "the limit holds a refresh",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -6434,7 +6434,7 @@
   {
    "case": "the awaiting-merge cap does not hold a refresh, and holds the ready issues",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_MAX_AWAITING": 2
    },
    "snapshot": {
@@ -6547,7 +6547,7 @@
   {
    "case": "refreshes go after the start order and before the rest",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "snapshot": {
     "ready": [],
@@ -6666,7 +6666,7 @@
   {
    "case": "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before a ready issue does",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 1,
+    "TEHAS_MAX_CYCLES": 1,
     "TEHAS_REFRESH_SLOTS": 0
    },
    "snapshot": {
@@ -6772,7 +6772,7 @@
   {
    "case": "the lane: with every cycle slot busy a refresh starts, and the hold says the lane",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 3
+    "TEHAS_MAX_CYCLES": 3
    },
    "snapshot": {
     "ready": [],
@@ -6887,7 +6887,7 @@
   {
    "case": "the lane and a free slot: the refresh and a ready issue both start",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -6996,7 +6996,7 @@
   {
    "case": "a running refresh fills the lane: the next one waits and a cycle slot does not take it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 3
+    "TEHAS_MAX_CYCLES": 3
    },
    "snapshot": {
     "ready": [],
@@ -7109,9 +7109,9 @@
    }
   },
   {
-   "case": "a running refresh does not count against TEHAS_TICKET_CONCURRENCY",
+   "case": "a running refresh does not count against TEHAS_MAX_CYCLES",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 1
+    "TEHAS_MAX_CYCLES": 1
    },
    "snapshot": {
     "ready": [],
@@ -7220,7 +7220,7 @@
   {
    "case": "TEHAS_REFRESH_SLOTS=2 runs two refreshes side by side",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_REFRESH_SLOTS": 2
    },
    "snapshot": {
@@ -7333,7 +7333,7 @@
   {
    "case": "while a request waits new cycles leave the lane's room in the slice: the refresh and three of four start, and the poll says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "snapshot": {
     "ready": [],
@@ -7447,7 +7447,7 @@
   {
    "case": "with three cycles in a slice of four and a request waiting the lane keeps the last room from a ready issue",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "snapshot": {
     "ready": [],
@@ -7563,7 +7563,7 @@
   {
    "case": "a full slice holds a refresh and a ready issue alike",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_CYCLES": 4,
     "TEHAS_REFRESH_SLOTS": 2
    },
    "snapshot": {
@@ -7678,7 +7678,7 @@
   {
    "case": "with refreshes off the lane keeps nothing: four of four start",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "snapshot": {
     "ready": [],
@@ -7790,7 +7790,7 @@
   {
    "case": "a dry run says what a refresh would start, and changes nothing",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -7894,7 +7894,7 @@
   {
    "case": "a request that cannot be read goes",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],
@@ -8005,7 +8005,7 @@
   {
    "case": "a request the snapshot did not read is named, not dropped",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "ready": [],

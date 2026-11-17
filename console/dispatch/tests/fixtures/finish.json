@@ -659,7 +659,7 @@
   {
    "case": "a poll that starts fewer than it could logs exactly one reason, on every such poll",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_CYCLES": 4,
     "TEHAS_MAX_AWAITING": 3
    },
    "snapshot": {
@@ -696,7 +696,7 @@
   {
    "case": "a poll that starts fewer than it could logs the reason again on the next poll",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_CYCLES": 4,
     "TEHAS_MAX_AWAITING": 3
    },
    "snapshot": {
@@ -724,7 +724,7 @@
   {
    "case": "the slice's room, when it is the limit, is the one reason",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "other": 16106127360,
    "ready_n": [
@@ -752,7 +752,7 @@
   {
    "case": "a poll that starts as many as wait says no reason",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_CYCLES": 4,
     "TEHAS_MAX_AWAITING": 3
    },
    "snapshot": {

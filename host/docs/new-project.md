@@ -438,21 +438,21 @@ TEHAS_ALLOWED_LABELERS="janit"
 
 PI_ENSEMBLE_SUBAGENT_MODEL=qwen3.8-flash-next
 PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet
-TEHAS_INDEXING=on
+TEHAS_SITE_INDEXING=on
 
 # from ~/.config/tehas/private.env on the host
 PI_ENSEMBLE_HOST_ALIASES=gb1:<the model host's private address>
 TEHAS_HOST_ADDR=<this host's private address>
 
-TEHAS_ANALYTICS_SRC=https://ea.trippi.app/ea.js
-TEHAS_ANALYTICS_SITE=tehas
-TEHAS_ANALYTICS_COOKIE=on
+TEHAS_SITE_ANALYTICS_SRC=https://ea.trippi.app/ea.js
+TEHAS_SITE_ANALYTICS_NAME=tehas
+TEHAS_SITE_ANALYTICS_COOKIE=on
 ```
 
 - The two addresses are not in the repository: the `instance.env` reads them
   from `~/.config/tehas/private.env` on the host, a file of the same
   `KEY=value` lines. Your own instance directory can simply hold them.
-- `TEHAS_INDEXING=on` and the three analytics lines are there because this
+- `TEHAS_SITE_INDEXING=on` and the three analytics lines are there because this
   instance's dashboard is published on the internet, at <https://tehas.app>: it
   lets search engines in and counts visits. Leave them out for an instance that
   is not public.

@@ -17,7 +17,7 @@ read -r plan_max child_max <<<"$t_out"
 
 t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"\$TEHAS_WORK_REPO|\$TEHAS_HOST_ADDR|\$TEHAS_CONCURRENCY\""
+t_run "$load && echo \"\$TEHAS_WORK_REPO|\$TEHAS_HOST_ADDR|\$TEHAS_WORKSTREAMS\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|1"
 
@@ -165,20 +165,20 @@ t_eq "$(sed -n 's/^OnUnitInactiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.t
 t_eq "$(sed -n 's/^OnUnitActiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
 
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
-t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
+t_instance "${T_MINIMAL[@]}" TEHAS_WORKSTREAMS=4 TEHAS_MAX_CYCLES=1
+t_run "$load && echo \"\$TEHAS_WORKSTREAMS \$TEHAS_MAX_CYCLES \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "4 1 4"
 
 t_case "several cycles and several workstreams are refused: one axis of parallelism"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=3
+t_instance "${T_MINIMAL[@]}" TEHAS_WORKSTREAMS=2 TEHAS_MAX_CYCLES=3
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (3) are both above 1: choose one"
+t_contains "$t_out" "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (3) are both above 1: choose one"
 
 t_case "an instance line for pi-rukas's workstreams is replaced by tehas' value"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MAX_WORKSTREAMS=4
-t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
+t_run "$load && echo \"\$TEHAS_WORKSTREAMS \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
 t_eq "$t_out" "1 1"
 
 t_case "the sandbox safety switches are always on"
@@ -194,8 +194,8 @@ t_eq "$t_out" "acme/widget"
 
 t_case "a setting only in the environment is not used"
 t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_GITHUB_APP_ID=1
-T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1)
-t_run "$load && echo \"[\${TEHAS_REPO:-}] [\$TEHAS_INDEXING] [\${PI_ENSEMBLE_DEBUG:-}]\""
+T_ENV=(TEHAS_REPO=other/thing TEHAS_SITE_INDEXING=1 PI_ENSEMBLE_DEBUG=1)
+t_run "$load && echo \"[\${TEHAS_REPO:-}] [\$TEHAS_SITE_INDEXING] [\${PI_ENSEMBLE_DEBUG:-}]\""
 t_eq "$t_out" "[] [0] []"
 
 t_case "a cycle is given no images unless the instance says so"
@@ -359,17 +359,17 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
-  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
-  "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_DESIGN=paper" "TEHAS_DESIGN=Pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+for bad in "TEHAS_WORKSTREAMS=auto" "TEHAS_WORKSTREAMS=0" "TEHAS_MAX_CYCLES=0" "TEHAS_MAX_CYCLES=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
+  "TEHAS_BRANCH=two words" "TEHAS_SITE_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_SITE_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_SITE_ANALYTICS_NAME=two words" \
+  "TEHAS_SITE_ANALYTICS_COOKIE=yes" "TEHAS_DESIGN=paper" "TEHAS_DESIGN=Pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" "TEHAS_EGRESS=yes" "TEHAS_EGRESS_HOSTS=*.example.org" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" "TEHAS_CLEAN_MIN_FREE=lots" \
-  "TEHAS_OWNER=acme-app[bot]" "TEHAS_OWNER=alice bob" \
+  "TEHAS_ASSIGNEE=acme-app[bot]" "TEHAS_ASSIGNEE=alice bob" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1" \
   "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b"; do
@@ -377,8 +377,8 @@ for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRE
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  # The suffix belongs to `auto` alone, and that count is TEHAS_CONCURRENCY.
-  [ "${bad%%=*}" = TEHAS_CONCURRENCY ] || t_lacks "$t_out" "auto sizing is removed"
+  # The suffix belongs to `auto` alone, and that count is TEHAS_WORKSTREAMS.
+  [ "${bad%%=*}" = TEHAS_WORKSTREAMS ] || t_lacks "$t_out" "auto sizing is removed"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
@@ -428,10 +428,10 @@ done
 
 t_case "the owner is optional: unset it is empty, set it is the login"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_OWNER]\""
+t_run "$load && set -u && echo \"[\$TEHAS_ASSIGNEE]\""
 t_eq "$t_out" "[]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_OWNER=alice >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_OWNER]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ASSIGNEE=alice >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ASSIGNEE]\""
 t_eq "$t_out" "[alice]"
 
 t_case "a setting of the improvement loop, gone, stops the load with 78 and names itself"
@@ -487,10 +487,10 @@ t_eq "$t_out" "[1]"
 
 t_case "two refreshes of one pull request and a lane of one by default"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_SLOTS]\""
+t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_MAX_PER_PR][\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[2][1]"
-t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_SLOTS=8
-t_run "$load && echo \"[\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_SLOTS]\""
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_MAX_PER_PR=5 TEHAS_REFRESH_SLOTS=8
+t_run "$load && echo \"[\$TEHAS_REFRESH_MAX_PER_PR][\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[5][8]"
 
 t_case "the settings of the timed refresh scan are gone: a value they took loads and is dropped, any other is refused"
@@ -567,7 +567,7 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.en
 t_run "$load && echo \"[\$TEHAS_REVIEW]\""
 t_eq "$t_out" "[1]"
 
-for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
+for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX_PER_PR=0" "TEHAS_REFRESH_MAX_PER_PR=-1" "TEHAS_REFRESH_MAX_PER_PR=many" \
   "TEHAS_REFRESH_SLOTS=9" "TEHAS_REFRESH_SLOTS=-1" "TEHAS_REFRESH_SLOTS=01" "TEHAS_REFRESH_SLOTS=one"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -623,7 +623,7 @@ done
 # not taken as passing the comparison that failed on it (the dispatcher compares
 # TEHAS_SIZE_MAX_FILES with the files of a body, and `tehas limit` its cycles
 # with what runs: a long number must stop the load, not reach either).
-for name in TEHAS_WORK_TIMEOUT TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_VERIFY_TIMEOUT \
+for name in TEHAS_WORK_TIMEOUT TEHAS_WORKSTREAMS TEHAS_MAX_CYCLES TEHAS_VERIFY_TIMEOUT \
   TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING \
   TEHAS_MILLWRIGHT_MAX_RETRIES; do
   t_case "loading rejects a $name of 20 digits"
@@ -705,13 +705,13 @@ done
 
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
+t_run "$load && echo \"[\$TEHAS_SITE_ANALYTICS_SRC][\$TEHAS_SITE_ANALYTICS_NAME][\$TEHAS_SITE_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[][][0]"
 
 t_case "analytics settings are loaded as written"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" "TEHAS_ANALYTICS_SITE=widget" \
-  "TEHAS_ANALYTICS_COOKIE=1" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SITE_ANALYTICS_SRC=https://stats.example/ea.js" "TEHAS_SITE_ANALYTICS_NAME=widget" \
+  "TEHAS_SITE_ANALYTICS_COOKIE=1" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SITE_ANALYTICS_SRC][\$TEHAS_SITE_ANALYTICS_NAME][\$TEHAS_SITE_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[https://stats.example/ea.js][widget][1]"
 
 t_case "the whole site is beesknees26 unless the instance says pixel"
@@ -771,10 +771,10 @@ for page in index.html business.html; do
 done
 
 t_case "an analytics script without a site is refused"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SITE_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_ANALYTICS_SITE is not set"
+t_contains "$t_out" "TEHAS_SITE_ANALYTICS_NAME is not set"
 
 t_case "the factory's own analytics are on unless the instance says off"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -799,8 +799,8 @@ for pair in 1:on 0:off; do
 done
 
 t_case "every switch takes on and off, and exports the form its readers compare with"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_INDEXING=on TEHAS_READ_ONLY=off TEHAS_TOP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_TOP]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_INDEXING=on TEHAS_READ_ONLY=off TEHAS_TOP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SITE_INDEXING][\$TEHAS_READ_ONLY][\$TEHAS_TOP]\""
 t_eq "$t_out" "[1][0][1]"
 
 for bad in TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes TEHAS_ANALYTICS=2 "TEHAS_ANALYTICS=on off"; do
@@ -812,12 +812,12 @@ for bad in TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes TEHAS_ANALYTICS=2 "TEHAS_ANALY
 done
 
 t_case "the switch of the factory's analytics and the visitor analytics' cookie are checked apart"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off TEHAS_ANALYTICS_COOKIE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_ANALYTICS][\$TEHAS_ANALYTICS_COOKIE]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off TEHAS_SITE_ANALYTICS_COOKIE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS][\$TEHAS_SITE_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[off][1]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS_COOKIE=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SITE_ANALYTICS_COOKIE=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
-t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected on or off"
+t_contains "$t_out" "TEHAS_SITE_ANALYTICS_COOKIE is not valid: expected on or off"
 
 t_case "a command fails closed on a bad TEHAS_ANALYTICS before it calls GitHub"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -1005,7 +1005,14 @@ t_eq "$t_out" "192.0.2.7"
 
 t_case "the worked example takes its private addresses from a file on the host"
 t_stub nproc 'echo 12'
-TEHAS_INSTANCE_DIR=$T_ROOT/instances/tehas-tehas
+# A copy, with the renames of api/renames-1.0.tsv applied as its operator would
+# apply them: the instance is a running factory's and is not edited here.
+cp -R "$T_ROOT/instances/tehas-tehas" "$T/worked"
+while IFS=$'\t' read -r kind old new _; do
+  [ "$kind" = setting ] && [ -n "$new" ] || continue
+  sed -i "s/^$old=/$new=/" "$T/worked/instance.env"
+done <"$T_ROOT/api/renames-1.0.tsv"
+TEHAS_INSTANCE_DIR=$T/worked
 mkdir -p "$T/home/.config/tehas"
 echo TEHAS_GITHUB_APP_ID=1 >"$T/home/.config/tehas/private.env"
 t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
@@ -1163,21 +1170,21 @@ t_eq "$t_out" "read=unset instance_line=3"
 t_stub nproc 'echo 8'
 t_case "the ticket ceiling defaults to the host's CPUs minus one"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+t_run "$load && echo \"\$TEHAS_MAX_CYCLES\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "7"
 t_stub nproc 'echo 1'
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+t_run "$load && echo \"\$TEHAS_MAX_CYCLES\""
 t_eq "$t_out" "1"
 t_stub nproc 'echo 8'
 
 t_case "workstreams alone are refused where the ticket ceiling's default is above 1, accepted where it is 1"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4
+t_instance "${T_MINIMAL[@]}" TEHAS_WORKSTREAMS=4
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1"
+t_contains "$t_out" "TEHAS_WORKSTREAMS (4) and TEHAS_MAX_CYCLES (7) are both above 1"
 t_stub nproc 'echo 2'
-t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY\""
+t_run "$load && echo \"\$TEHAS_WORKSTREAMS \$TEHAS_MAX_CYCLES\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "4 1"
 t_stub nproc 'echo 8'
@@ -1188,43 +1195,43 @@ t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "9"
 
 t_case "a ceiling above the host's CPUs is accepted"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=20
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_MAX_AWAITING\""
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=20
+t_run "$load && echo \"\$TEHAS_MAX_CYCLES \$TEHAS_MAX_AWAITING\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "20 22"
 
 t_case "the review cap's default follows the cycles side by side"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=4
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "6"
 
 t_case "a review cap that is set is kept"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_MAX_AWAITING=3
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=4 TEHAS_MAX_AWAITING=3
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
 
 for bad in two 0 -1 1.5 AUTO 99999999999999999999; do
   t_case "a concurrency that is no number is refused, not added to: $bad"
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=$bad
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=$bad
   t_run "$load"
   t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
+  t_contains "$t_out" "TEHAS_MAX_CYCLES is not valid"
   # AUTO is another word: only `auto` gets its reason named.
   [ "$bad" = AUTO ] || t_lacks "$t_out" "auto sizing is removed"
 done
 
 # `auto` is refused by its own case, with the words that say why.
 t_case "a concurrency of auto is refused with the reason"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=auto
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid: expected a whole number: auto sizing is removed"
+t_contains "$t_out" "TEHAS_MAX_CYCLES is not valid: expected a whole number: auto sizing is removed"
 
 # Auto sizing is removed: the word is refused for both counts, and the host is
 # not read for it.
 t_case "auto for either count is refused with 78"
 rm -f "$T/bin/nproc"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_SLICE_CONTAINERS=auto
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=auto TEHAS_SLICE_CONTAINERS=auto
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
@@ -1233,20 +1240,20 @@ t_eq "$(t_calls nproc)" ""
 t_stub nproc 'echo 8'
 
 t_case "a review cap of three is the floor below the host's cycles"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MAX_AWAITING=9
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_MAX_AWAITING=9
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "9"
 
 # One axis of parallelism still holds with numbers: several cycles of one
 # workstream are refused.
 t_case "several workstreams with several cycles are refused: one axis of parallelism"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=4
+t_instance "${T_MINIMAL[@]}" TEHAS_WORKSTREAMS=2 TEHAS_MAX_CYCLES=4
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (4) are both above 1"
+t_contains "$t_out" "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (4) are both above 1"
 
 rm -f "$T/bin/nproc"
 
@@ -1624,7 +1631,7 @@ t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_MIN_FREE=2g" "PI_ENSEMBLE_MODEL_OPS=m"
 mkdir -p "$T/only"
 printf '#!/bin/bash\necho 4\n' >"$T/only/nproc"
 chmod +x "$T/only/nproc"
-t_run "PATH=\$T/only; $load; echo \"rc=\$? \$TEHAS_CYCLE_MIN_FREE_MB \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_IMAGE\""
+t_run "PATH=\$T/only; $load; echo \"rc=\$? \$TEHAS_CYCLE_MIN_FREE_MB \$TEHAS_MAX_CYCLES \$PI_ENSEMBLE_IMAGE\""
 t_eq "$t_out" "rc=0 2048 3 tehas/pi-rukas:uid$EUID"
 t_instance "${T_MINIMAL[@]}"
 
@@ -1647,18 +1654,18 @@ values=('' ' ' 0 1 2 6 16 17 99 100 600 601 1440 1441 123456 999999999 100000000
   commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa commit:aaa main 'build / verify (linux)' verify\&x=1 $'tab\tbed'
   $'new\nline' $'word\n' é)
 names=(PI_ENSEMBLE_MODEL_ PI_ENSEMBLE_PROVIDER_ PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_RUKAS_FOLLOW
-  TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_ANALYTICS_SITE TEHAS_ANALYTICS_SRC
+  TEHAS_ALLOWED_LABELERS TEHAS_ANALYTICS TEHAS_SITE_ANALYTICS_COOKIE TEHAS_SITE_ANALYTICS_NAME TEHAS_SITE_ANALYTICS_SRC
   TEHAS_BRANCH TEHAS_BRANCH_CHECK TEHAS_BUILD_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_CLEAN_AFTER TEHAS_CLEAN_DIRS
-  TEHAS_CLEAN_MIN_FREE TEHAS_CONCURRENCY TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
+  TEHAS_CLEAN_MIN_FREE TEHAS_WORKSTREAMS TEHAS_CONTROL_ISSUE TEHAS_CYCLE_MIN_FREE
   TEHAS_CYCLE_RESERVE TEHAS_DESIGN TEHAS_DOMAIN TEHAS_GITHUB_APP_ID TEHAS_HOME
   TEHAS_HOST_ADDR
-  TEHAS_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
+  TEHAS_SITE_INDEXING TEHAS_INSTANCE_DIR TEHAS_MAX_AWAITING
   TEHAS_MILLWRIGHT_EPICS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT TEHAS_POLL_BUDGET TEHAS_PREVIEWS TEHAS_PREVIEW_MAX
-  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX
+  TEHAS_PREVIEW_MIN_FREE TEHAS_PROTOLAB_URL TEHAS_READ_ONLY TEHAS_REFRESH_MAX_PER_PR
   TEHAS_REFRESH_SLOTS TEHAS_RELEASE_REPO TEHAS_REPO TEHAS_REVIEW TEHAS_REVIEW_REPO TEHAS_RUKAS_WORKAROUNDS
   TEHAS_SCRATCH_DIR TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_FILES TEHAS_SIZE_MAX_LINES TEHAS_SLICE_CONTAINERS
-  TEHAS_TICKET_CONCURRENCY TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
+  TEHAS_MAX_CYCLES TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_VERIFY_TIMEOUT TEHAS_WORK_COMMENTS TEHAS_WORK_DESCRIBE
   TEHAS_WORK_FILES TEHAS_WORK_IMAGES TEHAS_WORK_REPO TEHAS_WORK_STALL TEHAS_WORK_TIMEOUT TEHAS_WORK_ZIPS)
 for name in "${names[@]}"; do
   for value in "${values[@]}"; do printf '%s\0%s\0' "$name" "$value"; done
@@ -1673,7 +1680,7 @@ t_case "each kind of instance leaves the environment and the words bash left"
 : >"$T/loads"
 while IFS='|' read -r -u 5 -a lines; do
   t_instance "${T_MINIMAL[@]}" "${lines[@]}"
-  T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1 TEHAS_WORK_CMD=fake EDITOR=ed)
+  T_ENV=(TEHAS_REPO=other/thing TEHAS_SITE_INDEXING=1 PI_ENSEMBLE_DEBUG=1 TEHAS_WORK_CMD=fake EDITOR=ed)
   t_run "$load; echo rc=\$?; export -p"
   t_out=${t_out//$T/@T}
   # Bash 5.3 names the command it was parsing here, and 5.2 does not.
@@ -1681,7 +1688,7 @@ while IFS='|' read -r -u 5 -a lines; do
   grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD|TEHAS_TEST_STORE_ANSWERS)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
-TEHAS_INDEXING=1
+TEHAS_SITE_INDEXING=1
 TEHAS_THEME=
 TEHAS_PLAN_TIMEOUT=
 TEHAS_CHILD_TIMEOUT=
@@ -1689,8 +1696,8 @@ TEHAS_WORK_DIR=/else
 TEHAS_WORK_REPO=/else/repo
 TEHAS_HOME=/else/home
 TEHAS_INSTANCE_DIR=/else/instance
-TEHAS_TICKET_CONCURRENCY=4
-TEHAS_CONCURRENCY=4|TEHAS_TICKET_CONCURRENCY=1
+TEHAS_MAX_CYCLES=4
+TEHAS_WORKSTREAMS=4|TEHAS_MAX_CYCLES=1
 TEHAS_MAX_AWAITING=3
 TEHAS_DOMAIN=example.org
 TEHAS_DOMAIN=example.org|TEHAS_PROTOLAB_URL=https://p.example
@@ -1732,18 +1739,18 @@ TEHAS_RUKAS_WORKAROUNDS=TEHAS_X@1.2
 TEHAS_TOP=1|TEHAS_RUKAS_WORKAROUNDS=TEHAS_TOP@1.2
 TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
 TEHAS_GITHUB_APP_ID=7
-TEHAS_ANALYTICS_SRC=https://a.example/x.js
+TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js
 TEHAS_REVIEW_REPO=Acme/Widget
 TEHAS_WORK_DESCRIBE=1
 TEHAS_WORK_COMMENTS=1
 TEHAS_WORK_ZIPS=1
-TEHAS_CONCURRENCY=2|TEHAS_TICKET_CONCURRENCY=3
+TEHAS_WORKSTREAMS=2|TEHAS_MAX_CYCLES=3
 TEHAS_WORK_STALL=1800
 TEHAS_WORK_TIMEOUT=3600|TEHAS_CHILD_TIMEOUT=3601
 TEHAS_WORK_TIMEOUT=25201
 TEHAS_PLAN_TIMEOUT=7201
 TEHAS_PREVIEWS=1
-TEHAS_TICKET_CONCURRENCY=two
+TEHAS_MAX_CYCLES=two
 TEHAS_VERIFY_TIMEOUT=soon
 TEHAS_UPDATE_LOCK_WAIT=3
 TEHAS_MODEL_KEY_X=sekret
@@ -1762,7 +1769,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "6950b0a9ad2fe2a6547b9a85507369c4d0673d3b49b2564f1cf4650c9059182c"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "d1a1d5be30c5fbb7168599ecbbe1e3dc9785df5f1b257975063fc1b878eb2ecd"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
@@ -1789,7 +1796,7 @@ rm -rf "$T/home/.config"
 t_case "a host's nproc that fails or says nothing leaves one cycle"
 for body in 'exit 3' 'echo'; do
   t_stub nproc "$body"
-  t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+  t_run "$load && echo \"\$TEHAS_MAX_CYCLES\""
   t_eq "$t_out" "1"
 done
 t_stub nproc 'echo 8'
@@ -1819,15 +1826,15 @@ t_run "cd \"\$T\" && $load; echo rc=\$? \"\$PWD\""
 t_eq "$t_out" "rc=0 $T"
 
 t_case "instance.env sees the environment, and the name of a host's setting is gone from it"
-t_instance "${T_MINIMAL[@]}" 'TEHAS_OWNER=${TEHAS_TOP:-seen-${HOME##*/}}'
+t_instance "${T_MINIMAL[@]}" 'TEHAS_ASSIGNEE=${TEHAS_TOP:-seen-${HOME##*/}}'
 T_ENV=(TEHAS_TOP=1)
-t_run "$load && echo \"\$TEHAS_OWNER\""
+t_run "$load && echo \"\$TEHAS_ASSIGNEE\""
 T_ENV=()
 t_eq "$t_out" "seen-home"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the shell that reads instance.env reads no stdin and runs no file BASH_ENV names"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'read -r TEHAS_BRANCH || TEHAS_BRANCH=none'
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'read -r TEHAS_BRANCH || TEHAS_BRANCH=none'
 printf 'echo ran >>"%s/bash-env"\n' "$T" >"$T/bash-env.sh"
 t_run "export BASH_ENV=\$T/bash-env.sh; echo stdin | { $load; echo rc=\$? \"\$TEHAS_BRANCH\" \"\$BASH_ENV\"; }"
 t_contains "$t_out" "rc=0 none $T/bash-env.sh"

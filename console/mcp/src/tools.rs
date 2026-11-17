@@ -300,12 +300,12 @@ fn status_schema() -> Value {
             ),
         ),
         (
-            "industry",
+            "manager",
             obj(
                 vec![
-                    ("version", given("The version of the industry, such as v0.9.0.")),
+                    ("version", given("The version of the program that manages this factory, such as v0.9.0.")),
                 ],
-                "The industry that runs this factory. Left out for a factory that runs on its own.",
+                "The program that manages this factory. Left out for a factory that runs on its own.",
             ),
         ),
         (
@@ -1212,7 +1212,7 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "hostMessages": {"list": [{"id": true, "level": true, "text": true, "link": true,
                                        "at": true}],
                              "unreadable": true},
-            "industry": {"version": true},
+            "manager": {"version": true},
             // The two keys of `hold`, copied from the poll's own report by
             // `held`, which names the file's fields through `tehas_core::hold`.
             // A report whose word is not one of the thirteen is no hold, so
@@ -1450,8 +1450,8 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     );
     put(
         &mut out,
-        "industry",
-        pick(&checks["industry"], &spec["industry"]),
+        "manager",
+        pick(&checks["manager"], &spec["manager"]),
     );
     // "why is nothing starting" is the most useful thing to say to someone
     // waiting, and dispatch.json is published already: the hold is copied from

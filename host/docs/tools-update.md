@@ -149,7 +149,7 @@ one required list, which tehas-core holds (`console/core/src/settings.rs`):
 `tehas_require_instance_settings` checks it. install.sh, `console run`, tehas
 setup and the dispatcher check the same five. A poll adds the three a load
 always leaves set that it cannot act by without - `TEHAS_HOME`,
-`TEHAS_INSTANCE_DIR` and `TEHAS_TICKET_CONCURRENCY` - and names them too, so an
+`TEHAS_INSTANCE_DIR` and `TEHAS_MAX_CYCLES` - and names them too, so an
 instance with a required line still commented out stops with 78 before git runs. After a fast-forward the settings are checked
 by the code it pulled: a checkout has no console of its own yet, so install.sh
 builds it first and a change that adds a required setting stops with 78 there,

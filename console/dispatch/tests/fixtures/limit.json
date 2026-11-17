@@ -5,7 +5,7 @@
   {
    "case": "limit: cycles 0 with 0 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -27,7 +27,7 @@
   {
    "case": "limit: cycles 0 with 1 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -52,7 +52,7 @@
   {
    "case": "limit: cycles 0 with 2 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -78,7 +78,7 @@
   {
    "case": "limit: cycles 1 with 0 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -102,7 +102,7 @@
   {
    "case": "limit: cycles 1 with 1 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -127,7 +127,7 @@
   {
    "case": "limit: cycles 1 with 2 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -153,7 +153,7 @@
   {
    "case": "limit: cycles 3 with 0 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -178,7 +178,7 @@
   {
    "case": "limit: cycles 3 with 1 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -205,7 +205,7 @@
   {
    "case": "limit: cycles 3 with 2 running",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -231,7 +231,7 @@
   {
    "case": "limit: a limit that holds every slot says so, by the word limit",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     5
@@ -260,7 +260,7 @@
   {
    "case": "limit: a drain names the command that frees the factory",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -291,7 +291,7 @@
   {
    "case": "limit: a limit of 0 with a cycle running is no drain and says nothing of clearing",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     5
@@ -317,7 +317,7 @@
   {
    "case": "limit: a limit of 0 with planning on is no drain",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -347,7 +347,7 @@
   {
    "case": "limit: a limit whose ceiling is above none keeps its words",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     5,
@@ -376,7 +376,7 @@
   {
    "case": "limit: a limit of 0 that carries a time is no drain: the time holds it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -406,7 +406,7 @@
   {
    "case": "limit: fewer start than the slots allow, and the limit is the reason",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 3
+    "TEHAS_MAX_CYCLES": 3
    },
    "ready_n": [
     7,
@@ -433,7 +433,7 @@
   {
    "case": "limit: no limit leaves the room as it was, and writes no room under it",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -452,7 +452,7 @@
   {
    "case": "limit: expired, nothing starts and the hold says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "limit": {
@@ -476,7 +476,7 @@
   {
    "case": "limit: unreadable or of another version, nothing starts and the hold says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "limit": {
@@ -497,7 +497,7 @@
   {
    "case": "limit: a paused factory stays paused under any limit",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "limit": {

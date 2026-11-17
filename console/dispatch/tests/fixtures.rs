@@ -44,7 +44,7 @@ const NOW: u64 = 1_793_404_800;
 fn base() -> (Value, Value) {
     let settings = json!({
         "TEHAS_REPO": "acme/widget", "TEHAS_CONTROL_ISSUE": 1,
-        "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_TICKET_CONCURRENCY": 1,
+        "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_MAX_CYCLES": 1,
         "TEHAS_BOT_LOGIN": "tehas-bot",
     });
     let snapshot = json!({

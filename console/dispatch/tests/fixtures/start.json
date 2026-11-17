@@ -502,7 +502,7 @@
   {
    "case": "a closed issue whose cycle still holds its lock is left alone",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "marked": [
@@ -529,7 +529,7 @@
   {
    "case": "an issue whose cycle holds its lock is left alone",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "marked": [

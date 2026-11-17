@@ -63,7 +63,7 @@ and 2 threads each.
 
 Count the maximum with room above today: the CPUs the model backends need
 alongside the factory, one for each issue the host works on side by side, and a
-margin. `TEHAS_TICKET_CONCURRENCY` defaults to the host's CPUs minus one
+margin. `TEHAS_MAX_CYCLES` defaults to the host's CPUs minus one
 ([the slice and its limits](/host#limits-and-concurrency)), so a host whose
 maximum is 32 can grow to 31 cycles' worth of CPU quota without a restart. The
 slice's ceiling is memory, not CPUs, so a CPU growth needs no change in tehas.

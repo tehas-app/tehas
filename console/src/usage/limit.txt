@@ -16,7 +16,7 @@ Usage:
   tehas limit clear
 
   --cycles N     the most cycles running at once, 0 to 9999. Room for a new
-                 cycle is the smaller of N and TEHAS_TICKET_CONCURRENCY,
+                 cycle is the smaller of N and TEHAS_MAX_CYCLES,
                  less the cycles running, then the slice and
                  TEHAS_MAX_AWAITING as always
   --plan off     no new planning turn; an answer to a

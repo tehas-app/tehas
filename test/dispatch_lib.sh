@@ -480,7 +480,7 @@ reset() {
   # answers 0; the WARN of a health file that could not be written is read here
   # as no command having been given to the poll at all.
   T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 }
 # A cycle that is running: its lock, held by this shell until release.
 held=()
@@ -500,7 +500,7 @@ release() {
 # An instance that works on at most <n> issues side by side. The host's CPU
 # count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
-slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
+slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_MAX_CYCLES=$1" "${@:2}"; }
 ready() { # issue... : the queue, each labelled by alice
   local n list=""
   for n in "$@"; do
