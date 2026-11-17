@@ -41,7 +41,19 @@ pub const ROLES: [&str; 5] = [
 pub const CLEAN_DIRS: &str =
     "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle";
 
-const SWITCH: Rule = Rule::OneOf(&["0", "1"], "expected 0 or 1");
+/// One grammar for every switch. The manual writes `on` and `off`; `1` and `0`
+/// are what instances wrote before, and stay.
+pub const SWITCH_WORDS: [&str; 4] = ["on", "off", "1", "0"];
+const SWITCH: Rule = Rule::OneOf(&SWITCH_WORDS, "expected on or off");
+
+/// What a switch's value says: on, off, or None for a value no switch takes.
+pub fn switch(value: &str) -> Option<bool> {
+    match value {
+        "on" | "1" => Some(true),
+        "off" | "0" => Some(false),
+        _ => None,
+    }
+}
 const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assigns no app's bot";
 
 /// The shape of a value.
@@ -254,11 +266,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_WORK_FILES", SWITCH, "0"),
     always("TEHAS_WORK_COMMENTS", SWITCH, "0"),
     always("TEHAS_WORK_ZIPS", SWITCH, "0"),
-    always(
-        "TEHAS_ANALYTICS",
-        Rule::OneOf(&["on", "off"], "expected on or off"),
-        "on",
-    ),
+    always("TEHAS_ANALYTICS", SWITCH, "on"),
     always("TEHAS_ANALYTICS_COOKIE", SWITCH, "0"),
     always(
         "TEHAS_DESIGN",
@@ -822,8 +830,6 @@ mod tests {
 
     #[test]
     fn a_word_setting_takes_its_words() {
-        takes("TEHAS_ANALYTICS", "off");
-        refuses("TEHAS_ANALYTICS", "On", "expected on or off");
         takes("TEHAS_DESIGN", "pixel");
         takes("TEHAS_DESIGN", "beesknees26");
         for v in ["Pixel", "paper", "beesknees", "floor"] {
@@ -834,15 +840,41 @@ mod tests {
     }
 
     #[test]
-    fn a_switch_is_0_or_1() {
+    fn every_switch_takes_on_off_1_and_0() {
+        let switches: Vec<&str> = TABLE
+            .iter()
+            .filter(|s| words(s.name) == Some(&SWITCH_WORDS[..]))
+            .map(|s| s.name)
+            .collect();
         for name in [
             "TEHAS_INDEXING",
             "TEHAS_PREVIEWS",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
+            "TEHAS_ANALYTICS",
+            "TEHAS_OUTSOURCE",
         ] {
-            takes(name, "1");
-            refuses(name, "2", "expected 0 or 1");
+            assert!(switches.contains(&name), "{name}");
+        }
+        assert_eq!(switches.len(), 16);
+        for name in switches {
+            for v in ["on", "off", "1", "0"] {
+                takes(name, v);
+            }
+            for v in ["2", "On", "OFF", "yes", "true", " on", ""] {
+                refuses(name, v, "expected on or off");
+            }
+        }
+    }
+
+    #[test]
+    fn a_switch_word_says_on_or_off() {
+        assert_eq!(switch("on"), Some(true));
+        assert_eq!(switch("1"), Some(true));
+        assert_eq!(switch("off"), Some(false));
+        assert_eq!(switch("0"), Some(false));
+        for v in ["", "yes", "On", "01", " 1"] {
+            assert_eq!(switch(v), None, "{v}");
         }
     }
 
@@ -965,10 +997,11 @@ mod tests {
     }
 
     #[test]
-    fn the_outsource_switch_takes_only_0_and_1() {
-        takes("TEHAS_OUTSOURCE", "1");
-        takes("TEHAS_OUTSOURCE", "0");
-        refuses("TEHAS_OUTSOURCE", "on", "expected 0 or 1");
+    fn the_outsource_switch_takes_the_switch_words() {
+        for v in ["on", "off", "1", "0"] {
+            takes("TEHAS_OUTSOURCE", v);
+        }
+        refuses("TEHAS_OUTSOURCE", "yes", "expected on or off");
     }
 
     #[test]
@@ -1248,8 +1281,8 @@ mod tests {
             }
             refuses(name, "1000000000", "expected at most 9 digits");
         }
-        for v in ["yes", "2", "on"] {
-            refuses("TEHAS_OUTSOURCE", v, "expected 0 or 1");
+        for v in ["yes", "2", "On"] {
+            refuses("TEHAS_OUTSOURCE", v, "expected on or off");
         }
     }
 

@@ -276,7 +276,7 @@ images_on
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
 t_run "$work 7"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+t_contains "$t_out" "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"
 t_eq "$(t_calls gh)$(t_calls curl)$(t_calls docker)" ""
 
 t_case "with descriptions on the directory holds exactly the images, the manifest and images.md"

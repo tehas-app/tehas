@@ -25,12 +25,16 @@ planted() {
   echo '"$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image '"$image_id"' >/dev/null' >"$fx/work.sh"
 }
 
+# Outsource is still being built: only a test build with the feature named in
+# TEHAS_TEST_FEATURES follows its switch.
+outsource="TEHAS_OUTSOURCE=on TEHAS_TEST_FEATURES=outsource"
+
 t_case "a job runner with outsource off is 78 before the lock, the store, GitHub or the waiter"
-for off in "" "TEHAS_OUTSOURCE=0"; do
+for off in "" "TEHAS_OUTSOURCE=off TEHAS_TEST_FEATURES=outsource" "TEHAS_OUTSOURCE=1" "TEHAS_OUTSOURCE=on"; do
   reset
   t_run "$given $off $supervisor cycle 7 --runner job $words"
   t_eq "$t_rc" 78
-  t_contains "$t_out" "--runner job needs TEHAS_OUTSOURCE=1"
+  t_contains "$t_out" "--runner job needs the outsource feature on"
   t_eq "$(t_calls gh)$(t_calls fake-work)$(t_calls docker)" ""
   t_eq "$(find "$state" -name '7.*' 2>/dev/null | wc -l)" 0
   t_eq "$(t_row cycle-show 7 -- '.cycle | tostring')" null
@@ -38,7 +42,7 @@ done
 
 t_case "a runner that is neither work nor job is 64 and runs nothing"
 reset
-t_run "$given TEHAS_OUTSOURCE=1 $supervisor cycle 7 --runner remote $words"
+t_run "$given $outsource $supervisor cycle 7 --runner remote $words"
 t_eq "$t_rc" 64
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 
@@ -50,7 +54,7 @@ planted
 ended running handoff feature/x
 merged_pr
 echo 'exit 2' >>"$fx/work.sh"
-t_run "$given TEHAS_OUTSOURCE=1 $supervisor cycle 7 --runner job $words"
+t_run "$given $outsource $supervisor cycle 7 --runner job $words"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
 t_eq "$(t_calls docker)" ""

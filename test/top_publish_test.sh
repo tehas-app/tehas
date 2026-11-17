@@ -83,7 +83,7 @@ snapshot=$t_out
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=yes
 t_run "$publish"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
+t_contains "$t_out" "TEHAS_TOP is not valid: expected on or off"
 t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
   "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 
@@ -121,7 +121,7 @@ files
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=yes
 t_run "$publish --every"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
+t_contains "$t_out" "TEHAS_TOP is not valid: expected on or off"
 t_eq "$(published)" "gone"
 
 # What stands at $TEHAS_HOME/bin when --every runs a child: the real one by
