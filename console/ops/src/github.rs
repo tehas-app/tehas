@@ -1104,16 +1104,12 @@ mod tests {
         fs::create_dir_all(&kept).unwrap();
         fs::write(kept.join("token"), "ghs_first\n").unwrap();
         let cmd = d.path().join("tehasbot");
-        fs::write(
-            &cmd,
-            format!(
+        tehas_core::testing::write_exe(&cmd, format!(
                 "#!/bin/sh\n[ \"$*\" = \"github-token --session\" ] || exit 64\necho \"$*\" >>'{0}/asked'\nprintf 'ghs_%s\\n' \"$(wc -l <'{0}/asked')\" >'{1}/token.new' && mv '{1}/token.new' '{1}/token'\n",
                 d.path().display(),
                 kept.display()
             ),
-        )
-        .unwrap();
-        fs::set_permissions(&cmd, fs::Permissions::from_mode(0o755)).unwrap();
+        ).unwrap();
         let thread = session_renewer(cmd, 1, 1, &STOP);
         let until = Instant::now() + Duration::from_secs(10);
         let asked = || fs::read_to_string(d.path().join("asked")).unwrap_or_default();
