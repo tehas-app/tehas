@@ -113,7 +113,7 @@ pub(super) const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 15] = [
+const RETIRED: [&str; 13] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -126,8 +126,6 @@ const RETIRED: [&str; 15] = [
     "TEHAS_LOW_GATE",
     "TEHAS_LOW_GATE_WAIT",
     "TEHAS_PRIORITY_FIELD",
-    "TEHAS_REFRESH_CONFLICTS",
-    "TEHAS_REFRESH_EVERY",
     "TEHAS_OVERLAP_HOLD",
 ];
 
@@ -428,9 +426,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
         // the Rust poll, and beesknees26 and business are the default design,
-        // so the line stays loadable. A value the timed refresh scan took is dropped: refreshes
-        // are asked for with --pr now, and the line is left to the operator
-        // to take out.
+        // so the line stays loadable.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
@@ -438,8 +434,6 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_DISPATCHER", "rust" | "")
                 | ("TEHAS_THEME", "beesknees26" | "")
                 | ("TEHAS_LAYOUT", "business" | "")
-                | ("TEHAS_REFRESH_CONFLICTS", "0" | "1" | "")
-                | ("TEHAS_REFRESH_EVERY", "")
                 | (
                     "TEHAS_LOW_GATE"
                         | "TEHAS_LOW_GATE_WAIT"
@@ -447,8 +441,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                         | "TEHAS_OVERLAP_HOLD",
                     ""
                 )
-        ) || (name == "TEHAS_REFRESH_EVERY" && minutes(&value))
-        {
+        ) {
             vars.unset(name.as_bytes());
             continue;
         }
@@ -464,7 +457,6 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
-            "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
             "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
@@ -500,15 +492,6 @@ fn renamed(vars: &mut Vars, host: &dyn Host, file: &str) -> Result<(), String> {
         Some(line) => Err(line),
         None => Ok(()),
     }
-}
-
-/// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
-/// leading 0. The digits check matters: u32's parse also takes a leading '+'.
-fn minutes(v: &str) -> bool {
-    v.bytes().all(|b| b.is_ascii_digit())
-        && !v.starts_with('0')
-        && v.len() <= 4
-        && v.parse::<u32>().is_ok_and(|n| (1..=1440).contains(&n))
 }
 
 /// `export NAME=${NAME:-default}`.
@@ -871,6 +854,10 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
+    // Asked before the defaults fill the feature's settings in; said after the
+    // values are checked, so a malformed one is named as such first.
+    let building =
+        features::refuse_building_settings(&|name| has(vars, name), &|name| vars.text(name));
     defaults(vars, host, uid);
     check_values(vars, &gave, &file)?;
     host_values(vars)?;
@@ -878,6 +865,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
         .map_err(|why| format!("{why} (see {file})"))?;
+    building.map_err(|why| format!("{why} (see {file})"))?;
     if vars.text("TEHAS_DRIVER") == Driver::Lean.word() {
         features::needs("lean", "TEHAS_DRIVER=lean", &|name| vars.text(name)).map_err(|why| {
             format!("{why}; set TEHAS_DRIVER to classic or take the line out (see {file})")
@@ -1228,8 +1216,31 @@ mod tests {
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
         // With outsource off nothing listens, and the bound is not checked.
-        let vars = loads(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        let (vars, got) = tested(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
+    }
+
+    #[test]
+    fn a_building_features_own_setting_stops_the_load() {
+        for (line, feature) in [
+            ("TEHAS_OUTSOURCE_TIMEOUT=1800", "outsource"),
+            ("TEHAS_OUTSOURCE_REPOS=acme/widget", "outsource"),
+            (
+                "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+                "protolab-zip-url",
+            ),
+        ] {
+            let name = line.split('=').next().unwrap();
+            assert_eq!(
+                refused(&[line]),
+                format!("{name} is set and {feature} is still being built in this release: take the line out (see {FILE})")
+            );
+        }
+        // An empty line sets nothing, and a malformed value is named as such.
+        loads(&["TEHAS_OUTSOURCE_REPOS=", "TEHAS_PROTOLAB_ZIP_HOSTS="]);
+        assert!(refused(&["TEHAS_OUTSOURCE_TIMEOUT=soon"])
+            .starts_with("TEHAS_OUTSOURCE_TIMEOUT is not valid"));
     }
 
     #[test]
@@ -1784,19 +1795,19 @@ mod tests {
             ),
             (
                 "TEHAS_REFRESH_CONFLICTS=yes",
-                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                "is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out",
             ),
             (
                 "TEHAS_REFRESH_EVERY=010",
-                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                "is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out",
             ),
             (
                 "TEHAS_REFRESH_EVERY=+10",
-                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                "is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out",
             ),
             (
                 "TEHAS_REFRESH_EVERY=+1",
-                "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out",
+                "is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out",
                 ),
             (
                 "TEHAS_OVERLAP_HOLD=1",

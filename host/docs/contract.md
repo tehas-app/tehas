@@ -57,6 +57,10 @@ Internal:
 - the `Forge` trait of [the forge page](/forge): tehas 1.0 promises no forge
   interface;
 - `tehas top --json`, a snapshot for the screen;
+- the flags of `tehas plan`, which the dispatcher writes for a planning turn,
+  `tehas index --before-cycle`, the dispatcher's, and `tehas disk --publish`,
+  the cleaner's. `api/commands.txt` marks them and `tehas top --json`
+  `internal`;
 - every feature still being built, below.
 
 ## What is frozen and how
@@ -65,12 +69,12 @@ Internal:
 | --- | --- | --- |
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
-| Commands | The `tehas` commands and each command's flags | The usage texts and the shell tests of each command |
+| Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
-| Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | [The factory API](/api#tehas-api) |
+| Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
@@ -165,8 +169,9 @@ the one approved; the lines are for the person who reviews.
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
 Only a shipped feature can be on. A building feature leaves nothing in the
-frozen surface: its switch set to `on` stops every command with exit 78 and
-names the feature, it adds no command, no label, no `--json` field and no MCP
+frozen surface: its switch set to `on`, or a line that gives one of its own
+settings a value, stops every command with exit 78 and names the feature, it
+adds no command, no label, no `--json` field and no MCP
 tool, and its settings, commands and fields are not contract until the release
 that ships it. `tehas api --json` lists every feature in `flags`, `false`
 while it is building, and a shipped feature's word in `features`. Promoting a
@@ -181,9 +186,9 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 - `tehas api --json` has `"outsource": false` in `flags`, and no word
   `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json` and are
-  checked like any setting, but nothing reads them while the feature is off,
-  and they are not contract.
+- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
+  are not contract: a line that gives one a value stops every command with
+  exit 78 and names `outsource`.
 - `tehas-proxy` ends at once with exit 0 and opens no port.
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
@@ -215,9 +220,9 @@ exit 78 and says `protolab-zip-url` is still being built.
 
 - `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
   `protolab-zip-url` in `features`.
-- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json` and
-  is checked like any setting, but nothing fetches from its hosts while the
-  feature is off, and it is not contract.
+- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json`, but
+  it is not contract: a line that gives it a value stops every command with
+  exit 78 and names `protolab-zip-url`.
 - A `Zip:` line in a ticket is text on the Protolab page, as it always was.
 - No command, no label, no `--json` field, no MCP tool.
 

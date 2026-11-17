@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/api.schema.json",
+  "title": "tehas api --json",
+  "description": "What tehas api --json prints, version 1: what this factory speaks, for a program to ask first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The words of features are api/features.txt, only added within 1.x; flags names every optional feature of the release, a building one as false. test/api_test.sh checks the samples beside this file against it and what the command prints.",
+  "type": "object",
+  "required": ["api", "tehas", "commit", "repo", "features", "flags", "millwright", "poll"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "tehas": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+    "commit": {"type": ["string", "null"], "minLength": 1, "maxLength": 200},
+    "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "features": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}},
+    "flags": {
+      "type": "object",
+      "required": ["outsource", "spec-pipe", "protolab-zip-url", "prototype-file", "lean"],
+      "additionalProperties": false,
+      "properties": {
+        "outsource": {"type": "boolean"},
+        "spec-pipe": {"type": "boolean"},
+        "protolab-zip-url": {"type": "boolean"},
+        "prototype-file": {"type": "boolean"},
+        "lean": {"type": "boolean"}
+      }
+    },
+    "millwright": {"type": ["string", "null"], "minLength": 1},
+    "poll": {
+      "type": ["object", "null"],
+      "required": ["last", "hour"],
+      "additionalProperties": false,
+      "properties": {
+        "last": {
+          "type": "object",
+          "required": ["at", "wallMs", "cpuMs", "gh", "writes", "starts", "kinds", "ageMin"],
+          "additionalProperties": false,
+          "properties": {
+            "at": {"type": "integer", "minimum": 0},
+            "wallMs": {"type": "integer", "minimum": 0},
+            "cpuMs": {"type": "integer", "minimum": 0},
+            "gh": {"type": "integer", "minimum": 0},
+            "writes": {"type": ["integer", "null"], "minimum": 0},
+            "starts": {"type": ["integer", "null"], "minimum": 0},
+            "kinds": {
+              "type": ["object", "null"],
+              "required": ["label", "comment", "edit", "other"],
+              "additionalProperties": false,
+              "properties": {
+                "label": {"type": "integer", "minimum": 0},
+                "comment": {"type": "integer", "minimum": 0},
+                "edit": {"type": "integer", "minimum": 0},
+                "other": {"type": "integer", "minimum": 0}
+              }
+            },
+            "ageMin": {"type": "integer", "minimum": 0}
+          }
+        },
+        "hour": {
+          "type": "object",
+          "required": ["polls", "cpuMs", "writes"],
+          "additionalProperties": false,
+          "properties": {
+            "polls": {"type": "integer", "minimum": 0},
+            "cpuMs": {"type": "integer", "minimum": 0},
+            "writes": {"type": ["integer", "null"], "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

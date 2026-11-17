@@ -150,6 +150,8 @@ t_lacks "$(t_calls gh)" "labels"
 
 t_case "a zip outside GitHub is 78 while protolab-zip-url is off"
 reset TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+# Usable but off: while it is building, its hosts alone stop the load.
+T_ENV=(TEHAS_TEST_FEATURES="prototype-file protolab-zip-url" GH_TOKEN=ghs_app TEHAS_GH_TOKEN=ghs_poll)
 t_run "$cmd --title T --zip https://files.example.org/p.zip --zip-sha256 $SUM_A"
 t_eq "$t_rc" 78
 t_contains "$t_out" "a zip outside GitHub needs protolab-zip-url, which is off on this instance"

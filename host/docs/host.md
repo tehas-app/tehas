@@ -640,6 +640,10 @@ unpacked beside the others in `~/tehas/versions/<version>`, and
 `TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
 [tehas update](/tools-update#tehas-update).
 
+A host on 0.30.x edits its renamed and removed settings and drains before it
+updates to 1.0: see
+[Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
+
 An update does not wait for the running cycles. Each cycle and planning turn
 runs from its own copy of the code in `~/tehas/run`, made when it started, and
 `install.sh` replaces each file by renaming a new one over it, so what runs
@@ -737,7 +741,7 @@ carries between turns is a directory beside its workspace,
 `~/tehas/work/<name>-plan-<issue>.keep`. The scripts, `tehas dispatch` and
 `tehasbot cycle` run the store, `~/tehas/libexec/store`. The commands of the
 console (`tehas stop`, `tehas history`, `tehas export`, `tehas status`,
-`tehas api`, `tehas state`, `tehasbot health`, `tehas clean`'s upkeep and a
+`tehas api`, `tehas state`, `tehasbot health`, `tehasbot clean`'s upkeep and a
 cycle's review) call the store in their own process, with the same code, and
 do not start the program; they still need it installed. `tehas dispatch`, `tehasbot cycle`, `tehas work`,
 `tehas stop`, `tehas history`, `tehas export` and `tehasbot health` stop with
