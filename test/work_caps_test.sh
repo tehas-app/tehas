@@ -221,6 +221,49 @@ t_lacks "$t_out" "does not support"
 caps_good
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+# The image's labels: the polyfills it names, and the inputs of one of them.
+polyfill_labels() { # <list> <inputs of project-knowledge>
+  jq -n --arg l "$1" --arg i "$2" \
+    '{"tehas.rukas.polyfills": $l, "tehas.rukas.polyfill.project-knowledge.inputs": $i}' >"$T/image.labels"
+}
+
+t_case "an input the runner does not list passes when a polyfill the image names declares it"
+caps_fresh
+polyfill_labels "project-knowledge@0.2.0" "PI_ENSEMBLE_KNOWLEDGE_URL PI_ENSEMBLE_KNOWLEDGE_SCOPE"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_KNOWLEDGE_URL=https://knowledge.example/q PI_ENSEMBLE_KNOWLEDGE_SCOPE=r1
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "does not support"
+t_contains "$t_out" "the input PI_ENSEMBLE_KNOWLEDGE_URL is read by the polyfill project-knowledge"
+t_contains "$(after -e)" "PI_ENSEMBLE_KNOWLEDGE_URL"
+
+t_case "an input of a polyfill the image does not name stops the cycle: 78, named"
+caps_fresh
+polyfill_labels "issue-comments@0.1.0" "PI_ENSEMBLE_KNOWLEDGE_URL PI_ENSEMBLE_KNOWLEDGE_SCOPE"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_KNOWLEDGE_URL"
+t_contains "$t_out" "the input PI_ENSEMBLE_KNOWLEDGE_SCOPE"
+
+t_case "a polyfill declares one input and the other still stops the cycle: 78, named"
+caps_fresh
+polyfill_labels "project-knowledge@0.2.0" "PI_ENSEMBLE_KNOWLEDGE_URL"
+t_run "$work 7"
+caps_refused
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "caps-lacking
+the input PI_ENSEMBLE_KNOWLEDGE_SCOPE"
+rm -f "$T/home/tehas/state/cycles/7.refused"
+
+t_case "a polyfill does not open an input the runner keeps to itself"
+caps_fresh
+polyfill_labels "project-knowledge@0.2.0" "PI_ENSEMBLE_SUBAGENT_MODE"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SUBAGENT_MODE=1
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODE"
+rm -f "$T/image.labels"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "the switches of pi-rukas's own docker wrapper are not given to the container"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_DOCKER_SOCKET"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_SSH"
