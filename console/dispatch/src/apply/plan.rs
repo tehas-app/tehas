@@ -1035,10 +1035,14 @@ impl Writer {
         if link_list(&body).iter().any(|l| !approved.contains(l)) {
             return Err("the plan links an attachment the issue did not".into());
         }
-        let (title, body) = update_text(&plan.title, &body);
-        let update = json!({"title": title, "body": body});
+        // The outcome keeps the draft's own text, so a retry checks it against
+        // the draft as this poll did; `plan_update` masks it at the write, and
+        // the start binds the text that write puts on the issue.
+        let (title, masked) = update_text(&plan.title, &body);
+        let sum = plan_sum(&json!({"title": title, "body": masked}));
+        let update = json!({"title": plan.title, "body": body});
         let next = json!({"session": out.get("session"), "text": plan.text, "question": null,
-            "update": update, "start": {"by": by, "sum": plan_sum(&update)}});
+            "update": update, "start": {"by": by, "sum": sum}});
         if !self.outcome_said(n, &next) {
             return Err("the plan could not be kept for the next poll".into());
         }
