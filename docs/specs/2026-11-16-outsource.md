@@ -330,6 +330,13 @@ protection is that nothing secret is at rest.
 
 Epic #2362 builds these. In short:
 
+- **One listener.** A contractor and its container call one factory
+  address, the model proxy's listener. The job channel (check-in, result,
+  token renewal, the issue relay with its `gh` and `vipune` requests) and
+  the image and index downloads are routes on it. One issuer makes the
+  tokens of a job, in two scopes with one lifetime: the container holds the
+  model scope only, and the contractor program holds the job scope.
+
 - **Image.** A factory builds its sandbox image locally for its own uid and
   publishes it nowhere. The factory serves it to contractors, as `docker save`
   output under contractor authentication. "Image digest" in this spec is the
