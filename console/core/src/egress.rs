@@ -299,7 +299,7 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
         home: home.clone(),
         user: sandbox::user(),
         digest,
-        hosts: sandbox::hosts(aliases),
+        hosts: sandbox::hosts(aliases)?,
         allowed: allowed(
             &ModelFile::read(&crate::models::host_path()),
             &std::env::var("TEHAS_EGRESS_HOSTS").unwrap_or_default(),

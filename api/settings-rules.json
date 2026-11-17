@@ -649,6 +649,13 @@
       "reason": "expected directory names of letters, digits and ._-, separated by single spaces"
     },
     {
+      "name": "PI_ENSEMBLE_HOST_ALIASES",
+      "rule": "host-aliases",
+      "when": "given",
+      "default": "",
+      "reason": "expected name:address pairs separated by commas, such as models.example:192.0.2.10"
+    },
+    {
       "name": "TEHAS_REPO",
       "rule": "repo",
       "when": "required",

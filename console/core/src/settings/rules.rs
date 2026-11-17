@@ -128,6 +128,9 @@ pub enum Rule {
     ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
+    /// `name:address` pairs the sandbox resolves, read by
+    /// [`crate::sandbox::hosts`]: they become `docker run` arguments.
+    HostAliases,
 }
 
 impl Rule {
@@ -168,6 +171,7 @@ impl Rule {
             Rule::EgressHosts => "egress-hosts",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
+            Rule::HostAliases => "host-aliases",
         }
     }
 
@@ -209,6 +213,7 @@ impl Rule {
             Rule::EgressHosts => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
+            Rule::HostAliases => "models:192.0.2.8 extra",
         }
     }
 }
@@ -357,6 +362,7 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given(crate::kinds::SETTING, Rule::IssueTypes),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
+    given_or("PI_ENSEMBLE_HOST_ALIASES", Rule::HostAliases, ""),
     required("TEHAS_REPO", Rule::Repo),
     required("TEHAS_CONTROL_ISSUE", Rule::Count),
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
@@ -519,6 +525,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
+        Rule::HostAliases => crate::sandbox::hosts(v).map(|_| ()),
     }
 }
 
@@ -1314,7 +1321,18 @@ mod tests {
     #[test]
     fn a_name_with_no_rule_takes_anything() {
         takes("TEHAS_NO_SUCH_SETTING", "any thing");
-        takes("PI_ENSEMBLE_HOST_ALIASES", "");
+    }
+
+    #[test]
+    fn host_aliases_are_the_pairs_the_sandbox_reads() {
+        takes("PI_ENSEMBLE_HOST_ALIASES", "models:192.0.2.9");
+        takes(
+            "PI_ENSEMBLE_HOST_ALIASES",
+            "gpu1:192.0.2.9,gb:192.0.2.10,,v6host:2001:db8::1",
+        );
+        for bad in ["models:192.0.2.8 extra", "models", "models:host"] {
+            refuses("PI_ENSEMBLE_HOST_ALIASES", bad, crate::sandbox::ALIASES_WHY);
+        }
     }
 
     #[test]
