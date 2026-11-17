@@ -799,8 +799,7 @@ fn a_gh_that_answers_gives_the_issue_as_its_words() {
 /// The `gh` stub of a case at <d>/gh, whose body is <body>.
 fn gh_stub(d: &TestDir, body: &str) -> std::path::PathBuf {
     let gh = d.join("gh");
-    fs::write(&gh, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    tehas_core::testing::write_exe(&gh, format!("#!/bin/sh\n{body}\n")).unwrap();
     gh
 }
 

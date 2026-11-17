@@ -519,8 +519,7 @@ mod tests {
         let home = tehas_core::testdir::TestDir::new(&format!("mcp-live-{name}"));
         fs::create_dir_all(home.join("libexec")).unwrap();
         let bin = home.join("libexec/tehas-mcp");
-        fs::write(&bin, "").unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&bin, "").unwrap();
         home
     }
 
