@@ -381,6 +381,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
@@ -391,7 +392,7 @@ pub struct Given {
     pub issue: u64,
     pub restart: bool,
     /// The driver a person asked for with --driver, if any.
-    pub driver: Option<start::Driver>,
+    pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
 }

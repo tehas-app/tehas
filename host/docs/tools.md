@@ -239,7 +239,22 @@ tehas neither checks its value nor passes it on under another name. It does
 check the name: before a cycle starts, `tehas work` asks the image's runner
 (`pi-rukas-headless --capabilities`) which inputs it reads, and a
 `PI_ENSEMBLE_*` name the container would be given that the runner does not list
-as one a host sets stops the cycle with 78, naming it. Unlike a
+as one a host sets stops the cycle with 78, naming it, unless a polyfill the
+image carries declares it. A polyfill is named in the image label
+`tehas.rukas.polyfills` as `<name>@<version>` and declares its inputs in the
+label `tehas.rukas.polyfill.<name>.inputs`, full names separated by spaces or
+commas. In the instance's `sandbox.Dockerfile`:
+
+```
+LABEL tehas.rukas.polyfills="example@0.1.0" \
+      tehas.rukas.polyfill.example.inputs="PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_TOKEN"
+```
+
+Only a `PI_ENSEMBLE_*` name that the runner does not list at all counts: a
+polyfill adds an input, it does not open one the runner keeps to itself. The
+labels are read only when the runner's answer lacks an input, and the run log
+says each input a polyfill took. `tehas review` checks the names of its own
+container by the same rule. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for
 `PI_ENSEMBLE_REVIEW_THRESHOLD` is to ignore it. The channel also carries

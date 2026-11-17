@@ -8,6 +8,7 @@ pub mod approval;
 pub mod call;
 pub mod cycle_notes;
 pub mod disk;
+pub mod driver;
 pub mod egress;
 #[cfg(feature = "mask")]
 pub mod end_fault;
