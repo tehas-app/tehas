@@ -23,7 +23,11 @@
 # analytics program, the MCP server, the state store, the attachment checker,
 # the dispatcher and the cycle's supervisor, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
-# console/store, console/attach, console/dispatch and console/cycle). A real
+# console/store, console/attach, console/dispatch and console/cycle). While
+# outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
+# (console/proxy, libexec/tehas-proxy) and the contractor program
+# (console/contractor, libexec/tehas-contractor), and installs the proxy's
+# unit, tehas-outsource-proxy.service; off, none of the three. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -678,6 +682,18 @@ for f in "$root"/lib/polyfill-*.sh; do
   files+=("lib/${f##*/}|$TEHAS_HOME/lib/${f##*/}|644")
 done
 shopt -u nullglob
+# What a feature that is on installs besides the rest: outsource's model proxy,
+# its unit and the contractor program (console/ops/src/update/host.rs). Off,
+# none of it is installed or compared.
+featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
+  { echo "tehas: the console at $loaded_console could not name what the features that are on install; nothing was installed" >&2; exit 1; }
+featured_programs=()
+while read -r kind name; do
+  case $kind in
+    program) featured_programs+=("$name") ;;
+    unit) files+=("systemd/$name|$units/$name|644") ;;
+  esac
+done <<<"$featured"
 
 # Whether this run owes the sandbox build, asked once before any copy is made
 # (console/ops/src/update/sandbox.rs): the pins of versions.env the image reads, by
@@ -769,6 +785,7 @@ program_puts=()
 program_stamps=()
 gate_store=$TEHAS_HOME/libexec/store
 compiled=(console analytics tehas-mcp store attach tehas-dispatch tehas-cycle)
+compiled+=(${featured_programs[@]+"${featured_programs[@]}"})
 # The compiled programs first, the console, analytics, the MCP server, the
 # store and the attachment checker, the members of the Cargo workspace in
 # console/: a build that fails must
