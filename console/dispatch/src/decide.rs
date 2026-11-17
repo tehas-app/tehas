@@ -2,6 +2,7 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
+use crate::place::{place, Need, Outsourcing, Place};
 use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
@@ -225,6 +226,9 @@ struct Start {
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
     extra: Map<String, Value>,
+    /// Under the outsource feature: where the start runs, as its log line
+    /// ends. None with the feature off, and for the starts it does not place.
+    placed: Option<String>,
 }
 
 /// What an issue's epic says of the millwright's label on the issue, under
@@ -281,6 +285,11 @@ struct Poll<'a> {
     /// this poll closed.
     plan_busy: Option<u64>,
     plan_closed: Vec<u64>,
+    /// The memory ceiling of one cycle's container in MiB, as the slice
+    /// gives it; 0 when the slice did not say.
+    cycle_mb: u64,
+    /// The contractors this poll gave a start.
+    taken: Vec<String>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -302,6 +311,8 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         park_ticked: Vec::new(),
         plan_busy: None,
         plan_closed: Vec::new(),
+        cycle_mb: 0,
+        taken: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -962,6 +973,7 @@ impl<'a> Poll<'a> {
         match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
+                self.cycle_mb = u.ceiling_mb;
                 let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
                 room_mem = r.room;
                 committed = r.committed;
@@ -3005,6 +3017,7 @@ impl<'a> Poll<'a> {
                 fixer: None,
                 park_lifted: None,
                 extra: Map::new(),
+                placed: None,
             };
             if ask == HOST {
                 st.verb = "started from the host".into();
@@ -3056,6 +3069,7 @@ impl<'a> Poll<'a> {
                     .insert("approved_label".into(), json!("tehas:plan"));
             }
             driver.bind(&mut st.extra, &mut st.remove, &labels);
+            self.place(n, &mut st);
             self.starts.push((n, st));
         }
         let count = self.live().count();
@@ -3074,8 +3088,13 @@ impl<'a> Poll<'a> {
         }
         for (n, st) in starts {
             if self.dry {
+                let placed = st
+                    .placed
+                    .as_ref()
+                    .map(|p| format!(", {p}"))
+                    .unwrap_or_default();
                 self.log(format!(
-                    "would run a cycle for #{n} ({} by {})",
+                    "would run a cycle for #{n} ({} by {}){placed}",
                     st.verb, st.starter
                 ));
             } else {
@@ -3095,6 +3114,33 @@ impl<'a> Poll<'a> {
         self.act(json!({"index_gate": running}));
     }
 
+    /// Under the outsource feature, where the start of `n` runs: a contractor
+    /// is named in the action, which the approval binds, and either way the
+    /// start's line says where. With the feature off nothing changes.
+    fn place(&mut self, n: u64, st: &mut Start) {
+        let Some(rules) = &self.c.outsource else {
+            return;
+        };
+        let none = Outsourcing::default();
+        let need = Need {
+            repo: self.c.repo.clone(),
+            issue: n,
+            mem_mb: self.cycle_mb,
+            disk_kb: self.c.min_free_mb * 1024,
+            now: self.s.now.unwrap_or(0),
+        };
+        let o = self.s.outsource.as_ref().unwrap_or(&none);
+        st.placed = Some(match place(rules, o, &need, &self.taken) {
+            Place::Out(name) => {
+                st.extra.insert("contractor".into(), json!(name));
+                let said = format!("outsourced to {name}");
+                self.taken.push(name);
+                said
+            }
+            Place::InHouse(why) => format!("in-house: {why}"),
+        });
+    }
+
     /// The start of a cycle as an action: what start_cycles records and
     /// changes.
     fn act_start(&mut self, n: u64, st: Start) {
@@ -3106,10 +3152,11 @@ impl<'a> Poll<'a> {
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
             "given": st.given_how, "remove": st.remove, "verb": st.verb,
             // The line apply logs as the start begins.
-            "log": if st.given_how == HOST {
-                format!("start #{n} ({})", st.verb)
-            } else {
-                format!("start #{n} ({} by {})", st.verb, st.starter)
+            "log": match (st.given_how == HOST, &st.placed) {
+                (true, None) => format!("start #{n} ({})", st.verb),
+                (true, Some(p)) => format!("start #{n} ({}), {p}", st.verb),
+                (false, None) => format!("start #{n} ({} by {})", st.verb, st.starter),
+                (false, Some(p)) => format!("start #{n} ({} by {}), {p}", st.verb, st.starter),
             },
             "text": !t.as_object().is_none_or(|o| o.is_empty()),
             "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),

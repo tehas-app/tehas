@@ -67,6 +67,9 @@ pub struct Settings {
     /// TEHAS_DRIVER=lean: a start no driver label chose runs lean, and
     /// `tehas:classic` is the choice against it.
     pub lean_default: bool,
+    /// The outsource feature's settings, None while it is off: every start
+    /// then runs on this host, as before the feature.
+    pub outsource: Option<crate::place::Rules>,
 }
 
 impl Settings {
@@ -134,6 +137,11 @@ impl Settings {
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
             keep_days: n("TEHAS_WORKSPACE_KEEP_DAYS", 7).max(1) as u64,
             lean_default: s("TEHAS_DRIVER", "classic") == "lean",
+            outsource: crate::place::Rules::of(&|k| {
+                v.get(k).map_or(String::new(), |x| {
+                    x.as_str().map_or(x.to_string(), str::to_string)
+                })
+            }),
         }
     }
 
@@ -263,6 +271,17 @@ mod tests {
         // Only `1` is on, as for every setting of this family.
         let other = Settings::parse(&json!({"TEHAS_WORK_FILES": "yes"}));
         assert!(!other.work_files);
+    }
+
+    #[test]
+    fn outsource_is_off_unless_the_registry_says_on() {
+        assert_eq!(Settings::parse(&json!({})).outsource, None);
+        let asked = json!({"TEHAS_OUTSOURCE": "on", "TEHAS_OUTSOURCE_REPOS": "acme/widget"});
+        assert_eq!(Settings::parse(&asked).outsource, None);
+        let mut tested = asked.clone();
+        tested["TEHAS_TEST_FEATURES"] = json!("outsource");
+        let rules = Settings::parse(&tested).outsource.unwrap();
+        assert_eq!(rules.repos, ["acme/widget"]);
     }
 
     #[test]

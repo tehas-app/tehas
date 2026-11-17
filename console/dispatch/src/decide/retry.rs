@@ -550,6 +550,7 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
+                    placed: None,
                 },
             );
             self.untick(n, &ans, None);
@@ -688,6 +689,7 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
+                    placed: None,
                 },
             );
             return Err(End(0));
@@ -962,6 +964,7 @@ impl Poll<'_> {
             fixer: None,
             park_lifted: None,
             extra,
+            placed: None,
         }))
     }
 }
