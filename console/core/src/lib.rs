@@ -55,6 +55,7 @@ pub mod settings;
 pub mod size;
 pub mod slice;
 pub mod snapshot;
+pub mod stamp;
 pub mod testdir;
 pub mod testing;
 pub mod text;

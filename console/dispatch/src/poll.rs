@@ -364,6 +364,7 @@ fn writer(
                 bot.to_string()
             },
             owner: env("TEHAS_ASSIGNEE"),
+            outsource: tehas_core::features::on("outsource"),
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
