@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Tests for tehas api: what this factory speaks, for a program to read first.
+# To write api/api.*.json again from the command after a change to it:
+#   TEHAS_SAMPLES_WRITE=1 test/api_test.sh
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+
+# Read before test/lib.sh is sourced, which sweeps TEHAS_ names from the
+# environment.
+samples_write=${TEHAS_SAMPLES_WRITE:-}
+
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -307,25 +314,44 @@ for name in $(jq -r '.flags | keys[]' <<<"$t_out"); do
   t_eq "$name $(grep -cx -- "$name" "$T_ROOT/api/features.txt")" "$name 0"
 done
 
-t_case "api --json with a poll on record, and with none, fits the schema"
+t_case "api --json prints the samples: no poll on record, a poll with no writes log, and one with it"
+# The clock and the wall time of the last poll are the run's, so the samples
+# keep their own; every other value is what the command printed.
+# TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
+steady() { # <json text>: the object with the clock of its poll as the samples hold it
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+}
+sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
+  t_eq "$(fits_text "$2")" ""
+  if [ -n "$samples_write" ]; then
+    steady "$2" >"$T_ROOT/api/api.$1.json"
+  else
+    t_eq "$1 $(steady "$2" | jq -c .)" "$1 $(jq -c . "$T_ROOT/api/api.$1.json")"
+  fi
+}
 reset
 t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
-installed v0.10.2
 t_run "$api --json"
-t_eq "$(fits_text "$t_out")" ""
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.poll' <<<"$t_out")" null
+sample_is nopoll "$t_out"
+installed v0.10.2
 now=$(date +%s)
 t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
   --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
   t_bad "no poll recorded"
 t_run "$api --json"
 t_eq "$(jq -r '.poll | type' <<<"$t_out")" object
-t_eq "$(fits_text "$t_out")" ""
+sample_is nolog "$t_out"
+installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
 printf '%s\tlabel create\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" >"$T/github-writes.log"
 t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
   --writes-log "$T/github-writes.log" --starts 1 >/dev/null ||
   t_bad "no poll recorded"
 t_run "$api --json"
 t_eq "$(jq -r '.poll.last.kinds.label' <<<"$t_out")" 1
-t_eq "$(fits_text "$t_out")" ""
+sample_is sample "$t_out"
 
 t_done

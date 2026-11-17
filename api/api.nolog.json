@@ -2,7 +2,7 @@
   "api": 1,
   "tehas": "v0.10.2",
   "commit": null,
-  "repo": "tehas-app/tehas",
+  "repo": "acme/widget",
   "features": [
     "status",
     "millwright-grant",
@@ -39,15 +39,15 @@
     "prototype-file": false,
     "lean": false
   },
-  "millwright": "millbot[bot]",
+  "millwright": null,
   "poll": {
     "last": {
       "at": 1761400000,
       "wallMs": 24000,
       "cpuMs": 3100,
-      "gh": 12,
+      "gh": 3,
       "writes": null,
-      "starts": null,
+      "starts": 0,
       "kinds": null,
       "ageMin": 0
     },
