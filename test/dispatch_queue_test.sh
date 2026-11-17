@@ -541,6 +541,24 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
 t_eq "$(jq -r .at "$T/home/tehas/state/push-fault.json")" \
   "$push_fault_at" "the fault keeps the time the start wrote"
 
+t_case "a push fault past the wait asks no probe while nothing is ready or the factory is paused"
+reset
+slots 3
+echo '[]' >"$fx/ready.json"
+push_fault_old
+T_ENV+=(TEHAS_PUSH_PROBE_CMD="$T/bin/probe-ok")
+t_stub probe-ok 'exit 0'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls probe-ok | wc -l)" 0 "nothing ready: no start for the probe to free"
+ready 7 8
+jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "weekend"}' >"$T/home/tehas/state/pause.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls probe-ok | wc -l)" 0 "paused: no start for the probe to free"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .at "$T/home/tehas/state/push-fault.json")" "$push_fault_at"
+
 t_case "with no fault on record the queue starts, and nothing is said of it"
 reset
 slots 3
