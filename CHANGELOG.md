@@ -166,6 +166,131 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   the strict way everywhere: the answer says it cannot be read and the poll
   holds the start, instead of reading the event as one with no time and
   ordering it ahead of the stamped ones (#2230).
+- A factory can turn outsource on. With `TEHAS_OUTSOURCE=1` and the
+  repositories of `TEHAS_OUTSOURCE_REPOS`, its state store holds the
+  contractors, the jobs, each issue's outsourced attempts and the one-time
+  invite codes, and the store answers the verbs that move a job through
+  `offered`, `running`, `stopping`, `finished`, `released` and `lost`, with a
+  row of history for every change. A job whose contractor goes quiet past
+  `TEHAS_OUTSOURCE_TIMEOUT` is lost `TEHAS_OUTSOURCE_GRACE` seconds later, a
+  contractor that lost one is given no new job for `TEHAS_OUTSOURCE_REST`
+  seconds, and an issue that lost `TEHAS_OUTSOURCE_RETRIES` of them runs
+  in-house. The state store moves to schema 15: the update lays the five tables in
+  every store, empty. `store init --outsource` and `store migrate --outsource`
+  turn the feature on in the store; without the flag every verb of it is
+  refused and writes nothing. `tehas state load` moves the five tables with
+  the rest of a copy and refuses a store that holds a job. Nothing sends a job to
+  a contractor yet: no installed command calls these verbs, so turning the
+  setting on changes nothing about what the factory does.
+  [The settings table](/tools#instance-settings) and
+  [Features](/features) say what is built.
+- With `TEHAS_OUTSOURCE=1` the factory can run `tehas-proxy`, the model proxy
+  of outsource: a contractor asks it for the model with its job's token, and
+  the factory forwards to the endpoint it has configured. The real key never
+  leaves the factory. The proxy reads the contractors and jobs from the state
+  store, passes a streamed reply as it arrives, counts requests per contractor
+  and per job, forwards only the model paths a cycle needs, and never logs a
+  body. It listens on `TEHAS_OUTSOURCE_PROXY_ADDR` (`127.0.0.1:8090`), and
+  `TEHAS_OUTSOURCE_PROXY_IDLE` (`900`) bounds a silent stream; it must be longer
+  than `TEHAS_OUTSOURCE_TIMEOUT` or every command stops with 78. With
+  outsource off nothing changes (#2273).
+- A person's `tehas:ready` after a parked cycle and an automatic refine starts
+  the issue again. GitHub can cut an issue's label timeline right after the
+  label its last cycle started on, and the poll then read that old approval and
+  skipped the issue on every poll with "its approval of ... started a cycle
+  already". A candidate whose newest `tehas:ready` or `tehas:blocked` on the
+  page is no newer than the approval of its last start now has its label events
+  read whole.
+- `tehasbot github-token --check` reads every page of the GitHub App's installation repositories, so an app installed on more than 100 repositories no longer reports that it does not reach `TEHAS_REPO`.
+- The sandbox image no longer leaves a root-owned npm cache in `/home/vscode/.npm`, where npm in a cycle failed with `EACCES`. The image build stops if root owns anything there.
+- A cycle's `manifest.json` starts with `"version": 1`, the format it is written in. A field is only added within a version.
+- The attachment checker, the dispatcher and the Protolab read attachment links by one rule and fetch them by one fetch. Nothing else changes in what they take.
+- `tehas setup --labellers` is now `--labelers`, spelled as the setting it
+  writes, `TEHAS_ALLOWED_LABELERS`. The old spelling exits 64 and names the
+  new one.
+- `tehas setup --token-file` and `--app-installation` are gone. Both are now
+  unknown options: each exits 64 and says why.
+- `tehas analytics export <file>` is now `tehas analytics copy --to <file>`,
+  with the same copy and the same `--json` object. The old form exits 64 and
+  names the new one.
+- `tehas pause` takes its reason as `--reason TEXT`, as `tehas freeze` and
+  `tehas limit set` do. A bare reason exits 64 and names the flag.
+- `tehas update` keeps no internal exit status 99. Its console verbs `args`,
+  `gate` and `prepare`, used only by the updater of releases before 0.25, are
+  gone; 1.0 updates from 0.30.x.
+- `tehas status --json`: where a running cycle's step is moves into one object, `running[].progress` (`step`, `stepNumber`, `stepTotal`, `round`, `roundLimit`, `stepSince`). It is driver-specific and may change in a minor release. The schema now names `readOnly`, which the object already printed, and a third sample, `api/status.readonly.json`, shows it.
+- `tehas history --json`: the list is `runs`, not `cycles`: it holds cycles and planning turns. Where the step a cycle ended in was moves into `runs[].progress` (`step`, `stepNumber`, `stepTotal`, `round`), driver-specific like the one of status. `tehas export --json` prints `runs` too, and each `history.json` of an export directory carries `progress`.
+- `tehas export` writes `export.json` at the top of the export directory, `{"version": 1}`, the layout of the directory, and `tehas export --json` gains the same `version`.
+- `tehas start --json`: the approval's sums are `bodySha256` and `titleSha256`, camelCase like every other `--json` object.
+- `tehas refresh --pr N --json` (and its old name under `tehasbot`): the head is `headSha`, and the object gains `"api": 1`, as every other `--json` object has.
+- `tehas disk --json` and `live/disk.json`: `generatedAt` is now `time`, the word `tehas status --json` uses for when an answer was written. The MCP tool `factory_disk` answers `time` too.
+- The MCP tool `factory_disk` serves no path of the host: `dockerRoot` is gone, a file system's `paths` are roles (`home`, `docker`, `tmp`, `scratch`), and a place's `path` is its path under the instance's home, or its name alone outside it. A file system's `why` names a path by its role, and a `mount` that is a device path or a network export is left out. `tehas disk --json` and `live/disk.json` keep the absolute paths for a person on the host.
+- Nine settings have new names: `TEHAS_INDEXING` is `TEHAS_SITE_INDEXING`, `TEHAS_ANALYTICS_SRC` is `TEHAS_SITE_ANALYTICS_SRC`, `TEHAS_ANALYTICS_SITE` is `TEHAS_SITE_ANALYTICS_NAME`, `TEHAS_ANALYTICS_COOKIE` is `TEHAS_SITE_ANALYTICS_COOKIE`, `TEHAS_CONCURRENCY` is `TEHAS_WORKSTREAMS`, `TEHAS_TICKET_CONCURRENCY` is `TEHAS_MAX_CYCLES`, `TEHAS_REFRESH_MAX` is `TEHAS_REFRESH_MAX_PER_PR`, `TEHAS_OWNER` is `TEHAS_ASSIGNEE`, and `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env` is `TEHAS_MANAGER_VERSION`. The values are the same. The old manager name is ignored rather than refused, so a factory whose manager still writes it keeps running, without the version in its health.
+- Auto sizing is removed: `TEHAS_CONTAINER_MEMORY`, `TEHAS_CYCLE_CPUS` and `TEHAS_CYCLE_CEILING` are gone, `auto` is refused for `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`, and `tehas status --json` no longer has `room.slots`.
+- `TEHAS_BOT_LOGIN`, `TEHAS_MILLWRIGHT_LOGIN` and `TEHAS_GITHUB_APP_INSTALLATION` were ignored with a warning and are now refused: the GitHub App gives both logins and the installation is looked up.
+- Every setting row of `api/renames-1.0.tsv` still set in `instance.env` or `~/.config/tehas/env` stops every command with 78 and a line that names the new key or why the old one went. `tehas update` and `tehas update --check` list every such line before anything is installed and install nothing until the instance is clean.
+- The health file's `checks.industry` is `checks.manager`, the MCP tool `factory_status` serves `manager` in place of `industry`, and the front page footer says `manager vX.Y.Z`.
+- Every switch setting takes `on`, `off`, `1` and `0`; the manual and the
+  example instance write `on` and `off`. `1` and `0` keep working, and
+  `TEHAS_ANALYTICS` now takes them too. Any other value stops every command
+  with exit 78, as before.
+- `TEHAS_ENERGY` is a switch like the others: `on`, `off`, `1` or `0`. Any
+  other value stops every command with exit 78.
+- Optional features are named in one registry, each either shipped or still
+  being built. A feature still being built cannot be switched on: its switch
+  set to `on` stops every command with exit 78 and names the feature. In this
+  release `outsource` is still being built, so `TEHAS_OUTSOURCE=on` (or `1`)
+  is refused and `tehas-proxy` stays off.
+- `tehas api --json` has a new `flags` object, every optional feature and
+  whether it is on here (`{"outsource": false}` today), and the word `flags`
+  in `features`. `tehas api` prints a `flags` line.
+- `tehas api` feature words: `store-copy` is now `state-copy`;
+  `refresh-pr-starts`, `refresh-pr-lane` and `refresh-pr-json` are folded
+  into `refresh-pr`; `host-message-health` is folded into `host-message`.
+  `api/renames-1.0.tsv` lists each.
+- `tehas refresh --pr N [--json]` is the public way to ask for the refresh of one pull request. `tehasbot refresh --pr N` stays as an alias through 1.x and prints the same words and object (#2009).
+- A refresh finds the factory's own `gh` with no login `PATH`: it puts `~/tehas/shim` and `~/tehas/bin` first before it reads GitHub, and says `gh not found` when no `gh` can be run (#2009).
+- `tehas github check` checks the GitHub App's token, and `tehas github writes` prints the GitHub writes of the last day. They replace `tehasbot github-token --check` and `tehasbot github-writes` in the manual and in `tehas setup`; the old forms still work.
+- `api/renames-1.0.tsv` lists the renames of 1.0, one row each.
+- The MCP server's cycle `status` lists exactly the words a cycle can carry: it adds `not-started`, `stopped`, `parked` and `failed`, and drops `completed`, which no cycle said. A word outside the list is served as `unknown`.
+- The cycle supervisor can take a job waiter in place of `tehas work`: `tehas-cycle cycle <issue> --runner job` reports a cycle run on another host from the notes and exit status the waiter leaves, and reads no workspace or image of the factory. It is refused with 78 unless the outsource feature is on, and outsource is still being built in this release. In-house cycles are unchanged.
+- The improvement loop is gone: `tehasbot improve`, `tehas-improve.timer` and its service, the analyst's prompt and the record each cycle left under `~/tehas/tmp/improve`. `TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and `TEHAS_IMPROVE_MAX_OPEN` are no longer read, and an instance that still sets one of them to a value stops every command with 78 and names it. A blank value, and `TEHAS_IMPROVE_RUKAS_SKIP=0`, are ignored (#1927).
+- `TEHAS_CYCLE_REPORT` is no longer read: the cycle's report has one form. An instance that still sets it to a value, `rust` too, stops with 78 and names it; a blank value is ignored (#2194).
+- The `cross-project` label is gone from the label list, and the dispatcher no longer holds an issue that carries it. `tehas:improvement` stays, described as a proposal the factory filed: the review files under it, and the millwright still does not start such an issue.
+- `install.sh` and `tehas update` stop and disable `tehas-improve.timer` and remove both of its unit files, as they do for the old refresh timer.
+- The easy merge is gone, and with it `TEHAS_EASY_MERGE`. It never ran on a
+  host: no installed command started it, and every refresh already ran the
+  full refresh cycle. Every refresh is now the full refresh cycle, the
+  dispatcher no longer marks an approval for an easy merge, and the start
+  comment of a refresh is the one of the full refresh. Loading refuses
+  `TEHAS_EASY_MERGE` with exit 78 when it is set to 1 or any value but 0.
+- `tehas api` no longer lists the old names of the millwright: the field `fixer` and the feature word `fixer-grant` are gone from `tehas api --json` and from the feature line of `tehas api`.
+- tehas updates a host from v0.30.0 or later only. The state store migrates a database from schema 12, the one v0.30.0 wrote, and refuses an older one with a line that says to update to a v0.30 release first. `install.sh` asks it before it copies anything (`store migrate --dry-run`), so such a host stops with exit 78, nothing installed, and the database is left as it was. The store's tests migrate the stores the v0.30 releases made.
+- `store import` is gone, and `install.sh` no longer imports the record files a tehas before the state store kept under `state/`: a v0.30 install imported them. A poll that still finds one stops with 78 and says to move it out of `state/`.
+- `install.sh` no longer takes a home without the `.tehas-home` marker for tehas's by the files an older install left: every install since v0.30.0 writes the marker.
+- `analytics.db` at schema 2 or 3 is no longer migrated: it is kept aside under its version, as any other version is. v0.30.0 wrote schema 4.
+- The manual, the MCP tool descriptions and the footer code describe the program that runs a factory by its role instead of by a product name.
+- A write to GitHub that timed out or got a 5xx answer is no longer sent again blindly: the action journal keeps it as `unknown`, and a poll reads GitHub for it (a comment by its body, a label by name) before it is sent again; a cycle's report reads it back itself before its next try. A comment whose post timed out after GitHub took it is no longer posted twice, and a park question is no longer followed by a second, plain park comment (#1754).
+- The state store moves to schema 16. `install.sh` and `tehas update` migrate it as usual.
+- The millwright's old name `fixer` is gone from what tehas answers. The state store's schema 16 writes `millwright` in every row that still said `fixer`, so `tehas history` names one word. The `plan.json` of `tehas export` loses the duplicate `answers[].fixer`; read `answers[].millwright`. The MCP session tools answer `millwright` for an old run and no longer take `fixer` as a `how` filter.
+- The release workflow also publishes signed prereleases: a tag `vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N` or `vX.Y.Z-rc.N` is built, signed and published as a GitHub prerelease, never as the latest release. `scripts/tag-release.sh --pre alpha|beta|rc` tags the next one.
+- `tehas update` reads alphas and betas beside release candidates and orders them alpha, beta, rc, then the release. A plain update passes over every prerelease; `tehas update --to <tag>` installs one by name.
+- `tehas status --json` names the commit the installed release was built from in `versions.platform.commit`, and the health file's `checks.platform` carries it.
+- The gate workflow runs on pull requests into `main` and pushes to `main`
+  only. A pull request onto a release train runs no gate; the train's pull
+  request into `main` gates the batch.
+- The release workflow builds and signs on a clean GitHub-hosted runner and
+  installs its own Rust, jq and minisign at pinned versions.
+- The release job signs only after a person approves its run: the signing key lives in the repository's `release` environment. `SECURITY.md` says how to report a vulnerability privately.
+- With `TEHAS_MILLWRIGHT_EPICS=1`, the millwright's label on a sub-issue whose edit record could not be read no longer starts it: the label comes off and the issue says the record could not be read, as when an outsider changed its text.
+- One rule says which setting names are secret: a name that holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case. The console's mask and `tehas review` use the same rule.
+- `tehas review` takes a setting of a documented family, such as `PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST`, when the image lists the family, instead of stopping with exit 78.
+- The MCP tool `factory_console` masks the console tail it returns, as the log tools do.
+- The pinned ctx7 moves from 0.11.0 to 0.11.1.
+
+### Held back
+
+- Node 26.13.1 is out, a new major version. `host/versions.env` keeps 22.23.5: the move is a person's call.
 
 ### Adopter action
 
@@ -185,6 +310,56 @@ None.
 Run `tehas labels` to make and pin `tehas:classic`. Until it is pinned, an
 application of it counts as nobody's, and a start under `TEHAS_DRIVER=lean`
 over it starts nothing. Nothing else changes unless you set `TEHAS_DRIVER=lean`.
+
+Nothing to do. `store init --outsource` and `store migrate --outsource` take
+the new flag, but `install.sh` and `tehas update` do not pass it yet. Setting
+`TEHAS_OUTSOURCE=1` in `instance.env` today is only validated and loaded: the
+store stays off until a release passes the flag, and `tehas update` turns off
+a store that was turned on by hand with `store migrate --outsource`. The
+settings of the feature and their defaults are in
+`instances/example/optional.env`.
+
+Nothing in `instance.env` changes. Change scripts and notes that call the old
+forms:
+
+- `tehas setup --labellers "a b"` to `tehas setup --labelers "a b"`
+- `tehas analytics export <file>` to `tehas analytics copy --to <file>`
+- `tehas pause <reason>` to `tehas pause --reason "<reason>"`
+- drop `--token-file` and `--app-installation` from `tehas setup`
+
+A program that reads `--json` objects of tehas reads the new names. Every renamed field is a row of `api/renames-1.0.tsv`.
+
+- `tehas status --json`: read `running[].progress.step` and the other step fields under `progress`, not on `running[]` itself.
+- `tehas history --json` and `tehas export --json`: read `runs`, not `cycles`, and the step of a line under `runs[].progress`.
+- `tehas start --json`: read `approval.bodySha256` and `approval.titleSha256`.
+- `tehas refresh --pr N --json`: read `headSha`, not `head_sha`.
+- `tehas disk --json`, `live/disk.json` and the MCP tool `factory_disk`: read `time`, not `generatedAt`.
+- The MCP tool `factory_disk`: `dockerRoot` is gone; read the roles in `filesystems[].paths` and the home-relative `full.places[].path`.
+
+Before you update, edit `instance.env`: rename `TEHAS_INDEXING=` to `TEHAS_SITE_INDEXING=`, `TEHAS_ANALYTICS_SRC=` to `TEHAS_SITE_ANALYTICS_SRC=`, `TEHAS_ANALYTICS_SITE=` to `TEHAS_SITE_ANALYTICS_NAME=`, `TEHAS_ANALYTICS_COOKIE=` to `TEHAS_SITE_ANALYTICS_COOKIE=`, `TEHAS_CONCURRENCY=` to `TEHAS_WORKSTREAMS=`, `TEHAS_TICKET_CONCURRENCY=` to `TEHAS_MAX_CYCLES=`, `TEHAS_REFRESH_MAX=` to `TEHAS_REFRESH_MAX_PER_PR=` and `TEHAS_OWNER=` to `TEHAS_ASSIGNEE=`. Take out any `TEHAS_CONTAINER_MEMORY`, `TEHAS_CYCLE_CPUS`, `TEHAS_CYCLE_CEILING`, `TEHAS_BOT_LOGIN`, `TEHAS_MILLWRIGHT_LOGIN` and `TEHAS_GITHUB_APP_INSTALLATION` lines. Have the program that manages the factory write `TEHAS_MANAGER_VERSION=` in `~/.config/tehas/env` instead of `TEHAS_INDUSTRY_VERSION=`. A program that reads `checks.industry` or `factory_status.industry` reads `manager` instead. `tehas update --check` lists every line still to change.
+
+- In `instance.env`, take out `TEHAS_OUTSOURCE=1` (or set it to `off`):
+  outsource is still being built and the line now stops every command.
+- In `~/.config/tehas/env`, if `TEHAS_ENERGY` holds a value other than `on`,
+  `off`, `1` or `0`, set it to `on` (sample the mesh) or `off`.
+- A program that reads `tehas api --json` and tests for `store-copy`,
+  `refresh-pr-starts`, `refresh-pr-lane`, `refresh-pr-json` or
+  `host-message-health` tests for `state-copy`, `refresh-pr` or
+  `host-message` instead.
+
+A program or script that runs `tehasbot refresh --pr N` keeps working, and can move to `tehas refresh --pr N`. A person runs `tehas github check` and `tehas github writes` from now on.
+
+Take `TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP`, `TEHAS_IMPROVE_MAX_OPEN` and `TEHAS_CYCLE_REPORT` out of `instance.env` before you update: with any of them set to a value, every command stops with 78. The update removes the timer. `~/tehas/tmp/improve` and `~/tehas/logs/improve.log` are left on the host; remove them when you no longer need them. The `cross-project` label stays on GitHub until you delete it.
+
+Take `TEHAS_EASY_MERGE` out of `instance.env`. A line set to 1 stops every
+command with 78 until it is gone; a blank value and `TEHAS_EASY_MERGE=0` are
+ignored.
+
+A program that reads `tehas api --json` reads `millwright` instead of `fixer`, and checks for the feature `millwright-grant` instead of `fixer-grant`.
+
+A host on a release older than v0.30.0 updates to a v0.30 release first (`tehas update --to v0.30.6`), then to this one.
+
+A reader of `tehas export`'s `plan.json` that reads `answers[].fixer` reads `answers[].millwright`. An MCP client that filters `factory_sessions` by `how: "fixer"` filters by `millwright`. `api/renames-1.0.tsv` lists the renamed key and the `how` value.
 
 ## v0.30.6 (2026-11-15)
 

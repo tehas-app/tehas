@@ -1021,8 +1021,7 @@ mod tests {
         };
         let here = gh.display().to_string();
         // No gh of this case is run: it asks only what the mode makes of it.
-        std::fs::write(&gh, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(&gh, PermissionsExt::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\nexit 0\n").unwrap();
         assert_eq!(
             which("gh", &both("bin", "empty")).as_deref(),
             Some(here.as_str())
@@ -1069,8 +1068,7 @@ mod tests {
         std::fs::create_dir_all(&shim).unwrap();
         let gh = shim.join("gh");
         // No gh of this case is run: it asks only what the mode makes of it.
-        std::fs::write(&gh, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(&gh, PermissionsExt::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\nexit 0\n").unwrap();
         let home = dir.display().to_string();
         let named = gh.display().to_string();
         // A stripped PATH: only the shim can be the program.
@@ -1086,8 +1084,7 @@ mod tests {
         assert_eq!(gh_program(Some(&home), ""), None);
         let bin = dir.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("gh"), "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(bin.join("gh"), PermissionsExt::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(bin.join("gh"), "#!/bin/sh\nexit 0\n").unwrap();
         let path = bin.display().to_string();
         assert_eq!(
             gh_program(Some(&home), &path).as_deref(),
