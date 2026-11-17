@@ -11,6 +11,7 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
+use tehas_core::driver::Driver;
 
 use crate::runner::LOG_TAIL;
 
@@ -95,9 +96,8 @@ pub struct Facts {
     pub start_how: String,
     pub approval_at: String,
     pub requeued: bool,
-    /// TEHAS_DRIVER=lean: a start no label chose runs lean, and
-    /// `tehas:classic` is the label that runs classic.
-    pub lean_default: bool,
+    /// TEHAS_DRIVER: the driver of a start no label chose.
+    pub driver_default: Driver,
     files: HashMap<String, File>,
     pub run_log: Option<RunLog>,
     /// The store's answer to cycle-show, or the word of its failure.
@@ -205,7 +205,11 @@ impl Facts {
             start_how: st(&start, "how"),
             approval_at: st(&start, "approval_at"),
             requeued: start.get("requeued") == Some(&Value::Bool(true)),
-            lean_default: v.get("driver_default").and_then(Value::as_str) == Some("lean"),
+            driver_default: Driver::default_of(
+                v.get("driver_default")
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+            ),
             files,
             run_log,
             record: answer(v.get("record")),

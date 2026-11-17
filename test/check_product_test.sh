@@ -55,18 +55,18 @@ t_eq "$t_rc" 78
 t_eq "$(t_calls git)" ""
 rm -f "$T/bin/git"
 
-t_case "no checkout: 78, and it is named"
+t_case "no checkout: a failed check, 3, and it is named"
 product "${good[@]}"
 rm -rf "$T/home/tehas/repos/widget"
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  origin   no product checkout at $T/home/tehas/repos/widget"
 
 t_case "a checkout of another repository fails the origin check"
 product "${good[@]}"
 g -C "$T/home/tehas/repos/widget" config remote.origin.url "https://github.com/acme/other.git"
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  origin   "
 t_contains "$t_out" "not of acme/widget"
 
@@ -74,13 +74,13 @@ t_case "no origin/HEAD: named, with the command that sets it"
 product "${good[@]}"
 g -C "$T/home/tehas/repos/widget" remote set-head origin -d
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  default  origin/HEAD is not set"
 
 t_case "no AGENTS.md and a gate of comments only: each named"
 product ".pi/verify-cmd=# nothing yet"
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  agents   no AGENTS.md"
 t_contains "$t_out" "FAIL  gate     no command in .pi/verify-cmd"
 t_eq "$(jq '.failures | length' "$result")" 2
@@ -89,7 +89,7 @@ t_case "an uncommitted file decides nothing"
 product ".pi/verify-cmd=make test"
 echo rules >"$T/home/tehas/repos/widget/AGENTS.md"
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  agents"
 
 t_case "a product model the instance lists passes; one it does not list fails"
@@ -99,7 +99,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "ok    model    .pi/settings.json names lab/big"
 product "${good[@]}" '.pi/settings.json={"defaultProvider": "lab", "defaultModel": "small"}'
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  model    .pi/settings.json names lab/small, which $TEHAS_INSTANCE_DIR/models.json does not list"
 
 t_case "--sandbox runs setup, the full gate and the smoke in the image, on a clone"
@@ -127,7 +127,7 @@ t_case "--sandbox: failing gates are a failure; no image is exit 1"
 product "${good[@]}"
 T_ENV=(RUN_RC=2)
 t_run "$check --sandbox"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  sandbox  the gates failed"
 t_eq "$(jq .sandbox "$result")" false
 t_stub docker 'exit 1'
@@ -138,7 +138,7 @@ t_contains "$t_out" "no sandbox image"
 t_case "golden: every line of a run that fails each check, and the result file"
 product ".pi/verify-cmd=# nothing yet" ".pi/settings.json=[1]"
 t_run "$check"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_eq "${t_out//$T/@T}" "ok    origin   @T/home/tehas/repos/widget is a clone of acme/widget
 ok    default  origin/HEAD is origin/main
 FAIL  agents   no AGENTS.md: tehas init-product proposes one
@@ -232,7 +232,7 @@ t_case "--sandbox: nothing to run is a failure of its own, and no gate reaches d
 product "AGENTS.md=rules" ".pi/verify-cmd=# nothing yet"
 t_stub docker 'exit 0'
 t_run "$check --sandbox"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  sandbox  no gate to run in the sandbox"
 t_eq "$(t_calls docker)" ""
 t_eq "$(jq .sandbox "$result")" null
@@ -241,7 +241,7 @@ t_case "--sandbox without origin/HEAD runs nothing"
 product "${good[@]}"
 g -C "$T/home/tehas/repos/widget" remote set-head origin -d
 t_run "$check --sandbox"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_lacks "$t_out" "sandbox"
 t_eq "$(t_calls docker)" ""
 
@@ -314,7 +314,7 @@ t_case "--sandbox: an install that fails is a failure, and no gate runs"
 T_ENV=(BUN_RC=4)
 rm -f "$T/calls/where"
 t_run "$check --sandbox"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  install  the install failed in tehas/pi-rukas:uid$(id -u) (exit 4)"
 t_lacks "$t_out" "sandbox  the gates"
 t_eq "$(wc -l <"$T/calls/where")" 1
@@ -324,7 +324,7 @@ t_case "--sandbox: a tool the image lacks is named, and nothing is installed"
 product "${good[@]}" "extension/bun.lock=x" "composer.lock=x"
 image_stub
 t_run "$check --sandbox"
-t_eq "$t_rc" 78
+t_eq "$t_rc" 3
 t_contains "$t_out" "FAIL  install  no composer in the sandbox image"
 t_lacks "$t_out" "the install failed"
 t_lacks "$t_out" "sandbox  the gates"

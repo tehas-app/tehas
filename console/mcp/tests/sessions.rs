@@ -620,7 +620,10 @@ fn schema_of(name: &str) -> Value {
 fn schema_matches_output() {
     let a = full_session("plan", 3, 60);
     let b = full_session("work", 4, 120);
-    let env = Env::new("schema", Some("a/b"), &[a.clone(), b.clone()]);
+    // A line whose outcome is no outcome word: the list leaves it out and says
+    // how many it left out. It is the first line, so a list of one reads it.
+    let c = sess("work", 5, 30, json!({"outcome": "landed"}));
+    let env = Env::new("schema", Some("a/b"), &[c, a.clone(), b.clone()]);
     let cases = [
         ("factory_sessions", json!({"limit": 1})),
         ("factory_session", json!({"id": a["id"]})),
@@ -1624,4 +1627,97 @@ fn runs_without_a_version_come_after_the_named_pairs() {
     assert!(v[1].get("tehasVersion").is_none(), "{out}");
     assert!(v[1].get("rukasVersion").is_none(), "{out}");
     assert_eq!(v[1]["runs"], 3);
+}
+
+// A run whose outcome is no word of the outcomes is counted with the runs that
+// recorded none, never as an outcome of its own, and the schema names the
+// outcome words the counts can hold.
+#[test]
+fn an_outcome_that_is_no_outcome_word_is_counted_apart() {
+    let rows = [
+        sess("work", 1, 10, json!({"outcome": "unknown"})),
+        sess("work", 2, 20, json!({"outcome": "landed"})),
+        sess("work", 3, 30, json!({"outcome": 5})),
+        sess("work", 4, 40, json!({"outcome": "stopped"})),
+    ];
+    let env = Env::new("odd-outcome", Some("a/b"), &rows);
+    let out = env.call("factory_failures", json!({})).unwrap();
+    let v = &out["versions"][0];
+    assert_eq!(v["runs"], 4);
+    assert_eq!(v["outcomes"], json!({"stopped": 1}));
+    assert_eq!(v["outcomesUnknown"], 3);
+    let schema = schema_of("factory_failures");
+    let outcomes = &schema["properties"]["versions"]["items"]["properties"]["outcomes"];
+    assert_eq!(
+        outcomes["propertyNames"]["enum"],
+        json!(tehas_core::outcome::OUTCOMES)
+    );
+}
+
+// The session tools check what they answer against the schema they publish. A
+// line of the snapshot with a field of another type, or a word outside its
+// list, is left out of the list and counted, and asked for by id it is an
+// error of the snapshot that names the field, never a session with the field
+// quietly missing or served as the file has it.
+#[test]
+fn a_session_that_does_not_match_its_schema_is_not_served() {
+    let good = sess("work", 1, 10, json!({}));
+    let rows = [
+        good.clone(),
+        sess("work", 2, 20, json!({"outcome": "landed"})),
+        sess("work", 3, 30, json!({"attempt": "1"})),
+        sess("plan", 4, 40, json!({"how": "fixed"})),
+        sess("work", 5, 50, json!({"seconds": 1.5})),
+        sess("work", 6, 60, json!({"failureKind": 7})),
+    ];
+    let env = Env::new("unmatched", Some("a/b"), &rows);
+    let out = env.call("factory_sessions", json!({})).unwrap();
+    assert_eq!(ids(&out), vec![good["id"].as_str().unwrap().to_string()]);
+    assert_eq!(out["leftOut"], 5, "{out}");
+    let schema = schema_of("factory_sessions");
+    let item = &schema["properties"]["sessions"]["items"]["properties"];
+    assert_eq!(
+        item["outcome"]["enum"],
+        json!(tehas_core::outcome::OUTCOMES)
+    );
+    assert_eq!(item["kind"]["enum"], json!(mcp::sessions::KINDS));
+    assert_eq!(item["how"]["enum"], json!(mcp::sessions::HOWS));
+
+    // A list with nothing left out says nothing of it.
+    let clean = Env::new("matched", Some("a/b"), std::slice::from_ref(&good));
+    let out = clean.call("factory_sessions", json!({})).unwrap();
+    assert!(out.get("leftOut").is_none(), "{out}");
+
+    for (row, key) in [
+        (&rows[1], "outcome"),
+        (&rows[2], "attempt"),
+        (&rows[3], "how"),
+        (&rows[4], "seconds"),
+        (&rows[5], "failureKind"),
+    ] {
+        match env.call("factory_session", json!({"id": row["id"]})) {
+            Err(ToolError::File { file, why }) => {
+                assert_eq!(file, "sessions.jsonl");
+                assert!(why.contains(row["id"].as_str().unwrap()), "{why}");
+                assert!(why.contains(key), "{key}: {why}");
+            }
+            other => panic!("{key}: {other:?}"),
+        }
+    }
+    // A step of another shape is the same.
+    let stepped = sess(
+        "work",
+        7,
+        70,
+        json!({"steps": [{"step": "develop", "round": "one"}]}),
+    );
+    let env = Env::new(
+        "unmatched-step",
+        Some("a/b"),
+        std::slice::from_ref(&stepped),
+    );
+    match env.call("factory_session", json!({"id": stepped["id"]})) {
+        Err(ToolError::File { why, .. }) => assert!(why.contains("round"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }
