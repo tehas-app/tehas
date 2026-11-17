@@ -25,6 +25,11 @@ pub struct Feature {
     pub setting: &'static str,
     /// The release that registered it.
     pub since: &'static str,
+    /// The programs of the workspace install.sh builds and installs only while
+    /// the feature is on, and a release packs beside the others.
+    pub programs: &'static [&'static str],
+    /// The units of host/systemd install.sh installs only while it is on.
+    pub units: &'static [&'static str],
 }
 
 pub const FEATURES: &[Feature] = &[
@@ -33,30 +38,40 @@ pub const FEATURES: &[Feature] = &[
         stage: Stage::Building,
         setting: "TEHAS_OUTSOURCE",
         since: "v1.0.0-alpha.2",
+        programs: &["tehas-proxy", "tehas-contractor"],
+        units: &["tehas-outsource-proxy.service"],
     },
     Feature {
         name: "spec-pipe",
         stage: Stage::Building,
         setting: "TEHAS_SPEC_PIPE",
         since: "v1.0.0-alpha.3",
+        programs: &[],
+        units: &[],
     },
     Feature {
         name: "protolab-zip-url",
         stage: Stage::Building,
         setting: "TEHAS_PROTOLAB_ZIP_URL",
         since: "v1.0.0-alpha.3",
+        programs: &[],
+        units: &[],
     },
     Feature {
         name: "prototype-file",
         stage: Stage::Building,
         setting: "TEHAS_PROTOTYPE_FILE",
         since: "v1.0.0-alpha.3",
+        programs: &[],
+        units: &[],
     },
     Feature {
         name: "lean",
         stage: Stage::Building,
         setting: "TEHAS_LEAN",
         since: "v1.0.0-alpha.3",
+        programs: &[],
+        units: &[],
     },
 ];
 
@@ -95,6 +110,21 @@ pub fn on(name: &str) -> bool {
 /// Every registered feature and whether it is on, in the registry's order.
 pub fn flags() -> Vec<(&'static str, bool)> {
     FEATURES.iter().map(|f| (f.name, on(f.name))).collect()
+}
+
+/// The programs and the units of the features that are on, in the
+/// registry's order: what install.sh installs besides its own list.
+pub fn installs_in(get: &dyn Fn(&str) -> String) -> (Vec<&'static str>, Vec<&'static str>) {
+    let on: Vec<&Feature> = FEATURES.iter().filter(|f| on_in(f.name, get)).collect();
+    (
+        on.iter().flat_map(|f| f.programs.iter().copied()).collect(),
+        on.iter().flat_map(|f| f.units.iter().copied()).collect(),
+    )
+}
+
+/// The units any feature installs, whether it is on or not.
+pub fn units() -> impl Iterator<Item = &'static str> {
+    FEATURES.iter().flat_map(|f| f.units.iter().copied())
 }
 
 /// The names of the shipped features: the words they add to `features`.
@@ -323,6 +353,36 @@ mod tests {
         }
         let tested = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
         assert_eq!(refuse_building(&tested), Ok(()));
+    }
+
+    #[test]
+    fn outsource_installs_its_proxy_its_unit_and_the_contractor_only_while_on() {
+        let none: (Vec<&str>, Vec<&str>) = (vec![], vec![]);
+        assert_eq!(installs_in(&vars(&[])), none);
+        // A building feature set on without the test variable is off.
+        assert_eq!(installs_in(&vars(&[("TEHAS_OUTSOURCE", "on")])), none);
+        let off = vars(&[("TEHAS_OUTSOURCE", "off"), (TEST_VAR, "outsource")]);
+        assert_eq!(installs_in(&off), none);
+        let on = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
+        assert_eq!(
+            installs_in(&on),
+            (
+                vec!["tehas-proxy", "tehas-contractor"],
+                vec!["tehas-outsource-proxy.service"]
+            )
+        );
+        assert_eq!(
+            units().collect::<Vec<_>>(),
+            ["tehas-outsource-proxy.service"]
+        );
+    }
+
+    #[test]
+    fn every_unit_a_feature_installs_is_a_file_of_host_systemd() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host/systemd");
+        for unit in units() {
+            assert!(dir.join(unit).is_file(), "host/systemd/{unit}");
+        }
     }
 
     #[test]

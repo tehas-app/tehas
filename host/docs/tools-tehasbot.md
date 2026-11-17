@@ -34,6 +34,7 @@ tehasbot github-token --cycle [--check]  # the cycle's token: the product reposi
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
 tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
+tehasbot outsource-proxy      # the model proxy of outsource; what tehas-outsource-proxy.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -43,7 +44,10 @@ as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 run does nothing unless `TEHAS_REVIEW=on`), the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
-[The MCP server](/mcp-server) is how it is switched on), and one
+[The MCP server](/mcp-server) is how it is switched on),
+`tehas-outsource-proxy.service` (installed only while `TEHAS_OUTSOURCE` is on;
+it runs `tehasbot outsource-proxy`, the model proxy of
+[outsource](/outsource)), and one
 `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
