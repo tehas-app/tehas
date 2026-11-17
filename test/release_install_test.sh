@@ -16,7 +16,7 @@ bob=$T/home/bob
 # The asset name the installer of a machine asks for, the same choice the script
 # makes. A case names the machine; a case that names none means this host's own.
 asset_for() { # [machine]
-  printf 'tehas-v1.0.0-linux-%s.tar.gz\n' "$(arch_of "${1:-$(uname -m)}")" || return 1
+  printf 'tehas-%s-linux-%s.tar.gz\n' "${VER:-v1.0.0}" "$(arch_of "${1:-$(uname -m)}")" || return 1
 }
 
 # The architecture words of host/release/install, the same choice as
@@ -31,15 +31,16 @@ arch_of() { # <machine>
 }
 
 make_release() { # [machine]
-  local src=$T/src/tehas-v1.0.0 name
+  local v=${VER:-v1.0.0}
+  local src=$T/src/tehas-$v name
   name=$(asset_for "${1:-$(uname -m)}") || return 1
   rm -rf "$T/src" "$rel"
   mkdir -p "$src/bin" "$rel"
-  echo v1.0.0 >"$src/VERSION"
+  echo "$v" >"$src/VERSION"
   printf '#!/bin/sh\nprintf "bootstrap %%s\\n" "$*" >>"%s/calls/bootstrap"\nexit "${BOOT_RC:-0}"\n' "$T" >"$src/bootstrap.sh"
   chmod +x "$src/bootstrap.sh"
   echo tehas >"$src/bin/tehas"
-  tar -czf "$rel/$name" -C "$T/src" tehas-v1.0.0
+  tar -czf "$rel/$name" -C "$T/src" "tehas-$v"
   (cd "$rel" && sha256sum "$name" >"$name.sha256")
   echo signed >"$rel/$name.minisig"
 }
@@ -107,6 +108,16 @@ t_run "BOOT_RC=1 sh '$installer' --from '$rel' --version v1.0.0 bob"
 t_eq "$t_rc" 1
 t_contains "$t_out" "bootstrap.sh root bob failed"
 t_eq "$(ls -A "$bob")" ""
+
+t_case "a prerelease is installed when --version names it"
+VER=v1.0.0-beta.1 make_release
+stubs
+t_run "sh '$installer' --from '$rel' --version v1.0.0-beta.1 bob"
+t_eq "$t_rc" 0
+t_eq "$(readlink "$bob/tehas/current")" versions/v1.0.0-beta.1
+t_run "sh '$installer' --from '$rel' --version v1.0.0-beta bob"
+t_eq "$t_rc" 64
+make_release
 
 t_case "usage: not root, no user, --from without --version, a bad version"
 stubs
