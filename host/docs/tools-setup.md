@@ -194,7 +194,7 @@ is committed there. One line per check, `ok` or `FAIL`:
 With `--sandbox` it then clones that commit into `~/tehas/tmp/<name>`, `<name>`
 the repository's name, and works in the sandbox image as this user and in the
 slice. It runs the installs at the root of the clone, then, in a worktree of the
-clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` when there is one,
+clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` with `sh` when there is one,
 the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
 command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
 the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
