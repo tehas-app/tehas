@@ -183,6 +183,16 @@ fn value_in(file: &Path, key: &str) -> String {
     tehas_core::env_file::value(&text, key).unwrap_or_default()
 }
 
+/// A value setup goes on to use, read as the shell that sources the file
+/// would leave it: one the shell would expand is refused, not taken as
+/// written.
+fn used_in(file: &Path, key: &str) -> Result<String, Fail> {
+    let text = fs::read_to_string(file).unwrap_or_default();
+    tehas_core::env_file::literal(&text, key)
+        .map(Option::unwrap_or_default)
+        .map_err(|why| Bad(format!("{why} (see {})", file.display())))
+}
+
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
     !s.is_empty() && s.chars().all(ok)
 }
@@ -645,25 +655,26 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     let models = dir.join("models.json");
 
     // What is asked for: the options, then the files, then the terminal.
-    let fill = |v: &mut String, key: &str| {
+    let fill = |v: &mut String, key: &str| -> Result<(), Fail> {
         if v.is_empty() {
-            *v = value_in(&inst, key);
+            *v = used_in(&inst, key)?;
         }
+        Ok(())
     };
-    fill(&mut g.repo, "TEHAS_REPO");
-    fill(&mut g.labelers, "TEHAS_ALLOWED_LABELERS");
-    fill(&mut g.control, "TEHAS_CONTROL_ISSUE");
-    fill(&mut g.provider, "PI_ENSEMBLE_SUBAGENT_PROVIDER");
+    fill(&mut g.repo, "TEHAS_REPO")?;
+    fill(&mut g.labelers, "TEHAS_ALLOWED_LABELERS")?;
+    fill(&mut g.control, "TEHAS_CONTROL_ISSUE")?;
+    fill(&mut g.provider, "PI_ENSEMBLE_SUBAGENT_PROVIDER")?;
     if g.provider.is_empty() {
         g.provider = "main".into();
     }
-    fill(&mut g.model, "PI_ENSEMBLE_SUBAGENT_MODEL");
+    fill(&mut g.model, "PI_ENSEMBLE_SUBAGENT_MODEL")?;
     if g.endpoint.is_empty() {
         if let Some(m) = read_json(&models) {
             g.endpoint = base_url(&m, &g.provider);
         }
     }
-    let kept_id = value_in(&inst, "TEHAS_GITHUB_APP_ID");
+    let kept_id = used_in(&inst, "TEHAS_GITHUB_APP_ID")?;
     let configured = !kept_id.is_empty() && app_key.exists();
     if g.key_file == "-" && g.new_app {
         return Err(Bad(
@@ -812,10 +823,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
 
     let key_name = key_name(&g.provider);
     let key = if g.key_file.is_empty() {
-        let text = fs::read_to_string(&env_file).unwrap_or_default();
-        tehas_core::env_file::literal(&text, &key_name)
-            .map_err(|why| Bad(format!("{why} (see {})", env_file.display())))?
-            .unwrap_or_default()
+        used_in(&env_file, &key_name)?
     } else {
         read_secret(&g.key_file, "the model key")?
     };

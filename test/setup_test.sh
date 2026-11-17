@@ -286,6 +286,16 @@ t_contains "$t_out" "TEHAS_MODEL_KEY_MAIN holds a \$ or a backtick: the file is 
 t_lacks "$t_out" "secret-key"
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 
+t_case "a value setup reuses from instance.env that a shell would expand is 78, before any call"
+fresh
+mkdir -p "$cfg"
+# shellcheck disable=SC2016  # the line is written as the operator wrote it
+printf '%s\n' 'PI_ENSEMBLE_SUBAGENT_MODEL="$MODEL"' >"$cfg/instance.env"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_SUBAGENT_MODEL holds a \$ or a backtick: the file is read, not run as shell"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
 t_case "a git identity that is there is kept"
 fresh
 git config -f "$T/home/.gitconfig" user.name "Someone"
