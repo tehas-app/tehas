@@ -280,7 +280,7 @@ not hold, a pull request with no history in common with the branch, or a
 workspace that still does not reach the merge base after the fetch stops the
 start with 78 and the reason.
 
-`tehas finish` takes a shallow workspace as it is: its own repository takes
+`tehas-cycle finish` takes a shallow workspace as it is: its own repository takes
 the workspace's shallow history with `git fetch --update-shallow`, and the
 fetch of the remote's default branch brings the commits since the workspace
 was made, which join that history at the commit the cycle started from.

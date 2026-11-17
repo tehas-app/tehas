@@ -287,6 +287,69 @@ for word in 'tehas tidy' 'tehasbot work'; do
   [ -z "$hits" ] || t_bad "names a command that is not one: $hits"
 done
 
+# Every page, not only the tools pages: a command named in code type is a
+# command a person types, so its word must be a verb the front routes.
+# `tehas is up to date` is what `tehas update --check` prints, not a command.
+t_case "every tehas or tehasbot command a page names in code type is a verb of it"
+for which in tehas tehasbot; do
+  grep -noE "\`$which [a-z][a-z-]*[\` ]" "${pages[@]}" |
+    sed -E "s/\`$which ([a-z-]*).\$/\\1/" | while IFS= read -r hit; do
+    word=${hit##*:}
+    case "$which $word" in
+    'tehas is' | "$which help") continue ;;
+    esac
+    grep -qxF "$word" "$T/verbs-$which" || echo "$hit is no verb of $which"
+  done
+done >"$T/tmp-named" 2>&1
+t_eq "$(cat "$T/tmp-named")" ""
+
+t_case "the rule above finds a command that is not a verb"
+printf 'Run `tehas finish 7` and `tehasbot clean`.\n' >"$T/named.md"
+hits=$(grep -noE '`tehas [a-z][a-z-]*[` ]' "$T/named.md" | sed -E 's/`tehas ([a-z-]*).$/\1/')
+t_eq "${hits##*:}" finish
+grep -qxF finish "$T/verbs-tehas" && t_bad "finish read as a verb of tehas"
+grep -qxF clean "$T/verbs-tehasbot" || t_bad "clean not read as a verb of tehasbot"
+
+# The four lines the finish step logs (console/dispatch/src/finish.rs), each in
+# the section a person reads when a label did nothing.
+t_case "troubleshooting names the four lines of the finish step"
+section=$(awk '/^## Nothing happens after I label an issue$/ { on = 1; next }
+  on && /^## / { exit } on' "$docs/troubleshooting.md" | tr '\n' ' ' | tr -s ' ')
+[ -n "$section" ] || t_bad "no section Nothing happens after I label an issue"
+for line in \
+  "ignore #N: tehas:finish was applied by '<who>', not an allowed account" \
+  'wait #N: tehas:finish waits: <why>' \
+  'finish #N: refused, asked by <who>' \
+  'finish #N: opened <url>, asked by <who> (<label|millwright>): <reason>'; do
+  t_contains "$section" "$line"
+done
+t_contains "$section" '/operating#finishing-a-stopped-cycle'
+
+# What the features page may still say. A removed feature leaves it, and a row
+# of a feature still being built says so in its status, not "Built".
+features="$docs/features.md"
+t_case "the features page names no removed feature"
+for gone in 'easy merge' 'improvement loop' 'auto sizing' 'fixer' 'TEHAS_IMPROVE_' \
+  'TEHAS_EASY_MERGE'; do
+  hits=$(grep -ni "$gone" "$features" || true)
+  [ -z "$hits" ] || t_bad "features.md names $gone: $hits"
+done
+
+t_case "each row of a feature still being built says so in its status"
+rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
+  status = $3; sub(/ *\|$/, "", status); print status }' "$features")
+[ "$(grep -c . <<<"$rows")" -ge 8 ] || t_bad "fewer than 8 rows of building features: $rows"
+while IFS= read -r status; do
+  case $status in
+  'Still being built'*) ;;
+  *) t_bad "a building feature's status reads: ${status:0:80}" ;;
+  esac
+done <<<"$rows"
+
+t_case "the features page says no host proof of the future"
+hits=$(grep -n 'ends about\|at the time of writing\|awaits the first cycle' "$features" || true)
+[ -z "$hits" ] || t_bad "features.md: $hits"
+
 # ---------------------------------------------------------------------------
 # What the manual says about the two reads that used to guess. The importer of
 # an older tehas's records now holds a file whose value its own verbs would
