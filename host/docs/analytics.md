@@ -65,6 +65,9 @@ asks for them:
 
 The rows need neither - the writes bound the tables - so this is the command
 that clears the aside files of [The file](#the-file) below.
+When it cannot delete an expired aside file, or its `-wal` or `-shm`, it
+deletes the others, names those it could not in one `WARN` line on standard
+error and exits 73.
 
 ## The file
 

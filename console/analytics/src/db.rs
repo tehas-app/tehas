@@ -83,13 +83,15 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), Stri
 
 /// Deletes the databases of other schema versions, and their side files,
 /// whose last write is more than 365 days old: by then every row in them is.
-pub fn prune_aside(file: &Path, now: i64) {
+/// Returns the expired files it could not delete.
+pub fn prune_aside(file: &Path, now: i64) -> Vec<PathBuf> {
+    let mut stuck = Vec::new();
     let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|n| n.to_str())) else {
-        return;
+        return stuck;
     };
     let prefix = format!("{name}.schema-");
     let Ok(entries) = fs::read_dir(dir) else {
-        return;
+        return stuck;
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -106,9 +108,13 @@ pub fn prune_aside(file: &Path, now: i64) {
             .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64);
         if ours && meta.is_file() && written.is_some_and(|w| w < now - RETENTION_DAYS * DAY) {
-            let _ = fs::remove_file(&path);
+            match fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => stuck.push(path),
+                _ => {}
+            }
         }
     }
+    stuck
 }
 
 pub(crate) enum Unusable {
