@@ -65,3 +65,4 @@ value	tehas check-product exit=78	3	a failed check is the answer no; 78 is setti
 value	tehas analytics exit=69	78	analytics off is a setting; the program not installed is 1
 value	tehas analytics exit=70	1	a database that cannot be read is a failure
 value	tehas analytics exit=73	1	a file that exists or cannot be made is a failure
+value	tehas setup exit=78	1	a product check that failed stops setup with 1; 78 is a step stopped on its settings
