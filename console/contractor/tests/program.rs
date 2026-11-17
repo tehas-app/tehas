@@ -122,8 +122,7 @@ fn listen(factory: TestFactory) -> String {
 }
 
 fn exe(path: &Path, body: &str) {
-    fs::write(path, body).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    tehas_core::testing::write_exe(path, body).unwrap();
 }
 
 fn git(dir: &Path, args: &[&str]) {
