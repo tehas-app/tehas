@@ -108,7 +108,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   paused. An allowed account applies `tehas:pause` and takes it off again, and
   `tehas labels` puts a deleted label back.
 - `WARN: ~/tehas/state/pause.json is not a pause flag: taking it as paused`: the
-  flag file is damaged, and a switch that cannot be read is taken as closed.
+  flag file is damaged, a link, or over 1 MiB, and a switch that cannot be read
+  is taken as closed.
   `tehas resume` removes it; `tehas pause` writes one that can be read.
 - `holding: N cycles are running (limit N)`: the ceiling is reached. Wait for
   a cycle to end, or raise `TEHAS_MAX_CYCLES`.

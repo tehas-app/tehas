@@ -331,7 +331,7 @@ fn control(
 }
 
 /// The host's own switch, read without asking GitHub anything. Whether the
-/// file is a flag at all is `read_pause`'s answer, so a file which is no flag
+/// file is a flag at all is the answer of `tehas_core::pause`, so a file which is no flag
 /// for the health file is no flag for the dashboard either; the fields then
 /// keep this reader's own folding of the reason, which collapses a run of
 /// control characters to one space where the reading gives each a space of its
@@ -339,15 +339,17 @@ fn control(
 /// counts as paused and has nothing to say for itself beyond that. `by` stays
 /// out: the page can be public.
 fn host_pause_flag(file: &Path) -> (J, bool) {
-    // Read as no flag by the one reading of the file: it holds the factory and
-    // says nothing more.
-    match crate::holds::read_pause(file).state() {
-        "none" => return (J::Null, false),
-        "ok" => {}
-        _ => return (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
+    let unread = || (obj(vec![("at", J::Null), ("reason", J::Null)]), true);
+    let bytes = match tehas_core::pause::bytes(file) {
+        Ok(None) => return (J::Null, false),
+        Ok(Some(b)) => b,
+        Err(_) => return unread(),
+    };
+    // A file no flag to the one reading holds the factory and says nothing more.
+    if tehas_core::pause::parse(&bytes).state != "ok" {
+        return unread();
     }
-    let text = fs::read(file).ok().and_then(|b| String::from_utf8(b).ok());
-    let flag = text.as_deref().and_then(J::parse);
+    let flag = std::str::from_utf8(&bytes).ok().and_then(J::parse);
     match flag.as_ref().map(|f| (f.get("at"), f.get("reason"))) {
         Some((J::Str(at), J::Str(reason))) if matches!(flag, Some(J::Obj(_))) => (
             obj(vec![
@@ -359,7 +361,7 @@ fn host_pause_flag(file: &Path) -> (J, bool) {
             ]),
             true,
         ),
-        _ => (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
+        _ => unread(),
     }
 }
 
@@ -1070,6 +1072,25 @@ mod tests {
             flag_paused: false,
             no_resources: false,
         }
+    }
+
+    #[test]
+    fn a_pause_flag_is_read_once_under_the_bound() {
+        let dir = temp("pause-bound");
+        let f = dir.join("pause.json");
+        assert_eq!(host_pause_flag(&f), (J::Null, false));
+        fs::write(&f, r#"{"at":"T","reason":"r","by":"boss"}"#).unwrap();
+        let (flag, paused) = host_pause_flag(&f);
+        assert!(paused);
+        assert_eq!(flag.dump(), r#"{"at":"T","reason":"r"}"#);
+        let unread = obj(vec![("at", J::Null), ("reason", J::Null)]).dump();
+        let pad = " ".repeat(tehas_core::file::READ_BOUND_LEN);
+        fs::write(&f, format!(r#"{{"at":"T","reason":"r"}}{pad}"#)).unwrap();
+        let (flag, paused) = host_pause_flag(&f);
+        assert!(paused);
+        assert_eq!(flag.dump(), unread);
+        fs::write(&f, "{").unwrap();
+        assert_eq!(host_pause_flag(&f).0.dump(), unread);
     }
 
     #[test]
