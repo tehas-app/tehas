@@ -1367,8 +1367,8 @@ console settings rules --json
 }
 ```
 
-Every release carries the rules of the instance settings as
-`api/settings-rules.json`, at `tehas-<tag>/api/settings-rules.json` in the
+Every release carries the rules of the instance settings and of the host
+settings as `api/settings-rules.json`, at `tehas-<tag>/api/settings-rules.json` in the
 tarball. It is what `console settings rules --json` of that release prints,
 built from the table the load checks `instance.env` with, so a tool with no
 factory, such as the CI of a settings repository, can check the values. The
@@ -1387,16 +1387,17 @@ lists the feature `settings-rules`.
 | `settings.default` | What the load uses when the instance leaves it out or empty, or `null`: it stays unset, or the load works it out |
 | `settings.words` | Only for a `one-of` row: the values it takes |
 | `settings.reason` | What the check says for a value the rule refuses |
+| `host` | The settings of the host, in the same fields as `settings`: the environment or `~/.config/tehas/env` gives them, never `instance.env`. Each is checked when it holds a value (`when` is always `given`). `TEHAS_MODEL_KEY_<NAME>` stands for every name with that front. `TEHAS_UPDATE_LOCK_WAIT` is checked by `tehas update` and `install.sh` themselves, before the load, and its `default` is theirs |
 
 An empty value means unset and is not checked against the rule, except for a
 `named` setting. An unset setting of `when` `required` is refused by the
 command that requires it.
 
 Every other `TEHAS_*` name tehas reads is internal and may change in any
-release: the names the environment hands the load (the home, the instance
-directory, the tests' commands), what the load derives, such as each size
-setting again in megabytes as `<name>_MB`, the waits of a `tehas update` run,
-the tests' hooks, and what one program hands the next. The list, with why for
+release: the tests' commands and hooks that the environment hands the load,
+what the load derives, such as each size setting again in megabytes as
+`<name>_MB`, the dispatcher's wait of an install, and what one program hands
+the next. The list, with why for
 each, is `console/core/src/settings/unruled.rs`, and a test of the workspace
 holds every name the installed source reads to a rule or to that list.
 
