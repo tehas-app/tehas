@@ -3,8 +3,8 @@
 //! database. `docs/specs/2026-10-21-state-store.md` is the design; section 3
 //! is the schema (src/schema.sql) and section 4 this command.
 //!
-//!   store init [--force] [--version <v>] [--commit <sha>] [--instance <name>]
-//!                [--repo <owner/name>] [--json]
+//!   store init [--force] [--outsource] [--version <v>] [--commit <sha>]
+//!                [--instance <name>] [--repo <owner/name>] [--json]
 //!     Makes the database: schema v2 in an empty file and PRAGMA
 //!     user_version 2, and the row of meta that says when it was made, by
 //!     which version and commit of tehas, and for which instance and
@@ -17,7 +17,12 @@
 //!     Answers
 //!     {"api":1,"verb":"init","ok":true,"schema":2,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
-//!   store migrate --backup <dir> [--json]
+//!     --outsource turns the outsource feature on. The store reads no setting
+//!     of a host, so the command that loaded the instance's settings says
+//!     whether TEHAS_OUTSOURCE is 1, and the store keeps the word in meta.
+//!     The five tables are laid either way; without the flag the verbs of
+//!     outsource.rs answer `refused` and write nothing.
+//!   store migrate --backup <dir> [--outsource] [--json]
 //!     Backs the database up and then brings it forward, in that order: a
 //!     consistent copy of the store as it stands is written to
 //!     <dir>/tehas-<to>-<time>.db with VACUUM INTO before a byte of the store is
@@ -26,17 +31,25 @@
 //!     told to open already being on disk; a step that runs also leaves a second
 //!     copy under the version the file came with. From 0, an SQLite file with no
 //!     tables and user_version 0 (what an empty file is), the schema, the rows of
-//!     meta and the version are written in one transaction. From 1, the step to 2
-//!     adds columns and a table, also in one transaction, and keeps every row. A
-//!     database init made is already at 2, and says "from":2, "to":2 and still
-//!     writes its backup, the one copy of the two. <dir> is the
+//!     meta and the version are written in one transaction. From 12, the
+//!     schema v0.30.0 wrote, or a later one, each step up is its own
+//!     transaction and keeps every row. Below 12 is a release before v0.30:
+//!     78 `unreadable`, which says to update to a v0.30 release first, and the
+//!     store is left as it was, with no backup written. A database already at the schema this binary
+//!     writes says "from" and "to" alike and still writes its backup, the one
+//!     copy of the two. <dir> is the
 //!     state/ of this instance's home, or state/backup/ below it, which the verb
 //!     makes 0700 when it is not there; the copy takes the 0700 of the directory
 //!     and the 0600 of the file. Another directory is refused, because the store
 //!     was not given leave to write a copy of itself in a person's.
 //!     Answers
-//!     {"api":1,"verb":"migrate","ok":true,"from":1,"to":2,
+//!     {"api":1,"verb":"migrate","ok":true,"from":12,"to":16,
 //!     "backup":"..."}.
+//!   store migrate --dry-run [--json]
+//!     Reads only: whether this store would migrate the database, refused as
+//!     migrate refuses it. install.sh asks it before it copies anything.
+//!     Answers {"api":1,"verb":"migrate","ok":true,"dry_run":true,"from":12,
+//!     "to":16}.
 //!   store check [--json]
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
 //!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":2,
@@ -44,27 +57,12 @@
 //!     check is one the store cannot use: 78 `corrupt`, with what failed and
 //!     the file. It is never moved aside.
 //!
-//!   store import [--dry-run] [--json]
-//!     The records an older tehas kept as files under state/ (the cycle's,
-//!     the park's and the planning session's), made rows, and each file moved
-//!     to state/imported-<YYYYMMDD>/ once its rows read back (src/import.rs).
-//!     $TEHAS_HOME/.tehas-home must be there, else 78 `unmarked`. A cycle or
-//!     planning lock held while there is anything to import is 1 `live`; a
-//!     file that is a link, over 1 MiB or does not parse stays where it is,
-//!     with its issue's other files, and the verb exits 1 `held` with one
-//!     line per file. --dry-run reads the files only. Answers
-//!     {"api":1,"verb":"import","ok":true,"imported":{<table>:N},"moved":N,
-//!     "held":[],"dry_run":false}.
-//!
-//!   --say on init, migrate and import prints the lines a person reads in
-//!   place of the answer: `store: made <db>`, `store: <db> at schema <n>,
-//!   backup <file>`, and `store: imported ...; moved <n> files to <dir>/` when
-//!   an import moved any. `import --dry-run --say` is install.sh's gate before
-//!   its first copy: silent when the install may go on, else install.sh's own
-//!   refusal lines and exit 1 (src/say.rs).
+//!   --say on init and migrate prints the lines a person reads in place of
+//!   the answer: `store: made <db>` and `store: <db> at schema <n>, backup
+//!   <file>` (src/say.rs).
 //!
 //! This part of the store is the schema, the two housekeeping verbs, migrate,
-//! import, the record verbs of cycles, parks, questions, approvals and
+//! the record verbs of cycles, parks, questions, approvals and
 //! planning, and the history (src/verbs.rs and the files it names):
 //!
 //!   store cycle-start <issue> [--rukas <commit>] [--by-hand]

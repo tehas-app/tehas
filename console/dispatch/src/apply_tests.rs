@@ -222,6 +222,7 @@ fn world() -> World {
         gh_writes: 0,
         starts: 0,
         fetched: false,
+        looked: Default::default(),
     };
     World {
         dir,
@@ -608,7 +609,7 @@ fn a_pull_request_without_the_mark_is_unmarked_already() {
 }
 
 #[test]
-fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
+fn a_call_that_does_not_answer_in_its_bound_is_unknown() {
     let mut t = world();
     t.fail("gh", "slow");
     // Past it is the timeout the test asks for. The stub answers after the
@@ -616,8 +617,12 @@ fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
     t.w.bound = Duration::from_millis(200);
     t.slow_after(1);
     let a = t.apply(json!([{"issue": 7, "say": "slow words"}]));
-    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
-    assert!(t.calls().last().unwrap().ends_with("--result timed-out"));
+    // #1754: GitHub may have taken it, so it is read before it is sent again.
+    assert_eq!(
+        a.log,
+        vec!["WARN: the comment on #7 may have been posted; the next poll reads it before it is sent again"]
+    );
+    assert!(t.calls().last().unwrap().ends_with("--result unknown"));
 }
 
 #[test]
@@ -1190,56 +1195,14 @@ fn a_refused_refresh_mark_logs_gh_reason() {
 }
 
 #[test]
-fn an_easy_start_logs_the_easy_merge_and_marks_its_approval() {
+fn a_refresh_start_is_the_full_refresh_even_marked_easy() {
+    // The easy merge is gone: a start that still says `easy`, as one queued by
+    // an older poll would, is the full refresh and marks nothing.
     let mut t = world();
     let h = t.w.home.clone();
     fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
     let mut a = start_of(7, "refresh");
-    a["verb"] = json!("easy");
-    a["log"] = json!("start #7 (easy by alice)");
-    a["refresh_pr"] = json!(12);
-    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
     a["easy"] = json!(true);
-    a["refresh_of"] =
-        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
-    let got = t.apply(json!([a.clone()]));
-    // The log names the easy merge and the pull request it merges into.
-    assert_eq!(
-        got.log
-            .iter()
-            .filter(|l| l.contains("start #7"))
-            .cloned()
-            .collect::<Vec<_>>(),
-        vec!["start #7 (easy by alice)", "start #7: easy merge of PR #12"]
-    );
-    let w = t.writes();
-    // The record carries the store's mark, so the approval cannot be owed a
-    // second easy merge (#1031).
-    let record = w
-        .iter()
-        .find(|c| c.starts_with("store approval-record"))
-        .expect("the start wrote its approval");
-    assert!(record.ends_with("--easy"), "{record}");
-    assert!(
-        record.contains(&format!(
-            "--refresh-pr 12 --refresh-head {}",
-            "c".repeat(40)
-        )),
-        "{record}"
-    );
-    assert!(w.iter().any(|c| c
-        .contains("Tehas chose the easy merge of this issue on `tehas-tehas`")
-        && c.contains(
-            "merges `main` into https://github.com/example-owner/example-product/pull/12"
-        )));
-}
-
-#[test]
-fn a_full_start_records_no_easy_mark_and_logs_no_easy_merge() {
-    let mut t = world();
-    let h = t.w.home.clone();
-    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
-    let mut a = start_of(7, "refresh");
     a["refresh_pr"] = json!(12);
     a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
     a["refresh_of"] =
@@ -1256,6 +1219,9 @@ fn a_full_start_records_no_easy_mark_and_logs_no_easy_merge() {
         "{:?}",
         got.log
     );
+    assert!(w
+        .iter()
+        .any(|c| c.contains("Tehas refresh started on `tehas-tehas`")));
     assert!(!h.join("state/refresh/7.json").exists());
 }
 
@@ -5078,6 +5044,103 @@ fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
     t.w.settle(1792000010, &mut log);
     assert!(log[0].contains("did not happen (no comment of the bot with its text is there)"));
     assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+}
+
+/// #1754: the park's tell as a poll sends it, and the row the store would keep
+/// for it once its post was answered with a 5xx: `unknown`, attempted, open.
+fn park_tell() -> Value {
+    json!([{"issue": 4, "park_told": true, "say": "Not started."}])
+}
+
+fn unknown_tell(id: u64) -> Value {
+    use sha2::{Digest, Sha256};
+    let sum: String = Sha256::digest(b"Not started.")
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    json!({"id": id, "kind": "comment-post", "issue": 4, "state": "unknown",
+        "intended_at": 1792000000, "attempted_at": 1792000000,
+        "args": {"repo": "example-owner/example-product",
+            "gh": ["issue", "comment", "4", "--repo", "example-owner/example-product", "--body-file", "-"],
+            "input": {"sha256": sum, "bytes": 12}}})
+}
+
+fn gh_comments(t: &World) -> usize {
+    t.calls()
+        .iter()
+        .filter(|c| c.starts_with("gh issue comment"))
+        .count()
+}
+
+#[test]
+fn a_write_github_took_but_answered_with_a_5xx_is_not_sent_again() {
+    let mut t = world();
+    t.fail("gh", "issue comment|HTTP 502");
+    let a = t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(
+        settled(&t)[0].ends_with("--result unknown"),
+        "{:?}",
+        settled(&t)
+    );
+    // Not told: the tell is not on record until a read says it was posted.
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
+    assert!(
+        a.log.iter().any(|l| l.contains("may have been posted")),
+        "{:?}",
+        a.log
+    );
+    // The next poll: GitHub had taken it. The read settles it done, and the
+    // poll that decides the tell again records it and sends nothing.
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    left_open(&t, json!([unknown_tell(1)]));
+    fs::write(
+        t.dir.join("comments"),
+        json!([{"id": 41, "body": "Not started.", "user": {"login": "tehas-bot"},
+        "created_at": "2026-10-15T00:00:00Z"}])
+        .to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 1 (comment-post on #4, 10s old) was done"]
+    );
+    t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
+}
+
+#[test]
+fn an_unknown_write_a_read_cannot_settle_is_not_sent() {
+    let mut t = world();
+    left_open(&t, json!([unknown_tell(1)]));
+    t.fail("gh", "comments");
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert!(log[0].contains("could not be settled"), "{log:?}");
+    assert!(settled(&t).is_empty());
+    let a = t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 0);
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
+    assert!(
+        a.log.iter().any(|l| l.contains("may have been posted")),
+        "{:?}",
+        a.log
+    );
+}
+
+#[test]
+fn an_unknown_write_a_read_finds_missing_is_sent_once() {
+    let mut t = world();
+    left_open(&t, json!([unknown_tell(1)]));
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(settled(&t), ["store journal-settle --action 1 --abandoned"]);
+    t.apply(park_tell());
+    assert_eq!(gh_comments(&t), 1);
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
 }
 
 #[test]

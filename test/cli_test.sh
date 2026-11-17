@@ -23,7 +23,7 @@ cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
 # tehas-cycle stands for itself: tehasbot cycle, tehas work and tehas index are
 # its verbs, which the console runs under the settings.
-for name in cycle work index setup update dispatch plan dev improve review check-product github-token tehas-cycle; do
+for name in cycle work index setup update dispatch plan dev review check-product github-token tehas-cycle; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -90,7 +90,8 @@ t_no_instance
 t_case "the commands the console runs itself run no script of libexec"
 reset
 for words in "tehas dispatch --dry-run" "tehas plan 7 --out /tmp/o" "tehas check-product --sandbox" \
-  "tehasbot dispatch" "tehasbot improve" "tehasbot review" "tehasbot github-token --check"; do
+  "tehasbot dispatch" "tehasbot review" "tehasbot github-token --check" "tehas github check" \
+  "tehas github writes" "tehas refresh --pr 7"; do
   t_run "$tree/bin/$words"
 done
 t_eq "$(ran)" ""
@@ -132,7 +133,7 @@ t_eq "$t_out" "$("$T_CONSOLE" usage limit)"
 
 t_case "tehas <command> --help and -h print its text and run nothing"
 reset
-for name in dispatch work plan dev index setup update labels status disk state api limit drain top analytics pause resume stop; do
+for name in dispatch work plan dev index setup update labels status disk state api limit drain top analytics pause resume stop refresh github; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -185,6 +186,27 @@ for name in work plan dev index update labels summary bogus "''"; do
 done
 t_run "$bot bogus"
 t_contains "$t_out" "tehasbot: unknown command: bogus"
+t_eq "$(ran)" ""
+
+t_case "tehas github writes is tehasbot github-writes, and needs no settings"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas github writes"
+t_eq "$t_rc" 0
+public=$t_out
+t_lacks "$t_out" "settings were read"
+t_run "$bot github-writes"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$public"
+t_eq "$(ran)" ""
+
+t_case "tehas github with no verb, another verb or another word is 64 with its text"
+reset
+for arg in "" bogus "writes x" "check --cycle" "check --print"; do
+  t_run "$tehas github $arg"
+  t_eq "$arg $t_rc" "$arg 64"
+  t_contains "$t_out" "tehas github check"
+done
 t_eq "$(ran)" ""
 
 t_case "neither command reads the instance settings to choose"
@@ -241,12 +263,40 @@ t_case "every command in the usage of tehas has a text that says how to use it"
 reset
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE")
 names=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order start drain history export state top analytics mcp pause resume stop freeze thaw "
+t_eq "$names" "dispatch work plan dev index setup update labels panel host-message check-product init-product status api disk limit order start refresh drain history export state top analytics mcp github pause resume stop freeze thaw "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
   t_contains "$t_out" "tehas $name"
 done
+
+t_case "each command renamed for 1.0 is a tehas command, and an old tehasbot name still runs"
+reset
+rows=0
+# A tab is IFS white space, so read would fold an empty new column away.
+while IFS= read -r line; do
+  kind=${line%%$'\t'*} rest=${line#*$'\t'}
+  [ "$kind" = command ] || continue
+  old=${rest%%$'\t'*} rest=${rest#*$'\t'}
+  new=${rest%%$'\t'*}
+  rows=$((rows + 1))
+  read -r cmd word _ <<<"$old"
+  if [ -n "$new" ]; then
+    read -r _ verb _ <<<"$new"
+    t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $verb"
+    t_eq "$new: $t_rc" "$new: 0"
+  fi
+  # A tehas option or form renamed within its command: the command's own
+  # tests pin that the old form exits 64 and names the new one.
+  if [ "$cmd" = tehas ]; then
+    t_run "TEHAS_CONSOLE=$T_CONSOLE $T_ROOT/bin/tehas help $word"
+    t_eq "$old: $t_rc" "$old: 0"
+    continue
+  fi
+  t_eq "$old: $cmd" "$old: tehasbot"
+  t_contains "$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)" "  tehasbot $word"
+done <"$T_ROOT/api/renames-1.0.tsv"
+[ "$rows" -ge 3 ] || t_bad "api/renames-1.0.tsv has $rows command rows"
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "

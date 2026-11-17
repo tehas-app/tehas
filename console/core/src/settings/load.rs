@@ -8,25 +8,22 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is none.
-//!   TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
-//!   Neither is TEHAS_REPO: a person triages findings before they are tickets.
-//!   TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
-//!   review exits at once and calls nothing.
+//! - TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
+//!   review exits at once and calls nothing. TEHAS_REVIEW_REPO is never
+//!   TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
-//!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN, over any
-//!   value the instance holds. Without the file the load sets neither, and a
-//!   value the instance still holds stays as it is until the first mint
-//!   writes the file. An instance
-//!   that still sets TEHAS_GITHUB_APP_INSTALLATION, TEHAS_BOT_LOGIN or
-//!   TEHAS_MILLWRIGHT_LOGIN gets a warning for each; the login file wins.
-//!   TEHAS_MILLWRIGHT_APP, `<slug>[bot]`, names a second app the factory
+//!   the load gives it to TEHAS_BOT_LOGIN and TEHAS_MILLWRIGHT_LOGIN. Without
+//!   the file the load sets neither until the first mint writes it. Neither
+//!   is a setting: an instance that sets one, or
+//!   TEHAS_GITHUB_APP_INSTALLATION, is refused as a row of
+//!   api/renames-1.0.tsv (renamed.rs). TEHAS_MILLWRIGHT_APP, `<slug>[bot]`, names a second app the factory
 //!   trusts as its millwright: the load gives it to TEHAS_MILLWRIGHT_LOGIN
 //!   over the factory's own login, and TEHAS_BOT_LOGIN stays the factory's.
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
-//!   stop the load. A TEHAS_FIXER_* name stops it too.
+//!   stop the load. A TEHAS_FIXER_* name stops it too, and so does every
+//!   setting tehas 1.0 renamed or removed (renamed.rs).
 //! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 //!   lowest issues. Unset is valid and means there is no gate. It is asked with
 //!   nothing of the poll's environment but PATH, and it may not name a file
@@ -35,7 +32,9 @@
 //! - Nothing falls back to a project: a setting with no generic default stays
 //!   unset until a command requires it.
 
-use super::rules::{self, Trees, When, ROLES, TABLE};
+use super::renamed;
+use super::rules::{self, Trees, When, ROLES, SWITCH_WORDS, TABLE};
+use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The names of the two families the environment may give: the home, the
@@ -91,7 +90,7 @@ const KEPT: &[&str] = &[
     "TEHAS_ENERGY",
     "TEHAS_ENERGY_URL",
     "TEHAS_ENERGY_SOURCE_URL",
-    "TEHAS_INDUSTRY_VERSION",
+    "TEHAS_MANAGER_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
     "TEHAS_MCP_DASHBOARD_KEYS",
@@ -100,6 +99,9 @@ const KEPT: &[&str] = &[
     // The tests' answers of the store (store/src/call.rs), which a release
     // build of the store never reads.
     "TEHAS_TEST_STORE_ANSWERS",
+    // The building features a test turns on (core/src/features.rs), from the
+    // environment only: `test_only` refuses it in a file.
+    "TEHAS_TEST_FEATURES",
 ];
 
 /// The names an earlier version read are refused, not ignored: a line that
@@ -251,8 +253,24 @@ fn scan(text: &[u8], file: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The test variable turns on a feature still being built. A test sets it in
+/// the environment it starts a program with; a factory's files may not.
+fn test_only(vars: &Vars, host: &dyn Host, instance: &[u8], file: &str) -> Result<(), String> {
+    let creds_file = credential_file(vars);
+    let creds = host.read(&creds_file).unwrap_or_default();
+    for (text, name) in [(instance, file), (&creds[..], creds_file.as_str())] {
+        if assigns(text, features::TEST_VAR) {
+            return Err(format!(
+                "{name} sets {}: it is for the tests only, take the line out",
+                features::TEST_VAR
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// A line without the blanks and the `export` before the name.
-fn bare_line(line: &[u8]) -> Vec<u8> {
+pub(crate) fn bare_line(line: &[u8]) -> Vec<u8> {
     let space = |b: &u8| matches!(*b, b' ' | b'\t' | 0x0b | 0x0c | b'\r');
     let strip = |line: &[u8]| match line.iter().position(|b| !space(b)) {
         Some(at) => line[at..].to_vec(),
@@ -350,13 +368,6 @@ fn role_models(vars: &mut Vars, file: &str) -> Result<(), String> {
 /// GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN.
 const NO_LONGER_USED: &str = "is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file.";
 
-/// The settings the app's login makes needless, ignored with a warning.
-const OBSOLETE: [&str; 3] = [
-    "TEHAS_GITHUB_APP_INSTALLATION",
-    "TEHAS_BOT_LOGIN",
-    "TEHAS_MILLWRIGHT_LOGIN",
-];
-
 /// Where the factory's own credentials are kept, besides the instance.
 fn credential_file(vars: &Vars) -> String {
     format!("{}/.config/tehas/env", vars.text("HOME"))
@@ -381,19 +392,10 @@ fn tokens(vars: &Vars, host: &dyn Host, instance: &[u8]) -> Result<(), String> {
     }
 }
 
-/// The login the app has, from state/github/login, replaces whatever the
-/// instance said of the bot and the millwright. Without the file the old
-/// lines stay as they are, each with its warning, and nothing new is set.
-/// TEHAS_MILLWRIGHT_APP, when the instance sets it, is the millwright over
-/// both, with or without the file.
-fn app_login(vars: &mut Vars, host: &mut dyn Host, file: &str) {
-    for name in OBSOLETE {
-        if vars.is_set(name) {
-            host.warn(&format!(
-                "{name} is no longer used: the factory is named by TEHAS_GITHUB_APP_ID alone (see {file})"
-            ));
-        }
-    }
+/// The login the app has, from state/github/login, is the bot and the
+/// millwright. Without the file neither is set. TEHAS_MILLWRIGHT_APP, when the
+/// instance sets it, is the millwright, with or without the file.
+fn app_login(vars: &mut Vars, host: &mut dyn Host) {
     let path = format!("{}/state/github/login", vars.text("TEHAS_HOME"));
     if let Some(login) = host.read(&path).as_deref().and_then(super::login_of) {
         vars.set("TEHAS_BOT_LOGIN", login.clone());
@@ -415,9 +417,9 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         // The values that ask for what this version does: an earlier version
         // read 0 and a blank line alike as no clones, rust or a blank line as
         // the Rust poll, and beesknees26 and business are the default design,
-        // so the line stays loadable. A value the timed refresh scan took is
-        // dropped: refreshes are asked for with --pr now, and the line is
-        // left to the operator to take out.
+        // so the line stays loadable. A value the timed refresh scan took is dropped: refreshes
+        // are asked for with --pr now, and the line is left to the operator
+        // to take out.
         let value = vars.text(name);
         if matches!(
             (name, value.as_str()),
@@ -454,6 +456,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_REFRESH_CONFLICTS" | "TEHAS_REFRESH_EVERY" => "is not valid and no longer read: this version of tehas has no timed refresh scan, refreshes are asked for one pull request at a time with tehasbot refresh --pr N, so take the line out".to_string(),
             "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
+            "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
             _ => format!(
                 "is no longer read: rename it TEHAS_MILLWRIGHT_{}",
                 name.strip_prefix("TEHAS_FIXER_").unwrap_or(name)
@@ -462,6 +465,30 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
         return Err(format!("{name} {reason} (see {file})"));
     }
     Ok(())
+}
+
+/// A row of api/renames-1.0.tsv still set stops the load, the instance's
+/// first and then the credential file's. A value that loads quietly
+/// ([`renamed::quiet`]) is dropped. The credential file is read as text: its
+/// names are not the instance's, and a renamed one there is swept before the
+/// instance is sourced.
+fn renamed(vars: &mut Vars, host: &dyn Host, file: &str) -> Result<(), String> {
+    for row in renamed::rows() {
+        if !vars.is_set(row.old) {
+            continue;
+        }
+        if renamed::quiet(row.old, &vars.text(row.old)) {
+            vars.unset(row.old.as_bytes());
+            continue;
+        }
+        return Err(format!("{} (see {file})", row.why()));
+    }
+    let creds_file = credential_file(vars);
+    let creds = host.read(&creds_file).unwrap_or_default();
+    match renamed::found_in(&creds, &creds_file).into_iter().next() {
+        Some(line) => Err(line),
+        None => Ok(()),
+    }
 }
 
 /// A value the retired TEHAS_REFRESH_EVERY took: 1 to 1440 in ASCII digits, no
@@ -502,13 +529,13 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
             or_default(vars, setting.name, default.to_string());
         }
     }
-    let ceiling = if has(vars, "TEHAS_TICKET_CONCURRENCY") {
+    let ceiling = if has(vars, "TEHAS_MAX_CYCLES") {
         String::new()
     } else {
         host.cpus().saturating_sub(1).max(1).to_string()
     };
-    or_default(vars, "TEHAS_TICKET_CONCURRENCY", ceiling);
-    let tickets = vars.text("TEHAS_TICKET_CONCURRENCY");
+    or_default(vars, "TEHAS_MAX_CYCLES", ceiling);
+    let tickets = vars.text("TEHAS_MAX_CYCLES");
     let awaiting = if rules::is_count(&tickets) {
         tickets.parse::<u64>().unwrap_or(0) + 2
     } else {
@@ -533,7 +560,7 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     or_default(vars, "PI_ENSEMBLE_HOST_ALIASES", String::new());
     // pi-rukas reads this name, and its own default is more than one, so it is
     // always told.
-    let concurrency = vars.text("TEHAS_CONCURRENCY");
+    let concurrency = vars.text("TEHAS_WORKSTREAMS");
     vars.set("PI_ENSEMBLE_MAX_WORKSTREAMS", concurrency);
     // pi-rukas reads the bound of a gate in ms under three names: a
     // workstream's gate, the gate on the combined tree, and the suite tier
@@ -584,6 +611,52 @@ fn check_values(vars: &Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Every switch, checked already, exported in the form of its default, which
+/// is the form its readers compare with: `1` and `0`, or `on` and `off` for
+/// TEHAS_ANALYTICS.
+fn switches(vars: &mut Vars) {
+    for setting in TABLE {
+        if rules::words(setting.name) != Some(&SWITCH_WORDS[..]) {
+            continue;
+        }
+        let Some(on) = rules::switch(&vars.text(setting.name)) else {
+            continue;
+        };
+        let words = match setting.default {
+            Some("on" | "off") => ("on", "off"),
+            _ => ("1", "0"),
+        };
+        let value = if on { words.0 } else { words.1 };
+        if vars.text(setting.name) != value {
+            vars.set(setting.name, value);
+        }
+    }
+}
+
+/// TEHAS_ENERGY, a switch of the host's file and not of the instance: `off`
+/// takes the energy section away, `on` asks for it, and unset or empty leaves
+/// it to the sampler. tehasbot energy and the first install read `on` and `off`.
+fn energy(vars: &mut Vars) -> Result<(), String> {
+    const NAME: &str = "TEHAS_ENERGY";
+    let value = vars.text(NAME);
+    if value.is_empty() {
+        return Ok(());
+    }
+    match rules::switch(&value) {
+        Some(on) => {
+            let word = if on { "on" } else { "off" };
+            if value != word {
+                vars.set(NAME, word);
+            }
+            Ok(())
+        }
+        None => Err(format!(
+            "{NAME} is not valid: expected on or off (see {})",
+            credential_file(vars)
+        )),
+    }
+}
+
 /// An entry for a setting the instance no longer has is a workaround removed
 /// by half.
 fn workarounds(vars: &Vars, file: &str) -> Result<(), String> {
@@ -613,62 +686,46 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_GITHUB_APP_ID is not set: run tehas setup --new-app, or give --app-id and --app-key-file (see {file})"
         ));
     }
-    if some("TEHAS_ANALYTICS_SRC") && !some("TEHAS_ANALYTICS_SITE") {
+    if some("TEHAS_SITE_ANALYTICS_SRC") && !some("TEHAS_SITE_ANALYTICS_NAME") {
         return Err(format!(
-            "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see {file})"
-        ));
-    }
-    if some("TEHAS_IMPROVE_RUKAS_REPO") && !some("TEHAS_IMPROVE_REPO") {
-        return Err(format!(
-            "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see {file})"
-        ));
-    }
-    if some("TEHAS_IMPROVE_RUKAS_REPO") && on("TEHAS_IMPROVE_RUKAS_SKIP") {
-        return Err(format!(
-            "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see {file})"
+            "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
         ));
     }
     // A model's findings go to a repository of their own, where a person
     // triages them into tickets of the product: filing them in the product is
-    // the one setting that cannot be allowed, for the loop and for the review.
+    // the one setting that cannot be allowed.
     let repo = vars.text("TEHAS_REPO");
-    for name in [
-        "TEHAS_IMPROVE_REPO",
-        "TEHAS_IMPROVE_RUKAS_REPO",
-        "TEHAS_REVIEW_REPO",
-    ] {
-        if !repo.is_empty() && vars.text(name).to_lowercase() == repo.to_lowercase() {
-            return Err(format!(
-                "the improvement loop files in {repo}, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see {file})"
-            ));
-        }
+    if !repo.is_empty() && vars.text("TEHAS_REVIEW_REPO").to_lowercase() == repo.to_lowercase() {
+        return Err(format!(
+            "the review files in {repo}, the product repository: a model writes its findings, so they go to a repository of their own where a person triages them (see {file})"
+        ));
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
-            "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see {file})"
+            "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
         ));
     }
     let taken = on("TEHAS_WORK_IMAGES") || on("TEHAS_WORK_FILES");
     if on("TEHAS_WORK_COMMENTS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
+            "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
         ));
     }
     if on("TEHAS_WORK_ZIPS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
+            "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
         ));
     }
     // One axis of parallelism: several cycles of one workstream, or one cycle
     // of several. Both would multiply the agents and the gates on the same
     // CPUs.
     let (streams, tickets) = (
-        number(vars, "TEHAS_CONCURRENCY"),
-        number(vars, "TEHAS_TICKET_CONCURRENCY"),
+        number(vars, "TEHAS_WORKSTREAMS"),
+        number(vars, "TEHAS_MAX_CYCLES"),
     );
     if streams > 1 && tickets > 1 {
         return Err(format!(
-            "TEHAS_CONCURRENCY ({streams}) and TEHAS_TICKET_CONCURRENCY ({tickets}) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see {file})"
+            "TEHAS_WORKSTREAMS ({streams}) and TEHAS_MAX_CYCLES ({tickets}) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_MAX_CYCLES=1 (see {file})"
         ));
     }
     // The cycle's time bounds in the order they must sit in: the gate under
@@ -706,7 +763,20 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
-            "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
+            "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
+        ));
+    }
+    // The model proxy of outsource (#2273) is the one place a contractor's
+    // cycle waits on the factory. Its idle bound must outlast the check-in
+    // timeout, or a job is lost while its stream is still alive. With outsource
+    // off nothing listens, so the bound is not checked.
+    let (check_in, idle) = (
+        number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
+        number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
+    );
+    if features::on_in("outsource", &|name| vars.text(name)) && idle <= check_in {
+        return Err(format!(
+            "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
         ));
     }
     Ok(())
@@ -746,6 +816,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     sweep(vars);
     vars.set("TEHAS_INSTANCE_DIR", dir);
     scan(&text, &file)?;
+    test_only(vars, host, &text, &file)?;
     let sourced = host.source(&file, vars);
     // No list at all: the file ended the shell before it was asked for one.
     if !sourced.vars.is_empty() {
@@ -757,9 +828,14 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     role_models(vars, &file)?;
     tokens(vars, host, &text)?;
     retired_names(vars, &file)?;
-    app_login(vars, host, &file);
+    renamed(vars, host, &file)?;
+    app_login(vars, host);
     defaults(vars, host, uid);
     check_values(vars, &file)?;
+    switches(vars);
+    energy(vars)?;
+    features::refuse_building(&|name| vars.text(name))
+        .map_err(|why| format!("{why} (see {file})"))?;
     together(vars, &file)?;
     last(vars);
     Ok(())
@@ -974,6 +1050,13 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
+    /// A load whose environment names outsource in the test variable, as a
+    /// test of a building feature starts a program.
+    fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let got = load(&mut vars, &mut Fake::with(extra), "1000");
+        (vars, got)
+    }
 
     #[test]
     fn a_minimal_instance_loads_with_every_default() {
@@ -982,8 +1065,8 @@ mod tests {
             ("TEHAS_HOME", "/h/tehas"),
             ("TEHAS_WORK_REPO", "/h/tehas/repos/widget"),
             ("TEHAS_WORK_DIR", "/h/tehas/work/widget"),
-            ("TEHAS_CONCURRENCY", "1"),
-            ("TEHAS_TICKET_CONCURRENCY", "7"),
+            ("TEHAS_WORKSTREAMS", "1"),
+            ("TEHAS_MAX_CYCLES", "7"),
             ("TEHAS_MAX_AWAITING", "9"),
             ("TEHAS_PLAN_TIMEOUT", "7200"),
             ("TEHAS_CHILD_TIMEOUT", "7200"),
@@ -1011,11 +1094,185 @@ mod tests {
         let vars = loads(&[
             "TEHAS_PLAN_TIMEOUT=",
             "TEHAS_CHILD_TIMEOUT=",
-            "TEHAS_INDEXING=",
+            "TEHAS_SITE_INDEXING=",
         ]);
         assert_eq!(vars.text("TEHAS_PLAN_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_CHILD_TIMEOUT"), "7200");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
+    }
+
+    #[test]
+    fn the_model_proxy_listens_on_its_address_with_a_longer_idle_bound() {
+        let vars = loads(&[]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
+        let (vars, got) = tested(&[
+            "TEHAS_OUTSOURCE=1",
+            "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
+            "TEHAS_OUTSOURCE_TIMEOUT=1800",
+            "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
+        ]);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
+        // With outsource off nothing listens, and the bound is not checked.
+        let vars = loads(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
+    }
+
+    #[test]
+    fn outsource_is_off_with_its_figures_at_the_defaults_and_writes_nothing() {
+        let vars = loads(&[]);
+        for (name, value) in [
+            ("TEHAS_OUTSOURCE", "0"),
+            ("TEHAS_OUTSOURCE_TIMEOUT", "600"),
+            ("TEHAS_OUTSOURCE_GRACE", "120"),
+            ("TEHAS_OUTSOURCE_RETRIES", "2"),
+            ("TEHAS_OUTSOURCE_REST", "1800"),
+            ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
+        ] {
+            assert_eq!(vars.text(name), value, "{name}");
+        }
+        // A line left empty takes the default, as every Always setting does.
+        let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
+        assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
+        let (vars, got) = tested(&[
+            "TEHAS_OUTSOURCE=1",
+            "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
+        ]);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
+        assert_eq!(
+            vars.text("TEHAS_OUTSOURCE_REPOS"),
+            "acme/widget other/widget"
+        );
+    }
+
+    #[test]
+    fn a_building_feature_set_on_stops_the_load() {
+        for value in ["1", "on"] {
+            let got = refused(&[&format!("TEHAS_OUTSOURCE={value}")]);
+            assert_eq!(
+                got,
+                format!("TEHAS_OUTSOURCE is on and outsource is still being built in this release: set it to off or take the line out (see {FILE})")
+            );
+        }
+        for value in ["0", "off", ""] {
+            loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
+        }
+    }
+
+    #[test]
+    fn a_file_that_sets_the_test_variable_stops_the_load() {
+        let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
+        assert_eq!(
+            got,
+            format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
+        );
+        let mut host = Fake::with(&[]).file(
+            "/h/.config/tehas/env",
+            "export TEHAS_TEST_FEATURES=outsource\n",
+        );
+        let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
+        assert_eq!(
+            got,
+            "/h/.config/tehas/env sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out"
+        );
+    }
+
+    #[test]
+    fn the_test_variable_comes_from_the_environment_and_turns_it_on() {
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let mut host = Fake::with(&["TEHAS_OUTSOURCE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
+        assert_eq!(vars.text(crate::features::TEST_VAR), "outsource");
+    }
+
+    #[test]
+    fn a_switch_is_exported_in_the_form_its_readers_know() {
+        let vars = loads(&[
+            "TEHAS_SITE_INDEXING=on",
+            "TEHAS_PREVIEWS=off",
+            "TEHAS_TOP=1",
+            "TEHAS_ANALYTICS=0",
+        ]);
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "1");
+        assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
+        assert_eq!(vars.text("TEHAS_TOP"), "1");
+        assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
+        assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
+        assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
+        assert_eq!(loads(&[]).text("TEHAS_REVIEW"), "0");
+        // The rules between switches read the value after it is brought to form.
+        let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
+        assert!(
+            got.starts_with("TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"),
+            "{got}"
+        );
+        loads(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=1"]);
+    }
+
+    #[test]
+    fn the_energy_switch_takes_the_switch_words_from_the_host_file() {
+        for (value, want) in [
+            ("on", "on"),
+            ("1", "on"),
+            ("off", "off"),
+            ("0", "off"),
+            ("", ""),
+        ] {
+            let mut vars = start(&[("TEHAS_ENERGY", value)]);
+            assert_eq!(
+                load(&mut vars, &mut Fake::with(&[]), "1000"),
+                Ok(()),
+                "{value}"
+            );
+            assert_eq!(vars.text("TEHAS_ENERGY"), want, "{value}");
+        }
+        let mut vars = start(&[]);
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
+        assert!(!vars.is_set("TEHAS_ENERGY"));
+        let mut vars = start(&[("TEHAS_ENERGY", "viiwork")]);
+        assert_eq!(
+            load(&mut vars, &mut Fake::with(&[]), "1000"),
+            Err(
+                "TEHAS_ENERGY is not valid: expected on or off (see /h/.config/tehas/env)"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn a_malformed_outsource_setting_stops_the_load_before_any_write() {
+        for (name, value) in [
+            ("TEHAS_OUTSOURCE", "yes"),
+            ("TEHAS_OUTSOURCE_TIMEOUT", "0"),
+            ("TEHAS_OUTSOURCE_GRACE", "2m"),
+            ("TEHAS_OUTSOURCE_RETRIES", "-1"),
+            ("TEHAS_OUTSOURCE_REST", "two"),
+            ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
+        ] {
+            let why = run(&mut Fake::with(&[&format!("{name}={value}")]))
+                .1
+                .unwrap_err();
+            assert_eq!(
+                why,
+                format!(
+                    "{name} is not valid: {} (see {FILE})",
+                    reason_of(name, value)
+                )
+            );
+        }
+    }
+
+    /// The reason the rule of `name` gives `value`, read off the rule itself so
+    /// the test above names no copy of it.
+    fn reason_of(name: &str, value: &str) -> String {
+        rules::check(name, value, &Trees::default()).unwrap_err()
     }
 
     #[test]
@@ -1066,7 +1323,7 @@ mod tests {
 
     #[test]
     fn a_ceiling_the_instance_names_asks_no_host() {
-        let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=4"]);
+        let mut host = Fake::with(&["TEHAS_MAX_CYCLES=4"]);
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_MAX_AWAITING"), "6");
@@ -1079,17 +1336,17 @@ mod tests {
             let mut host = Fake::with(&[]);
             host.cpus = cpus;
             let (vars, _) = run(&mut host);
-            assert_eq!(vars.text("TEHAS_TICKET_CONCURRENCY"), "1");
+            assert_eq!(vars.text("TEHAS_MAX_CYCLES"), "1");
         }
     }
 
     #[test]
     fn a_concurrency_that_is_no_number_leaves_the_floor_of_three() {
-        let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=two"]);
+        let mut host = Fake::with(&["TEHAS_MAX_CYCLES=two"]);
         let (vars, got) = run(&mut host);
         assert!(got
             .unwrap_err()
-            .starts_with("TEHAS_TICKET_CONCURRENCY is not valid"));
+            .starts_with("TEHAS_MAX_CYCLES is not valid"));
         assert_eq!(vars.text("TEHAS_MAX_AWAITING"), "3");
     }
 
@@ -1097,22 +1354,22 @@ mod tests {
     fn the_environment_gives_only_the_kept_names() {
         let mut vars = start(&[
             ("TEHAS_REPO", "other/thing"),
-            ("TEHAS_INDEXING", "1"),
+            ("TEHAS_SITE_INDEXING", "1"),
             ("PI_ENSEMBLE_DEBUG", "1"),
             ("TEHAS_WORK_CMD", "fake-work"),
             ("TEHAS_MODEL_KEY_FLEET", "t0"),
             ("PI_RUKAS_FOLLOW", "release"),
-            ("TEHAS_INDUSTRY_VERSION", "v0.9.0"),
+            ("TEHAS_MANAGER_VERSION", "v0.9.0"),
         ]);
         let before = vars.clone();
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1"), Ok(()));
         assert_eq!(vars.text("TEHAS_REPO"), "acme/widget");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
         assert!(!vars.is_set("PI_ENSEMBLE_DEBUG"));
         assert_eq!(vars.text("TEHAS_WORK_CMD"), "fake-work");
         assert_eq!(vars.text("TEHAS_MODEL_KEY_FLEET"), "t0");
         assert_eq!(vars.text("PI_RUKAS_FOLLOW"), "release");
-        assert_eq!(vars.text("TEHAS_INDUSTRY_VERSION"), "v0.9.0");
+        assert_eq!(vars.text("TEHAS_MANAGER_VERSION"), "v0.9.0");
         let text = String::from_utf8(script(&before, &vars)).unwrap();
         assert!(text.contains("unset -v PI_ENSEMBLE_DEBUG\n"), "{text}");
         assert!(!text.contains("TEHAS_WORK_CMD"), "{text}");
@@ -1215,7 +1472,7 @@ mod tests {
             "/i/instance.env could not be read as shell"
         );
         assert_eq!(vars.text("TEHAS_REPO"), "acme/widget");
-        assert!(!vars.is_set("TEHAS_INDEXING"));
+        assert!(!vars.is_set("TEHAS_SITE_INDEXING"));
     }
 
     #[test]
@@ -1289,7 +1546,7 @@ mod tests {
     fn a_retired_name_is_refused_or_taken_as_what_it_asked_for() {
         assert_eq!(
             refused(&["TEHAS_FIXER_LOGIN="]),
-            format!("TEHAS_FIXER_LOGIN is no longer read: rename it TEHAS_MILLWRIGHT_LOGIN (see {FILE})")
+            format!("TEHAS_FIXER_LOGIN is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out (see {FILE})")
         );
         assert_eq!(
             refused(&["TEHAS_WORK_MEMORY=8g", "TEHAS_CLONES=1"]),
@@ -1374,7 +1631,9 @@ mod tests {
 
     #[test]
     fn the_first_setting_of_the_table_is_the_one_told() {
-        assert!(refused(&["TEHAS_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_INDEXING"));
+        assert!(
+            refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_SITE_INDEXING")
+        );
         assert!(refused(&["TEHAS_TOP=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_TOP"));
     }
 
@@ -1383,19 +1642,13 @@ mod tests {
         let vars = loads(&[
             "TEHAS_REPO=widget",
             "TEHAS_ALLOWED_LABELERS=alice ",
-            "TEHAS_CONTAINER_MEMORY=1m",
             "TEHAS_REVIEW_REPO=acme",
         ]);
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             names,
-            [
-                "TEHAS_REPO",
-                "TEHAS_ALLOWED_LABELERS",
-                "TEHAS_CONTAINER_MEMORY",
-                "TEHAS_REVIEW_REPO"
-            ]
+            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS", "TEHAS_REVIEW_REPO"]
         );
         assert_eq!(found[0].1, "expected owner/name");
     }
@@ -1423,40 +1676,28 @@ mod tests {
                 "TEHAS_RUKAS_WORKAROUNDS names TEHAS_RUKAS_WORKAROUNDS, which is not set",
             ),
             (
-                &["TEHAS_ANALYTICS_SRC=https://a.example/x.js"][..],
-                "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is",
-            ),
-            (
-                &["TEHAS_IMPROVE_RUKAS_REPO=a/b"][..],
-                "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is",
-            ),
-            (
-                &[
-                    "TEHAS_IMPROVE_REPO=a/b",
-                    "TEHAS_IMPROVE_RUKAS_REPO=a/c",
-                    "TEHAS_IMPROVE_RUKAS_SKIP=1",
-                ][..],
-                "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set",
+                &["TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js"][..],
+                "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
             ),
             (
                 &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
-                "the improvement loop files in acme/widget, the product repository",
+                "the review files in acme/widget, the product repository",
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],
-                "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not",
+                "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
             ),
             (
                 &["TEHAS_WORK_COMMENTS=1"][..],
-                "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
                 &["TEHAS_WORK_ZIPS=1"][..],
-                "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
-                &["TEHAS_CONCURRENCY=2", "TEHAS_TICKET_CONCURRENCY=3"][..],
-                "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (3) are both above 1",
+                &["TEHAS_WORKSTREAMS=2", "TEHAS_MAX_CYCLES=3"][..],
+                "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (3) are both above 1",
             ),
             (
                 &["TEHAS_WORK_STALL=1800"][..],
@@ -1476,10 +1717,22 @@ mod tests {
             ),
             (
                 &["TEHAS_PREVIEWS=1"][..],
-                "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
+                "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set",
+            ),
+            (
+                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
+            ),
+            (
+                &[
+                    "TEHAS_OUTSOURCE=1",
+                    "TEHAS_OUTSOURCE_PROXY_IDLE=60",
+                    "TEHAS_OUTSOURCE_TIMEOUT=61",
+                ][..],
+                "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
-            let got = refused(lines);
+            let got = tested(lines).1.unwrap_err();
             assert!(got.starts_with(want), "{got}");
             assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
         }
@@ -1497,20 +1750,85 @@ mod tests {
     const LOGIN: &str = "/h/tehas/state/github/login";
 
     #[test]
-    fn obsolete_app_settings_warn_and_are_ignored() {
-        let mut host = Fake::with(&[
-            "TEHAS_GITHUB_APP_INSTALLATION=2",
-            "TEHAS_BOT_LOGIN=old[bot]",
-            "TEHAS_MILLWRIGHT_LOGIN=mw[bot]",
-        ])
-        .file(LOGIN, "new[bot]\n");
+    fn every_setting_row_of_the_renames_file_is_refused() {
+        for row in renamed::rows()
+            .into_iter()
+            .filter(|r| !renamed::quiet(r.old, "x"))
+        {
+            let line = format!("{}=x", row.old);
+            let got = refused(&[&line]);
+            assert_eq!(got, format!("{} (see {FILE})", row.why()));
+            assert!(got.starts_with(&format!("{} is no longer read: ", row.old)));
+            if !row.new.is_empty() {
+                assert!(got.contains(&format!(" renamed it {} (", row.new)), "{got}");
+            }
+            // The credential file is read too, and named.
+            let mut host = Fake::with(&[]).file("/h/.config/tehas/env", &format!("{line}\n"));
+            assert_eq!(
+                run(&mut host).1.unwrap_err(),
+                format!("{} (see /h/.config/tehas/env)", row.why())
+            );
+        }
+    }
+
+    #[test]
+    fn the_managers_version_under_its_old_name_is_dropped_not_refused() {
+        let vars = loads(&["TEHAS_INDUSTRY_VERSION=v0.9.0"]);
+        assert!(!vars.is_set("TEHAS_INDUSTRY_VERSION"));
+        assert!(!vars.is_set("TEHAS_MANAGER_VERSION"));
+        let mut host =
+            Fake::with(&[]).file("/h/.config/tehas/env", "TEHAS_INDUSTRY_VERSION=v0.9.0\n");
+        assert_eq!(run(&mut host).1, Ok(()));
+    }
+
+    #[test]
+    fn a_removed_line_that_asks_for_what_this_version_does_loads() {
+        for line in [
+            "TEHAS_IMPROVE_REPO=",
+            "TEHAS_IMPROVE_RUKAS_REPO=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=",
+            "TEHAS_IMPROVE_RUKAS_SKIP=0",
+            "TEHAS_IMPROVE_MAX_OPEN=",
+            "TEHAS_CYCLE_REPORT=",
+            "TEHAS_EASY_MERGE=",
+            "TEHAS_EASY_MERGE=0",
+        ] {
+            let vars = loads(&[line]);
+            assert!(!vars.is_set(line.split('=').next().unwrap()), "{line}");
+        }
+        assert!(
+            refused(&["TEHAS_EASY_MERGE=1"]).starts_with("TEHAS_EASY_MERGE is no longer read: ")
+        );
+        assert!(refused(&["TEHAS_BOT_LOGIN="]).starts_with("TEHAS_BOT_LOGIN is no longer read: "));
+    }
+
+    #[test]
+    fn a_renamed_setting_is_in_no_list_of_names_this_version_reads() {
+        for row in renamed::rows() {
+            assert!(
+                !TABLE.iter().any(|s| s.name == row.old),
+                "{} is in TABLE",
+                row.old
+            );
+            assert!(!KEPT.contains(&row.old), "{} is in KEPT", row.old);
+            assert!(!RETIRED.contains(&row.old), "{} is in RETIRED", row.old);
+            if !row.new.is_empty() {
+                let read = TABLE.iter().any(|s| s.name == row.new) || KEPT.contains(&row.new);
+                assert!(
+                    read,
+                    "{} renames to {}, which nothing reads",
+                    row.old, row.new
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_app_names_the_bot_and_the_millwright() {
+        let mut host = Fake::with(&[]).file(LOGIN, "new[bot]\n");
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
-        assert_eq!(host.warned.len(), 3, "{:?}", host.warned);
-        for (line, name) in host.warned.iter().zip(OBSOLETE) {
-            assert!(line.contains(name), "{line}");
-            assert!(line.contains("is no longer used"), "{line}");
-        }
+        assert!(host.warned.is_empty(), "{:?}", host.warned);
         assert_eq!(vars.text("TEHAS_BOT_LOGIN"), "new[bot]");
         assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "new[bot]");
     }
@@ -1530,19 +1848,6 @@ mod tests {
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert!(!vars.is_set("TEHAS_BOT_LOGIN"));
-        assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
-    }
-
-    #[test]
-    fn the_old_millwright_line_does_not_name_a_second_app() {
-        let mut host = Fake::with(&[
-            "TEHAS_MILLWRIGHT_LOGIN=old-mill[bot]",
-            "TEHAS_MILLWRIGHT_APP=acme-mill[bot]",
-        ])
-        .file(LOGIN, "acme-app[bot]\n");
-        let (vars, got) = run(&mut host);
-        assert_eq!(got, Ok(()));
-        assert_eq!(host.warned.len(), 1, "{:?}", host.warned);
         assert_eq!(vars.text("TEHAS_MILLWRIGHT_LOGIN"), "acme-mill[bot]");
     }
 
@@ -1651,7 +1956,7 @@ mod tests {
         ]));
         assert!(got.is_err());
         assert_eq!(vars.text("TEHAS_GITHUB_APP_ID"), "7");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
         assert!(!vars.is_set("TEHAS_CYCLE_MIN_FREE_MB"));
     }
 
@@ -1718,10 +2023,7 @@ mod tests {
 
     /// Settings the example instance names whose rule lives with the program
     /// that reads them, not in the table.
-    const RULED_ELSEWHERE: [&str; 8] = [
-        // The dispatcher holds their rules and defaults (dispatch/src/slots.rs).
-        "TEHAS_CYCLE_CPUS",
-        "TEHAS_CYCLE_CEILING",
+    const RULED_ELSEWHERE: [&str; 6] = [
         // Defaults of this load: the sandbox image, the product's clone and
         // the cycle's host names.
         "PI_ENSEMBLE_IMAGE",

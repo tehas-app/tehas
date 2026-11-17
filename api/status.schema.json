@@ -22,6 +22,7 @@
         "label": {"type": "boolean"}
       }
     },
+    "readOnly": {"const": true},
     "allHands": {"type": "boolean"},
     "limit": {
       "type": "object",
@@ -55,12 +56,20 @@
         "properties": {
           "issue": {"type": "integer", "minimum": 1},
           "since": {"type": "string", "format": "date-time"},
-          "step": {"type": "string"},
-          "stepNumber": {"type": "integer", "minimum": 1},
-          "stepTotal": {"type": "integer", "minimum": 1},
-          "round": {"type": "integer", "minimum": 1},
-          "roundLimit": {"type": "integer", "minimum": 1},
-          "stepSince": {"type": "string", "format": "date-time"}
+          "progress": {
+            "description": "Where the cycle's step is, as its driver reports it. Driver-specific and may change in a minor release: a program shows it, and does not decide on it. Left out when nothing of it is known.",
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "step": {"type": "string"},
+              "stepNumber": {"type": "integer", "minimum": 1},
+              "stepTotal": {"type": "integer", "minimum": 1},
+              "round": {"type": "integer", "minimum": 1},
+              "roundLimit": {"type": "integer", "minimum": 1},
+              "stepSince": {"type": "string", "format": "date-time"}
+            }
+          }
         }
       }
     },
@@ -132,20 +141,7 @@
         "refreshes": {"type": "integer", "minimum": 0},
         "maxAwaiting": {"type": "integer"},
         "slice": {"type": "integer", "minimum": 0},
-        "limit": {"type": "integer", "minimum": 0},
-        "slots": {
-          "type": "object",
-          "required": ["cycles", "containers", "cyclesHow", "containersHow"],
-          "additionalProperties": false,
-          "properties": {
-            "cycles": {"type": "integer", "minimum": 0},
-            "containers": {"type": "integer", "minimum": 0},
-            "cyclesHow": {"enum": ["auto", "number", "fixed"]},
-            "containersHow": {"enum": ["auto", "number", "fixed"]},
-            "cycle": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}},
-            "container": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}}
-          }
-        }
+        "limit": {"type": "integer", "minimum": 0}
       }
     },
     "versions": {
@@ -155,10 +151,11 @@
       "properties": {
         "platform": {
           "type": "object",
-          "required": ["release", "latest", "behind"],
+          "required": ["release", "commit", "latest", "behind"],
           "additionalProperties": false,
           "properties": {
             "release": {"type": ["string", "null"]},
+            "commit": {"type": ["string", "null"]},
             "latest": {"type": ["string", "null"]},
             "behind": {"type": ["boolean", "null"]}
           }

@@ -144,11 +144,10 @@ CREATE TABLE samples (
 -- host that had no gate on the record before loses nothing of it: the column
 -- is NULL, which is no gate, and no number the report prints.
 -- schema 3: driver on runs, and v_versions leaves empty tokens out of its
--- median. A database of schema 2 is migrated in place (migrate in db.rs), which
--- adds the column last, as it is above, and makes the view anew.
+-- median.
 -- schema 4: tool_calls, tool_errors and result_driver on runs, tool_calls and
--- tool_errors on run_roles. A database of schema 2 or 3 is migrated in place,
--- each new column last, as it is above.
+-- tool_errors on run_roles. v0.30.0 wrote 4 already, so a database of schema 2
+-- or 3 is moved aside whole under its version too, as schema 1 is.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (

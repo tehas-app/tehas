@@ -39,7 +39,7 @@ commands=(
   "$tehas analytics report" "$tehas drain" "$tehas history" "$tehas stop 7" "$tehas mcp serve"
   "$tehas dispatch" "$tehas check-product" "$tehas init-product"
   "$bot health" "$bot status" "$bot top" "$bot mcp serve" "$bot dispatch" "$bot protolab"
-  "$bot preview" "$bot improve" "$bot refresh --pr 50" "$bot review" "$bot clean" "$bot github-token"
+  "$bot preview" "$bot refresh --pr 50" "$bot review" "$bot clean" "$bot github-token"
 )
 for command in "${commands[@]}"; do
   name=${command#"$tree"/bin/}
@@ -88,24 +88,21 @@ for row in "${needs[@]}"; do
   untouched
 done
 
-t_case "a loop that is on stops on the settings it needs, and one that is off asks for none"
-reset
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice TEHAS_IMPROVE_REPO=acme/notes
-t_run "$bot improve"
-t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_REPO is not set (see "
-untouched
+t_case "a refresh stops on the settings it needs"
 reset
 t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
 t_run "$bot refresh --pr 50"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_REPO is not set (see "
 untouched
+
+t_case "tehasbot improve is gone: an unknown command, 64, and the settings are not read"
 reset
-t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
+t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$bot improve"
-t_eq "$t_rc" 0
-t_eq "$t_out" "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+t_eq "$t_rc" 64
+t_contains "$t_out" "unknown command: improve"
+t_lacks "$t_out" "settings were read"
 untouched
 
 t_case "refresh with no --pr N is 64 before the settings are read"
@@ -113,7 +110,24 @@ reset
 t_instance 'echo "settings were read" >&2; exit 9'
 t_run "$bot refresh"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehasbot refresh: --pr takes the number of one pull request"
+t_contains "$t_out" "tehas refresh: --pr takes the number of one pull request"
+t_lacks "$t_out" "settings were read"
+untouched
+
+t_case "tehas refresh, the public name, is 64 before the settings are read too"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas refresh"
+t_eq "$t_rc" 64
+t_contains "$t_out" "tehas refresh: --pr takes the number of one pull request"
+t_lacks "$t_out" "settings were read"
+untouched
+
+t_case "tehas github check with another word is 64 before the settings are read"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+t_run "$tehas github check --print"
+t_eq "$t_rc" 64
 t_lacks "$t_out" "settings were read"
 untouched
 
@@ -140,7 +154,7 @@ t_case "a check that refuses is its own status and the settings are not read"
 reset
 t_instance 'echo "settings were read" >&2; exit 9'
 for bad in "$tehas limit show" "$tehas pause a b" "$tehas stop" "$tehas check-product --what" "$tehas init-product --what" \
-  "$tehas dispatch --dryrun" "$bot dispatch --dry-run --help" "$bot preview --what" "$bot improve x" "$bot clean --what" \
+  "$tehas dispatch --dryrun" "$bot dispatch --dry-run --help" "$bot preview --what" "$bot clean --what" \
   "$bot github-token --print" "$bot review --what" "$bot refresh --what"; do
   t_run "$bad"
   t_eq "$t_rc" 64

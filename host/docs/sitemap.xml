@@ -1,6 +1,6 @@
 {{- /* The front page and the manual, one entry for each page in this
        directory. Only for an instance that lets search engines in. */ -}}
-{{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}
+{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}
 {{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
 {{- /* A page is dated by its file: install.sh leaves a page whose bytes did
        not change as it was, so the time is when it last changed on this

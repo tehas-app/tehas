@@ -55,8 +55,8 @@ kept_names() {
 # word is taken only while it stands at the front of the row and looks like a
 # name: letters, digits and an underscore, and at the end a `<ROLE>` of the two
 # rows of the PI_ENSEMBLE_ family. The words of the one row of two settings,
-# `TEHAS_ANALYTICS_SRC`, `_SITE`, are both such words, and the second is written
-# with `TEHAS_ANALYTICS_` taken off, so that one word is named here for its
+# `TEHAS_SITE_ANALYTICS_SRC`, `_NAME`, are both such words, and the second is written
+# with `TEHAS_SITE_ANALYTICS` taken off, so that one word is named here for its
 # whole name. The comma between them stands outside both pairs of backticks, so
 # it is the field between them and reaches this parse as nothing; a comma inside
 # one pair, as the one of `tehas:ready`, `tehas:plan` in the meaning of another
@@ -68,7 +68,7 @@ manual_names() {
     on && /^## / { exit }
     on && /^\| / { for (i = 2; i <= NF && ($i ~ /^[A-Za-z_]+,?$/ || $i ~ /^[A-Za-z_]+<[^>]*>$/); i += 2) printf "%s\n", $i }
   ' "$tools" | sed 's/,$//' |
-    sed -n -e '/^_SITE$/s//TEHAS_ANALYTICS_SITE/p' \
+    sed -n -e '/^_NAME$/s//TEHAS_SITE_ANALYTICS_NAME/p' \
       -e '/^TEHAS_[A-Z0-9_]*$/p' -e '/^PI_ENSEMBLE_[A-Z0-9_]*\(<[^>]*>\)?$/p' -e '/^PI_ENSEMBLE_[A-Z_]*$/p' | sort -u
 }
 
@@ -98,12 +98,12 @@ done
 t_contains "$loader" TEHAS_REPO
 t_contains "$loader" TEHAS_REVIEW_REPO
 t_contains "$loader" TEHAS_UPDATE_FROM
-t_contains "$loader" TEHAS_TICKET_CONCURRENCY
+t_contains "$loader" TEHAS_MAX_CYCLES
 
 t_case "the manual's table is read, and the short name of the analytics row counts"
 t_contains "$manual" TEHAS_REPO
-t_contains "$manual" TEHAS_ANALYTICS_SRC
-t_contains "$manual" TEHAS_ANALYTICS_SITE
+t_contains "$manual" TEHAS_SITE_ANALYTICS_SRC
+t_contains "$manual" TEHAS_SITE_ANALYTICS_NAME
 t_contains "$manual" PI_ENSEMBLE_SUBAGENT_MODEL
 
 t_case "every setting of the loader's table has a row in the manual"
@@ -115,22 +115,16 @@ done
 
 t_case "every row of the manual names a setting the loader, the host or pi-rukas reads"
 # The rows that name no row of TABLE on purpose, each checked by a case of its
-# own below: TEHAS_MILLWRIGHT_LOGIN and TEHAS_WORK_REPO are set by a load from
-# the app's login and from TEHAS_REPO; TEHAS_CYCLE_CPUS and TEHAS_CYCLE_CEILING
-# are what the poll would count by were `auto` ever usable; TEHAS_DISK_WAIT is
-# one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
+# own below: TEHAS_WORK_REPO is set by a load from TEHAS_REPO; TEHAS_DISK_WAIT
+# is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
 # of kinds.rs rather than a string in the table's own text.
 # The settings a row names with no row of the loader's table behind it, each one
 # said in the comment below, and each one a row of the manual's table the case
 # after this insists on. The list is a string, not a file: one word per line of
 # it, because a name that shares its front with the name before it on the same
-# line, as TEHAS_CYCLE_CPUS does with TEHAS_WORK_REPO and TEHAS_CYCLE_CEILING
-# with it, would otherwise be a piece of another word and match nothing.
+# line would otherwise be a piece of another word and match nothing.
 exceptions="
-TEHAS_MILLWRIGHT_LOGIN
 TEHAS_WORK_REPO
-TEHAS_CYCLE_CPUS
-TEHAS_CYCLE_CEILING
 TEHAS_DISK_WAIT
 TEHAS_ISSUE_TYPES
 TEHAS_CYCLE_LOGIN
@@ -142,15 +136,13 @@ for name in $manual; do
   has "$name" "$kept" && continue
   case $name in PI_ENSEMBLE_*) continue ;; esac
   has "$name" "$exceptions" && continue
-  # An operator has to set no more than these: the two are read from the
-  # environment by a poll that could not act by them and so refuses the word
-  # that would need them, `auto`, and the rest are named by the comment above.
+  # An operator has to set no more than these, named by the comment above.
   extra="$extra $name"
 done
 [ -z "$extra" ] || t_bad "no setting behind the rows:$extra"
 
-# TEHAS_ANALYTICS_SITE is in the loader's table, so the row that names it by the
-# short `_SITE` is checked the other way round: with the name taken out of the
+# TEHAS_SITE_ANALYTICS_NAME is in the loader's table, so the row that names it by the
+# short `_NAME` is checked the other way round: with the name taken out of the
 # manual's list the case above finds it missing from the manual.
 for name in $loader; do
   has "$name" "$manual" || not_set="$not_set $name"
@@ -165,6 +157,8 @@ done
 # sets: a row for the bot's login, refused with 78 since the factory became one
 # app, would tell an operator to set a thing that stops every command.
 has TEHAS_BOT_LOGIN "$manual" && t_bad "TEHAS_BOT_LOGIN is a row again: the app names the bot"
+has TEHAS_MILLWRIGHT_LOGIN "$manual" &&
+  t_bad "TEHAS_MILLWRIGHT_LOGIN is a row again: the app names the millwright"
 has TEHAS_GITHUB_APP_INSTALLATION "$manual" &&
   t_bad "TEHAS_GITHUB_APP_INSTALLATION is a row again: the installation is looked up"
 

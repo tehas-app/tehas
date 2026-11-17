@@ -321,9 +321,9 @@ longer the `image` the health read: an update built it after the last status
 run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
-`checks.industry` is `{version}` of the tehas-industry that runs this factory,
-from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which industry writes.
-A factory that runs on its own has no `checks.industry`, and its status is
+`checks.manager` is `{version}` of the program that manages this factory,
+from `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env`, which that program
+writes. A factory that runs on its own has no `checks.manager`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
 
@@ -411,19 +411,12 @@ it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 The keys and the words of `why` are declared once, in `tehas-core`'s
 `hold` module: the dispatcher builds the file from that type and the page
 reads it by the same names, so a reader never keeps a copy of a key of its
-own. With either count set to `auto` it carries `slots` too, nested under that
-key: the two counts in force, `cyclesHow` and `containersHow` for how each was
-arrived at, and `cycle` and `container` with the readings behind them (`bound`
-for the one that gave the count, `slots` for what the host's own readings
-give, `cpus`, the three settings as written, and `floored` when a reading
-answered nothing).
-It is absent for a factory that sets numbers for both, which has nothing to
-explain.
+own.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
 `disk`, `resources`, `limit`, `red`, `unknown-gate`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
 and what was missing in it. `resources` is a model endpoint that does not
-answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
+answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=on`,
 a model or sandbox image that cannot take the images. `disk` is less than `TEHAS_CYCLE_MIN_FREE` free on the file system of `~/tehas`
 or on the one Docker keeps its images on, or free space that could not be read.
 Both warn, as a full disk and an unreadable one hold every start: `output` is
@@ -486,7 +479,7 @@ token, and samples the first that answers. The file is removed only when the
 endpoint it asks is not a mesh and was not just down or busy. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
-`TEHAS_ENERGY=off` to remove the file. With neither,
+`TEHAS_ENERGY=off` (or `0`) to remove the file. With neither,
 `PI_ENSEMBLE_SUBAGENT_PROVIDER` has to be set: without it the command says so
 and exits 78, asks nobody and leaves the file as it is, and `--every` stops
 with it. The file is readable by anyone who can
@@ -572,7 +565,7 @@ instance and starts only when you enable it; nothing enables it for you. The
 service reads its settings when it starts, so run `systemctl --user restart
 tehas-top.service` after changing the setting. Stopping the service does not hide
 the section: the last file stays until the page calls it stale, and the way to
-remove it is `TEHAS_TOP=0` with one run of `tehasbot top`, or deleting the file.
+remove it is `TEHAS_TOP=off` with one run of `tehasbot top`, or deleting the file.
 
 The file is readable by anyone who can open the dashboard. It names the host's
 cpu count, load averages, memory, its units, and up to fifteen processes by pid

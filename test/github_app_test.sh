@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Tests for lib/github-app.sh and tehasbot github-token, with the console behind
-# it (console/ops/src/github.rs): the GitHub App's installation token, made from a
-# signed JWT and kept until 10 minutes are left. openssl and curl are stubs: no
-# key is read, no network is asked.
+# Tests for lib/github-app.sh, tehasbot github-token and tehas github check, with
+# the console behind them (console/ops/src/github.rs): the GitHub App's
+# installation token, made from a signed JWT and kept until 10 minutes are left.
+# openssl and curl are stubs: no key is read, no network is asked.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -34,7 +34,10 @@ case "$*" in
   printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$n" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
 */repos/*/installation*) printf "{\"id\":174742089}" ;;
 */app) printf "{\"slug\":\"tehas-app-bot\"}" ;;
-*installation/repositories*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
+*installation/repositories*page=2*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
+*installation/repositories*) if [ -n "${REPOS_PAGED:-}" ]; then
+  printf "{\"repositories\":[%s]}" "$(seq -f "{\"full_name\":\"acme/r%g\"}" 1 100 | paste -sd,)"
+  else printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}"; fi ;;
 esac'
 
 app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597)
@@ -181,12 +184,32 @@ t_lacks "$t_out" "ghs_"
 t_contains "$(t_calls auth)" 'header = "Authorization: Bearer ghs_fresh'
 t_lacks "$(t_calls curl)" "ghs_"
 
+t_case "tehas github check is the same check under its public name"
+reset
+t_run "$T_ROOT/bin/tehas github check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "acting as tehas-app-bot[bot]"
+t_contains "$t_out" "it reaches acme/widget"
+t_lacks "$t_out" "ghs_"
+
 t_case "--check of an installation that does not reach the repository is exit 1"
 reset
-t_instance TEHAS_REPO=acme/other TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+t_instance TEHAS_REPO=acme/other TEHAS_GITHUB_APP_ID=5452597
 t_run "$token_cmd --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "does not reach acme/other"
+
+t_case "--check reads every page of the installation's repositories"
+reset
+t_run "REPOS_PAGED=1 $token_cmd --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "it reaches acme/widget"
+t_contains "$(t_calls curl)" "installation/repositories?per_page=100&page=2"
+
+t_case "--check stops at a page that is not full"
+reset
+t_run "$token_cmd --check"
+t_lacks "$(t_calls curl)" "page=2"
 
 t_case "an argument it does not know is exit 64"
 reset

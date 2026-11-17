@@ -88,5 +88,15 @@ impl Snapshot {
                         .and_then(epoch)
                         .is_some_and(|t| t >= from)
             })
+            .map(one_word)
     }
+}
+
+/// A record written before the millwright had its name says `fixer`: it is
+/// answered with the one word every tool takes.
+fn one_word(mut v: Value) -> Value {
+    if v["how"] == "fixer" {
+        v["how"] = Value::from("millwright");
+    }
+    v
 }

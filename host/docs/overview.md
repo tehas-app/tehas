@@ -62,7 +62,7 @@ for what a finding does and what a cycle may defer.
 
 | Where          | Role                                                                                                                  |
 | -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| The host       | Tehas: dispatcher, sandboxed agents, the gates, this site, and the improvement loop where it is on. One Unix user, everything under `~/tehas`. |
+| The host       | Tehas: dispatcher, sandboxed agents, the gates and this site. One Unix user, everything under `~/tehas`. |
 | Model endpoint | All model inference. The host needs no GPU; it reaches the endpoint over a private network. In the example it is a [viiwork](https://github.com/janit/viiwork) mesh. |
 | GitHub         | The queue, the state (labels) and the results (pull requests and comments).                                           |
 
@@ -79,10 +79,9 @@ the factory works the same without it.
 | [viiwork](https://github.com/janit/viiwork) | A flexible meshed inference platform for both home and enterprise grade hardware. One possible model backend, the one the example instance uses. tehas does not require it | Use any other OpenAI-compatible endpoint               |
 | Work by hand         | `tehas dev`, for a person with an account on the host; one step as root lets the account in. See [Operating](/operating) | Work arrives as issues only |
 | Protolab             | Only if you label issues `tehas:prototype`. The dispatcher never acts on that label              | The Protolab is empty                                  |
-| Improvement loop     | `TEHAS_IMPROVE_REPO` names a repository and `tehas-improve.timer` is enabled. Every three hours a model reads the cycles that ended and files what could be better as issues there. The whole logs of those cycles are published as release assets of that repository | No cycle is recorded and nothing is filed |
-| Previews             | `TEHAS_PREVIEWS=1` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
-| Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
-| Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
+| Previews             | `TEHAS_PREVIEWS=on` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
+| Search indexing      | `TEHAS_SITE_INDEXING=on`, for an instance published on the internet                                    | Every page says noindex                                |
+| Visitor analytics    | `TEHAS_SITE_ANALYTICS_SRC` and `TEHAS_SITE_ANALYTICS_NAME`, for an instance that wants to count visits     | No script is loaded                                    |
 | Pixel design         | `TEHAS_DESIGN=pixel`: the whole site in 16-bit pixel art, with the factory floor at `/`         | Every page is beesknees26, with the business page at `/` |
 
 ## Start here

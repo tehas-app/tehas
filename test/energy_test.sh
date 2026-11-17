@@ -297,6 +297,14 @@ t_eq "$t_rc" 0
 t_eq "$(there)" gone
 t_eq "$(asked)" 1
 
+t_case "TEHAS_ENERGY=0 is off too"
+fresh
+sample 0
+sample 0 TEHAS_ENERGY=0
+t_eq "$t_rc" 0
+t_eq "$(there)" gone
+t_eq "$(asked)" 1
+
 # What the dispatcher's last poll settled on: the one word in the file the
 # sampler reads. No argument removes the file, so the case says no endpoint.
 dispatched() {

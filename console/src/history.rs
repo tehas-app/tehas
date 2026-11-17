@@ -70,7 +70,7 @@ pub struct Query {
 /// asked with when no line came after it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Listing {
-    pub cycles: Vec<J>,
+    pub runs: Vec<J>,
     pub next: Option<String>,
 }
 
@@ -79,14 +79,14 @@ impl Listing {
     pub fn object(&self) -> J {
         obj(vec![
             ("api", J::Num("1".to_string())),
-            ("cycles", J::Arr(self.cycles.clone())),
+            ("runs", J::Arr(self.runs.clone())),
             ("next", self.next.as_ref().map_or(J::Null, J::str)),
         ])
     }
 
     /// What the command prints without `--json`.
     pub fn text(&self) -> String {
-        self.cycles
+        self.runs
             .iter()
             .map(|line| text_line(line) + "\n")
             .collect()
@@ -340,6 +340,21 @@ fn publish(line: &J, seconds: i64) -> J {
         .filter(|v| v.as_str().is_some_and(is_issue_address))
         .cloned()
         .collect();
+    // Where the step it ended in was: driver-specific, so one object the
+    // contract marks "may change".
+    let progress = J::Obj(kept(
+        vec![
+            ("step", word("step")),
+            ("stepNumber", number("step_number")),
+            ("stepTotal", number("step_total")),
+            ("round", number("round")),
+        ],
+        |v| !v.is_null(),
+    ));
+    let progress = match progress {
+        J::Obj(f) if f.is_empty() => J::Null,
+        p => p,
+    };
     J::Obj(kept(
         vec![
             (
@@ -357,10 +372,7 @@ fn publish(line: &J, seconds: i64) -> J {
             ("status", number("rc")),
             ("outcome", f("status")),
             ("turn", number("turn")),
-            ("step", word("step")),
-            ("stepNumber", number("step_number")),
-            ("stepTotal", number("step_total")),
-            ("round", number("round")),
+            ("progress", progress),
             ("cap", word("cap")),
             ("parkReason", word("park_reason")),
             ("failureKind", word("failure_kind")),
@@ -399,9 +411,10 @@ fn is_park(line: &J) -> bool {
 }
 
 fn same_park(a: &J, b: &J) -> bool {
-    ["step", "cap", "parkReason", "failureKind", "failureCause"]
-        .iter()
-        .all(|key| a.get(key) == b.get(key))
+    a.get("progress").get("step") == b.get("progress").get("step")
+        && ["cap", "parkReason", "failureKind", "failureCause"]
+            .iter()
+            .all(|key| a.get(key) == b.get(key))
 }
 
 /// The count of the parks in a row that stopped exactly as this one did, on
@@ -453,12 +466,12 @@ fn listed(lines: Vec<J>, after: Option<&Cursor>) -> Listing {
         .map(|(line, seconds)| (line.get("seq").clone(), publish(line, seconds)))
         .collect();
     read.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut cycles: Vec<J> = read.into_iter().map(|(_, line)| line).collect();
-    count_repeats(&mut cycles);
-    let last = cycles.last().map(|line| line.get("cursor").text());
+    let mut runs: Vec<J> = read.into_iter().map(|(_, line)| line).collect();
+    count_repeats(&mut runs);
+    let last = runs.last().map(|line| line.get("cursor").text());
     Listing {
         next: last.or_else(|| after.map(|c| c.text.clone())),
-        cycles,
+        runs,
     }
 }
 
@@ -499,7 +512,10 @@ fn text_line(line: &J) -> String {
         format!(
             "rc {}{}{}{}{}{}",
             or_unknown("status"),
-            on("step", "step"),
+            match line.get("progress").get("step") {
+                J::Str(step) => format!("  step {step}"),
+                _ => String::new(),
+            },
             if line.get("parked").is_true() {
                 "  parked"
             } else {
@@ -543,13 +559,13 @@ mod tests {
 
     const CYCLES: [&str; 8] = [
         r#"{"cursor":"1760699940-12-1","kind":"plan","issue":12,"ended":"2025-10-17T11:19:00Z","started":"2025-10-17T11:18:00Z","status":0,"outcome":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true,"filed":["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42\n"]}"#,
-        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","step":"develop","cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
+        r#"{"cursor":"1760700000-12-2","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","started":"2025-10-17T10:20:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
         r#"{"cursor":"1760700060-7-3","kind":"work","issue":7,"ended":"2025-10-17T11:21:00Z","status":0,"outcome":"merged","provider":false,"parked":false,"how":"hand"}"#,
-        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","step":"develop","cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":1}"#,
-        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","step":"develop","cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
-        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","step":"develop","cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":2}"#,
+        r#"{"cursor":"1760700120-12-4","kind":"work","issue":12,"ended":"2025-10-17T11:22:00Z","started":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":1}"#,
+        r#"{"cursor":"1760700180-12-5","kind":"work","issue":12,"ended":"2025-10-17T11:23:00Z","started":"2025-10-17T11:22:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":true,"parked":true,"how":"outage-retry"}"#,
+        r#"{"cursor":"1760700240-12-6","kind":"work","issue":12,"ended":"2025-10-17T11:24:00Z","started":"2025-10-17T11:23:00Z","status":10,"outcome":"failed","progress":{"step":"develop"},"cap":"step-failed:develop","failureKind":"verify-failed","failureCause":"exit-1","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label","repeat":2}"#,
         r#"{"cursor":"1760700300-7-7","kind":"plan","issue":7,"ended":"2025-10-17T11:25:00Z","outcome":"not-started","turn":2,"by":"ä\u007f\"\\\t\u0001","label":"tehas:plan"}"#,
-        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","step":"merge","provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
+        r#"{"cursor":"1760700360-12-8","kind":"work","issue":12,"ended":"2025-10-17T11:26:00Z","started":"2025-10-17T11:25:00Z","status":0,"outcome":"merged","progress":{"step":"merge"},"provider":false,"parked":false,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}"#,
     ];
 
     const TEXT: &str = r#"1760699940-12-1  plan  #12  finished  turn 1  refine (auto)  filed https://github.com/acme/widget/issues/41 https://github.com/acme/widget/issues/42
@@ -571,7 +587,7 @@ mod tests {
 
     fn cursors(listing: &Listing) -> Vec<String> {
         listing
-            .cycles
+            .runs
             .iter()
             .map(|line| line.get("cursor").text())
             .collect()
@@ -579,7 +595,7 @@ mod tests {
 
     fn repeats(listing: &Listing) -> Vec<String> {
         listing
-            .cycles
+            .runs
             .iter()
             .map(|line| line.get("repeat").text())
             .collect()
@@ -592,10 +608,10 @@ mod tests {
     #[test]
     fn a_cycle_line_and_a_plan_line_keep_their_keys_and_raw_values() {
         let listing = listed_after(None);
-        let got: Vec<String> = listing.cycles.iter().map(J::dump).collect();
+        let got: Vec<String> = listing.runs.iter().map(J::dump).collect();
         assert_eq!(got, CYCLES);
         let want = format!(
-            "{{\"api\":1,\"cycles\":[{}],\"next\":\"1760700360-12-8\"}}",
+            "{{\"api\":1,\"runs\":[{}],\"next\":\"1760700360-12-8\"}}",
             CYCLES.join(",")
         );
         assert_eq!(listing.object().dump(), want);
@@ -609,15 +625,15 @@ mod tests {
         )
         .unwrap();
         let got: Vec<String> = listed(lines(&answer, "acme/widget"), None)
-            .cycles
+            .runs
             .iter()
             .map(J::dump)
             .collect();
         assert_eq!(
             got,
             [
-                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","step":"lens-review","stepNumber":7,"stepTotal":9,"round":3,"provider":false,"parked":true}"#,
-                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"ended":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","step":"ci","provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700000-12-1","kind":"work","issue":12,"ended":"2025-10-17T11:20:00Z","status":10,"outcome":"failed","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":3},"provider":false,"parked":true}"#,
+                r#"{"cursor":"1760700060-13-2","kind":"work","issue":13,"ended":"2025-10-17T11:21:00Z","status":10,"outcome":"failed","progress":{"step":"ci"},"provider":false,"parked":true}"#,
             ]
         );
     }
@@ -689,11 +705,11 @@ mod tests {
             "9999999999-999999999-999999999999999",
         ] {
             let listing = listed_after(Some(cursor));
-            assert!(listing.cycles.is_empty());
+            assert!(listing.runs.is_empty());
             assert_eq!(listing.next.as_deref(), Some(cursor));
             assert_eq!(
                 listing.object().dump(),
-                format!("{{\"api\":1,\"cycles\":[],\"next\":\"{cursor}\"}}")
+                format!("{{\"api\":1,\"runs\":[],\"next\":\"{cursor}\"}}")
             );
             assert_eq!(listing.text(), "");
         }
@@ -705,7 +721,7 @@ mod tests {
         let listing = listed(lines(&answer, "acme/widget"), None);
         assert_eq!(
             listing.object().dump(),
-            r#"{"api":1,"cycles":[],"next":null}"#
+            r#"{"api":1,"runs":[],"next":null}"#
         );
         assert_eq!(listing.text(), "");
     }

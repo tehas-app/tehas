@@ -2,15 +2,14 @@
 //! ended, from what the cycle left (`Facts`) and the questions it asks
 //! GitHub on the way (`Ask`). It writes nothing. Its answer is the lines it
 //! logs while it reads, the writes in their order, and what goes on the
-//! cycle's record, in the analytics and to the improvement loop.
+//! cycle's record and in the analytics.
 //!
 //! The order of the bash report it replaced is kept, and so are its words:
 //! tests/fixtures holds the bash's reports, traced, and each is checked line by
 //! line.
 
-use crate::after::After;
+use crate::after::{After, Ended};
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
-use crate::improve::Ended;
 use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
@@ -351,8 +350,6 @@ pub struct Report {
     /// The arguments of `analytics run` after the issue, the attempt and the
     /// line.
     pub analytics: Vec<String>,
-    /// The arguments of the improvement record.
-    pub improve: Vec<String>,
     /// Whether the status runs after it (not after a stop).
     pub status_run: bool,
     /// What GitHub was asked, in order: `prs <branch>`, `attention`.
@@ -611,7 +608,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .find(|s| !s.is_empty())
         .unwrap_or("-")));
     let result_branch = v(&text(&outcome, "branch"));
-    let build = v(&text(&outcome, "buildCommit"));
     let (handoff, lean_posted) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
@@ -980,7 +976,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
             limit_of(&pids)
         );
     }
@@ -995,11 +991,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if branch.is_empty() && lean {
         branch = format!("lean/issue-{issue}");
     }
-    let build = if re(r"^[0-9a-f]{40}$", &build) {
-        build
-    } else {
-        String::new()
-    };
     let [review_held, mut reason, failure_from, failure_kind, failure_role, failure_cause] =
         runner::progress_fields(progress);
     let provider = failure_from == "result" && failure_kind == "provider";
@@ -1087,7 +1078,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         };
         reason = runner::cut_reason(
             &format!(
-                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                "its container reached its {} (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
                 limit_of(&pids)
             ),
         );
@@ -1411,13 +1402,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .rsplit_once('/')
         .map(|(p, _)| p.to_string())
         .unwrap_or_default();
+    // A cycle that ran elsewhere has no workspace here to remove or warn of.
     let tidy = Action::Tidy {
         remove: if f.workspaces_marked {
             vec![f.workdir.clone(), format!("{}.before-retry", f.workdir)]
         } else {
             vec![]
         },
-        warn: if f.workspaces_marked {
+        warn: if f.workspaces_marked || f.workdir.is_empty() {
             String::new()
         } else {
             format!(
@@ -1642,7 +1634,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             // reported exists: the report names the start as one that was
             // refused rather than `unknown`, which is the word of a run that
             // stopped with nothing to say for it. It goes to the end, the line
-            // of history, analytics and the improvement record, so each names
+            // of history and analytics, so each names
             // the same thing. The park's reason and the comment's summary keep
             // the status below: the poll holds a non-run by its reason.
             end_status = "refused".into();
@@ -1845,7 +1837,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             rukas: image_rukas.clone(),
             cap: cap.clone(),
             reason: reason.clone(),
-            build: build.clone(),
             // The writes say whether one of them carried it.
             handoff_delivered: if lean_posted {
                 Some(true)
@@ -1866,20 +1857,6 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         signalled: f.signalled,
         ..After::default()
     };
-    r.improve = vec![
-        issue.to_string(),
-        f.started.to_string(),
-        rc.to_string(),
-        said_status.to_string(),
-        step,
-        pr,
-        kills,
-        image_id,
-        image_rukas,
-        cap,
-        reason,
-        build,
-    ];
     r.status_run = !f.signalled;
     r
 }
@@ -1932,7 +1909,7 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         .collect();
     json!({
         "log": r.log, "actions": actions, "done": r.done, "end": r.end, "files": r.files,
-        "history": r.history, "analytics": r.analytics, "improve": r.improve,
+        "history": r.history, "analytics": r.analytics,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
 }
@@ -2158,7 +2135,7 @@ mod tests {
         let r = notes(vec![("stalled", "1800\nstall-step\n")]);
         assert_eq!(stalled_arg(&r), Some("1800"));
         assert!(r.done.contains("status=stalled"), "{}", r.done);
-        assert!(r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert_eq!(r.after.ended.status, "stalled");
         assert!(
             comments(&r)
                 .iter()
@@ -2181,7 +2158,7 @@ mod tests {
             "{:?}",
             comments(&r)
         );
-        assert!(!r.improve.iter().any(|a| a == "stalled"), "{:?}", r.improve);
+        assert_ne!(r.after.ended.status, "stalled");
         assert!(
             r.log
                 .iter()
@@ -2538,7 +2515,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2576,14 +2553,14 @@ mod tests {
         assert!(r.done.contains("forks_refused=21"), "{}", r.done);
         assert!(
             r.after.ended.reason.contains(
-                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
             ),
             "{}",
             r.after.ended.reason
         );
         let said = comments(&r).join("\n");
         assert!(
-            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
             "{said}"
         );
         for bad in [

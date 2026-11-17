@@ -1,9 +1,8 @@
 Say what this factory speaks: the API version, the release and commit it
 was installed from, its repository, the features this release has, the
-millwright's login and what the polls cost. A program asks this first, before
-it relies on a feature. The old names, the feature fixer-grant and the field
-fixer, say the same as millwright-grant and millwright, and stay for as long
-as api 1.
+optional features and whether each is on here, the millwright's login and
+what the polls cost. A program asks this first, before it relies on a
+feature.
 
 The release and commit are those install.sh wrote to
 $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
@@ -16,14 +15,15 @@ Usage: tehas api [--json]
 
 Without --json, one line each; the last is the store's own words for the
 polls, and only while one is on record. With --json the same as one object,
-whose poll is {"last": {"at", "wallMs", "cpuMs", "gh", "writes", "starts",
-"kinds", "ageMin"}, "hour": {"polls", "cpuMs", "writes"}}, or null: see
-host/docs/api.md.
+whose flags is {"<feature>": true|false} and whose poll is {"last": {"at",
+"wallMs", "cpuMs", "gh", "writes", "starts", "kinds", "ageMin"}, "hour":
+{"polls", "cpuMs", "writes"}}, or null: see host/docs/api.md.
 
   api         1
   tehas       v0.8.0 (cb6912a)
   repo        tehas-app/tehas
-  features    status millwright-grant fixer-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk panels state-check finish status-versions store-copy state-load
+  features    status millwright-grant all-hands limit drain history export analytics state-move mcp-dashboard-keys clean disk panels state-check finish status-versions state-copy state-load
+  flags       outsource=off
   millwright  none
   poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 

@@ -3,7 +3,9 @@
 //! with, the store opened for a writer or a reader, the issues stub and the
 //! mapping of an error to its exit.
 
-use crate::{approval, cycle, db, history, journal, live, order, park, plan, poll, upkeep};
+use crate::{
+    approval, cycle, db, history, journal, live, order, outsource, park, plan, poll, upkeep,
+};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::os::unix::fs::MetadataExt;
@@ -27,6 +29,7 @@ pub enum Call {
     Poll(poll::Call),
     Journal(journal::Call),
     Order(order::Call),
+    Outsource(outsource::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -61,6 +64,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = order::parse(name, rest) {
         return Some(r.map(Call::Order));
     }
+    if let Some(r) = outsource::parse(name, rest) {
+        return Some(r.map(Call::Outsource));
+    }
     history::parse(name, rest).map(|r| r.map(Call::History))
 }
 
@@ -76,6 +82,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Poll(c) => poll::run(home, c, now),
         Call::Journal(c) => journal::run(home, c, now),
         Call::Order(c) => order::run(home, c, now),
+        Call::Outsource(c) => outsource::run(home, c, now),
     }
 }
 
@@ -493,6 +500,10 @@ pub fn refuse(word: &str, issue: i64, why: &str) -> Fail {
 fn no_schema(held: i64) -> Fail {
     let why = if held == 0 {
         "the store holds no schema; run store migrate".to_string()
+    } else if held < db::OLDEST {
+        format!(
+            "the store is at schema {held}, older than v0.30.0 wrote; update to a v0.30 release first, then to this one"
+        )
     } else {
         format!(
             "the store is at schema {held}, this store writes {}; run store migrate",
@@ -515,7 +526,7 @@ pub fn schema(conn: &Connection) -> Result<(), Fail> {
 
 /// A file of no bytes is a store nobody migrated, refused before SQLite gives
 /// it a header.
-fn not_empty(file: &Path) -> Result<(), Fail> {
+pub fn not_empty(file: &Path) -> Result<(), Fail> {
     match std::fs::symlink_metadata(file) {
         Ok(m) if m.is_file() && m.len() == 0 => Err(no_schema(0)),
         _ => Ok(()),

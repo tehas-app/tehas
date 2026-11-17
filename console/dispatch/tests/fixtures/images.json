@@ -181,7 +181,7 @@
    "settings": {
     "TEHAS_WORK_IMAGES": "1",
     "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model",
-    "TEHAS_TICKET_CONCURRENCY": 3
+    "TEHAS_MAX_CYCLES": 3
    },
    "snapshot": {
     "endpoint": {
@@ -671,7 +671,7 @@
    "settings": {
     "TEHAS_WORK_IMAGES": "0",
     "TEHAS_WORK_FILES": "0",
-    "TEHAS_TICKET_CONCURRENCY": 3
+    "TEHAS_MAX_CYCLES": 3
    },
    "snapshot": {
     "endpoint": {

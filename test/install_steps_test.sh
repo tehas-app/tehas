@@ -12,7 +12,14 @@ t_stub nproc 'echo 12'
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
-  export TEHAS_INSTANCE_DIR=$T_ROOT/instances/$name
+  # A copy with the renames of api/renames-1.0.tsv applied, as the operator of
+  # a running factory applies them: its own directory is not edited here.
+  rm -rf "$T/shipped" && cp -R "$T_ROOT/instances/$name" "$T/shipped"
+  while IFS=$'\t' read -r kind old new _; do
+    [ "$kind" = setting ] && [ -n "$new" ] || continue
+    sed -i "s/^$old=/$new=/" "$T/shipped/instance.env"
+  done <"$T_ROOT/api/renames-1.0.tsv"
+  export TEHAS_INSTANCE_DIR=$T/shipped
   # The tokens are the host's, not the instance's: stand-ins for each it names.
   keep=("${T_ENV[@]}")
   while read -r k; do
@@ -21,7 +28,7 @@ for name in example tehas-tehas; do
     | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$TEHAS_INSTANCE_DIR/models.json")
   t_run "$install --check"
   t_lacks "$t_out" "INVALID"
-  t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
+  t_contains "$t_out" "Instance:     $T/shipped OK"
   T_ENV=("${keep[@]}")
 done
 rm -f "$T/bin/nproc"
@@ -37,7 +44,7 @@ instance
 t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer"
 t_eq "$(t_calls systemctl)" "--user daemon-reload"
 t_contains "$t_out" "the first install's labels or units are not done: systemctl --user enable failed"
 t_eq "$([ -e "$th/state/first-install" ] && echo owed)" owed
@@ -62,7 +69,7 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is missing from this checkout"
 t_lacks "$t_out" "next: "
-t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-review.timer tehas-clean.timer
+t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -197,7 +204,7 @@ t_eq "$t_rc" 0
 # One object, one line, and valid JSON: what a program keeps is what it read.
 t_eq "$(printf '%s\n' "$json" | wc -l)" 1
 t_eq "$(printf '%s' "$json" | jq -e '.api == 1 and .repo == "acme/widget" and
-  .fixer == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
+  .millwright == "bob[bot]" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
 # A model token is named, never written: the file that carries these facts is
 # the one a person may put anywhere, so no value of a TEHAS_MODEL_KEY_ name
 # appears in it.
@@ -254,11 +261,7 @@ fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
-# A fresh home gets its marker before the copies, so the dry run is asked too;
-# the import after init finds nothing.
-t_eq "$(t_calls store)" "import --dry-run --say
-init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget --say
-import --say"
+t_eq "$(t_calls store)" "init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget --say"
 t_contains "$t_out" "store: made $th/state/tehas.db"
 t_eq "$(stat -c %a "$th/state")" 700
 

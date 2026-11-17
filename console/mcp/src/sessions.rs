@@ -12,38 +12,29 @@ use std::sync::LazyLock;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, QUEUED, RUNNING, STOPPED};
 
 // The words an answer may give for an outcome or a kind, and the words the
-// filters of `factory_sessions` accept. `factory_issue` describes the same
-// fields of an attempt, so it reads these rather than a list written twice.
-pub const OUTCOMES: [&str; 7] = [
-    "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
-];
+// filters of `factory_sessions` accept. The outcomes are the core's one
+// vocabulary; `factory_issue` describes the same fields of an attempt, so it
+// reads these rather than a list written twice.
+pub const OUTCOMES: [&str; 7] = tehas_core::outcome::OUTCOMES;
 pub const KINDS: [&str; 2] = ["work", "plan"];
 // Every word a record's `how` can hold, work and plan words alike: the words
-// the store's verbs take and the plan words analytics' `plan::how` writes, with
-// the old `fixer` the store still matches. The tool's schema enum and its
-// filter both read this list, and nothing else in the crate names it; the test
-// of the filter reads it here, so it pins the tool to what it says rather than
-// to a list written twice.
-pub const HOWS: [&str; 10] = [
+// the store's verbs take and the plan words analytics' `plan::how` writes. An
+// old record that says `fixer` is read as `millwright` (`Snapshot::sessions`),
+// so the tool answers and filters one word for the millwright. The tool's
+// schema enum and its filter both read this list, and nothing else in the
+// crate names it; the test of the filter reads it here, so it pins the tool to
+// what it says rather than to a list written twice.
+pub const HOWS: [&str; 9] = [
     "label",
     "refresh",
     "retry-tick",
     "outage-retry",
     "millwright",
-    "fixer",
     "host",
     "answer",
     "refine",
     "hand",
 ];
-// A filter of either word matches records of both, so old records that say
-// `fixer` are found by the new word and new records by the old one. The `how`
-// a session returns stays what it says. The words are matched exactly: an
-// absent `how` matches no filter, so no filter word names a starter here.
-// The pair is the one in `tehas_core::grammar`, which the store's rows and
-// analytics' marks read too, so the class is spelled in one place; the test of
-// the filter asserts these are those two words.
-pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 200;
 const TOP_CAUSES: usize = 5;
@@ -276,7 +267,7 @@ pub fn tools() -> Vec<Value> {
         arg(
             "how",
             "string",
-            "Only sessions started this way. refine lists refining sessions alone. millwright and fixer name the same person and match each other's records; a value outside the list is a tool error.",
+            "Only sessions started this way. refine lists refining sessions alone; a value outside the list is a tool error.",
         ),
         json!({"enum": HOWS}),
     );
@@ -471,15 +462,6 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
-    // The two millwright words are one class: a filter of either one matches
-    // records of both. Any other word is matched exactly.
-    let how_matches = |s: &Value, want: &str| {
-        let exact = |w: &str| s["how"].as_str() == Some(w);
-        match MILLWRIGHT_WORDS.contains(&want) {
-            true => MILLWRIGHT_WORDS.iter().any(|k| exact(k)),
-            false => exact(want),
-        }
-    };
     let mut passed = before.is_none();
     let mut found: Vec<Value> = Vec::new();
     for s in snap.sessions() {
@@ -489,7 +471,7 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         }
         let keep = eq(&s, "outcome", &outcome)
             && eq(&s, "kind", &kind)
-            && how.as_deref().is_none_or(|w| how_matches(&s, w))
+            && eq(&s, "how", &how)
             && eq(&s, "failureKind", &failure_kind)
             && eq(&s, "tehasVersion", &tehas)
             && rukas.as_deref().is_none_or(|w| {
@@ -866,6 +848,7 @@ pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Too
         let mut r = Map::new();
         put(&mut r, "step", copied(c, "step"));
         put(&mut r, "status", copied(c, "status"));
+        tools::cycle_status_in(&mut r);
         if !r.is_empty() {
             out.insert("running".into(), Value::Object(r));
         }

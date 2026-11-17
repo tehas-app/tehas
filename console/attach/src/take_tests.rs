@@ -1,3 +1,4 @@
+use crate::fetch::curl_args;
 use crate::given::{Linked, Ordered};
 use crate::sniff::Sniffer;
 use crate::take::*;
@@ -724,7 +725,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
     assert_eq!(v["leftOut"].as_array().unwrap().len(), 100);
     assert_eq!(v["leftOutMore"], 3);
     assert_eq!(v["leftOut"][0]["link"].as_str().unwrap().len(), 512);
-    // What the improvement loop copies whole: tehas-cycle's MANIFEST_BYTES.
+    // A bounded manifest: 256 KiB.
     assert!(text.len() < 262_144);
     let keys: Vec<&str> = text
         .lines()
@@ -734,6 +735,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
     assert_eq!(
         keys,
         [
+            "version",
             "images",
             "files",
             "leftOut",
@@ -755,7 +757,7 @@ fn a_manifest_is_printed_as_jq_prints_it_with_its_keys_in_order() {
     );
     assert_eq!(
         small.pretty(),
-        "{\n  \"images\": [],\n  \"leftOut\": [],\n  \"issue\": 7,\n  \"approval\": null,\n  \"leftOutMore\": 0\n}\n"
+        "{\n  \"version\": 1,\n  \"images\": [],\n  \"leftOut\": [],\n  \"issue\": 7,\n  \"approval\": null,\n  \"leftOutMore\": 0\n}\n"
     );
 }
 

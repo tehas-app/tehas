@@ -1,17 +1,27 @@
 ---
-title: The GitHub commands of tehasbot
+title: The GitHub commands
 description: "Asking for refreshes, the App's tokens, and the writes of the last day."
 ---
 
-# The GitHub commands of tehasbot
+# The GitHub commands
 
-## tehasbot refresh
+## tehas refresh
 
 ```
-tehasbot refresh --pr 50    # ask for the refresh of pull request #50 now
-tehasbot refresh --pr 50 --json  # the same, and say what it asked as one object
+tehas refresh --pr 50       # ask for the refresh of pull request #50 now
+tehas refresh --pr 50 --json  # the same, and say what it asked as one object
 tail ~/tehas/logs/refresh.log
 ```
+
+`tehasbot refresh` is the same command under its old name. It stays through
+1.x, so a program that calls it keeps working, and prints the same words and
+the same object.
+
+It finds the factory's own `gh` whatever `PATH` the caller gives: it puts
+`~/tehas/shim` and `~/tehas/bin` first on `PATH` before it reads GitHub, so a
+caller without a login shell reads through the shim as a login shell would.
+When no `gh` can be run at all, the reason says `gh not found` rather than
+that GitHub did not answer.
 
 Asks for the refresh of one of the factory's own pull requests that conflicts
 with the branch: it writes a request, `~/tehas/state/refresh/<issue>.json`, for
@@ -48,23 +58,42 @@ With `--json` it also prints one object on standard output on exit 0, 3 and
 1, so a caller does not read standard error for the reason:
 
 ```
-{"asked": true, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": null}
-{"asked": false, "pr": 50, "issue": 7, "head_sha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
+{"api": 1, "asked": true, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": null}
+{"api": 1, "asked": false, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
 ```
 
-`asked` is `true` when the request was written, and `why` is then `null`;
-otherwise `why` holds the same words as standard error. `issue` and
-`head_sha` are `null` when GitHub did not name them, as when its read
-failed. Exit 64 and 78 print no object.
+`api` is the version of the object, 1, as in every `--json` object of the
+[factory API](/api). `asked` is `true` when the request was written, and `why`
+is then `null`; otherwise `why` holds the same words as standard error.
+`issue` and `headSha`, the head commit of the pull request, are `null` when
+GitHub did not name them, as when its read failed. Exit 64 and 78 print no
+object. The old name `tehasbot refresh --pr N --json` prints the same object.
+
+## tehas github check
+
+```
+tehas github check              # when the app's token runs out, and whether it reaches TEHAS_REPO
+```
+
+Makes one token of the app and prints the app, the installation, the bot's
+login, when the token runs out and whether the installation reaches
+`TEHAS_REPO`, and never the token. It reads the installation's repositories a
+hundred at a time, page after page, until it finds `TEHAS_REPO` or a page is
+not full. It is `tehasbot github-token --check` under its public name; the old form stays through 1.x. Exit 0 the check
+passed; 1 no token could be had, or it does not reach `TEHAS_REPO`; 64 an
+argument it does not know; 78 settings that are missing, malformed or name no
+app.
 
 ## tehasbot github-token
 
 ```
 tehasbot github-token           # print the app's token
-tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS_REPO
 tehasbot github-token --cycle   # print the cycle's token, narrowed to TEHAS_REPO
 tehasbot github-token --session # the same body, for a planning turn or a manual session
 ```
+
+What the gh shim, the poll and the cycles run for a token. A person checks
+the token with [tehas github check](#tehas-github-check).
 
 Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`.
 The app's installation on `TEHAS_REPO` and its login are looked up at GitHub
@@ -81,9 +110,12 @@ given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
 The web token and the token go to curl on its standard input, never on its
-command line. Without `--check` it prints the token and nothing else. `--check` prints the
-app, the installation, the bot's login, when the token runs out and whether the
-installation reaches `TEHAS_REPO`, and never the token.
+command line. Without `--check` it prints the token and nothing else. `--check`
+is [tehas github check](#tehas-github-check).
+
+Exit 0 a token or a check that passed; 1 no token could be had, or it does not
+reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
+missing, malformed or name no app.
 
 `--cycle` makes the cycle's token instead (#1814): GitHub is asked for a token
 of the same installation for the repository of `TEHAS_REPO` alone, with
@@ -164,20 +196,24 @@ gh's output stays the terminal, so `gh pr create` and the other commands that
 ask still ask, and a rate limit shows at once. Nothing is shared between calls, so a
 call that waits holds up no other. A caller with a time limit of its own, such
 as the poll's 30 seconds a call, ends the call at its limit; the poll's action
-journal settles that write on a later poll.
+journal settles that write on a later poll. A write that ended at its limit, or
+that GitHub answered with a 5xx, is kept as `unknown`, not as failed: it may
+have reached GitHub, so it is read again (a comment by its body, a label by
+name) before it is ever sent again. Found there, it is done and not sent; not
+found, it is sent once; a read that failed sends nothing until a later read.
 
-## tehasbot github-writes
+## tehas github writes
 
 ```
-tehasbot github-writes          # the writes of the 24 hours to now, by hour
+tehas github writes             # the writes of the 24 hours to now, by hour
 ```
 
 Reads `~/tehas/state/github-writes.log` and prints the writes and the refused
 writes (403 or 429) of the last 24 hours, the busiest minute and the busiest
 hour, beside GitHub's limits for writes (about 80 a minute and 500 an hour),
 and then one row per clock hour with its writes, its refused writes and its
-busiest minute. It needs no settings and changes nothing.
+busiest minute. It needs no settings and changes nothing. `tehasbot
+github-writes` is the same command under its old name, kept through 1.x.
 
-Exit 0 a token or a check that passed; 1 no token could be had, or it does not
-reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
-missing, malformed or name no app.
+Exit 0 the writes were printed; 1 neither `TEHAS_HOME` nor `HOME` is set; 64
+an argument it does not know.

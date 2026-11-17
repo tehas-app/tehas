@@ -12,7 +12,7 @@
 fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
   local i
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
   echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
@@ -176,7 +176,7 @@ fmark='<!-- tehas:millwright issue=7 action=answer -->'
 # The session has had as many turns as the last answer on record names.
 fixer_planning() { # [<answers on record as JSON> [<who started the session>]]
   planning
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
   t_plan "$T/home/tehas" 7 "$(jq -nc --argjson a "${1:-[]}" --arg by "${2:-alice}" \
     '{by: $by, turns: ([1] + [$a[].turn] | max), options: ["Adopt all", "Change some"], comment: 4001, answers: $a}')"
 }
@@ -204,7 +204,7 @@ t_eq "$(t_row plan-show 7 -- '.planning.answers[-1].millwright')" true
 
 t_case "an App millwright set with [bot] answers as GraphQL names it, and the store has the one form"
 fixer_planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
@@ -213,7 +213,7 @@ t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":2,"by":"tehas-bot","fixer":true}'
 
 t_case "an App millwright set with [bot] ticks a box as GraphQL names it"
 fixer_planning
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 comments 7 "$(plan_body ' ' x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Change some"
@@ -271,7 +271,7 @@ t_contains "$(t_calls gh)" "The fixer's tick was not taken as an answer"
 
 t_case "a larger limit lets it answer again"
 comments 7 "$(plan_body x ' ' ' ')" tehas-bot
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Adopt all"
 
@@ -327,7 +327,7 @@ t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "a held tick on a parked cycle's question starts nothing and stays"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 comments 7 "$(park_body x ' ')" tehas-bot
 jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-bot"}}]}' \
   "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
@@ -378,7 +378,7 @@ t_eq "$(rec)" "$before"
 
 t_case "the fixer's tick on a parked cycle's question is a stranger's"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
 comments 7 "$(park_body x ' ')" tehas-bot
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""

@@ -22,7 +22,7 @@
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.
-- One instance is one host serving one product repository, with as many cycles side by side as `TEHAS_TICKET_CONCURRENCY` (the host's CPUs minus one by default) and the slice's room allow.
+- One instance is one host serving one product repository, with as many cycles side by side as `TEHAS_MAX_CYCLES` (the host's CPUs minus one by default) and the slice's room allow.
 - The same host takes work by hand: a person with an account there types
   `tehas dev` and gets an interactive Pi session with pi-rukas in the cycle's
   sandbox, on the factory's models, with their own name on the commits.
@@ -85,10 +85,8 @@ The source is at https://github.com/tehas-app/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
 A running preview of every pull request has been seen working on one host,
-the example instance; parts of it are covered by tests only. Previews, energy use (viiwork backends only), the
-Protolab and the improvement loop (the factory files issues about its own
-cycles, labelled `tehas:improvement`, which start nothing) are optional and can
-be ignored for a first install.
+the example instance; parts of it are covered by tests only. Previews, energy use (viiwork backends only) and the
+Protolab are optional and can be ignored for a first install.
 
 1. Read [A new project]({{ $base }}/new-project.md) in full. It is the
    install guide: a prepared host, an instance directory of settings, and your
@@ -111,6 +109,7 @@ be ignored for a first install.
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 - [Analytics]({{ $base }}/analytics.md): the factory's 365 days of runs in SQLite, its schema, and how to fetch a copy
 - [The MCP server]({{ $base }}/mcp-server.md): a read-only view of the factory for agents outside the host, behind API keys
+- [Outsource, the model proxy]({{ $base }}/outsource.md): the one way a contractor's cycle reaches the factory's model, and what it refuses
 
 ## Ask this factory over MCP
 

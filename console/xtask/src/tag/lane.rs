@@ -320,7 +320,9 @@ mod tests {
         assert!(VERIFY.contains(
             "runs-on: ${{ startsWith(github.event.pull_request.title, 'Express Lane') && fromJSON('[\"self-hosted\", \"speedlane\"]') || fromJSON('[\"self-hosted\", \"tehas\"]') }}\n"
         ));
-        assert!(RELEASE.contains("runs-on: [self-hosted, tehas]\n"));
+        // The release job runs on a clean hosted runner, never in the lane.
+        assert!(RELEASE.contains("runs-on: ubuntu-24.04\n"));
+        assert!(!RELEASE.contains("self-hosted"));
     }
 
     /// The jobs of a workflow: each one's name and text.

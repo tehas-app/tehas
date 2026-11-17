@@ -18,8 +18,8 @@
 # - planning's .out and .rc, and the .keep directory beside the workspace;
 # - state/refined.jsonl, the ledger the store does not hold (D9);
 # - state/dispatch.*: the poll's own lock and notes.
-# Every other record moved. install.sh imports the old files (store import),
-# and the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
+# Every other record moved. A v0.30 install imported the old files, and this
+# release does not: the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
 # The export copy an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
 # nothing reads it.
 # shellcheck disable=SC2016  # the patterns and samples are code, not expanded
@@ -246,28 +246,6 @@ while IFS= read -r hit; do
 done <<<"$named"
 for a in "${allowed[@]}"; do
   t_contains "$named" "$a"
-done
-
-t_case "every file the importer reads is an old record the tests look for, and stops the poll"
-imp=$T_ROOT/console/store/src/import.rs
-names=()
-while IFS= read -r sfx; do names+=("state/cycles/5$sfx"); done < <(
-  sed -n '/^const CYCLE_SUFFIXES/,/^];/p' "$imp" | sed -nE 's/^ *\("(\.[a-z.]+)".*/\1/p')
-while IFS=' ' read -r pre sfx; do names+=("state/${pre}5$sfx"); done < <(
-  sed -n '/^const STATE_NAMES/,/^];/p' "$imp" | sed -nE 's/^ *\("([a-z]+-)", "([a-z.]+)".*/\1 \2/p')
-names+=(state/cycles/plan-5.history.jsonl)
-t_eq "${#names[@]}" 19
-# The samples test/dispatch_guard_test.sh stops a poll with, one per line.
-guard=$(sed -n '/^old_records=(/,/)$/p' "$T_ROOT/test/dispatch_guard_test.sh" | tr -d '()' | tr ' ' '\n' |
-  sed -e 's/^old_records=//' -e 's|/$||' | grep .)
-for name in "${names[@]}"; do
-  hit=no
-  for g in "${t_old_state[@]}"; do
-    # shellcheck disable=SC2053  # the right side is a glob on purpose
-    [[ $name == $g ]] && hit=yes
-  done
-  t_eq "$name: $hit" "$name: yes"
-  t_eq "$name: $(grep -cxF -- "$name" <<<"$guard")" "$name: 1"
 done
 
 t_done

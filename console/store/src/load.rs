@@ -7,7 +7,8 @@
 //! it is older. A copy that fails any of these is refused before the store is
 //! opened. Then, in one transaction under the write lock, the store must be at
 //! this binary's schema, no cycle lock may be held and no table of HISTORY may
-//! hold a row; every table is emptied and filled from the copy. A refusal or a
+//! hold a row, nor any of OUTSOURCE_HISTORY; every table, the outsource ones
+//! too, is emptied and filled from the copy. A refusal or a
 //! failure rolls the transaction back, so the store is as it was. The store's
 //! own file is never replaced: the readers of a drained factory hold it open,
 //! and a file renamed under them would meet the old one's -wal.
@@ -16,7 +17,7 @@
 //! took. The refusals are 1 with a word: `no-copy`, `bad-copy`, `newer-copy`,
 //! `running` and `history`.
 
-use crate::db::{self, COUNTED_TABLES, SCHEMA_VERSION};
+use crate::db::{self, COUNTED_TABLES, OUTSOURCE_TABLES, SCHEMA_VERSION};
 use crate::lock;
 use crate::verbs::{self, j, line, Fail, Q};
 use rusqlite::{Connection, OpenFlags};
@@ -51,6 +52,16 @@ pub const HISTORY: [&str; 18] = [
     "actions",
     "journal",
 ];
+
+/// The outsource tables that record what contractors did, held to the same
+/// rule as HISTORY. `contractors` and `join_codes` are the installation's
+/// record and the copy's rows replace them.
+pub const OUTSOURCE_HISTORY: [&str; 3] = ["jobs", "job_history", "issue_attempts"];
+
+/// Every table load empties and fills, parents before children.
+fn moved() -> impl Iterator<Item = &'static str> {
+    COUNTED_TABLES.iter().chain(&OUTSOURCE_TABLES).copied()
+}
 
 /// The copy's own file beside the store, and SQLite's files beside it, removed
 /// when dropped.
@@ -140,6 +151,14 @@ fn ready(from: &str, side: &Path, now: i64) -> Result<(i64, i64), Fail> {
     if schema < 1 {
         return Err(bad(from, "holds no schema"));
     }
+    if schema < db::OLDEST {
+        return Err(bad(
+            from,
+            format!(
+                "holds schema {schema}, older than v0.30.0 wrote; load it into a v0.30 release first"
+            ),
+        ));
+    }
     // The installation's values are written only by a migration from 0, which
     // was refused above.
     let unused = db::Settings {
@@ -153,8 +172,8 @@ fn ready(from: &str, side: &Path, now: i64) -> Result<(i64, i64), Fail> {
         bad(from, format!("did not migrate from schema {schema}: {why}"))
     })?;
     let mut rows = 0;
-    for table in COUNTED_TABLES.iter().filter(|t| **t != "meta") {
-        // The name is one of COUNTED_TABLES, never a caller's word.
+    for table in moved().filter(|t| *t != "meta") {
+        // The name is one of the store's own tables, never a caller's word.
         rows += c
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| {
                 r.get::<_, i64>(0)
@@ -200,7 +219,7 @@ fn fill(conn: &Connection, home: &Path) -> Result<(), Fail> {
             _ => {}
         }
     }
-    for table in HISTORY {
+    for table in HISTORY.iter().chain(&OUTSOURCE_HISTORY) {
         let n: i64 = conn
             .query_row(&format!("SELECT count(*) FROM main.{table}"), [], |r| {
                 r.get(0)
@@ -217,11 +236,11 @@ fn fill(conn: &Connection, home: &Path) -> Result<(), Fail> {
     }
     // Checked at the commit, when every table holds the copy's rows.
     conn.execute_batch("PRAGMA defer_foreign_keys = ON").q()?;
-    for table in COUNTED_TABLES {
+    for table in moved() {
         conn.execute_batch(&format!("DELETE FROM main.{table}"))
             .q()?;
     }
-    for table in COUNTED_TABLES {
+    for table in moved() {
         let cols = columns(conn, table)?;
         conn.execute_batch(&format!(
             "INSERT INTO main.{table} ({cols}) SELECT {cols} FROM copy.{table}"

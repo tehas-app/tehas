@@ -20,7 +20,7 @@ t_lacks "$(t_calls gh)" "--add-assignee"
 
 t_case "with an owner the claim assigns the issue to the owner in the same call"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ASSIGNEE=carol
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --add-assignee carol"
@@ -28,7 +28,7 @@ t_eq "$(t_calls fake-start)" "7"
 
 t_case "an assign GitHub refuses still marks the issue running and starts it, and the log says so"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ASSIGNEE=carol
 echo "--add-assignee carol" >"$fx/edit-fails-on"
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -306,30 +306,10 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "--add-label tehas:planning"
 t_lacks "$t_out" "it is an epic"
 
-# The ready list of a finding the improvement loop filed: ready by alice, with
-# the loop's own label and cross-project beside it. The list is the only place
-# the hold reads from, so the issue is never asked about, which the case below
-# checks. The JSON is one line: this file is written by printf, and a line that
-# continues another is run as a command of its own.
-found_cross()
-{
-  printf '%s\n' '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:improvement"},{"name":"cross-project"}]}]' >"$fx/ready.json"
-  printf '%s\n' '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"}]' >"$fx/events-7.json"
-}
-
-t_case "an issue the loop labelled cross-project starts no cycle, and its labels stay"
+t_case "cross-project is no hold any more: an issue that carries it beside tehas:improvement starts"
 reset
-found_cross
-t_run "$dispatch"
-t_eq "$t_rc" 0
-t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "skip #7: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"
-t_lacks "$(t_calls gh)" "issue edit 7"
-t_lacks "$(t_calls gh)" "issue comment 7"
-
-t_case "cross-project alone is no hold: the issue of a person starts as any other"
-reset
-printf '%s\n' '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"cross-project"}]}]' >"$fx/ready.json"
+printf '%s\n' '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:improvement"},{"name":"cross-project"}]}]' >"$fx/ready.json"
+printf '%s\n' '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "another repository"
@@ -340,37 +320,6 @@ printf '%s\n' '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:impr
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "another repository"
-
-t_case "the other issue of the queue still starts beside a held one"
-reset
-slots 2
-printf '%s\n' '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:improvement"},{"name":"cross-project"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
-jq -n '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"}]' \
-  >"$fx/events-7.json"
-cp "$fx/events-7.json" "$fx/events-8.json"
-t_run "$dispatch"
-t_eq "$(t_calls fake-start)" "8"
-t_contains "$t_out" "skip #7: it carries cross-project"
-
-t_case "a planning session on such an issue is allowed: deciding where the fix lives is its work"
-reset
-jq -cn '{number: 7, state: "open", title: "Gate runs twice", body: "It does.",
-  labels: [{name: "tehas:plan"}, {name: "tehas:improvement"}, {name: "cross-project"}]}' >"$fx/work-7.json"
-echo '[]' >"$fx/ready.json"
-echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
-echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
-echo '{"title":"Gate runs twice","body":"It does."}' >"$fx/issue-7.json"
-t_run "$dispatch"
-t_contains "$(t_calls gh)" "--add-label tehas:planning"
-t_lacks "$t_out" "another repository"
-
-t_case "a dry run of a held issue says it and changes nothing"
-reset
-found_cross
-t_run "$dispatch --dry-run"
-t_contains "$t_out" "skip #7: it carries cross-project and tehas:improvement"
-t_lacks "$t_out" "would run a cycle"
-t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "a closed issue whose cycle still holds its lock is left alone"
 reset

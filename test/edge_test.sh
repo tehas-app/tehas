@@ -129,7 +129,7 @@ t_case "the sitemap dates every page by its file and the front page by version.t
 sitemap=$(cat "$T_ROOT/host/docs/sitemap.xml")
 t_contains "$sitemap" '<url><loc>{{ $base }}/</loc>{{ if fileExists "/version.txt" }}<lastmod>{{ (fileStat "/version.txt").ModTime.UTC.Format "2006-01-02" }}</lastmod>{{ end }}</url>'
 t_contains "$sitemap" '<url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc><lastmod>{{ (fileStat .).ModTime.UTC.Format "2006-01-02" }}</lastmod></url>'
-t_contains "$sitemap" '{{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}'
+t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}'
 # The date is the file's only while install leaves a page with the same bytes
 # alone (same_content in console/ops/src/update/files.rs).
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'
@@ -141,7 +141,7 @@ for want in /status.json /running.json /endings.json /epics.json /health.json /h
   /dispatch.json /demand.json /energy.json /analytics.json /top.json \
   /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json \
   /cycles/*.json /console-*.txt /console-*.txt.now; do
-  printf '%s\n' "$table" | grep -qxF -- "$want" || t_bad "the list does not name $want"
+  grep -qxF -- "$want" <<<"$table" || t_bad "the list does not name $want"
 done
 
 t_case "a new file under live/ is served only once both lists name it"
@@ -306,7 +306,7 @@ encode=$(awk '/^[[:space:]]*@compress not path / {print}' "$docs_caddy")
 # the three the console and the health page are read from.
 paths=$(printf '%s\n' "$encode" | tr -s '[:space:]' '\n' | grep '^/')
 for want in '/live/*' '/health' '/healthz'; do
-  printf '%s\n' "$paths" | grep -qxF -- "$want" ||
+  grep -qxF -- "$want" <<<"$paths" ||
     t_bad "@compress does not leave out $want: $encode"
 done
 # The matcher names nothing else: a path taken out of it is a file that is

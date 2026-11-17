@@ -13,6 +13,10 @@
 //! token, and `console tehas dev-login` is what the sudo rule of `bootstrap.sh
 //! dev` names: neither has a script of its own.
 //!
+//! `tehas refresh`, `tehas github check` and `tehas github writes` are the
+//! public names of `tehasbot refresh`, `tehasbot github-token --check` and
+//! `tehasbot github-writes`, which stay as aliases through 1.x.
+//!
 //! Exit: the command's; 64 a command this does not know.
 
 use crate::{commands, energy, run};
@@ -54,7 +58,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 28] = [
+const VERBS: [&str; 30] = [
     "work",
     "index",
     "dispatch",
@@ -83,6 +87,8 @@ const VERBS: [&str; 28] = [
     "thaw",
     "mcp",
     "init-product",
+    "refresh",
+    "github",
 ];
 
 fn tehas(words: &[String]) -> Go {
@@ -105,6 +111,8 @@ fn tehas(words: &[String]) -> Go {
     }
     match command {
         "status" | "disk" | "top" | "dev" => Go::Verb,
+        "github" if words[1..] == ["check"] => Go::Run,
+        "github" => Go::Verb,
         "mcp" if word(1) != Some("serve") => Go::Verb,
         c => script("tehas", c).map_or(Go::Run, Go::Script),
     }
@@ -115,7 +123,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "improve" | "review" | "github-token" | "cycle",
+            | "review" | "github-token" | "cycle",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -169,11 +177,17 @@ fn text(libexec: &str, command: &str) -> u8 {
 }
 
 /// The words `console run` is given. `tehas dispatch` is the poll the units
-/// run as `tehasbot dispatch`: one command under two names.
+/// run as `tehasbot dispatch`, and `tehas refresh` and `tehas github check`
+/// are `tehasbot refresh` and `tehasbot github-token --check`: one command
+/// under two names.
 fn as_run(mut lossy: Vec<String>) -> Vec<String> {
-    if lossy.get(3..5) == Some(&["tehas".to_string(), "dispatch".to_string()][..]) {
-        lossy[3] = "tehasbot".into();
-    }
+    let words: Vec<&str> = lossy.iter().skip(3).take(3).map(String::as_str).collect();
+    let (to, upto) = match words[..] {
+        ["tehas", "dispatch" | "refresh", ..] => (&["tehasbot"][..], 4),
+        ["tehas", "github", "check"] => (&["tehasbot", "github-token", "--check"][..], 6),
+        _ => return lossy,
+    };
+    lossy.splice(3..upto, to.iter().map(|w| w.to_string()));
     lossy
 }
 
@@ -247,10 +261,16 @@ mod tests {
             assert_eq!(t(&[c, "7"]), Go::Run, "{c}");
         }
         assert_eq!(t(&["dev", "--issue", "7"]), Go::Verb);
-        for c in ["dispatch", "improve", "review", "github-token"] {
+        for c in ["dispatch", "review", "github-token"] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
-        for c in ["dev-login", "github-token", "review", "improve"] {
+        for c in [
+            "dev-login",
+            "github-token",
+            "github-writes",
+            "review",
+            "improve",
+        ] {
             assert_eq!(t(&[c]), Go::Unknown(c.into()), "{c}");
         }
         assert_eq!(b(&["dev-login"]), Go::Unknown("dev-login".into()));
@@ -293,6 +313,7 @@ mod tests {
             "init-product",
             "work",
             "index",
+            "refresh",
         ] {
             assert_eq!(t(&[c]), Go::Run, "{c}");
         }
@@ -349,13 +370,14 @@ mod tests {
             "preview",
             "protolab",
             "dispatch",
-            "improve",
             "review",
             "github-token",
             "cycle",
         ] {
             assert_eq!(b(&[c]), Go::Run, "{c}");
         }
+        // The improvement loop is gone, and so is its command.
+        assert_eq!(b(&["improve"]), Go::Unknown("improve".into()));
         assert_eq!(b(&["mcp", "serve"]), Go::Run);
         assert_eq!(b(&["mcp", "key"]), Go::Verb);
         assert_eq!(b(&["github-writes"]), Go::Verb);
@@ -385,7 +407,7 @@ mod tests {
                 seen += 1;
             }
         }
-        assert!(seen >= 10, "{seen} units run tehasbot");
+        assert!(seen >= 9, "{seen} units run tehasbot");
     }
 
     #[test]
@@ -397,6 +419,57 @@ mod tests {
         );
         let plan = ["/l", "1", "/bin/bash", "tehas", "plan", "7"];
         assert_eq!(run(&plan), words(&plan));
+    }
+
+    #[test]
+    fn tehas_refresh_and_github_check_run_as_their_tehasbot_names() {
+        let run = |w: &[&str]| as_run(words(w));
+        assert_eq!(
+            run(&["/l", "1", "/bin/bash", "tehas", "refresh", "--pr", "7"]),
+            words(&["/l", "1", "/bin/bash", "tehasbot", "refresh", "--pr", "7"])
+        );
+        assert_eq!(
+            run(&["/l", "1", "/bin/bash", "tehas", "github", "check"]),
+            words(&[
+                "/l",
+                "1",
+                "/bin/bash",
+                "tehasbot",
+                "github-token",
+                "--check"
+            ])
+        );
+        let mint = [
+            "/l",
+            "1",
+            "/bin/bash",
+            "tehasbot",
+            "github-token",
+            "--check",
+        ];
+        assert_eq!(run(&mint), words(&mint));
+    }
+
+    #[test]
+    fn tehas_github_check_runs_under_the_settings_and_the_rest_is_a_verb() {
+        assert_eq!(t(&["github", "check"]), Go::Run);
+        for w in [
+            &["github", "writes"][..],
+            &["github"],
+            &["github", "check", "--cycle"],
+            &["github", "bogus"],
+        ] {
+            assert_eq!(t(w), Go::Verb, "{w:?}");
+        }
+        assert_eq!(t(&["github", "--help"]), Go::Text("github".into()));
+        assert_eq!(t(&["refresh", "--help"]), Go::Text("refresh".into()));
+    }
+
+    #[test]
+    fn the_tehasbot_names_stay_as_aliases() {
+        assert_eq!(b(&["refresh", "--pr", "7"]), Go::Run);
+        assert_eq!(b(&["github-token", "--check"]), Go::Run);
+        assert_eq!(b(&["github-writes"]), Go::Verb);
     }
 
     #[test]

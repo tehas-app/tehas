@@ -23,14 +23,13 @@ pub const KEEP: usize = 40;
 
 /// The slowest files, started first so none of them starts last and holds the
 /// run. A fixed list, the same on every host.
-const FIRST: [&str; 9] = [
+const FIRST: [&str; 8] = [
     "work_",
     "dispatch_",
     "install_",
     "preview_",
     "cycle_",
     "top_",
-    "improve_",
     "update_",
     "plan_",
 ];

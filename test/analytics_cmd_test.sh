@@ -30,22 +30,36 @@ t_eq "$(t_calls analytics)" "report"
 t_eq "$(cat "$T/calls/analytics.home")" "$T/home/tehas"
 t_eq "$(outside)" ""
 
-t_case "export passes the file and --json on, and prints the program's object"
+t_case "copy passes --to, the file and --json on, and prints the program's object"
 reset
 t_stub_analytics 'echo "{\"api\":1,\"schema\":1,\"runs\":0}"'
-t_run "$cmd export \"\$T/copy.db\" --json"
+t_run "$cmd copy --to \"\$T/copy.db\" --json"
 t_eq "$t_rc" 0
 t_eq "$t_out" '{"api":1,"schema":1,"runs":0}'
-t_eq "$(t_calls analytics)" "export $T/copy.db --json"
-t_run "$cmd export copy.db"
+t_eq "$(t_calls analytics)" "copy --to $T/copy.db --json"
+t_run "$cmd copy --to copy.db"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics | tail -n 1)" "export copy.db"
+t_eq "$(t_calls analytics | tail -n 1)" "copy --to copy.db"
+t_run "$cmd copy --json --to copy.db"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics | tail -n 1)" "copy --json --to copy.db"
 t_eq "$(outside)" ""
+
+t_case "export, the name before, is 64 and names copy --to, before the settings are read"
+reset
+t_no_instance
+t_stub_analytics
+for args in "export copy.db" "export copy.db --json"; do
+  t_run "$cmd $args"
+  t_eq "$t_rc" 64
+  t_contains "$t_out" "tehas analytics copy --to <file>"
+done
+t_eq "$(t_calls analytics)" ""
 
 t_case "the program's exit status is the command's: a file that exists is 73"
 reset
 t_stub_analytics 'echo "analytics: copy.db exists already" >&2; exit 73'
-t_run "$cmd export copy.db --json"
+t_run "$cmd copy --to copy.db --json"
 t_eq "$t_rc" 73
 t_contains "$t_out" "exists already"
 
@@ -54,7 +68,7 @@ reset
 t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
 t_stub_analytics
 before=$(cd "$T/home" && find . | LC_ALL=C sort)
-for args in report "export copy.db --json"; do
+for args in report "copy --to copy.db --json"; do
   t_run "$cmd $args"
   t_eq "$t_rc" 69
   t_contains "$t_out" "TEHAS_ANALYTICS=off"
@@ -78,7 +92,7 @@ t_run "$cmd report"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ANALYTICS"
 t_no_instance
-t_run "$cmd export copy.db --json"
+t_run "$cmd copy --to copy.db --json"
 t_eq "$t_rc" 78
 t_eq "$(t_calls analytics)" ""
 
@@ -86,8 +100,8 @@ t_case "a bad argument is exit 64 with the usage, before the settings are read"
 reset
 t_instance
 t_stub_analytics
-for args in "" "report --json" "report now" "export" "export ''" "export --json" "export -o x" \
-  "export a --yaml" "export a --json now" "prune" "run 7" "sample"; do
+for args in "" "report --json" "report now" "copy" "copy a" "copy --to" "copy --to ''" \
+  "copy --to --json" "copy --to -o" "copy --to a --yaml" "copy --to a --json now" "prune" "run 7" "sample"; do
   t_run "$cmd $args"
   t_eq "$t_rc" 64
   t_contains "$t_out" "usage: tehas analytics"

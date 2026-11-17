@@ -34,6 +34,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::settings::rules::switch;
 
 pub fn keeps_verb(given: &[String]) -> u8 {
     let [home, work] = given else {
@@ -161,13 +162,11 @@ pub fn units_verb(given: &[String]) -> u8 {
 fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> Vec<&'static str> {
     let set = |name: &str| get(name).filter(|v| !v.is_empty());
     let mut units = vec!["tehas-dispatch.timer", "tehas-dispatch.path"];
-    if set("TEHAS_IMPROVE_REPO").is_some() {
-        units.push("tehas-improve.timer");
-    }
     if set("TEHAS_DOMAIN").is_some() {
         units.push("tehas-protolab.timer");
     }
-    if get("TEHAS_PREVIEWS").as_deref() == Some("1") {
+    let on = |name: &str| get(name).and_then(|v| switch(&v)) == Some(true);
+    if on("TEHAS_PREVIEWS") {
         units.extend(["tehas-preview.timer", "tehas-preview-sweep.timer"]);
     }
     let energy = set("TEHAS_ENERGY").or_else(|| {
@@ -177,7 +176,7 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
             .next_back()
             .map(str::to_string)
     });
-    if energy.is_some_and(|e| !e.is_empty() && e != "off") {
+    if energy.is_some_and(|e| switch(&e) == Some(true)) {
         units.push("tehas-energy.service");
     }
     units
@@ -349,27 +348,19 @@ mod tests {
     fn a_first_install_enables_the_dispatcher_and_the_units_whose_setting_is_on() {
         assert_eq!(units(&[], None), "tehas-dispatch.timer tehas-dispatch.path");
         assert_eq!(
-            units(
-                &[
-                    ("TEHAS_IMPROVE_REPO", ""),
-                    ("TEHAS_DOMAIN", ""),
-                    ("TEHAS_PREVIEWS", "0")
-                ],
-                None
-            ),
+            units(&[("TEHAS_DOMAIN", ""), ("TEHAS_PREVIEWS", "0")], None),
             "tehas-dispatch.timer tehas-dispatch.path"
         );
         assert_eq!(
             units(
                 &[
-                    ("TEHAS_IMPROVE_REPO", "acme/tehas"),
                     ("TEHAS_DOMAIN", "example.org"),
-                    ("TEHAS_PREVIEWS", "1"),
-                    ("TEHAS_ENERGY", "viiwork"),
+                    ("TEHAS_PREVIEWS", "on"),
+                    ("TEHAS_ENERGY", "on"),
                 ],
                 None
             ),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-improve.timer tehas-protolab.timer \
+            "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
              tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
         );
     }
@@ -379,6 +370,20 @@ mod tests {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
         let energy = format!("{base} tehas-energy.service");
         assert_eq!(units(&[("TEHAS_ENERGY", "off")], None), base);
+        assert_eq!(units(&[("TEHAS_ENERGY", "0")], None), base);
+        assert_eq!(units(&[("TEHAS_ENERGY", "1")], None), energy);
+        // A word that is not a switch is one the load refuses: no unit.
+        assert_eq!(units(&[("TEHAS_ENERGY", "mesh")], None), base);
+        assert_eq!(
+            units(
+                &[],
+                Some(
+                    "TEHAS_ENERGY=0
+"
+                )
+            ),
+            base
+        );
         assert_eq!(
             units(&[], Some("TEHAS_ENERGY=on\nTEHAS_ENERGY=off\n")),
             base

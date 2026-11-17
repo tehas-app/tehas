@@ -73,7 +73,7 @@
 //!     lines go to <directory>/outcomes.jsonl instead, mode 600 and moved in
 //!     from a name of this run, which is how tehasbot status asks for the file
 //!     the MCP server reads.
-//!   analytics export <file> [--json]
+//!   analytics copy --to <file> [--json]
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
 //!     VACUUM INTO. <file> must not exist. With --json it then prints what
 //!     the copy holds, read from the copy: {"api":1,"schema":N,"from":T,
@@ -81,8 +81,7 @@
 //!     its runs, both left out when it has none.
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
-//! its schema version in PRAGMA user_version (schema.sql). A database of
-//! schema 2 is migrated in place. A file that is not a database is moved to
+//! its schema version in PRAGMA user_version (schema.sql). A file that is not a database is moved to
 //! analytics.db.broken, a database of another schema version to
 //! analytics.db.schema-<version>, and a new one is made, said on standard error. prune deletes a schema-<version> file 365 days
 //! after its last write. Any other failure leaves the file
@@ -93,7 +92,7 @@
 //! link, at most 16 MiB of one JSON value. One that is not is no facts.
 //!
 //! Exit: 0 done; 64 usage; 65 nothing to record: no facts, facts with no
-//! history line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the export file
+//! history line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the copy's file
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 mod db;
@@ -122,7 +121,7 @@ use tehas_core::time::now;
 pub const LEDGER_MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | copy --to <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -157,7 +156,7 @@ pub enum Cmd {
     ReportText,
     Sessions(Option<PathBuf>),
     Outcomes(outcomes::Filter, Option<PathBuf>),
-    Export(PathBuf, bool),
+    Copy(PathBuf, bool),
 }
 
 fn parse(args: &[String]) -> Option<Cmd> {
@@ -179,16 +178,24 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c] if c == "report" => Some(Cmd::ReportText),
         [c, rest @ ..] if c == "sessions" => sessions_command(rest),
         [c, rest @ ..] if c == "outcomes" => outcome_command(rest),
-        [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
-            let json = match rest {
-                [] => false,
-                [j] if j == "--json" => true,
-                _ => return None,
-            };
-            Some(Cmd::Export(PathBuf::from(f), json))
-        }
+        [c, rest @ ..] if c == "copy" => copy_command(rest),
         _ => None,
     }
+}
+
+// `copy --to <file> [--json]`, `--json` on either side, as `tehas state copy`
+// takes it. A file that reads as an option is refused.
+fn copy_command(args: &[String]) -> Option<Cmd> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (to, json) = match words[..] {
+        ["--to", to] => (to, false),
+        ["--to", to, "--json"] | ["--json", "--to", to] => (to, true),
+        _ => return None,
+    };
+    if to.is_empty() || to.starts_with('-') {
+        return None;
+    }
+    Some(Cmd::Copy(PathBuf::from(to), json))
 }
 
 // The one option of sessions: `--out <directory>`, which writes the snapshot
@@ -381,7 +388,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Plan(issue, given) => Some(plan::read(home, *issue, given, now).map_err(|e| (65, e))?),
         _ => None,
     };
-    if let Cmd::Export(to, _) = cmd {
+    if let Cmd::Copy(to, _) = cmd {
         if to.exists() || to.is_symlink() {
             return Err((73, format!("{} exists already", to.display())));
         }
@@ -483,7 +490,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             }
             Ok(())
         }
-        Cmd::Export(to, json) => {
+        Cmd::Copy(to, json) => {
             db::export(&conn, to).map_err(|e| (73, e))?;
             if *json {
                 tehas_core::outln!("{}", db::copy_summary(to).map_err(|e| (70, e))?);

@@ -25,7 +25,6 @@ outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"provider
 
 t_case "a step that failed on a provider error is parked by a provider outage, and waits for a person"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 capped step-failed:adversarial "$outage"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 # The unit's start, on alice's label: the outage is still only the result's word.
@@ -42,8 +41,6 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 t_eq "$(park_of '[.reason, .step, .automatic, .retries, .started_by, (.started_at | type), .question]')" \
   '["step-failed:adversarial","handoff",false,0,"alice","number",4002]'
 t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider, .parked] | tostring')" '["step-failed:adversarial",true,true]'
-t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["step-failed:adversarial","Connection error."]'
 
 t_case "a failed dispatch is no outage, whatever its words say"
 for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 600s"}' \
@@ -76,16 +73,15 @@ t_lacks "$(t_calls gh)" "starts it again once"
 t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:adversarial",false]'
 t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" true
 
-t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
+t_case "a step that failed for another reason is parked as before, and no retry"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed in test/x"}'
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_lacks "$(t_calls gh)" "provider outage"
 t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:develop",false]'
-t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
+t_contains "$(t_calls gh)" "3 assertions failed in test/x"
 
 # #718: a handoff whose consolidated branch was never pushed, so no pull
 # request carries it: the host's park is the one comment that does.
@@ -97,9 +93,8 @@ handed_off() { # <cap> <failure event as JSON>
 }
 long_cause="verify-timeout verify command bash scripts/verify.sh exceeded its 30-min timeout on the CONSOLIDATED tree at /w/tehas (PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS=1800000), so the run was killed at the bound; the gate was still in test/cycle_test.sh"
 
-t_case "a handoff no pull request carries is posted once by the host, and the record says it was delivered, with its whole cause"
+t_case "a handoff no pull request carries is posted once by the host"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 handed_off verify-timeout:develop "{\"kind\":\"dispatch-failed\",\"at\":2,\"errorTail\":\"$long_cause\"}"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
@@ -107,28 +102,22 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls gh | grep -c 'pi-rukas:handoff issue=7 cap=')" 1
 t_contains "$(t_calls gh)" "The branch is consolidated locally, not pushed."
 t_lacks "$t_out" "reached no comment"
-rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
-t_eq "$(jq -c '[.cap, .handoffDelivered]' "$rec")" '["verify-timeout:develop",true]'
-t_eq "$(jq -r .capReason "$rec")" "$long_cause"
+t_eq "$(t_row history-show 7 -- '.rows[-1].cap')" verify-timeout:develop
 
-t_case "a handoff that reached no comment is on record as not delivered, and the log says so"
+t_case "a handoff that reached no comment is said in the log"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 handed_off verify-timeout:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 : >"$fx/post-fails"
 : >"$fx/comment-fails"
 t_run "$cycle 7"
 t_contains "$t_out" "WARN: the handoff of #7 reached no comment: it is only in the run log"
-t_eq "$(jq .handoffDelivered "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" false
 
-t_case "a cycle with no handoff has no delivery on record"
+t_case "a cycle with no handoff warns of no lost handoff"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq .handoffDelivered "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
 t_lacks "$t_out" "reached no comment"
 
 t_case "a cap whose progress names no failure is no outage and asks no reason"
@@ -209,22 +198,6 @@ echo '{"roles":[],"reason":"provider error","failure":null,"from":{"roles":"resu
 t_run "$cycle 7"
 t_eq "$(park_of .reason)" step-failed:develop
 t_lacks "$t_out" "no reason was found"
-
-t_case "the build commit of the result goes into the record, and only a full commit"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff handoff feature/issue-7-x
-jq '.buildCommit = "1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$(jq -r .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 1ca933e3cbbae6fff6f41d57973ba2af8ff805fd
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
-ended handoff handoff feature/issue-7-x
-jq '.buildCommit = "1ca933e"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$(jq -c .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
 
 t_case "the cap and its reason are reduced before they are posted or recorded"
 reset
@@ -414,6 +387,40 @@ t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 t_eq "$(park_q)" none
 # The park is on record all the same: it asks nothing.
 t_eq "$(park_of .reason)" unknown
+
+t_case "a question GitHub answered with a 5xx and took is read back and asked"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+: >"$fx/post-taken"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_lacks "$t_out" "may have been posted"
+t_eq "$(park_q)" 4002
+t_contains "$(t_calls gh | grep '^issue edit')" "tehas:question"
+
+t_case "a question GitHub answered with a 5xx and did not take gets the plain comment"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+echo '[]' >"$fx/comments.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+t_lacks "$t_out" "may have been posted"
+t_eq "$(park_q)" none
+
+t_case "a question GitHub answered with a 5xx that no read settles is not posted again, nor followed by the plain comment"
+reset
+echo "HTTP 502: Bad Gateway" >"$fx/post-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7/comments ')" 1
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_contains "$t_out" "may have been posted"
+# The row stays open for the poll's read to settle.
+t_eq "$(TEHAS_HOME=$T/home/tehas "$T_STORE" journal-open | jq -c '[.actions[] | [.kind, .state]]')" '[["comment-post","unknown"]]'
 
 t_case "a park the store would not take asks no question: the plain comment, and no tehas:question"
 reset

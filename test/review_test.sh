@@ -1191,7 +1191,7 @@ t_case "with a GitHub App the review is given neither the app's token nor its di
 reset
 # The git of the case that could not clone is still on PATH.
 rm -f "$T/bin/git"
-t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_GITHUB_APP_ID=5452597
 mkdir -p "$state_dir/github"
 printf 'ghs_app\n' >"$state_dir/github/token"
 t_run "$review"

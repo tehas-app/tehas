@@ -10,6 +10,12 @@ description: "The command the units run, and one cycle for one issue with its re
 What the units run. Nothing here is needed in daily use; it is the place to
 look when a timer or service has to be run once by hand.
 
+Three of its old commands have public names on `tehas`, and stay here as
+aliases through 1.x: `tehasbot refresh` is
+[tehas refresh](/tools-github#tehas-refresh), `tehasbot github-token --check`
+is [tehas github check](/tools-github#tehas-github-check), and `tehasbot
+github-writes` is [tehas github writes](/tools-github#tehas-github-writes).
+
 ```
 tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
 tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
@@ -20,23 +26,21 @@ tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-to
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
-tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
-tehasbot refresh --pr N       # ask for the refresh of pull request N now
-tehasbot refresh --pr N --json  # the same, and print what it asked as one object
+tehasbot refresh --pr N       # tehas refresh --pr N, by its old name
 tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
-tehasbot github-token [--check]  # the GitHub App's token, or a check of it
+tehasbot github-token         # the GitHub App's token; what the gh shim runs
 tehasbot github-token --cycle [--check]  # the cycle's token: the product repository only
 tehasbot github-token --session [--check]  # the same body, for a planning turn or a manual session
-tehasbot github-writes        # the GitHub writes of the last day, by hour
+tehasbot github-writes        # tehas github writes, by its old name
 tehasbot mcp serve            # the read-only MCP server; what tehas-mcp.service runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
-`tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the review loop's `tehas-review.timer` (weekly, and a
-run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
+`tehas-preview-sweep.timer`, the review loop's `tehas-review.timer` (weekly, and a
+run does nothing unless `TEHAS_REVIEW=on`), the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), `tehas-mcp.service` (installed, and enabled by a person; it runs
 `tehasbot mcp serve` only while `TEHAS_MCP=1`, and
 [The MCP server](/mcp-server) is how it is switched on), and one
@@ -333,33 +337,24 @@ cycle's record in the state store until the issue's next cycle starts.
 A parked cycle's cap, from the result, goes into its history line and its
 park on the state store (the park's reason is `provider-outage` for an outage,
 else the cap, else the status; a cap or status that reads `provider-outage` is
-recorded as `cap:provider-outage`, as only tehas names an outage), and with the failure before it (the reason
-`tehas work` wrote to the progress file) into the
-record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. The reason is kept whole up to 2000 characters, as many as the
-condensed stream keeps of a text; a longer one ends ` (cut)`, and so does the
-park comment's. A `capReason` is never the bare cap word: a cap whose reason
-is empty, or only repeats the cap or its first word, is on record as
-`no evidence from the driver`. When processes in the container were killed for
-memory, the record's `capReason` says how many (`; 1 process in its container
-was killed for memory`), so a memory plan that is too tight is not read as a
-change that failed its gate. The line `tehas work` writes to the cycle's
-`err.txt` at a cap follows the same rule and names the killed processes where
-the kernel log gives their names, and the console file gets the line
+recorded as `cap:provider-outage`, as only tehas names an outage). The park
+comment's reason is kept whole up to 2000 characters; a longer one ends
+` (cut)`. The line `tehas work` writes to the cycle's `$log.err` at a cap is
+never the bare cap word: a cap whose reason is empty, or only repeats the cap
+or its first word, says `no evidence from the driver`. When processes in the
+container were killed for memory it says how many and names them where the
+kernel log gives their names, so a memory plan that is too tight is not read as
+a change that failed its gate, and the console file gets the line
 `tehas work: <n> processes in this cycle's container were killed for memory`.
-The record's `handoffDelivered` says whether pi-rukas's
-handoff reached a comment, on the issue or on its pull request: `true` when
-the cycle's park or comment that carries it was posted, or lean posted its own
-report; `false` when every post of it failed, and the log then says
-`WARN: the handoff of #N reached no comment: it is only in the run log`;
-`null` when the cycle wrote no handoff. A cycle that ended at tehas's own bound gets tehas's cap:
-`wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
-for the container that ended before the driver wrote its first event, `signal`
-for a container stopped on a `TERM`, `INT` or `HUP`, and a
-`capReason` that names the bound and the step. A cap the runner named mid-step goes into
-the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
-park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
-result says the cycle ran; the improvement loop checks a fix against it. A
+When every post of pi-rukas's handoff failed, on the issue and on its pull
+request, the log says
+`WARN: the handoff of #N reached no comment: it is only in the run log`. A
+cycle that ended at tehas's own bound gets tehas's cap: `wall-clock` for the
+time limit, `stall` for the stall, `runner-never-started` for the container
+that ended before the driver wrote its first event, and `signal` for a
+container stopped on a `TERM`, `INT` or `HUP`. A cap of an end the runner
+reached before the stop is kept. Where the result gives a failure of another
+kind than `cap`, the park comment names its kind, role, cause and message. A
 provider outage is said as one: `Tehas cycle parked by a provider outage`,
 with the cap and the reason. That is a result whose `failure.kind` is
 `provider`. For an image whose result has no `failure` (v0.12.80) it is
