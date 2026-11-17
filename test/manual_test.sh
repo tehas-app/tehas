@@ -226,7 +226,7 @@ t_lists_of() { # <tehas|tehasbot> <file>
 t_case "the front's verbs and the lists of the pages are both read"
 t_front_verbs tehas "$T/verbs-tehas"
 t_front_verbs tehasbot "$T/verbs-tehasbot"
-t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 33
+t_eq "$(sort -u "$T/verbs-tehas" | grep -c . | tr -d ' ')" 34
 t_eq "$(sort -u "$T/verbs-tehasbot" | grep -c . | tr -d ' ')" 14
 t_lists_of tehas "$T/list-tehas"
 t_lists_of tehasbot "$T/list-tehasbot"

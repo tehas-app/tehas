@@ -587,6 +587,19 @@
       "reason": "expected domains such as files.example.org, in lower case, separated by single spaces"
     },
     {
+      "name": "TEHAS_PROTOTYPE_FILE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_ENERGY_SOURCE_URL",
       "rule": "site-address",
       "when": "given",
