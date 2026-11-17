@@ -317,7 +317,7 @@ fn opt(v: &Value) -> Option<Value> {
     }
 }
 
-fn reading(v: &Value) -> Reading {
+pub(crate) fn reading(v: &Value) -> Reading {
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     Reading {
         show: v.get("show").and_then(Value::as_object).cloned(),
