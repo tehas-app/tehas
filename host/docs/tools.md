@@ -97,7 +97,9 @@ A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
 that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE`,
 `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOTYPE_FILE` and `TEHAS_LEAN` in this
-release, stops every command with 78 when it is `on`.
+release, stops every command with 78 when it is `on`. So does a line that
+gives a value to one of such a feature's own settings, the `TEHAS_OUTSOURCE_*`
+settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
