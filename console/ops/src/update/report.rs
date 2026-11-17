@@ -29,6 +29,9 @@
 //!                               fix is nothing to fix
 //!   --steps <console>           the console that reads the steps owed
 //!
+//! The report also proves the app's cycle token can push (src/update/push.rs)
+//! when the host has the product checkout TEHAS_WORK_REPO names and a tehasbot.
+//!
 //! Exit 64 for any other words.
 
 use std::env;
@@ -39,6 +42,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
+use super::push::{self, Proof};
 use super::{code, output, say, tell};
 
 const RETIRED: &str = include_str!("retired.list");
@@ -81,6 +85,10 @@ pub(crate) struct Asked {
     pub store: String,
     pub login: Option<(PathBuf, String)>,
     pub steps: Option<PathBuf>,
+    /// The product checkout the cycle token's proof pushes from; none, no proof.
+    pub product: Option<PathBuf>,
+    /// TEHAS_REPO, which the proof's fix names.
+    pub repo: String,
 }
 
 fn parse(given: &[String], report: bool) -> Option<Asked> {
@@ -122,6 +130,8 @@ pub fn report_verb(given: &[String]) -> u8 {
         return 64;
     };
     asked.home = home();
+    asked.product = push::product(&asked.home);
+    asked.repo = push::repo();
     let mut lines = String::new();
     let _ = io::stdin().read_to_string(&mut lines);
     asked.drift_lines = lines.lines().map(str::to_string).collect();
@@ -153,6 +163,8 @@ pub(crate) trait Outside {
     fn merged(&mut self, program: &Path, args: &[&str]) -> (i32, String);
     /// The exit status and what the program printed on standard output.
     fn output(&mut self, program: &Path, args: &[&str]) -> (i32, String);
+    /// Whether the app's cycle token can push from `tree`.
+    fn push(&mut self, home: &Path, tree: &Path) -> Proof;
 }
 
 struct Real;
@@ -194,6 +206,10 @@ impl Outside for Real {
 
     fn output(&mut self, program: &Path, args: &[&str]) -> (i32, String) {
         output(Command::new(program).args(args).stdin(Stdio::null()))
+    }
+
+    fn push(&mut self, home: &Path, tree: &Path) -> Proof {
+        push::prove(home, tree, &mut push::Real)
     }
 }
 
@@ -415,6 +431,12 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
         lines.push(format!("  {how}: {}   ({fix})", bin.display()));
         found = true;
     }
+    // The app's to fix, not an update's.
+    if let Some(tree) = &a.product {
+        let proof = o.push(&a.home, tree);
+        found |= !proof.pushes();
+        lines.extend(push::lines(&proof, &a.repo));
+    }
 
     // A follow-up an earlier run never finished is still owed, and a record
     // this account cannot read is no answer of "nothing owed".
@@ -502,6 +524,7 @@ mod tests {
         labels: Option<String>,
         ran: BTreeMap<PathBuf, (i32, String)>,
         asked: Vec<PathBuf>,
+        proof: Option<Proof>,
     }
 
     impl Outside for Fake {
@@ -517,6 +540,10 @@ mod tests {
         }
         fn output(&mut self, program: &Path, args: &[&str]) -> (i32, String) {
             self.merged(program, args)
+        }
+        fn push(&mut self, _home: &Path, tree: &Path) -> Proof {
+            self.asked.push(tree.to_path_buf());
+            self.proof.take().unwrap_or(Proof::Pushes("a[bot]".into()))
         }
     }
 
@@ -820,6 +847,28 @@ Tests:        not run (./install.sh --check --tests runs them)"
         // An empty fix is nothing to fix.
         a.login = Some((login, String::new()));
         assert!(!said(&a, &mut Fake::default()).0.contains("Login:"));
+    }
+
+    #[test]
+    fn the_cycle_token_is_proven_from_the_product_checkout_and_a_refusal_is_found() {
+        let (_d, mut a) = host();
+        let mut o = Fake::default();
+        // No product checkout: no proof and no line.
+        assert!(!said(&a, &mut o).0.contains("Cycle token:"));
+        assert!(o.asked.is_empty());
+        a.product = Some("/h/repos/widget".into());
+        a.repo = "acme/widget".into();
+        let (out, found) = said(&a, &mut o);
+        assert!(out.contains("Cycle token:  OK (a[bot] can push to origin)\nTests:"));
+        assert!(!found);
+        assert_eq!(o.asked, [PathBuf::from("/h/repos/widget")]);
+        o.proof = Some(Proof::Refused(
+            "acme-factory[bot]".into(),
+            vec!["remote: Write access to repository not granted.".into()],
+        ));
+        let (out, found) = said(&a, &mut o);
+        assert!(out.contains("Cycle token:  CANNOT PUSH (acme-factory[bot] was refused a dry-run push to origin)\n    remote: Write access to repository not granted.\n  The cycle token is the GitHub App's, narrowed to acme/widget"), "{out}");
+        assert!(found);
     }
 
     #[test]

@@ -44,7 +44,7 @@ body_names() {
 # of the host and of the commands beside it, read from the environment with no
 # row of TABLE. A row for one is right and its absence is no failure.
 kept_names() {
-  sed -n '/^const KEPT: &\[&str\] = \[$/,/^\];$/p' "$load" |
+  sed -n '/^pub(super) const KEPT: &\[&str\] = &\[$/,/^\];$/p' "$load" |
     sed -n 's/^ *"\(TEHAS_[A-Z0-9_]*\)".*/\1/p'
 }
 
@@ -115,16 +115,15 @@ done
 
 t_case "every row of the manual names a setting the loader, the host or pi-rukas reads"
 # The rows that name no row of TABLE on purpose, each checked by a case of its
-# own below: TEHAS_WORK_REPO is set by a load from TEHAS_REPO; TEHAS_DISK_WAIT
-# is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
-# of kinds.rs rather than a string in the table's own text.
+# own below: TEHAS_DISK_WAIT is one of KEPT; TEHAS_ISSUE_TYPES is the row of
+# TABLE whose name is a constant of kinds.rs rather than a string in the
+# table's own text.
 # The settings a row names with no row of the loader's table behind it, each one
 # said in the comment below, and each one a row of the manual's table the case
 # after this insists on. The list is a string, not a file: one word per line of
 # it, because a name that shares its front with the name before it on the same
 # line would otherwise be a piece of another word and match nothing.
 exceptions="
-TEHAS_WORK_REPO
 TEHAS_DISK_WAIT
 TEHAS_ISSUE_TYPES
 TEHAS_CYCLE_LOGIN
@@ -166,6 +165,23 @@ t_case "the five settings #1698 found have rows"
 for name in TEHAS_CYCLE_LOGIN TEHAS_SCRATCH_DIR TEHAS_TOP TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
   has "$name" "$manual" || t_bad "no row for $name"
 done
+
+t_case "every host setting has a row in the manual's Host settings table"
+if ! t_console; then
+  t_skip "no console: $t_console_why"
+else
+  host_rows=$(awk -F'`' '
+    /^## Host settings$/ { on = 1; next }
+    on && /^## / { exit }
+    on && /^\| `/ { for (i = 2; i <= NF && $i ~ /^[A-Z_]+(<[A-Z]+>)?$/; i += 2) print $i }
+  ' "$tools")
+  missing_host=
+  for name in $("$T_CONSOLE" settings rules --json | jq -r '.host[].name'); do
+    has "$name" "$host_rows" || missing_host="$missing_host $name"
+  done
+  [ -z "$missing_host" ] || t_bad "no row in the Host settings table for:$missing_host"
+  t_contains "$host_rows" TEHAS_MCP_DASHBOARD_KEYS
+fi
 
 # The example instance's optional.env is the reference for the optional
 # settings: the Commands page sends an operator to it, so a setting of TABLE

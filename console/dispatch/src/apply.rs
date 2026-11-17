@@ -208,12 +208,7 @@ impl Writer {
         } else if let Some(n) = a.get("plan_note").and_then(Value::as_u64) {
             self.plan_note(n, a, log);
         } else if let Some(n) = a.get("refresh_drop").and_then(Value::as_u64) {
-            let path = self.home.join(format!("state/refresh/{n}.json"));
-            if let Err(e) = std::fs::remove_file(&path) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    log.push(format!("WARN: could not remove {}", path.display()));
-                }
-            }
+            self.refresh_drop(n, log);
         } else if let Some(held) = a.get("refresh_held").and_then(Value::as_str) {
             let path = self.home.join("state/refresh/.held");
             if held.is_empty() {
@@ -352,6 +347,16 @@ impl Writer {
 
     fn unrecorded(n: u64) -> String {
         format!("WARN: the journal could not record a write on #{n}, so it was not made")
+    }
+
+    /// The refresh request of issue `n`, off this host.
+    fn refresh_drop(&self, n: u64, log: &mut Vec<String>) {
+        let path = self.home.join(format!("state/refresh/{n}.json"));
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log.push(format!("WARN: could not remove {}", path.display()));
+            }
+        }
     }
 
     /// say: one comment, a warning when it fails, never the poll's end.
