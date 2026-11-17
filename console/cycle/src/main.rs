@@ -273,12 +273,13 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tehas_core::driver::Driver;
 use tehas_cycle::after::{self, After};
 use tehas_cycle::host::{Runner, Start};
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, index, ran_with, runner, sandbox, start, supervise, work, Facts};
+use tehas_cycle::{caps, clock, index, ran_with, runner, sandbox, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -550,7 +551,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
             "--restart" => g.restart = true,
             "--driver" => {
                 let word = it.next().unwrap_or_else(|| wrong(args));
-                g.driver = Some(start::Driver::named(word).unwrap_or_else(|| {
+                g.driver = Some(Driver::named(word).unwrap_or_else(|| {
                     eprintln!("tehas work: --driver takes lean or classic, not {word}");
                     std::process::exit(64)
                 }));

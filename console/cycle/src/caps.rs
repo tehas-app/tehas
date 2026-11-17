@@ -7,6 +7,7 @@ use crate::runner::{num, values, RESULT_SCHEMA};
 use regex::Regex;
 use serde_json::Value;
 use std::path::Path;
+use tehas_core::driver::Driver;
 
 const EXIT_CODES: u64 = 1;
 const NDJSON_STABLE: u64 = 1;
@@ -159,7 +160,7 @@ pub fn unsupported(
     .flatten()
     .collect();
     let lean_schema = dig(&caps, &["features", "workLeanResultSchema"]);
-    if verb == "work-lean" && !is_num(lean_schema, RESULT_SCHEMA) {
+    if verb == Driver::Lean.verb() && !is_num(lean_schema, RESULT_SCHEMA) {
         lines.push(format!("the feature workLeanResultSchema {RESULT_SCHEMA}"));
     }
     lines.extend(
