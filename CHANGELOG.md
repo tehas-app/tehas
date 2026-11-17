@@ -461,6 +461,17 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The poll's tidy gives `tehas:shipped` to a closed issue that a merged pull request closed when it tidies several issues at once. Its read of what closed them now names each issue by number in the repository; the search it used before matched the issues' text, so it often found none of them and logged that no merged pull request was read as the closer.
 - The docs server no longer serves the live console of a running cycle unless the instance sets `TEHAS_SITE_CONSOLE=on`. Without it `/live/console-<n>.txt` and its `.now` file answer 404 and the console panels of the site stay empty. A full key of the MCP server still reads the console.
 - An archive attached to an issue is read more strictly: an entry that claims more than the room left is refused before any of it is unpacked, an entry whose place in the archive cannot be worked out is left out as damaged, an unpacked file never replaces one already in the directory, and a retry holds an archive to the files it gave, each to its own bytes, with none added or gone (#2248, #2258).
+- Outsource, still being built: the proxy's listener serves a contractor the factory's sandbox image (`/outsource/v1/image`, by the contractor's key), and by a job's token its code index (`index`), a git bundle of the product's tip (`bundle`) and the issue's images and files (`attachments`). The contractor program takes the product, the index and the files from there instead of cloning or fetching them, and loads the factory's image when the factory names another (#2363, #2365, #2380, #2381).
+- With outsource on, a cycle's vipune calls go to the factory through the cycle's issue relay, in-house and on a contractor alike, and the factory runs the pinned vipune for the cycle's own database. The image's `vipune` is a stand-in that runs the real one when the factory does not ask for its calls. Outsource is still being built and cannot be switched on (#2366).
+- Outsource, still being built: the proxy's listener has an egress tunnel route, `/outsource/v1/egress`, an HTTP/1.1 Upgrade that takes a job's model token and reaches only GitHub, the registries and `TEHAS_EGRESS_HOSTS`, never a model endpoint, a private address or the factory itself. The contractor program's clone and salvage push go through it (#2378).
+- Outsource (still being built): a job names the factory's account, and before the container starts the contractor program makes that account the owner of the cycle's folders when the container runs as it: the workspace, the code index cache, the relay folder and the cycle's other writable folders. The code index refuses a cache folder it does not own (#2364).
+- A container's `--cpus` is capped at the CPUs the Docker daemon counts. A daemon started before the host was given more CPUs refused every cycle's install with exit 125; tehas now sizes the containers for Docker's count and logs a line naming both numbers.
+- A start that a step of `tehas work` stopped before the runner ran is parked with a comment that names the driver and, for a failed product install, what failed, such as `docker refused --cpus 47.00, it counts 16 CPUs`, instead of `status unknown, last step -`.
+- The contract freezes the host namespace: `/host/` on the factory's origin belongs to the host that fronts the factory's domain, tehas serves nothing under it, and the host bridge stays `bridge: 1`. New tests hold the docs server's 404 for any path under `/host/`, a ticket note's link rule, and a host menu item opening in the dock.
+- The manual's page "The host" at `/host` is served again: the docs server keeps its 404 for the host's namespace to paths under `/host/`.
+- The sandbox image hands `/home/vscode/.npm` to the cycle's user, so npm in a cycle no longer fails on a root-owned cache. The image build stops when that user cannot write to npm's cache (#2407).
+- The sandbox image sets `ORT_INTRA_OP_NUM_THREADS=1`, so vipune no longer writes onnxruntime affinity errors to stderr on every call under a cycle's cpuset. The build's smoke run now also runs vipune on one CPU of a cpuset and refuses an image whose vipune writes to stderr there (#2408).
+- The move of the pinned tools takes a prerelease as the release it writes to, such as `v1.0.0-beta.2`, so the release script moves pins before a beta too.
 
 ### Held back
 
@@ -580,6 +591,10 @@ to 1.0" in `operating.md` lists every name and what to do for each.
 A program that reads `api/renames-1.0.tsv` picks up the new rows. Take `cross-project` off open issues. Take any `TEHAS_OUTSOURCE_*` or `TEHAS_PROTOLAB_ZIP_HOSTS` line out of `instance.env`.
 
 An instance whose public site should keep showing the live console sets `TEHAS_SITE_CONSOLE=on` in `instance.env`, then runs the docs server's `docker compose ... up -d` line again.
+
+If a command logs `its Docker daemon counts <n>`, restart the Docker daemon when no cycle runs (`sudo systemctl restart docker`) so containers get the host's CPUs.
+
+Rebuild the sandbox image (`install.sh` rebuilds it) for the fixes to reach cycles.
 
 ## v0.30.6 (2026-11-15)
 
