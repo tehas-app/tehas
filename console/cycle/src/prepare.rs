@@ -393,8 +393,14 @@ pub fn check(c: &Check) -> i32 {
     if env("TEHAS_WORK_IMAGES") == "1"
         || env("TEHAS_WORK_FILES") == "1"
         || crate::gives::comments_given(&c.record)
+        || crate::gives::hands_over(&c.record)
     {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
+    }
+    // A spec the runner does not read would be dropped without a word.
+    if crate::gives::hands_over(&c.record) && crate::gives::spec_pin(&c.record).is_some() {
+        features.push(' ');
+        features.push_str(caps::READS_SPEC);
     }
     let mut lacking = (caps_rc == 0)
         .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))

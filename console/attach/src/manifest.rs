@@ -116,6 +116,58 @@ pub fn nothing(issue: &str, approval: &str, files: bool) -> String {
     )
 }
 
+/// The `spec` entry: the file of the spec an approval pinned, as the cycle
+/// is given it, with its link, the name the link has, and the bytes and
+/// sha256 that equal the approval's pin.
+pub fn spec(file: &str, link: &str, bytes: i64, sha256: &str) -> Ordered {
+    Ordered::map([
+        ("file", Ordered::text(file)),
+        ("link", Ordered::text(link)),
+        (
+            "name",
+            Ordered::text(link.rsplit('/').next().unwrap_or(link)),
+        ),
+        ("bytes", Ordered::Plain(bytes.into())),
+        ("sha256", Ordered::text(sha256)),
+    ])
+}
+
+/// The `approvedText` entry: the file that holds the title and body the
+/// approval bound, as the start read and compared them.
+pub fn approved_text(file: &str, bytes: i64, sha256: &str) -> Ordered {
+    Ordered::map([
+        ("file", Ordered::text(file)),
+        ("bytes", Ordered::Plain(bytes.into())),
+        ("sha256", Ordered::text(sha256)),
+    ])
+}
+
+/// A manifest as written here with `entries` added at its end, in their
+/// order. None when `text` is not a manifest of this format, or already has
+/// one of the keys. The keys before keep their order and their text.
+pub fn handed(text: &str, entries: &[(&str, Ordered)]) -> Option<String> {
+    let doc: Value = serde_json::from_str(text).ok()?;
+    let m = doc.as_object()?;
+    if m.get("version").and_then(Value::as_i64) != Some(VERSION)
+        || entries.iter().any(|(k, _)| m.contains_key(*k))
+    {
+        return None;
+    }
+    let head = text.strip_suffix("\n}\n")?;
+    let mut out = head.to_string();
+    for (key, value) in entries {
+        let one = Ordered::Map(vec![(key.to_string(), value.clone())]).pretty();
+        // `{\n  "key": value\n}\n` without its braces: one entry at the depth
+        // of the manifest's own.
+        let inner = one.strip_prefix("{\n")?.strip_suffix("\n}\n")?;
+        out.push_str(",\n");
+        out.push_str(inner);
+    }
+    out.push_str("\n}\n");
+    serde_json::from_str::<Value>(&out).ok()?;
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +198,77 @@ mod tests {
             None,
         );
         assert!(m.pretty().starts_with("{\n  \"version\": 1,\n"));
+    }
+
+    #[test]
+    fn a_handed_manifest_keeps_its_keys_and_adds_the_spec_and_the_text_last() {
+        let text = nothing("7", r#"{"at":"a"}"#, false);
+        let spec_entry = spec(
+            "spec.md",
+            "https://github.com/user-attachments/files/1/search.md",
+            12,
+            &"a".repeat(64),
+        );
+        let text_entry = approved_text("approved.json", 30, &"b".repeat(64));
+        let out = handed(&text, &[("spec", spec_entry), ("approvedText", text_entry)]).unwrap();
+        assert!(
+            out.starts_with(text.strip_suffix("\n}\n").unwrap()),
+            "{out}"
+        );
+        assert!(out.ends_with("\n  }\n}\n"), "{out}");
+        let doc: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            doc["spec"],
+            serde_json::json!({"file": "spec.md", "link": "https://github.com/user-attachments/files/1/search.md", "name": "search.md", "bytes": 12, "sha256": "a".repeat(64)})
+        );
+        assert_eq!(
+            doc["approvedText"],
+            serde_json::json!({"file": "approved.json", "bytes": 30, "sha256": "b".repeat(64)})
+        );
+        let keys: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("  \""))
+            .map(|l| l.trim_start().split('"').nth(1).unwrap())
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "version",
+                "images",
+                "leftOut",
+                "linksUnavailable",
+                "issue",
+                "approval",
+                "leftOutMore",
+                "spec",
+                "approvedText"
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_manifest_of_this_format_without_the_keys_is_handed_more() {
+        let entry = approved_text("approved.json", 1, &"b".repeat(64));
+        let one = [("approvedText", entry)];
+        let text = nothing("7", "null", false);
+        let once = handed(&text, &one).unwrap();
+        assert_eq!(handed(&once, &one), None);
+        assert_eq!(handed("{}\n", &one), None);
+        assert_eq!(handed("[]\n", &one), None);
+        assert_eq!(handed("", &one), None);
+        let other = text.replace("\"version\": 1", "\"version\": 2");
+        assert_eq!(handed(&other, &one), None);
+        assert_eq!(handed(text.trim_end(), &one), None);
+        let pretty = of_issue(
+            Vec::new(),
+            Some(Vec::new()),
+            Vec::new(),
+            None,
+            Value::from(7),
+            Ordered::Plain(Value::Null),
+            None,
+        )
+        .pretty();
+        assert!(handed(&pretty, &one).is_some());
     }
 }
