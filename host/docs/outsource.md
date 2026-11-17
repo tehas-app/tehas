@@ -164,6 +164,23 @@ is listening` and ends 0. Nothing binds a port, nothing is written under the
 state, `tehas status` says no word about the feature, and the rest of the suite
 is as it was.
 
+## A cycle on a contractor
+
+A contractor runs the same `tehas work` as the factory does, with the same
+container: the same mounts and the same variables, pinned by the same test
+(`test/work_test.sh`). Two things on the host side of the container go to the
+factory instead, because a contractor holds no token that writes issues and no
+GitHub App key:
+
+- The cycle's token is renewed by asking the factory for a fresh one over the
+  job channel. The contractor writes it where the container reads it.
+- Each issue write the cycle's agents make is read and checked as the local
+  relay checks it, then sent to the factory, which checks it again with the
+  same rules and the job's own scope and makes the write with its own token.
+
+This happens only with outsource on and the contractor program naming
+itself to the cycle. Otherwise a cycle is as it was.
+
 ## What is not here yet
 
 The proxy is the first part of [outsource](/features). Still owed, each in its

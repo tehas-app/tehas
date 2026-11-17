@@ -287,6 +287,24 @@ PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "the remote path: on a contractor the container gets exactly the same mounts and variables"
+# A cycle run for a contractor (outsource on, TEHAS_CONTRACTOR named) renews
+# its token and relays its issue writes through the contractor program, and
+# gives its container nothing more and nothing else (AGENTS.md rule 4).
+local_mounts=$(after -v | LC_ALL=C sort)
+t_stub contractor 'case $1 in relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; esac'
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_OUTSOURCE=on
+saved_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=outsource "TEHAS_CONTRACTOR=$T/bin/contractor")
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after -v | LC_ALL=C sort)" "$local_mounts"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+t_contains "$(tail -n 1 "$T/renew.calls")" "renew --cmd $T/bin/contractor --arg token "
+T_ENV=("${saved_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_READ_ONLY=1
 rm -f "$T"/calls/*
