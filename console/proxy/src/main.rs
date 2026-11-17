@@ -24,6 +24,11 @@
 //! read from this process's environment, written into one request at a time,
 //! and never written anywhere else: a contractor is never told it.
 //!
+//! The same listener answers the job channel (src/channel.rs): a contractor's
+//! join, its hello and its ask for work by its key, and a running job's
+//! check-in, token renewal, relayed issue writes, result and stop by the job's
+//! token, which is issued when the job is taken.
+//!
 //! The job tokens are this process's own, held in memory and nowhere else. The
 //! process that starts a contractor's container asks for one over the proxy's
 //! control socket in the state directory and writes it to the job's directory,
@@ -164,12 +169,22 @@ fn listen() -> ! {
     // One value of the rules, made now and read by every request of the
     // process: the listener's threads borrow it for the life of the program,
     // which is the life the borrow needs.
+    let factory = Box::leak(Box::new(tehas_proxy::host::OfHost {
+        home: home(),
+        repo: env("TEHAS_REPO"),
+        addr: at.clone(),
+        timeout: i64::try_from(timeout).unwrap_or(i64::MAX),
+    }));
+    let channel = Box::leak(Box::new(tehas_proxy::channel::Channel::new(
+        issuer, factory,
+    )));
     let proxy: &'static Serve<'static> = Box::leak(Box::new(Serve {
         endpoint,
         key,
         records,
         sink: &log::Journal,
         idle: Duration::from_secs(idle),
+        channel: Some(channel),
     }));
     // The control socket is made before the port is bound: a proxy that cannot
     // answer for a token must not be answering model requests either.

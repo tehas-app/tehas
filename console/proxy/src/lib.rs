@@ -30,8 +30,10 @@
 //! this process and nowhere else, and hands each one out once, to the process
 //! that starts the contractor's container.
 
+pub mod channel;
 pub mod count;
 pub mod forward;
+pub mod host;
 pub mod jobs;
 pub mod log;
 pub mod records;

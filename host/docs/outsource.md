@@ -164,6 +164,47 @@ is listening` and ends 0. Nothing binds a port, nothing is written under the
 state, `tehas status` says no word about the feature, and the rest of the suite
 is as it was.
 
+## The job channel
+
+The same listener answers a contractor's calls about its work, at
+`/outsource/v1/<call>`, each a POST with a small JSON body and a JSON answer:
+
+| Call | Made with | What the factory does |
+| --- | --- | --- |
+| `join` | the one-time code of `tehas outsource invite` | registers the host's name and the hash of its key; the code is spent |
+| `hello` | the contractor's key | notes that the contractor is there |
+| `job` | the contractor's key | takes the offer in its hand: the job moves to running and its token is issued |
+| `check-in` | the job's token | notes that the job is alive, while it runs |
+| `token` | the job's token | answers a fresh cycle token, narrowed as a local cycle's is |
+| `relay` | the job's token | checks one issue write as the local relay does and makes it with the factory's token |
+| `result` | the job's token | keeps the cycle's result where its report reads it and finishes the job |
+| `stopped` | the job's token | the job is handed back; its token is spent |
+
+A key is sent as a bearer, with the contractor's name in
+`x-tehas-contractor`. The store holds the sha256 of the key and of the code,
+never either one.
+
+What each call needs:
+
+- `check-in`, `token` and `relay`: the job is running, it is the issue's
+  current attempt, and its contractor is not revoked.
+- `result` and `stopped`: the same, or the job is stopping, or it was lost to a
+  silence and its attempt is still current. A result of an attempt that a newer
+  one replaced is refused with 409 `stale`.
+
+Only a revoked contractor is answered `revoked`. That is the one answer that
+tells a contractor to push nothing. Any other refusal names the state, and a
+contractor that gets one, or no answer at all, pushes its branch so a
+replacement can continue it.
+
+A job carries its issue, its attempt, the timeout, its token, the
+`models.json` with every provider behind the proxy, and a short list of
+settings that shape a cycle: `TEHAS_REPO`, `TEHAS_BRANCH`, `TEHAS_DRIVER`,
+`TEHAS_READ_ONLY`, the work, verify and build timeouts, `TEHAS_WORKSTREAMS`,
+`TEHAS_RUKAS_WORKAROUNDS`, `TEHAS_OUTSOURCE`, and the models and providers of
+the agents' roles. The list is part of the release, not a setting. No address,
+path, key or token of the factory is on it.
+
 ## A cycle on a contractor
 
 A contractor runs the same `tehas work` as the factory does, with the same
