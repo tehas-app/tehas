@@ -29,7 +29,7 @@
 //! (fail), the file is stale, or there is no health file with a status in it;
 //! 2 usage; 64 an argument of `tehas status` other than --json.
 
-use crate::flags::epoch;
+use crate::holds::epoch;
 use crate::jq::{first, obj, J};
 use crate::outsource;
 use crate::store;
