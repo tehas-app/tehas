@@ -46,6 +46,16 @@ the update again. From a release, `--check` reads the release's own console;
 from the checkout, `--check` reads the console an earlier build left, so a
 real run, which builds first, is what names the rows there.
 
+### From v0.30.x
+
+A host on any v0.30.x release moves to 1.0 with `tehas update`. That run is
+v0.30.x's own: it reads the repository from its `versions.env` and the key
+from `~/tehas/release/minisign.pub`, and both are the ones 1.0 is published
+and signed with. It asks 1.0's settings check before it switches
+`~/tehas/current`, so an instance that still sets a renamed setting stops with
+78 and nothing switched. From 1.0 on, the repository and the key are the ones
+built into tehas, and those two files are no longer read.
+
 ### From a release
 
 Releases are read from the repository built into tehas, the
