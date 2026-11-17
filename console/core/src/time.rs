@@ -76,6 +76,36 @@ pub fn iso(t: i64) -> String {
 /// A day past the month's last day, hour 24, minute or second 60 are None.
 /// The writers never emit a leap second, so second 60 is not a time.
 pub fn from_iso(s: &str) -> Option<i64> {
+    let [y, m, d, hh, mm, ss] = iso_fields(s)?;
+    if !(1..=12).contains(&m) || !(1..=days_in_month(y, m)).contains(&d) {
+        return None;
+    }
+    if hh > 23 || mm > 59 || ss > 59 {
+        return None;
+    }
+    Some(days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// Unix seconds of the same form as jq's `fromdateiso8601` reads it: the
+/// shape is checked as [`from_iso`] checks it, but a day out of range is
+/// counted on rather than refused, and second 60 is taken, as jq takes them.
+pub fn from_iso_jq(s: &str) -> Option<i64> {
+    let [y, m, d, hh, mm, ss] = iso_fields(s)?;
+    if !(1..=12).contains(&m) || hh > 23 || mm > 59 || ss > 60 {
+        return None;
+    }
+    Some(days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// Whether `s` has the shape [`iso`] writes, its values unchecked.
+pub fn iso_shaped(s: &str) -> bool {
+    iso_fields(s).is_some()
+}
+
+/// Year, month, day, hour, minute and second of the 20-byte form: every byte
+/// of the shape checked, every field digits and no sign. Ranges are the
+/// caller's.
+fn iso_fields(s: &str) -> Option<[i64; 6]> {
     let b = s.as_bytes();
     if b.len() != 20
         || b[4] != b'-'
@@ -93,18 +123,16 @@ pub fn from_iso(s: &str) -> Option<i64> {
             .all(|b| b.is_ascii_digit())
             .then(|| v.parse().ok())?
     };
-    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
-    let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
-    if !(1..=12).contains(&m) || !(1..=days_in_month(y, m)).contains(&d) {
-        return None;
-    }
-    if hh > 23 || mm > 59 || ss > 59 {
-        return None;
-    }
-    Some(days_from_civil(y, m, d) * 86_400 + hh * 3600 + mm * 60 + ss)
+    Some([
+        n(0..4)?,
+        n(5..7)?,
+        n(8..10)?,
+        n(11..13)?,
+        n(14..16)?,
+        n(17..19)?,
+    ])
 }
 
-/// The last day of month `m` of year `y` in the proleptic Gregorian calendar.
 fn days_in_month(y: i64, m: i64) -> i64 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -205,6 +233,45 @@ mod tests {
         assert_eq!(from_iso("1900-02-29T00:00:00Z"), None);
         assert_eq!(from_iso("2026-01-31T23:59:59Z"), Some(1_769_903_999));
         assert_eq!(from_iso("2026-04-30T23:59:59Z"), Some(1_777_593_599));
+    }
+
+    #[test]
+    fn from_iso_jq_counts_a_day_on_and_takes_second_60() {
+        assert_eq!(from_iso_jq("2026-10-20T08:46:07Z"), Some(1_792_485_967));
+        assert_eq!(
+            from_iso_jq("2026-02-30T00:00:00Z"),
+            from_iso("2026-03-02T00:00:00Z")
+        );
+        assert_eq!(from_iso_jq("2026-10-20T08:46:60Z"), Some(1_792_486_020));
+        for bad in [
+            "2026-13-01T00:00:00Z",
+            "2026-00-01T00:00:00Z",
+            "2026-10-20T24:00:00Z",
+            "2026-10-20T08:60:00Z",
+            "2026-10-20T08:46:61Z",
+            "2026-10-20T+8:46:07Z",
+            "2026-10-20 08:46:07Z",
+            "",
+        ] {
+            assert_eq!(from_iso_jq(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn iso_shaped_checks_the_shape_and_not_the_values() {
+        assert!(iso_shaped("2026-10-20T08:46:07Z"));
+        assert!(iso_shaped("2026-13-40T99:99:99Z"));
+        for bad in [
+            "",
+            "2026-10-20T08:46:07",
+            "2026-10-20T08:46:07.5Z",
+            "2026-10-20 08:46:07Z",
+            "2026-10-20T08-46:07Z",
+            "2026-1x-20T08:46:07Z",
+            "2026-10-20T+8:46:07Z",
+        ] {
+            assert!(!iso_shaped(bad), "{bad}");
+        }
     }
 
     #[test]

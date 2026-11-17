@@ -129,21 +129,7 @@ const MAX_START: u64 = 99_999_999_999;
 /// may order a formatted start against the approval's stamp as text. An empty
 /// stamp is no instant, and an approval that names none is not held on it.
 fn is_instant(s: &str) -> bool {
-    let b = s.as_bytes();
-    let some = |from: usize, to: usize| b[from..to].iter().all(|c| c.is_ascii_digit());
-    b.len() == 20
-        && some(0, 4)
-        && b[4] == b'-'
-        && some(5, 7)
-        && b[7] == b'-'
-        && some(8, 10)
-        && b[10] == b'T'
-        && some(11, 13)
-        && b[13] == b':'
-        && some(14, 16)
-        && b[16] == b':'
-        && some(17, 19)
-        && b[19] == b'Z'
+    tehas_core::time::iso_shaped(s)
 }
 
 /// A cycle_history row: the parked start of a refresh since `at`, the approval
