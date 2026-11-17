@@ -294,9 +294,15 @@ Contractors get the model through the factory, and only through it.
 - It runs apart from the dispatcher, so a slow stream cannot hold up
   dispatch.
 
-A contractor also reaches GitHub and the product's package registries
-directly. The network allowlist the docs describe is: the factory, GitHub and
-those registries.
+A contractor's only connection for cycle traffic is the factory listener
+(epic #2376). Its container sits on an internal network whose one way out is
+the contractor's local end, which forwards over that connection: model
+requests to the model route, and GitHub, the registries and listed web tools
+through a tunnel route that checks the same list as the in-house egress
+proxy. The workspace comes as a git bundle of the job's tip and the issue's
+files come from the factory. The listener forwards and re-implements nothing
+its upstream does. The contractor host's own traffic, such as OS updates and
+the clock, is not cycle traffic.
 
 ## Security
 
@@ -325,6 +331,39 @@ Encrypting the sandbox image is not part of this. The image is generic: no
 source, no token, no key. A box that runs the image holds its decryption
 key, so encryption would protect the one thing that is not secret. The
 protection is that nothing secret is at rest.
+
+### Image, code index and memory
+
+Epic #2362 builds these. In short:
+
+- **One listener.** A contractor and its container call one factory
+  address, the model proxy's listener. The job channel (check-in, result,
+  token renewal, the issue relay with its `gh` and `vipune` requests) and
+  the image and index downloads are routes on it. One issuer makes the
+  tokens of a job, in two scopes with one lifetime: the container holds the
+  model scope only, and the contractor program holds the job scope.
+
+- **Image.** A factory builds its sandbox image locally for its own uid and
+  publishes it nowhere. The factory serves it to contractors, as `docker save`
+  output under contractor authentication. "Image digest" in this spec is the
+  factory's image id. The contractor loads the image, checks the id and runs
+  the container as the factory's uid.
+- **Code index.** pi-rukas finds code through the codebase-memory index, and
+  headless `/work` never builds one. The index answers only at the path it
+  was built for, the factory's `$TEHAS_HOME/work/<name>`. The factory serves
+  the index for the job's tip. The contractor mounts the workspace at that
+  path inside the container and copies the index into the cycle's cache, as
+  a cycle in-house does.
+- **Memory.** A cycle's agents write vipune memories for later cycles. Today
+  they are lost with the cycle, in-house too. With the feature on, vipune's
+  memory lives only in the factory. A `vipune` stand-in in the image sends
+  each call through the issue relay, as the container's `gh` does: the host
+  answers it in-house, and a contractor forwards it over the job channel.
+  The factory runs the real vipune on a database of that cycle's own, copied
+  from the active pool, and returns its output unchanged. pi-rukas calls
+  `vipune` as before. A cycle's new memories turn active when its pull
+  request merges. A contractor holds no memory, and the container gets no
+  new route or token for it.
 
 ### Disk encryption
 
