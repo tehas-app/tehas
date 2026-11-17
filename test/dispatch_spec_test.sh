@@ -12,16 +12,20 @@ link=https://github.com/user-attachments/files/12/spec.md
 printf '# Faster search\n\nR1: under 100 ms.\n' >"$fx/spec.md"
 sum=$(sha256sum "$fx/spec.md" | cut -d' ' -f1)
 
-# curl hands out fx/spec.md for any link, or fails with fx/curl.rc.
+# curl hands out fx/spec.md for any link, or fails with fx/curl.rc after the
+# HTTP status in fx/curl.http, as curl -f prints it on a refused answer.
 t_stub curl '
 out=""
 while [ $# -gt 0 ]; do
   case "$1" in -o) out=$2; shift ;; esac
   shift
 done
-[ -f "$T/fx/curl.rc" ] && exit "$(cat "$T/fx/curl.rc")"
+if [ -f "$T/fx/curl.rc" ]; then
+  printf "text/plain\n%s" "$(cat "$T/fx/curl.http" 2>/dev/null || echo 000)"
+  exit "$(cat "$T/fx/curl.rc")"
+fi
 cp "$T/fx/spec.md" "$out"
-printf text/markdown'
+printf "text/markdown\n200"'
 
 # body <text>: the body of issue 7, ready and labelled by alice.
 body() { jq -n --arg b "$1" '{title: "Faster search", body: $b}' >"$fx/issue-7.json"; }
@@ -81,12 +85,27 @@ t_case "with the feature on a spec link GitHub refuses starts nothing"
 reset
 pipe_on
 echo 22 >"$fx/curl.rc"
+echo 404 >"$fx/curl.http"
 body "Spec: $link sha256:$sum"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" ""
-t_contains "$t_out" "skip #7: GitHub refused the link of its \`Spec:\` line"
+t_contains "$t_out" "skip #7: GitHub refused the link of its \`Spec:\` line (HTTP 404)"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+
+t_case "with the feature on a spec link GitHub answers with a 5xx changes nothing and ends the poll with 1"
+reset
+pipe_on
+echo 22 >"$fx/curl.rc"
+echo 503 >"$fx/curl.http"
+body "Spec: $link sha256:$sum"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(started)" ""
+t_contains "$t_out" "ERROR: the spec of #7 could not be fetched (curl exited 22, HTTP 503), not starting a cycle"
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "issue comment 7"
+rm -f "$fx/curl.rc" "$fx/curl.http"
 
 t_case "with the feature on a spec fetch that fails on the way changes nothing and ends the poll with 1"
 reset
@@ -100,6 +119,27 @@ t_contains "$t_out" "ERROR: the spec of #7 could not be fetched (curl exited 7),
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "issue comment 7"
 rm -f "$fx/curl.rc"
+
+t_case "with the feature on a host start whose spec is not the one approved is not picked again"
+reset
+pipe_on
+other=$(printf '%064d' 0 | tr 0 a)
+body "Spec: $link sha256:$other"
+t_approve "$T/home/tehas" 7 host host 1760000000 --body-sha "$(printf '%s' "Spec: $link sha256:$other" | sha256sum | cut -d' ' -f1)"
+echo '{"state":"open"}' >"$fx/work-7.json"
+ready 8
+echo '{"title":"Other","body":"No spec."}' >"$fx/issue-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "skip #7: the bytes of its spec are not the ones its \`Spec:\` line names"
+t_contains "$t_out" "the host's approval of #7 of 2025-10-09T08:53:20Z is off the record: run \`tehas start 7\` again"
+t_eq "$(t_row approval-current 7 -- '.approval')" null
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "8 "
+t_eq "$(t_calls curl | grep -c "$link")" 1
+t_lacks "$t_out" "#7"
 
 t_case "with the feature on a body with no Spec: line starts"
 reset
