@@ -22,9 +22,10 @@ to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
 `flags` as `false`. This page says what the proxy does once the feature
 ships.
 
-This page covers the model proxy, the job channel on the same listener, the
-contractor program and the `tehas outsource` commands. What is still owed is
-[at the end](#what-is-not-here-yet).
+This page covers how the feature is switched on and installed, the model
+proxy, the job channel on the same listener, the contractor program, the
+`tehas outsource` commands and what a person sees. Its limits are
+[at the end](#known-limits).
 
 ## What it is for
 
@@ -76,22 +77,80 @@ A store brought forward from schema 17 keeps a job's one token as its job
 token and gives it no model token. Outsource cannot be switched on in a
 release, so no host has such a job.
 
-## How it is switched on
+## Switching it on
 
-`tehas-proxy` reads the settings `tehas_load` exports, and the state store under
-`TEHAS_HOME`. Its control socket is `~/tehas/state/outsource/proxy.sock`. The
+Once the feature ships, outsource is switched on in four steps:
+
+1. In the instance's `instance.env`, set `TEHAS_OUTSOURCE=on`, the
+   repositories whose cycles may go out in `TEHAS_OUTSOURCE_REPOS`, the names
+   of the contractors you will invite in `TEHAS_OUTSOURCE_CONTRACTORS`, and in
+   `TEHAS_OUTSOURCE_PROXY_ADDR` an address of this host that the contractors
+   reach on a network you control.
+2. Run `tehas update` (or `./install.sh` in the checkout). With the feature on
+   it builds and installs the model proxy as `~/tehas/libexec/tehas-proxy`,
+   its unit `tehas-outsource-proxy.service`, and the contractor program as
+   `~/tehas/libexec/tehas-contractor`. A first install enables the unit with
+   the others; on a host installed before, enable it once:
+
+   ```
+   systemctl --user enable --now tehas-outsource-proxy.service
+   ```
+
+3. Run `tehas outsource invite --name box1`. It prints the command the
+   contractor's host runs to join, with a one-time code.
+4. On the contractor's host, run that command, then `tehas-contractor run`.
+   [The contractor program](#the-contractor-program) says what it holds and
+   how it ends.
+
+The dispatcher then offers a start to a contractor that fits (see
+[placement](#where-a-cycle-runs)) and runs every other start on this host, as
+before.
+
+With the feature off, `install.sh` builds, copies and compares none of the
+three: no program, no unit, and the same `next: units` line as before. A host
+that turns it off keeps what an earlier run installed, and those files are no
+longer brought current. The proxy reads the switch when it starts, says the
+feature is off and ends 0, so nothing listens. To take the unit away as well:
+
+```
+systemctl --user disable --now tehas-outsource-proxy.service
+```
+
+### Settings
+
+Each is an instance setting, in `instance.env`. [The settings
+table](/tools#instance-settings) has them with the rest.
+
+| Setting | Default | What it is |
+| --- | --- | --- |
+| `TEHAS_OUTSOURCE` | `off` | `on` turns the feature on, once it ships. While it is being built, `on` stops every command with 78, and so does any value but `on`, `off`, `1` or `0` |
+| `TEHAS_OUTSOURCE_REPOS` | empty | The repositories whose cycles may go out, `owner/name` one space apart, matched without regard to case. Empty: none goes out |
+| `TEHAS_OUTSOURCE_CONTRACTORS` | empty | The contractors the channel answers, by name, one space apart. Empty refuses every contractor, its join included |
+| `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | The address and port the proxy listens on. Never the dashboard's `TEHAS_HOST_ADDR` port. The default is reached by no other host |
+| `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
+| `TEHAS_OUTSOURCE_GRACE` | `120` | Seconds past that timeout the factory waits for the contractor's salvage push before it calls the job lost |
+| `TEHAS_OUTSOURCE_RETRIES` | `2` | How many jobs one issue may lose before it runs in-house |
+| `TEHAS_OUTSOURCE_REST` | `1800` | Seconds a contractor that lost a job is given no new one |
+| `TEHAS_OUTSOURCE_JOIN_TTL` | `3600` | Seconds a one-time invite code stays valid |
+| `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | Seconds a model stream may go silent before the proxy drops it. Must be longer than `TEHAS_OUTSOURCE_TIMEOUT`, or every command stops with 78 |
+
+A value of the wrong shape stops every command with 78 before it writes
+anything.
+
+## How the proxy runs
+
+`tehas-outsource-proxy.service` runs `tehasbot outsource-proxy`, which loads
+the instance settings and runs `tehas-proxy` with them. The proxy reads the
+contractors and the jobs from the state store under `TEHAS_HOME`. The unit is
+restarted when it fails, but not after 78, a setting it cannot take: the
+journal says which, once. An update that brings a new proxy or a new unit
+file asks for the unit's restart on its `next: units` line.
+
+The proxy's control socket is `~/tehas/state/outsource/proxy.sock`. The
 socket can also issue a job's model token by hand (`tehas-proxy --issue`),
 written to `~/tehas/state/outsource/jobs/<job>/model-token` with mode 0600. It
 never makes a job token. A model token it issues for a job the store does not
 hold is kept in memory only.
-
-| Setting | Default | What it is |
-| --- | --- | --- |
-| `TEHAS_OUTSOURCE` | `off` | `on` runs the proxy, once the feature ships. While it is being built, `on` stops every command with 78, and so does any value but `on`, `off`, `1` or `0` |
-| `TEHAS_OUTSOURCE_PROXY_ADDR` | `127.0.0.1:8090` | The address and port to listen on. Never the dashboard's `TEHAS_HOST_ADDR` port |
-| `TEHAS_OUTSOURCE_CONTRACTORS` | empty | The contractors the channel answers, by name, one space apart. Empty refuses every contractor |
-| `TEHAS_OUTSOURCE_TIMEOUT` | `600` | Seconds a job may go without a contractor's check-in before it is lost |
-| `TEHAS_OUTSOURCE_PROXY_IDLE` | `900` | Seconds a model stream may go silent before the proxy drops it. Must be longer than the timeout above, or every command stops with 78 |
 
 The proxy asks the endpoint of the provider the instance's agents run on, the
 same one a cycle's container is given: `PI_ENSEMBLE_SUBAGENT_PROVIDER` names it
@@ -105,7 +164,7 @@ unix socket allows.
 Version 1 listens in plain http. The trust boundary is the address you bind: a
 contractor must reach the port, and what it can do is what is listed below.
 Bind the address of a network you control, and keep it off a public interface
-until the join handshake and TLS land.
+(see [Known limits](#known-limits)).
 
 ## What it answers
 
@@ -193,11 +252,31 @@ token count, and an answer it could not finish writing gives no figures.
 
 ## Off means off
 
-Outsource not on: `tehas-proxy` says `outsource is off: no model proxy
-is listening` and ends 0. Nothing binds a port, nothing is written under the
-state, `live/contractors.json` is not there, `tehas status` and its `--json`
-say no word about the feature, the MCP server has no `factory_contractors`,
+Outsource not on: `install.sh` installs neither program nor the proxy's
+unit, and `tehas-proxy`, where an earlier install left it, says `outsource is
+off: no model proxy is listening` and ends 0. Nothing binds a port, nothing is
+written under the state, `live/contractors.json` is not there, `tehas status`
+and its `--json` say no word about the feature, the MCP server has no `factory_contractors`,
 and the rest of the suite is as it was.
+
+## Where a cycle runs
+
+The dispatcher places each start it picks from the ready queue. A start runs
+in-house unless all of these hold:
+
+- the repository is in `TEHAS_OUTSOURCE_REPOS`;
+- the issue has lost fewer than `TEHAS_OUTSOURCE_RETRIES` jobs;
+- a contractor fits: heard from within `TEHAS_OUTSOURCE_TIMEOUT`, not revoked,
+  draining or resting, holding no open job, and its last report, no older
+  than the timeout, names this host's sandbox image id, the memory a cycle
+  may use and `TEHAS_CYCLE_MIN_FREE` of disk.
+
+Of the contractors that fit, the one with the most memory wins, then the one
+with the most disk. One contractor takes one start a poll. A read that fails
+keeps the start in-house. A retry tick, an outage retry and a refresh always
+run in-house. An outsourced cycle counts against `TEHAS_MAX_CYCLES` as a local
+one does. The start's line in `dispatch.log` ends `outsourced to <contractor>`
+or `in-house: <why>`.
 
 ## The job channel
 
@@ -664,39 +743,45 @@ The contractor has no setting of its own. `TEHAS_OUTSOURCE` must be on, as for
 every command of the feature, and while the feature is being built every verb
 exits 78.
 
-## What is not here yet
+## Known limits
 
-Still owed, each in its own issue:
-
-- #2366 and #2367, what a cycle learns outlasting it: a cycle's database
-  starting from the factory's pool, the rows it added becoming candidates
-  when it ends and turning active when its pull request merges, and one
-  long-lived memory container in place of one per call.
-
-- #2275, placement: the dispatcher offering a job to a contractor and the
-  supervisor waiting on it. Until then no job is offered, so a contractor that
-  asks gets none.
-- The image digest and pi-rukas version of a contractor's cycle as the job
-  is given out, on the stamp of its work.
-- The dashboard's Contractors panel, and serving `contractors.json` under
-  `/live/` for it.
-- The endpoint's token figures per contractor and per job, kept in the store.
-  Nothing reads them yet.
-- #2278, the install of the proxy and the contractor program, their units,
-  and the join installer.
-- #2379, the container's own way out: the internal network and the
-  contractor's local end for the cycle's container, so its git and
-  registries go through the egress tunnel too. Until then only the
-  contractor program's own git does.
-- #2365, the container's side of the code index: the workspace mounted at
-  the factory's own path, which the index answers at. Until then the index a
-  contractor is given is copied into the cycle but finds nothing.
-- `tehas work` giving the issue's files to a contractor's container: the
-  program puts them where an in-house cycle has them, and a contractor's
-  `tehas work` does not mount them yet.
-- The image of a job kept while a job names it. A job does not name its
-  image in the store yet, so the factory keeps the image before the current
-  one and no older.
-- #2354, TLS and signed requests on the channel. The image download takes the
-  contractor's key as `hello` does until requests are signed. Version 1 is plain http with
-  bearer keys: bind the proxy's address on a network you control.
+- **Trusted hosts only.** A contractor runs the whole cycle: it holds a clone
+  of the product, a cycle token for its repository and the model through the
+  proxy, as a cycle on this host does. Invite only hosts you would run a cycle
+  on yourself. `tehas outsource revoke` ends one at once.
+- **Plain http on a network you control.** Version 1 has bearer keys and no
+  TLS or signed requests on the channel (#2354). Bind
+  `TEHAS_OUTSOURCE_PROXY_ADDR` on a private network, never a public interface.
+- **Still being built.** A release refuses `TEHAS_OUTSOURCE=on` with 78, and
+  the release tarball does not carry `tehas-proxy` or `tehas-contractor` yet:
+  only a host that builds from a checkout gets them, and only in a test.
+- **No installer for a contractor's host.** The contractor program is built
+  and installed on a factory host with the feature on; a host of its own,
+  and its unit `tehas-outsource-contractor.service`, are set up by hand until
+  the join installer comes.
+- **Not proven on a host.** No cycle has gone out on a host yet.
+- **No Contractors panel.** A person sees the contractors in `tehas status`,
+  `tehas outsource list` and the MCP server; the dashboard has no panel, and
+  `contractors.json` is not served under `/live/`.
+- **No token figures.** The endpoint's token figures per contractor and per
+  job are read and not kept.
+- The image digest and pi-rukas version of a contractor's cycle are not on
+  the stamp of its work.
+- **Still owed**, each in its own issue:
+  - #2366 and #2367, what a cycle learns outlasting it: a cycle's database
+    starting from the factory's pool, the rows it added becoming candidates
+    when it ends and turning active when its pull request merges, and one
+    long-lived memory container in place of one per call.
+  - #2379, the container's own way out: the internal network and the
+    contractor's local end for the cycle's container, so its git and
+    registries go through the egress tunnel too. Until then only the
+    contractor program's own git does.
+  - #2365, the container's side of the code index: the workspace mounted at
+    the factory's own path, which the index answers at. Until then the index
+    a contractor is given is copied into the cycle but finds nothing.
+  - `tehas work` giving the issue's files to a contractor's container: the
+    program puts them where an in-house cycle has them, and a contractor's
+    `tehas work` does not mount them yet.
+  - The image of a job kept while a job names it. A job does not name its
+    image in the store yet, so the factory keeps the image before the
+    current one and no older.
