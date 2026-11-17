@@ -798,12 +798,11 @@ fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
         // start of the millwright's counts on the person's approval it rests on.
-        let by = start::record_value(Path::new(record))
-            .and_then(|r| r.get("by").and_then(|b| b.as_str().map(String::from)))
-            .unwrap_or_default();
-        let ok = gives::allowed(&by)
-            || (gives::millwright_is(&by) && gives::millwright_base(record).is_some());
-        return if ok { Approved::Yes } else { Approved::No };
+        return if gives::record_approves(record) {
+            Approved::Yes
+        } else {
+            Approved::No
+        };
     }
     // By hand. The label approved the text, links and all.
     let console = [env("TEHAS_CONSOLE_CMD"), env("TEHAS_CONSOLE")]

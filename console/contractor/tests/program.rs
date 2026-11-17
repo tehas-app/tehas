@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Channel, Factory};
+use tehas_proxy::download::OfHome;
 use tehas_proxy::egress::Egress;
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::log::{Line, Sink};
@@ -104,11 +105,11 @@ impl Sink for Quiet {
 }
 
 /// The factory's listener on a port of its own, for the life of the test.
-fn listen(factory: TestFactory) -> String {
-    listen_with(factory, None)
-}
-
-fn listen_with(factory: TestFactory, egress: Option<&'static Egress>) -> String {
+fn listen_with(
+    factory: TestFactory,
+    egress: Option<&'static Egress>,
+    downloads: Option<&'static OfHome>,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let at = listener.local_addr().unwrap().to_string();
     let issuer: &'static Issuer = Box::leak(Box::new(Issuer::new()));
@@ -116,6 +117,9 @@ fn listen_with(factory: TestFactory, egress: Option<&'static Egress>) -> String 
     let mut chan = Channel::new(issuer, factory);
     if let Some(egress) = egress {
         chan = chan.with_egress(egress);
+    }
+    if let Some(downloads) = downloads {
+        chan = chan.with_downloads(downloads);
     }
     let chan: &'static Channel<'static> = Box::leak(Box::new(chan));
     let serve: &'static Serve<'static> = Box::leak(Box::new(Serve {
@@ -200,14 +204,6 @@ fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
         &factory_home,
         &["invite-new", "--name", "box1", "--code", &key_hash(CODE)],
     );
-    let kept = Arc::new(Mutex::new(Vec::new()));
-    let relayed = Arc::new(Mutex::new(Vec::new()));
-    let at = listen(TestFactory {
-        home: factory_home.clone(),
-        kept: Arc::clone(&kept),
-        relayed: Arc::clone(&relayed),
-    });
-
     // The product, as GitHub would serve it.
     let origin = d.path().join("git/acme/widget.git");
     fs::create_dir_all(&origin).unwrap();
@@ -234,6 +230,59 @@ fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
         &seed,
         &["push", "--quiet", origin.to_str().unwrap(), "main"],
     );
+    // The factory's own checkout of it, its code index for the current
+    // image, and the issue's files as its in-house fetch makes them.
+    let checkout = factory_home.join("repos/widget");
+    fs::create_dir_all(factory_home.join("repos")).unwrap();
+    let cloned = Command::new("git")
+        .args(["clone", "--quiet"])
+        .arg(&origin)
+        .arg(&checkout)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(cloned.status.success());
+    let image = format!("sha256:{}", "a".repeat(64));
+    fs::create_dir_all(factory_home.join("state/index")).unwrap();
+    fs::write(factory_home.join("state/index/widget.db"), "an index\n").unwrap();
+    fs::write(
+        factory_home.join("state/index.json"),
+        json!({ "commit": "c0ffee", "indexer_image": image }).to_string(),
+    )
+    .unwrap();
+    let docker = factory_home.join("docker");
+    exe(&docker, &format!("#!/bin/sh\necho {image}\n"));
+    fn fetched(_: &Path, issue: u64, dir: &Path) -> Result<(), String> {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(
+            dir.join("manifest.json"),
+            format!("{{\"issue\":{issue}}}\n"),
+        )
+        .unwrap();
+        Ok(())
+    }
+    let downloads: &'static OfHome = Box::leak(Box::new(OfHome {
+        home: factory_home.clone(),
+        checkout: checkout.clone(),
+        branch: "main".to_string(),
+        image: "tehas-sandbox:test".to_string(),
+        docker,
+        zstd: false,
+        gives_files: true,
+        fetch: fetched,
+        making: Default::default(),
+    }));
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let relayed = Arc::new(Mutex::new(Vec::new()));
+    let at = listen_with(
+        TestFactory {
+            home: factory_home.clone(),
+            kept: Arc::clone(&kept),
+            relayed: Arc::clone(&relayed),
+        },
+        None,
+        Some(downloads),
+    );
 
     // The contractor's host: its home and its tehas home.
     let user_home = d.path().join("box1");
@@ -254,6 +303,10 @@ seen={seen}
 cp "$TEHAS_INSTANCE_DIR/instance.env" "$seen/instance.env"
 cp "$HOME/.pi/agent/models.json" "$seen/models.json"
 [ -f "$TEHAS_HOME/repos/widget/README" ] && echo cloned >"$seen/clone"
+git -C "$TEHAS_HOME/repos/widget" config --get remote.origin.url >"$seen/origin"
+git -C "$TEHAS_HOME/repos/widget" rev-parse refs/remotes/origin/main >"$seen/tip"
+cat "$TEHAS_HOME/state/index/widget.db" >"$seen/index"
+cat "$TEHAS_HOME/work/widget-7.images/manifest.json" >"$seen/manifest"
 "$TEHAS_CONTRACTOR" token >"$seen/token.out" || exit 8
 cat "$TEHAS_HOME/state/github-cycle/token" >"$seen/token.file"
 echo '{{"argv":["issue","comment","7","--body-file=-","--repo=acme/widget"],"input":"done"}}' | "$TEHAS_CONTRACTOR" relay >"$seen/relay.out"
@@ -358,6 +411,30 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
     assert_eq!(
         fs::read_to_string(seen.join("clone")).unwrap().trim(),
         "cloned"
+    );
+    // The source came from the factory's bundle, at the factory's tip, with
+    // the repository's address as its origin.
+    let factory_tip = Command::new("git")
+        .arg("-C")
+        .arg(&checkout)
+        .args(["rev-parse", "refs/remotes/origin/main"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(seen.join("tip")).unwrap().trim(),
+        String::from_utf8_lossy(&factory_tip.stdout).trim()
+    );
+    assert_eq!(
+        fs::read_to_string(seen.join("origin")).unwrap().trim(),
+        format!("file://{}/acme/widget.git", d.path().join("git").display())
+    );
+    assert_eq!(
+        fs::read_to_string(seen.join("index")).unwrap(),
+        "an index\n"
+    );
+    assert_eq!(
+        fs::read_to_string(seen.join("manifest")).unwrap(),
+        "{\"issue\":7}\n"
     );
     assert_eq!(
         fs::read_to_string(seen.join("token.out")).unwrap().trim(),
@@ -494,7 +571,7 @@ fn resolve(host: &str, _: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
 }
 
 #[test]
-fn the_clone_s_git_goes_out_only_through_the_factory_s_egress_route() {
+fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
     use std::io::Read;
     let d = TestDir::new("contractor-egress");
     let factory_home = d.path().join("factory");
@@ -557,6 +634,7 @@ fn the_clone_s_git_goes_out_only_through_the_factory_s_egress_route() {
             relayed: Arc::new(Mutex::new(Vec::new())),
         },
         Some(egress),
+        None,
     );
     let job = tehas_contractor::http::post(
         &at,
@@ -597,4 +675,194 @@ fn the_clone_s_git_goes_out_only_through_the_factory_s_egress_route() {
         .unwrap();
     assert!(!out.status.success());
     assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
+}
+
+/// A factory of issue 7's job for box1, by its key, with `downloads` on its
+/// listener: its home, its address and the key.
+fn factory_with(d: &Path, downloads: Option<&'static OfHome>) -> (PathBuf, String, &'static str) {
+    let home = d.join("factory");
+    fs::create_dir_all(home.join("state")).unwrap();
+    call(
+        &home,
+        &[
+            "init",
+            "--version",
+            "v0.30.0",
+            "--commit",
+            "cb6912a",
+            "--instance",
+            "example",
+            "--repo",
+            "acme/widget",
+            "--outsource",
+        ],
+    );
+    let c = rusqlite::Connection::open(home.join("state/tehas.db")).unwrap();
+    c.execute(
+        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
+        [],
+    )
+    .unwrap();
+    drop(c);
+    let key = "the-key-of-box1";
+    call(
+        &home,
+        &["contractor-add", "--name", "box1", "--key", &key_hash(key)],
+    );
+    call(
+        &home,
+        &["job-offer", "--issue", "7", "--contractor", "box1"],
+    );
+    let at = listen_with(
+        TestFactory {
+            home: home.clone(),
+            kept: Arc::new(Mutex::new(Vec::new())),
+            relayed: Arc::new(Mutex::new(Vec::new())),
+        },
+        None,
+        downloads,
+    );
+    (home, at, key)
+}
+
+/// Run box1 for one job against the factory at `at`, whose home is
+/// `factory`: its exit, its log and what the cycle saw.
+fn run_box(d: &Path, factory: &Path, at: &str, key: &str) -> (Option<i32>, String, PathBuf) {
+    let user_home = d.join("box1");
+    let tehas_home = user_home.join("tehas");
+    fs::create_dir_all(user_home.join(".config/tehas")).unwrap();
+    fs::create_dir_all(&tehas_home).unwrap();
+    let id = json!({ "factory": at, "name": "box1", "key": key });
+    let id_file = user_home.join(".config/tehas/contractor.json");
+    fs::write(&id_file, id.to_string()).unwrap();
+    fs::set_permissions(&id_file, fs::Permissions::from_mode(0o600)).unwrap();
+    let seen = d.join("seen");
+    fs::create_dir_all(&seen).unwrap();
+    let work = d.join("work");
+    exe(
+        &work,
+        &format!(
+            r#"#!/bin/sh
+seen={seen}
+[ -f "$TEHAS_HOME/repos/widget/README" ] && echo cloned >"$seen/clone"
+[ -e "$TEHAS_HOME/state/index" ] && echo indexed >"$seen/index"
+[ -e "$TEHAS_HOME/work/widget-7.images" ] && echo given >"$seen/files"
+mkdir -p "$TEHAS_HOME/state/cycles"
+echo '{{"status":"merged","issue":7}}' >"$TEHAS_HOME/state/cycles/7.result.json"
+echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
+"$TEHAS_CONTRACTOR" drain
+"#,
+            seen = seen.display()
+        ),
+    );
+    // A job that does not start never runs the stub, which would drain: the
+    // run is ended once the factory has the job back.
+    let mut ran = Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
+        .arg("run")
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", &user_home)
+        .env("TEHAS_HOME", &tehas_home)
+        .env("TEHAS_OUTSOURCE", "on")
+        .env("TEHAS_TEST_FEATURES", "outsource")
+        .env("TEHAS_WORK_CMD", &work)
+        .env("TEHAS_WORK_GRACE", "5")
+        .env(
+            "TEHAS_CONTRACTOR_GIT",
+            format!("file://{}", d.join("git").display()),
+        )
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    while ran.try_wait().unwrap().is_none() {
+        if call(factory, &["job-show", "--job", "1"])["state"] == "released" {
+            std::thread::sleep(Duration::from_millis(300));
+            let _ = ran.kill();
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "the run did not end"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let out = ran.wait_with_output().unwrap();
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+        seen,
+    )
+}
+
+#[test]
+fn a_job_with_no_index_and_no_files_starts_and_one_with_no_source_does_not() {
+    let d = TestDir::new("contractor-no-index");
+    let checkout = d.path().join("checkout");
+    fs::create_dir_all(&checkout).unwrap();
+    let origin = d.path().join("origin.git");
+    fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "--quiet", "--bare", "-b", "main"]);
+    git(&checkout, &["init", "--quiet", "-b", "main"]);
+    fs::write(checkout.join("README"), "widget\n").unwrap();
+    git(&checkout, &["add", "README"]);
+    git(
+        &checkout,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "x",
+        ],
+    );
+    git(
+        &checkout,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    git(&checkout, &["push", "--quiet", "origin", "main"]);
+    git(&checkout, &["fetch", "--quiet", "origin"]);
+    fn never(_: &Path, _: u64, _: &Path) -> Result<(), String> {
+        Err("not asked".into())
+    }
+    let downloads: &'static OfHome = Box::leak(Box::new(OfHome {
+        home: d.path().join("factory"),
+        checkout,
+        branch: "main".to_string(),
+        image: String::new(),
+        docker: PathBuf::from("/nonexistent"),
+        zstd: false,
+        gives_files: false,
+        fetch: never,
+        making: Default::default(),
+    }));
+    let (home, at, key) = factory_with(d.path(), Some(downloads));
+    let (code, log, seen) = run_box(d.path(), &home, &at, key);
+    assert_eq!(code, Some(0), "{log}");
+    assert!(
+        log.contains("this cycle searches without a code index"),
+        "{log}"
+    );
+    assert!(seen.join("clone").exists(), "{log}");
+    assert!(!seen.join("index").exists());
+    assert!(!seen.join("files").exists());
+
+    // No source from the factory: the job does not start, and nothing is
+    // cloned from anywhere else.
+    let e = TestDir::new("contractor-no-source");
+    let (home, at, key) = factory_with(e.path(), None);
+    let (_, log, seen) = run_box(e.path(), &home, &at, key);
+    assert!(
+        log.contains("the factory gave no source: 404 no downloads here"),
+        "{log}"
+    );
+    assert!(!seen.join("clone").exists());
+    let job = call(&home, &["job-show", "--job", "1"]);
+    assert_eq!(job["state"], "released", "{job}");
 }
