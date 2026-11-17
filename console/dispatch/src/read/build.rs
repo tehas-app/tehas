@@ -4,7 +4,7 @@
 //! and locks. Nothing is written.
 
 use super::run::{Calls, GhFail};
-use super::{github, host, models, store};
+use super::{github, host, models, outsource, store};
 use crate::apply::{said_file, SAID_MAX};
 use crate::decide::has;
 use crate::settings::Settings;
@@ -421,6 +421,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         };
     }
     let candidates: Vec<u64> = candidates.into_iter().collect();
+    if c.outsource.is_some() {
+        s["outsource"] = outsource::read(calls, &c.image, &candidates, &locks);
+    }
     for n in &candidates {
         if let Some(record) = host::plan_start(home, *n) {
             entry(&mut issues, *n)["plan_start"] = record;

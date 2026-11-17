@@ -63,6 +63,7 @@ case "$name $1" in
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
     cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
+  "store job-stamp") cat "$d/job" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -182,6 +183,7 @@ fn world() -> World {
             refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
+            outsource: false,
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
@@ -1321,6 +1323,61 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
+fn with_outsource_off_the_start_comment_asks_no_stamp() {
+    let mut t = world();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(!all.contains("job-stamp"), "{all}");
+}
+
+#[test]
+fn with_outsource_on_the_start_comment_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.apply(json!([start_of(7, "label")]));
+    let c = t.writes();
+    assert!(
+        c.iter()
+            .any(|w| w == "store job-stamp --issue 7 --since 1793008800 --open"),
+        "{c:#?}"
+    );
+    let all = c.join("\n");
+    assert!(all.contains("is removed.\n\nBuilt by: in-house\n"), "{all}");
+
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
+
+    // A store that cannot say leaves the comment without a stamp.
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.fail("store", "job-stamp");
+    let a = t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: #7: the store did not say who builds it")),
+        "{:#?}",
+        a.log
+    );
+}
+
+#[test]
 fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let mut t = world();
     let mut a = start_of(7, "label");
@@ -1329,6 +1386,17 @@ fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert_eq!(input["driver"], "lean");
+}
+
+#[test]
+fn an_outsourced_start_binds_its_contractor_in_the_record() {
+    let mut t = world();
+    let mut a = start_of(7, "label");
+    a["contractor"] = json!("box-1");
+    t.apply(json!([a]));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["contractor"], "box-1");
 }
 
 #[test]
@@ -1592,6 +1660,30 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn with_outsource_on_a_refresh_start_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    t.apply(json!([a]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas refresh started"), "{all}");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
 }
 
 #[test]
