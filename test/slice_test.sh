@@ -54,7 +54,7 @@ t_eq "$t_out" "rc=0 max=$MAX active=active ceiling=5120 why=[]"
 
 t_case "ok makes exactly one systemctl call and one docker call"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
-t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
+t_eq "$(t_calls docker)" 'info --format {{.CgroupDriver}} {{.CgroupVersion}}{{"\n"}}{{.NCPU}}'
 
 t_case "an inactive slice answers from its file"
 good

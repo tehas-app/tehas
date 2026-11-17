@@ -20,7 +20,9 @@ const GIB: u64 = 1_073_741_824;
 pub struct Reading {
     /// `systemctl show tehas.slice`: FragmentPath, ActiveState, MemoryMax.
     pub show: Option<Map<String, Value>>,
-    /// `docker info`: "<driver> <version>".
+    /// `docker info`: "<driver> <version>", then on a line of its own the
+    /// CPUs the Docker daemon counts, which a command that starts a container
+    /// asks for and the dispatcher does not.
     pub docker: Option<String>,
     /// The first line of `<root>/cgroup.controllers`.
     pub controllers: Option<String>,
@@ -136,7 +138,11 @@ impl Probe for Host {
     fn docker(&self) -> Option<String> {
         answer(
             "docker",
-            &["info", "--format", "{{.CgroupDriver}} {{.CgroupVersion}}"],
+            &[
+                "info",
+                "--format",
+                r#"{{.CgroupDriver}} {{.CgroupVersion}}{{"\n"}}{{.NCPU}}"#,
+            ],
         )
     }
 
@@ -266,8 +272,26 @@ pub struct Usable {
     pub max: u64,
     pub active: String,
     pub ceiling_mb: u64,
-    /// The host's CPUs.
+    /// The CPUs a container is sized for: the host's, or fewer when the
+    /// Docker daemon counts fewer.
     pub cpus: u64,
+    /// The host's CPUs, as nproc counts them.
+    pub nproc: u64,
+}
+
+impl Usable {
+    /// The line that says the Docker daemon counts fewer CPUs than the host,
+    /// so the containers get fewer. None when it counts as many.
+    pub fn capped(&self) -> Option<String> {
+        (self.cpus < self.nproc).then(|| {
+            format!(
+                "the host has {} CPUs and its Docker daemon counts {}, so containers get --cpus of {}; restart the Docker daemon to give them the host's CPUs",
+                self.nproc,
+                self.cpus,
+                spare(self.cpus)
+            )
+        })
+    }
 }
 
 /// What `room` answers.
@@ -385,15 +409,24 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
             "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs about {need} of memory for this reserve"
         ));
     }
-    let cpus = match r.cpus().as_deref().and_then(num) {
+    let nproc = match r.cpus().as_deref().and_then(num) {
         Some(c) if c > 0 => c,
         _ => return Err("nproc gave no count of the host's CPUs".into()),
     };
+    // Docker refuses a --cpus above the CPUs its daemon counted when it
+    // started, which is fewer than nproc on a host given more CPUs since. A
+    // count that cannot be read leaves nproc's.
+    let counted = docker
+        .lines()
+        .nth(1)
+        .and_then(|l| num(l.trim()))
+        .filter(|n| *n > 0);
     Ok(Usable {
         max,
         active: field("ActiveState"),
         ceiling_mb: ceiling,
-        cpus,
+        cpus: counted.map_or(nproc, |n| n.min(nproc)),
+        nproc,
     })
 }
 
@@ -750,6 +783,7 @@ mod tests {
             active: "active".into(),
             ceiling_mb,
             cpus,
+            nproc: cpus,
         }
     }
 
@@ -781,6 +815,43 @@ mod tests {
         let why = usable(&host(), "2g", "auto").unwrap_err();
         assert_eq!(why, "TEHAS_SLICE_CONTAINERS=auto is not a count");
         assert!(usable(&host(), "2g", "4").is_ok());
+    }
+
+    /// A Docker daemon started before the host was given more CPUs counts
+    /// fewer than nproc, and refuses a --cpus above its count: the containers
+    /// are sized for its count, one CPU left free as always, and the line
+    /// says both numbers. A count that cannot be read keeps nproc's.
+    #[test]
+    fn the_cpus_are_capped_at_what_the_docker_daemon_counts() {
+        let answer = |docker: &str, nproc: &str| {
+            let mut r = host();
+            r.docker = Some(docker.into());
+            r.cpus = Some(nproc.into());
+            usable(&r, "2g", "4").unwrap()
+        };
+        let u = answer("systemd 2\n16\n", "48");
+        assert_eq!((u.cpus, u.nproc), (16, 48));
+        assert_eq!(cpus(u.cpus, &load(1)).unwrap().0, "15.00");
+        assert_eq!(
+            u.capped().unwrap(),
+            "the host has 48 CPUs and its Docker daemon counts 16, so containers get --cpus of 15; restart the Docker daemon to give them the host's CPUs"
+        );
+        let words = limits(&u, &load(1)).unwrap();
+        let at = words.iter().position(|w| w == "--cpus").unwrap();
+        assert_eq!(words[at + 1], "15.00");
+        for (docker, nproc) in [
+            ("systemd 2", "48"),
+            ("systemd 2\n", "48"),
+            ("systemd 2\n<no value>", "48"),
+            ("systemd 2\n0", "48"),
+            ("systemd 2\ncgroupfs 1", "48"),
+            ("systemd 2\n64", "48"),
+            ("systemd 2\n48", "48"),
+        ] {
+            let u = answer(docker, nproc);
+            assert_eq!((u.cpus, u.nproc), (48, 48), "{docker:?}");
+            assert_eq!(u.capped(), None, "{docker:?}");
+        }
     }
 
     #[test]
