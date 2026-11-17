@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use tehas_core::exit;
 use tehas_core::sandbox::HELPER_KEY;
+use tehas_core::settings::rules::{is_login, is_repo};
 use tehas_core::settings::{
     load::{self, Vars},
     INSTANCE_SETTINGS,
@@ -200,10 +201,6 @@ fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
 fn is_number(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit()) && !s.starts_with('0')
 }
-fn is_repo(s: &str) -> bool {
-    let part = |p: &str| all(p, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
-    matches!(s.split_once('/'), Some((o, n)) if part(o) && part(n))
-}
 fn is_logins(s: &str) -> bool {
     s.split(' ')
         .all(|l| all(l, |c| c.is_ascii_alphanumeric() || c == '-'))
@@ -222,10 +219,6 @@ fn is_provider(s: &str) -> bool {
 }
 fn is_model(s: &str) -> bool {
     all(s, |c| c.is_ascii_alphanumeric() || "._:/-".contains(c))
-}
-fn is_slug_or_login(s: &str) -> bool {
-    s.starts_with(|c: char| c.is_ascii_alphanumeric())
-        && all(s, |c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 fn key_name(provider: &str) -> String {
@@ -605,7 +598,7 @@ fn check_app(
     }
     let login = app
         .login(scratch)
-        .filter(|l| is_slug_or_login(l.trim_end_matches("[bot]")))
+        .filter(|l| is_login(l.trim_end_matches("[bot]")))
         .ok_or_else(|| Die(format!("GitHub did not say the app's name; {after}")))?;
     let slug = login.trim_end_matches("[bot]");
     say(&format!(
@@ -792,7 +785,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         } else {
             g.app_name.clone()
         };
-        if !is_slug_or_login(&owner) {
+        if !is_login(&owner) {
             return Err(Bad(format!(
                 "the app's owner is a GitHub login, not: {owner}"
             )));
