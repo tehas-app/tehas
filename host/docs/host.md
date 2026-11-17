@@ -28,8 +28,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. The `.before-retry` goes when the retry it was kept for ends. A kept workspace and what else is left beside it go at once when its issue is closed, and otherwise once no cycle has run on the issue for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default). Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
-| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
-| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
+| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=on`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=on` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=on`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
+| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/work/tehas-plan-<issue>.keep` | What a planning session carries from one turn to the next: the approved text, the commit it began at, pi-rukas's record of the session, the last turn's exit status, the issue's images, and a later turn's answer as `answer.md`. Removed when the session ends. No container is given it; each turn copies what it needs into its workspace |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools-dev#tehas-dev)), and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
@@ -1409,7 +1409,7 @@ Cycles that run side by side know nothing of each other:
 
 By default a container is on Docker's default bridge and can connect to any
 address: the host's own ports, the local network and the internet. With
-`TEHAS_EGRESS=1` in `instance.env`, a cycle, a planning turn, a review and a
+`TEHAS_EGRESS=on` in `instance.env`, a cycle, a planning turn, a review and a
 `tehas dev` session are put on `tehas-egress` instead, and so are the two
 containers before a cycle, the push check and the install of the product's
 dependencies, an internal Docker
@@ -1644,9 +1644,9 @@ cycle and reaches no model, so it costs the build
 a few seconds, and it is not one of the containers a cycle is given.
 
 An image that says its pi-rukas does not read them holds every issue whose
-text links an attachment while `TEHAS_WORK_IMAGES=1` stands; other issues
+text links an attachment while `TEHAS_WORK_IMAGES=on` stands; other issues
 start. A host with that setting that puts back an image from before upstream
-merged the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the
+merged the reader sets `TEHAS_WORK_IMAGES=off` first: putting it back is the
 moment the hold becomes real. `install.sh` reports the answer it read from
 the image, and the dispatch log names each issue it holds.
 
@@ -1893,7 +1893,7 @@ a host with the next `tehas update` after upstream tags a release with it.
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
-| Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
+| Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=on` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it. The unit prints; `tehasbot clean` writes `clean.log` | `tail ~/tehas/logs/clean.log`, and `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | Edge router | `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
@@ -1956,7 +1956,7 @@ machine, `libvirt-guests` is what brings the host itself back with its cycles
 still running: [Resize or restart the host](/resize).
 
 Search engines are told to stay out: every page carries `noindex` and
-`/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns
+`/robots.txt` disallows everything. `TEHAS_INDEXING=on` in `instance.env` turns
 that off for an instance that is published and meant to be found, and adds
 `/sitemap.xml` with the front page and the manual, each page dated by when its
 file last changed on this host (an update leaves a page with the same bytes as
@@ -1975,7 +1975,7 @@ has the `###` questions of that section as an FAQ, read from the text.
 Visitor analytics are optional and off by default. With `TEHAS_ANALYTICS_SRC`
 (the https address of a script) and `TEHAS_ANALYTICS_SITE` (the name it reports
 under) in `instance.env`, every page of the dashboard and the manual loads that
-script, asynchronously. `TEHAS_ANALYTICS_COOKIE=1` adds `data-cookie="true"`
+script, asynchronously. `TEHAS_ANALYTICS_COOKIE=on` adds `data-cookie="true"`
 to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
@@ -2069,7 +2069,7 @@ Both are outside the repository and the tehas tree.
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing but the cleaner's one bounded `git rev-parse` of a worktree's gitdir, which reads no config of the tree and takes nothing from it. Every other git the host runs is in the product checkout, which no container has written. It reads three files of the workspace, as data: the product's `.pi/settings.json`, for the retry line of the cycle's log, and the runner's record of the attempt, `.pi/work-state/<issue>.json` or `.pi/lean-state/<issue>.json`. Each only as a plain file with no link on the way, and only up to a size bound. A cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token, no capabilities and `no-new-privileges` |
-| The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=1`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
+| The network                            | Not restricted by default: the container reaches GitHub, the model endpoint and whatever else the host can route to. With `TEHAS_EGRESS=on`, only the hosts of the egress proxy's list, through the proxy. See [Where a container may connect](#where-a-container-may-connect) |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 
 Two recommendations follow from that table:

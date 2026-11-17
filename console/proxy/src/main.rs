@@ -10,7 +10,7 @@
 //!
 //! The listener is the one thing this program does, and it is the only place
 //! the factory's model key is used for a contractor. It is off unless the
-//! instance switches it on: with TEHAS_OUTSOURCE not 1 the command says the
+//! feature `outsource` is on (core/src/features.rs): off, the command says the
 //! word that says why and ends 0, and no port is opened.
 //!
 //! The settings are read as tehas_load leaves them in the environment:
@@ -54,7 +54,7 @@ fn env(key: &str) -> String {
 }
 
 fn on() -> bool {
-    env("TEHAS_OUTSOURCE") == "1"
+    tehas_core::features::on("outsource")
 }
 
 fn seconds(key: &str, fallback: u64) -> u64 {

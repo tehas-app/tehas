@@ -418,8 +418,9 @@ command; see [tehas update](/tools-update#tehas-update).
 
 ## Optional parts
 
-`tehas-energy.service` is optional: set `TEHAS_ENERGY` only when your model
-endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. With any other
+`tehas-energy.service` is optional: set `TEHAS_ENERGY=on` only when your model
+endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. It is a switch,
+`on` or `off`, and any other value stops every command with 78. With any other
 endpoint leave it unset: an update restarts a unit only where it already runs.
 See [the energy sampler](/tools).
 
@@ -437,7 +438,7 @@ TEHAS_ALLOWED_LABELERS="janit"
 
 PI_ENSEMBLE_SUBAGENT_MODEL=qwen3.8-flash-next
 PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet
-TEHAS_INDEXING=1
+TEHAS_INDEXING=on
 
 # from ~/.config/tehas/private.env on the host
 PI_ENSEMBLE_HOST_ALIASES=gb1:<the model host's private address>
@@ -445,13 +446,13 @@ TEHAS_HOST_ADDR=<this host's private address>
 
 TEHAS_ANALYTICS_SRC=https://ea.trippi.app/ea.js
 TEHAS_ANALYTICS_SITE=tehas
-TEHAS_ANALYTICS_COOKIE=1
+TEHAS_ANALYTICS_COOKIE=on
 ```
 
 - The two addresses are not in the repository: the `instance.env` reads them
   from `~/.config/tehas/private.env` on the host, a file of the same
   `KEY=value` lines. Your own instance directory can simply hold them.
-- `TEHAS_INDEXING=1` and the three analytics lines are there because this
+- `TEHAS_INDEXING=on` and the three analytics lines are there because this
   instance's dashboard is published on the internet, at <https://tehas.app>: it
   lets search engines in and counts visits. Leave them out for an instance that
   is not public.
@@ -497,7 +498,7 @@ TEHAS_ANALYTICS_COOKIE=1
 
 ## A preview of every pull request
 
-Optional. With `TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN` in `instance.env`, tehas
+Optional. With `TEHAS_PREVIEWS=on` and `TEHAS_DOMAIN` in `instance.env`, tehas
 keeps a running copy of the product for every open pull request whose branch
 is in the product repository and that an owner, member or collaborator of
 the repository opened. [Previews](/edge) has what the host and the

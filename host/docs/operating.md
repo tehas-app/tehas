@@ -107,18 +107,18 @@ issue text.
 | ------------------------------------------- | ------- | ------------------ | ------------ |
 | The issue's title and body                  | Read | Read, at the start | The title |
 | Comments on the issue                       | Not given, except on a retry with comments (below) | Replies by an allowed account to its question, as answers | Not shown |
-| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
-| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
+| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
+| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
-| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
+| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
+| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same | Unpacked, its files shown as above |
 | Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
 
 - **A cycle** is given the issue's title and body. With
-  `TEHAS_WORK_IMAGES=1` [tehas work](/tools-work#tehas-work) also fetches the
+  `TEHAS_WORK_IMAGES=on` [tehas work](/tools-work#tehas-work) also fetches the
   images the body links, at most 8 and 10 MB, and mounts them read-only in
   the cycle's container with a manifest. They are taken when an allowed
   account labelled the issue, whoever opened it, or when an owner, member or
@@ -129,14 +129,14 @@ The rules behind each column:
   2026-10-14, and the host follows its main, so an image built since then
   says yes. One that says no holds every issue whose text links an
   attachment while the setting stands; the other issues start. The steps
-  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
+  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=on`
   the model also describes each image in words, into `images.md` beside
   them, and names the issue in `X-Tehas-Issue` on each of those requests; with
-  `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
-  neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
+  `TEHAS_WORK_FILES=on` the text files come too. pi-rukas reads
+  neither yet. `TEHAS_WORK_COMMENTS=on` adds the attachments of comments, by
   the rule in the table.
-- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
-  `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: what comes out of an archive
+- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=on`, and needs
+  `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`: what comes out of an archive
   goes into the directory of one of those. It is taken by its first bytes, not
   by a name ending in `.zip`: a link named `.zip` that holds something else is
   left out and said. At most 2 archives per issue, each downloaded at most
@@ -343,7 +343,7 @@ Blocked by #12 and #34.
 
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. Only comments are read: a marker in the issue's body names nothing. When the label counts and no such comment is there, the issue is held by the label alone: it names no blockers and never starts until an allowed labeller or the millwright comments a marker, or a person takes `tehas:blocked` off. The log says so at every poll, and [tehas status](/tools-status#tehas-status) lists such issues on a `blocked` line and in `demand.labelAlone`. The issue also waits, and the log says why, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue starts, and the start takes `tehas:blocked` off with `tehas:ready`. The label stays on until that start, so an issue whose blockers have closed while it waits for a slot or another hold still carries `tehas:blocked`: the hold is over, and the label is what asks for the start. When an allowed labeller's `tehas:blocked` clears and the issue does not start in that poll, the dispatcher says so once in a comment that holds `<!-- tehas:hold-cleared -->`. Only the bot's own such comment counts as said. A newer marker comment is a new hold, and its clearing is said again. A blocker that is closed already holds nothing: name one that is still open, or reopen it. To start a blocked issue anyway, swap `tehas:blocked` for `tehas:ready`. To stop it starting, take the label off.
 
-An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=1` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
+An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for. With `TEHAS_MILLWRIGHT_EPICS=on` and a millwright, your `tehas:ready` on an epic is not lost: it approves the epic's open sub-issues for [the millwright](#the-millwrights-grant), which plans each one that needs it and applies `tehas:ready` to it, and the comment says so. Close the epic, or put `needs-human-attention` on it, to take that back.
 
 An open issue whose title starts with an epic marker gets the `epic` label at the next poll, so the board says what it is. The marker is the word `epic` in any case at the very start of the title, or after one opening bracket, followed by `:`, a closing bracket or a space: `EPIC: Billing rework`, `Epic: ...`, `(Epic) ...` and `[EPIC] ...` match; `feat: WS-A child of epic 412: ...`, `Epicenter map` and `epics view polish` do not, so a part that names its epic is never labelled as one. tehas only adds the label. Take it off an issue and tehas leaves it off: the poll reads the issue's label events, and a removal by any account but the bot's is final. The control issue is never labelled, and a paused poll labels nothing. The label is for people: what makes an epic for the dispatcher and the epics panel is still GitHub's sub-issue links, so a labelled issue with no sub-issues is started as any other issue and is not on the panel. `tehasbot health` warns about such an issue, the common miss when a plan's parts were filed and never linked: open the epic and add its parts as sub-issues. Run `tehas labels` once after an update so the label exists.
 
@@ -793,7 +793,7 @@ away and keep the issue as it is. Both retries start over in a new workspace.
   `comments.json` beside the images, each cut at 4,000 characters and the
   whole at 64 KB with the oldest dropped and counted, and mounts that
   directory even when the instance gives a cycle no images or files. It needs
-  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=1` the images
+  no setting: the tick is the opt-in. With `TEHAS_WORK_COMMENTS=on` the images
   and files those comments link come too, by the usual rules.
 - `Retry with the issue text only` gives the cycle the title and body, nothing
   else: its approval names no comment of the issue or of the pull request, so
@@ -860,8 +860,8 @@ holds the issue for that poll.
 The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from the millwright,
-the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
-`TEHAS_WORK_FILES=1`), and the note
+the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=on` or
+`TEHAS_WORK_FILES=on`), and the note
 the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
@@ -1208,8 +1208,8 @@ GitHub says the issue is open: on an issue closed since the turn that asked,
 a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
-(`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
+(`TEHAS_WORK_IMAGES=on`), a planning session is given them too, by the same
+rules, once at its start, and with `TEHAS_WORK_FILES=on` its text files. The
 bot says what it fetched, which it left out, and whether the session was shown
 them. If one cannot be fetched, no session starts and the bot says so. A reply
 can carry a picture or a file too: the next turn adds what the reply links to
@@ -1448,7 +1448,7 @@ an industry of factories. Take the label off to end it.
 
 ## Read-only
 
-With `TEHAS_READ_ONLY=1` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
+With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
 
 One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
@@ -1639,7 +1639,7 @@ recording, and both commands then say so and exit 69.
   poll starts as it does today, and the start whose check passes takes the
   file off again. Running cycles, planning turns and refreshes are not held by
   it: what a refresh pushes already stands on the remote.
-- With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
+- With `TEHAS_WORK_IMAGES=on`, no cycle for an issue whose text links an
   attachment while the model does not read images. The dispatcher asks the
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
@@ -1814,7 +1814,7 @@ the ones that should still carry the label.
 
 ## The review loop
 
-Optional. It is off unless the instance sets `TEHAS_REVIEW=1` and the timer
+Optional. It is off unless the instance sets `TEHAS_REVIEW=on` and the timer
 `tehas-review.timer` is enabled; see [Commands](/tools). The two are separate
 on purpose: `install.sh` and `tehas update` copy the units and enable nothing,
 and a host that turns the setting on without the timer reviews nothing on a
@@ -1844,7 +1844,7 @@ but its findings.
 To turn it on, write the two lines in `instance.env` and enable the timer:
 
 ```
-TEHAS_REVIEW=1
+TEHAS_REVIEW=on
 TEHAS_REVIEW_REPO=example-owner/example-backlog
 ```
 
@@ -1856,7 +1856,7 @@ systemctl --user enable --now tehas-review.timer
 holds one run's document. See [tehasbot review](/tools-plan#tehasbot-review) for the
 container, the record and the exits.
 
-To turn it off, set `TEHAS_REVIEW=0` (or remove it) in `instance.env`: a run
+To turn it off, set `TEHAS_REVIEW=off` (or remove it) in `instance.env`: a run
 exits at once and calls nothing, so the timer costs one short process a week.
 `systemctl --user disable --now tehas-review.timer` stops the weekly run as well.
 
@@ -2067,7 +2067,7 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   label comes off and the issue says why. So the millwright never starts work
   nobody asked for: it never readies a `tehas:improvement` proposal.
 - **With the feed, it may start an issue a person wrote.** Optional, off
-  unless `TEHAS_MILLWRIGHT_FEED=1`, and only in the Rust dispatcher. On an
+  unless `TEHAS_MILLWRIGHT_FEED=on`, and only in the Rust dispatcher. On an
   issue no person approved a cycle of, the millwright's `tehas:ready` starts
   the first cycle when an account in `TEHAS_ALLOWED_LABELERS` wrote the issue,
   nobody outside the list changed its title or text since, it carries none of
@@ -2082,7 +2082,7 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   millwright's grant cannot retry it: a person approves the next cycle. The
   other checks of any start still apply: epics, the size limit, the slots.
 - **With epics, it may start and plan an epic's parts.** Optional, off
-  unless `TEHAS_MILLWRIGHT_EPICS=1`. An allowed labeller's `tehas:ready` on an
+  unless `TEHAS_MILLWRIGHT_EPICS=on`. An allowed labeller's `tehas:ready` on an
   epic (an issue with open sub-issues) approves its open sub-issues while the
   epic stays open, keeps open sub-issues and carries no
   `needs-human-attention`. The approval is read from the epic's own label
