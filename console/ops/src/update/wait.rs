@@ -1,19 +1,20 @@
 //! The seconds tehas update and install.sh wait for a lock before they give up.
 //! Both read them here, from the environment and before tehas_load, which drops
-//! every TEHAS_* it does not know: these are knobs of a run, not settings of an
-//! instance.
+//! every TEHAS_* it does not know.
 //!
-//!   update     TEHAS_UPDATE_LOCK_WAIT, for state/update.lock: 0 to 300, else 10.
-//!              The default is small so a refusal stays instant for the tests
-//!              that time it; the ceiling keeps a mistyped number from hanging
-//!              an operator.
+//!   update     TEHAS_UPDATE_LOCK_WAIT, for state/update.lock: a setting of the
+//!              host (rules::HOST), 0 to 300, 10 when unset or empty. Any other
+//!              value stops the run with 78. The default is small so a refusal
+//!              stays instant for the tests that time it; the ceiling keeps a
+//!              mistyped number from hanging an operator.
 //!   dispatch   TEHAS_DISPATCH_LOCK_WAIT, for state/dispatch.lock, which a poll
 //!              holds for its whole run: 0 to 3600, else 900. A poll's own bounds
 //!              add up to minutes, so the update lock's 10 would refuse an install
-//!              whenever the timer's poll is running.
+//!              whenever the timer's poll is running. It is internal: a leading
+//!              zero, a sign, a fraction or anything past the ceiling is the
+//!              default.
 //!
-//! 0 refuses at once. A leading zero, a sign, a fraction or anything past the
-//! ceiling is the default.
+//! 0 refuses at once.
 
 use super::{say, tell};
 use std::env;
@@ -50,9 +51,21 @@ fn seconds(wait: &Wait, value: Option<&str>) -> u64 {
         .unwrap_or(wait.default)
 }
 
-/// The seconds `console update run` waits for state/update.lock.
-pub(super) fn update() -> u64 {
-    seconds(&UPDATE, env::var(UPDATE.name).ok().as_deref())
+/// The update wait as its rule reads it, or the line that refuses it.
+fn update_seconds(value: Option<&str>) -> Result<u64, String> {
+    let v = value.unwrap_or_default();
+    if v.is_empty() {
+        return Ok(UPDATE.default);
+    }
+    tehas_core::settings::rules::check(UPDATE.name, v, &Default::default())
+        .map_err(|why| format!("{} is not valid: {why}", UPDATE.name))?;
+    Ok(v.parse().unwrap_or(UPDATE.default))
+}
+
+/// The seconds `console update run` waits for state/update.lock, or the line
+/// that refuses the value.
+pub(super) fn update() -> Result<u64, String> {
+    update_seconds(env::var(UPDATE.name).ok().as_deref())
 }
 
 /// `console update wait update|dispatch`: the seconds, one line.
@@ -66,8 +79,20 @@ pub fn verb(given: &[String]) -> u8 {
         }
     };
     let value = env::var(wait.name).ok();
-    say(&seconds(&wait, value.as_deref()).to_string());
-    0
+    if wait.name != UPDATE.name {
+        say(&seconds(&wait, value.as_deref()).to_string());
+        return 0;
+    }
+    match update_seconds(value.as_deref()) {
+        Ok(n) => {
+            say(&n.to_string());
+            0
+        }
+        Err(line) => {
+            super::fault(&line);
+            78
+        }
+    }
 }
 
 #[cfg(test)]
@@ -79,28 +104,31 @@ mod tests {
     }
 
     #[test]
-    fn the_update_wait_takes_0_through_300_and_is_10_otherwise() {
-        assert_eq!(seconds(&UPDATE, None), 10);
-        for (v, want) in [
-            ("0", 0),
-            ("1", 1),
-            ("45", 45),
-            ("300", 300),
-            ("301", 10),
-            ("9999", 10),
-            ("999999999999999999999", 10),
-            ("00", 10),
-            ("05", 10),
-            ("0000000009", 10),
-            ("-1", 10),
-            ("+5", 10),
-            ("1.5", 10),
-            ("1e3", 10),
-            ("soon", 10),
-            (" 5", 10),
-            ("", 10),
+    fn the_update_wait_takes_0_through_300_and_refuses_anything_else() {
+        assert_eq!(update_seconds(None), Ok(10));
+        assert_eq!(update_seconds(Some("")), Ok(10));
+        for (v, want) in [("0", 0), ("1", 1), ("45", 45), ("300", 300)] {
+            assert_eq!(update_seconds(Some(v)), Ok(want), "{v:?}");
+        }
+        for v in [
+            "301",
+            "9999",
+            "999999999999999999999",
+            "00",
+            "05",
+            "0000000009",
+            "-1",
+            "+5",
+            "1.5",
+            "1e3",
+            "soon",
+            " 5",
         ] {
-            assert_eq!(asked(&UPDATE, v), want, "{v:?}");
+            assert_eq!(
+                update_seconds(Some(v)),
+                Err("TEHAS_UPDATE_LOCK_WAIT is not valid: expected a whole number of seconds from 0 to 300".into()),
+                "{v:?}"
+            );
         }
     }
 
