@@ -3228,6 +3228,98 @@ fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
 }
 
+/// A secret and a private address the planner wrote, in the shapes the mask
+/// knows. None of them is a word the check of #1210 reads. The address is
+/// built, not written out: this file is linted.
+const PLAN_SECRET: &str = "ghp_abcdefghijklmnop1234";
+fn plan_address() -> String {
+    format!("10.{}.2.3", 1)
+}
+
+#[test]
+fn a_plan_with_no_open_points_goes_on_masked_and_its_sum_binds_the_masked_text() {
+    let mut t = world();
+    let title = format!("feat: search is fast at {}", plan_address());
+    let body = format!("{PLAN_BODY}\n\nUse {PLAN_SECRET} and postgres://u:hunter2word@db/x.");
+    clear_draft(
+        &t,
+        alices_session(),
+        "alice",
+        &json!({"title": title, "spec": body}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    for secret in [PLAN_SECRET, &plan_address(), "hunter2word"] {
+        assert!(!all.contains(secret), "{secret} in {all}");
+    }
+    let w = t.writes();
+    assert!(
+        w.iter().any(|c| c.starts_with(
+            "gh issue edit 7 --repo example-owner/example-product --title feat: search is fast at [private address] --body-file -"
+        )),
+        "{w:?}"
+    );
+    // The record binds the text GitHub holds, so the bot's tehas:ready
+    // matches it.
+    let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
+    let was = json!({"title": "search", "body": "make it fast"});
+    let plan = tehas_core::plan::clear_plan(&json!({"title": title, "spec": body}), &was, "")
+        .unwrap_or_else(|_| panic!("refused"));
+    let body = tehas_core::plan::keep_spec(&plan.body, "make it fast");
+    let (title, body) = super::plan::update_text(&plan.title, &body);
+    assert!(!body.contains(PLAN_SECRET), "{body}");
+    assert_eq!(
+        record["sum"],
+        crate::text::plan_sum(&json!({"title": title, "body": body}))
+    );
+}
+
+#[test]
+fn a_ticked_plan_is_written_masked_with_its_title_cut_to_what_github_holds() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let words: Vec<String> = (0..80).map(|i| format!("w{i}")).collect();
+    let title = format!("feat: {PLAN_SECRET} {}", words.join(" "));
+    let body = format!("{PLAN_BODY}\n\nReach it at {}.", plan_address());
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "This issue now holds the plan. API_KEY=hunter2word",
+               "question": null, "update": {"title": title, "body": body}}),
+    );
+    let keep = t.dir.join("works/tehas-work-plan-7.keep");
+    fs::create_dir_all(&keep).unwrap();
+    fs::write(
+        keep.join("draft.json"),
+        json!({"title": title, "spec": body}).to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    for secret in [PLAN_SECRET, &plan_address(), "hunter2word"] {
+        assert!(!all.contains(secret), "{secret} in {all}");
+    }
+    let w = t.writes();
+    let edit = w
+        .iter()
+        .find(|c| c.starts_with("gh issue edit 7 --repo example-owner/example-product --title "))
+        .unwrap_or_else(|| panic!("{w:?}"));
+    let written = edit
+        .trim_start_matches("gh issue edit 7 --repo example-owner/example-product --title ")
+        .split(" --body-file -")
+        .next()
+        .unwrap();
+    assert_eq!(written.chars().count(), 256, "{written}");
+    assert!(written.starts_with("feat: ghp_***"), "{written}");
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("gh issue comment 7") && c.contains("API_KEY=***")));
+}
+
 #[test]
 fn the_plan_goes_on_with_the_issues_words_folded_as_the_tick_does() {
     let mut t = world();
@@ -3341,6 +3433,41 @@ fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_term
     t.apply(json!([{"plan_post": 7}]));
     assert!(t.writes().contains(&LABEL_OFF.to_string()));
     assert!(the_record(&t).exists());
+}
+
+/// The retry reads the kept outcome against the kept draft, so the mask and
+/// the cut of the write must not make the two differ.
+#[test]
+fn a_masked_or_cut_plan_that_could_not_be_written_is_written_by_the_next_poll() {
+    let long = format!("feat: {}", "x".repeat(300));
+    for (title, spec) in [
+        (
+            PLAN_TITLE.to_string(),
+            format!("{PLAN_BODY}\n\nUse {PLAN_SECRET}."),
+        ),
+        (long, PLAN_BODY.to_string()),
+    ] {
+        let mut t = world();
+        clear_draft(
+            &t,
+            alices_session(),
+            "alice",
+            &json!({"title": title, "spec": spec}),
+        );
+        t.fail("gh", "--title");
+        let a = t.apply(json!([{"plan_collect": 7}]));
+        assert!(a.log.iter().any(|l| l.contains("could not be written")));
+        fs::remove_file(t.dir.join("fail-gh")).unwrap();
+        let a = t.apply(json!([{"plan_post": 7}]));
+        assert!(
+            t.writes().contains(&LABEL_OFF.to_string()),
+            "{title}: {:?}",
+            a.log
+        );
+        let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+        assert!(!all.contains(PLAN_SECRET), "{all}");
+        assert!(the_record(&t).exists());
+    }
 }
 
 #[test]
