@@ -58,7 +58,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 30] = [
+const VERBS: [&str; 32] = [
     "work",
     "index",
     "dispatch",
@@ -89,6 +89,8 @@ const VERBS: [&str; 30] = [
     "init-product",
     "refresh",
     "github",
+    "outsource",
+    "prototype",
 ];
 
 fn tehas(words: &[String]) -> Go {

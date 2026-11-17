@@ -2,11 +2,12 @@
 //! one holds, and the order of the work. Settings come from the environment
 //! `console run` loaded.
 
-use super::{front_page, live_file, number_of, refs, ticket_page};
+use super::{front_page, live_file, number_of, refs, ticket_page, Refs, Zip};
 use crate::edge;
 use crate::forge::{gh_program, repo, runnable, CALL_BOUND};
 use crate::jq::{obj, J};
-use attach::fetch::{self, Fetched, Full};
+use attach::fetch::{self, Fetched, Full, Pin, Unpinned};
+use attach::link::{is_external, is_link};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -26,6 +27,9 @@ const LIMIT: i64 = 10 * 1024 * 1024;
 const MAX_FILES: i64 = 40;
 const OVER: &str = "Over the 10 MB limit of a ticket.";
 const NOT_HOSTED: &str = "Not a type the lab hosts.";
+const RETRY: &str = "Could not be fetched. The lab tries again.";
+/// The name of a feature this pass checks.
+const ZIP_URL: &str = "protolab-zip-url";
 
 /// One line of what a pass did. A log that went away does not stop the pass.
 fn say(line: &str) {
@@ -43,6 +47,10 @@ struct Lab {
     url: String,
     design: String,
     token: String,
+    /// Whether a ticket may name a zip by address: protolab-zip-url is on.
+    zips: bool,
+    /// TEHAS_PROTOLAB_ZIP_HOSTS: the hosts such a zip may come from.
+    zip_hosts: String,
 }
 
 pub fn run() -> u8 {
@@ -80,6 +88,8 @@ pub fn run() -> u8 {
         url: setting("TEHAS_PROTOLAB_URL"),
         design: setting("TEHAS_DESIGN"),
         token: String::new(),
+        zips: tehas_core::features::on(ZIP_URL),
+        zip_hosts: setting("TEHAS_PROTOLAB_ZIP_HOSTS"),
     };
     let rc = pass(&mut lab, &live);
     let _ = edge::remove(&lab.work);
@@ -92,7 +102,8 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     let mut gh = Bounded::new(program.clone(), CALL_BOUND);
     lab.token = token(&mut gh);
     let home_url = home_url(&lab.domain, &lab.url);
-    let generator = generator(&lab.domain, &lab.design);
+    let zips = lab.zips.then_some(lab.zip_hosts.as_str());
+    let generator = generator(&lab.domain, &lab.design, zips);
 
     // The bot's own login, asked once before anything of a ticket is read,
     // built or removed: whatever a cycle labels, it labels as the bot. A login
@@ -198,9 +209,10 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         keep.push(n.to_string());
         let stamp = format!("{generator} {}", raw(&ticket["updatedAt"]));
         let place = lab.site.join(n.to_string());
-        if fs::read_to_string(place.join(".stamp"))
-            .is_ok_and(|had| had.trim_end_matches('\n') == stamp)
-        {
+        let had = fs::read_to_string(place.join(".stamp")).unwrap_or_default();
+        let mut had = had.lines();
+        let (had_stamp, had_key) = (had.next(), had.next());
+        if had_stamp == Some(stamp.as_str()) {
             continue;
         }
         // A title changed since the approval by an account outside the list
@@ -221,7 +233,28 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
             ));
             continue;
         }
-        match build(lab, &mut gh, n, ticket, &stamp, &home_url) {
+        let Some(found) =
+            texts(lab, &mut gh, n).map(|t| refs(&t, &|w| allowed(w, &lab.allowed), lab.zips))
+        else {
+            say(&format!("#{n}: could not be read, left as it was"));
+            continue;
+        };
+        // A change that brings no new link and no new title does not fetch
+        // the files again: the page only takes the new time.
+        let key = found.key(&format!("{generator} {}", raw(&ticket["title"])));
+        if had_key == Some(key.as_str())
+            && retime(&place, ticket, &stamp, &key, &home_url, &lab.design).is_some()
+        {
+            continue;
+        }
+        match build(
+            lab,
+            n,
+            ticket,
+            &found,
+            &format!("{stamp}\n{key}"),
+            &home_url,
+        ) {
             Some(line) => say(&line),
             None => say(&format!("#{n}: could not be read, left as it was")),
         }
@@ -269,21 +302,32 @@ fn home_url(domain: &str, url: &str) -> String {
 /// What every stamp starts with: the console writes the pages, so a page whose
 /// words changed is built again, and so is one drawn in another design. Read
 /// through /proc, which still works while an update has replaced the file.
-fn generator(domain: &str, design: &str) -> String {
+/// With zips by address on, the hosts they may come from are part of it too,
+/// so a host added or taken off, or the switch turned, builds every page again.
+fn generator(domain: &str, design: &str, zips: Option<&str>) -> String {
     let bytes = fs::read("/proc/self/exe").unwrap_or_default();
     let mut hash = DefaultHasher::new();
     bytes.hash(&mut hash);
-    stamp_of(hash.finish(), bytes.len(), domain, design)
+    stamp_of(hash.finish(), bytes.len(), domain, design, zips)
 }
 
-fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
+fn stamp_of(hash: u64, len: usize, domain: &str, design: &str, zips: Option<&str>) -> String {
     let domain = if domain.is_empty() { "path" } else { domain };
     let design = if design == "pixel" {
         "pixel"
     } else {
         "beesknees26"
     };
-    format!("{hash:016x}-{len}-{domain}-{design}")
+    let mut stamp = format!("{hash:016x}-{len}-{domain}-{design}");
+    if let Some(hosts) = zips {
+        let mut hosts: Vec<&str> = hosts.split(' ').filter(|h| !h.is_empty()).collect();
+        hosts.sort_unstable();
+        hosts.dedup();
+        let mut hash = DefaultHasher::new();
+        hosts.hash(&mut hash);
+        stamp.push_str(&format!("-zips-{:016x}", hash.finish()));
+    }
+    stamp
 }
 
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
@@ -345,20 +389,12 @@ fn tickets(answer: &str) -> Option<Vec<Value>> {
         .filter(|row| row["pull_request"].is_null())
         .filter_map(|row| {
             let title: String = row["title"].as_str()?.chars().take(180).collect();
-            let body = if row["body"].is_null() {
-                Value::from("")
-            } else {
-                row["body"].clone()
-            };
             Some(serde_json::json!({
                 "number": row["number"].as_u64()?,
                 "title": title,
                 "url": row["html_url"],
                 "author": row["user"]["login"],
-                "association": row["author_association"],
                 "updatedAt": row["updated_at"],
-                "comments": row["comments"],
-                "body": body,
             }))
         })
         .collect();
@@ -434,29 +470,31 @@ impl Held {
 /// for the log, or None when it could not be read; what is there is then kept.
 fn build(
     lab: &Lab,
-    gh: &mut Bounded,
     n: u64,
     ticket: &Value,
+    found: &Refs,
     stamp: &str,
     home_url: &str,
 ) -> Option<String> {
     let dir = lab.work.join(n.to_string());
     fs::create_dir_all(dir.join("files")).ok()?;
-    let replies = if has_replies(&ticket["comments"]) {
-        let path = format!("repos/{}/issues/{n}/comments?per_page=100", lab.repo);
-        let answer = gh.run(&["api", &path]).ok()?;
-        match serde_json::from_str(&answer).ok()? {
-            Value::Array(rows) => rows,
-            _ => return None,
-        }
-    } else {
-        Vec::new()
-    };
-    let found = refs(ticket, &replies);
 
     let mut held = Held::default();
     for link in &found.fetch {
         take(lab, &dir, link, &mut held)?;
+    }
+    for mark in &found.zips {
+        match mark {
+            Ok(zip) => take_zip(lab, &dir, zip, &mut held),
+            Err(word) => held.skip(
+                &(if word.is_empty() {
+                    "Zip:".to_string()
+                } else {
+                    clean_name(word)
+                }),
+                NOT_A_MARK,
+            ),
+        }
     }
 
     let (bytes, files, skipped) = (held.used, held.files.len(), held.skipped.len());
@@ -496,13 +534,75 @@ fn build(
     ))
 }
 
-/// `.comments // 0` is not 0.
-fn has_replies(comments: &Value) -> bool {
-    match comments {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(n) => n.as_f64() != Some(0.0),
-        _ => true,
-    }
+/// An account as the texts read asks for it: its login and its user id, so the
+/// login can be vouched for.
+const WHO: &str = "login ...on User { databaseId } ...on Bot { databaseId }";
+
+/// The issue's body and its first hundred comments, each with its author and
+/// its last editor, the logins vouched. None when GitHub does not answer with
+/// the issue.
+fn texts(lab: &Lab, gh: &mut Bounded, n: u64) -> Option<Value> {
+    let (owner, name) = lab.repo.split_once('/')?;
+    let query = format!(
+        "query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ body author {{ {WHO} }} editor {{ {WHO} }} comments(first: 100) {{ nodes {{ body author {{ {WHO} }} editor {{ {WHO} }} }} }} }} }} }}"
+    );
+    let answer = gh
+        .run(&[
+            "api",
+            "graphql",
+            "-F",
+            &format!("owner={owner}"),
+            "-F",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={n}"),
+            "-f",
+            &format!("query={query}"),
+        ])
+        .ok()?;
+    let mut v: Value = serde_json::from_str(&answer).ok()?;
+    tehas_core::accounts::vouch(&mut v);
+    v.pointer("/data/repository/issue")
+        .filter(|i| i.is_object())
+        .cloned()
+}
+
+/// The page of a ticket whose title and links are as they were, given the
+/// ticket's new time in place, with no file fetched. None when the page there
+/// cannot be read or written; the ticket is then built again.
+fn retime(
+    place: &Path,
+    ticket: &Value,
+    stamp: &str,
+    key: &str,
+    home_url: &str,
+    design: &str,
+) -> Option<()> {
+    let mut meta = J::parse(&fs::read_to_string(place.join(".meta.json")).ok()?)?;
+    let J::Obj(fields) = &mut meta else {
+        return None;
+    };
+    let time = J::parse(&ticket["updatedAt"].to_string())?;
+    fields.iter_mut().find(|(k, _)| k == "updatedAt")?.1 = time;
+    let meta = meta.pretty();
+    let row: Value = serde_json::from_str(&meta).ok()?;
+    let outside = row["outside"].as_i64().unwrap_or(0);
+    let page = ticket_page(
+        &row,
+        row["files"].as_array()?,
+        row["skipped"].as_array()?,
+        outside,
+        home_url,
+        design,
+        LIMIT,
+    );
+    edge::put(&place.join(".meta.json"), format!("{meta}\n").as_bytes()).ok()?;
+    edge::put(&place.join("index.html"), page.as_bytes()).ok()?;
+    edge::put(
+        &place.join(".stamp"),
+        format!("{stamp}\n{key}\n").as_bytes(),
+    )
+    .ok()
 }
 
 /// One link of the ticket, fetched into the directory or said to be left out.
@@ -522,16 +622,8 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         };
     }
-    let left = match fetch::room(held.count, MAX_FILES, held.used, LIMIT) {
-        Ok(left) => left,
-        Err(Full::Count) => {
-            held.skip(&name, &more_than());
-            return Some(());
-        }
-        Err(Full::Bytes) => {
-            held.skip(&name, OVER);
-            return Some(());
-        }
+    let Some(left) = room(&name, held) else {
+        return Some(());
     };
 
     let part = dir.join(".part");
@@ -550,7 +642,7 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         }
         _ => {
-            held.skip(&name, "Could not be fetched. The lab tries again.");
+            held.skip(&name, RETRY);
             held.retry = true;
             return Some(());
         }
@@ -584,6 +676,83 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
     let _ = fs::set_permissions(files.join(&name), fs::Permissions::from_mode(0o644));
     held.file(&name, J::str(kind), size);
     Some(())
+}
+
+/// The bytes left for one more file, or None when it is left out, and said.
+fn room(name: &str, held: &mut Held) -> Option<i64> {
+    match fetch::room(held.count, MAX_FILES, held.used, LIMIT) {
+        Ok(left) => Some(left),
+        Err(Full::Count) => {
+            held.skip(name, &more_than());
+            None
+        }
+        Err(Full::Bytes) => {
+            held.skip(name, OVER);
+            None
+        }
+    }
+}
+
+const NOT_A_MARK: &str =
+    "Not a zip and its sha256: the line is Zip:, the address and sha256: with 64 lower-case hex digits.";
+const NOT_ALLOWED: &str = "Not from a host the instance allows.";
+
+/// A zip the ticket names by address and sha256: a file attached on GitHub,
+/// fetched as one, or an address on a host of TEHAS_PROTOLAB_ZIP_HOSTS, which
+/// is followed only to addresses on those hosts. Bytes of another sha256 are
+/// refused. It is unpacked as an attached zip, under the same limits.
+fn take_zip(lab: &Lab, dir: &Path, zip: &Zip, held: &mut Held) {
+    let name = clean_name(&zip.link);
+    let within = |a: &str| is_external(a, &lab.zip_hosts);
+    if !is_link(&zip.link) && !within(&zip.link) {
+        held.skip(&name, NOT_ALLOWED);
+        return;
+    }
+    let Some(left) = room(&name, held) else {
+        return;
+    };
+    let part = dir.join(".part");
+    let pin = Pin {
+        link: &zip.link,
+        sha256: &zip.sha256,
+        most: left,
+    };
+    let got = if is_link(&zip.link) {
+        fetch::fetch_pinned(&pin, &part, &lab.token)
+    } else {
+        fetch::fetch_pinned_within(&pin, &part, &lab.token, &within)
+    };
+    let failed = match got {
+        Ok(_) => None,
+        Err(Unpinned::Fetch(Fetched { code, .. })) => match code {
+            fetch::TOO_BIG => Some(OVER),
+            fetch::REFUSED => Some("The host did not hand it out."),
+            fetch::MOVED => Some("Sent on to an address the instance does not allow."),
+            _ => {
+                held.retry = true;
+                Some(RETRY)
+            }
+        },
+        Err(Unpinned::Other(_)) => Some("Not the bytes its sha256 names."),
+        Err(Unpinned::Unreadable(_)) => {
+            held.retry = true;
+            Some(RETRY)
+        }
+    };
+    let size = fs::metadata(&part).map_or(0, |m| m.len() as i64);
+    let failed = failed.or(if size == 0 {
+        Some("Empty.")
+    } else if size > left {
+        Some(OVER)
+    } else {
+        None
+    });
+    if let Some(reason) = failed {
+        let _ = fs::remove_file(&part);
+        held.skip(&name, reason);
+        return;
+    }
+    unpack(lab, dir, &name, left, held);
 }
 
 fn more_than() -> String {
@@ -989,13 +1158,26 @@ mod tests {
     #[test]
     fn the_stamp_says_the_console_the_domain_and_the_design() {
         assert_eq!(
-            stamp_of(255, 7, "", ""),
+            stamp_of(255, 7, "", "", None),
             "00000000000000ff-7-path-beesknees26"
         );
         assert_eq!(
-            stamp_of(255, 7, "a.org", "pixel"),
+            stamp_of(255, 7, "a.org", "pixel", None),
             "00000000000000ff-7-a.org-pixel"
         );
+    }
+
+    #[test]
+    fn with_zips_on_the_stamp_says_the_hosts_in_any_order() {
+        let off = stamp_of(255, 7, "", "", None);
+        let none = stamp_of(255, 7, "", "", Some(""));
+        let one = stamp_of(255, 7, "", "", Some("a.org"));
+        let two = stamp_of(255, 7, "", "", Some("a.org b.org"));
+        assert!(none.starts_with(&format!("{off}-zips-")));
+        assert_ne!(none, one);
+        assert_ne!(one, two);
+        assert_eq!(two, stamp_of(255, 7, "", "", Some("b.org a.org")));
+        assert!(!two.contains(' '));
     }
 
     #[test]
@@ -1012,18 +1194,10 @@ mod tests {
         .unwrap();
         let numbers: Vec<i64> = got.iter().map(number_of).collect();
         assert_eq!(numbers, [11, 3]);
-        assert_eq!(got[1]["body"], "");
         assert_eq!(got[1]["author"], "a");
         let long = format!("[{{\"number\":1,\"title\":\"{}\"}}]", "ä".repeat(200));
         let cut = tickets(&long).unwrap();
         assert_eq!(cut[0]["title"].as_str().unwrap().chars().count(), 180);
-    }
-
-    #[test]
-    fn replies_are_read_unless_the_count_is_none() {
-        assert!(has_replies(&Value::from(3)));
-        assert!(!has_replies(&Value::from(0)));
-        assert!(!has_replies(&Value::Null));
     }
 
     #[test]

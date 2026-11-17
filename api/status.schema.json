@@ -58,6 +58,7 @@
       }
     },
     "running": {
+      "description": "The running cycles of the factory. A cycle outsourced to a contractor is one of them, as a cycle on this host is: this host's supervisor holds its lock while the contractor runs it.",
       "type": "array",
       "items": {
         "type": "object",
@@ -143,6 +144,7 @@
       }
     },
     "room": {
+      "description": "Free places as the last poll counted them. A cycle outsourced to a contractor takes a place as a cycle on this host does.",
       "type": ["object", "null"],
       "required": [],
       "additionalProperties": false,
@@ -152,6 +154,38 @@
         "maxAwaiting": {"type": "integer"},
         "slice": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 0}
+      }
+    },
+    "contractors": {
+      "description": "The contractors of outsource, as live/contractors.json last had them: how many have each status, how many cycles are outsourced, and each contractor. Present only while the factory has outsource on; left out otherwise.",
+      "type": "object",
+      "required": ["idle", "working", "stopping", "silent", "resting", "draining", "revoked", "outsourced", "list"],
+      "additionalProperties": false,
+      "properties": {
+        "idle": {"type": "integer", "minimum": 0},
+        "working": {"type": "integer", "minimum": 0},
+        "stopping": {"type": "integer", "minimum": 0},
+        "silent": {"type": "integer", "minimum": 0},
+        "resting": {"type": "integer", "minimum": 0},
+        "draining": {"type": "integer", "minimum": 0},
+        "revoked": {"type": "integer", "minimum": 0},
+        "outsourced": {"type": "integer", "minimum": 0},
+        "list": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "status", "jobsDone", "jobsLost"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"},
+              "status": {"enum": ["idle", "working", "stopping", "silent", "resting", "draining", "revoked"]},
+              "issue": {"type": "integer", "minimum": 1},
+              "lastSeenAt": {"type": "string", "format": "date-time"},
+              "jobsDone": {"type": "integer", "minimum": 0},
+              "jobsLost": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
       }
     },
     "versions": {

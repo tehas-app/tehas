@@ -9,6 +9,11 @@ use serde_json::Value;
 use std::path::Path;
 use tehas_core::driver::Driver;
 
+/// The feature of a runner that reads the `spec` and `approvedText` entries
+/// of the manifest: a cycle handed a spec starts only on a runner that sets it
+/// to true.
+pub const READS_SPEC: &str = "issueSpec";
+
 const EXIT_CODES: u64 = 1;
 const NDJSON_STABLE: u64 = 1;
 

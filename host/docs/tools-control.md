@@ -195,8 +195,8 @@ of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
 `.timed`, `.signal`, `.oom`, `.forks`, `.disk`, `.nostart`, `.lean-refused`,
-`.refused`, `.refresh-conflict`, `.comments`, `.progress.json`, `.result.json`, `.freeze`
-and `.frozen`, a `.nostart.new`, `.runner_exit.new` or `.status.new` whose
+`.refused`, `.refresh-conflict`, `.comments`, `.progress.json`, `.result.json`, `.freeze`,
+`.frozen` and `.heads`, a `.nostart.new`, `.runner_exit.new` or `.status.new` whose
 write never finished, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -264,3 +264,18 @@ could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
+
+## tehas outsource
+
+```
+tehas outsource invite [--name NAME] [--json]
+tehas outsource list [--json]
+tehas outsource status [--json]
+tehas outsource revoke <contractor> [--json]
+tehas outsource drain <contractor> [--json]
+```
+
+The contractors that run this factory's cycles: invite a host, list them,
+count them, end one at once, or ask one to take no new job. Outsource is still
+being built in this release, so every subcommand exits 78. See
+[outsource](/outsource#the-commands).

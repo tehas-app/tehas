@@ -55,7 +55,8 @@ printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 written=""
 for a in "$@"; do
   case "$a" in
-    *:ro) git -C "${a%%:*}" rev-parse HEAD >"$T/calls/indexed.head"; echo "${a%%:*}" >"$T/calls/indexed.dir" ;;
+    *:ro) git -C "${a%%:*}" rev-parse HEAD >"$T/calls/indexed.head"; echo "${a%%:*}" >"$T/calls/indexed.dir"
+      git -C "${a%%:*}" rev-list --count HEAD >"$T/calls/indexed.count" ;;
     *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
   esac
 done
@@ -228,6 +229,22 @@ t_eq "$(after --entrypoint)" "codebase-memory-mcp"
 t_case "the tree that is indexed is a clone at the branch's tip, read-only"
 t_eq "$(cat "$T/calls/indexed.head")" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$(cat "$T/calls/indexed.dir"):$ws:ro" "$indexdir:$cache" | LC_ALL=C sort)"
+
+t_case "the tree that is indexed has the history of a cycle's workspace: TEHAS_CLONE_DEPTH commits"
+commit second
+commit third
+git -C "$checkout" fetch -q
+for depth in 2 0; do
+  reset
+  t_instance "${T_MINIMAL[@]}" "TEHAS_CLONE_DEPTH=$depth"
+  t_run "$index"
+  t_eq "$t_rc" 0
+  t_eq "$(cat "$T/calls/indexed.head")" "$(git -C "$upstream" rev-parse main)"
+  t_eq "$(cat "$T/calls/indexed.count")" "$([ "$depth" = 0 ] && git -C "$upstream" rev-list --count main || echo 2)"
+done
+reset
+t_instance "${T_MINIMAL[@]}"
+t_run "$index"
 
 t_case "the indexer writes the host's own index directory, and nothing else"
 t_eq "$(after -v | grep -c -v ':ro$')" 1

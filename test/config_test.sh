@@ -82,6 +82,22 @@ t_run "$load; echo rc=\$? \$TEHAS_CHILD_TIMEOUT"
 t_eq "$t_out" "rc=0 $child_max"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a cycle's tree gets 100 commits of history unless the instance says otherwise, 0 is all of it"
+t_run "$load && echo \$TEHAS_CLONE_DEPTH"
+t_eq "$t_out" 100
+t_contains "$(grep '^#TEHAS_CLONE_DEPTH=' "$T_ROOT/instances/example/optional.env")" "=100"
+t_contains "$(grep '^| .TEHAS_CLONE_DEPTH.' "$T_ROOT/host/docs/tools.md")" "| \`100\`"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONE_DEPTH=0
+t_run "$load && echo \$TEHAS_CLONE_DEPTH"
+t_eq "$t_out" 0
+for bad in -1 01 full 1000000000; do
+  t_instance "${T_MINIMAL[@]}" "TEHAS_CLONE_DEPTH=$bad"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "TEHAS_CLONE_DEPTH is not valid: expected a whole number of 0 or more"
+done
+t_instance "${T_MINIMAL[@]}"
+
 t_case "a child bound longer than the cycle's own limit is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=21600 TEHAS_CHILD_TIMEOUT=3601
 t_run "$load; echo rc=\$?"
@@ -1776,7 +1792,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "4701fba5e8fa3570f2dc1f5b205fe39c4f54135ff0861084dd5e4f37d1531cdd"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "1a8aa4f8f4c97381eb03ba1c6c300ddd0239286e125de2cde82a62f74e38a8ae"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

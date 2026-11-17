@@ -132,6 +132,22 @@ t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
 rm -rf "$T/home/.pi" "$T/home/.gitconfig"
 
+t_case "with outsource on in a test build the server is told to serve factory_contractors, and only then"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+T_ENV+=(TEHAS_TEST_FEATURES=outsource)
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -e '^run ' | grep -o -e '--server-version .*')" "--server-version v0.7.30+abc1234 --outsource"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=off
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+T_ENV+=(TEHAS_TEST_FEATURES=outsource)
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "--outsource"
+
 t_case "the secret values the host masks reach the container as sums, by name, never as values"
 reset
 mkdir -p "$T/home/.pi/agent"

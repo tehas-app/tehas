@@ -74,16 +74,51 @@ since <approver> approved it, left as it was`, and a page it had keeps the
 title it was built with. An allowed account applying the label (or the type)
 again approves the title as it then is.
 
-It fetches only links to GitHub's attachment storage, in text written by an
-owner, member or collaborator of the repository, and only the types listed
-under [Operating](/operating). A ticket gets 10 megabytes and 40 files. An
-issue that has not changed since the last pass is not built again, so a quiet
-pass fetches no files: one GitHub call for its own account, one for the list,
-one for the label's id when the list is not empty, and one for every ticket at
-the stage, its label events. With `TEHAS_ISSUE_TYPES` a ticket that changed
-costs one more call, its label events, for the renames. When GitHub cannot be
+It fetches only links to GitHub's attachment storage, and only the types listed
+under [Operating](/operating). A link is taken from the issue's text or a
+comment when an account in `TEHAS_ALLOWED_LABELERS` wrote it, nobody off the
+list edited it last, and the line is not a quote (a line that starts with
+`>`): a quote reply carries someone else's words. Being a member or a
+collaborator of the repository is not enough, and the bot never is. Any other
+link is counted on the page and not fetched. A ticket gets 10 megabytes and 40
+files. An issue that has not changed since the last pass is not built again,
+so a quiet pass fetches no files: one GitHub call for its own account, one for
+the list, one for the label's id when the list is not empty, and one for every
+ticket at the stage, its label events. A ticket that changed costs one more
+call, its texts. When its title and the links taken are the ones its page was
+built from, as after a comment with no new link, no file is fetched again and
+the page only takes the new time. With `TEHAS_ISSUE_TYPES` a ticket that
+changed costs one more call, its label events, for the renames. When GitHub cannot be
 reached, what is there stays. A pass that finds no console to write the pages
 with says so and exits 78 before it calls GitHub.
+
+### A zip by address
+
+Still being built: a release refuses `TEHAS_PROTOLAB_ZIP_URL=on` with exit 78
+and lists `protolab-zip-url` in `flags` as `false`. When it ships, a ticket may
+name a zip that is not attached to it, on a line of its own:
+
+```
+Zip: https://files.example.org/p/proto.zip sha256:<64 lower-case hex digits>
+```
+
+The line counts by the rule of a link above: written by an account in
+`TEHAS_ALLOWED_LABELERS`, edited last by none outside it, and not quoted. A
+line from anyone else is counted on the page as a link from outside. The
+address is a file attached on GitHub, or an https address whose host is one of
+`TEHAS_PROTOLAB_ZIP_HOSTS` exactly, with no port, no account and no `..`.
+The list takes domain names only, not IP addresses. Empty, the default, allows
+no host. A redirect is followed only to an address
+on those hosts, at most three, and no token is sent to them. Bytes whose
+sha256 is not the one on the line are refused and nothing of them is kept. The
+zip is unpacked by `libexec/attach` as an attached one, after the attached
+files, and counts against the same 10 megabytes and 40 files. What is left
+out is listed on the page with its reason: a line of another form, a host off
+the list, a redirect off it, other bytes. A download that fails for now is
+tried again on the next pass. With the switch off, a `Zip:` line is text, as
+it always was. A host added to the list or taken off, or the switch turned,
+builds every page again on the next pass, so a page never keeps a zip its
+instance no longer allows.
 
 A prototype is somebody's HTML and script. That is why the Protolab is a
 server of its own on another port, and why every attached file is answered
@@ -93,3 +128,42 @@ own, never a path under the dashboard's, and set `TEHAS_PROTOLAB_URL`.
 
 Without the timer and the container there is no Protolab, and the panel on the
 factory floor says so.
+
+### tehas prototype file
+
+```
+tehas prototype file --title TEXT [--body-file FILE|-] [--zip ADDRESS --zip-sha256 HEX] [--spec LINK --spec-sha256 HEX]
+```
+
+Still being built: a release refuses `TEHAS_PROTOTYPE_FILE=on` with exit 78,
+lists `prototype-file` in `flags` as `false`, and the command exits 78 and
+files nothing.
+
+When it ships, it is the one way to file a prototype from the host. It opens
+an issue in `TEHAS_REPO` with the title and the text given, then the line
+`Zip: <address> sha256:<hex>` when `--zip` is given and the line
+`Spec: <link> sha256:<hex>` when `--spec` is given, each on a line of its own
+after the text, and puts `tehas:prototype` on it. With `TEHAS_ISSUE_TYPES`
+mapping `prototype` to a type, the issue is opened with that type and gets no
+label. It prints `filed #<n> as <login> with <mark>: <address of the issue>`.
+
+Every call is the caller's own gh, signed in with `gh auth login`: the gh in
+`~/tehas/bin`, or the first on `PATH` that is not the factory's shim, with no
+token of the factory in its environment. The Protolab takes the label, the
+links and the zip line only from an account in `TEHAS_ALLOWED_LABELERS`, so
+the command asks GitHub who is signed in first and stops with exit 3, before
+anything is written, when that is the bot or another app, a login off the
+list, or a listed login whose user id is not the recorded one.
+
+The zip is a file attached on GitHub, or, with `protolab-zip-url` on, an https
+address on a host of `TEHAS_PROTOLAB_ZIP_HOSTS` ([a zip by address](#a-zip-by-address)).
+An address outside GitHub with that feature off is exit 78, and one on
+another host exit 64. The spec is a file attached on GitHub. A sha256 is 64
+lower-case hex digits. A text that has a `Zip:` or `Spec:` line of its own for
+one it is given, or leaves a code fence open before the lines, is exit 64.
+
+Exit: 0 filed and marked; 1 gh could not say who is signed in, or a call of
+GitHub failed (an issue opened but not marked is named, to mark by hand); 3
+the login may not file one, and nothing is filed; 64 a bad argument; 78 the
+feature is off, a zip outside GitHub with `protolab-zip-url` off, or the
+settings are missing or malformed.

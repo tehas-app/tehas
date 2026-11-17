@@ -591,6 +591,62 @@ fn the_work_a_stopped_cycle_left_is_pushed_and_opened_as_a_draft() {
 }
 
 #[test]
+fn a_shallow_workspace_is_rebased_onto_a_default_branch_that_moved_past_its_depth() {
+    let w = World::new("shallow");
+    for n in 0..4 {
+        w.remote_commit(&format!("old-{n}.md"), "old\n", &format!("old {n}"));
+    }
+    // The workspace as a cycle's is made: the default branch alone, two
+    // commits of its history.
+    let ws = w.dir.join("ws");
+    git(&["init", "--quiet", "-b", "main", &ws.display().to_string()]);
+    let origin = w.origin.display().to_string();
+    git_in(&ws, &["remote", "add", "origin", &origin]);
+    git_in(
+        &ws,
+        &[
+            "fetch",
+            "--quiet",
+            "--depth=2",
+            &origin,
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    );
+    git_in(
+        &ws,
+        &[
+            "checkout",
+            "--quiet",
+            "-b",
+            "feature/issue-7",
+            "origin/main",
+        ],
+    );
+    fs::write(ws.join("a.txt"), "the change\n").unwrap();
+    git_in(&ws, &["add", "-A"]);
+    git_in(&ws, &["commit", "--quiet", "-m", "the change"]);
+    assert_eq!(
+        git_in(&ws, &["rev-parse", "--is-shallow-repository"]),
+        "true"
+    );
+    fs::rename(&ws, &w.workspace).unwrap();
+    // The default branch moves on by more than the workspace's depth.
+    for n in 0..5 {
+        w.remote_commit(&format!("new-{n}.md"), "new\n", &format!("new {n}"));
+    }
+    w.stub("", "https://github.com/acme/widget/pull/41");
+    let mut h = w.host();
+    let got = finish(&w.plan(), &mut h);
+    assert_eq!(got.why, "", "the run refused: {}", got.why);
+    let mut want = vec!["one".to_string()];
+    want.extend((0..4).map(|n| format!("old {n}")));
+    want.extend((0..5).map(|n| format!("new {n}")));
+    want.push("the change".to_string());
+    assert_eq!(w.remote_log("finish/issue-7"), want);
+    assert_eq!(w.left(), Vec::<String>::new(), "the run left a tree behind");
+}
+
+#[test]
 fn a_workspace_that_is_not_there_is_refused() {
     let w = World::new("no-workspace");
     w.stub("", "");

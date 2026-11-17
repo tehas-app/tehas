@@ -76,6 +76,10 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
+    // The contractor program a cycle on a contractor relays through
+    // (cycle/src/work.rs), named by that program and read only with outsource
+    // on.
+    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
     "TEHAS_PUSH_PROBE_CMD",
@@ -1232,6 +1236,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "2"),
             ("TEHAS_OUTSOURCE_REST", "1800"),
             ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
@@ -1279,6 +1284,40 @@ mod tests {
         let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
+    }
+
+    #[test]
+    fn the_protolab_zip_url_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_PROTOLAB_ZIP_URL=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        let vars = loads(&[]);
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "0");
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "");
+        let mut vars = start(&[(crate::features::TEST_VAR, "protolab-zip-url")]);
+        let mut host = Fake::with(&[
+            "TEHAS_PROTOLAB_ZIP_URL=on",
+            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+        ]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "1");
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "files.example.org");
+    }
+
+    #[test]
+    fn the_prototype_file_switch_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_PROTOTYPE_FILE=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&[]).text("TEHAS_PROTOTYPE_FILE"), "0");
+        let mut vars = start(&[(crate::features::TEST_VAR, "prototype-file")]);
+        let mut host = Fake::with(&["TEHAS_PROTOTYPE_FILE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_PROTOTYPE_FILE"), "1");
     }
 
     #[test]
@@ -1371,6 +1410,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "-1"),
             ("TEHAS_OUTSOURCE_REST", "two"),
             ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
         ] {
             let why = run(&mut Fake::with(&[&format!("{name}={value}")]))

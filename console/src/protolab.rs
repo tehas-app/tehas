@@ -27,8 +27,17 @@
 //!                   the ticket gets no page, and a page it had is removed. The
 //!                   log names the issue and the account.
 //!   which files     Only links to GitHub's own attachment storage, in the issue
-//!                   text and its comments, written by an owner, member or
-//!                   collaborator of the repository. Nothing else is fetched.
+//!                   text and its comments, written by an account in
+//!                   TEHAS_ALLOWED_LABELERS and last edited by none outside it,
+//!                   on a line that is no quote. Nothing else is fetched,
+//!                   save a zip named by address and sha256 below.
+//!   a zip by address  With protolab-zip-url on (TEHAS_PROTOLAB_ZIP_URL, still
+//!                   being built), a line `Zip: <link> sha256:<64 hex>` in such
+//!                   a text names a zip: a file attached on GitHub, or an https
+//!                   address on a host of TEHAS_PROTOLAB_ZIP_HOSTS, followed
+//!                   only to addresses on those hosts. Bytes of another sha256
+//!                   are refused. It is unpacked as an attached zip is, under
+//!                   the same limits, after the attached files.
 //!   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
 //!                   css js mjs json txt. A zip is unpacked into a folder of
 //!                   its own by libexec/attach, which takes the same types and
@@ -52,7 +61,10 @@
 //! A ticket whose issue has not changed since the last run is left alone, so a
 //! run with nothing new fetches no files: it makes one GitHub call for its own
 //! account, one for the list, and one for every ticket at the stage, its label
-//! events. A console with other bytes builds every page again. No model.
+//! events. A ticket that changed has its texts read; when the title and the
+//! links taken are the ones its page was built from, the page only takes the
+//! new time and no file is fetched again. A console with other bytes builds
+//! every page again. No model.
 //!
 //! It also writes $TEHAS_HOME/live/protolab.json, the list the dashboard links
 //! from. TEHAS_PROTOLAB_URL in instance.env is the address people reach the
@@ -85,40 +97,119 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
-/// The links of a ticket to fetch, and how many came from outside.
+/// The links of a ticket to fetch, the zips it names by address, and how many
+/// came from outside.
 struct Refs {
     fetch: Vec<String>,
+    zips: Vec<ZipMark>,
     outside: i64,
 }
 
-/// The attachment links of one ticket and its replies: a link of an owner, a
-/// member or a collaborator is fetched, a link of anyone else only counted.
-fn refs(row: &Value, replies: &[Value]) -> Refs {
-    // The text of the ticket is written by its author, so the association of
-    // the issue answers for it, under either of the two names it is read by.
-    let mine_word = association(row, &["association", "author_association"]);
-    let mut mine = Vec::new();
-    let mut theirs = Vec::new();
-    let mut texts: Vec<(String, String)> = vec![(mine_word, text_of(row, "body"))];
-    for reply in replies {
-        texts.push((
-            association(reply, &["author_association", "association"]),
-            text_of(reply, "body"),
-        ));
+/// What a `Zip:` line says: the zip's link and sha256, or, for a line of
+/// another form, its first word.
+type ZipMark = Result<Zip, String>;
+
+#[derive(Clone, Debug, PartialEq, Hash)]
+struct Zip {
+    link: String,
+    sha256: String,
+}
+
+/// The word that opens a line naming a zip by address.
+const ZIP_MARK: &str = "Zip:";
+
+/// The zip a line names: `Zip: <link> sha256:<64 lower-case hex>`. None when
+/// the line does not start with [`ZIP_MARK`].
+fn zip_mark(line: &str) -> Option<ZipMark> {
+    let rest = line.trim().strip_prefix(ZIP_MARK)?;
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let hex = |h: &str| {
+        h.len() == 64
+            && h.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    Some(match words[..] {
+        [link, sum] if sum.strip_prefix("sha256:").is_some_and(hex) => Ok(Zip {
+            link: link.to_string(),
+            sha256: sum["sha256:".len()..].to_string(),
+        }),
+        _ => Err(words.first().map_or_else(String::new, |w| w.to_string())),
+    })
+}
+
+impl Refs {
+    /// What a page is built from besides the files themselves: the title, the
+    /// links taken and the count of the rest. The same key needs no fetch.
+    fn key(&self, title: &str) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&(title, &self.fetch, self.outside), &mut hasher);
+        if !self.zips.is_empty() {
+            std::hash::Hash::hash(&self.zips, &mut hasher);
+        }
+        format!("{:016x}", std::hash::Hasher::finish(&hasher))
     }
-    for (who, text) in texts {
-        let ours = matches!(who.as_str(), "OWNER" | "MEMBER" | "COLLABORATOR");
-        for link in links(&text) {
-            let keep = if ours { &mut mine } else { &mut theirs };
-            if !keep.contains(&link) {
-                keep.push(link);
+}
+
+/// The attachment links of one ticket, from the issue as the texts read
+/// answers it: its body and its comments, each with its author and its last
+/// editor, the logins vouched. A link is fetched when an allowed account wrote
+/// the text, nobody off the list edited it last, and the line is no quote: a
+/// quote reply carries someone else's words. Any other link is only counted.
+/// With `zips`, a `Zip:` line is read by the same rule and its link is no
+/// attachment link.
+fn refs(issue: &Value, allowed: &dyn Fn(&str) -> bool, zips: bool) -> Refs {
+    let mut texts = vec![issue];
+    if let Some(nodes) = issue.pointer("/comments/nodes").and_then(Value::as_array) {
+        texts.extend(nodes);
+    }
+    let mut mine = Vec::new();
+    let mut named: Vec<ZipMark> = Vec::new();
+    let mut theirs = Vec::new();
+    for text in texts {
+        let ours = allowed(&login_of(text, "author"))
+            && match text.get("editor") {
+                None | Some(Value::Null) => true,
+                Some(_) => allowed(&login_of(text, "editor")),
+            };
+        for line in text_of(text, "body").lines() {
+            let quoted = line.trim_start().starts_with('>');
+            let unquoted = line.trim_start_matches(|c: char| c == '>' || c.is_whitespace());
+            if let Some(mark) = zip_mark(unquoted).filter(|_| zips) {
+                if ours && !quoted {
+                    if !named.contains(&mark) {
+                        named.push(mark);
+                    }
+                } else {
+                    let link = mark.map_or_else(|word| word, |zip| zip.link);
+                    if !theirs.contains(&link) {
+                        theirs.push(link);
+                    }
+                }
+                continue;
+            }
+            for link in links(line) {
+                let keep = if ours && !quoted {
+                    &mut mine
+                } else {
+                    &mut theirs
+                };
+                if !keep.contains(&link) {
+                    keep.push(link);
+                }
             }
         }
     }
     Refs {
         fetch: mine,
+        zips: named,
         outside: theirs.len() as i64,
     }
+}
+
+/// The login of an account a text names, empty when it names none.
+fn login_of(text: &Value, key: &str) -> String {
+    text.get(key)
+        .map_or_else(String::new, |who| text_of(who, "login"))
 }
 
 // --- The page ---------------------------------------------------------------
@@ -309,15 +400,6 @@ fn text_of(row: &Value, key: &str) -> String {
     }
 }
 
-/// The first of these keys that holds the words of one text: GitHub answers the
-/// same fact under the name of the read that asked for it.
-fn association(row: &Value, keys: &[&str]) -> String {
-    keys.iter()
-        .map(|key| text_of(row, key))
-        .find(|seen| !seen.is_empty())
-        .unwrap_or_default()
-}
-
 fn bytes_of(row: &Value) -> i64 {
     row.get("bytes").and_then(Value::as_i64).unwrap_or(0)
 }
@@ -480,7 +562,7 @@ fn ticket_page(
         }
         if outside > 0 {
             out.push_str(&format!(
-                "          <li><span>{} from outside the repository</span><span class=\"asset-fact\">Only files attached by an owner, member or collaborator are taken.</span></li>\n",
+                "          <li><span>{} from outside the allowed accounts</span><span class=\"asset-fact\">Only files linked by an allowed account, in text nobody else edited, are taken.</span></li>\n",
                 plural(outside, "link", "links"),
             ));
         }
@@ -767,7 +849,7 @@ mod tests {
         assert!(page.contains(
             "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
         ));
-        assert!(page.contains("1 link from outside the repository</span>"));
+        assert!(page.contains("1 link from outside the allowed accounts</span>"));
         assert!(page.contains("<figcaption><span class=\"asset-name\">image-1.png</span>"));
         assert!(page.contains("aria-label=\"Open proto.html by itself\">OPEN FULL SIZE</a>"));
         assert!(page.contains("09 OCT 2026"));
@@ -896,50 +978,229 @@ mod tests {
         assert_eq!(read["tickets"][0]["builtAt"], "2026-10-28T08:00:00Z");
     }
 
+    fn alice(who: &str) -> bool {
+        who == "alice"
+    }
+
+    /// An issue as the texts read answers it: its body and its comments, each
+    /// with its author and, when edited, its last editor.
+    fn issue(body: &str, author: &str, editor: Option<&str>, comments: Value) -> Value {
+        serde_json::json!({
+            "body": body,
+            "author": {"login": author},
+            "editor": editor.map(|e| serde_json::json!({"login": e})),
+            "comments": {"nodes": comments},
+        })
+    }
+
+    fn comment(body: &str, author: &str, editor: Option<&str>) -> Value {
+        serde_json::json!({
+            "body": body,
+            "author": {"login": author},
+            "editor": editor.map(|e| serde_json::json!({"login": e})),
+        })
+    }
+
+    const SHOT: &str =
+        "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555";
+
     #[test]
-    fn only_people_of_the_repository_give_links_to_fetch() {
-        let row = value_of(&format!(
-            "{{\"number\":7,\"author_association\":\"OWNER\",\"body\":\"shot [{}]({}) and [again]({}) and {}\"}}",
-            "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
-            "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
-            "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
-            "https://github.com/acme/widget/files/21/proto.html",
-        ));
-        let replies = lines(
-            r#"[{"author_association":"COLLABORATOR","body":"https://github.com/user-attachments/files/31/vid.mp4"},
-                {"author_association":"NONE","body":"[stranger](https://github.com/user-attachments/files/32/stranger.html)"}]"#,
+    fn only_allowed_accounts_give_links_to_fetch() {
+        let body = format!(
+            "shot [x]({SHOT}) and [again]({SHOT}) and {}",
+            "https://github.com/acme/widget/files/21/proto.html"
         );
-        let got = refs(&row, &replies);
+        let comments = serde_json::json!([
+            comment(
+                "https://github.com/user-attachments/files/31/vid.mp4",
+                "alice",
+                None
+            ),
+            comment(
+                "[c](https://github.com/user-attachments/files/32/collab.html)",
+                "carol",
+                None
+            ),
+            comment(
+                "[b](https://github.com/user-attachments/files/33/bot.html)",
+                "tehas-bot[bot]",
+                None
+            ),
+        ]);
+        let got = refs(&issue(&body, "alice", None, comments), &alice, false);
         assert_eq!(
             got.fetch,
             [
-                "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555",
+                SHOT,
                 "https://github.com/acme/widget/files/21/proto.html",
                 "https://github.com/user-attachments/files/31/vid.mp4",
             ]
         );
+        // A collaborator off the list and the bot are both outside.
+        assert_eq!(got.outside, 2);
+    }
+
+    #[test]
+    fn a_text_someone_else_edited_last_gives_nothing_to_fetch() {
+        let link = "https://github.com/user-attachments/files/40/theirs.html";
+        let comments = serde_json::json!([
+            comment(&format!("one {link}"), "alice", Some("tehas-bot[bot]")),
+            comment(
+                "https://github.com/user-attachments/files/9/mine.html",
+                "alice",
+                Some("alice")
+            ),
+        ]);
+        let got = refs(
+            &issue(SHOT, "alice", Some("mallory"), comments),
+            &alice,
+            false,
+        );
+        assert_eq!(
+            got.fetch,
+            ["https://github.com/user-attachments/files/9/mine.html"]
+        );
+        assert_eq!(got.outside, 2);
+        // An editor with no login is nobody on the list.
+        let ghost = serde_json::json!({"body": SHOT, "author": {"login": "alice"}, "editor": {}});
+        assert!(refs(&ghost, &alice, false).fetch.is_empty());
+    }
+
+    #[test]
+    fn a_link_on_a_quoted_line_is_someone_elses() {
+        let theirs = "https://github.com/user-attachments/files/41/theirs.html";
+        let body = format!("> {theirs}\n  >> [x]({theirs})\nmine: {SHOT}");
+        let got = refs(
+            &issue(&body, "alice", None, serde_json::json!([])),
+            &alice,
+            false,
+        );
+        assert_eq!(got.fetch, [SHOT]);
         assert_eq!(got.outside, 1);
     }
 
     #[test]
-    fn the_refs_of_a_ticket_are_its_links_and_the_count_of_the_rest() {
-        let row = value_of(
-            r#"{"number":7,"association":"NONE","body":"[theirs](https://github.com/user-attachments/files/40/theirs.html)"}"#,
+    fn a_text_with_no_author_or_no_comments_is_read_as_far_as_it_goes() {
+        let got = refs(
+            &serde_json::json!({"body": SHOT, "author": null}),
+            &alice,
+            false,
         );
-        let got = refs(&row, &[]);
         assert!(got.fetch.is_empty());
         assert_eq!(got.outside, 1);
-        // A reply by a person of the repository gives a link to fetch, and the
-        // body of one may hold a newline.
-        let replies = lines(
-            r#"[{"author_association":"OWNER","body":"one\nhttps://github.com/user-attachments/files/9/one.html"}]"#,
+        let got = refs(
+            &serde_json::json!({"body": SHOT, "author": {"login": "alice"}}),
+            &alice,
+            false,
         );
-        let got = refs(&row, &replies);
+        assert_eq!(got.fetch, [SHOT]);
+    }
+
+    #[test]
+    fn the_key_of_the_refs_follows_the_title_the_links_and_the_rest() {
+        let a = Refs {
+            fetch: vec![SHOT.to_string()],
+            zips: Vec::new(),
+            outside: 0,
+        };
+        let b = Refs {
+            fetch: vec![SHOT.to_string()],
+            zips: Vec::new(),
+            outside: 1,
+        };
+        assert_eq!(a.key("Map"), a.key("Map"));
+        assert_ne!(a.key("Map"), a.key("Maps"));
+        assert_ne!(a.key("Map"), b.key("Map"));
+        assert!(!a.key("Map").contains(' '));
+        let zipped = |sha256: &str| Refs {
+            fetch: vec![SHOT.to_string()],
+            zips: vec![Ok(Zip {
+                link: ZIP.to_string(),
+                sha256: sha256.to_string(),
+            })],
+            outside: 0,
+        };
+        assert_ne!(zipped(&SUM).key("Map"), a.key("Map"));
+        assert_ne!(zipped(&SUM).key("Map"), zipped(&"b".repeat(64)).key("Map"));
+    }
+
+    const ZIP: &str = "https://files.example.org/p/proto.zip";
+    static SUM: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| "a".repeat(64));
+
+    #[test]
+    fn a_zip_line_names_its_link_and_sha256() {
+        let zip = Zip {
+            link: ZIP.to_string(),
+            sha256: SUM.clone(),
+        };
         assert_eq!(
-            got.fetch,
-            ["https://github.com/user-attachments/files/9/one.html"]
+            zip_mark(&format!("Zip: {ZIP} sha256:{}", *SUM)),
+            Some(Ok(zip.clone()))
         );
-        assert_eq!(got.outside, 1);
+        assert_eq!(
+            zip_mark(&format!("  Zip:\t{ZIP}   sha256:{}  \r", *SUM)),
+            Some(Ok(zip))
+        );
+        for line in [
+            "",
+            "zip: x sha256:y",
+            "A Zip: mid-line",
+            "- Zip: a list item",
+        ] {
+            assert_eq!(zip_mark(line), None, "{line:?}");
+        }
+        for (line, word) in [
+            ("Zip:".to_string(), ""),
+            (format!("Zip: {ZIP}"), ZIP),
+            (format!("Zip: {ZIP} {}", *SUM), ZIP),
+            (format!("Zip: {ZIP} sha256:{}", SUM.to_uppercase()), ZIP),
+            (format!("Zip: {ZIP} sha256:{}", &SUM[1..]), ZIP),
+            (format!("Zip: {ZIP} x sha256:{}", *SUM), ZIP),
+        ] {
+            assert_eq!(zip_mark(&line), Some(Err(word.to_string())), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_zip_line_is_read_only_with_the_feature_and_by_the_rule_of_links() {
+        let line = format!("Zip: {ZIP} sha256:{}", *SUM);
+        let github = format!(
+            "Zip: https://github.com/user-attachments/files/5/p.zip sha256:{}",
+            *SUM
+        );
+        let body = format!("{line}\n{line}\n> {line}\n{github}\nZip: nonsense");
+        let comments = serde_json::json!([comment(
+            &format!("Zip: https://files.example.org/theirs.zip sha256:{}", *SUM),
+            "mallory",
+            None
+        )]);
+        let ticket = issue(&body, "alice", None, comments);
+        let off = refs(&ticket, &alice, false);
+        assert!(off.zips.is_empty());
+        // Off, a Zip: line is text as before: its GitHub link is an attachment.
+        assert_eq!(
+            off.fetch,
+            ["https://github.com/user-attachments/files/5/p.zip"]
+        );
+        assert_eq!(off.outside, 0);
+        let on = refs(&ticket, &alice, true);
+        assert!(on.fetch.is_empty());
+        assert_eq!(
+            on.zips,
+            [
+                Ok(Zip {
+                    link: ZIP.to_string(),
+                    sha256: SUM.clone()
+                }),
+                Ok(Zip {
+                    link: "https://github.com/user-attachments/files/5/p.zip".to_string(),
+                    sha256: SUM.clone()
+                }),
+                Err("nonsense".to_string()),
+            ]
+        );
+        // The quoted line and mallory's line.
+        assert_eq!(on.outside, 2);
     }
 
     #[test]
