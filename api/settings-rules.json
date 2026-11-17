@@ -504,6 +504,13 @@
       "reason": "expected a whole number of days of at least 1"
     },
     {
+      "name": "TEHAS_CLONE_DEPTH",
+      "rule": "clone-depth",
+      "when": "always",
+      "default": "100",
+      "reason": "expected a whole number of 0 or more, 0 for full history"
+    },
+    {
       "name": "TEHAS_POLL_BUDGET",
       "rule": "poll-budget",
       "when": "always",

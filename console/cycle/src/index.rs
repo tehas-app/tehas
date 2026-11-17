@@ -399,6 +399,8 @@ struct Run {
     image: String,
     branch: String,
     base: String,
+    /// TEHAS_CLONE_DEPTH: the clone's history, as a cycle's tree has it.
+    depth: u32,
     left: Arc<Mutex<Left>>,
 }
 
@@ -451,8 +453,26 @@ impl Run {
             "+refs/remotes/origin/{0}:refs/remotes/origin/{0}",
             self.branch
         );
+        let cut = tehas_core::depth::words(self.depth);
+        let fetch = |what: &str| {
+            let mut args = vec!["-C", &tree, "fetch", "-q", "--no-tags"];
+            args.extend(cut.iter().map(String::as_str));
+            args.extend([self.src.as_str(), what]);
+            git(&args)
+        };
+        let held = |what: &str| {
+            Command::new("git")
+                .args(["-C", &tree, "cat-file", "-e", &format!("{what}^{{commit}}")])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        };
+        // The base is the branch's tip as it was read: a branch that moved since
+        // may hold it beyond the depth, so it is fetched too.
         git(&["init", "-q", "-b", &self.branch, &tree])
-            && git(&["-C", &tree, "fetch", "-q", "--no-tags", &self.src, &refspec])
+            && fetch(&refspec)
+            && (held(&self.base)
+                || (tehas_core::grammar::is_hex(&self.base, 40, 40) && fetch(&self.base)))
             && git(&[
                 "-C",
                 &tree,
@@ -707,6 +727,7 @@ pub fn table() -> String {
         image: "PI_ENSEMBLE_IMAGE".to_string(),
         branch: String::new(),
         base: String::new(),
+        depth: 0,
         left: Arc::default(),
     };
     let args = run_args(&run, &[], "", Path::new(""));
@@ -750,6 +771,13 @@ pub fn here(before_cycle: bool) -> u8 {
 /// writes the index. `base` is the tip of <branch> the product checkout last
 /// fetched.
 pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {
+    let depth = match tehas_core::depth::from_env() {
+        Ok(depth) => depth,
+        Err(line) => {
+            eprintln!("{line}");
+            return 78;
+        }
+    };
     let var = |k: &str| env::var(k).unwrap_or_default();
     let home = PathBuf::from(var("TEHAS_HOME"));
     for dir in ["logs", "tmp", "state/index"] {
@@ -771,6 +799,7 @@ pub fn main(branch: &str, base: &str, before_cycle: bool) -> u8 {
         image: var("PI_ENSEMBLE_IMAGE"),
         branch: branch.to_string(),
         base: base.to_string(),
+        depth,
         left: Arc::default(),
         home,
     };

@@ -243,7 +243,8 @@ fn not_a_clone(tree: &Path) -> bool {
 fn make_clone(devs: &str, name: &str, tree: &str, src: &str, branch: &str) -> bool {
     let making = format!("{devs}/.{name}.making");
     let _ = fs::remove_dir_all(&making);
-    let made = sandbox::clone(src, &making, branch)
+    // A person's tree, kept between sessions: its whole history.
+    let made = sandbox::clone(src, &making, branch, 0)
         && (!Path::new(tree).is_dir() || fs::remove_dir(tree).is_ok())
         && fs::rename(&making, tree).is_ok();
     if !made {
