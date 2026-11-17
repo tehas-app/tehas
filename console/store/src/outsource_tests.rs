@@ -138,6 +138,7 @@ const SAID: &[(&str, &[&str])] = &[
     ("job-attempts", &["attempts"]),
     ("contractor-auth", &["allowed"]),
     ("job-offered", &["job", "none"]),
+    ("job-stamp", &["job-stamp"]),
 ];
 
 /// The words one verb may answer with, its own and the one of the feature
@@ -1722,5 +1723,55 @@ fn the_list_names_the_job_open_in_a_contractor_s_hand() {
     assert_eq!(
         first_row(&home, "contractor-list")["job_issue"],
         Value::Null
+    );
+}
+
+#[test]
+fn the_stamp_of_a_cycle_is_the_newest_job_of_its_issue_given_since_its_approval() {
+    let home = on("stamp");
+    issue(&home, 7);
+    let since = NOW.to_string();
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["job"],
+        Value::Null
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let v = out(&home, &["job-stamp", "--issue", "7", "--since", &since]);
+    assert_eq!(
+        (
+            &v["verb"],
+            &v["job"],
+            &v["contractor"],
+            &v["attempt"],
+            &v["state"]
+        ),
+        (
+            &"job-stamp".into(),
+            &id.into(),
+            &"box1".into(),
+            &1.into(),
+            &"offered".into()
+        )
+    );
+    // A job given before the approval is an earlier cycle's.
+    let later = (NOW + 1).to_string();
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &later])["contractor"],
+        Value::Null
+    );
+    // A job that has ended still stamps the cycle that waited on it.
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    out(&home, &["job-finish", "--job", &id.to_string()]);
+    let v = out(&home, &["job-stamp", "--issue", "7", "--since", &since]);
+    assert_eq!((&v["job"], &v["state"]), (&id.into(), &"finished".into()));
+    // Another issue's job is no stamp of this one.
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "8", "--since", &since])["job"],
+        Value::Null
+    );
+    let home = off("stamp-off");
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["verb"],
+        "refused"
     );
 }
