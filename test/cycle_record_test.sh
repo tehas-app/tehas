@@ -268,7 +268,7 @@ t_case "a cycle that runs from its own copy of the code runs that copy's tehas-c
 reset
 copy=$T/home/tehas/run/cycle-7-1
 mkdir -p "$copy/libexec"
-ln -s "$T_ROOT/lib" "$copy/lib"
+t_lib_link "$copy"
 ln -s "$cycle" "$copy/libexec/cycle"
 printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$copy/libexec/tehas-cycle"
 chmod +x "$copy/libexec/tehas-cycle"

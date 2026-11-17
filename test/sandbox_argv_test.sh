@@ -44,7 +44,7 @@ git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/mai
 t_console || t_bad "no console: $t_console_why"
 shim=$T/shim
 mkdir -p "$shim/libexec"
-ln -s "$T_ROOT/lib" "$shim/lib"
+t_lib_link "$shim"
 t_front "$shim"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"

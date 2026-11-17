@@ -11,7 +11,7 @@ t_console || t_bad "no console: $t_console_why"
 t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
 tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/bin"
-ln -s "$T_ROOT/lib" "$tree/lib"
+t_lib_link "$tree"
 cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 cp "$T_ROOT"/libexec/* "$tree/libexec/"
 cp "$T_CONSOLE" "$tree/libexec/console"
