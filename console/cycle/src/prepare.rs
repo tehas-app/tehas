@@ -1022,6 +1022,33 @@ fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
         .map(|()| words)
 }
 
+/// The host folders the container writes: the sources of its read-write
+/// mounts ([`sandbox::mount_options`]).
+pub fn writable(tree: &str, state_dir: &str, runs: &str) -> Vec<String> {
+    let state = |d: &str| format!("{state_dir}/{d}");
+    vec![
+        tree.to_string(),
+        state("cache"),
+        state("memory"),
+        state("sessions"),
+        runs.to_string(),
+        state("relay"),
+    ]
+}
+
+/// On a contractor, the container runs as the factory's account, which must
+/// own what it writes: the code index refuses a cache folder it does not own,
+/// even one anyone may write. The contractor program hands them over.
+fn handed(program: &Path, dirs: &[String]) -> bool {
+    Command::new(program)
+        .arg("own")
+        .args(dirs)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
 /// What to say of a refresh whose read of the conflict check cannot be judged:
 /// a record that holds no pull request, a head that is no commit, or a read of
 /// `merge-tree` that gave no answer. The words say which (#2227).
@@ -1226,6 +1253,12 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
     };
+    if let Some(program) = crate::work::contractor() {
+        if !handed(&program, &writable(&tree, &state_dir, &runs)) {
+            eprintln!("tehas work: the cycle's folders could not be handed to the factory's account, not starting a cycle");
+            return 78;
+        }
+    }
     state["mounts"] = json!(words);
     let endpoints = fs::read_to_string(format!("{state_dir}/endpoints")).unwrap_or_default();
     for provider in endpoints
@@ -1568,6 +1601,23 @@ fn run_words(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_folders_handed_over_are_every_read_write_mount_source_of_the_cycle() {
+        let paths = Paths {
+            tree: "/in/work/widget",
+            host: "/h/work/widget-7",
+            state: "/h/work/widget-7.state",
+            runs: "/u/.pi/agent/ensemble-runs/issue-7",
+        };
+        let words = sandbox::mount_options(Kind::Cycle, &paths, "/u/.pi/agent", Some("/h/app"));
+        let rw: Vec<String> = words
+            .chunks(2)
+            .filter(|w| w[0] == "-v" && !w[1].ends_with(":ro"))
+            .map(|w| w[1].split(':').next().unwrap().to_string())
+            .collect();
+        assert_eq!(writable(paths.host, paths.state, paths.runs), rw);
+    }
 
     /// The tests that call `push_fault` read and set the process's
     /// `TEHAS_CYCLE_ATTEMPT`, `TEHAS_FAULT_CALLS` and `TEHAS_REPO`: one at a time,
