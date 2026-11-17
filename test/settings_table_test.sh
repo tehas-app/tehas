@@ -115,16 +115,15 @@ done
 
 t_case "every row of the manual names a setting the loader, the host or pi-rukas reads"
 # The rows that name no row of TABLE on purpose, each checked by a case of its
-# own below: TEHAS_WORK_REPO is set by a load from TEHAS_REPO; TEHAS_DISK_WAIT
-# is one of KEPT; TEHAS_ISSUE_TYPES is the row of TABLE whose name is a constant
-# of kinds.rs rather than a string in the table's own text.
+# own below: TEHAS_DISK_WAIT is one of KEPT; TEHAS_ISSUE_TYPES is the row of
+# TABLE whose name is a constant of kinds.rs rather than a string in the
+# table's own text.
 # The settings a row names with no row of the loader's table behind it, each one
 # said in the comment below, and each one a row of the manual's table the case
 # after this insists on. The list is a string, not a file: one word per line of
 # it, because a name that shares its front with the name before it on the same
 # line would otherwise be a piece of another word and match nothing.
 exceptions="
-TEHAS_WORK_REPO
 TEHAS_DISK_WAIT
 TEHAS_ISSUE_TYPES
 TEHAS_CYCLE_LOGIN
