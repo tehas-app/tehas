@@ -119,6 +119,8 @@ pub struct After {
     pub console: String,
     pub status_cmd: String,
     pub status_args: Vec<String>,
+    /// The contractor that ran the cycle, empty in-house or with outsource off.
+    pub contractor: String,
 }
 
 fn env(name: &str) -> String {
@@ -262,11 +264,14 @@ fn analytics_run(home: &Path, a: &After) {
     let at = iso(now());
     let (n, attempt) = (e.issue.to_string(), a.attempt.to_string());
     let view = host::store(home, &["settings-view", &n, "--attempt", &attempt]);
-    let facts = run_facts(
-        &history_line(a, &at),
-        Some(a.attempt),
-        &a.approved,
-        view.as_ref().ok(),
+    let facts = crate::stamp::with_contractor(
+        run_facts(
+            &history_line(a, &at),
+            Some(a.attempt),
+            &a.approved,
+            view.as_ref().ok(),
+        ),
+        &a.contractor,
     );
     let dir = home.join("tmp");
     if !dir.exists() {

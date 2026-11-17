@@ -67,9 +67,13 @@ impl Drop for Running {
     }
 }
 
+/// How long a test waits for the proxy to start or to end. A loaded host
+/// running several gates at once has taken more than 20 s to start it.
+const WAIT: Duration = Duration::from_secs(90);
+
 /// The status of a request with no token, once the port answers.
 fn status_of_no_token(addr: &str) -> Option<u16> {
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + WAIT;
     while Instant::now() < until {
         if let Ok(mut s) = TcpStream::connect(addr) {
             s.set_read_timeout(Some(Duration::from_secs(10))).ok();
@@ -143,7 +147,7 @@ fn a_port_it_cannot_bind_ends_it_with_1() {
     let taken = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = taken.local_addr().unwrap().to_string();
     let mut child = proxy(dir.path(), "1", &addr, &[]).spawn().unwrap();
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + WAIT;
     let code = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status.code();

@@ -57,14 +57,32 @@ pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
-/// approval. Each list is a JSON array, `refresh_of` an object or null, and
-/// `park_lifted` a `lifted_note`; the readers check the entries. `driver` is
+/// approval. Each list is a JSON array, `refresh_of` an object or null,
+/// `park_lifted` a `lifted_note` and `spec` a `spec_pin`; the readers check
+/// the entries. `driver` is
 /// written only when it is `DRIVER`: no driver means classic, which is every
 /// record written before it existed. `contractor` is the contractor the
 /// dispatcher placed an outsourced start on, in a contractor name's shape.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
 const INPUT_BOUND: u64 = tehas_core::file::READ_BOUND;
 const DRIVER: &str = "lean";
+
+/// The pin of the spec an approval binds, written only with the spec-pipe
+/// feature on: {link, sha256}, the link of the file and the sha256 of the
+/// bytes the dispatcher fetched for it. The link is https and one word, the
+/// sum 64 lower-case hex digits.
+pub fn spec_pin(v: &Value) -> bool {
+    let Value::Object(m) = v else {
+        return false;
+    };
+    let link = v["link"].as_str().is_some_and(|l| {
+        l.starts_with("https://")
+            && !l
+                .bytes()
+                .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+    });
+    m.len() == 2 && link && v["sha256"].as_str().and_then(verbs::sha256).is_some()
+}
 
 /// The one note that lifted a park's hold off a start (#1130), as a
 /// `retry_context` entry has it: {source: "millwright:<id>", by, at, text}.
@@ -248,6 +266,8 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             value == DRIVER
         } else if key == "contractor" {
             value.as_str().and_then(crate::outsource::host).is_some()
+        } else if key == "spec" {
+            spec_pin(value)
         } else {
             return Err(bad(&format!(
                 "holds a key it may not: {}",
@@ -807,6 +827,9 @@ pub fn view_of(answer: &Value, want: Option<i64>) -> Result<String, Fail> {
     }
     if let Some(v) = input.get("park_lifted") {
         p.push(("park_lifted", v.to_string()));
+    }
+    if let Some(v) = input.get("spec") {
+        p.push(("spec", v.to_string()));
     }
     if how == FIXER || how == "refresh" {
         p.push(("rests_on", rests_on));

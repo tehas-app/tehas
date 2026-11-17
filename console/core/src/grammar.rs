@@ -95,6 +95,62 @@ pub fn mcp_keys<'a>(raw: &'a str, setting: &str) -> Result<Vec<&'a str>, String>
     Ok(keys)
 }
 
+/// The word that opens the line of an issue body that marks its spec.
+pub const SPEC_MARK: &str = "Spec:";
+
+/// The spec an issue body marks: the link of its file and the sha256 its
+/// bytes must have.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpecMark {
+    pub link: String,
+    pub sha256: String,
+}
+
+/// The one line `Spec: <link> sha256:<64 hex>` of an issue body. A line is a
+/// mark when it starts with [`SPEC_MARK`], outside a fenced code block. None:
+/// no such line. Err says why a mark is not one tehas can read: a line of
+/// another form, or more than one line. Whether tehas may fetch the link is the
+/// link rule's to say (console/attach), not this grammar's.
+pub fn spec_mark(body: &str) -> Result<Option<SpecMark>, String> {
+    let mut found: Option<SpecMark> = None;
+    let mut fence: Option<&str> = None;
+    for line in body.lines() {
+        let line = line.trim();
+        if let Some(open) = fence {
+            if line.starts_with(open) {
+                fence = None;
+            }
+            continue;
+        }
+        if line.starts_with("```") || line.starts_with("~~~") {
+            fence = Some(&line[..3]);
+            continue;
+        }
+        let Some(rest) = line.strip_prefix(SPEC_MARK) else {
+            continue;
+        };
+        if found.is_some() {
+            return Err(format!("it has more than one `{SPEC_MARK}` line"));
+        }
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let [link, sum] = words[..] else {
+            return Err(format!(
+                "its `{SPEC_MARK}` line is not a link and its sha256"
+            ));
+        };
+        let Some(hex) = sum.strip_prefix("sha256:").filter(|h| is_hex(h, 64, 64)) else {
+            return Err(format!(
+                "its `{SPEC_MARK}` line does not end in sha256: and 64 lower-case hex digits"
+            ));
+        };
+        found = Some(SpecMark {
+            link: link.to_string(),
+            sha256: hex.to_string(),
+        });
+    }
+    Ok(found)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +226,65 @@ mod tests {
         assert_eq!(ending_status("push-fault"), "push-fault");
         assert_eq!(NOT_ENDS, ["running", ""]);
         assert_eq!(NOT_AN_END, "not an end");
+    }
+
+    #[test]
+    fn a_body_marks_its_spec_with_one_line() {
+        let h = "0123456789abcdef".repeat(4);
+        let link = "https://github.com/user-attachments/files/1/spec.md";
+        let want = SpecMark {
+            link: link.into(),
+            sha256: h.clone(),
+        };
+        let body = format!("Make it fast.\r\n\r\nSpec: {link} sha256:{h}\r\n");
+        assert_eq!(spec_mark(&body), Ok(Some(want.clone())));
+        let spaced = format!("  Spec:\t{link}   sha256:{h}  ");
+        assert_eq!(spec_mark(&spaced), Ok(Some(want)));
+    }
+
+    #[test]
+    fn a_body_with_no_mark_marks_nothing() {
+        for body in [
+            "",
+            "Make it fast.",
+            "spec: x sha256:y",
+            "- Spec: a list item is no mark",
+            "The Spec: line is mid-sentence here",
+            "```\nSpec: in a fence\n```",
+            "~~~md\nSpec: in a fence\n~~~\nafter",
+        ] {
+            assert_eq!(spec_mark(body), Ok(None), "{body:?}");
+        }
+    }
+
+    #[test]
+    fn a_mark_of_another_form_is_refused_with_why() {
+        let h = "a".repeat(64);
+        let form = Err("its `Spec:` line is not a link and its sha256".to_string());
+        let sum = Err(
+            "its `Spec:` line does not end in sha256: and 64 lower-case hex digits".to_string(),
+        );
+        assert_eq!(spec_mark("Spec:"), form);
+        assert_eq!(spec_mark("Spec: docs/specs/a.md"), form);
+        assert_eq!(spec_mark(&format!("Spec: a b sha256:{h}")), form);
+        assert_eq!(spec_mark("Spec: a sha256:"), sum);
+        assert_eq!(spec_mark(&format!("Spec: a {h}")), sum);
+        assert_eq!(spec_mark(&format!("Spec: a sha256:{}", &h[1..])), sum);
+        assert_eq!(
+            spec_mark(&format!("Spec: a sha256:{}", h.to_uppercase())),
+            sum
+        );
+        assert_eq!(spec_mark(&format!("Spec: a sha512:{h}")), sum);
+        // A fence closes, and a line after it is read again.
+        assert_eq!(spec_mark("```\nx\n```\nSpec: a"), form);
+    }
+
+    #[test]
+    fn two_marks_are_refused() {
+        let line = format!("Spec: a sha256:{}", "b".repeat(64));
+        assert_eq!(
+            spec_mark(&format!("{line}\n{line}")),
+            Err("it has more than one `Spec:` line".to_string())
+        );
     }
 }

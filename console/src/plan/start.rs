@@ -250,7 +250,7 @@ fn first_images(w: &Words, images: &str, kinds: &str) -> Result<(), u8> {
         let _ = fs::remove_dir_all(images);
         eprintln!("tehas plan: {why}, not starting a turn");
         comment(&w.issue, &no_session(&why, kinds));
-        return Err(4);
+        return Err(tehas_core::exit::plan::NOT_FETCHED);
     }
     if var("TEHAS_WORK_DESCRIBE") == "1"
         && tehas_cycle::describe::describe(Path::new(images), &w.issue).is_err()
@@ -280,7 +280,7 @@ fn reply_images(w: &Words, images: &str, kinds: &str) -> Result<String, u8> {
         Err(why) => {
             eprintln!("tehas plan: {why}, not starting a turn");
             comment(&w.issue, &no_turn(&why, kinds));
-            Err(4)
+            Err(tehas_core::exit::plan::NOT_FETCHED)
         }
     }
 }

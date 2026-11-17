@@ -320,14 +320,14 @@ t_case "--check says the commit moved and builds nothing"
 reset
 echo "$old" >"$fx/label"
 t_run "$build --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "is on $old, release v0.12.80 is $head"
 t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0
 
 t_case "--check of an image with no label says so"
 reset
 t_run "$build --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "is on no known commit"
 
 t_case "the build passes the code index pin from versions.env"
@@ -451,7 +451,7 @@ reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
 echo "$old" >"$fx/label"
 t_run "$build --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(t_calls git)" ""
 t_contains "$t_out" "is on $old, pinned is $commit40"
 t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0

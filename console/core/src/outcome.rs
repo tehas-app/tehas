@@ -140,4 +140,12 @@ mod tests {
             assert!(OUTCOMES.contains(&w), "{w}");
         }
     }
+
+    // A new outcome word is a stop or not by a decision, not by being left out
+    // of the stops: the outcomes that are no stop are exactly these three.
+    #[test]
+    fn the_outcomes_that_are_no_stop_are_a_pull_request_a_merge_and_stopped() {
+        let rest: BTreeSet<_> = set(&OUTCOMES).difference(&set(&STOPS)).copied().collect();
+        assert_eq!(rest, set(&["pr", "merged", "stopped"]));
+    }
 }

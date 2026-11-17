@@ -212,6 +212,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         )));
     }
     let spec = crate::outcomes_schema::spec(&file.by);
+    let windowed = file.by == "week" && (since.is_some() || until.is_some());
     let entries: Vec<Value> = file
         .entries()
         .filter(|e| {
@@ -232,6 +233,9 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
                     None => Value::Null,
                     Some(runs) => {
                         m.insert("runs".into(), json!(runs));
+                        if windowed && !bounded(&e) {
+                            m.insert("unwindowed".into(), json!(true));
+                        }
                         Value::Object(m)
                     }
                 }
@@ -258,6 +262,11 @@ fn in_window(e: &Value, since: Option<i64>, until: Option<i64>) -> bool {
 
 fn day(t: i64) -> i64 {
     t.div_euclid(DAY)
+}
+
+/// Whether a window can bound the entry: it names a week that is a date.
+fn bounded(e: &Value) -> bool {
+    e["week"].as_str().and_then(week_start).is_some()
 }
 
 /// The first and last day an entry stands for. A version pair holds runs of

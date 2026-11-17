@@ -213,8 +213,8 @@ impl Host {
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
         // The run's facts as tehas-cycle gives them: the history line,
         // the approval, the settings snapshot as tehas-cycle writes it (a
-        // model with dots, a provider word, and a host value it withheld) and
-        // the image's commit.
+        // model with dots, a provider word, and a host value it withheld), the
+        // image's commit and the contractor that ran it.
         fs::create_dir_all(self.home.join("tmp")).unwrap();
         self.put(
             "tmp/facts.json",
@@ -228,7 +228,8 @@ impl Host {
                                                "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
                                  "host": {"TEHAS_WORK_TIMEOUT": "21600"},
                                  "concurrentCycles": 2},
-                    "rukas": "abcdef1"})
+                    "rukas": "abcdef1",
+                    "contractor": "box-1"})
             .to_string(),
         );
         let facts = self.home.join("tmp/facts.json");
@@ -330,6 +331,11 @@ fn a_copy_through_tehas_analytics_holds_no_token_host_or_address() {
         )
         .unwrap();
     assert_eq!(gate, (2, 2, 600_000));
+    // The contractor that ran the cycle goes with the copy.
+    let by: String = db
+        .query_row("SELECT contractor_id FROM runs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(by, "box-1");
     // Every text column holds a value, so every one is scanned.
     for t in &tables {
         let cols: Vec<String> = db
