@@ -72,13 +72,23 @@ pub fn url_pair(url: &str) -> Option<String> {
     Some(pair.to_ascii_lowercase())
 }
 
-/// One word of `TEHAS_EGRESS_HOSTS`: a host, on 443, or host:port.
-pub fn host_pair(word: &str) -> String {
-    if word.contains(':') {
-        word.to_ascii_lowercase()
-    } else {
-        format!("{}:443", word.to_ascii_lowercase())
-    }
+/// One word of `TEHAS_EGRESS_HOSTS` as the pair the proxy is given: a domain
+/// name, in any case, on 443 or `:<port>`, the port 1 to 65535 with no
+/// leading zero. None for any other word. The settings load checks the
+/// setting with this, so what the check takes is what the proxy gets.
+pub fn host_pair(word: &str) -> Option<String> {
+    let word = word.to_ascii_lowercase();
+    let (name, port) = match word.split_once(':') {
+        Some((name, port)) => {
+            let shape = !port.is_empty()
+                && port.len() <= 5
+                && !port.starts_with('0')
+                && port.bytes().all(|b| b.is_ascii_digit());
+            (name, port.parse::<u16>().ok().filter(|_| shape)?)
+        }
+        None => (word.as_str(), 443),
+    };
+    crate::settings::rules::is_domain(name).then(|| format!("{name}:{port}"))
 }
 
 /// The pairs the proxy is given, sorted and each once: the base, the main
@@ -93,7 +103,7 @@ pub fn allowed(models: &ModelFile, extra: &str) -> Vec<String> {
             }
         }
     }
-    pairs.extend(extra.split_whitespace().map(host_pair));
+    pairs.extend(extra.split_whitespace().filter_map(host_pair));
     pairs.sort();
     pairs.dedup();
     pairs
@@ -289,7 +299,7 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
         home: home.clone(),
         user: sandbox::user(),
         digest,
-        hosts: sandbox::hosts(aliases),
+        hosts: sandbox::hosts(aliases)?,
         allowed: allowed(
             &ModelFile::read(&crate::models::host_path()),
             &std::env::var("TEHAS_EGRESS_HOSTS").unwrap_or_default(),
@@ -321,6 +331,42 @@ mod tests {
             allowed: vec!["github.com:443".into(), "models.lan:8080".into()],
             binary: "1 2".into(),
         }
+    }
+
+    #[test]
+    fn a_word_of_the_setting_is_a_pair_by_the_one_rule_the_load_checks() {
+        for (word, want) in [
+            ("pypi.org", Some("pypi.org:443")),
+            ("Files.Pythonhosted.org", Some("files.pythonhosted.org:443")),
+            ("models.example:8080", Some("models.example:8080")),
+            ("x.org:65535", Some("x.org:65535")),
+            ("a_b.example.com", None),
+            ("x.org:0443", None),
+            ("x.org:0", None),
+            ("x.org:65536", None),
+            ("x.org:", None),
+            ("localhost", None),
+            ("-x.org", None),
+            ("", None),
+        ] {
+            assert_eq!(host_pair(word).as_deref(), want, "{word}");
+            assert_eq!(
+                crate::settings::rules::check("TEHAS_EGRESS_HOSTS", word, &Default::default())
+                    .is_ok(),
+                want.is_some(),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_proxy_is_given_only_the_words_the_check_takes() {
+        let models = ModelFile { json: json!({}) };
+        let pairs = allowed(&models, "a_b.example.com x.org:0443 pypi.org");
+        assert!(pairs.contains(&"pypi.org:443".to_string()));
+        assert!(!pairs
+            .iter()
+            .any(|p| p.starts_with("a_b.") || p.starts_with("x.org")));
     }
 
     #[test]

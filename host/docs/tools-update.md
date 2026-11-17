@@ -175,7 +175,8 @@ holds it waits for it, and if it is still held prints
 `another update is running`, naming the seconds it waited, and exits 1 before
 git, install.sh, Docker or systemd is called. The wait is
 `TEHAS_UPDATE_LOCK_WAIT` - a whole number of seconds, 10 by default, 0 to
-refuse at once, at most 300; anything else is the default. It is read from the
+refuse at once, at most 300. Any other value stops both commands with 78
+before the lock. It is a [host setting](/tools#host-settings), read from the
 environment, not from `instance.env`, and both commands ask the console for it
 (`console update wait update`). A first `install.sh` from a checkout has no
 console yet and waits 10.
@@ -352,8 +353,8 @@ cd ~/tehas/platform
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings are invalid or the home is not provably tehas's (nothing
-was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid or the home is
+not provably tehas's (nothing was changed).
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1

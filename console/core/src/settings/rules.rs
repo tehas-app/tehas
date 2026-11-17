@@ -128,6 +128,22 @@ pub enum Rule {
     ListenAddress,
     /// kind=Type pairs: [`crate::kinds::parse`].
     IssueTypes,
+    /// An absolute path of letters, digits and `._-`, with no `..`.
+    Path,
+    /// `name:address` pairs the sandbox resolves, read by
+    /// [`crate::sandbox::hosts`]: they become `docker run` arguments.
+    HostAliases,
+    /// A model endpoint's token: one word that the shell sourcing
+    /// ~/.config/tehas/env and the header it goes into keep as written.
+    Token,
+    /// The MCP server's keys, as [`crate::grammar::mcp_keys`] reads them. A
+    /// refusal names a key by its place, never by its text.
+    McpKeys,
+    /// An http or https address with a path, the energy sampler's cluster
+    /// address, which it asks with no token.
+    Address,
+    /// Whole seconds from 0 to the bound: 0 refuses at once.
+    Seconds(u64),
 }
 
 impl Rule {
@@ -168,6 +184,12 @@ impl Rule {
             Rule::EgressHosts => "egress-hosts",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
+            Rule::Path => "path",
+            Rule::HostAliases => "host-aliases",
+            Rule::Token => "token",
+            Rule::McpKeys => "mcp-keys",
+            Rule::Address => "address",
+            Rule::Seconds(_) => "seconds",
         }
     }
 
@@ -209,6 +231,12 @@ impl Rule {
             Rule::EgressHosts => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
+            Rule::Path => "repos/app",
+            Rule::HostAliases => "models:192.0.2.8 extra",
+            Rule::Token => "two words",
+            Rule::McpKeys => "short",
+            Rule::Address => "ftp://example.com",
+            Rule::Seconds(_) => "-1",
         }
     }
 }
@@ -347,6 +375,7 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_RELEASE_REPO", Rule::Repo),
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
+    given("TEHAS_WORK_REPO", Rule::Path),
     given_or("TEHAS_SITE_ANALYTICS_SRC", Rule::ScriptAddress, ""),
     given_or("TEHAS_SITE_ANALYTICS_NAME", Rule::SiteName, ""),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
@@ -357,12 +386,35 @@ pub const TABLE: &[Setting] = &[
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given(crate::kinds::SETTING, Rule::IssueTypes),
     given_or("TEHAS_CLEAN_DIRS", Rule::CleanDirs, CLEAN_DIRS),
+    given_or("PI_ENSEMBLE_HOST_ALIASES", Rule::HostAliases, ""),
     required("TEHAS_REPO", Rule::Repo),
     required("TEHAS_CONTROL_ISSUE", Rule::Count),
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
     required("PI_ENSEMBLE_SUBAGENT_MODEL", Rule::OneWord),
     required("PI_ENSEMBLE_SUBAGENT_PROVIDER", Rule::OneWord),
     row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
+];
+
+/// The front of the names of the model endpoints' tokens, one per provider.
+pub const MODEL_KEY: &str = "TEHAS_MODEL_KEY_";
+
+/// The settings of the host, not of an instance: the environment a command
+/// runs in, or ~/.config/tehas/env, gives them, and the load keeps them
+/// (`KEPT` in load.rs). The load checks each one that holds a value.
+/// TEHAS_UPDATE_LOCK_WAIT is read before any load, which drops it, so tehas
+/// update checks it itself, and its default is the one that reader takes.
+/// `TEHAS_MODEL_KEY_<NAME>` is a family: every name with the front
+/// [`MODEL_KEY`] takes its rule.
+pub const HOST: &[Setting] = &[
+    given("TEHAS_HOME", Rule::Path),
+    given("TEHAS_INSTANCE_DIR", Rule::Path),
+    given("TEHAS_MODEL_KEY_<NAME>", Rule::Token),
+    given("TEHAS_MCP", SWITCH),
+    given("TEHAS_MCP_KEYS", Rule::McpKeys),
+    given("TEHAS_MCP_DASHBOARD_KEYS", Rule::McpKeys),
+    given("TEHAS_ENERGY", SWITCH),
+    given("TEHAS_ENERGY_URL", Rule::Address),
+    given_or("TEHAS_UPDATE_LOCK_WAIT", Rule::Seconds(300), "10"),
 ];
 
 /// The words a setting takes, when it takes a list of them.
@@ -385,7 +437,14 @@ fn rule_of(name: &str) -> Option<Rule> {
     if name.starts_with("PI_ENSEMBLE_MODEL_") || name.starts_with("PI_ENSEMBLE_PROVIDER_") {
         return Some(Rule::OneWord);
     }
-    TABLE.iter().find(|s| s.name == name).map(|s| s.rule)
+    if name.starts_with(MODEL_KEY) {
+        return Some(Rule::Token);
+    }
+    TABLE
+        .iter()
+        .chain(HOST)
+        .find(|s| s.name == name)
+        .map(|s| s.rule)
 }
 
 /// Why `value` is no value of `name`. A name with no rule takes anything.
@@ -492,12 +551,8 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         ),
         Rule::PollBudget => poll_budget(v),
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
-        Rule::ScratchDir => refuse(
-            v.strip_prefix('/')
-                .is_some_and(|rest| rest.split('/').all(|p| all(p, class("._-"))))
-                && !v.contains(".."),
-            "expected an absolute path such as /mnt/scratch",
-        ),
+        Rule::ScratchDir => refuse(is_path(v), "expected an absolute path such as /mnt/scratch"),
+        Rule::Path => refuse(is_path(v), "expected an absolute path"),
         Rule::CleanDirs => clean_dirs(v),
         Rule::Follow => follow(v),
         Rule::BranchCheck => refuse(
@@ -515,12 +570,40 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected one word",
         ),
         Rule::EgressHosts => refuse(
-            v.split(' ').all(is_egress_host),
+            v.split(' ').all(|w| crate::egress::host_pair(w).is_some()),
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
+        Rule::HostAliases => crate::sandbox::hosts(v).map(|_| ()),
+        Rule::Token => refuse(
+            all(v, |c| c.is_ascii_graphic() && !"'\"`$\\".contains(c)),
+            TOKEN_WHY,
+        ),
+        Rule::McpKeys => crate::grammar::mcp_keys(v, "")
+            .map(|_| ())
+            .map_err(|why| why.trim_start_matches(": ").to_string()),
+        Rule::Address => {
+            let rest = v
+                .strip_prefix("https://")
+                .or_else(|| v.strip_prefix("http://"))
+                .unwrap_or("");
+            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+            refuse(
+                is_host(host) && path.chars().all(class("._~+?#=&%/:-")),
+                ADDRESS_WHY,
+            )
+        }
+        Rule::Seconds(max) => refuse(
+            is_count(v) && v.parse::<u64>().is_ok_and(|n| n <= max),
+            &format!("expected a whole number of seconds from 0 to {max}"),
+        ),
     }
 }
+
+const TOKEN_WHY: &str =
+    "expected one word of printable characters, with no quote, backslash, $ or backtick";
+const ADDRESS_WHY: &str =
+    "expected an http or https address such as http://models.example:8080/v1/cluster";
 
 const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
@@ -553,6 +636,11 @@ const LISTEN_WHY: &str = "expected an address or host name and a port, as 127.0.
 fn leading(s: &str, max: usize) -> bool {
     digits(s) && !s.starts_with('0') && s.len() <= max
 }
+fn is_path(v: &str) -> bool {
+    v.strip_prefix('/')
+        .is_some_and(|rest| rest.split('/').all(|p| all(p, class("._-"))))
+        && !v.contains("..")
+}
 /// The space class of a POSIX pattern, in ASCII.
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
@@ -571,15 +659,9 @@ fn is_host(s: &str) -> bool {
     };
     all(name, class(".-")) && port.is_none_or(digits)
 }
-fn is_egress_host(s: &str) -> bool {
-    let (name, port) = match s.split_once(':') {
-        Some((name, port)) => (name, Some(port)),
-        None => (s, None),
-    };
-    is_domain(&name.to_ascii_lowercase())
-        && port.is_none_or(|p| leading(p, 5) && p.parse::<u16>().is_ok())
-}
-fn is_domain(s: &str) -> bool {
+/// A domain name in lower case: labels of letters, digits and `-`, at least
+/// two of them.
+pub(crate) fn is_domain(s: &str) -> bool {
     let label = |l: &str| {
         all(l, |c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
@@ -1320,12 +1402,31 @@ mod tests {
     #[test]
     fn a_name_with_no_rule_takes_anything() {
         takes("TEHAS_NO_SUCH_SETTING", "any thing");
-        takes("PI_ENSEMBLE_HOST_ALIASES", "");
+    }
+
+    #[test]
+    fn the_checkout_is_an_absolute_path() {
+        takes("TEHAS_WORK_REPO", "/home/tehas/tehas/repos/app");
+        for bad in ["repos/app", "/a/../b", "/a b", "/a//b", ""] {
+            refuses("TEHAS_WORK_REPO", bad, "expected an absolute path");
+        }
+    }
+
+    #[test]
+    fn host_aliases_are_the_pairs_the_sandbox_reads() {
+        takes("PI_ENSEMBLE_HOST_ALIASES", "models:192.0.2.9");
+        takes(
+            "PI_ENSEMBLE_HOST_ALIASES",
+            "gpu1:192.0.2.9,gb:192.0.2.10,,v6host:2001:db8::1",
+        );
+        for bad in ["models:192.0.2.8 extra", "models", "models:host"] {
+            refuses("PI_ENSEMBLE_HOST_ALIASES", bad, crate::sandbox::ALIASES_WHY);
+        }
     }
 
     #[test]
     fn every_rule_refuses_its_example() {
-        for setting in TABLE {
+        for setting in TABLE.iter().chain(HOST) {
             let example = setting.rule.refused_example();
             let why = verdict(setting.rule, example, &Trees::default());
             assert!(
@@ -1339,7 +1440,7 @@ mod tests {
 
     #[test]
     fn rule_names_are_kebab_case() {
-        for setting in TABLE {
+        for setting in TABLE.iter().chain(HOST) {
             let name = setting.rule.name();
             assert!(
                 all(name, |c| c.is_ascii_lowercase() || c == '-')
@@ -1352,7 +1453,7 @@ mod tests {
 
     #[test]
     fn every_default_holds_a_value_of_its_rule() {
-        for setting in TABLE {
+        for setting in TABLE.iter().chain(HOST) {
             if let Some(default) = setting.default.filter(|d| !d.is_empty()) {
                 assert_eq!(
                     check(setting.name, default, &Trees::default()),
@@ -1366,9 +1467,97 @@ mod tests {
 
     #[test]
     fn every_name_has_one_row() {
-        let mut names: Vec<_> = TABLE.iter().map(|s| s.name).collect();
+        let mut names: Vec<_> = TABLE.iter().chain(HOST).map(|s| s.name).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), TABLE.len());
+        assert_eq!(names.len(), TABLE.len() + HOST.len());
+    }
+
+    #[test]
+    fn the_host_paths_are_absolute() {
+        for name in ["TEHAS_HOME", "TEHAS_INSTANCE_DIR"] {
+            takes(name, "/home/boss/tehas");
+            takes(name, "/home/boss/.config/tehas");
+            for bad in ["tehas", "/home/boss/tehas/", "/a/../b", "/a b", "/a/$X"] {
+                refuses(name, bad, "expected an absolute path");
+            }
+        }
+    }
+
+    #[test]
+    fn a_model_key_is_one_word_a_shell_and_a_header_keep_as_written() {
+        takes("TEHAS_MODEL_KEY_MAIN", "sk-abc_DEF.123+/=");
+        takes("TEHAS_MODEL_KEY_B200", "x");
+        for bad in [
+            "a b", "a\tb", "a$b", "a`b", "a'b", "a\"b", "a\\b", "é", "a\nb",
+        ] {
+            refuses("TEHAS_MODEL_KEY_MAIN", bad, TOKEN_WHY);
+        }
+    }
+
+    #[test]
+    fn mcp_keys_are_named_by_place_and_never_shown() {
+        let key = "abcdefghijklmnopqrstuvwxyz012345";
+        takes("TEHAS_MCP_KEYS", key);
+        takes("TEHAS_MCP_DASHBOARD_KEYS", &format!("{key} {key}"));
+        let short = &key[..31];
+        let why = why("TEHAS_MCP_KEYS", &format!("{key} {short}")).unwrap();
+        assert_eq!(why, "key 2 is not at least 32 characters of A-Za-z0-9_-");
+        assert!(!why.contains(short));
+    }
+
+    #[test]
+    fn the_host_switches_take_the_switch_words() {
+        for name in ["TEHAS_MCP", "TEHAS_ENERGY"] {
+            for v in SWITCH_WORDS {
+                takes(name, v);
+            }
+            refuses(name, "yes", "expected on or off");
+        }
+    }
+
+    #[test]
+    fn the_energy_address_is_http_or_https() {
+        takes("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster");
+        takes("TEHAS_ENERGY_URL", "https://models.example/v1/cluster?x=1");
+        for bad in [
+            "gateway.lan/v1",
+            "ftp://a.example",
+            "http://a b",
+            "http://a.example/\"x\"",
+            "http://",
+        ] {
+            refuses("TEHAS_ENERGY_URL", bad, ADDRESS_WHY);
+        }
+    }
+
+    #[test]
+    fn the_update_wait_is_0_to_300_seconds_read_strictly() {
+        for v in ["0", "1", "300"] {
+            takes("TEHAS_UPDATE_LOCK_WAIT", v);
+        }
+        for bad in [
+            "301",
+            "05",
+            "-1",
+            "+5",
+            "1.5",
+            "soon",
+            " 5",
+            "99999999999999999999",
+        ] {
+            refuses(
+                "TEHAS_UPDATE_LOCK_WAIT",
+                bad,
+                "expected a whole number of seconds from 0 to 300",
+            );
+        }
+    }
+
+    #[test]
+    fn no_host_setting_is_a_setting_of_the_instance_too() {
+        for row in HOST {
+            assert!(!TABLE.iter().any(|s| s.name == row.name), "{}", row.name);
+        }
     }
 }

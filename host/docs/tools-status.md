@@ -187,7 +187,9 @@ and so asks the host's disk nothing. The reading, the bounds and the printing
 are the console's (`~/tehas/libexec/console disk`, `console/ops/src/disk.rs`);
 it reads the home, the scratch disk and the bound of the wait from the
 instance's own file, so `bin/tehas` loads nothing for it and hands the
-arguments straight over. See
+arguments straight over. The file is read, not run as shell: a `TEHAS_HOME` or
+`TEHAS_SCRATCH_DIR` that holds a `$` or a backtick outside single quotes is
+refused with 78 and a line that says so, rather than read as written. See
 [`tehas disk`](/api#tehas-disk) for every field of `--json`.
 
 Exit 0 when it printed, and with the file written; 1 when the published file
