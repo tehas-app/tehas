@@ -169,6 +169,12 @@ fn listen() -> ! {
     // One value of the rules, made now and read by every request of the
     // process: the listener's threads borrow it for the life of the program,
     // which is the life the borrow needs.
+    // A relayed issue write is masked with the factory's own host names too,
+    // as the local relay masks with the ones the console masks.
+    let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(
+        &models::host_path(),
+        "",
+    ));
     let factory = Box::leak(Box::new(tehas_proxy::host::OfHost {
         home: home(),
         repo: env("TEHAS_REPO"),
