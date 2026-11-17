@@ -39,7 +39,7 @@
 //! token does not reach TEHAS_REPO; 64 an argument it does not know; 78 the
 //! settings name no GitHub App.
 
-use crate::flags;
+use crate::holds;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -440,7 +440,7 @@ fn exchanged(answer: &[u8], now: i64) -> Option<(String, i64)> {
     let token = answer["token"].as_str().filter(|t| !t.is_empty())?;
     let until = answer["expires_at"]
         .as_str()
-        .and_then(flags::epoch)
+        .and_then(holds::epoch)
         .filter(|until| *until > now)?;
     Some((token.to_string(), until))
 }
