@@ -59,7 +59,8 @@
 //!                                     the --work program waits on a cycle run
 //!                                     on a contractor, and the start and the
 //!                                     report read no image and no workspace
-//!                                     here; it needs TEHAS_OUTSOURCE=1 (78)
+//!                                     here; it needs the outsource feature
+//!                                     on (78)
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -262,7 +263,7 @@
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
 //! it does not know; 78 run without an absolute TEHAS_HOME, or cycle
-//! --runner job with TEHAS_OUTSOURCE not 1.
+//! --runner job with the outsource feature off.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
 //! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
@@ -510,8 +511,8 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         wrong(args);
     }
     // A cycle run elsewhere is the outsource feature's, and only it may ask.
-    if g.runner == Runner::Job && std::env::var("TEHAS_OUTSOURCE").as_deref() != Ok("1") {
-        after::log("ERROR: --runner job needs TEHAS_OUTSOURCE=1: outsource is off");
+    if g.runner == Runner::Job && !tehas_core::features::on("outsource") {
+        after::log("ERROR: --runner job needs the outsource feature on: it is off");
         std::process::exit(78);
     }
     if !work::store_ready(home) {
