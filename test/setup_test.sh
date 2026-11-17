@@ -275,6 +275,17 @@ t_contains "$(cat "$T/curl-stdin")" "Authorization: Bearer sk_model_key"
 t_lacks "$(cat "$T"/calls/*)" "sk_model_key"
 t_lacks "$(cat "$cfg/models.json" "$cfg/instance.env")" "sk_model_key"
 
+t_case "a model key in env that a shell would expand is 78, and the line names the key, not the value"
+fresh
+mkdir -p "$cfg"
+# shellcheck disable=SC2016  # the line is written as the operator wrote it
+printf '%s\n' 'TEHAS_MODEL_KEY_MAIN=$(cat /run/secret-key)' >"$cfg/env"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MODEL_KEY_MAIN holds a \$ or a backtick: the file is read, not run as shell"
+t_lacks "$t_out" "secret-key"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
 t_case "a git identity that is there is kept"
 fresh
 git config -f "$T/home/.gitconfig" user.name "Someone"

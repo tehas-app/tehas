@@ -812,7 +812,10 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
 
     let key_name = key_name(&g.provider);
     let key = if g.key_file.is_empty() {
-        value_in(&env_file, &key_name)
+        let text = fs::read_to_string(&env_file).unwrap_or_default();
+        tehas_core::env_file::literal(&text, &key_name)
+            .map_err(|why| Bad(format!("{why} (see {})", env_file.display())))?
+            .unwrap_or_default()
     } else {
         read_secret(&g.key_file, "the model key")?
     };

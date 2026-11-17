@@ -298,7 +298,7 @@ pub struct Instance {
 /// allow, and no `..` in it. The reading that uses it only ever stats and
 /// walks it, but a path is not read on a guess.
 fn setting_path(text: &str, name: &str) -> Result<Option<PathBuf>, String> {
-    let Some(value) = tehas_core::env_file::value(text, name) else {
+    let Some(value) = tehas_core::env_file::literal(text, name)? else {
         return Ok(None);
     };
     let ok = value.len() > 1
@@ -328,7 +328,7 @@ impl Instance {
             // settings library exports TEHAS_HOME, so an empty one is a host
             // that named the home and got nothing for it.
             Some(from_env) => PathBuf::from(from_env),
-            None => tehas_core::env_file::value(&text, "TEHAS_HOME")
+            None => tehas_core::env_file::literal(&text, "TEHAS_HOME")?
                 .map(PathBuf::from)
                 .unwrap_or_else(|| {
                     let home = std::env::var_os("HOME").unwrap_or_default();
