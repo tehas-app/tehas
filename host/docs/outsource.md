@@ -69,7 +69,10 @@ The proxy asks the endpoint of the provider the instance's agents run on, the
 same one a cycle's container is given: `PI_ENSEMBLE_SUBAGENT_PROVIDER` names it
 in `models.json`, and the variable that file names as its `apiKey` holds the
 key in the instance's env. With the feature on and that endpoint missing, not
-`http://`, or its key unset, the proxy stops with 78 and says which.
+`http://`, or its key unset, the proxy stops with 78 and says which. It stops
+with 78 too, before it binds anything, when `TEHAS_HOME` is so long a path that
+its control socket, `state/outsource/proxy.sock`, would be over the 107 bytes a
+unix socket allows.
 
 Version 1 listens in plain http. The trust boundary is the address you bind: a
 contractor must reach the port, and what it can do is what is listed below.
