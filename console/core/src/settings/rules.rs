@@ -307,6 +307,7 @@ const fn required(name: &'static str, rule: Rule) -> Setting {
 /// there, as TEHAS_BUILD_TIMEOUT is: its default belongs to install.sh.
 pub const TABLE: &[Setting] = &[
     always("TEHAS_SITE_INDEXING", SWITCH, "0"),
+    always("TEHAS_SITE_CONSOLE", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
     always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
     always("TEHAS_WORK_FILES", SWITCH, "0"),
@@ -973,6 +974,7 @@ mod tests {
             .collect();
         for name in [
             "TEHAS_SITE_INDEXING",
+            "TEHAS_SITE_CONSOLE",
             "TEHAS_PREVIEWS",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
@@ -985,7 +987,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 20);
+        assert_eq!(switches.len(), 21);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
