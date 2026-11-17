@@ -712,18 +712,18 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
-            "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see {file})"
+            "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
         ));
     }
     let taken = on("TEHAS_WORK_IMAGES") || on("TEHAS_WORK_FILES");
     if on("TEHAS_WORK_COMMENTS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
+            "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
         ));
     }
     if on("TEHAS_WORK_ZIPS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
+            "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
         ));
     }
     // One axis of parallelism: several cycles of one workstream, or one cycle
@@ -773,7 +773,7 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
-            "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
+            "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
         ));
     }
     // The model proxy of outsource (#2273) is the one place a contractor's
@@ -1218,7 +1218,7 @@ mod tests {
         // The rules between switches read the value after it is brought to form.
         let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
         assert!(
-            got.starts_with("TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"),
+            got.starts_with("TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"),
             "{got}"
         );
         loads(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=1"]);
@@ -1719,15 +1719,15 @@ mod tests {
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],
-                "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not",
+                "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
             ),
             (
                 &["TEHAS_WORK_COMMENTS=1"][..],
-                "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
                 &["TEHAS_WORK_ZIPS=1"][..],
-                "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
                 &["TEHAS_CONCURRENCY=2", "TEHAS_TICKET_CONCURRENCY=3"][..],
@@ -1751,7 +1751,7 @@ mod tests {
             ),
             (
                 &["TEHAS_PREVIEWS=1"][..],
-                "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
+                "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set",
             ),
             (
                 &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
