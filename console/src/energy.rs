@@ -88,7 +88,7 @@ fn to_mark(now: i64) -> u64 {
 fn sample(home: &Path) -> u8 {
     let live = home.join("live");
     let file = live.join("energy.json");
-    if env("TEHAS_ENERGY") == "off" {
+    if tehas_core::settings::rules::switch(&env("TEHAS_ENERGY")) == Some(false) {
         let _ = std::fs::create_dir_all(&live);
         let _ = std::fs::remove_file(&file);
         return 0;

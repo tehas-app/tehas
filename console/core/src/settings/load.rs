@@ -33,7 +33,8 @@
 //! - Nothing falls back to a project: a setting with no generic default stays
 //!   unset until a command requires it.
 
-use super::rules::{self, Trees, When, ROLES, TABLE};
+use super::rules::{self, Trees, When, ROLES, SWITCH_WORDS, TABLE};
+use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The names of the two families the environment may give: the home, the
@@ -98,6 +99,9 @@ const KEPT: &[&str] = &[
     // The tests' answers of the store (store/src/call.rs), which a release
     // build of the store never reads.
     "TEHAS_TEST_STORE_ANSWERS",
+    // The building features a test turns on (core/src/features.rs), from the
+    // environment only: `test_only` refuses it in a file.
+    "TEHAS_TEST_FEATURES",
 ];
 
 /// The names an earlier version read are refused, not ignored: a line that
@@ -249,6 +253,22 @@ fn scan(text: &[u8], file: &str) -> Result<(), String> {
         if line.starts_with(b"TEHAS_MCP_KEYS=") || line.starts_with(b"TEHAS_MCP_DASHBOARD_KEYS=") {
             return Err(format!(
                 "{file} sets MCP keys: put TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS in ~/.config/tehas/env"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The test variable turns on a feature still being built. A test sets it in
+/// the environment it starts a program with; a factory's files may not.
+fn test_only(vars: &Vars, host: &dyn Host, instance: &[u8], file: &str) -> Result<(), String> {
+    let creds_file = credential_file(vars);
+    let creds = host.read(&creds_file).unwrap_or_default();
+    for (text, name) in [(instance, file), (&creds[..], creds_file.as_str())] {
+        if assigns(text, features::TEST_VAR) {
+            return Err(format!(
+                "{name} sets {}: it is for the tests only, take the line out",
+                features::TEST_VAR
             ));
         }
     }
@@ -601,6 +621,52 @@ fn check_values(vars: &Vars, file: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Every switch, checked already, exported in the form of its default, which
+/// is the form its readers compare with: `1` and `0`, or `on` and `off` for
+/// TEHAS_ANALYTICS.
+fn switches(vars: &mut Vars) {
+    for setting in TABLE {
+        if rules::words(setting.name) != Some(&SWITCH_WORDS[..]) {
+            continue;
+        }
+        let Some(on) = rules::switch(&vars.text(setting.name)) else {
+            continue;
+        };
+        let words = match setting.default {
+            Some("on" | "off") => ("on", "off"),
+            _ => ("1", "0"),
+        };
+        let value = if on { words.0 } else { words.1 };
+        if vars.text(setting.name) != value {
+            vars.set(setting.name, value);
+        }
+    }
+}
+
+/// TEHAS_ENERGY, a switch of the host's file and not of the instance: `off`
+/// takes the energy section away, `on` asks for it, and unset or empty leaves
+/// it to the sampler. tehasbot energy and the first install read `on` and `off`.
+fn energy(vars: &mut Vars) -> Result<(), String> {
+    const NAME: &str = "TEHAS_ENERGY";
+    let value = vars.text(NAME);
+    if value.is_empty() {
+        return Ok(());
+    }
+    match rules::switch(&value) {
+        Some(on) => {
+            let word = if on { "on" } else { "off" };
+            if value != word {
+                vars.set(NAME, word);
+            }
+            Ok(())
+        }
+        None => Err(format!(
+            "{NAME} is not valid: expected on or off (see {})",
+            credential_file(vars)
+        )),
+    }
+}
+
 /// An entry for a setting the instance no longer has is a workaround removed
 /// by half.
 fn workarounds(vars: &Vars, file: &str) -> Result<(), String> {
@@ -646,18 +712,18 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     if on("TEHAS_WORK_DESCRIBE") && !on("TEHAS_WORK_IMAGES") {
         return Err(format!(
-            "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see {file})"
+            "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off: there are no images to describe (see {file})"
         ));
     }
     let taken = on("TEHAS_WORK_IMAGES") || on("TEHAS_WORK_FILES");
     if on("TEHAS_WORK_COMMENTS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
+            "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see {file})"
         ));
     }
     if on("TEHAS_WORK_ZIPS") && !taken {
         return Err(format!(
-            "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
+            "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see {file})"
         ));
     }
     // One axis of parallelism: several cycles of one workstream, or one cycle
@@ -707,7 +773,7 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     }
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
-            "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
+            "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
         ));
     }
     // The model proxy of outsource (#2273) is the one place a contractor's
@@ -718,7 +784,7 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
         number(vars, "TEHAS_OUTSOURCE_TIMEOUT"),
         number(vars, "TEHAS_OUTSOURCE_PROXY_IDLE"),
     );
-    if on("TEHAS_OUTSOURCE") && idle <= check_in {
+    if features::on_in("outsource", &|name| vars.text(name)) && idle <= check_in {
         return Err(format!(
             "TEHAS_OUTSOURCE_PROXY_IDLE ({idle}) is not longer than TEHAS_OUTSOURCE_TIMEOUT ({check_in}): a model stream would be cut off before the job that waits on it is lost (see {file})"
         ));
@@ -760,6 +826,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     sweep(vars);
     vars.set("TEHAS_INSTANCE_DIR", dir);
     scan(&text, &file)?;
+    test_only(vars, host, &text, &file)?;
     let sourced = host.source(&file, vars);
     // No list at all: the file ended the shell before it was asked for one.
     if !sourced.vars.is_empty() {
@@ -774,6 +841,10 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     app_login(vars, host, &file);
     defaults(vars, host, uid);
     check_values(vars, &file)?;
+    switches(vars);
+    energy(vars)?;
+    features::refuse_building(&|name| vars.text(name))
+        .map_err(|why| format!("{why} (see {file})"))?;
     together(vars, &file)?;
     last(vars);
     Ok(())
@@ -988,6 +1059,13 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
+    /// A load whose environment names outsource in the test variable, as a
+    /// test of a building feature starts a program.
+    fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let got = load(&mut vars, &mut Fake::with(extra), "1000");
+        (vars, got)
+    }
 
     #[test]
     fn a_minimal_instance_loads_with_every_default() {
@@ -1037,12 +1115,13 @@ mod tests {
         let vars = loads(&[]);
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_OUTSOURCE=1",
             "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
             "TEHAS_OUTSOURCE_TIMEOUT=1800",
             "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
         ]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
         // With outsource off nothing listens, and the bound is not checked.
@@ -1068,14 +1147,110 @@ mod tests {
         let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
         assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_OUTSOURCE=1",
             "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
         ]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
         assert_eq!(
             vars.text("TEHAS_OUTSOURCE_REPOS"),
             "acme/widget other/widget"
+        );
+    }
+
+    #[test]
+    fn a_building_feature_set_on_stops_the_load() {
+        for value in ["1", "on"] {
+            let got = refused(&[&format!("TEHAS_OUTSOURCE={value}")]);
+            assert_eq!(
+                got,
+                format!("TEHAS_OUTSOURCE is on and outsource is still being built in this release: set it to off or take the line out (see {FILE})")
+            );
+        }
+        for value in ["0", "off", ""] {
+            loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
+        }
+    }
+
+    #[test]
+    fn a_file_that_sets_the_test_variable_stops_the_load() {
+        let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
+        assert_eq!(
+            got,
+            format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
+        );
+        let mut host = Fake::with(&[]).file(
+            "/h/.config/tehas/env",
+            "export TEHAS_TEST_FEATURES=outsource\n",
+        );
+        let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
+        assert_eq!(
+            got,
+            "/h/.config/tehas/env sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out"
+        );
+    }
+
+    #[test]
+    fn the_test_variable_comes_from_the_environment_and_turns_it_on() {
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let mut host = Fake::with(&["TEHAS_OUTSOURCE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
+        assert_eq!(vars.text(crate::features::TEST_VAR), "outsource");
+    }
+
+    #[test]
+    fn a_switch_is_exported_in_the_form_its_readers_know() {
+        let vars = loads(&[
+            "TEHAS_INDEXING=on",
+            "TEHAS_PREVIEWS=off",
+            "TEHAS_TOP=1",
+            "TEHAS_ANALYTICS=0",
+        ]);
+        assert_eq!(vars.text("TEHAS_INDEXING"), "1");
+        assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
+        assert_eq!(vars.text("TEHAS_TOP"), "1");
+        assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
+        assert_eq!(loads(&["TEHAS_ANALYTICS=1"]).text("TEHAS_ANALYTICS"), "on");
+        assert_eq!(loads(&[]).text("TEHAS_ANALYTICS"), "on");
+        assert_eq!(loads(&[]).text("TEHAS_REVIEW"), "0");
+        // The rules between switches read the value after it is brought to form.
+        let got = refused(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=off"]);
+        assert!(
+            got.starts_with("TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off"),
+            "{got}"
+        );
+        loads(&["TEHAS_WORK_DESCRIBE=on", "TEHAS_WORK_IMAGES=1"]);
+    }
+
+    #[test]
+    fn the_energy_switch_takes_the_switch_words_from_the_host_file() {
+        for (value, want) in [
+            ("on", "on"),
+            ("1", "on"),
+            ("off", "off"),
+            ("0", "off"),
+            ("", ""),
+        ] {
+            let mut vars = start(&[("TEHAS_ENERGY", value)]);
+            assert_eq!(
+                load(&mut vars, &mut Fake::with(&[]), "1000"),
+                Ok(()),
+                "{value}"
+            );
+            assert_eq!(vars.text("TEHAS_ENERGY"), want, "{value}");
+        }
+        let mut vars = start(&[]);
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
+        assert!(!vars.is_set("TEHAS_ENERGY"));
+        let mut vars = start(&[("TEHAS_ENERGY", "viiwork")]);
+        assert_eq!(
+            load(&mut vars, &mut Fake::with(&[]), "1000"),
+            Err(
+                "TEHAS_ENERGY is not valid: expected on or off (see /h/.config/tehas/env)"
+                    .to_string()
+            )
         );
     }
 
@@ -1544,15 +1719,15 @@ mod tests {
             ),
             (
                 &["TEHAS_WORK_DESCRIBE=1"][..],
-                "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not",
+                "TEHAS_WORK_DESCRIBE is on and TEHAS_WORK_IMAGES is off",
             ),
             (
                 &["TEHAS_WORK_COMMENTS=1"][..],
-                "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_COMMENTS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
                 &["TEHAS_WORK_ZIPS=1"][..],
-                "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
+                "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
                 &["TEHAS_CONCURRENCY=2", "TEHAS_TICKET_CONCURRENCY=3"][..],
@@ -1576,7 +1751,7 @@ mod tests {
             ),
             (
                 &["TEHAS_PREVIEWS=1"][..],
-                "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
+                "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set",
             ),
             (
                 &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
@@ -1591,7 +1766,7 @@ mod tests {
                 "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
-            let got = refused(lines);
+            let got = tested(lines).1.unwrap_err();
             assert!(got.starts_with(want), "{got}");
             assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
         }

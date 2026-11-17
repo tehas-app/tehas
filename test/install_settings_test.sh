@@ -156,7 +156,7 @@ fresh
 instance TEHAS_PREVIEWS=1
 t_run "$install"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+t_contains "$t_out" "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set"
 t_eq "$(find "$home" -type f | wc -l)" 0
 
 t_case "settings anyone can write are a finding"

@@ -47,14 +47,20 @@
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
 //!   tehas-cycle cycle <issue> --work <path> [--work-arg <word>]...
-//!       --status-cmd <path> [--status-arg <word>]... --console <path>
+//!       [--runner work|job] --status-cmd <path> [--status-arg <word>]...
+//!       --console <path>
 //!                                     tehasbot cycle, which the console execs
 //!                                     with the settings loaded: the issue's
 //!                                     lock, waited for 5 s (3 when another
 //!                                     holds it), the start on record, what
 //!                                     the number is, tehas work to its end and
 //!                                     the report (src/supervise.rs). Exits as
-//!                                     tehasbot cycle does
+//!                                     tehasbot cycle does. With --runner job
+//!                                     the --work program waits on a cycle run
+//!                                     on a contractor, and the start and the
+//!                                     report read no image and no workspace
+//!                                     here; it needs the outsource feature
+//!                                     on (78)
 //!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
@@ -256,7 +262,8 @@
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
-//! it does not know; 78 run without an absolute TEHAS_HOME.
+//! it does not know; 78 run without an absolute TEHAS_HOME, or cycle
+//! --runner job with the outsource feature off.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
 //! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
@@ -267,7 +274,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tehas_cycle::after::{self, After};
-use tehas_cycle::host::Start;
+use tehas_cycle::host::{Runner, Start};
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
@@ -482,6 +489,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         issue: n,
         work: String::new(),
         work_args: Vec::new(),
+        runner: Runner::Work,
         status_cmd: String::new(),
         status_args: Vec::new(),
         console: String::new(),
@@ -492,6 +500,7 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
         match *flag {
             "--work" => g.work = v,
             "--work-arg" => g.work_args.push(v),
+            "--runner" => g.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             "--status-cmd" => g.status_cmd = v,
             "--status-arg" => g.status_args.push(v),
             "--console" => g.console = v,
@@ -500,6 +509,11 @@ fn cycle_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
     }
     if g.work.is_empty() || g.status_cmd.is_empty() || g.console.is_empty() {
         wrong(args);
+    }
+    // A cycle run elsewhere is the outsource feature's, and only it may ask.
+    if g.runner == Runner::Job && !tehas_core::features::on("outsource") {
+        after::log("ERROR: --runner job needs the outsource feature on: it is off");
+        std::process::exit(78);
     }
     if !work::store_ready(home) {
         after::log("ERROR: the state store is not installed (run install.sh)");
@@ -587,6 +601,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         console: String::new(),
         status_cmd: String::new(),
         status_args: Vec::new(),
+        runner: Runner::Work,
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {

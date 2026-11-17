@@ -316,8 +316,11 @@ pub fn after(home: &Path, a: &After) {
 }
 
 /// Nothing builds in a kept workspace again, and the cycle still holds its
-/// lock.
+/// lock. A cycle that ran elsewhere built nothing here.
 fn clean(home: &Path, a: &After) {
+    if a.workdir.is_empty() {
+        return;
+    }
     let scratch = crate::scratch::dir(
         &env("TEHAS_SCRATCH_DIR"),
         &env("TEHAS_WORK_DIR"),

@@ -438,7 +438,7 @@ labels the issue, so a unit that comes up late cannot use it.
 A state store that is not installed stops the poll before it asks GitHub
 anything: `ERROR: the state store is not installed (run install.sh)`, exit
 78. An answer that names no title records no
-`title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
+`title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=on` the poll also lists the
 issue's comments and adds `comment_links`: the links of each comment an
 allowed account wrote whose `created_at` and `updated_at` are at or before
 `at`, in the order written, each as `{link, source, by}` with `source`
