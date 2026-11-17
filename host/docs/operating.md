@@ -1638,7 +1638,9 @@ recording, and both commands then say so and exit 69.
   start runs, with the App's cycle token, in a fresh copy of the product
   checkout under `~/tehas/state/push-probe` that it removes after, bounded
   like a start's check. No container is given the checkout itself, and the
-  image is not pulled inside the poll (`--pull=never`). A check that passes takes the file off and the
+  image is not pulled inside the poll (`--pull=never`). It asks only when the
+  poll could start a cycle: not while the factory is paused or nothing is
+  ready or approved. A check that passes takes the file off and the
   queue starts. One that is refused writes the fault fresh, and the hold starts
   again from that moment. When the poll cannot ask at all (no sandbox image,
   no cycle token, docker or its daemon not there), it records nothing, logs

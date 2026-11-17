@@ -19,7 +19,7 @@
 use crate::apply::start::Host;
 use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
-use crate::read::build::{fill, snapshot, Sources};
+use crate::read::build::{fill, may_start, snapshot, Sources};
 use crate::read::host::{hostname, push_fault, push_fault_aged_out};
 use crate::read::run::{read_gh_token, Calls, RetryPolicy};
 use crate::{decide, Settings, Snapshot};
@@ -748,8 +748,11 @@ fn body(
     }
     // A push fault that has aged out is asked about before the rules read it:
     // the record left behind is what holds the starts. A probe the host could
-    // not run holds nothing, so the start's own check decides, as before.
-    if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before) {
+    // not run holds nothing, so the start's own check decides, as before. A
+    // poll that could start nothing asks nothing: the record holds no start.
+    if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before)
+        && may_start(&snap, settings)
+    {
         let (lines, holds) = w.push_probe(dry);
         for l in &lines {
             say(l);
