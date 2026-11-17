@@ -136,6 +136,8 @@ const SAID: &[(&str, &[&str])] = &[
     ("job-show", &["job"]),
     ("jobs-sweep", &["swept"]),
     ("job-attempts", &["attempts"]),
+    ("contractor-auth", &["allowed"]),
+    ("job-offered", &["job", "none"]),
 ];
 
 /// The words one verb may answer with, its own and the one of the feature
@@ -1583,4 +1585,117 @@ fn load_refuses_a_store_that_holds_a_job() {
     assert!(why.contains("rows in jobs"), "{why}");
     assert_eq!(count(&into, "jobs"), 1);
     assert!(on_in(&into));
+}
+
+// --- the job channel's two questions ----------------------------------------
+
+#[test]
+fn a_contractor_is_allowed_only_with_its_own_key_until_it_is_revoked() {
+    let home = on("auth");
+    add(&home, "box1");
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["verb"], "allowed");
+    assert_eq!(v["draining"], false);
+    let v = out(
+        &home,
+        &["contractor-auth", "--name", "box1", "--key", KEY_B],
+    );
+    assert_eq!(
+        (v["verb"].as_str(), v["said"].as_str()),
+        (Some("refused"), Some("another key"))
+    );
+    let v = out(&home, &["contractor-auth", "--name", "box9", "--key", KEY]);
+    assert_eq!(v["said"], "unknown");
+    out(&home, &["contractor-drain", "--name", "box1"]);
+    assert_eq!(
+        out(&home, &["contractor-auth", "--name", "box1", "--key", KEY])["draining"],
+        true
+    );
+    out(&home, &["contractor-revoke", "--name", "box1"]);
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["said"], "revoked");
+    // Off, the question is refused like every verb of the feature.
+    let home = off("auth-off");
+    let v = out(&home, &["contractor-auth", "--name", "box1", "--key", KEY]);
+    assert_eq!(v["verb"], "refused");
+    assert_eq!(v["said"], "outsource is off");
+}
+
+#[test]
+fn the_offer_in_a_contractor_s_hand_is_found_until_it_is_taken_or_expires() {
+    let home = on("offered");
+    issue(&home, 7);
+    add(&home, "box1");
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box1"])["verb"],
+        "none"
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let v = out(&home, &["job-offered", "--contractor", "box1"]);
+    assert_eq!(v["verb"], "job");
+    assert_eq!(v["job"], id);
+    assert_eq!(v["issue"], 7);
+    assert_eq!(v["attempt"], 1);
+    // Another contractor's hand holds nothing.
+    add(&home, "box2");
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box2"])["verb"],
+        "none"
+    );
+    // Past its expiry the offer is no work, sweep or not.
+    let late = out_at(
+        &home,
+        NOW + OFFER_TTL_TEST,
+        &["job-offered", "--contractor", "box1"],
+    );
+    assert_eq!(late["verb"], "none");
+    // Taken, it is running and no longer an offer.
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(
+        out(&home, &["job-offered", "--contractor", "box1"])["verb"],
+        "none"
+    );
+}
+
+/// One second past the expiry of an offer made with no --expires.
+const OFFER_TTL_TEST: i64 = crate::outsource::OFFER_TTL + 1;
+
+#[test]
+fn a_job_lost_to_a_silence_takes_its_result_until_the_next_attempt_is_given() {
+    let home = on("salvage");
+    issue(&home, 9);
+    let id = offered(&home, 9, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
+    assert_eq!(out(&home, &["job-show", "--job", &job])["state"], "lost");
+    let v = out(&home, &["job-finish", "--job", &job]);
+    assert_eq!(v["verb"], "finished", "{v}");
+    // Once the issue's next attempt is out, the old one's result is stale.
+    let home = on("salvage-late");
+    issue(&home, 9);
+    let id = offered(&home, 9, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out_at(&home, NOW + 601, &["jobs-sweep", "--timeout", "600"]);
+    add(&home, "box2");
+    out_at(
+        &home,
+        NOW + 602,
+        &["job-offer", "--issue", "9", "--contractor", "box2"],
+    );
+    assert_eq!(out(&home, &["job-finish", "--job", &job])["verb"], "stale");
+}
+
+#[test]
+fn a_revoked_job_takes_no_result() {
+    let home = on("revoked-result");
+    issue(&home, 7);
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let job = id.to_string();
+    out(&home, &["job-check-in", "--job", &job]);
+    out(&home, &["contractor-revoke", "--name", "box1"]);
+    let v = out(&home, &["job-finish", "--job", &job]);
+    assert_eq!(v["verb"], "refused");
+    assert_eq!(v["said"], "lost does not finish");
 }
