@@ -1549,14 +1549,16 @@ model (`VIPUNE_MODEL`), the revision (`VIPUNE_MODEL_REVISION`) and the two
 checksums. The files go where vipune reads them, `~/.cache/huggingface/hub` of
 the user a container runs as. The build then checks that the model works: as
 that user, with the network shut off, it adds a memory to a scratch store and
-searches it back, pinned to one core as a cycle's cpuset would. It stops when
-either step errors, writes anything to stderr, or the search finds nothing, and
-when the base's vipune is not `VIPUNE_VERSION`, because the version picks the
-revision. The image sets `ORT_INTRA_OP_NUM_THREADS=1`: vipune sets no
-onnxruntime thread count, so onnxruntime pinned a thread to each host core and,
-under a cpuset, wrote an affinity error to stderr on every vipune call. With an
-explicit count it pins nothing. It is an `ENV` of the image, not a variable a
-cycle passes, so every container of the image has it. When vipune is bumped, bump the model pins with it: a vipune that
+searches it back. It stops when either step errors, writes anything to stderr,
+or the search finds nothing, and when the base's vipune is not
+`VIPUNE_VERSION`, because the version picks the revision. The image sets
+`ORT_INTRA_OP_NUM_THREADS=1`: vipune sets no onnxruntime thread count, so
+onnxruntime pinned a thread to each host core and, under a cpuset, wrote an
+affinity error to stderr on every vipune call. With an explicit count it pins
+nothing. It is an `ENV` of the image, not a variable a cycle passes, so every
+container of the image has it. A build step has no cpuset, so the step above
+cannot see a lost count; the smoke run below checks for it. When vipune is
+bumped, bump the model pins with it: a vipune that
 cannot find its model names the revision it wants.
 
 To check an image by hand, with an empty store mounted where a cycle mounts
@@ -1622,7 +1624,13 @@ own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
 such line, or a result that says its runner crashed, is refused, the build
 exits 1 and the uid tag stays where it was, as for a layer that does not
-build. A build with an instance layer smoke-runs both images. The run and the
+build. After a started turn the smoke run adds a memory with vipune and
+searches it back, in a second container with no network, as the build's uid,
+on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
+on). Anything vipune writes to stderr there refuses the image the same way
+and is printed in the build's log: it is how a lost onnxruntime thread count
+shows, since only a cpuset refuses onnxruntime's pins (`taskset` does not). A
+build with an instance layer smoke-runs both images. The run and the
 decision on its output are `tehas-cycle sandbox smoke-run`, in
 `console/cycle/src/sandbox.rs`. A smoke run starts no
 cycle and reaches no model, so it costs the build
