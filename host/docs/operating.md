@@ -2393,6 +2393,8 @@ the `Adopter action` of each release between, do what they ask, then run
 the running cycles and needs no drain: each cycle and planning turn runs from
 its own copy of the code, so it ends on the version it began on, and the next
 one starts on the new version (see [Updating tehas](/host#updating-tehas)).
+The one exception is the update from 0.30.x to 1.0: see
+[Updating from 0.30.x to 1.0](#updating-from-030x-to-10).
 This release updates a host on v0.30.0 or later. A host on an older release
 updates to a v0.30 release first: the store refuses an older database, and the
 record files a tehas before the state store kept are no longer imported. While
@@ -2403,6 +2405,156 @@ release has migrated the store, as it refuses the newer schema. How it works is 
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
+
+### Updating from 0.30.x to 1.0
+
+1.0 renames and removes settings, labels, command forms and fields of the
+`--json` objects, changes exit statuses, and migrates the state store. Every
+renamed or removed public name is one row of `api/renames-1.0.tsv` in the
+release. tehas does not edit `instance.env`: it is a checkout of your
+settings. The steps:
+
+1. **Be on 0.30.** 1.0 migrates a store that v0.30.0 or later wrote. A host on
+   an older release runs `tehas update --to v0.30.6` first; 1.0 refuses an
+   older store with exit 78 and installs nothing.
+2. **Edit the settings.** Change `instance.env` and `~/.config/tehas/env`
+   from the tables below, or from the 1.0 Adopter action that
+   `tehas update --check` prints. On 0.30.x, `--check` is 0.30's own check: it
+   prints the release notes and the version it would switch to, and lists no
+   setting.
+3. **Drain.** Run `tehas drain --wait 3600` and wait for it to say no cycle
+   runs. On 0.30.x it exits 1 when cycles still run at the end of the wait (3
+   from 1.0 on): wait, and run it again. This update changes the store's schema
+   and the settings a running cycle reads, so it is the one update that asks
+   for a drain.
+4. **Update.** Run `tehas update`. It asks 1.0's settings check before it
+   switches `~/tehas/current`. While a line is left to fix, it stops with 78,
+   names the first such line and switches nothing: fix it and run it again.
+   From 1.0 on, `tehas update --check` lists every such line at once.
+5. **Labels.** Run `tehas labels`: it makes and pins `tehas:classic` and gives
+   `tehas:improvement` its new description.
+6. **Start.** Run `tehas limit clear`.
+
+**Settings renamed.** Same values, new names, in `instance.env`:
+
+| Was | Is |
+| --- | --- |
+| `TEHAS_INDEXING` | `TEHAS_SITE_INDEXING` |
+| `TEHAS_ANALYTICS_SRC` | `TEHAS_SITE_ANALYTICS_SRC` |
+| `TEHAS_ANALYTICS_SITE` | `TEHAS_SITE_ANALYTICS_NAME` |
+| `TEHAS_ANALYTICS_COOKIE` | `TEHAS_SITE_ANALYTICS_COOKIE` |
+| `TEHAS_CONCURRENCY` | `TEHAS_WORKSTREAMS` |
+| `TEHAS_TICKET_CONCURRENCY` | `TEHAS_MAX_CYCLES` |
+| `TEHAS_REFRESH_MAX` | `TEHAS_REFRESH_MAX_PER_PR` |
+| `TEHAS_OWNER` | `TEHAS_ASSIGNEE` |
+
+In `~/.config/tehas/env`, the program that manages the factory writes
+`TEHAS_MANAGER_VERSION` in place of `TEHAS_INDUSTRY_VERSION`. The old name is
+ignored, not refused.
+
+**Settings removed.** Take these lines out of `instance.env`. Set to a value,
+most stop every command with 78; the exceptions are noted:
+
+- `TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP`,
+  `TEHAS_IMPROVE_MAX_OPEN`: the improvement loop is removed. The update removes
+  its timer. `~/tehas/tmp/improve` and `~/tehas/logs/improve.log` stay on the
+  host until you remove them.
+- `TEHAS_CYCLE_REPORT`: the cycle's report has one form.
+- `TEHAS_EASY_MERGE`: every refresh is the full refresh cycle. A blank value and
+  `0` are ignored.
+- `TEHAS_CONTAINER_MEMORY`, `TEHAS_CYCLE_CPUS`, `TEHAS_CYCLE_CEILING`: the
+  automatic cycle count is removed. `TEHAS_MAX_CYCLES` sets the count.
+- `TEHAS_BOT_LOGIN`, `TEHAS_MILLWRIGHT_LOGIN`: the bot and the millwright are
+  the GitHub App's login, or the app `TEHAS_MILLWRIGHT_APP` names.
+- `TEHAS_GITHUB_APP_INSTALLATION`: the installation is looked up from
+  `TEHAS_GITHUB_APP_ID`.
+- `TEHAS_REFRESH_CONFLICTS`, `TEHAS_REFRESH_EVERY`: nothing looks for
+  conflicts on its own. Have the program that runs the factory ask for a
+  refresh with `tehas refresh --pr N`. A value they took before still loads and
+  does nothing; any other value stops every command with 78.
+
+**Settings that changed.**
+
+- `TEHAS_DRIVER=lean` stops every command with 78: the lean driver is still
+  being built. Take the line out or set it to `classic` before updating.
+- `TEHAS_ENERGY` in `~/.config/tehas/env` takes `on`, `off`, `1` or `0` like
+  every switch. Any other word stops every command with 78.
+- `TEHAS_RELEASE_REPO`: an instance that names a repository whose releases are
+  signed with another key can no longer update from it. Take the line out to
+  update from tehas's own releases.
+- `TEHAS_CLONE_DEPTH` is new: a workspace's clone keeps that many commits, 100
+  by default. Set `TEHAS_CLONE_DEPTH=0` to keep full history, as before.
+- Some values are checked more strictly. If a command stops with 78 after the
+  update and names `PI_ENSEMBLE_HOST_ALIASES`, `TEHAS_WORK_REPO`,
+  `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, `TEHAS_UPDATE_LOCK_WAIT`, a
+  `TEHAS_MODEL_KEY_<NAME>` or an MCP setting, fix that line as the message
+  says. `tehas disk` and `tehas setup` refuse a value in a settings file that
+  holds a `$` or a backtick outside single quotes.
+- A limit file whose `cycles` is not plain digits, such as `1.0` or `01`, reads
+  as `unreadable`. Step 6's `tehas limit clear` rewrites it.
+
+**Labels.**
+
+- `cross-project` is no longer used. It stays on GitHub until you delete it.
+- `tehas:improvement` stays, described as filed by the factory.
+- `tehas:classic` is new; `tehas labels` makes it.
+- `tehas:lean` starts nothing while the lean driver is still being built: the
+  poll takes off the label that asked for the start and says why once.
+  `tehas:lean` stays on until you take it off; take it off any issue that
+  should run on classic.
+
+**Command forms.** Change scripts and notes that call the old forms:
+
+| Was | Is |
+| --- | --- |
+| `tehas setup --labellers "a b"` | `tehas setup --labelers "a b"` |
+| `tehas setup --token-file`, `--app-installation` | Gone. Unknown options, exit 64 |
+| `tehas analytics export <file>` | `tehas analytics copy --to <file>` |
+| `tehas pause <reason>` | `tehas pause --reason "<reason>"` |
+| `tehasbot refresh --pr N` | `tehas refresh --pr N`. The old form stays through 1.x |
+| `tehasbot github-token --check` | `tehas github check` |
+| `tehasbot github-writes` | `tehas github writes` |
+
+**Fields.** A program that reads tehas's `--json` objects or the MCP tools
+reads the new names. Each one is a row of kind `field`, `value` or `word` of
+`api/renames-1.0.tsv`:
+
+- `tehas status --json`: the step fields of `running[]` (`step`, `stepNumber`,
+  `stepTotal`, `round`, `roundLimit`, `stepSince`) are under
+  `running[].progress`. `room.slots` is gone.
+- `tehas history --json` and `tehas export --json`: `runs`, not `cycles`, with
+  the step of a line under `runs[].progress`. A run recorded as `fixer` says
+  `millwright`. In `plan.json` of `tehas export`, `answers[].millwright`
+  replaces `answers[].fixer`.
+- `tehas start --json`: `approval.bodySha256` and `approval.titleSha256`.
+- `tehas refresh --pr N --json`: `headSha`, not `head_sha`.
+- `tehas disk --json`, `live/disk.json` and the MCP tool `factory_disk`: `time`,
+  not `generatedAt`. `factory_disk` no longer has `dockerRoot`.
+- The MCP tool `factory_status`: `manager`, not `industry`. Health's
+  `checks.industry` is `checks.manager`. `factory_sessions` filters by `how:
+  "millwright"`, not `fixer`.
+- `tehas api --json`: `millwright` replaces `fixer`, and the features
+  `millwright-grant`, `state-copy`, `refresh-pr` and `host-message` replace
+  `fixer-grant`, `store-copy`, `refresh-pr-starts`, `refresh-pr-lane`,
+  `refresh-pr-json` and `host-message-health`.
+
+**Exit statuses.** Every public command now uses one scheme, with the
+exceptions [the contract](/contract#exit-statuses) names: 0 done, 1
+failed, 3 the command worked and the answer is no or not yet, 64 a bad
+argument, 78 settings missing or malformed or a feature that is off, 141
+standard output closed. A script that reads the old numbers reads:
+
+- 3 where it read 1 from `tehas status`, `tehas drain`, `tehas update --check`
+  (something to update) and `tehas start` (no such open issue);
+- 3 where it read 78 from `tehas check-product`;
+- 78 where it read 69, and 1 where it read 70 or 73, from `tehas analytics`;
+- 1 where it read 78 from a `tehas setup` whose product check failed.
+
+[The contract](/contract#exit-statuses) has every command's statuses.
+
+**The Protolab.** Files linked by a member or collaborator who is not in
+`TEHAS_ALLOWED_LABELERS` leave the Protolab at the first pass after the update.
+Add the person to the list, or have an allowed account link the files.
 
 ## The speed lane
 
