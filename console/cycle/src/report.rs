@@ -1468,7 +1468,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     };
     if before_runner {
         let why = match (&refused, &conflicted) {
-            (Some(r), _) => r.short,
+            (Some(r), _) => r.short.as_str(),
             (None, Some(_)) => "the pull request it refreshes conflicts",
             _ if rc == 4 => "an image or file the issue links could not be given to it",
             _ if lean_refused => "the sandbox image cannot run lean as this start asks",
@@ -1681,16 +1681,24 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         };
         let refused_said = match &refused {
-            Some(r) if !never_started => {
-                format!(
-                    " Tehas work refused this start before anything ran. {}",
-                    r.said
-                )
-            }
+            Some(r) if !never_started => format!(" {}", r.said),
             _ => String::new(),
         };
+        // A step of tehas work stopped the start before its runner ran: no
+        // status or step of the runner exists, so the park says which step
+        // failed, as far as tehas work left word of it, and the driver.
+        let stopped_how = if before_runner && f.rc == 78 {
+            let driver = approved_driver(f).unwrap_or(f.driver_default).word();
+            let what = refused.as_ref().map_or(
+                "a step of `tehas work` failed, and the run log on the host says which",
+                |r| r.short.as_str(),
+            );
+            format!("tehas work stopped it before its runner ran (exit {runner_rc}), driver `{driver}`, {mins} min: {what}")
+        } else {
+            format!("{summary} (runner exit {runner_rc})")
+        };
         let mut parked = format!(
-            "Tehas cycle stopped {stopped}: {summary} (runner exit {runner_rc}).{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
+            "Tehas cycle stopped {stopped}: {stopped_how}.{refused_said}{why}{handoff_said} {kept_said}; {log_where}.{killed}{open_pr}{foreign}"
         );
         let mut park_why = "";
         let mut lead = String::new();
@@ -1993,14 +2001,18 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
 
 /// Whether the approval this start used chose the lean driver.
 fn lean_start(f: &Facts) -> bool {
+    approved_driver(f) == Some(Driver::Lean)
+}
+
+/// The driver the approval this start used chose, None when it is not read.
+fn approved_driver(f: &Facts) -> Option<Driver> {
     let Ok(a) = &f.approval else {
-        return false;
+        return None;
     };
     a.get("current")
         .filter(|c| c.get("used_by").and_then(Value::as_u64) == Some(f.attempt))
         .and_then(|c| c.get("input"))
         .and_then(Driver::of_record)
-        == Some(Driver::Lean)
 }
 
 /// The caps of a handoff whose open pull request waits only for a merge.

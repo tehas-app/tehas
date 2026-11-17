@@ -44,6 +44,36 @@ pub struct Job {
     pub settings: Map<String, Value>,
     /// The models.json of the cycle, every provider behind the factory's proxy.
     pub models: Value,
+    /// The factory's account, which its image and the cycle's container run
+    /// as. None from a factory that names none.
+    pub owner: Option<Owner>,
+}
+
+/// A uid and a gid: the account a job's folders are handed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Owner {
+    pub uid: u32,
+    pub gid: u32,
+}
+
+impl Owner {
+    /// The `uid` and `gid` of a job answer or of the job file, both or none.
+    pub fn of(v: &Value) -> Option<Owner> {
+        let id = |k: &str| v[k].as_u64().and_then(|n| u32::try_from(n).ok());
+        Some(Owner {
+            uid: id("uid")?,
+            gid: id("gid")?,
+        })
+    }
+
+    /// `uid:gid`, as docker's `--user` takes it.
+    pub fn parse(s: &str) -> Option<Owner> {
+        let (uid, gid) = s.split_once(':')?;
+        Some(Owner {
+            uid: uid.parse().ok()?,
+            gid: gid.parse().ok()?,
+        })
+    }
 }
 
 impl Job {
@@ -61,6 +91,7 @@ impl Job {
                 .to_string(),
             settings: v["settings"].as_object().cloned().unwrap_or_default(),
             models: v["models"].clone(),
+            owner: Owner::of(v),
         })
     }
 
@@ -87,6 +118,11 @@ pub trait World {
     fn ask(&self, call: &str) -> Reply;
     /// A call made with a job's token.
     fn call(&self, call: &str, token: &str, body: &Value) -> Reply;
+    /// Load the factory's sandbox image of this id, unless this box has it:
+    /// whether it was loaded, or why not.
+    fn image(&self, _id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Prepare the job's workspace and start its cycle.
     fn start(&self, job: &Job) -> Result<Box<dyn Work>, String>;
     /// The result the cycle wrote and its exit status, if it wrote one.
@@ -268,7 +304,19 @@ pub fn run(world: &dyn World, grace: u64, poll: u64) -> i32 {
             return 0;
         }
         match world.ask("hello") {
-            Reply::Ok(_) => {}
+            Reply::Ok(said) => {
+                // The image a job runs is the factory's: one this box does
+                // not have is fetched before a job is asked for.
+                if let Some(id) = said["image"].as_str() {
+                    match world.image(id) {
+                        Ok(true) => world.say(&format!("loaded the factory's image {id}")),
+                        Ok(false) => {}
+                        Err(why) => {
+                            world.say(&format!("the factory's image is not loaded: {why}"));
+                        }
+                    }
+                }
+            }
             r if r.revoked() => {
                 world.say("the factory revoked this contractor: it takes no more work");
                 return 1;

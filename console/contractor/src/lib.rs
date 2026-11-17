@@ -10,6 +10,7 @@
 //! leaves the host clean ([`job`]).
 
 pub mod doctor;
+pub mod egress;
 pub mod host;
 pub mod http;
 pub mod identity;

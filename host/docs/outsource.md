@@ -52,8 +52,8 @@ channel's `job` call and sent to the contractor in that answer:
 
 | Token | In the answer | Held by | What it may call |
 | --- | --- | --- | --- |
-| model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and later the egress tunnel |
-| job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and later the job's downloads |
+| model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and the egress tunnel |
+| job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and the job's downloads (`index`, `bundle`, `attachments`) |
 
 A token of one scope is refused on the other's paths with 403: the channel
 answers `{"refused": "scope"}`, and a model path answers as the table below
@@ -211,7 +211,7 @@ The same listener answers a contractor's calls about its work, at
 | `job` | the contractor's key | takes the offer in its hand: the job moves to running and its two tokens are issued |
 | `check-in` | the job token | notes that the job is alive, while it runs |
 | `token` | the job token | answers a fresh cycle token, narrowed as a local cycle's is |
-| `relay` | the job token | checks one issue write as the local relay does and makes it with the factory's token |
+| `relay` | the job token | checks one issue write as the local relay does and makes it with the factory's token, or runs one vipune call for the job (see [Memory](#memory)) |
 | `result` | the job token | keeps the cycle's result where its report reads it and finishes the job |
 | `stopped` | the job token | the job is handed back; both its tokens are spent |
 
@@ -231,6 +231,11 @@ before. A field the contractor left out, or sent in a shape the store does not
 take, is kept as none. Placement fits a cycle to a contractor only when its
 report names this host's image id, the memory a cycle may use and
 `TEHAS_CYCLE_MIN_FREE` of disk, and is no older than `TEHAS_OUTSOURCE_TIMEOUT`.
+The answer to a `hello` names this host's image id as `image`, so a
+contractor that has another one fetches it (see [The downloads](#the-downloads)).
+It keeps a broken download in `state/outsource/images` and resumes it on the
+next `hello`. A kept file the factory answers with 416, one fetched whole but
+never loaded, is removed and fetched again from the start.
 
 What each call needs:
 
@@ -258,7 +263,119 @@ App's public id and never its key), `TEHAS_BRANCH`, `TEHAS_DRIVER`,
 `TEHAS_READ_ONLY`, the work, verify and build timeouts, `TEHAS_WORKSTREAMS`,
 `TEHAS_RUKAS_WORKAROUNDS`, `TEHAS_OUTSOURCE`, and the models and providers of
 the agents' roles. The list is part of the release, not a setting. No address,
-path, key or token of the factory is on it.
+path, key or token of the factory is on it. A job also names the factory's
+account, the `uid` and `gid` its containers run as, which the contractor
+hands the cycle's folders to.
+
+## The egress tunnel
+
+The same listener carries a job's connections to GitHub, the package
+registries and the hosts the instance lists, at
+`/outsource/v1/egress?to=<host>:<port>`. It is an HTTP/1.1 Upgrade, not a
+CONNECT, so it works on the proxy's own port and behind a TLS terminator
+that passes an Upgrade, as Caddy's reverse proxy does. A contractor asks
+with a GET that carries `Connection: Upgrade`, `Upgrade: tehas-egress` and
+the job's model token as a bearer. The answer is `101 Switching Protocols`,
+and from then on the bytes are the tunnel's.
+
+What it takes:
+
+- The job's model token. The job token is refused with 403 `scope`, a token
+  the proxy never issued with 401. The job must be in a state that a
+  `result` is taken in: running, stopping, or lost to a silence while its
+  attempt is current, so the salvage push of a stopped job still goes out.
+  A job that ended and a revoked contractor are refused with one log line,
+  and nothing is connected.
+- A destination on the factory's list: the base list of `TEHAS_EGRESS=1`
+  (GitHub and the npm and cargo registries, on 443) and
+  `TEHAS_EGRESS_HOSTS`, by the same rule the in-house egress proxy uses.
+  A model endpoint of `models.json` is refused even when it is listed: model
+  traffic stays on the counted model route. No host alias is read.
+- After the name resolves, every address must be public and not the
+  factory's own, so the dashboard, the MCP server and the docs are out of
+  reach. A loopback, private, shared, link-local or unique local address is
+  refused.
+
+A refusal is a JSON answer with a `refused` word:
+
+| Status | Word | Why |
+| --- | --- | --- |
+| 400 | `an egress tunnel is a GET with Upgrade: tehas-egress` | no Upgrade asked |
+| 400 | `no host:port to tunnel to` | `to` is missing or no `host:port` |
+| 401 | `no job` | a token the proxy never issued |
+| 403 | `scope` | the job token, not the model token |
+| 403 | `revoked`, or the job's state | the job ended or its contractor was revoked |
+| 403 | `not on the egress list` | the destination is not listed |
+| 403 | `a model endpoint: use the model route` | the destination is a model endpoint |
+| 403 | `an address that is not public` | the name resolved to a private address or to the factory |
+| 502 | `the host could not be resolved`, `the host could not be reached` | the destination did not answer |
+| 503 | `too many tunnels` | 128 tunnels are open over every job |
+
+A tunnel ends when both sides have ended, or when neither has sent anything
+for `TEHAS_OUTSOURCE_PROXY_IDLE` seconds. There is no cap on a single write
+and nothing is buffered, so a large push or install passes. An open tunnel
+does not hold one of the listener's 32 places, so downloads never crowd out
+a check-in. The log has one line when a tunnel opens or is refused, naming
+the job, the contractor and the destination, and one when it closes, with
+its bytes each way. It never has a token or a byte of the tunnel.
+
+## The downloads
+
+What a contractor would otherwise build or fetch itself, it fetches from the
+factory, on the same listener. Each is a GET under `/outsource/v1/`, answered
+with the file:
+
+| Path | Made with | What it is |
+| --- | --- | --- |
+| `image?id=<id>` | the contractor's key, as `hello` | the sandbox image `PI_ENSEMBLE_IMAGE` names, as `docker save` output, only when `<id>` is its id |
+| `index` | the job token | the code index of `state/index`, when `state/index.json` names the image the factory runs now |
+| `bundle` | the job token | a git bundle of `origin/<branch>` of the product checkout (`TEHAS_WORK_REPO`), that one ref and its history |
+| `attachments` | the job token | the issue's images and files with their `manifest.json`, fetched and checked on the factory as an in-house start does |
+
+The image comes before a job, so it is the contractor's, by its key and
+name; a revoked or unlisted contractor gets nothing. The other three take the
+job token of a running job, as `check-in` does, and serve that job alone. The
+model token on them is 403 `scope`.
+
+Each file is made on the first request that needs it and kept for the next:
+an image per image id in `state/images`, created on the first image download,
+and an index per tip and image, a bundle per tip and a job's files per job in
+`state/outsource/downloads`. Concurrent requests make it once. A job's files
+are made under a lock of that job's own, so a slow fetch for one job holds up
+no other. When a new image is saved, the one before it stays for a contractor
+still loading it and older ones are removed. A job's files go when the job
+ends, is handed back, or its contractor is revoked. Those of a job that is no
+longer running for another reason, such as one lost to a silence, go when
+the next job's files are made. Files are compressed with zstd when `zstd` is on
+the proxy's `PATH`, and served as a plain tar otherwise; the answer says which.
+
+An answer names what it is in fields of its own: `x-tehas-sha256` of the file
+and `x-tehas-pack` (`zstd`, `tar` or `bundle`) on every one, `x-tehas-image`
+and `x-tehas-uid` (the uid the image was built for) on the image,
+`x-tehas-tip` and `x-tehas-image` on the index, `x-tehas-tip` and
+`x-tehas-branch` on the bundle. A `Range: bytes=<from>-` resumes a broken
+download with 206. At most two image downloads run at once; a third waits.
+
+| Status | Word | When |
+| --- | --- | --- |
+| 400 | `a download is a GET` | another method |
+| 400 | `an image download names an image id` | no `id`, or no image id |
+| 404 | `not the factory's image` | the id is not the image the factory runs |
+| 404 | `no index` | no index is built |
+| 404 | `an index of another image` | the index was built by another image |
+| 404 | `no files given` | neither `TEHAS_WORK_IMAGES` nor `TEHAS_WORK_FILES` is `1` |
+| 404 | `no downloads here` | the listener has no downloads |
+| 409 | the fetch's own words | the issue's files could not be fetched or checked: an in-house start would stop on it |
+| 416 | `a range of no bytes` | a range past the end of the file |
+
+The issue's files are made with the dispatcher's latest record of the issue
+and the instance's own settings (`TEHAS_WORK_IMAGES`, `TEHAS_WORK_FILES`,
+`TEHAS_WORK_COMMENTS`), by the same fetch and link rule an in-house start
+uses. An issue with no recorded approval gets none, and the job does not
+start.
+
+The log has one line per download, naming the call, the status, the job or
+contractor and the bytes sent. It never has a token or a key.
 
 ## A cycle on a contractor
 
@@ -276,8 +393,69 @@ GitHub App key:
   relay checks it, then sent to the factory, which checks it again with the
   same rules and the job's own scope and makes the write with its own token.
 
+- Each vipune call goes to the factory's memory over the same `relay`
+  call (see [Memory](#memory)).
+
 This happens only with outsource on and the contractor program naming
 itself to the cycle. Otherwise a cycle is as it was.
+
+## Memory
+
+With outsource on, a cycle's vipune memory lives in the factory, in-house
+and on a contractor alike. The image's `vipune` is a stand-in
+(`host/sandbox/vipune-shim`); the real one is at
+`/usr/local/lib/tehas/vipune`. When `tehas work` starts a cycle with
+outsource on, it leaves a file `vipune` in the cycle's relay directory, which
+the container already has at `/run/tehas/relay`. With that file there, the
+stand-in leaves each call in the directory as a relay request of kind
+`vipune`: its arguments, and `VIPUNE_RECENCY_WEIGHT` and `VIPUNE_PROJECT`
+when they are set. It prints the answer's stdout and stderr and exits with
+its status. No answer in 28 seconds exits 1 with
+`vipune: the factory's memory did not answer`. Without the file, or without
+the directory, the real vipune runs, as before.
+
+In-house the cycle's relay answers the request. On a contractor the cycle's
+relay sends it to the factory as a `relay` call with
+`{"kind": "vipune", "argv": [...], "env": {...}}` and the job token. The
+contractor program passes it on as it is. Both sides check it the same way:
+
+- The verb is one of `add`, `search`, `get`, `list`, `validate` and
+  `version`.
+- A `--db-path` is refused. The factory chooses the database.
+- The arguments are at most 16 KiB.
+- A `-p` or `--project` is dropped, not refused. The project is always
+  `TEHAS_REPO`.
+- Of the variables only `VIPUNE_RECENCY_WEIGHT`, a decimal number, and
+  `VIPUNE_PROJECT` are taken, and the project is replaced the same way.
+
+A refusal answers as vipune answers a usage error: status 64, the status of
+the pinned vipune 0.20.3, with nothing on stdout and the reason on stderr.
+pi-rukas reads it as it reads vipune's own errors, and treats a failed call as
+no memory. vipune calls do not count against a cycle's 50 issue writes.
+
+The cycle's relay answers vipune calls on three threads of their own, so a
+call never waits behind a slow issue write. An answer no one read, because
+the stand-in gave up, is removed after five minutes.
+
+The factory runs the vipune of the sandbox image (`PI_ENSEMBLE_IMAGE`) in a
+container of its own for each call: no network, no capabilities, and only
+`state/memory/cycles` mounted. It runs as the factory's user with
+`HOME=/home/vscode`, as every container of the image does: that user owns the
+directory, and the image keeps vipune's embedding model in that home. It has
+2 GB of memory with no swap, 256 processes and 2 CPUs, and a call may take
+15 seconds. A cycle's database may grow to 64 MiB with its write-ahead log;
+an `add` to a full one fails with status 1 and
+`vipune: the factory's memory of this cycle is full (64 MiB)`. Which database a call uses comes from where it
+arrived, never from the request: `issue-<n>.db` for an in-house cycle and
+`job-<id>.db` for a contractor's job. A job's calls run one at a time, and
+only while the job is running, its attempt is current and its contractor is
+not revoked, as for every `relay` call. The database starts empty and goes
+when the cycle ends: in-house when `tehas work` ends, for a job when it
+finishes, is handed back or its contractor is revoked. That of a job lost to
+a silence goes when the next job is taken.
+
+The cycle's container gets nothing new for this: no mount, no variable, no
+token. The file `vipune` is in the relay directory it already has.
 
 ## The stamp
 
@@ -391,19 +569,40 @@ Three readers show it, and each only while the file is there:
 logs start with `tehas outsource contractor`.
 
 ```
-tehas-contractor join <factory> <name> <code>   join with the code tehas outsource invite printed
-tehas-contractor run                            take jobs and run them until drained or revoked
-tehas-contractor drain                          take no new job; hand a running one back after the grace
-tehas-contractor doctor                         say what this host holds that it should not
+tehas-contractor join <factory> <name> <code>    join with the code tehas outsource invite printed
+tehas-contractor run                             take jobs and run them until drained or revoked
+tehas-contractor drain                           take no new job; hand a running one back after the grace
+tehas-contractor doctor                          say what this host holds that it should not
+tehas-contractor own --as <uid:gid> <folder>...  hand the cycle's folders to the factory's account
 ```
 
 At rest it holds its name, its key and the factory's address, in
 `~/.config/tehas/contractor.json` (mode 0600), and nothing else. A job
 leaves the job's two tokens, its settings, the cycle token, a `models.json` whose
-every provider is the factory's proxy, and a clone of the product. All of it
-is wiped when the job ends and when the program starts. The `models.json`
+every provider is the factory's proxy, the product, the factory's code index
+and the issue's files. All of it is wiped when the job ends and when the
+program starts. The `models.json`
 names the factory at the address this host joined with, whatever address the
 proxy binds.
+
+Before its container starts, the cycle asks the program (`own`) to hand the
+folders the container writes to the account the job names: the workspace,
+the code index cache, the relay folder, and the cycle's memory, sessions and
+agent runs. They must be owned by the account the container runs as, not
+only writable by it: the code index refuses a cache folder it does not own,
+whatever its mode. So the cycle names its container's `--user` to the
+program, and the folders are handed over only when that is the job's
+account. Today the container runs as the account the program runs as, so a
+contractor that runs as another account than the factory's keeps the
+folders with its own account and the cycle runs as before; running the
+container as the factory's account is a later step. Only folders under
+`$TEHAS_HOME/work` and `~/.pi/agent/ensemble-runs` are handed over, a link
+is changed itself and never followed, and a folder outside the cycle is
+refused, and the cycle does not start, before anything is changed. A file
+the program cannot hand over also stops the cycle, and what it handed over
+before that stays handed over. A job that names no account leaves the
+folders as they are. The container is given no mount, variable or token
+more for it.
 
 The wipe removes `repos`, `work` and `state/cycles` under `TEHAS_HOME`, which a
 factory keeps too. So `run` refuses with 78, before it removes anything, a
@@ -428,6 +627,28 @@ The cycle is never killed outright. It gets its stop signal and
 is it killed and its container stopped. A report the factory does not answer
 is retried for the job's timeout.
 
+Before a cycle starts, the program fetches what the job needs from the
+factory's downloads, and nothing of it from GitHub:
+
+- The product, from the bundle: `repos/<name>` gets `origin/<branch>` at the
+  factory's tip, and the repository's address as `origin`, so the cycle's
+  pushes go where they do in-house. No bundle, no job: it is handed back.
+- The code index, into `state/index`, where `tehas work` copies it into the
+  cycle's cache. No index, or one of another image, is no error: the log says
+  `this cycle searches without a code index` and the cycle starts.
+- The issue's files, into `work/<name>-<issue>.images`. None given is no
+  error; a refusal of the factory's fetch is, and the job is handed back.
+
+When the factory's `hello` answer names an image this host does not have under
+`PI_ENSEMBLE_IMAGE`, the program fetches it, resuming a broken download, loads
+it with `docker load` and checks its id before it asks for a job.
+
+The program's own git, the salvage push, goes through the egress tunnel: for each job it runs a CONNECT proxy on
+127.0.0.1 that opens every tunnel on the factory's listener with the job's
+model token, and gives it to git as `http.proxy`. No proxy variable of the
+user's and no `NO_PROXY` takes git around it. A host the factory refuses is
+answered to git with the factory's status and word.
+
 The salvage push runs no git in the workspace, whose hooks and git config the
 container could write. It fetches the issue's branch (`feature/issue-<n>`, or
 that with a `-` and more) out of the workspace into a repository of its own,
@@ -447,6 +668,11 @@ exits 78.
 
 Still owed, each in its own issue:
 
+- #2366 and #2367, what a cycle learns outlasting it: a cycle's database
+  starting from the factory's pool, the rows it added becoming candidates
+  when it ends and turning active when its pull request merges, and one
+  long-lived memory container in place of one per call.
+
 - #2275, placement: the dispatcher offering a job to a contractor and the
   supervisor waiting on it. Until then no job is offered, so a contractor that
   asks gets none.
@@ -458,5 +684,19 @@ Still owed, each in its own issue:
   Nothing reads them yet.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
-- #2354, TLS and signed requests on the channel. Version 1 is plain http with
+- #2379, the container's own way out: the internal network and the
+  contractor's local end for the cycle's container, so its git and
+  registries go through the egress tunnel too. Until then only the
+  contractor program's own git does.
+- #2365, the container's side of the code index: the workspace mounted at
+  the factory's own path, which the index answers at. Until then the index a
+  contractor is given is copied into the cycle but finds nothing.
+- `tehas work` giving the issue's files to a contractor's container: the
+  program puts them where an in-house cycle has them, and a contractor's
+  `tehas work` does not mount them yet.
+- The image of a job kept while a job names it. A job does not name its
+  image in the store yet, so the factory keeps the image before the current
+  one and no older.
+- #2354, TLS and signed requests on the channel. The image download takes the
+  contractor's key as `hello` does until requests are signed. Version 1 is plain http with
   bearer keys: bind the proxy's address on a network you control.

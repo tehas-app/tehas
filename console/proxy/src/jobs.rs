@@ -39,11 +39,10 @@ const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     /// The container's token, in its models.json: the model paths, and the
-    /// egress tunnel route when it is built (`/outsource/v1/egress`).
+    /// egress tunnel route (`/outsource/v1/egress`).
     Model,
     /// The contractor program's token: the job channel, and the job's
-    /// downloads under `/outsource/v1/` when they are built. Never given to
-    /// the container.
+    /// downloads under `/outsource/v1/`. Never given to the container.
     Job,
 }
 

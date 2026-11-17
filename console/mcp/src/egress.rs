@@ -35,50 +35,7 @@ const ACCEPT_PAUSE: Duration = Duration::from_millis(100);
 /// processes.
 pub const MAX_CONNECTIONS: usize = 200;
 
-/// The pairs a proxy lets through: host in lower case, and port.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Allowed(Vec<(String, u16)>);
-
-fn norm(host: &str) -> String {
-    host.trim_end_matches('.').to_ascii_lowercase()
-}
-
-/// `host:port` as `--allow` and CONNECT write it. None for anything else: no
-/// port, a port that is no number or 0, an empty host.
-pub fn pair(word: &str) -> Option<(String, u16)> {
-    let (host, port) = word.rsplit_once(':')?;
-    let port: u16 = port.parse().ok().filter(|p| *p != 0)?;
-    let host = norm(host);
-    let ok = !host.is_empty()
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
-    ok.then_some((host, port))
-}
-
-impl Allowed {
-    /// The list from `--allow` words; Err names the first that is no pair.
-    pub fn parse(words: &[String]) -> Result<Allowed, String> {
-        words
-            .iter()
-            .map(|w| pair(w).ok_or_else(|| format!("--allow {w} is not host:port")))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Allowed)
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn allows(&self, host: &str, port: u16) -> bool {
-        let host = norm(host);
-        self.0.iter().any(|(h, p)| *h == host && *p == port)
-    }
-}
+pub use tehas_core::egress::{pair, Allowed};
 
 /// What a request head asks for.
 #[derive(Debug, PartialEq)]

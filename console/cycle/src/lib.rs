@@ -17,6 +17,7 @@
 //! conflicts before one starts, and `watch` starts a cycle's container and sees it
 //! to its end. `progress` summarises what the runner wrote.
 //! `supervise` starts a cycle, runs tehas work and sees to its report.
+//! `memory` answers a cycle's vipune calls that come through the relay.
 //! `lock` takes the locks of a cycle, tehas work and the index, and hands them
 //! down to what they start.
 
@@ -35,6 +36,7 @@ pub mod host;
 pub mod index;
 pub mod last_attempt;
 pub mod lock;
+pub mod memory;
 pub mod pin;
 pub mod prepare;
 pub mod progress;

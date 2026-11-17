@@ -1035,13 +1035,23 @@ seven limits, fourteen words on the `docker run` line:
 | `--memory` | the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, a quarter unless set | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while `TEHAS_SLICE_CONTAINERS` containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
-| `--cpus` | the host's CPUs less one, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
+| `--cpus` | the host's CPUs less one, never below 1. The host's CPUs are what `nproc` counts, or what the Docker daemon counts (`docker info`, `NCPU`) when that is fewer | A CPU quota. The container may use no more CPU time than that many CPUs |
 | `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_MAX_CYCLES`, counted at most `TEHAS_SLICE_CONTAINERS` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
 On a host with 16 CPUs and `TEHAS_MAX_CYCLES=4` a container gets
 `--cpus 15.00 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
 `--cpus 7.00 --pids-limit 2048`.
+
+The Docker daemon counts the CPUs once, when it starts, and refuses a
+`--cpus` above that count. A host given more CPUs while Docker runs, by a
+resize or a raised container limit, has `nproc` count more than Docker
+does. tehas then sizes the containers for Docker's count and says so in the
+log of the command that starts them, for example `tehas work: the host has
+48 CPUs and its Docker daemon counts 16, so containers get --cpus of 15;
+restart the Docker daemon to give them the host's CPUs`. Restart Docker when
+no cycle runs (`sudo systemctl restart docker`). When Docker gives no count,
+`nproc`'s is used.
 
 Every sandbox container also runs with `--init`: a cycle, a planning turn, a
 dev session and the indexer. Docker's init is the first process
@@ -1495,7 +1505,10 @@ cargo's registry belongs to that user, so a gate that builds Rust can fetch its
 crates; they go with the container. The Playwright install runs npm as root with the
 cycle user's home, so its npm cache goes to `/tmp` and is removed in the same
 step; the build stops when root owns anything in `/home/vscode/.npm`, where a
-cycle's own npm would fail with `EACCES`. The base is pinned by digest in
+cycle's own npm would fail with `EACCES`. Near the end of the build, after every
+step that runs npm as root, `/home/vscode/.npm` is made the cycle user's, and
+the tool check, as that user, writes a file to the cache `npm config get cache`
+names and stops the build when it cannot. The base is pinned by digest in
 `sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree
@@ -1546,9 +1559,16 @@ model (`VIPUNE_MODEL`), the revision (`VIPUNE_MODEL_REVISION`) and the two
 checksums. The files go where vipune reads them, `~/.cache/huggingface/hub` of
 the user a container runs as. The build then checks that the model works: as
 that user, with the network shut off, it adds a memory to a scratch store and
-searches it back. It stops when either step errors or the search finds nothing,
-and when the base's vipune is not `VIPUNE_VERSION`, because the version picks
-the revision. When vipune is bumped, bump the model pins with it: a vipune that
+searches it back. It stops when either step errors, writes anything to stderr,
+or the search finds nothing, and when the base's vipune is not
+`VIPUNE_VERSION`, because the version picks the revision. The image sets
+`ORT_INTRA_OP_NUM_THREADS=1`: vipune sets no onnxruntime thread count, so
+onnxruntime pinned a thread to each host core and, under a cpuset, wrote an
+affinity error to stderr on every vipune call. With an explicit count it pins
+nothing. It is an `ENV` of the image, not a variable a cycle passes, so every
+container of the image has it. A build step has no cpuset, so the step above
+cannot see a lost count; the smoke run below checks for it. When vipune is
+bumped, bump the model pins with it: a vipune that
 cannot find its model names the revision it wants.
 
 To check an image by hand, with an empty store mounted where a cycle mounts
@@ -1614,7 +1634,13 @@ own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
 such line, or a result that says its runner crashed, is refused, the build
 exits 1 and the uid tag stays where it was, as for a layer that does not
-build. A build with an instance layer smoke-runs both images. The run and the
+build. After a started turn the smoke run adds a memory with vipune and
+searches it back, in a second container with no network, as the build's uid,
+on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
+on). Anything vipune writes to stderr there refuses the image the same way
+and is printed in the build's log: it is how a lost onnxruntime thread count
+shows, since only a cpuset refuses onnxruntime's pins (`taskset` does not). A
+build with an instance layer smoke-runs both images. The run and the
 decision on its output are `tehas-cycle sandbox smoke-run`, in
 `console/cycle/src/sandbox.rs`. A smoke run starts no
 cycle and reaches no model, so it costs the build

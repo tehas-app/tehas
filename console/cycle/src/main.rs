@@ -182,12 +182,16 @@
 //!                                     starts, for the table of runs
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
 //!                                     with, as one line
-//!   tehas-cycle sandbox smoke-run <image>
+//!   tehas-cycle sandbox smoke-run <image> <uid>
 //!                                     one offline work turn in <image>, at
 //!                                     most 40 s, for `host/sandbox/build.sh`
-//!                                     before it moves the uid tag. Prints
-//!                                     `started`, `crashed` or `silent`. Exit 0
-//!                                     only for a stable `step-started` line
+//!                                     before it moves the uid tag, then vipune
+//!                                     as <uid> on one CPU of a cpuset. Prints
+//!                                     `started`, `crashed`, `silent` or
+//!                                     `noisy`. Exit 0 only for a stable
+//!                                     `step-started` line and a vipune that
+//!                                     wrote nothing to stderr; 64 for a uid
+//!                                     that is not a number
 //!   tehas-cycle sandbox verify <limit words>
 //!                                     how many runs of the gate one container
 //!                                     runs at once. Exit 1 with nothing

@@ -8,22 +8,26 @@
 //! | `job` | a contractor, by its key | takes the offer in its hand, if any |
 //! | `check-in` | a job, by its token | "still here", while it runs |
 //! | `token` | a job, by its token | a fresh cycle token for the repository |
-//! | `relay` | a job, by its token | one issue write, checked and made here |
+//! | `relay` | a job, by its token | one issue write, checked and made here, or one vipune call ([`tehas_cycle::memory`]) |
 //! | `result` | a job, by its token | the cycle's result, kept for its report |
 //! | `stopped` | a job, by its token | the job handed back or given up |
+//! | `egress` | a job's container, by its model token | a tunnel to a listed host ([`crate::egress`]) |
+//! | `image` | a contractor, by its key | the factory's sandbox image ([`crate::download`]) |
+//! | `index`, `bundle`, `attachments` | a job, by its token | the job's code index, source and files ([`crate::download`]) |
 //!
 //! Each path is `/outsource/v1/<name>`, POST, a JSON body of at most
-//! [`BODY_MAX`] bytes and a JSON answer. A contractor's key is sent as a bearer
+//! [`BODY_MAX`] bytes and a JSON answer; the downloads are a GET and answer
+//! the file. A contractor's key is sent as a bearer
 //! with its name in `x-tehas-contractor`; the store holds the key's sha256 and
 //! compares it. A job's token is the job-scope token the proxy issued when
 //! the job was taken ([`crate::jobs::Scope::Job`]). The model token issued
 //! with it, which the container holds, is refused here with 403 `scope`, and
 //! the job token is refused on the model paths.
 //!
-//! Routes still to come take a scope by [`Call::scope`]: the job's downloads
-//! (index, bundle, attachments) the job scope, and the egress tunnel
-//! (`/outsource/v1/egress`) the model scope. The image download comes before
-//! a job and is the contractor's, by its key, so it takes no token.
+//! Each call takes a scope by [`Call::scope`]. The egress tunnel is the one
+//! route of the model scope here. The job's downloads (index, bundle,
+//! attachments) take the job scope. The image download comes before a job and
+//! is the contractor's, by its key, so it takes no token.
 //!
 //! What each call requires is the spec's "The job channel": check-in, token
 //! and relay need a running job of the issue's current attempt on a contractor
@@ -40,12 +44,21 @@
 //! The App's key never leaves: a token renewal answers the narrowed cycle
 //! token a local cycle gets, and a relayed write is made here with the
 //! factory's own token, after the checks of the local relay.
+//!
+//! A relay of kind `vipune` (`{"kind": "vipune", "argv": [...], "env":
+//! {...}}`) is one vipune call of the job's cycle: planned again here as the
+//! local relay plans it, and run by the factory's memory for the job's own
+//! database, `job-<id>`, one call of a job at a time. A refusal answers as
+//! vipune's usage error. The calls do not count against the issue writes,
+//! and the database goes when the job is forgotten.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
+use tehas_cycle::memory::{self, Planned};
 use tehas_cycle::relay::Scope;
 
 use crate::jobs::{self, Issuer, Miss};
@@ -74,6 +87,11 @@ pub enum Call {
     Relay,
     Result,
     Stopped,
+    Egress,
+    Image,
+    Index,
+    Bundle,
+    Attachments,
 }
 
 impl Call {
@@ -89,20 +107,30 @@ impl Call {
             "relay" => Call::Relay,
             "result" => Call::Result,
             "stopped" => Call::Stopped,
+            "egress" => Call::Egress,
+            "image" => Call::Image,
+            "index" => Call::Index,
+            "bundle" => Call::Bundle,
+            "attachments" => Call::Attachments,
             _ => return None,
         })
     }
 
     /// The scope of the token a call takes, None for a call made with a
-    /// contractor's key or with none. Every call of a job today takes the job
-    /// scope; the egress tunnel, when it is built, is the one route of the
-    /// model scope here.
+    /// contractor's key or with none. The egress tunnel is the one route of
+    /// the model scope here.
     pub fn scope(self) -> Option<jobs::Scope> {
         match self {
-            Call::Join | Call::Hello | Call::Job => None,
-            Call::CheckIn | Call::Token | Call::Relay | Call::Result | Call::Stopped => {
-                Some(jobs::Scope::Job)
-            }
+            Call::Join | Call::Hello | Call::Job | Call::Image => None,
+            Call::CheckIn
+            | Call::Token
+            | Call::Relay
+            | Call::Result
+            | Call::Stopped
+            | Call::Index
+            | Call::Bundle
+            | Call::Attachments => Some(jobs::Scope::Job),
+            Call::Egress => Some(jobs::Scope::Model),
         }
     }
 
@@ -116,7 +144,20 @@ impl Call {
             Call::Relay => "relay",
             Call::Result => "result",
             Call::Stopped => "stopped",
+            Call::Egress => "egress",
+            Call::Image => "image",
+            Call::Index => "index",
+            Call::Bundle => "bundle",
+            Call::Attachments => "attachments",
         }
+    }
+
+    /// Whether the call is a download, a GET answered with a file.
+    pub fn downloads(self) -> bool {
+        matches!(
+            self,
+            Call::Image | Call::Index | Call::Bundle | Call::Attachments
+        )
     }
 }
 
@@ -137,10 +178,31 @@ pub trait Factory {
         input: Option<&str>,
         scope: &mut Scope,
     ) -> Result<(String, String, i32), String>;
+    /// The repository the cycles of this factory write to.
+    fn repo(&self) -> String {
+        String::new()
+    }
+    /// One planned vipune call of a job's cycle, for its database `cycle`:
+    /// vipune's stdout, stderr and status, unchanged.
+    fn memory(&self, _cycle: &str, _planned: &Planned) -> (String, String, i32) {
+        (
+            String::new(),
+            "vipune: the factory keeps no memory\n".into(),
+            1,
+        )
+    }
+    /// The database of a cycle that ended goes.
+    fn forget_memory(&self, _cycle: &str) {}
+    /// The jobs that have a database of their own.
+    fn memory_jobs(&self) -> Vec<i64> {
+        Vec::new()
+    }
     /// Keep the result of an issue's cycle where its report reads it.
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String>;
     /// What a job carries besides its numbers and token: the settings that
-    /// may leave the factory, and the models.json of the proxy.
+    /// may leave the factory, the models.json of the proxy, and the `uid` and
+    /// `gid` its image and containers run as, which the contractor hands the
+    /// cycle's folders to.
     fn carried(&self) -> Value;
     /// The seconds a job may go without a check-in.
     fn timeout(&self) -> i64;
@@ -164,7 +226,7 @@ impl Answer {
 
     /// A refusal: 401 for a key or token the factory does not know, 403 for
     /// one it knows and refuses, 409 for an attempt replaced by a newer one.
-    fn no(status: u16, word: &str) -> Answer {
+    pub fn no(status: u16, word: &str) -> Answer {
         Answer {
             status,
             body: json!({ "refused": word }),
@@ -199,7 +261,13 @@ fn hex(bytes: &[u8]) -> String {
 pub struct Channel<'a> {
     pub issuer: &'a Issuer,
     pub factory: &'a (dyn Factory + Sync),
+    /// The egress tunnel route. None answers it 404.
+    pub egress: Option<&'a crate::egress::Egress>,
+    /// The downloads. None answers them 404.
+    pub downloads: Option<&'a (dyn crate::download::Downloads + Sync)>,
     scopes: Mutex<HashMap<i64, Scope>>,
+    /// One vipune call of a job at a time.
+    calls: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
 }
 
 /// One request of the channel, as the listener read it.
@@ -215,8 +283,37 @@ impl<'a> Channel<'a> {
         Channel {
             issuer,
             factory,
+            egress: None,
+            downloads: None,
             scopes: Mutex::new(HashMap::new()),
+            calls: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn with_egress(mut self, egress: &'a crate::egress::Egress) -> Channel<'a> {
+        self.egress = Some(egress);
+        self
+    }
+
+    pub fn with_downloads(
+        mut self,
+        downloads: &'a (dyn crate::download::Downloads + Sync),
+    ) -> Channel<'a> {
+        self.downloads = Some(downloads);
+        self
+    }
+
+    /// The job and issue a call made with a token is admitted for, or the
+    /// refusal: the token in the call's scope, then the job's state in the
+    /// store.
+    pub fn admit(&self, call: Call, bearer: Option<&str>) -> Result<(Live, i64), Answer> {
+        let scope = call.scope().unwrap_or(jobs::Scope::Job);
+        let live = match bearer.map(|t| self.issuer.look(t, scope)) {
+            Some(Ok(live)) => live,
+            Some(Err(Miss::Scope)) => return Err(Answer::no(403, "scope")),
+            _ => return Err(Answer::no(401, "no job")),
+        };
+        self.held(&live, call).map(|issue| (live, issue))
     }
 
     pub fn answer(&self, asked: &Asked) -> Answer {
@@ -237,23 +334,23 @@ impl<'a> Channel<'a> {
                     args.extend(report_args(&body["report"]));
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
                     let _ = self.factory.store(&args);
-                    Answer::ok(json!({ "hello": name, "draining": draining }))
+                    let mut said = json!({ "hello": name, "draining": draining });
+                    // The image a contractor must run, which it fetches by
+                    // the image route when it has another.
+                    if let Some(id) = self.downloads.and_then(|d| d.image_id()) {
+                        said["image"] = Value::String(id);
+                    }
+                    Answer::ok(said)
                 }
                 Ok((name, draining)) => self.job(&name, draining),
                 Err(no) => no,
             },
-            call => {
-                let scope = call.scope().unwrap_or(jobs::Scope::Job);
-                let live = match asked.bearer.map(|t| self.issuer.look(t, scope)) {
-                    Some(Ok(live)) => live,
-                    Some(Err(Miss::Scope)) => return Answer::no(403, "scope"),
-                    _ => return Answer::no(401, "no job"),
-                };
-                match self.held(&live, call) {
-                    Ok(issue) => self.of_job(call, &live, issue, &body),
-                    Err(no) => no,
-                }
-            }
+            Call::Egress => Answer::no(400, "the egress route is an Upgrade"),
+            call if call.downloads() => Answer::no(400, "a download is a GET"),
+            call => match self.admit(call, asked.bearer) {
+                Ok((live, issue)) => self.of_job(call, &live, issue, &body),
+                Err(no) => no,
+            },
         }
     }
 
@@ -283,7 +380,7 @@ impl<'a> Channel<'a> {
     }
 
     /// The contractor a call made with a key names, and whether it drains.
-    fn contractor(&self, asked: &Asked) -> Result<(String, bool), Answer> {
+    pub fn contractor(&self, asked: &Asked) -> Result<(String, bool), Answer> {
         let (Some(name), Some(key)) = (asked.name, asked.bearer) else {
             return Err(Answer::no(401, "no contractor"));
         };
@@ -342,6 +439,8 @@ impl<'a> Channel<'a> {
             self.issuer.forget_jobs(&[job]);
             return none;
         }
+        // What jobs lost to a silence left goes as a new one starts.
+        self.tidy_files(job);
         let carried = self.factory.carried();
         Answer::ok(json!({
             "job": job,
@@ -352,6 +451,8 @@ impl<'a> Channel<'a> {
             "model_token": tokens.model,
             "settings": carried["settings"],
             "models": carried["models"],
+            "uid": carried["uid"],
+            "gid": carried["gid"],
         }))
     }
 
@@ -393,8 +494,12 @@ impl<'a> Channel<'a> {
         }
         let state = record["state"].as_str().unwrap_or_default();
         let lost_silent = state == "lost" && record["lost_reason"] != "revoked";
+        // A tunnel is admitted as long as a result is: the salvage push of a
+        // job that stops or was lost to a silence goes through it.
         let ok = match call {
-            Call::Result | Call::Stopped => matches!(state, "running" | "stopping") || lost_silent,
+            Call::Result | Call::Stopped | Call::Egress => {
+                matches!(state, "running" | "stopping") || lost_silent
+            }
             _ => state == "running",
         };
         let issue = record["issue"].as_i64().unwrap_or_default();
@@ -439,6 +544,10 @@ impl<'a> Channel<'a> {
                 Some((token, expires)) => Answer::ok(json!({ "token": token, "expires": expires })),
                 None => Answer::no(502, "no token from the factory"),
             },
+            Call::Relay if body["kind"] == memory::MARK => self.vipune(live.job, body),
+            Call::Relay if !body["kind"].is_null() => {
+                Answer::no(400, "a relay takes the kinds gh and vipune")
+            }
             Call::Relay => {
                 let Some(argv) = body["argv"].as_array().and_then(|a| {
                     a.iter()
@@ -490,16 +599,91 @@ impl<'a> Channel<'a> {
                 self.forget(live.job);
                 Answer::ok(json!({ "stopped": live.job }))
             }
-            Call::Join | Call::Hello | Call::Job => Answer::no(400, "refused"),
+            Call::Join
+            | Call::Hello
+            | Call::Job
+            | Call::Egress
+            | Call::Image
+            | Call::Index
+            | Call::Bundle
+            | Call::Attachments => Answer::no(400, "refused"),
         }
+    }
+
+    /// One vipune call of a running job: `argv` and `env` planned as the
+    /// local relay plans them, then run for the job's database.
+    fn vipune(&self, job: i64, body: &Value) -> Answer {
+        let Some(argv) = body["argv"].as_array().and_then(|a| {
+            a.iter()
+                .map(|w| w.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        }) else {
+            return Answer::no(400, "a relay takes argv");
+        };
+        let vars = match &body["env"] {
+            Value::Null => Some(Vec::new()),
+            Value::Object(m) => m
+                .iter()
+                .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+                .collect(),
+            _ => None,
+        };
+        let Some(vars) = vars else {
+            return Answer::no(400, "a vipune relay takes env as an object of strings");
+        };
+        let lock = self
+            .calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(job)
+            .or_default()
+            .clone();
+        let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let cycle = memory::of_job(job);
+        let (out, err, rc) = memory::answer(&argv, &vars, &self.factory.repo(), &|planned| {
+            self.factory.memory(&cycle, planned)
+        });
+        Answer::ok(json!({ "out": out, "err": err, "rc": rc }))
     }
 
     fn forget(&self, job: i64) {
         self.issuer.forget_jobs(&[job]);
+        self.forget_files(job);
         self.scopes
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&job);
+    }
+
+    /// What the factory kept for a job: its downloads and its database.
+    fn forget_files(&self, job: i64) {
+        if let Some(d) = self.downloads {
+            d.forget(job);
+        }
+        self.factory.forget_memory(&memory::of_job(job));
+        self.calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&job);
+    }
+
+    /// The kept files of every job but `but` whose record no longer says
+    /// running go: a job lost to a silence never calls back to be
+    /// forgotten. Only a running job is given its files, so none still
+    /// needs them. A store that gives no answer removes nothing.
+    pub fn tidy_files(&self, but: i64) {
+        let mut jobs = self.downloads.map(|d| d.kept_jobs()).unwrap_or_default();
+        jobs.extend(self.factory.memory_jobs());
+        jobs.sort_unstable();
+        jobs.dedup();
+        for job in jobs.into_iter().filter(|j| *j != but) {
+            let Some(record) = self.factory.store(&["job-show", "--job", &job.to_string()]) else {
+                continue;
+            };
+            if record["verb"] != "job" || record["state"] != "running" {
+                self.forget_files(job);
+            }
+        }
     }
 }
 
