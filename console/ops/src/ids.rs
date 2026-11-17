@@ -27,6 +27,7 @@ use std::fs;
 use std::path::Path;
 use tehas_core::accounts::{self, account};
 use tehas_core::forge::{Bounded, GhRunner};
+use tehas_core::settings::rules::is_login;
 
 const USAGE: &str = "usage: console ids record [--accept-id <login>]...";
 
@@ -103,10 +104,7 @@ fn logins() -> Vec<String> {
 /// A login of the shape GitHub allows, with `[bot]` for an app: nothing that
 /// could reach the path as anything but one name.
 fn login_shaped(login: &str) -> bool {
-    let bare = account(login);
-    !bare.is_empty()
-        && !bare.starts_with('-')
-        && bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    is_login(account(login))
 }
 
 fn ask_github(gh: &mut dyn GhRunner, login: &str) -> Asked {

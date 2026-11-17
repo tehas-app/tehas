@@ -150,8 +150,7 @@ pub fn made(answer: &[u8]) -> Option<Made> {
     let answer: Value = serde_json::from_slice(answer).ok()?;
     let id = answer["id"].as_u64()?.to_string();
     let slug = answer["slug"].as_str()?;
-    let good_slug = slug.starts_with(|c: char| c.is_ascii_alphanumeric())
-        && slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+    let good_slug = tehas_core::settings::rules::is_login(slug);
     let pem = answer["pem"].as_str()?;
     (good_slug && pem.starts_with("-----BEGIN")).then(|| Made {
         id,
