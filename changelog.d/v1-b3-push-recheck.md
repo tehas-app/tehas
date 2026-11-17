@@ -7,3 +7,7 @@
   and holds starts for another ten minutes. When the poll cannot ask at all,
   it records nothing and the next start's own check decides, as before
   (#2130).
+- While the fault stands, `tehas status` prints
+  `push      the sandbox cannot push: <git's line> (<login>)`,
+  `tehasbot health` fails with it, and `tehas status --json` carries an
+  optional `pushFault` object (#2130).
