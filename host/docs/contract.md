@@ -65,7 +65,7 @@ Internal:
 | --- | --- | --- |
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
-| Commands | The `tehas` commands and each command's flags | The usage texts and the shell tests of each command |
+| Commands | The `tehas` commands and each command's flags | `api/commands.txt`, held to the commands tehas knows and to each command's usage text by the tests of `console/src/front.rs` |
 | Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
