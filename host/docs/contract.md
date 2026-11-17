@@ -165,8 +165,9 @@ the one approved; the lines are for the person who reviews.
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
 Only a shipped feature can be on. A building feature leaves nothing in the
-frozen surface: its switch set to `on` stops every command with exit 78 and
-names the feature, it adds no command, no label, no `--json` field and no MCP
+frozen surface: its switch set to `on`, or a line that gives one of its own
+settings a value, stops every command with exit 78 and names the feature, it
+adds no command, no label, no `--json` field and no MCP
 tool, and its settings, commands and fields are not contract until the release
 that ships it. `tehas api --json` lists every feature in `flags`, `false`
 while it is building, and a shipped feature's word in `features`. Promoting a
@@ -181,9 +182,9 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 - `tehas api --json` has `"outsource": false` in `flags`, and no word
   `outsource` in `features`.
-- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json` and are
-  checked like any setting, but nothing reads them while the feature is off,
-  and they are not contract.
+- The settings `TEHAS_OUTSOURCE_*` are in `api/settings-rules.json`, but they
+  are not contract: a line that gives one a value stops every command with
+  exit 78 and names `outsource`.
 - `tehas-proxy` ends at once with exit 0 and opens no port.
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
@@ -215,9 +216,9 @@ exit 78 and says `protolab-zip-url` is still being built.
 
 - `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
   `protolab-zip-url` in `features`.
-- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json` and
-  is checked like any setting, but nothing fetches from its hosts while the
-  feature is off, and it is not contract.
+- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json`, but
+  it is not contract: a line that gives it a value stops every command with
+  exit 78 and names `protolab-zip-url`.
 - A `Zip:` line in a ticket is text on the Protolab page, as it always was.
 - No command, no label, no `--json` field, no MCP tool.
 

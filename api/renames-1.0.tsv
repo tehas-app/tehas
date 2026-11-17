@@ -5,6 +5,7 @@ value	mcp.factory_sessions.how=fixer	millwright	the runs and their how say millw
 command	tehasbot refresh --pr N	tehas refresh --pr N	the old form stays as an alias through 1.x; it prints the same words and object
 command	tehasbot github-token --check	tehas github check	the old form stays as an internal alias
 command	tehasbot github-writes	tehas github writes	the old form stays as an internal alias
+command	tehasbot improve		the improvement loop is removed
 field	status.running[].step	status.running[].progress.step	driver-specific, may change
 field	status.running[].stepNumber	status.running[].progress.stepNumber	driver-specific, may change
 field	status.running[].stepTotal	status.running[].progress.stepTotal	driver-specific, may change
@@ -33,11 +34,17 @@ word	refresh-pr-starts	refresh-pr	folded into one word
 word	refresh-pr-lane	refresh-pr	folded into one word
 word	refresh-pr-json	refresh-pr	folded into one word
 word	host-message-health	host-message	folded into one word
+word	fixer-grant	millwright-grant	the millwright's grant under its old name
+word	refresh-conflicts		the timed refresh scan is removed; tehas refresh --pr N asks for one refresh
+word	refresh-pr-sweep		the timed refresh scan is removed; the dispatcher starts every refresh request it finds
+field	api.fixer	api.millwright	the millwright's login under its old name
+field	api.refreshScan		the timed refresh scan is removed
 value	TEHAS_ENERGY=<word>	on	TEHAS_ENERGY takes on, off, 1 or 0 like every switch; any other word stops every command with 78
 setting	TEHAS_IMPROVE_REPO		the improvement loop is removed
 setting	TEHAS_IMPROVE_RUKAS_REPO		the improvement loop is removed
 setting	TEHAS_IMPROVE_RUKAS_SKIP		the improvement loop is removed
 setting	TEHAS_IMPROVE_MAX_OPEN		the improvement loop is removed
+label	cross-project		the improvement loop is removed; take it off open issues
 setting	TEHAS_EASY_MERGE		the easy merge is removed and every refresh is the full refresh cycle
 setting	TEHAS_CYCLE_REPORT		the cycle's report has one form
 setting	TEHAS_CONTAINER_MEMORY		auto sizing is removed and this sized only the auto count
@@ -46,6 +53,8 @@ setting	TEHAS_CYCLE_CEILING		auto sizing is removed and this bounded only the au
 setting	TEHAS_MILLWRIGHT_LOGIN		the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names
 setting	TEHAS_BOT_LOGIN		the bot is the GitHub App's login, kept in state/github/login
 setting	TEHAS_GITHUB_APP_INSTALLATION		the installation is looked up from TEHAS_GITHUB_APP_ID
+setting	TEHAS_REFRESH_CONFLICTS		the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request
+setting	TEHAS_REFRESH_EVERY		the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request
 field	status.room.slots		auto sizing is removed and the object was filled only for the auto count
 setting	TEHAS_INDEXING	TEHAS_SITE_INDEXING	search engines may index the site; same values
 setting	TEHAS_ANALYTICS_SRC	TEHAS_SITE_ANALYTICS_SRC	the site's visitor tracker; TEHAS_ANALYTICS is unchanged
