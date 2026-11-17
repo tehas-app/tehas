@@ -342,7 +342,7 @@ t_console || t_bad "no console: $t_console_why"
 t_case "tehas-dispatch names every setting a run with no load is missing"
 reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
-t_run "TEHAS_HOME= \"$T_DISPATCH\" decide"
+t_run "TEHAS_HOME= \"$T_DISPATCH\" poll --dry-run"
 t_eq "$t_rc" 78
 t_contains "$t_out" "not set: load the instance's settings first (lib/config.sh, tehas_load)"
 t_eq "$(find "$T/home/tehas" -maxdepth 1 \( -name state -o -name logs \) | wc -l)" 0
@@ -359,7 +359,7 @@ for missing in "${poll_needs[@]}"; do
   t_case "tehas-dispatch stops a run with no $missing, and names it"
   reset
   rm -f "$T"/calls/*
-  t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && unset $missing && \"$T_DISPATCH\" decide"
+  t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && unset $missing && \"$T_DISPATCH\" poll --dry-run"
   t_eq "$t_rc" 78
   t_eq "${t_out%% not set:*}" "tehas-dispatch: $missing"
   t_eq "$(t_calls gh)" ""
@@ -369,7 +369,7 @@ done
 t_case "tehas-dispatch stops a run whose TEHAS_ISSUE_TYPES no load would take"
 reset
 rm -f "$T"/calls/*
-t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_ISSUE_TYPES=bug=Bug \"$T_DISPATCH\" decide"
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_ISSUE_TYPES=bug=Bug \"$T_DISPATCH\" poll --dry-run"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas-dispatch: TEHAS_ISSUE_TYPES is not valid: bug is no kind"
 t_eq "$(t_calls gh)" ""

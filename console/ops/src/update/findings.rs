@@ -28,7 +28,7 @@
 //!    with its new key or why it went, so a 0.30 instance is put right in one
 //!    edit before anything is installed.
 //! 3. The instance's models.json is there and holds JSON. It lists every model
-//!    the agents use (`console models used`) under the provider each uses, every key it
+//!    the agents use (`tehas_core::models::used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
 //!    the session model the product's `.pi/settings.json` names, when it names
 //!    one.

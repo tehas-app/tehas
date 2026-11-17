@@ -14,7 +14,7 @@ const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP
 /// The instance's providers and the models its agents use.
 pub struct Models {
     pub file: ModelFile,
-    /// `console models used`: (provider, model), the subagent's first, each pair once.
+    /// The models the agents use: (provider, model), the subagent's first, each pair once.
     pub used: Vec<(String, String)>,
     pub provider: String,
     pub model: String,

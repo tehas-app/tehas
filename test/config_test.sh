@@ -1373,8 +1373,8 @@ T_ENV=()
 
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; \"$T_CONSOLE\" models used"
-t_eq "$t_out" "test-provider test-model"
+t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_'"
+t_eq "$t_out" ""
 
 t_case "a role model is passed on, with the subagent provider unless it names its own"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model \
@@ -1386,13 +1386,17 @@ PI_ENSEMBLE_MODEL_DEVELOPER=big-model
 PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST=test-provider
 PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider"
 
-t_case "console models used names each provider and model once, the subagent default first"
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_EXPLORE=test-model \
-  PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider \
-  PI_ENSEMBLE_MODEL_OPS=big-model PI_ENSEMBLE_PROVIDER_OPS=other-provider
-t_run "$load && \"$T_CONSOLE\" models used"
-t_eq "$t_out" "test-provider test-model
-other-provider big-model"
+t_case "loading the instance keeps the model keys and refuses one set in instance.env"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_MODEL_KEY_MAIN=main-secret)
+t_run "$load; echo \"\$TEHAS_MODEL_KEY_MAIN\""
+t_eq "$t_out" main-secret
+t_instance "${T_MINIMAL[@]}" TEHAS_MODEL_KEY_MAIN=in-the-repo
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MODEL_KEY_"
+t_lacks "$t_out" "in-the-repo"
+T_ENV=()
 
 t_case "an empty role model is not set and is not passed on"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=
