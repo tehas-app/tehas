@@ -174,6 +174,13 @@ The files under `/live/` are for the dashboard, not for a program
 `tehas status --json` and the host bridge. For the pages, within one `kit <n>`
 a field of a file that a page reads is only added, never renamed or removed.
 
+A page reads these files add-only: it reads the fields it knows and leaves the
+rest, and a field it reads may be missing, so a writer can add a field without a
+page change. `test/fixtures/live/` holds one sample of each file a page in
+`host/fun/` fetches, with the fields the pages read. A page that starts to read
+a new file adds its sample in the same change. A writer that would drop or
+rename a field of a sample breaks a page, which this rule does not allow.
+
 ## Budgets
 
 Sizes are counted in raw bytes, as served before compression, so a figure does
@@ -227,5 +234,9 @@ The budgets for new work:
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.
+- `test/live_fixtures_test.mjs` runs the page code against the samples in
+  `test/fixtures/live/`: each sample through the views that read it, and the
+  plain dashboard drawn from all of them. It fails when a page fetches a file
+  that has no sample.
 - The byte ratchet runs with the workspace's tests and needs neither node nor
   the network.

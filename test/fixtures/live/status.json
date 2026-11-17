@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "queueAt": "2026-11-17T12:00:00Z",
+  "completedAt": "2026-11-17T12:00:00Z",
+  "repo": "acme/widget",
+  "paused": false,
+  "pause": { "flag": null, "label": false, "lifted": false },
+  "allHands": false,
+  "noResources": false,
+  "running": [
+    { "number": 41, "title": "Export the report as CSV", "url": "https://github.com/acme/widget/issues/41", "createdAt": "2026-11-16T08:00:00Z", "updatedAt": "2026-11-17T11:40:00Z", "closedAt": null }
+  ],
+  "queued": [
+    { "number": 42, "title": "A search with no match says so", "url": "https://github.com/acme/widget/issues/42", "createdAt": "2026-11-16T09:00:00Z", "updatedAt": "2026-11-17T10:00:00Z", "closedAt": null },
+    { "number": 43, "title": "The settings page keeps the last tab", "url": "https://github.com/acme/widget/issues/43", "createdAt": "2026-11-16T10:00:00Z", "updatedAt": "2026-11-17T10:05:00Z", "closedAt": null }
+  ],
+  "awaiting": [
+    { "number": 39, "title": "Dates in the list use the viewer's locale", "url": "https://github.com/acme/widget/issues/39", "createdAt": "2026-11-15T08:00:00Z", "updatedAt": "2026-11-17T09:00:00Z", "closedAt": null }
+  ],
+  "stopped": [
+    { "number": 37, "title": "Upload a file larger than 2 GB", "url": "https://github.com/acme/widget/issues/37", "createdAt": "2026-11-14T08:00:00Z", "updatedAt": "2026-11-16T15:00:00Z", "closedAt": null }
+  ],
+  "planned": [
+    { "number": 44, "title": "Epic: accounts for teams", "url": "https://github.com/acme/widget/issues/44", "createdAt": "2026-11-17T07:00:00Z", "updatedAt": "2026-11-17T11:00:00Z", "closedAt": null }
+  ],
+  "planning": 1,
+  "completed": [
+    { "number": 36, "title": "The login form names the field that is wrong", "url": "https://github.com/acme/widget/issues/36", "createdAt": "2026-11-13T08:00:00Z", "updatedAt": "2026-11-17T08:30:00Z", "closedAt": "2026-11-17T08:20:00Z" },
+    { "number": 35, "title": "Empty state for the dashboard", "url": "https://github.com/acme/widget/issues/35", "createdAt": "2026-11-12T08:00:00Z", "updatedAt": "2026-11-16T18:00:00Z", "closedAt": "2026-11-16T17:50:00Z" }
+  ],
+  "completedCount": 28,
+  "links": {
+    "queued": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aopen%20label%3Atehas%3Aready",
+    "awaiting": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aopen%20label%3Atehas%3Aawaiting-merge",
+    "stopped": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aopen%20label%3Aneeds-human-attention",
+    "completed": "https://github.com/acme/widget/issues?q=is%3Aissue%20is%3Aclosed%20label%3Atehas%3Ashipped",
+    "all": "https://github.com/acme/widget/issues"
+  },
+  "buzzwords": [
+    { "word": "report", "count": 12 },
+    { "word": "dashboard", "count": 9 },
+    { "word": "export", "count": 7 },
+    { "word": "search", "count": 5 }
+  ]
+}
