@@ -63,7 +63,7 @@ t_disk() { # the command, with the console of this checkout beside it
   [ -x "$T_DISK_TREE/libexec/console" ] && return 0
   t_console || return 1
   mkdir -p "$T_DISK_TREE/libexec" "$T_DISK_TREE/bin"
-  ln -sfn "$T_ROOT/lib" "$T_DISK_TREE/lib"
+  t_lib_link "$T_DISK_TREE"
   cp "$T_ROOT/bin/tehas" "$T_DISK_TREE/bin/tehas"
   cp "$T_CONSOLE" "$T_DISK_TREE/libexec/console"
 }

@@ -211,7 +211,7 @@ printf '{"at":"2026-01-01T00:00:00Z","issue":6,"files":1,"tests":0,"deliverables
 t_eq "$(size_lines)" "1"
 broken=$T/tree-broken
 mkdir -p "$broken/libexec"
-ln -s "$T_ROOT/lib" "$broken/lib"
+t_lib_link "$broken"
 t_verb "$broken/libexec/work" tehas work
 printf '%s\n' '#!/bin/sh' '[ "$1" != tehasbot ] || { echo ghs_stand_in; exit 0; }' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
 chmod +x "$broken/libexec/console"

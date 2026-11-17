@@ -128,7 +128,7 @@ t_eq "$(published)" "gone"
 # default, as an install leaves it.
 installed() {
   mkdir -p "$T/home/tehas/libexec" "$T/home/tehas/bin"
-  [ -e "$T/home/tehas/lib" ] || ln -s "$T_ROOT/lib" "$T/home/tehas/lib"
+  t_lib_link "$T/home/tehas"
   cp "$T_ROOT/bin/tehasbot" "$T/home/tehas/bin/tehasbot"
 }
 
