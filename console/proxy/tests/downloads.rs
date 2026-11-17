@@ -60,7 +60,7 @@ impl Factory for Fake {
         tehas_proxy::jobs::random()
     }
     fn allowed(&self, name: &str) -> bool {
-        name == "box1"
+        name == "box1" || name == "box2"
     }
 }
 
@@ -607,4 +607,105 @@ fn without_downloads_every_download_is_404_and_hello_names_no_image() {
         body: b"",
     });
     assert_eq!(hello.body["image"], json!(id('a')));
+}
+
+#[test]
+fn the_files_of_a_job_lost_to_a_silence_go_when_the_next_job_s_are_made() {
+    let c = case("download-files-lost", true, fetched);
+    let h = c.home.path();
+    assert_eq!(
+        get(c.at, "attachments", &by_token(&c.job_token)).status,
+        200
+    );
+    let lost = h.join(format!("state/outsource/downloads/job-{}", c.job));
+    assert!(lost.is_dir());
+    // Lost to a silence: no finish, no stopped, no revoke ever comes.
+    call(
+        h,
+        &[
+            "job-lose",
+            "--job",
+            &c.job.to_string(),
+            "--reason",
+            "timeout",
+        ],
+    );
+    call(h, &["job-offer", "--issue", "8", "--contractor", "box1"]);
+    let next = c.chan.answer(&Asked {
+        call: Call::Job,
+        bearer: Some(KEY),
+        name: Some("box1"),
+        body: b"",
+    });
+    assert_eq!(next.status, 200, "{next:?}");
+    let token = next.body["token"].as_str().unwrap();
+    let job = next.body["job"].as_i64().unwrap();
+    let got = get(c.at, "attachments", &by_token(token));
+    assert_eq!(got.status, 200, "{}", got.head);
+    assert_eq!(got.field("x-tehas-issue").as_deref(), Some("8"));
+    assert!(!lost.exists(), "a lost job's files outlived it");
+    assert!(h
+        .join(format!("state/outsource/downloads/job-{job}"))
+        .is_dir());
+}
+
+static SLOW_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SLOW_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Issue 7's fetch hangs until released; any other issue's is at once.
+fn slow_for_7(home: &Path, issue: u64, dir: &Path) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    if issue == 7 {
+        SLOW_STARTED.store(true, Ordering::SeqCst);
+        for _ in 0..400 {
+            if SLOW_RELEASED.load(Ordering::SeqCst) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+    fetched(home, issue, dir)
+}
+
+#[test]
+fn a_slow_fetch_of_one_job_s_files_holds_up_no_other_job_s() {
+    use std::sync::atomic::Ordering;
+    let c = case("download-files-apart", true, slow_for_7);
+    let h = c.home.path();
+    // A second running job, of issue 8, on a second contractor.
+    call(
+        h,
+        &[
+            "contractor-add",
+            "--name",
+            "box2",
+            "--key",
+            &key_hash("key-of-box2"),
+        ],
+    );
+    call(h, &["job-offer", "--issue", "8", "--contractor", "box2"]);
+    let second = c.chan.answer(&Asked {
+        call: Call::Job,
+        bearer: Some("key-of-box2"),
+        name: Some("box2"),
+        body: b"",
+    });
+    assert_eq!(second.status, 200, "{second:?}");
+    let token = second.body["token"].as_str().unwrap().to_string();
+    let at = c.at;
+    let first = c.job_token.clone();
+    let slow = thread::spawn(move || get(at, "attachments", &by_token(&first)));
+    while !SLOW_STARTED.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_millis(10));
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(get(at, "attachments", &by_token(&token)));
+    });
+    let quick = rx.recv_timeout(Duration::from_secs(5));
+    SLOW_RELEASED.store(true, Ordering::SeqCst);
+    let quick = quick.expect("issue 8's files waited on issue 7's fetch");
+    assert_eq!(quick.status, 200, "{}", quick.head);
+    assert_eq!(quick.field("x-tehas-issue").as_deref(), Some("8"));
+    assert_eq!(slow.join().unwrap().status, 200);
 }

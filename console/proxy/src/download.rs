@@ -19,11 +19,12 @@
 //! answer names what it is in fields of its own (`x-tehas-*`), with the
 //! sha256 of the file, and takes a `Range` so a broken download resumes.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use sha2::{Digest, Sha256};
 
@@ -67,6 +68,8 @@ pub trait Downloads {
     fn attachments(&self, job: i64, issue: i64) -> Result<Pack, Miss>;
     /// The job ended: its files go.
     fn forget(&self, job: i64);
+    /// The jobs whose files are kept.
+    fn kept_jobs(&self) -> Vec<i64>;
 }
 
 /// How many image downloads run at once. A third waits for one to end.
@@ -188,16 +191,23 @@ pub struct OfHome {
     pub making: Making,
 }
 
-/// The locks a file of each kind is made under.
+/// The locks a file of each kind is made under. A job's files have a lock
+/// of their own, so a slow fetch for one job holds up no other.
 #[derive(Default)]
 pub struct Making {
     image: Mutex<()>,
     index: Mutex<()>,
     bundle: Mutex<()>,
-    files: Mutex<()>,
+    files: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
 }
 
-fn held(m: &Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+impl Making {
+    fn files_of(&self, job: i64) -> Arc<Mutex<()>> {
+        held(&self.files).entry(job).or_default().clone()
+    }
+}
+
+fn held<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -497,7 +507,8 @@ impl Downloads for OfHome {
         let Ok(number) = u64::try_from(issue) else {
             return Err(Miss::new(404, "no files given"));
         };
-        let _making = held(&self.making.files);
+        let lock = self.making.files_of(job);
+        let _making = held(&lock);
         let at = self.kept().join(format!("job-{job}"));
         let file = at.join(format!("files.{}", self.ext()));
         if !file.is_file() {
@@ -523,7 +534,22 @@ impl Downloads for OfHome {
     }
 
     fn forget(&self, job: i64) {
+        let lock = self.making.files_of(job);
+        let _making = held(&lock);
         let _ = fs::remove_dir_all(self.kept().join(format!("job-{job}")));
+        held(&self.making.files).remove(&job);
+    }
+
+    fn kept_jobs(&self) -> Vec<i64> {
+        let Ok(dir) = fs::read_dir(self.kept()) else {
+            return Vec::new();
+        };
+        let mut jobs: Vec<i64> = dir
+            .flatten()
+            .filter_map(|e| e.file_name().to_str()?.strip_prefix("job-")?.parse().ok())
+            .collect();
+        jobs.sort_unstable();
+        jobs
     }
 }
 

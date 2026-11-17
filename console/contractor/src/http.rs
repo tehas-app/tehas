@@ -186,6 +186,12 @@ pub fn fetch(
         })
         .collect();
     let fetched = Fetched { fields };
+    // A resume refused as a range of no bytes is a file kept whole from
+    // before, say one never loaded: start again from nothing.
+    if status == 416 && had > 0 {
+        let _ = fs::remove_file(dest);
+        return fetch(addr, path, who, dest, false, wait);
+    }
     if status != 200 && status != 206 {
         let mut body = Vec::new();
         let _ = reader.take(ANSWER_MAX).read_to_end(&mut body);
@@ -387,6 +393,47 @@ mod tests {
             Duration::from_secs(5),
         );
         assert!(matches!(r, Err(Reply::Down(_))), "{r:?}");
+    }
+
+    #[test]
+    fn a_whole_file_kept_from_before_is_fetched_again_not_stuck_on_416() {
+        let d = tehas_core::testdir::TestDir::new("contractor-fetch-416");
+        let dest = d.path().join("image.pack");
+        let whole = b"0123456789";
+        // Downloaded in full, then the program stopped before the load.
+        fs::write(&dest, whole).unwrap();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = l.local_addr().unwrap().to_string();
+        let (tx, asked) = std::sync::mpsc::channel();
+        let full = format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: 10\r\nx-tehas-sha256: {}\r\n\r\n0123456789",
+            sha(whole)
+        );
+        let answers = vec![
+            b"HTTP/1.1 416 Range Not Satisfiable\r\ncontent-type: application/json\r\n\r\n{\"refused\":\"a range of no bytes\"}\n".to_vec(),
+            full.into_bytes(),
+        ];
+        std::thread::spawn(move || {
+            for answer in answers {
+                let Ok((mut s, _)) = l.accept() else { return };
+                let mut head = Vec::new();
+                let mut one = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && s.read(&mut one).unwrap_or(0) == 1 {
+                    head.push(one[0]);
+                }
+                let _ = tx.send(String::from_utf8_lossy(&head).into_owned());
+                let _ = s.write_all(&answer);
+            }
+        });
+        let who = As::Contractor {
+            name: "box1",
+            key: "k",
+        };
+        let got = fetch(&at, "image?id=x", who, &dest, true, Duration::from_secs(5));
+        assert!(got.is_ok(), "{got:?}");
+        assert_eq!(fs::read(&dest).unwrap(), whole.to_vec());
+        assert!(asked.recv().unwrap().contains("range: bytes=10-\r\n"));
+        assert!(!asked.recv().unwrap().contains("range:"));
     }
 
     #[test]
