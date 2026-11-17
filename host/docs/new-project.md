@@ -314,10 +314,10 @@ The build runs with the instance directory as its context, so the file can
 `COPY` a script or a config that lives beside it. A `sandbox.Dockerfile` that
 changed since the last install makes `install.sh` owe the `sandbox` step, the
 same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
-then rebuilds. A file that does not build fails the build and the tag cycles run
-is left where it was, on the image the host had; a build that is killed partway
-leaves it on the platform image, without your layer, so re-run
-`~/tehas/sandbox/build.sh` after fixing the file.
+or a run of `tehas setup` then rebuilds. A file that does not build fails the
+build and the tag cycles run is left where it was, on the image the host had; a
+build that is killed partway leaves it on the platform image, without your
+layer, so re-run `~/tehas/sandbox/build.sh` after fixing the file.
 
 After a change to the file, rebuild and check the gates again:
 
