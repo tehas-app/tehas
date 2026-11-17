@@ -125,7 +125,7 @@ Usage:
                            runs install.sh --check, which runs the tests.
                            It asks upstream which pi-rukas commit to follow.
                            Nothing is merged, installed, built or started, and
-                           it exits 1 when there is something to update.
+                           it exits 3 when there is something to update.
   tehas update --pending   run only the follow-ups $TEHAS_HOME/state/
                            update-pending lists, in the order
                            they run, and clear the record. It runs no git command and no install.sh,
@@ -147,12 +147,11 @@ Exit: 0 updated, or already up to date,
         it, the checkout has local changes, is not on a branch, cannot be
         fast-forwarded, has no commit yet, a step failed or timed out, install.sh
         gave no answer within its limit, systemd did not reload the unit files, a
-        follow-up install.sh asked for is one this command does not know, or
-        --check found something to update (a checkout behind, steps left
-        over from an earlier run, or a pi-rukas commit the image is not on) or
-        something an update does not fix (the host's tools, the slice, root's
-        copy of the command, the tests), each said apart, or the image could
-        not be moved to the pi-rukas commit it follows. A record of steps owed that exists but this
+        follow-up install.sh asked for is one this command does not know,
+        --check found something an update does not fix (the host's tools, the
+        slice, root's copy of the command, the tests), said apart from
+        anything to update, or the image could not be moved to the pi-rukas
+        commit it follows. A record of steps owed that exists but this
         account cannot read is a failure too: reading it as "nothing is owed"
         would let the next write replace steps somebody else recorded. A status
         of install.sh that this command does not know (126 when its exec bit is
@@ -169,6 +168,10 @@ Exit: 0 updated, or already up to date,
         --pending reads no checkout and no remote, so of these it answers 1
         only for a step that failed or timed out, for a step line this command
         does not know, and for a record it cannot read.
+      3 --check found something to update and nothing an update does not
+        fix: a checkout behind, a release to switch to, files that differ,
+        steps left over from an earlier run, a step line this command does
+        not know, or a pi-rukas commit the image is not on.
       64 --help with another argument, --to without a version or with one not
         shaped vX.Y.Z, --to on a host that updates from its checkout, --pending
         with --check or with --to, --accept-id without a login, with --check

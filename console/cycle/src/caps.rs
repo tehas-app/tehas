@@ -624,14 +624,8 @@ mod tests {
         assert_eq!(
             polyfill_inputs(&caps, &l),
             [
-                (
-                    "PI_ENSEMBLE_EXAMPLE_URL".into(),
-                    "example".into()
-                ),
-                (
-                    "PI_ENSEMBLE_EXAMPLE_TOKEN".into(),
-                    "example".into()
-                ),
+                ("PI_ENSEMBLE_EXAMPLE_URL".into(), "example".into()),
+                ("PI_ENSEMBLE_EXAMPLE_TOKEN".into(), "example".into()),
             ]
         );
     }
@@ -641,25 +635,16 @@ mod tests {
         let caps = fixture();
         for l in [
             labels("other@1", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
-            labels(
-                "example",
-                "example",
-                "PI_ENSEMBLE_EXAMPLE_URL",
-            ),
+            labels("example", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
             labels("", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
-            r#"{"tehas.rukas.polyfill.example.inputs":"PI_ENSEMBLE_EXAMPLE_URL"}"#
-                .into(),
+            r#"{"tehas.rukas.polyfill.example.inputs":"PI_ENSEMBLE_EXAMPLE_URL"}"#.into(),
             "example@1".into(),
             "null".into(),
             "".into(),
         ] {
             assert!(polyfill_inputs(&caps, &l).is_empty(), "{l}");
         }
-        let l = labels(
-            "example@1",
-            "example",
-            "PI_ENSEMBLE_EXAMPLE_URL",
-        );
+        let l = labels("example@1", "example", "PI_ENSEMBLE_EXAMPLE_URL");
         assert!(polyfill_inputs("not json", &l).is_empty());
     }
 

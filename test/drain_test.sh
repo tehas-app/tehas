@@ -97,23 +97,23 @@ t_run "$drain --json"
 t_eq "$t_rc" 0
 t_eq "$t_out" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycles":0,"plan":false,"reason":"draining"}}'
 
-t_case "a cycle still running without a wait: exit 1, and it is named"
+t_case "a cycle still running without a wait: exit 3, and it is named"
 reset
 running 7 5
 t_run "$drain --json"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(jq -c '[.drained, .running]' <<<"$t_out")" '[false,[7]]'
 t_run "$drain"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "still running: #7"
 wait
 
-t_case "a wait that ends with a cycle running is exit 1"
+t_case "a wait that ends with a cycle running is exit 3"
 reset
 running 7 5
 start=$(date +%s)
 t_run "$drain --wait 1"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(( $(date +%s) - start < 30 ))" 1
 wait
 
@@ -156,7 +156,7 @@ reset
 poll_hold 0.4 30 7
 t_run "$drain --wait 4 --json"
 poll_end
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(jq -c '[.drained, .running]' <<<"$t_out")" '[false,[7]]'
 
 t_case "a poll that starts nothing: drain waits for it, then answers no cycle"
@@ -171,15 +171,15 @@ t_eq "$t_out" '{"api":1,"drained":true,"running":[],"limit":{"state":"ok","cycle
 t_eq "$(( $(date +%s) - start < 4 ))" 1
 poll_end
 
-t_case "a poll that holds its lock through the wait: exit 1, and still one answer"
+t_case "a poll that holds its lock through the wait: exit 3, and still one answer"
 reset
 poll_hold 0 30
 t_run "$drain --wait 1 --json"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(jq -c '[.drained, .running, .limit.reason]' <<<"$t_out")" '[false,[],"draining"]'
 t_run "$drain --wait 1"
 poll_end
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "not drained: a poll held its lock for the whole wait"
 
 t_done

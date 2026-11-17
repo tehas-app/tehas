@@ -17,6 +17,7 @@ use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::exit;
 
 /// What `run` gives install.sh. It runs it; this says so.
 pub(super) const INSTALL_LIMIT: u32 = 1800;
@@ -367,7 +368,7 @@ impl Run<'_> {
             && executable(&self.host.home.join("sandbox/build.sh"))
     }
 
-    fn rukas_step(&self, flag: &str) -> bool {
+    fn rukas_step(&self, flag: &str) -> i32 {
         let build = self.host.home.join("sandbox/build.sh");
         let (rc, said) = merged(timed(BUILD_LIMIT, &build).arg(flag));
         echo(trimmed(&said));
@@ -376,7 +377,7 @@ impl Run<'_> {
                 "pi-rukas: the build gave no answer in {BUILD_LIMIT}s"
             ));
         }
-        rc == 0
+        rc
     }
 
     /// The host's clone of pi-rukas lags the image whenever the followed commit
@@ -426,17 +427,18 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
         }
         return 1;
     }
+    let (to_update, not_to_fix) = (
+        check && found_to_update(out),
+        check && found_not_to_fix(out),
+    );
     if check {
-        let mut found = false;
-        if found_to_update(out) {
+        if to_update {
             tell("install: install.sh --check found something to update");
-            found = true;
         }
-        if found_not_to_fix(out) {
+        if not_to_fix {
             tell("install: install.sh --check found something tehas update does not fix; its lines above say what");
-            found = true;
         }
-        if !found {
+        if !to_update && !not_to_fix {
             tell(&format!("install: install.sh --check exited {rc}"));
         }
     } else {
@@ -445,11 +447,14 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
         ));
     }
     // The statuses install.sh documents. Anything else is a step that failed:
-    // bash answers 126 or 127 when the file lost its exec bit.
+    // bash answers 126 or 127 when the file lost its exec bit. Something to
+    // update is the answer of --check; a fault an update does not fix is not.
     if rc == 78 {
-        78
+        exit::SETTINGS
+    } else if rc == 1 && to_update && !not_to_fix {
+        exit::NO
     } else {
-        1
+        exit::FAILED
     }
 }
 
@@ -458,6 +463,18 @@ fn install_failed(run: &Run, plan: &Plan, rc: i32, out: &str, unknown: &[String]
 /// manual names.
 pub(super) const DRAINED_LINE: &str =
     "the factory is drained: tehas limit clear starts the factory, and this version has run no cycle yet";
+
+/// What --check exits with. build.sh --check exits 3 when the commit moved;
+/// any other failure of it is a check that failed, not something to update.
+fn check_status(found: bool, build: Option<i32>) -> u8 {
+    match build {
+        Some(0) | None if found => exit::NO,
+        Some(0) | None => exit::OK,
+        Some(3) => exit::NO,
+        Some(78) => exit::SETTINGS,
+        Some(_) => exit::FAILED,
+    }
+}
 
 /// The follow-ups of a run: the lines install.sh printed and the ones its record
 /// holds, which are not the same list, since a run that died partway records
@@ -486,11 +503,9 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     if plan.mode == Mode::Check {
         // Nothing was merged, installed, built or started. What is left to do is
         // the checkout moving, and any step an earlier run never finished.
-        let mut found = plan.found || !plan.leftover.is_empty() || !unknown.is_empty();
-        if run.follows_rukas() && !run.rukas_step("--check") {
-            found = true;
-        }
-        return u8::from(found);
+        let found = plan.found || !plan.leftover.is_empty() || !unknown.is_empty();
+        let build = run.follows_rukas().then(|| run.rukas_step("--check"));
+        return check_status(found, build);
     }
 
     let mut steps = sorted(&asked);
@@ -528,7 +543,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
         && status == 0
         && !run.built
         && run.follows_rukas()
-        && !run.rukas_step("--if-moved")
+        && run.rukas_step("--if-moved") != 0
     {
         tell("pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again");
         status = 1;
@@ -608,6 +623,20 @@ pub fn main(given: &[String]) -> u8 {
 mod tests {
     use super::super::testing::dir;
     use super::*;
+
+    #[test]
+    fn a_failed_build_check_is_no_answer_that_something_moved() {
+        assert_eq!(check_status(false, None), exit::OK);
+        assert_eq!(check_status(true, None), exit::NO);
+        assert_eq!(check_status(false, Some(0)), exit::OK);
+        assert_eq!(check_status(true, Some(0)), exit::NO);
+        assert_eq!(check_status(false, Some(3)), exit::NO);
+        for found in [false, true] {
+            assert_eq!(check_status(found, Some(1)), exit::FAILED);
+            assert_eq!(check_status(found, Some(124)), exit::FAILED);
+            assert_eq!(check_status(found, Some(78)), exit::SETTINGS);
+        }
+    }
 
     #[test]
     fn the_script_and_this_console_agree() {

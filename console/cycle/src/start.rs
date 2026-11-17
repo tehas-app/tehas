@@ -332,7 +332,7 @@ pub fn text(home: &Path, t: &Text) -> Result<Option<PathBuf>, i32> {
         };
         eprintln!("tehas work: {shown}, not starting a cycle");
         tell(t.issue, &t.repo, t.wait, why);
-        Err(4)
+        Err(i32::from(tehas_core::exit::work::NOT_STARTED))
     };
     if !t.why.is_empty() {
         return stop(&t.why, false);

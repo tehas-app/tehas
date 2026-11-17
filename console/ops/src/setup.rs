@@ -34,6 +34,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use tehas_core::exit;
 use tehas_core::sandbox::HELPER_KEY;
 use tehas_core::settings::{
     load::{self, Vars},
@@ -1100,12 +1101,18 @@ fn status_of(done: io::Result<ExitStatus>) -> u8 {
     }
 }
 
+/// A step's settings stop setup with 78; any other failure of a step is a
+/// failed setup, whatever the step's own status means to that step.
 fn step(name: &str, command: &mut Command) -> Result<(), Fail> {
     match status_of(command.status()) {
         0 => Ok(()),
         rc => {
             say(&failed(name, rc));
-            Err(Stop(rc))
+            Err(Stop(if rc == exit::SETTINGS {
+                exit::SETTINGS
+            } else {
+                exit::FAILED
+            }))
         }
     }
 }
@@ -1591,14 +1598,20 @@ mod tests {
     }
 
     #[test]
-    fn a_step_that_fails_stops_with_its_status_and_says_it_twice() {
+    fn a_step_that_fails_stops_setup_and_says_its_status_twice() {
         assert_eq!(
             failed("install.sh", 78),
             "install.sh failed (exit 78); fix it and run tehas setup again 78"
         );
         let mut command = Command::new("sh");
         command.args(["-c", "exit 5"]);
-        assert!(matches!(step("x", &mut command), Err(Stop(5))));
+        assert!(matches!(step("x", &mut command), Err(Stop(1))));
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 3"]);
+        assert!(matches!(step("x", &mut command), Err(Stop(1))));
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 78"]);
+        assert!(matches!(step("x", &mut command), Err(Stop(78))));
         assert!(step("x", &mut Command::new("true")).is_ok());
     }
 
