@@ -325,6 +325,31 @@ for line in \
 done
 t_contains "$section" '/operating#finishing-a-stopped-cycle'
 
+# What the features page may still say. A removed feature leaves it, and a row
+# of a feature still being built says so in its status, not "Built".
+features="$docs/features.md"
+t_case "the features page names no removed feature"
+for gone in 'easy merge' 'improvement loop' 'auto sizing' 'fixer' 'TEHAS_IMPROVE_' \
+  'TEHAS_EASY_MERGE'; do
+  hits=$(grep -ni "$gone" "$features" || true)
+  [ -z "$hits" ] || t_bad "features.md names $gone: $hits"
+done
+
+t_case "each row of a feature still being built says so in its status"
+rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
+  status = $3; sub(/ *\|$/, "", status); print status }' "$features")
+[ "$(grep -c . <<<"$rows")" -ge 8 ] || t_bad "fewer than 8 rows of building features: $rows"
+while IFS= read -r status; do
+  case $status in
+  'Still being built'*) ;;
+  *) t_bad "a building feature's status reads: ${status:0:80}" ;;
+  esac
+done <<<"$rows"
+
+t_case "the features page says no host proof of the future"
+hits=$(grep -n 'ends about\|at the time of writing\|awaits the first cycle' "$features" || true)
+[ -z "$hits" ] || t_bad "features.md: $hits"
+
 # ---------------------------------------------------------------------------
 # What the manual says about the two reads that used to guess. The importer of
 # an older tehas's records now holds a file whose value its own verbs would
