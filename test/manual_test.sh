@@ -310,6 +310,21 @@ t_eq "${hits##*:}" finish
 grep -qxF finish "$T/verbs-tehas" && t_bad "finish read as a verb of tehas"
 grep -qxF clean "$T/verbs-tehasbot" || t_bad "clean not read as a verb of tehasbot"
 
+# The four lines the finish step logs (console/dispatch/src/finish.rs), each in
+# the section a person reads when a label did nothing.
+t_case "troubleshooting names the four lines of the finish step"
+section=$(awk '/^## Nothing happens after I label an issue$/ { on = 1; next }
+  on && /^## / { exit } on' "$docs/troubleshooting.md" | tr '\n' ' ' | tr -s ' ')
+[ -n "$section" ] || t_bad "no section Nothing happens after I label an issue"
+for line in \
+  "ignore #N: tehas:finish was applied by '<who>', not an allowed account" \
+  'wait #N: tehas:finish waits: <why>' \
+  'finish #N: refused, asked by <who>' \
+  'finish #N: opened <url>, asked by <who> (<label|millwright>): <reason>'; do
+  t_contains "$section" "$line"
+done
+t_contains "$section" '/operating#finishing-a-stopped-cycle'
+
 # ---------------------------------------------------------------------------
 # What the manual says about the two reads that used to guess. The importer of
 # an older tehas's records now holds a file whose value its own verbs would
