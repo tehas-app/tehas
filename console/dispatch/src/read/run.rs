@@ -858,13 +858,15 @@ impl Calls {
     /// store of its own cannot leave the child to inherit whatever the process
     /// carries.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
-        match self.home.as_deref() {
-            Some(home) => {
-                let extra = [("TEHAS_HOME", home)];
-                call::store(&self.store, args, self.store_bound, GRACE, &extra)
-            }
-            None => call::store(&self.store, args, self.store_bound, GRACE, &[]),
-        }
+        let verb = args.first().copied().unwrap_or("");
+        self.store_answering(args, verb)
+    }
+
+    /// [`Calls::store`] for a verb whose answer names another word.
+    pub fn store_answering(&mut self, args: &[&str], answer: &str) -> Result<Value, Value> {
+        let home = self.home.as_deref();
+        let extra: Vec<(&str, &str)> = home.map(|h| ("TEHAS_HOME", h)).into_iter().collect();
+        call::store_answering(&self.store, args, answer, self.store_bound, GRACE, &extra)
     }
 }
 
