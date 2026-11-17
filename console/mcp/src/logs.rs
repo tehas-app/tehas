@@ -20,7 +20,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 pub use tehas_core::file::base64;
 use tehas_core::mask::mask;
-use tehas_core::snapshot::{log_files, log_names};
+use tehas_core::snapshot::{log_names, running_log_files};
 
 /// A larger file is not served.
 pub const LOG_MAX: u64 = 16 * 1024 * 1024;
@@ -331,7 +331,7 @@ pub fn tool() -> Value {
     let text = |desc: &str| json!({"type": "string", "description": desc});
     json!({
         "name": "factory_log",
-        "description": "One log file of a session of the last 30 days, or of a running cycle, masked. Give id, a session id, or issue for the logs of that issue's running cycle; its id is the one the run has in factory_sessions once it ends. Plain: text from offset, at most bytes, 1 MiB at most; follow next for the rest. gzip: the whole masked file compressed, as an embedded application/gzip resource. Work sessions have transcript, err, preflight, console, result and dispatch; planning sessions have progress, result and dispatch. dispatch is per issue and holds every run of it. Files over 16 MiB are not served.",
+        "description": "One log file of a session of the last 30 days, or of a running cycle, masked. Give id, a session id, or issue for the logs of that issue's running cycle. A running cycle's id, work-<issue>-<startedAt>, names it only while it runs; once it ends, find its session in factory_sessions. Plain: text from offset, at most bytes, 1 MiB at most; follow next for the rest. gzip: the whole masked file compressed, as an embedded application/gzip resource. Work sessions have transcript, err, preflight, console, result and dispatch; planning sessions have progress, result and dispatch. dispatch is per issue and holds every run of it. Files over 16 MiB are not served.",
         "inputSchema": {"type": "object", "properties": {
             "id": {"type": "string", "pattern": sessions::ID.as_str(), "description": "The session id from factory_sessions. Give this or issue."},
             "issue": {"type": "integer", "minimum": 1, "maximum": ISSUE_MAX, "description": "An issue with a running cycle: that cycle's logs. Give this or id."},
@@ -342,7 +342,7 @@ pub fn tool() -> Value {
         }, "required": ["file"], "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
-            "id": text("The session id, of a running cycle the id its run will have."),
+            "id": text("The session id, or of a running cycle work-<issue>-<startedAt>, which names it only while it runs."),
             "file": text("The word."),
             "size": int("The masked file's size in bytes. Plain: given only when the read got to the end of the file; a read that gives next may leave it out."),
             "offset": int("Plain: where the text starts, at the start of a character."),
@@ -430,10 +430,11 @@ fn asked(args: &Value) -> Result<Asked<'_>, ToolError> {
 
 /// The running cycle of `issue` as `live/running.json` has it, started at
 /// `started` when that is given, as a record of the snapshot's shape. Its logs
-/// are found by the stamps of their names, as the writer of the snapshot finds
-/// an ended run's, and its id is the one the run has in the snapshot once it
-/// ends. None when no cycle of the issue is running; a cycle the store marked
-/// lost is not.
+/// are found by the stamps of their names. Its id is built from the store's
+/// start and names the running cycle only: the session the run becomes when
+/// it ends has an id built from the supervisor's start, which is later. None
+/// when no cycle of the issue is running; a cycle the store marked lost is
+/// not.
 fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Value>, ToolError> {
     let Some(file) = sessions::published(dirs, "running.json")? else {
         return Ok(None);
@@ -449,15 +450,7 @@ fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Value
         return Ok(None);
     };
     let names = log_names(&dirs.logs);
-    let found = log_files(
-        &dirs.logs,
-        &names,
-        "work",
-        issue as i64,
-        t,
-        None,
-        tools::now(),
-    );
+    let found = running_log_files(&dirs.logs, &names, "work", issue as i64, t, tools::now());
     let logs: Vec<Value> = found
         .into_iter()
         .map(|(word, name, bytes)| json!({"word": word, "name": name, "bytes": bytes}))
@@ -468,15 +461,18 @@ fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Value
 }
 
 /// The session a call names: by id the snapshot's, else a running cycle that
-/// has that id; by issue its running cycle.
+/// has that id; by issue its running cycle. A snapshot that is not written or
+/// cannot be read does not hide a running cycle: its error is the answer only
+/// when no running cycle has the id.
 fn session_of(dirs: &Dirs, asked: &Asked) -> Result<Value, ToolError> {
     match *asked {
         Asked::Issue(n) => {
             running(dirs, n, None)?.ok_or_else(|| bad(&format!("no running cycle for issue {n}")))
         }
         Asked::Id(id) => {
-            let snap = Snapshot::open(&dirs.sessions, tools::now())?;
-            let missing = match sessions::find(&snap, id) {
+            let found = Snapshot::open(&dirs.sessions, tools::now())
+                .and_then(|snap| sessions::find(&snap, id));
+            let missing = match found {
                 Ok(s) => return Ok(s),
                 Err(e) => e,
             };
