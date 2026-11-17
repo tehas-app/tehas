@@ -43,14 +43,8 @@ pub fn target(
 /// `ghcr.io/<owner>/<name>:sha-<first 12>`, lower case. `None` when `repo` is
 /// not `https://github.com/<owner>/<name>` or `commit` is not 40 hex digits.
 pub fn image(repo: &str, commit: &str) -> Option<String> {
-    let word = |w: &str| {
-        !w.is_empty()
-            && w.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
     let path = repo.strip_prefix("https://github.com/")?;
-    let (owner, name) = path.split_once('/')?;
-    if !word(owner) || !word(name) || !crate::grammar::commit_id(commit) {
+    if !crate::settings::rules::is_repo(path) || !crate::grammar::commit_id(commit) {
         return None;
     }
     let path = path.strip_suffix(".git").unwrap_or(path);
