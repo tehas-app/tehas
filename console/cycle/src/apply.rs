@@ -810,6 +810,29 @@ fn clear_notes(home: &Path, issue: u64) {
     }
 }
 
+/// Why tehas work refused the start, as the cycle's last notice: `cycle-end`
+/// keeps it, and the factory's line says it.
+fn refused_notice(home: &Path, f: &Facts, why: &str) {
+    let (issue, attempt) = (f.issue.to_string(), f.attempt.to_string());
+    let args = [
+        "cycle-heartbeat",
+        &issue,
+        "--attempt",
+        &attempt,
+        "--ended",
+        "--status",
+        "refused",
+        "--text",
+        why,
+    ];
+    if let Err(e) = host::store_try(home, 3, &args) {
+        log(&format!(
+            "WARN: why #{issue} was refused is not on record ({}: {})",
+            e.word, e.line
+        ));
+    }
+}
+
 /// `store cycle-end`, with the paths of the result and the progress in their
 /// place. False when the end is not on record.
 fn end(home: &Path, r: &Report, f: &Facts) -> bool {
@@ -988,6 +1011,9 @@ pub fn run(home: &Path, s: &Start) -> i32 {
     }
     log(&r.done);
     let approved = after::approved(home, issue, s.attempt);
+    if !r.refused_why.is_empty() {
+        refused_notice(home, &facts, &r.refused_why);
+    }
     let on_record = end(home, &r, &facts);
     let mut a = r.after.clone();
     let delivered = &mut a.ended.handoff_delivered;

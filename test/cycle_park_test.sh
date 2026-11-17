@@ -634,9 +634,14 @@ t_case "a lean start tehas work refused is parked with what to do, and its appro
 lean_refused
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "Tehas started no cycle: this start's driver is \`lean\`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To run it on classic, take \`tehas:lean\` off, then retry;"
+t_contains "$(t_calls gh)" "Tehas started no cycle: this start's driver is \`lean\`, and the sandbox image cannot run it as this start asks (runner exit 78). It does not run classic in its place, and nothing of it ran. The log names what the image lacks. To keep it on lean, rebuild the sandbox image on a pi-rukas that supports this, then apply \`tehas:ready\` again. To run it on classic instead, which changes its driver, take \`tehas:lean\` off, then retry;"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_contains "$(t_calls gh)" "Take \`tehas:lean\` off this issue, then tick a box."
+t_contains "$(t_calls gh)" "To run it on classic instead, take \`tehas:lean\` off this issue, then tick a box."
+# One line names the refusal, and no warning of a missing result reads like a crash.
+t_contains "$t_out" "#7: tehas work refused the start before its runner ran (exit 78): the sandbox image cannot run lean as this start asks"
+t_lacks "$t_out" "holds nothing, so its step is read from its run log"
+# The end keeps why, for the factory's line.
+t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "the sandbox image cannot run lean as this start asks"
 t_contains "$(t_calls gh)" "- [ ] Retry with the issue text only"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "--add-label tehas:ready"
