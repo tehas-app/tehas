@@ -434,39 +434,10 @@ impl<'a> Channel<'a> {
     }
 }
 
-/// The settings a job carries: the ones a cycle is shaped by, never a host's
-/// address, path or secret. The model's endpoint and key are not here: the
-/// models.json a job carries puts every provider behind this proxy.
-pub const CARRIED: &[&str] = &[
-    "TEHAS_REPO",
-    // Required by every load, so the contractor's `tehas work` loads: a
-    // number, public logins and the App's public id, none of them a secret.
-    "TEHAS_CONTROL_ISSUE",
-    "TEHAS_ALLOWED_LABELERS",
-    "TEHAS_GITHUB_APP_ID",
-    "TEHAS_BRANCH",
-    "TEHAS_DRIVER",
-    "TEHAS_READ_ONLY",
-    "TEHAS_WORK_TIMEOUT",
-    "TEHAS_WORK_STALL",
-    "TEHAS_CHILD_TIMEOUT",
-    "TEHAS_WORKSTREAMS",
-    "TEHAS_VERIFY_TIMEOUT",
-    "TEHAS_BUILD_TIMEOUT",
-    "TEHAS_RUKAS_WORKAROUNDS",
-    "TEHAS_OUTSOURCE",
-    "PI_ENSEMBLE_SUBAGENT_PROVIDER",
-    "PI_ENSEMBLE_SUBAGENT_MODEL",
-];
-
-/// Whether a setting may leave the factory with a job: one of [`CARRIED`], or
-/// a role's own model or provider.
+/// Whether a setting may leave the factory with a job
+/// ([`tehas_core::settings::carried`]).
 pub fn carried(name: &str) -> bool {
-    CARRIED.contains(&name)
-        || tehas_core::settings::rules::ROLES.iter().any(|role| {
-            name == format!("PI_ENSEMBLE_MODEL_{role}")
-                || name == format!("PI_ENSEMBLE_PROVIDER_{role}")
-        })
+    tehas_core::settings::carried::carried(name)
 }
 
 /// The settings of a job from the variables `get` gives: every carried name

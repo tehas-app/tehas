@@ -171,10 +171,7 @@ fn listen() -> ! {
     // which is the life the borrow needs.
     // A relayed issue write is masked with the factory's own host names too,
     // as the local relay masks with the ones the console masks.
-    let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(
-        &models::host_path(),
-        "",
-    ));
+    let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models::host_path(), ""));
     let factory = Box::leak(Box::new(tehas_proxy::host::OfHost {
         home: home(),
         repo: env("TEHAS_REPO"),

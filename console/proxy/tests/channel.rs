@@ -454,6 +454,7 @@ fn only_carried_settings_leave_and_no_endpoint_or_key() {
         vec![
             "PI_ENSEMBLE_MODEL_DEVELOPER",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
+            "TEHAS_GITHUB_APP_ID",
             "TEHAS_REPO"
         ]
     );
