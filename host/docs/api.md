@@ -316,7 +316,7 @@ and `state`.
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
-| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
+| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/holds.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
 | `plan` | `false`: no new planning session. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |

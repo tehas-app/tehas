@@ -278,14 +278,7 @@ fn parse(args: &[String]) -> Option<Verb> {
                 }
             }
             let repo = repo?;
-            let (owner, name) = repo.split_once('/')?;
-            let part = |s: &str| {
-                !s.is_empty()
-                    && s.len() <= 100
-                    && s.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-            };
-            if !part(owner) || !part(name) {
+            if !repo_within(&repo, 100) {
                 return None;
             }
             let branch = branch?;
@@ -293,7 +286,7 @@ fn parse(args: &[String]) -> Option<Verb> {
                 return None;
             }
             Some(Verb::ReviewFile(ReviewFile {
-                repo: format!("{owner}/{name}"),
+                repo,
                 doc: PathBuf::from(doc?),
                 branch,
                 commit: verbs::commit(&commit?)?,
@@ -409,6 +402,11 @@ fn flags(args: &[String], allowed: &[&str]) -> Option<()> {
 /// The four settings `init` names, each once, each in the shape the verb
 /// states. A value that is missing or of another shape is a usage error, and
 /// nothing was written.
+/// `owner/name` as the settings check it, each half at most `max` bytes.
+fn repo_within(repo: &str, max: usize) -> bool {
+    tehas_core::settings::rules::is_repo(repo) && repo.split('/').all(|p| p.len() <= max)
+}
+
 fn settings(given: BTreeMap<&str, &str>) -> Option<Settings> {
     let plain = |value: &str, max: usize| -> Option<String> {
         let ok = !value.is_empty()
@@ -427,14 +425,7 @@ fn settings(given: BTreeMap<&str, &str>) -> Option<Settings> {
         return None;
     }
     let repo = given.get("--repo")?;
-    let (owner, name) = repo.split_once('/')?;
-    let part = |s: &str| {
-        !s.is_empty()
-            && s.len() <= MAX_REPO
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-    };
-    if !part(owner) || !part(name) || name.is_empty() {
+    if !repo_within(repo, MAX_REPO) {
         return None;
     }
     Some(Settings {

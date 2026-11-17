@@ -37,7 +37,7 @@
 //!
 //! Exit: 0 the report was printed; 2 usage.
 
-use crate::flags::{self, epoch};
+use crate::holds::{self, epoch};
 use crate::host_message;
 use crate::jq::{first, obj, J, NULL};
 use crate::mcp::{liveness, Liveness};
@@ -1362,7 +1362,7 @@ fn exit_status(rc: &Path) -> Option<String> {
 /// The pause flag of this host: null with none, {at, reason} with one, and
 /// both null for a file that is no flag, which holds the factory all the same.
 fn pause_flag(home: &Path) -> J {
-    let r = flags::read_pause(&home.join("state/pause.json"));
+    let r = holds::read_pause(&home.join("state/pause.json"));
     let field = |k: &str| r.json_of(k).and_then(J::parse);
     match r.state() {
         "none" => J::Null,
@@ -1534,10 +1534,10 @@ fn budget_of(spec: &str, name: &str) -> Option<String> {
         .map(|(_, v)| v.to_string())
 }
 
-/// The limit as `flags::read` reads it. A reading the page cannot parse is
+/// The limit as `holds::read` reads it. A reading the page cannot parse is
 /// unreadable, as it is to every other reader, never nothing.
 fn limit(home: &Path, now: i64) -> J {
-    J::parse(&flags::read(&home.join("state/limit.json"), now).json())
+    J::parse(&holds::read(&home.join("state/limit.json"), now).json())
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
@@ -2139,7 +2139,7 @@ mod tests {
         for (file, want) in cases {
             h.write("state/limit.json", file);
             let want = value(want);
-            let console = value(&flags::read(&h.0.join("state/limit.json"), NOW).json());
+            let console = value(&holds::read(&h.0.join("state/limit.json"), NOW).json());
             let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
             let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
             assert_eq!(console, want, "console: {file}");

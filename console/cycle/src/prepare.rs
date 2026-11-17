@@ -973,7 +973,7 @@ pub fn unjudged(head: &str, pr: u64, said: Option<&str>) -> Option<String> {
 
 /// Whether `head` is the 40 hexadecimal digits of a commit.
 pub fn is_commit(head: &str) -> bool {
-    tehas_core::grammar::is_hex(head, 40, 40)
+    tehas_core::grammar::commit_id(head)
 }
 
 /// A refresh the image cannot finish when it conflicts: Some(78) when it does,

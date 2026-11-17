@@ -17,7 +17,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
-use tehas_core::call::{run_full, store_try, GRACE};
+use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
 use tehas_core::end_fault;
 use tehas_core::journal::{Journal, Wrote};
 use tehas_core::question::is_handoff_marker;
@@ -29,8 +29,6 @@ use reread::Seen;
 /// The comment a park posts when its question's label could not be added.
 pub const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
-/// A gh call of the report: long past any answer. The bash had no bound.
-const GH_BOUND: Duration = Duration::from_secs(120);
 /// The read of a develop timeout's issue and the write of its note.
 const NOTE_BOUND: Duration = Duration::from_secs(30);
 

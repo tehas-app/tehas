@@ -105,8 +105,8 @@
 //!
 //!   console flags limit show|set|clear|read ...
 //!
-//! The flags under state/ of one instance: the limit tehas limit sets, see
-//! ops/src/flags.rs.
+//! The holds under state/ of one instance: the limit tehas limit sets, see
+//! ops/src/holds.rs.
 //!
 //!   console state pack|unpack ... | check [--json]
 //!
@@ -179,7 +179,7 @@
 //! output cannot be written, 2 usage.
 
 use tehas_ops::{
-    account, clean, disk, edge, flags, forge, freeze, github, health, host_message, ids, mcp,
+    account, clean, disk, edge, forge, freeze, github, health, holds, host_message, ids, mcp,
     panel, pins, rukas, sandbox, settings, setup, shipped, size, slice, stop, store, tidy, update,
 };
 mod api;
@@ -443,7 +443,7 @@ fn main() -> ExitCode {
             Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
-            Some("flags") => return ExitCode::from(flags::main(&given[1..])),
+            Some("flags") => return ExitCode::from(holds::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),

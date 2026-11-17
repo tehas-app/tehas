@@ -28,6 +28,11 @@ pub fn is_hex(s: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&s.len()) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// A full commit id as git writes it: 40 lower-case hex digits.
+pub fn commit_id(s: &str) -> bool {
+    is_hex(s, 40, 40)
+}
+
 /// An image id: sha256: and 64 hex digits.
 pub fn is_image(s: &str) -> bool {
     s.strip_prefix("sha256:").is_some_and(|h| is_hex(h, 64, 64))
@@ -171,6 +176,11 @@ mod tests {
     fn hex_and_images() {
         let h = "a".repeat(64);
         assert!(is_hex("abc1234", 7, 40));
+        assert!(commit_id(&"0a".repeat(20)));
+        assert!(!commit_id(&"0A".repeat(20)));
+        assert!(!commit_id(&"a".repeat(39)));
+        assert!(!commit_id(&"a".repeat(41)));
+        assert!(!commit_id(&format!("{}g", "a".repeat(39))));
         assert!(!is_hex("abc123", 7, 40));
         assert!(!is_hex("ABC1234", 7, 40));
         assert!(!is_hex(&"a".repeat(41), 7, 40));
