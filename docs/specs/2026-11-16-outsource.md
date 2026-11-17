@@ -342,12 +342,13 @@ Epic #2362 builds these. In short:
   path inside the container and copies the index into the cycle's cache, as
   a cycle in-house does.
 - **Memory.** A cycle's agents write vipune memories for later cycles. Today
-  they are lost with the cycle, in-house too. A cycle's new memories come back
-  to the factory as candidates: with the result from a contractor, or by an
-  export the factory runs in-house. They turn active when the cycle's pull
-  request merges, and every cycle starts with the active ones. Nothing a
-  container wrote is trusted before that merge, and the factory never keeps
-  an embedding a container made.
+  they are lost with the cycle, in-house too. With the feature on, vipune's
+  memory lives only in the factory. A `vipune` stand-in in the image sends
+  each call to the factory, which runs the real vipune on a database of that
+  cycle's own, copied from the active pool, and returns its output unchanged.
+  pi-rukas calls `vipune` as before. A cycle's new memories turn active when
+  its pull request merges. A contractor holds no memory, only the cycle's
+  memory token, which dies with the job.
 
 ### Disk encryption
 
