@@ -65,7 +65,7 @@
 //! however it was started.
 
 use crate::commands;
-use crate::flags::{epoch, REASON};
+use crate::holds::{epoch, REASON};
 use crate::jq::{obj, J};
 use crate::outsource;
 use crate::platform;
@@ -340,7 +340,7 @@ fn control(
 fn host_pause_flag(file: &Path) -> (J, bool) {
     // Read as no flag by the one reading of the file: it holds the factory and
     // says nothing more.
-    match crate::flags::read_pause(file).state() {
+    match crate::holds::read_pause(file).state() {
         "none" => return (J::Null, false),
         "ok" => {}
         _ => return (obj(vec![("at", J::Null), ("reason", J::Null)]), true),

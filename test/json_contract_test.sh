@@ -1363,7 +1363,7 @@ $changes"
   # The `required` of the two are not the same and no field is taken from either,
   # so the one of the owner is named as what the copy does not carry: an object of
   # this surface holds a state and no api, since the one it prints sits above it,
-  # at the top level (console/ops/src/flags.rs, drain_report).
+  # at the top level (console/ops/src/holds.rs, drain_report).
   if [ -n "$state_owner" ]; then
     t_case "the limit of the schema of $surface is the schema of $state_owner, less api"
     t_eq "$(jq -cS '.properties.limit.properties | del(.api)' "$schema")" \

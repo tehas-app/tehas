@@ -12,7 +12,7 @@
 //! every minute changes nothing by asking again.
 
 use crate::account;
-use crate::flags::oneline;
+use crate::holds::oneline;
 use crate::stop::is_issue;
 use serde_json::{json, Value};
 use std::env;
