@@ -161,7 +161,14 @@ steps_console=${TEHAS_CONSOLE:-}
 early_console=$steps_console
 [ -n "$early_console" ] || early_console=$root/libexec/console
 [ -x "$early_console" ] || early_console=${TEHAS_HOME:-$HOME/tehas}/libexec/console
-lock_wait=$("$early_console" update wait update 2>/dev/null) || lock_wait=
+# A wait the console refuses (78) stops the run: it is a setting of the host.
+lock_wait=$("$early_console" update wait update 2>/dev/null) || {
+  [ $? -ne 78 ] || {
+    echo "tehas: TEHAS_UPDATE_LOCK_WAIT is not valid: expected a whole number of seconds from 0 to 300; nothing was installed" >&2
+    exit 78
+  }
+  lock_wait=
+}
 dispatch_wait=$("$early_console" update wait dispatch 2>/dev/null) || dispatch_wait=
 [[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=10
 [[ $dispatch_wait =~ ^[0-9]+$ ]] || dispatch_wait=900
@@ -468,6 +475,10 @@ instance_findings() {
 # judges the settings sees the same one.
 : "${TEHAS_HOME:=$HOME/tehas}"
 export TEHAS_HOME
+# The load refuses a home that is no absolute path as well, as a setting of the
+# host; this says first why it is not tehas's, in the words --check and tehas
+# update read. 1b asks again for a home the instance names.
+refuse_home
 # tehas_load below writes the load's warnings again, so a run with no finding
 # shows them once, from there.
 findings=$(instance_findings)

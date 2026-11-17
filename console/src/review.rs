@@ -300,7 +300,7 @@ fn review() -> u8 {
     }
     // Which PI_ENSEMBLE_* the image does not list for a host to set, and so a
     // lever of the runner this run was never vetted for.
-    let refused = refused(&caps, &envs);
+    let refused = refused(&caps, &envs, || tehas_cycle::gives::image_labels(&image));
     if !refused.is_empty() {
         warn(&format!(
             "{image} does not take what this review would be given, not starting:"
@@ -608,8 +608,9 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
 /// that is neither wanted nor of the PI_ENSEMBLE_* family is not the runner's
 /// to refuse; nor are secrets, by the one rule of tehas_core::secret, and the
 /// inputs of a cycle or a planning turn, which a container of the review kind
-/// is not given.
-fn refused(caps: &str, names: &[String]) -> Vec<String> {
+/// is not given. A name a polyfill of the image declares passes, as it does for
+/// a cycle; `labels` gives the image's labels and is asked only then.
+fn refused(caps: &str, names: &[String], labels: impl FnOnce() -> String) -> Vec<String> {
     let wanted = wanted();
     let asked: Vec<&str> = names
         .iter()
@@ -629,10 +630,12 @@ fn refused(caps: &str, names: &[String]) -> Vec<String> {
         })
         .filter(|n| n.starts_with("PI_ENSEMBLE_"))
         .collect();
-    tehas_cycle::caps::not_inputs(caps, &asked)
-        .into_iter()
-        .map(str::to_string)
-        .collect()
+    let mut out = tehas_cycle::caps::not_inputs(caps, &asked);
+    if !out.is_empty() {
+        let declared = tehas_cycle::caps::polyfill_inputs(caps, &labels());
+        out.retain(|n| !declared.iter().any(|(i, _)| i == n));
+    }
+    out.into_iter().map(str::to_string).collect()
 }
 
 struct RunArgs {
@@ -972,7 +975,7 @@ mod tests {
             "PI_ENSEMBLE_HOST_ONLY",
         ]);
         assert_eq!(
-            refused(CAPS, &given),
+            refused(CAPS, &given, String::new),
             ["PI_ENSEMBLE_POLICY_JUDGE", "PI_ENSEMBLE_HOST_ONLY"]
         );
     }
@@ -993,7 +996,7 @@ mod tests {
             "-e",
             "HOME=/x",
         ]);
-        assert!(refused(CAPS, &given).is_empty());
+        assert!(refused(CAPS, &given, String::new).is_empty());
     }
 
     const FAMILY: &str = r#"{"inputs":[
@@ -1010,7 +1013,10 @@ mod tests {
             "-e",
             "PI_ENSEMBLE_MODEL_NOBODY",
         ]);
-        assert_eq!(refused(FAMILY, &given), ["PI_ENSEMBLE_MODEL_NOBODY"]);
+        assert_eq!(
+            refused(FAMILY, &given, String::new),
+            ["PI_ENSEMBLE_MODEL_NOBODY"]
+        );
     }
 
     #[test]
@@ -1021,14 +1027,52 @@ mod tests {
             "-e",
             "PI_ENSEMBLE_DB_PASSWORD",
         ]);
-        assert!(refused(CAPS, &given).is_empty());
+        assert!(refused(CAPS, &given, String::new).is_empty());
     }
 
     #[test]
     fn an_answer_that_is_no_object_lists_nothing() {
         let given = names(&["-e", "PI_ENSEMBLE_LENS_NOTE"]);
-        assert_eq!(refused("not json", &given), ["PI_ENSEMBLE_LENS_NOTE"]);
-        assert_eq!(refused("[]", &given), ["PI_ENSEMBLE_LENS_NOTE"]);
+        assert_eq!(
+            refused("not json", &given, String::new),
+            ["PI_ENSEMBLE_LENS_NOTE"]
+        );
+        assert_eq!(
+            refused("[]", &given, String::new),
+            ["PI_ENSEMBLE_LENS_NOTE"]
+        );
+    }
+
+    fn polyfill(inputs: &str) -> String {
+        serde_json::json!({
+            "tehas.rukas.polyfills": "example@0.1.0",
+            "tehas.rukas.polyfill.example.inputs": inputs,
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn an_input_a_polyfill_of_the_image_declares_is_not_refused() {
+        let given = names(&[
+            "-e",
+            "PI_ENSEMBLE_EXAMPLE_URL=https://example.test",
+            "-e",
+            "PI_ENSEMBLE_EXAMPLE_SCOPE",
+            "-e",
+            "PI_ENSEMBLE_POLICY_JUDGE=off",
+        ]);
+        let labels = || polyfill("PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_SCOPE");
+        assert_eq!(refused(CAPS, &given, labels), ["PI_ENSEMBLE_POLICY_JUDGE"]);
+        let given = names(&["-e", "PI_ENSEMBLE_HOST_ONLY"]);
+        let labels = || polyfill("PI_ENSEMBLE_HOST_ONLY");
+        assert_eq!(refused(CAPS, &given, labels), ["PI_ENSEMBLE_HOST_ONLY"]);
+    }
+
+    #[test]
+    fn the_labels_are_read_only_when_a_name_is_refused() {
+        let given = names(&["-e", "PI_ENSEMBLE_LENS_NOTE=short"]);
+        let labels = || -> String { panic!("the labels were read") };
+        assert!(refused(CAPS, &given, labels).is_empty());
     }
 
     #[test]

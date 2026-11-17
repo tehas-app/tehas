@@ -66,7 +66,7 @@
 #                              one the current image was built on
 #        build.sh --check      build nothing; say whether the commit moved
 #
-# Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
+# Exit: 0 built, or nothing to do; 3 the commit moved (--check); 1 the commit,
 #       the base or the build could not be had, or the base does not
 #       support what tehas work needs, or a smoke run of the new image started
 #       no step; 64 usage; 78 the instance's settings
@@ -155,7 +155,7 @@ if [ "$mode" != build ]; then
   if "$console" sandbox current "$current" "$have" "$head" "$what"; then
     exit 0
   fi
-  [ "$mode" != check ] || exit 1
+  [ "$mode" != check ] || exit 3
 fi
 
 # The base, built here from the host's pi-rukas clone at the commit followed and

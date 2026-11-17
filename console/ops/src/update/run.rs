@@ -88,7 +88,13 @@ pub(super) fn main(given: &[String]) -> u8 {
         Ok(None) => return 0,
         Err(rc) => return rc,
     };
-    let wait = wait::update();
+    let wait = match wait::update() {
+        Ok(wait) => wait,
+        Err(line) => {
+            super::fault(&line);
+            return 78;
+        }
+    };
     if let Err(rc) = crate::settings::loaded(&INSTANCE_SETTINGS) {
         return rc;
     }

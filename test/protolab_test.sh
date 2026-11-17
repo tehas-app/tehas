@@ -65,7 +65,7 @@ esac'
 
 # curl hands out $T/fx/net/<address, with _ for every other character>. A file
 # <name>.type is the content type it prints, <name>.rc an exit status to fail
-# with, <name>.moved the address a redirect sends it on to. What arrives on
+# with, <name>.moved the address a 302 sends it on to. What arrives on
 # standard input (the header file) is kept per call. A case may stub curl its
 # own way; net_curl puts this one back.
 net_curl() {
@@ -85,7 +85,7 @@ key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
 if [ -f "$T/fx/net/$key.moved" ]; then
   : >"$out"
-  printf "text/html\n%s" "$(cat "$T/fx/net/$key.moved")"
+  printf "text/html\n302\n%s" "$(cat "$T/fx/net/$key.moved")"
   exit 0
 fi
 [ -f "$T/fx/net/$key" ] || exit 22
