@@ -445,17 +445,21 @@ fn changed_from(kept: &Value, new: &Value) -> Result<Option<String>, Why> {
     if approval.is_null() || approval != get(new, "approval")? {
         return Ok(None);
     }
+    // An archive's files share its link: each is known by the link and its
+    // path in the archive.
+    let key = |e: &Value| -> Result<(String, String), Why> {
+        let link = get(e, "link")?.as_str().ok_or("a link is not text")?;
+        let path = get(e, "path")?.as_str().unwrap_or_default();
+        Ok((link.to_string(), format!("{link}\n{path}")))
+    };
     let mut old = Map::new();
     for e in entries(kept)? {
-        let link = get(e, "link")?.as_str().ok_or("a link is not text")?;
-        old.insert(link.to_string(), get(e, "sha256")?.clone());
+        old.insert(key(e)?.1, get(e, "sha256")?.clone());
     }
     for e in entries(new)? {
-        let link = get(e, "link")?.as_str().ok_or("a link is not text")?;
-        match old.get(link) {
-            Some(sum) if !sum.is_null() && sum != get(e, "sha256")? => {
-                return Ok(Some(link.to_string()))
-            }
+        let (link, at) = key(e)?;
+        match old.get(&at) {
+            Some(sum) if !sum.is_null() && sum != get(e, "sha256")? => return Ok(Some(link)),
             _ => {}
         }
     }
