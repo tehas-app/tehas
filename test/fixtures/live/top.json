@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "factory": null,
+  "queue": 2,
+  "cycle": [],
+  "host": {
+    "cpus": 8,
+    "load": [1.2, 0.9, 0.7],
+    "cpuPercent": 18.5,
+    "memory": { "totalMb": 32000, "usedMb": 12000, "percent": 37.5 },
+    "processes": [
+      { "pid": 300, "name": "agent", "cpuPercent": 40, "memPercent": 7.3, "upSeconds": 989 },
+      { "pid": 200, "name": "tehas-cycle", "cpuPercent": 2, "memPercent": 4.9, "upSeconds": 61 },
+      { "pid": 100, "name": "systemd", "cpuPercent": null, "memPercent": 1.8, "upSeconds": 86500 }
+    ]
+  },
+  "units": [
+    { "id": "tehas-dispatch.timer", "activeState": "active", "unitFileState": "enabled", "next": "12:02:00" },
+    { "id": "tehas-cycle@41.service", "activeState": "active", "unitFileState": "", "next": "" }
+  ],
+  "energy": null
+}
