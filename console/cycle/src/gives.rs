@@ -7,6 +7,7 @@
 //!
 //! A reason here may be put on the issue, so it names no host path.
 
+use crate::caps;
 use crate::runner;
 use crate::start::{is_record, record_value};
 use serde_json::{json, Value};
@@ -376,28 +377,29 @@ pub fn comments_only(home: &Path, issue: u64, dir: &Path, record: &str) -> Resul
 /// whose runner lists issueComments (trail-openers/pi-rukas#2020) the polyfill
 /// is not asked about.
 pub fn polyfill_label(image: &str) -> bool {
+    let format = format!("{{{{index .Config.Labels \"{}\"}}}}", caps::POLYFILLS);
+    inspect(image, &format).is_some_and(|label| polyfilled(&label))
+}
+
+/// The image's labels as one JSON object, or empty when Docker does not say.
+pub fn image_labels(image: &str) -> String {
+    inspect(image, "{{json .Config.Labels}}").unwrap_or_default()
+}
+
+fn inspect(image: &str, format: &str) -> Option<String> {
     let out = Command::new("docker")
-        .args([
-            "image",
-            "inspect",
-            "--format",
-            "{{index .Config.Labels \"tehas.rukas.polyfills\"}}",
-            image,
-        ])
+        .args(["image", "inspect", "--format", format, image])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output();
     out.ok()
         .filter(|o| o.status.success())
-        .is_some_and(|o| polyfilled(&String::from_utf8_lossy(&o.stdout)))
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
 /// Whether a `tehas.rukas.polyfills` label names the issue-comments polyfill.
 fn polyfilled(label: &str) -> bool {
-    label.split([' ', ',', '\n']).any(|w| {
-        w.strip_prefix("issue-comments@")
-            .is_some_and(|v| !v.is_empty())
-    })
+    caps::polyfills(label).contains(&"issue-comments")
 }
 
 /// Err, with the reason, when the kept manifest and <dir>'s are of the same
