@@ -99,7 +99,8 @@ const KEPT: &[&str] = &[
     // The tests' answers of the store (store/src/call.rs), which a release
     // build of the store never reads.
     "TEHAS_TEST_STORE_ANSWERS",
-    // The building features a test turns on (core/src/features.rs).
+    // The building features a test turns on (core/src/features.rs), from the
+    // environment only: `test_only` refuses it in a file.
     "TEHAS_TEST_FEATURES",
 ];
 
@@ -252,6 +253,22 @@ fn scan(text: &[u8], file: &str) -> Result<(), String> {
         if line.starts_with(b"TEHAS_MCP_KEYS=") || line.starts_with(b"TEHAS_MCP_DASHBOARD_KEYS=") {
             return Err(format!(
                 "{file} sets MCP keys: put TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS in ~/.config/tehas/env"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The test variable turns on a feature still being built. A test sets it in
+/// the environment it starts a program with; a factory's files may not.
+fn test_only(vars: &Vars, host: &dyn Host, instance: &[u8], file: &str) -> Result<(), String> {
+    let creds_file = credential_file(vars);
+    let creds = host.read(&creds_file).unwrap_or_default();
+    for (text, name) in [(instance, file), (&creds[..], creds_file.as_str())] {
+        if assigns(text, features::TEST_VAR) {
+            return Err(format!(
+                "{name} sets {}: it is for the tests only, take the line out",
+                features::TEST_VAR
             ));
         }
     }
@@ -809,6 +826,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     sweep(vars);
     vars.set("TEHAS_INSTANCE_DIR", dir);
     scan(&text, &file)?;
+    test_only(vars, host, &text, &file)?;
     let sourced = host.source(&file, vars);
     // No list at all: the file ended the shell before it was asked for one.
     if !sourced.vars.is_empty() {
@@ -1041,6 +1059,13 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
+    /// A load whose environment names outsource in the test variable, as a
+    /// test of a building feature starts a program.
+    fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let got = load(&mut vars, &mut Fake::with(extra), "1000");
+        (vars, got)
+    }
 
     #[test]
     fn a_minimal_instance_loads_with_every_default() {
@@ -1090,13 +1115,13 @@ mod tests {
         let vars = loads(&[]);
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "127.0.0.1:8090");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "900");
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_OUTSOURCE=1",
-            "TEHAS_TEST_FEATURES=outsource",
             "TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8091",
             "TEHAS_OUTSOURCE_TIMEOUT=1800",
             "TEHAS_OUTSOURCE_PROXY_IDLE=7200",
         ]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
         // With outsource off nothing listens, and the bound is not checked.
@@ -1122,11 +1147,11 @@ mod tests {
         let vars = loads(&["TEHAS_OUTSOURCE=", "TEHAS_OUTSOURCE_REPOS="]);
         assert_eq!(vars.text("TEHAS_OUTSOURCE"), "0");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_REPOS"), "");
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_OUTSOURCE=1",
-            "TEHAS_TEST_FEATURES=outsource",
             "TEHAS_OUTSOURCE_REPOS=acme/widget other/widget",
         ]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE"), "1");
         assert_eq!(
             vars.text("TEHAS_OUTSOURCE_REPOS"),
@@ -1146,6 +1171,24 @@ mod tests {
         for value in ["0", "off", ""] {
             loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
         }
+    }
+
+    #[test]
+    fn a_file_that_sets_the_test_variable_stops_the_load() {
+        let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
+        assert_eq!(
+            got,
+            format!("{FILE} sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out")
+        );
+        let mut host = Fake::with(&[]).file(
+            "/h/.config/tehas/env",
+            "export TEHAS_TEST_FEATURES=outsource\n",
+        );
+        let got = load(&mut start(&[]), &mut host, "1000").unwrap_err();
+        assert_eq!(
+            got,
+            "/h/.config/tehas/env sets TEHAS_TEST_FEATURES: it is for the tests only, take the line out"
+        );
     }
 
     #[test]
@@ -1711,24 +1754,19 @@ mod tests {
                 "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set",
             ),
             (
-                &[
-                    "TEHAS_OUTSOURCE=1",
-                    "TEHAS_TEST_FEATURES=outsource",
-                    "TEHAS_OUTSOURCE_PROXY_IDLE=600",
-                ][..],
+                &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
                 "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
             ),
             (
                 &[
                     "TEHAS_OUTSOURCE=1",
-                    "TEHAS_TEST_FEATURES=outsource",
                     "TEHAS_OUTSOURCE_PROXY_IDLE=60",
                     "TEHAS_OUTSOURCE_TIMEOUT=61",
                 ][..],
                 "TEHAS_OUTSOURCE_PROXY_IDLE (60) is not longer than TEHAS_OUTSOURCE_TIMEOUT (61)",
             ),
         ] {
-            let got = refused(lines);
+            let got = tested(lines).1.unwrap_err();
             assert!(got.starts_with(want), "{got}");
             assert!(got.ends_with(&format!("(see {FILE})")), "{got}");
         }
