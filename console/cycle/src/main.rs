@@ -149,9 +149,6 @@
 //!                                     or `off`. `error` and exit 1 on an
 //!                                     answer that cannot be read, `off` and
 //!                                     exit 1 on no feature name
-//!   tehas-cycle caps verb <verb> <flags>
-//!                                     exit 0 when the runner takes <verb>
-//!                                     with all of <flags>, else 1
 //!   tehas-cycle caps reads-images     1 when the runner reads the image
 //!                                     manifest tehas writes, else 0
 //!   tehas-cycle runner outcome <result> <issue>
@@ -174,10 +171,6 @@
 //!                                     end, `truncated`. Exits 1 with nothing
 //!                                     printed when <issue> is no number or
 //!                                     the log is no file it can read
-//!   tehas-cycle sandbox ok            Pi's settings.json and models.json are
-//!                                     there and the tokens models.json names
-//!                                     are set, else one line on standard
-//!                                     error and exit 78
 //!   tehas-cycle sandbox limits <who> <what>
 //!                                     one systemctl and one docker info: the
 //!                                     14 limit words, the 10 security words,
@@ -185,28 +178,10 @@
 //!                                     one line on standard error
 //!                                     that starts with <who>, and exit 78;
 //!                                     <what> names what does not start
-//!   tehas-cycle sandbox env <kind> <tree> <git name> <git email>
-//!                                     the -e options of a cycle or turn, NUL
-//!                                     separated
-//!   tehas-cycle sandbox hosts         the --add-host options, NUL separated
-//!   tehas-cycle sandbox mounts <kind> <tree> <host> <state> <runs>
-//!                                     make what the -v options name, write
-//!                                     <state>/models.json, the host's with each
-//!                                     provider on the endpoint picked now, and
-//!                                     <state>/endpoints, the providers on their
-//!                                     backup, and print the options, NUL
-//!                                     separated. Exit 1 with nothing printed
-//!                                     when it cannot
 //!   tehas-cycle sandbox table         the rows of the containers tehas work
 //!                                     starts, for the table of runs
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
 //!                                     with, as one line
-//!   tehas-cycle sandbox clone <src> <tree> <branch>
-//!                                     make <tree>, a clone of <src> at
-//!                                     TEHAS_CLONE_DEPTH; 78 for a depth
-//!                                     that is not one
-//!   tehas-cycle sandbox seed <state> <index>
-//!                                     give <state> the host's code index
 //!   tehas-cycle sandbox smoke-run <image>
 //!                                     one offline work turn in <image>, at
 //!                                     most 40 s, for `host/sandbox/build.sh`
@@ -218,8 +193,6 @@
 //!                                     runs at once. Exit 1 with nothing
 //!                                     printed when the words have no quota or
 //!                                     ceiling
-//!   tehas-cycle settings <file> <count> [<docker options>...]
-//!                                     write what a cycle ran with to <file>
 //!   tehas-cycle work <issue> --console <path> [--restart] [--driver lean|classic]
 //!                                     tehas work, which the console execs
 //!                                     with the settings loaded: the issue's
@@ -284,7 +257,7 @@ use tehas_cycle::host::{Runner, Start};
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{last_attempts, to_json, Given};
 use tehas_cycle::{apply, finish, lock, pin, progress, renew, report};
-use tehas_cycle::{caps, clock, index, ran_with, runner, sandbox, supervise, work, Facts};
+use tehas_cycle::{caps, clock, index, runner, sandbox, supervise, work, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -449,13 +422,6 @@ fn main() {
         }
         ["cycle", n, rest @ ..] => cycle_verb(&home, issue(n, &args), &args, rest),
         ["work", n, rest @ ..] => work_verb(&home, issue(n, &args), &args, rest),
-        ["settings", file, count, options @ ..] => {
-            let words: Vec<String> = options.iter().map(|w| w.to_string()).collect();
-            let text = ran_with::settings(count, &words);
-            if std::fs::write(file, format!("{text}\n")).is_err() {
-                fail(format!("{file} cannot be written"));
-            }
-        }
         ["runner", "run", log, n] => match runner::run_log(Path::new(log), n) {
             Some(r) => tehas_core::outln!("{}\n{}\n{}", r.step, r.branch, r.read),
             None => std::process::exit(1),
@@ -718,7 +684,6 @@ fn caps_verb(rest: &[&str], args: &[String]) {
             tehas_core::outln!("{word}");
             std::process::exit(code);
         }
-        ["verb", verb, flags] => std::process::exit(i32::from(!caps::verb(&text, verb, flags))),
         ["reads-images"] => tehas_core::outln!("{}", u8::from(caps::reads_images(&text))),
         _ => wrong(args),
     }

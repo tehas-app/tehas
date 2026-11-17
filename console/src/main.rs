@@ -135,20 +135,9 @@
 //! The poll's tidy of closed issues: their state labels come off, and tehas:shipped
 //! goes on the ones a merged pull request closed, see ops/src/tidy.rs.
 //!
-//!   console forge labels|label-state|approval|add-label|remove-label ...
-//!
-//! The forge as a command bash can call: an issue's labels, the newest event of
-//! one label, who applied the label that lets a cycle start, and a label put on
-//! or taken off, asked of GitHub through tehas_core::forge, see ops/src/forge.rs.
-//!
 //!   console label actor|allowed|pause-holds ...
 //!
 //! Who applied a label, read from the label events, see src/label.rs.
-//!
-//!   console models keys-ok | pick <provider> | resolve <out>
-//!
-//! The host's models.json: its keys, the endpoint of a provider, and the file
-//! a container is given, see src/models.rs.
 //!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
@@ -207,7 +196,6 @@ mod gh_writes;
 mod history;
 mod label;
 mod labels;
-mod models;
 mod notice;
 mod now;
 mod order;
@@ -456,7 +444,6 @@ fn main() -> ExitCode {
             Some("energy") => return ExitCode::from(energy::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("flags") => return ExitCode::from(holds::main(&given[1..])),
-            Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
@@ -470,7 +457,6 @@ fn main() -> ExitCode {
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("ids") => return ExitCode::from(ids::main(&given[1..])),
             Some("label") => return ExitCode::from(label::main(&given[1..])),
-            Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
