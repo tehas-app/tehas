@@ -25,6 +25,11 @@
 //! contractor is answered `revoked`, which is the one answer that tells a
 //! contractor to push nothing. Every other refusal names the state.
 //!
+//! Every call, the join included, is refused with 403 `not allowed` for a name
+//! that `TEHAS_OUTSOURCE_CONTRACTORS` does not list; an empty list refuses all.
+//! A store that gives no answer is not a refusal: the call is answered 503 with
+//! no `refused` word, which a contractor takes as no answer and asks again.
+//!
 //! The App's key never leaves: a token renewal answers the narrowed cycle
 //! token a local cycle gets, and a relayed write is made here with the
 //! factory's own token, after the checks of the local relay.
@@ -48,6 +53,9 @@ pub const BODY_MAX: usize = 4 << 20;
 
 /// The header that names a contractor on the calls made with its key.
 pub const NAME_HEADER: &str = "x-tehas-contractor";
+
+/// The refusal of a name `TEHAS_OUTSOURCE_CONTRACTORS` does not list.
+pub const NOT_ALLOWED: &str = "not allowed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Call {
@@ -118,6 +126,8 @@ pub trait Factory {
     fn timeout(&self) -> i64;
     /// A new job token.
     fn random(&self) -> Option<String>;
+    /// Whether `TEHAS_OUTSOURCE_CONTRACTORS` lists this name.
+    fn allowed(&self, name: &str) -> bool;
 }
 
 /// One answer of the channel: a status and a JSON body.
@@ -138,6 +148,15 @@ impl Answer {
         Answer {
             status,
             body: json!({ "refused": word }),
+        }
+    }
+
+    /// The store gave no answer. Not a refusal of the factory's: the
+    /// contractor reads it as no answer and asks again.
+    fn busy() -> Answer {
+        Answer {
+            status: 503,
+            body: json!({ "busy": "the state store gave no answer" }),
         }
     }
 
@@ -217,6 +236,9 @@ impl<'a> Channel<'a> {
         if code.is_empty() || name.is_empty() || key.is_empty() {
             return Answer::no(400, "a join takes a code, a name and a key");
         }
+        if !self.factory.allowed(&name) {
+            return Answer::no(403, NOT_ALLOWED);
+        }
         let said = self.factory.store(&[
             "invite-use",
             "--code",
@@ -238,11 +260,16 @@ impl<'a> Channel<'a> {
         let (Some(name), Some(key)) = (asked.name, asked.bearer) else {
             return Err(Answer::no(401, "no contractor"));
         };
-        let said = self
-            .factory
-            .store(&["contractor-auth", "--name", name, "--key", &key_hash(key)])
-            .unwrap_or_default();
+        let Some(said) =
+            self.factory
+                .store(&["contractor-auth", "--name", name, "--key", &key_hash(key)])
+        else {
+            return Err(Answer::busy());
+        };
         match (said["verb"].as_str(), said["said"].as_str()) {
+            (Some("allowed"), _) if !self.factory.allowed(name) => {
+                Err(Answer::no(403, NOT_ALLOWED))
+            }
             (Some("allowed"), _) => Ok((name.to_string(), said["draining"] == true)),
             (_, Some("revoked")) => Err(Answer::no(403, "revoked")),
             _ => Err(Answer::no(401, "no contractor")),
@@ -302,10 +329,12 @@ impl<'a> Channel<'a> {
     /// The issue of a job a call made with its token may act on, or the
     /// refusal. The job's state and attempt are the store's, read now.
     fn held(&self, live: &Live, call: Call) -> Result<i64, Answer> {
-        let revoked = self
-            .factory
-            .store(&["contractor-list"])
-            .and_then(|v| v["rows"].as_array().cloned())
+        let Some(listed) = self.factory.store(&["contractor-list"]) else {
+            return Err(Answer::busy());
+        };
+        let revoked = listed["rows"]
+            .as_array()
+            .cloned()
             .unwrap_or_default()
             .iter()
             .filter_map(|r| match r {
@@ -318,14 +347,16 @@ impl<'a> Channel<'a> {
             self.forget(live.job);
             return Err(Answer::no(403, "revoked"));
         }
+        if !self.factory.allowed(&live.contractor) {
+            return Err(Answer::no(403, NOT_ALLOWED));
+        }
         let job = live.job.to_string();
-        let Some(record) = self
-            .factory
-            .store(&["job-show", "--job", &job])
-            .filter(|v| v["verb"] == "job")
-        else {
-            return Err(Answer::no(403, "no job"));
+        let Some(record) = self.factory.store(&["job-show", "--job", &job]) else {
+            return Err(Answer::busy());
         };
+        if record["verb"] != "job" {
+            return Err(Answer::no(403, "no job"));
+        }
         if record["attempt"].as_i64() != Some(live.attempt)
             || record["contractor"] != live.contractor.as_str()
         {
@@ -345,10 +376,13 @@ impl<'a> Channel<'a> {
             ));
         }
         // The issue's current attempt: a newer offer of it replaces this one.
-        let current = self
+        let Some(attempts) = self
             .factory
             .store(&["job-attempts", "--issue", &issue.to_string()])
-            .and_then(|v| v["given"].as_i64());
+        else {
+            return Err(Answer::busy());
+        };
+        let current = attempts["given"].as_i64();
         if current.is_some_and(|given| given > live.attempt) {
             return Err(Answer::no(409, "stale"));
         }
@@ -363,7 +397,10 @@ impl<'a> Channel<'a> {
                 let _ = self
                     .factory
                     .store(&["contractor-seen", "--name", &live.contractor]);
-                match said.as_ref().and_then(|v| v["verb"].as_str()) {
+                let Some(said) = said else {
+                    return Answer::busy();
+                };
+                match said["verb"].as_str() {
                     Some("checked-in") => Answer::ok(json!({ "checked-in": live.job })),
                     Some("stale") => Answer::no(409, "stale"),
                     _ => Answer::no(403, "refused"),
@@ -405,7 +442,10 @@ impl<'a> Channel<'a> {
                 let said = self
                     .factory
                     .store(&["job-finish", "--job", &job, "--sha256", &sha]);
-                match said.as_ref().and_then(|v| v["verb"].as_str()) {
+                let Some(said) = said else {
+                    return Answer::busy();
+                };
+                match said["verb"].as_str() {
                     Some("finished") => {
                         self.forget(live.job);
                         Answer::ok(json!({ "finished": live.job }))

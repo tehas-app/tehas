@@ -117,8 +117,9 @@ pub fn read_answer(answer: &[u8]) -> Reply {
         .map(str::to_string)
         .unwrap_or_else(|| format!("status {status}"));
     // A refusal of the factory's own names a word; an answer of no word from a
-    // proxy in between is no answer of the factory's.
-    if body["refused"].is_string() {
+    // proxy in between is no answer of the factory's. A 503 is the factory
+    // saying "not now", whatever its word: it is asked again.
+    if body["refused"].is_string() && status != 503 {
         Reply::No(status, word)
     } else {
         Reply::Down(word)
@@ -138,6 +139,10 @@ mod tests {
         let lost = b"HTTP/1.1 403 Forbidden\r\n\r\n{\"refused\":\"lost\"}";
         assert_eq!(read_answer(lost), Reply::No(403, "lost".to_string()));
         assert!(!read_answer(lost).revoked());
+        let busy = b"HTTP/1.1 503 Service Unavailable\r\n\r\n{\"busy\":\"store\"}";
+        assert!(matches!(read_answer(busy), Reply::Down(_)));
+        let worded = b"HTTP/1.1 503 Service Unavailable\r\n\r\n{\"refused\":\"revoked\"}";
+        assert!(matches!(read_answer(worded), Reply::Down(_)));
         let other = b"HTTP/1.1 502 Bad Gateway\r\n\r\n<html>";
         assert!(matches!(read_answer(other), Reply::Down(_)));
         assert!(matches!(read_answer(b"garbage"), Reply::Down(_)));

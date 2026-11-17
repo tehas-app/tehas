@@ -1134,6 +1134,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "2"),
             ("TEHAS_OUTSOURCE_REST", "1800"),
             ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
@@ -1258,6 +1259,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "-1"),
             ("TEHAS_OUTSOURCE_REST", "two"),
             ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
         ] {
             let why = run(&mut Fake::with(&[&format!("{name}={value}")]))

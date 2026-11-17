@@ -9,7 +9,9 @@
   own token, and posts the result. `tehas-contractor join|run|drain|doctor`
   runs a job with the same `tehas work` and container as the factory, and
   stops its cycle in an orderly way when it loses the factory: the stop
-  signal, the grace, a push of the branch unless revoked, a report, and a
-  wipe of the job's files. A cycle on a contractor gets exactly the mounts
-  and variables of a cycle at home. With outsource off nothing changes
+  signal, the grace, a push of the branch while the job is current, a report,
+  and a wipe of the job's files. A cycle on a contractor gets exactly the
+  mounts and variables of a cycle at home. With outsource off nothing changes
   (#2274).
+- A new setting, `TEHAS_OUTSOURCE_CONTRACTORS`, lists the contractors the job
+  channel answers. Empty, the default, refuses every contractor (#2274).

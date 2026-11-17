@@ -51,10 +51,11 @@ t_eq "$t_rc" 64
 
 t_case "on in a test build: invite prints the join command and the store keeps only the code's hash"
 store_on
-t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8090
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on TEHAS_OUTSOURCE_PROXY_ADDR=192.0.2.7:8090 TEHAS_OUTSOURCE_CONTRACTORS=box1
 T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_run "$outsource invite --name box1"
 t_eq "$t_rc" 0
+t_eq "$(wc -l <<<"$t_out")" 1
 t_contains "$t_out" "tehas-contractor join 192.0.2.7:8090 box1 "
 code=${t_out##* }
 t_eq "${#code}" 48
@@ -63,6 +64,14 @@ t_run "$outsource invite --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.api' <<<"$t_out")" 1
 t_contains "$(jq -r '.name' <<<"$t_out")" "contractor-"
+
+t_case "on: invite notes an address only this host reaches and a name off the allowed list"
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_run "$outsource invite --name box2"
+t_eq "$t_rc" 0
+t_contains "$t_out" "127.0.0.1:8090 is TEHAS_OUTSOURCE_PROXY_ADDR, which no other host reaches"
+t_contains "$t_out" "box2 is not in TEHAS_OUTSOURCE_CONTRACTORS"
+t_contains "$(tail -n 1 <<<"$t_out")" "tehas-contractor join 127.0.0.1:8090 box2 "
 
 t_case "on: list, status, drain and revoke read and write the contractors"
 TEHAS_HOME=$home "$home/libexec/store" contractor-add --name box1 --key "$(printf '%064d' 0)" >/dev/null

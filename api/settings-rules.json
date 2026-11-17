@@ -216,6 +216,13 @@
       "reason": "expected owner/name repositories separated by single spaces"
     },
     {
+      "name": "TEHAS_OUTSOURCE_CONTRACTORS",
+      "rule": "contractors",
+      "when": "given",
+      "default": "",
+      "reason": "expected contractor names separated by single spaces"
+    },
+    {
       "name": "TEHAS_OUTSOURCE_JOIN_TTL",
       "rule": "count",
       "when": "always",

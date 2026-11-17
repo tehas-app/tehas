@@ -15,9 +15,12 @@ pub struct OfHost {
     pub home: PathBuf,
     /// The repository the cycles of this factory write to.
     pub repo: String,
-    /// The proxy's own address, which a job's models.json names.
+    /// The proxy's own address, which a job's models.json names; the
+    /// contractor puts the address it joined with in its place.
     pub addr: String,
     pub timeout: i64,
+    /// The names `TEHAS_OUTSOURCE_CONTRACTORS` lists.
+    pub contractors: Vec<String>,
 }
 
 /// How long the token command may take.
@@ -91,6 +94,10 @@ impl Factory for OfHost {
 
     fn random(&self) -> Option<String> {
         crate::jobs::random()
+    }
+
+    fn allowed(&self, name: &str) -> bool {
+        self.contractors.iter().any(|c| c == name)
     }
 }
 
