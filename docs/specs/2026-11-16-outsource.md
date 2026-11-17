@@ -326,6 +326,29 @@ source, no token, no key. A box that runs the image holds its decryption
 key, so encryption would protect the one thing that is not secret. The
 protection is that nothing secret is at rest.
 
+### Image, code index and memory
+
+Epic #2362 builds these. In short:
+
+- **Image.** A factory builds its sandbox image locally for its own uid and
+  publishes it nowhere. The factory serves it to contractors, as `docker save`
+  output under contractor authentication. "Image digest" in this spec is the
+  factory's image id. The contractor loads the image, checks the id and runs
+  the container as the factory's uid.
+- **Code index.** pi-rukas finds code through the codebase-memory index, and
+  headless `/work` never builds one. The index answers only at the path it
+  was built for, the factory's `$TEHAS_HOME/work/<name>`. The factory serves
+  the index for the job's tip. The contractor mounts the workspace at that
+  path inside the container and copies the index into the cycle's cache, as
+  a cycle in-house does.
+- **Memory.** A cycle's agents write vipune memories for later cycles. Today
+  they are lost with the cycle, in-house too. A cycle's new memories come back
+  to the factory as candidates: with the result from a contractor, or by an
+  export the factory runs in-house. They turn active when the cycle's pull
+  request merges, and every cycle starts with the active ones. Nothing a
+  container wrote is trusted before that merge, and the factory never keeps
+  an embedding a container made.
+
 ### Disk encryption
 
 Full disk encryption protects a powered-off box. The key must not be on the
