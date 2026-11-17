@@ -25,6 +25,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
+use tehas_core::file::Temp;
 use tehas_core::install::{self, Step};
 use tehas_core::{exit, sandbox, time};
 
@@ -609,11 +610,10 @@ fn result_text(at: &str, failures: &[String], sandbox: Option<bool>) -> String {
 fn write_result(home: &str, failures: &[String], sandbox: Option<bool>) {
     let state = format!("{home}/state");
     let file = format!("{state}/check-product.json");
-    let new = format!("{file}.new");
     let text = result_text(&time::iso(time::now()), failures, sandbox);
-    let written = fs::create_dir_all(&state)
-        .and_then(|()| fs::write(&new, text))
-        .and_then(|()| fs::rename(&new, &file));
+    let written = fs::create_dir_all(&state).and_then(|()| {
+        tehas_core::file::write_atomic(Path::new(&file), text.as_bytes(), 0o644, &Temp::Predictable)
+    });
     if written.is_err() {
         complain(&format!("tehas check-product: could not write {file}"));
     }
