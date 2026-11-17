@@ -48,6 +48,12 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-clean.timer",
 ];
 
+/// The programs a long-running unit runs, and that unit.
+const SERVERS: &[(&str, &str)] = &[
+    ("tehas-mcp", "tehas-mcp.service"),
+    ("tehas-proxy", "tehas-outsource-proxy.service"),
+];
+
 /// Units an earlier version named and this one no longer installs. A record
 /// written before the update may still name them on its `units` line; that line
 /// is owed work, not a stranger, so the names are dropped rather than the line.
@@ -96,6 +102,14 @@ fn is_unit(word: &str) -> bool {
 pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
     let any = |test: &dyn Fn(&str) -> bool| sources.iter().any(|s| test(s));
     let mut steps = Vec::new();
+    // A server runs the program it started with: a new one reaches it only
+    // when its unit starts it again. The MCP server's container mounts its
+    // binary, so the same holds there.
+    let servers: Vec<&str> = SERVERS
+        .iter()
+        .filter(|(program, _)| any(&|s| s.ends_with(&format!("/{program}"))))
+        .map(|(_, unit)| *unit)
+        .collect();
     // bin/tehas-energy and the energy and top-publish scripts an older install
     // left in libexec are loops of before the console: a running one moves on
     // only when restarted. So is a tehasbot top that still runs the old
@@ -112,11 +126,20 @@ pub(crate) fn steps_for(sources: &[String]) -> Vec<String> {
                     | "env.sh"
             )
     }) {
-        steps.push(format!("units {}", UNITS.join(" ")));
-    } else if any(&|s| s.ends_with("/tehas-mcp")) {
-        // The MCP server's container mounts its binary: a new one reaches it only
-        // when the unit starts the container again.
-        steps.push("units tehas-mcp.service".to_string());
+        // A feature's unit only when its own file or its program changed: it
+        // is installed only while the feature is on, and the line stays as it
+        // was while off.
+        let mut units: Vec<&str> = UNITS.to_vec();
+        for unit in tehas_core::features::units().chain(servers.iter().copied()) {
+            if !units.contains(&unit)
+                && (servers.contains(&unit) || any(&|s| s == format!("systemd/{unit}")))
+            {
+                units.push(unit);
+            }
+        }
+        steps.push(format!("units {}", units.join(" ")));
+    } else if !servers.is_empty() {
+        steps.push(format!("units {}", servers.join(" ")));
     }
     if any(&|s| s.starts_with("sandbox/") || s == "versions.env") {
         steps.push("sandbox".to_string());
@@ -144,7 +167,13 @@ pub(crate) fn valid(line: &str) -> bool {
     match step_id(first) {
         // And only the units this version installs: a step line is not a way to
         // name some other unit of the host's for an update to restart.
-        "units" => !rest.is_empty() && rest.iter().all(|u| is_unit(u) && UNITS.contains(u)),
+        "units" => {
+            !rest.is_empty()
+                && rest.iter().all(|u| {
+                    is_unit(u)
+                        && (UNITS.contains(u) || tehas_core::features::units().any(|f| f == *u))
+                })
+        }
         "sandbox" | "labels" => rest.is_empty(),
         "docs" | "edge" => rest == [RECREATE],
         _ => false,
@@ -425,6 +454,38 @@ mod tests {
     }
 
     #[test]
+    fn a_new_model_proxy_or_its_unit_restarts_the_proxy_and_the_line_is_unchanged_without_them() {
+        let one = ["units tehas-outsource-proxy.service"];
+        assert_eq!(asked(&["/src/console/target/release/tehas-proxy"]), one);
+        assert_eq!(asked(&["libexec/tehas-proxy"]), one);
+        assert_eq!(
+            asked(&["libexec/tehas-mcp", "libexec/tehas-proxy"]),
+            ["units tehas-mcp.service tehas-outsource-proxy.service"]
+        );
+        let all = format!("units {}", UNITS.join(" "));
+        assert_eq!(asked(&["systemd/tehas-top.service"]), [all.as_str()]);
+        assert_eq!(
+            asked(&[
+                "systemd/tehas-top.service",
+                "systemd/tehas-outsource-proxy.service"
+            ]),
+            [format!("{all} tehas-outsource-proxy.service")]
+        );
+        assert_eq!(
+            asked(&["systemd/tehas-top.service", "libexec/tehas-proxy"]),
+            [format!("{all} tehas-outsource-proxy.service")]
+        );
+        // The contractor program runs on another host: no unit here.
+        assert!(asked(&["libexec/tehas-contractor"]).is_empty());
+        for step in asked(&[
+            "systemd/tehas-outsource-proxy.service",
+            "libexec/tehas-proxy",
+        ]) {
+            assert!(valid(&step), "{step}");
+        }
+    }
+
+    #[test]
     fn a_change_to_one_server_asks_for_that_server_only() {
         assert_eq!(asked(&["edge/docs.Caddyfile"]), ["docs --force-recreate"]);
         assert_eq!(
@@ -621,6 +682,7 @@ mod tests {
         for good in [
             all.as_str(),
             "units tehas-mcp.service",
+            "units tehas-outsource-proxy.service",
             "sandbox",
             "docs --force-recreate",
             "edge --force-recreate",

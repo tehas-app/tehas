@@ -106,6 +106,16 @@ while IFS= read -r entry; do
   done
   if [ "$covered" = 0 ]; then missing="$missing $unit"; fi
 done < <(sed -n 's#^  "systemd/\([^"|]*\).*#\1#p' "$T_ROOT/install.sh")
+# A feature's unit is installed only while the feature is on, so it is in no
+# line of the table: a change to its file asks for its restart instead.
+while read -r kind unit; do
+  [ "$kind" = unit ] || continue
+  found=$((found + 1))
+  case " $(steps_for "systemd/$unit") " in
+    *" $unit "*) ;;
+    *) missing="$missing $unit" ;;
+  esac
+done < <(TEHAS_OUTSOURCE=on TEHAS_TEST_FEATURES=outsource "$T_CONSOLE" update featured)
 # The gate itself has to see the table: an empty list would pass it vacuously.
 t_eq "$found" "$(find "$T_ROOT/host/systemd" -type f | wc -l)"
 t_eq "$missing" ""

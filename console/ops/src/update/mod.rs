@@ -558,6 +558,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "findings" => findings::verb(rest),
         Some((verb, rest)) if verb == "keeps" => host::keeps_verb(rest),
         Some((verb, rest)) if verb == "units" => host::units_verb(rest),
+        Some((verb, rest)) if verb == "featured" => host::featured_verb(rest),
         Some((verb, rest)) if verb == "login" => host::login_verb(rest),
         Some((verb, rest)) if verb == "pi" => pi::verb(rest),
         Some((verb, rest)) if verb == "programs" => programs::verb(rest),
@@ -570,7 +571,7 @@ pub fn main(given: &[String]) -> u8 {
         Some((verb, rest)) if verb == "steps" => steps::verb(rest),
         Some((verb, rest)) if verb == "wait" => wait::verb(rest),
         _ => {
-            tell("console update: usage: run <console> <arguments> | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
+            tell("console update: usage: run <console> <arguments> | api | finish | files <options> <root> <host> | files write <path> | findings <euid> [<bash>] | keeps <home> <work dir> | units <env file> | featured | login <root> <login command> <marker> | pi <instance> <generic settings> <provider> <model> <out> | programs <home> release|build <tree> <program>... | programs stamp <program> release|<source sum> | release <question> | retired | report <root> <instance> <options> | notes <root> <options> | sandbox <host versions> <checkout versions> <dockerfile> <recorded> | assets <host dir> <stage dir> | sources <workspace> <package>... | steps <question> | wait update|dispatch");
             64
         }
     }

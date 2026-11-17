@@ -1,0 +1,16 @@
+[Unit]
+Description=Tehas: the model proxy and job channel of outsource, the one door a contractor reaches
+
+[Service]
+NoNewPrivileges=yes
+MemoryMax=256M
+# Installed only while TEHAS_OUTSOURCE is on. Off, the proxy says so and ends
+# 0, and nothing listens. A setting that is missing or malformed ends it with
+# 78, and that is not restarted: the journal says which setting once.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot outsource-proxy"
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target

@@ -1,7 +1,8 @@
-//! Three things install.sh asks of the console about the host it installs on.
+//! Four things install.sh asks of the console about the host it installs on.
 //!
 //!   console update keeps <home> <work dir>
 //!   console update units <env file>
+//!   console update featured
 //!   console update login <root> <login command> <marker>
 //!
 //! `keeps` moves each planning session's kept directory, an older tehas's
@@ -19,6 +20,11 @@
 //! without it in the environment the last `TEHAS_ENERGY=` line of `<env file>`
 //! counts. Exit 0, 64 usage.
 //!
+//! `featured` prints what the features that are on install besides the rest
+//! (core/src/features.rs), one per line: `program <name>` for a program of the
+//! workspace, `unit <name>` for a unit of host/systemd. Nothing when none is
+//! on. It reads the settings from its environment. Exit 0, 64 usage.
+//!
 //! `login` compares the command root installed for the other accounts,
 //! `<login command>` (/usr/local/bin/tehas), with `<root>/host/login/tehas`.
 //! Only where `bootstrap.sh dev` left its marker, `<marker>`
@@ -34,6 +40,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::features;
 use tehas_core::settings::rules::switch;
 
 pub fn keeps_verb(given: &[String]) -> u8 {
@@ -157,6 +164,25 @@ pub fn units_verb(given: &[String]) -> u8 {
     0
 }
 
+pub fn featured_verb(given: &[String]) -> u8 {
+    if !given.is_empty() {
+        tell("console update featured: usage: (no arguments)");
+        return 64;
+    }
+    for line in featured(&|name| env::var(name).unwrap_or_default()) {
+        say(&line);
+    }
+    0
+}
+
+fn featured(get: &dyn Fn(&str) -> String) -> Vec<String> {
+    let (programs, units) = features::installs_in(get);
+    let programs = programs.into_iter().map(|p| format!("program {p}"));
+    programs
+        .chain(units.into_iter().map(|u| format!("unit {u}")))
+        .collect()
+}
+
 /// The units a first install enables, from the settings `get` reads and the
 /// host's private env file.
 fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> Vec<&'static str> {
@@ -179,6 +205,7 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
     if energy.is_some_and(|e| switch(&e) == Some(true)) {
         units.push("tehas-energy.service");
     }
+    units.extend(features::installs_in(&|name| get(name).unwrap_or_default()).1);
     units
 }
 
@@ -363,6 +390,45 @@ mod tests {
             "tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer \
              tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
         );
+    }
+
+    #[test]
+    fn a_first_install_enables_the_proxy_only_while_outsource_is_on() {
+        let base = "tehas-dispatch.timer tehas-dispatch.path";
+        assert_eq!(units(&[("TEHAS_OUTSOURCE", "on")], None), base);
+        let tested = |v| [("TEHAS_OUTSOURCE", v), ("TEHAS_TEST_FEATURES", "outsource")];
+        assert_eq!(units(&tested("off"), None), base);
+        assert_eq!(
+            units(&tested("on"), None),
+            format!("{base} tehas-outsource-proxy.service")
+        );
+    }
+
+    #[test]
+    fn featured_names_the_programs_and_units_of_the_features_that_are_on() {
+        let get = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_default()
+            }
+        };
+        assert!(featured(&get(&[])).is_empty());
+        assert!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])).is_empty());
+        assert_eq!(
+            featured(&get(&[
+                ("TEHAS_OUTSOURCE", "on"),
+                ("TEHAS_TEST_FEATURES", "outsource")
+            ])),
+            [
+                "program tehas-proxy",
+                "program tehas-contractor",
+                "unit tehas-outsource-proxy.service"
+            ]
+        );
+        assert_eq!(featured_verb(&["x".to_string()]), 64);
     }
 
     #[test]
