@@ -182,7 +182,12 @@
               "issue": {"type": "integer", "minimum": 1},
               "lastSeenAt": {"type": "string", "format": "date-time"},
               "jobsDone": {"type": "integer", "minimum": 0},
-              "jobsLost": {"type": "integer", "minimum": 0}
+              "jobsLost": {"type": "integer", "minimum": 0},
+              "image": {"type": "string", "description": "The id of the sandbox image the contractor last reported."},
+              "rukas": {"type": "string", "description": "The pi-rukas version that image is labelled with."},
+              "memMb": {"type": "integer", "minimum": 0, "description": "The free memory it last reported, in MiB."},
+              "diskKb": {"type": "integer", "minimum": 0, "description": "The free disk it last reported, in KiB."},
+              "reportedAt": {"type": "string", "format": "date-time", "description": "When the factory took its last report."}
             }
           }
         }

@@ -30,12 +30,13 @@
 //! check-in, token renewal, relayed issue writes, result and stop by the job's
 //! token, which is issued when the job is taken.
 //!
-//! The job tokens are this process's own, held in memory and nowhere else. A
-//! contractor is given its job's token in the answer to the channel's `job`
-//! call. The control socket in the state directory can issue one too, written
-//! to a job directory, and the asking process is told the path and nothing of
-//! the token. A token is never in a command line, never in a log, never in the
-//! store, so a restart of the proxy ends every job's token.
+//! The job tokens are this process's own, held in memory. A contractor is
+//! given its job's token in the answer to the channel's `job` call. The
+//! control socket in the state directory can issue one too, written to a job
+//! directory, and the asking process is told the path and nothing of the
+//! token. A token is never in a command line, never in a log, never in the
+//! store: the store keeps its sha256 in the job's row, so a proxy that
+//! restarts still takes the token of a job that is going.
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
 //! malformed, or the endpoint is no address this proxy can speak to; 1 it
@@ -162,7 +163,9 @@ fn listen() -> ! {
     ) {
         stop(&why, if on() { 78 } else { 0 });
     }
-    let issuer = Box::leak(Box::new(Issuer::new()));
+    let issuer = Box::leak(Box::new(Issuer::backed(std::sync::Arc::new(
+        records::KeptIn::at(&home()),
+    ))));
     let store = Box::leak(Box::new(records::OfStore::at(&home(), issuer)));
     // The two lists of the factory and this process's own tokens, asked
     // together for every request.
@@ -288,7 +291,7 @@ fn control_one(stream: UnixStream, issuer: &Issuer) {
                 let _ = writeln!(writer, "issue wants a job, an attempt and a contractor");
                 return;
             };
-            match issuer.issue(job, attempt, contractor, &mut tehas_proxy::jobs::random) {
+            match issuer.issue_held(job, attempt, contractor, &mut tehas_proxy::jobs::random) {
                 Some(token) => {
                     let _ = writeln!(writer, "{token}");
                 }
