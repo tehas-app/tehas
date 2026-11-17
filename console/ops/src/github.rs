@@ -175,10 +175,7 @@ fn curl(bearer: &str, flags: &[&str], url: &str) -> Option<Vec<u8>> {
 fn slug_of(answer: &[u8]) -> Option<String> {
     let answer: Value = serde_json::from_slice(answer).ok()?;
     let slug = answer["slug"].as_str()?;
-    let mut letters = slug.bytes();
-    let good = letters.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && letters.all(|c| c.is_ascii_alphanumeric() || c == b'-');
-    good.then(|| slug.to_string())
+    settings::rules::is_login(slug).then(|| slug.to_string())
 }
 
 impl App {
