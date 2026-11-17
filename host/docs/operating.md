@@ -556,8 +556,8 @@ lean without the label ([tehas work](/tools-work#tehas-work)).
 - The driver keeps its own record of the steps it ran, in
   `.pi/lean-state/<issue>.json` in the workspace. Before the cycle's report
   clears what the container wrote, `tehas-cycle report` copies it to
-  `~/tehas/state/cycles/<issue>.lean-state.json`, and `tehas analytics run`
-  takes its steps as the run's steps, which the
+  `~/tehas/state/cycles/<issue>.lean-state.json`, and the analytics program's
+  `run` (`~/tehas/libexec/analytics run`) takes its steps as the run's steps, which the
   [drivers table](/analytics#drivers) reads for the hand-back by step. A classic
   cycle keeps no such file, nor does a cycle of a host with
   `TEHAS_ANALYTICS=off`: the note exists only to feed that program. A lean cycle
@@ -1465,7 +1465,7 @@ an industry of factories. Take the label off to end it.
 
 With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's issues and code and runs cycles as usual, but writes nothing to GitHub: no label, comment, reaction, issue edit, pushed branch or pull request. It is meant for a factory on a developer's laptop that points at a repository a shared factory also serves. Off unless the instance turns it on; an instance that does not set it is unchanged.
 
-One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
+One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
 A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on.
 

@@ -116,9 +116,10 @@ the refusals included.
 The draft's body says `Fixes #<issue>.`, that the factory opened it from a
 stopped cycle, and that its gate did not pass, with the `--reason` as the asker
 put it: whether the failure was outside the change is the asker's judgement, and
-the draft never says the gate was green. Of the settings it reads only
+the draft never says the gate was green. Of its environment it reads only
 `TEHAS_WORK_DIR`, the name the workspace was given by, and `TEHAS_BOT_LOGIN`
-and `TEHAS_ALLOWED_LABELERS`, whose pull requests count; the rest it is given,
+(the App's login, which loading the settings sets) and
+`TEHAS_ALLOWED_LABELERS`, whose pull requests count; the rest it is given,
 so what it works on is what the caller named. It asks no authorisation: who asked
 is what [the poll's finish step](/operating#finishing-a-stopped-cycle) checks
 before it calls this.
