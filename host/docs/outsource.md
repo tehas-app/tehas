@@ -7,7 +7,7 @@ description: "Cycles run on contractors: the model proxy, the job channel, the c
 
 A contractor is a machine that is not this host and does not hold the
 factory's model key. Its cycle reaches the factory's model through one door:
-`tehas-proxy`, a small HTTP task of its own that answers a job's token and
+`tehas-proxy`, a small HTTP task of its own that answers a job's model token and
 forwards the ask to the endpoint the instance has configured. The real key
 never leaves the factory, and a contractor is never told it.
 
@@ -17,7 +17,8 @@ line in `tehas status`.
 
 In this release outsource is a feature still being built. It cannot be
 switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
-that `outsource` is still being built, and `tehas api --json` lists it in
+that `outsource` is still being built, and so does a line that gives a value
+to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
 `flags` as `false`. This page says what the proxy does once the feature
 ships.
 
@@ -28,13 +29,13 @@ contractor program and the `tehas outsource` commands. What is still owed is
 ## What it is for
 
 A cycle on a contractor holds its settings, a token for the product
-repository, and a token for the model proxy. It holds no endpoint, no provider,
+repository, and the job's model token for the model proxy. It holds no endpoint, no provider,
 no model and no key of its own. Pi reads one `models.json`, so the file the
 contractor's container is given is written for that one job: every provider's
 `baseUrl`, and a model's own where it has one, is the factory's proxy, and its
 `apiKey` is the reference `${PI_ENSEMBLE_API_KEY_<PROVIDER>}`, the provider's
-name upper-cased with every other character `_`. The job's token is that
-variable's value, so it is in no file. The factory's endpoints, backup
+name upper-cased with every other character `_`. The job's model token is
+that variable's value, so it is in no file. The factory's endpoints, backup
 endpoints and key names are not in the file. The proxy holds the factory's
 real key, reads it from its own environment, writes it into one request and
 forgets it.
@@ -44,25 +45,45 @@ reads `PI_ENSEMBLE_BASE_URL_<PROVIDER>` and `PI_ENSEMBLE_API_KEY_<PROVIDER>` as
 a run's own endpoint and key and keeps the key out of every log and file. An
 image that follows `release:0` today has it.
 
-The job token is a secret of the proxy's own. It lives in the proxy's memory
-and nowhere else on the factory. It is issued when a contractor takes its job
-with the channel's `job` call, and goes to the contractor in that answer. It
-dies with the job and with revocation. It is never in a command line, never in
-a log and never in the store. The store keeps its sha256 in the job's row, and
-the proxy gives no token whose hash the store did not keep. A proxy that
-restarts checks a token it does not hold against those hashes, so the token of
-a job that is running, stopping, or lost to a silence of its current attempt
-still works, and a job does not take the lost path for a restart. A token of a
-job that ended, of an attempt a newer one replaced, or of a revoked contractor
-names no job. A token the control socket issues for a job the store does not
-hold is kept in memory only.
+### A job's two tokens
+
+A job has two tokens, made together when a contractor takes the job with the
+channel's `job` call and sent to the contractor in that answer:
+
+| Token | In the answer | Held by | What it may call |
+| --- | --- | --- | --- |
+| model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and later the egress tunnel |
+| job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and later the job's downloads |
+
+A token of one scope is refused on the other's paths with 403: the channel
+answers `{"refused": "scope"}`, and a model path answers as the table below
+says. A token the proxy never issued is 401. The image download comes before
+a job and is made with the contractor's key, not with either token.
+
+Both tokens have one lifetime. They die together when the job finishes, is
+handed back, is lost, or its contractor is revoked. They are secrets of the
+proxy's own: they live in its memory and nowhere else on the factory, never
+in a command line, a log or the store. The store keeps the sha256 of each in
+the job's row (`jobs.job_token_sha256` and `jobs.model_token_sha256`, schema
+18), and the proxy gives neither token unless the store kept both hashes. A
+proxy that restarts checks a token it does not hold against those hashes and
+takes it back in its own scope only, so both tokens of a job that is running,
+stopping, or lost to a silence of its current attempt still work, and a job
+does not take the lost path for a restart. A token of a job that ended, of an
+attempt a newer one replaced, or of a revoked contractor names no job.
+
+A store brought forward from schema 17 keeps a job's one token as its job
+token and gives it no model token. Outsource cannot be switched on in a
+release, so no host has such a job.
 
 ## How it is switched on
 
 `tehas-proxy` reads the settings `tehas_load` exports, and the state store under
 `TEHAS_HOME`. Its control socket is `~/tehas/state/outsource/proxy.sock`. The
-socket can also issue a job's token by hand (`tehas-proxy --issue`), written
-to `~/tehas/state/outsource/jobs/<job>/job-token` with mode 0600.
+socket can also issue a job's model token by hand (`tehas-proxy --issue`),
+written to `~/tehas/state/outsource/jobs/<job>/model-token` with mode 0600. It
+never makes a job token. A model token it issues for a job the store does not
+hold is kept in memory only.
 
 | Setting | Default | What it is |
 | --- | --- | --- |
@@ -114,6 +135,7 @@ no byte of a body.
 | What | Answer | The line says |
 | --- | --- | --- |
 | No bearer word, or one the proxy never issued | 401 | `refused no job: a token this factory issued for no job` |
+| The job token of a job, not its model token | 403 | `refused no job: a token of the job channel on a model path` |
 | A job whose record says `finished`, `released` or `lost`, or that the records do not know | 403 | `refused job <n> of contractor <name>: a job whose record says <state>` |
 | A job whose record names another attempt or another contractor than the token was issued for | 403 | `refused job <n> of contractor <name>: a job whose record names another attempt or contractor` |
 | A contractor that is revoked, or has no record | 403 | `refused job <n> of contractor <name>: a contractor that is revoked or unknown` |
@@ -161,8 +183,8 @@ token count, and an answer it could not finish writing gives no figures.
 - Never writes the factory's model key anywhere but one request, and never
   gives it to a contractor. The endpoint sees the factory's `Host` and its own
   key: the contractor's token and its own `Host` are dropped.
-- Never holds the job token in the store, a log or a command line. The store
-  holds only its sha256.
+- Never holds a job's tokens in the store, a log or a command line. The store
+  holds only their sha256.
 - Never forwards a path outside the table, and never reads a body to decide
   anything beyond the one word of the ask that says whether the answer is a
   stream.
@@ -186,12 +208,12 @@ The same listener answers a contractor's calls about its work, at
 | --- | --- | --- |
 | `join` | the one-time code of `tehas outsource invite` | registers the host's name and the hash of its key; the code is spent |
 | `hello` | the contractor's key | notes that the contractor is there, and keeps the report it carries |
-| `job` | the contractor's key | takes the offer in its hand: the job moves to running and its token is issued |
-| `check-in` | the job's token | notes that the job is alive, while it runs |
-| `token` | the job's token | answers a fresh cycle token, narrowed as a local cycle's is |
-| `relay` | the job's token | checks one issue write as the local relay does and makes it with the factory's token |
-| `result` | the job's token | keeps the cycle's result where its report reads it and finishes the job |
-| `stopped` | the job's token | the job is handed back; its token is spent |
+| `job` | the contractor's key | takes the offer in its hand: the job moves to running and its two tokens are issued |
+| `check-in` | the job token | notes that the job is alive, while it runs |
+| `token` | the job token | answers a fresh cycle token, narrowed as a local cycle's is |
+| `relay` | the job token | checks one issue write as the local relay does and makes it with the factory's token |
+| `result` | the job token | keeps the cycle's result where its report reads it and finishes the job |
+| `stopped` | the job token | the job is handed back; both its tokens are spent |
 
 A key is sent as a bearer, with the contractor's name in
 `x-tehas-contractor`. The store holds the sha256 of the key and of the code,
@@ -228,7 +250,7 @@ A state store that gives no answer (busy, locked, failing) is not a refusal.
 The call is answered 503 with no `refused` word, and the contractor takes it
 as no answer and asks again. Any 503 is read that way.
 
-A job carries its issue, its attempt, the timeout, its token, the
+A job carries its issue, its attempt, the timeout, its two tokens, the
 `models.json` with every provider behind the proxy, and a short list of
 settings that shape a cycle: `TEHAS_REPO`, the three every load requires
 (`TEHAS_CONTROL_ISSUE`, `TEHAS_ALLOWED_LABELERS`, `TEHAS_GITHUB_APP_ID`, the
@@ -377,7 +399,7 @@ tehas-contractor doctor                         say what this host holds that it
 
 At rest it holds its name, its key and the factory's address, in
 `~/.config/tehas/contractor.json` (mode 0600), and nothing else. A job
-leaves the job's token, its settings, the cycle token, a `models.json` whose
+leaves the job's two tokens, its settings, the cycle token, a `models.json` whose
 every provider is the factory's proxy, and a clone of the product. All of it
 is wiped when the job ends and when the program starts. The `models.json`
 names the factory at the address this host joined with, whatever address the

@@ -25,6 +25,7 @@
 use crate::forge::runnable;
 use crate::github;
 use crate::settings;
+use crate::update::steps;
 use serde_json::{json, Value};
 use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -34,12 +35,13 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use tehas_core::exit;
 use tehas_core::sandbox::HELPER_KEY;
+use tehas_core::settings::rules::{is_login, is_repo};
 use tehas_core::settings::{
     load::{self, Vars},
     INSTANCE_SETTINGS,
 };
+use tehas_core::{call, exit};
 
 const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labelers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
@@ -200,13 +202,11 @@ fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
 fn is_number(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit()) && !s.starts_with('0')
 }
-fn is_repo(s: &str) -> bool {
-    let part = |p: &str| all(p, |c| c.is_ascii_alphanumeric() || "_.-".contains(c));
-    matches!(s.split_once('/'), Some((o, n)) if part(o) && part(n))
-}
+/// Logins separated by single spaces, each by the rule the settings load
+/// holds `TEHAS_ALLOWED_LABELERS` to, so setup never writes a line the load
+/// refuses.
 fn is_logins(s: &str) -> bool {
-    s.split(' ')
-        .all(|l| all(l, |c| c.is_ascii_alphanumeric() || c == '-'))
+    s.split(' ').all(tehas_core::settings::rules::is_login)
 }
 fn is_endpoint(s: &str) -> bool {
     let rest = s
@@ -222,10 +222,6 @@ fn is_provider(s: &str) -> bool {
 }
 fn is_model(s: &str) -> bool {
     all(s, |c| c.is_ascii_alphanumeric() || "._:/-".contains(c))
-}
-fn is_slug_or_login(s: &str) -> bool {
-    s.starts_with(|c: char| c.is_ascii_alphanumeric())
-        && all(s, |c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 fn key_name(provider: &str) -> String {
@@ -289,16 +285,9 @@ fn base_url(models: &Value, provider: &str) -> String {
 /// gh with the token in its environment; its standard output, trimmed, when
 /// it exits 0.
 fn gh(token: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new("gh")
-        .args(args)
-        .env("GH_TOKEN", token)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+    let out = call::run_input_env("gh", &args, None, call::GH_BOUND, &[("GH_TOKEN", token)]);
+    out.ok().then(|| out.out.trim().to_string())
 }
 
 /// The ids of the models the endpoint lists. The key goes to curl on
@@ -605,7 +594,7 @@ fn check_app(
     }
     let login = app
         .login(scratch)
-        .filter(|l| is_slug_or_login(l.trim_end_matches("[bot]")))
+        .filter(|l| is_login(l.trim_end_matches("[bot]")))
         .ok_or_else(|| Die(format!("GitHub did not say the app's name; {after}")))?;
     let slug = login.trim_end_matches("[bot]");
     say(&format!(
@@ -792,7 +781,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         } else {
             g.app_name.clone()
         };
-        if !is_slug_or_login(&owner) {
+        if !is_login(&owner) {
             return Err(Bad(format!(
                 "the app's owner is a GitHub login, not: {owner}"
             )));
@@ -1254,12 +1243,12 @@ fn unassignable_owner(vars: &Vars) -> Option<String> {
         return None;
     }
     let repo = vars.text("TEHAS_REPO");
-    let asked = program(vars, "gh")
-        .args([
-            "api",
-            &format!("repos/{repo}/assignees/{owner}"),
-            "--silent",
-        ])
+    // Under the bound of a gh call, as timeout -k holds it: the check runs
+    // under `vars` alone, which the bounded runner does not give.
+    let bound = call::GH_BOUND.as_secs().to_string();
+    let asked = program(vars, "timeout")
+        .args(["-k", "10", &bound, "gh", "api"])
+        .args([&format!("repos/{repo}/assignees/{owner}"), "--silent"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
@@ -1290,13 +1279,39 @@ fn clone_the_product(vars: &Vars) -> Result<(), Fail> {
     Ok(())
 }
 
+fn is_sandbox(line: &str) -> bool {
+    steps::step_id(line.split(' ').next().unwrap_or("")) == "sandbox"
+}
+
+/// Whether the record of steps owed holds the sandbox build, as install.sh
+/// leaves it when the instance's sandbox.Dockerfile or the platform's recipe
+/// changed. An unreadable record owes nothing here; tehas update reports it.
+fn sandbox_owed(home: &Path) -> bool {
+    steps::read_record(home).is_ok_and(|lines| lines.iter().any(|l| is_sandbox(l)))
+}
+
+/// Take the build off the record once it ran, so tehas update does not run
+/// it again. The other lines stay as they were.
+fn sandbox_done(home: &Path) {
+    if let Ok(lines) = steps::read_record(home) {
+        let rest: Vec<String> = lines.into_iter().filter(|l| !is_sandbox(l)).collect();
+        let _ = steps::write_record(home, &rest);
+    }
+}
+
 fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
     // --if-moved builds when there is no image or it is not on the commit
-    // PI_RUKAS_FOLLOW resolves to, and says so when it is current.
-    step(
-        "the sandbox build",
-        program(vars, format!("{home}/sandbox/build.sh")).arg("--if-moved"),
-    )?;
+    // PI_RUKAS_FOLLOW resolves to, and says so when it is current. It does not
+    // see a changed recipe, so an owed build runs without it.
+    let owed = sandbox_owed(Path::new(home));
+    let mut build = program(vars, format!("{home}/sandbox/build.sh"));
+    if !owed {
+        build.arg("--if-moved");
+    }
+    step("the sandbox build", &mut build)?;
+    if owed {
+        sandbox_done(Path::new(home));
+    }
     let check = libexec.join("../bin/tehas");
     if runnable(&check) {
         step(
@@ -1570,6 +1585,7 @@ mod tests {
         assert!(is_repo("acme/widget") && is_repo("a.b_c/d-e"));
         assert!(!is_repo("acme widget") && !is_repo("acme/") && !is_repo("a/b/c"));
         assert!(is_logins("alice bob") && !is_logins("alice  bob") && !is_logins(" alice"));
+        assert!(!is_logins("-alice") && !is_logins("alice -bob"));
         assert!(is_endpoint("http://gb1:8086/v1") && !is_endpoint("gb1:8086"));
         assert!(!is_endpoint("http://") && !is_endpoint("https://a b"));
         assert!(is_provider("main") && is_provider("m-2_x") && !is_provider("Main"));

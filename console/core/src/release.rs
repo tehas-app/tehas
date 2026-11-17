@@ -12,13 +12,7 @@ pub const KEY: &str = include_str!("../../../host/release/minisign.pub");
 
 /// owner/name on GitHub, each half of safe characters.
 pub fn repo_ok(repo: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
-    repo.split_once('/')
-        .is_some_and(|(a, b)| part(a) && part(b))
+    crate::settings::rules::is_repo(repo)
 }
 
 /// The repository built in: the last TEHAS_RELEASE_REPO line of host/versions.env.

@@ -521,7 +521,7 @@ for line in TEHAS_REFRESH_CONFLICTS=yes TEHAS_REFRESH_CONFLICTS=2 TEHAS_REFRESH_
   t_instance "${T_MINIMAL[@]}" "$line"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "${line%%=*} is not valid and no longer read: this version of tehas has no timed refresh scan"
+  t_contains "$t_out" "${line%%=*} is no longer read: the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request, so take the line out"
 done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
@@ -1373,8 +1373,8 @@ T_ENV=()
 
 t_case "without a role model every role is left to the subagent model"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; \"$T_CONSOLE\" models used"
-t_eq "$t_out" "test-provider test-model"
+t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_'"
+t_eq "$t_out" ""
 
 t_case "a role model is passed on, with the subagent provider unless it names its own"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model \
@@ -1386,13 +1386,17 @@ PI_ENSEMBLE_MODEL_DEVELOPER=big-model
 PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST=test-provider
 PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider"
 
-t_case "console models used names each provider and model once, the subagent default first"
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_EXPLORE=test-model \
-  PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider \
-  PI_ENSEMBLE_MODEL_OPS=big-model PI_ENSEMBLE_PROVIDER_OPS=other-provider
-t_run "$load && \"$T_CONSOLE\" models used"
-t_eq "$t_out" "test-provider test-model
-other-provider big-model"
+t_case "loading the instance keeps the model keys and refuses one set in instance.env"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_MODEL_KEY_MAIN=main-secret)
+t_run "$load; echo \"\$TEHAS_MODEL_KEY_MAIN\""
+t_eq "$t_out" main-secret
+t_instance "${T_MINIMAL[@]}" TEHAS_MODEL_KEY_MAIN=in-the-repo
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MODEL_KEY_"
+t_lacks "$t_out" "in-the-repo"
+T_ENV=()
 
 t_case "an empty role model is not set and is not passed on"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=
@@ -1558,9 +1562,21 @@ t_eq "$t_out" "ok"
 T_ENV=()
 
 t_case "with outsource off the idle bound is not checked"
+T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
 t_run "$load && echo ok"
 t_eq "$t_out" "ok"
+T_ENV=()
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
+for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${line%%=*} is set and"
+  t_contains "$t_out" "is still being built in this release: take the line out"
+done
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the example instance documents the proxy's settings as the table has them"
@@ -1810,7 +1826,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "cfff7ebbc88c46fbb26381478e4b49f9dc36036c1dd3c147505d2abe8d268995"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "34587e6de1113df3f93c7fb5ff7328a0af2815e9fcff60ff14ca1fefc5fc03f7"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

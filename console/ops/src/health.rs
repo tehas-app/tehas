@@ -37,7 +37,7 @@
 //!
 //! Exit: 0 the report was printed; 2 usage.
 
-use crate::flags::{self, epoch};
+use crate::holds::{self, epoch};
 use crate::host_message;
 use crate::jq::{first, obj, J, NULL};
 use crate::mcp::{liveness, Liveness};
@@ -1362,7 +1362,7 @@ fn exit_status(rc: &Path) -> Option<String> {
 /// The pause flag of this host: null with none, {at, reason} with one, and
 /// both null for a file that is no flag, which holds the factory all the same.
 fn pause_flag(home: &Path) -> J {
-    let r = flags::read_pause(&home.join("state/pause.json"));
+    let r = holds::read_pause(&home.join("state/pause.json"));
     let field = |k: &str| r.json_of(k).and_then(J::parse);
     match r.state() {
         "none" => J::Null,
@@ -1534,10 +1534,10 @@ fn budget_of(spec: &str, name: &str) -> Option<String> {
         .map(|(_, v)| v.to_string())
 }
 
-/// The limit as `flags::read` reads it. A reading the page cannot parse is
+/// The limit as `holds::read` reads it. A reading the page cannot parse is
 /// unreadable, as it is to every other reader, never nothing.
 fn limit(home: &Path, now: i64) -> J {
-    J::parse(&flags::read(&home.join("state/limit.json"), now).json())
+    J::parse(&holds::read(&home.join("state/limit.json"), now).json())
         .unwrap_or_else(|| obj(vec![("state", J::Str("unreadable".to_string()))]))
 }
 
@@ -1694,18 +1694,31 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         _ => (J::Arr(vec![]), J::Null),
     };
     let zero = J::num(0.0);
+    let started_since = running.items().iter().any(|c| {
+        // A cycle of no known start is running now.
+        c.get("startedAt").is_null()
+            || c.get("startedAt")
+                .cmp(last.get("updatedAt").or(&zero))
+                .is_ge()
+    });
+    let refused = !last.is_null() && in_list(last.get("status"), &[REFUSED]);
     let failed = !last.is_null()
         && !ended_well(&last)
         // A start that was refused ran nothing, so it is no failed cycle: the
         // same rule `a_failed_ending` applies to the list of the last ten.
-        && !in_list(last.get("status"), &[REFUSED])
-        && !running.items().iter().any(|c| {
-            // A cycle of no known start is running now.
-            c.get("startedAt").is_null()
-                || c.get("startedAt")
-                    .cmp(last.get("updatedAt").or(&zero))
-                    .is_ge()
-        });
+        && !refused
+        && !started_since;
+    // It is said where the factory has nothing more pressing to say: a start
+    // was refused, not a cycle failed. The end's notice says why.
+    let refused_line = (refused && !started_since).then(|| {
+        let n = last.get("issue").text();
+        match last.get("statusText").as_str().filter(|t| !t.is_empty()) {
+            Some(why) => format!("The last start was refused before anything ran: #{n}, {why}."),
+            None => {
+                format!("The last start was refused before anything ran: #{n}. Its park says why.")
+            }
+        }
+    });
     let behind = !platform.is_null()
         && platform.get("behind").above_zero()
         && now
@@ -1921,6 +1934,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "Labelled epic with no sub-issues: {}. Link their parts to them as sub-issues.",
             named.join(", ")
         )
+    } else if let Some(line) = refused_line {
+        line
     } else if !running.is_empty() {
         let issues: Vec<String> = running
             .items()
@@ -2139,7 +2154,7 @@ mod tests {
         for (file, want) in cases {
             h.write("state/limit.json", file);
             let want = value(want);
-            let console = value(&flags::read(&h.0.join("state/limit.json"), NOW).json());
+            let console = value(&holds::read(&h.0.join("state/limit.json"), NOW).json());
             let page = value(&h.report(&Given::default()).at(&["checks", "limit"]).dump());
             let dispatch = tehas_dispatch::read::host::limit(&h.0, NOW);
             assert_eq!(console, want, "console: {file}");
@@ -3370,6 +3385,37 @@ mod tests {
                 None => assert_ne!(r.get("status").text(), "fail", "{word}"),
             }
         }
+    }
+
+    #[test]
+    fn a_refused_last_start_is_said_as_refused_with_why() {
+        let h = home("refused-why");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","statusText":"the sandbox image lacks what it was given","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        let (status, output) = said(&r);
+        assert_ne!(status, "fail");
+        assert_eq!(
+            output,
+            "The last start was refused before anything ran: #7, the sandbox image lacks what it was given."
+        );
+        // An end of before the notice was kept says where to look.
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
+        );
+        assert_eq!(
+            said(&h.report(&Given::default())).1,
+            "The last start was refused before anything ran: #7. Its park says why."
+        );
+        // A cycle started since is what the line says.
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[{"issue":8,"running":true,"startedAt":300}],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
+        );
+        assert_eq!(said(&h.report(&Given::default())).1, "Working on #8.");
     }
 
     #[test]

@@ -294,9 +294,26 @@ while IFS= read -r line; do
     continue
   fi
   t_eq "$old: $cmd" "$old: tehasbot"
-  t_contains "$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)" "  tehasbot $word"
+  bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
+  if [ -z "$new" ]; then
+    t_lacks "$bot_help" "  tehasbot $word"
+  else
+    t_contains "$bot_help" "  tehasbot $word"
+  fi
 done <"$T_ROOT/api/renames-1.0.tsv"
 [ "$rows" -ge 3 ] || t_bad "api/renames-1.0.tsv has $rows command rows"
+
+t_case "each tehasbot verb of 0.30 is still one, or a command row of the renames file"
+bot_help=$(TEHAS_CONSOLE=$T_CONSOLE "$T_ROOT/bin/tehasbot" help)
+for verb in clean cycle dispatch energy github-token github-writes health help improve mcp \
+  preview protolab refresh review status top; do
+  row=$(awk -F '\t' -v v="tehasbot $verb" '$1 == "command" && $2 == v && $3 == ""' "$T_ROOT/api/renames-1.0.tsv")
+  if [ -n "$row" ]; then
+    t_lacks "$bot_help" "  tehasbot $verb"
+  else
+    t_contains "$bot_help" "  tehasbot $verb"
+  fi
+done
 
 t_case "bin holds the two commands and nothing else"
 t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./tehas ./tehasbot "

@@ -30,7 +30,7 @@ nap=$(command -pv sleep)
 # to ten seconds for a step-started line in the log before it reads it.
 tree=$T/tree
 mkdir -p "$tree/libexec"
-ln -s "$T_ROOT/lib" "$tree/lib"
+t_lib_link "$tree"
 # The measure of a start is the real console's: a size verb goes to it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"

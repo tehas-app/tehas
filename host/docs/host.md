@@ -640,6 +640,10 @@ unpacked beside the others in `~/tehas/versions/<version>`, and
 `TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
 [tehas update](/tools-update#tehas-update).
 
+A host on 0.30.x edits its renamed and removed settings and drains before it
+updates to 1.0: see
+[Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
+
 An update does not wait for the running cycles. Each cycle and planning turn
 runs from its own copy of the code in `~/tehas/run`, made when it started, and
 `install.sh` replaces each file by renaming a new one over it, so what runs
@@ -724,7 +728,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 16 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 18 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 and for which instance and repository; and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
@@ -737,7 +741,7 @@ carries between turns is a directory beside its workspace,
 `~/tehas/work/<name>-plan-<issue>.keep`. The scripts, `tehas dispatch` and
 `tehasbot cycle` run the store, `~/tehas/libexec/store`. The commands of the
 console (`tehas stop`, `tehas history`, `tehas export`, `tehas status`,
-`tehas api`, `tehas state`, `tehasbot health`, `tehas clean`'s upkeep and a
+`tehas api`, `tehas state`, `tehasbot health`, `tehasbot clean`'s upkeep and a
 cycle's review) call the store in their own process, with the same code, and
 do not start the program; they still need it installed. `tehas dispatch`, `tehasbot cycle`, `tehas work`,
 `tehas stop`, `tehas history`, `tehas export` and `tehasbot health` stop with
@@ -1952,6 +1956,21 @@ script, asynchronously. `TEHAS_SITE_ANALYTICS_COOKIE=on` adds `data-cookie="true
 to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
+
+### The live console on the site
+
+The live console of a running cycle shows what its agents did, the commands
+they ran and the start of each result. It is masked, but it is still the
+factory's logs, and the docs server has no sign-in. So by default the server
+does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
+answer 404, and the console panels of the dashboard, the business page and
+the factory floor stay empty; the dashboard and the floor still mark the
+cycle live or ended. Everything else under `/live/` is served as before.
+`TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
+reach the site, for an instance whose site is also its demo. A full key of
+[the MCP server](/mcp-server) reads the console either way, with
+`factory_console`; a dashboard key does not. The same `docker compose ... up -d`
+applies after a change.
 
 ### Designs
 

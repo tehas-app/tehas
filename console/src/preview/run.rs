@@ -12,6 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use tehas_core::grammar::commit_id;
 
 pub const NET: &str = "tehas-previews";
 /// Names the default branch's preview where a pull request's is named by its
@@ -100,21 +101,11 @@ fn domain_name(name: &str) -> bool {
     name.contains('.') && name.split('.').all(label)
 }
 
-fn commit_id(word: &str) -> bool {
-    word.len() == 40 && word.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 /// The answer of `gh api`, its errors going nowhere.
 pub fn gh(path: &str) -> Option<String> {
-    let out = Command::new("gh")
-        .args(["api", path])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let args = ["api".to_string(), path.to_string()];
+    let out = tehas_core::call::run("gh", &args, tehas_core::call::GH_BOUND);
+    out.ok().then_some(out.out)
 }
 
 /// What Docker printed, whatever came of it: a listing that failed lists

@@ -1708,6 +1708,435 @@
      }
     ]
    }
+  },
+  {
+   "case": "a plans list that failed starts no planning session and the poll goes on",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     },
+     "9": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "T",
+       "body": "B"
+      }
+     }
+    },
+    "plans": {
+     "failed": true
+    },
+    "refines": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "log_count": {
+     "WARN: the issues to plan could not be read, so no planning session starts this poll": 1
+    },
+    "log_lacks": [
+     "ERROR:"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     },
+     {
+      "plan_turn": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refines list that failed starts no planning session and the poll goes on",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     },
+     "9": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "T",
+       "body": "B"
+      }
+     }
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "refines": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "log_count": {
+     "WARN: the issues to plan could not be read, so no planning session starts this poll": 1
+    },
+    "log_lacks": [
+     "ERROR:"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     },
+     {
+      "plan_turn": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a plans list that is no list starts no planning session and the poll goes on",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     },
+     "9": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "T",
+       "body": "B"
+      }
+     }
+    },
+    "plans": {
+     "x": 1
+    },
+    "refines": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "log_count": {
+     "WARN: the issues to plan could not be read, so no planning session starts this poll": 1
+    },
+    "log_lacks": [
+     "ERROR:"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     },
+     {
+      "plan_turn": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refines list that is no list starts no planning session and the poll goes on",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     },
+     "9": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "T",
+       "body": "B"
+      }
+     }
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "refines": "nope"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "log_count": {
+     "WARN: the issues to plan could not be read, so no planning session starts this poll": 1
+    },
+    "log_lacks": [
+     "ERROR:"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     },
+     {
+      "plan_turn": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "both lists failed say it once",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     },
+     "9": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "T",
+       "body": "B"
+      }
+     }
+    },
+    "plans": {
+     "failed": true
+    },
+    "refines": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "log_count": {
+     "WARN: the issues to plan could not be read, so no planning session starts this poll": 1
+    },
+    "log_lacks": [
+     "ERROR:"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     },
+     {
+      "plan_turn": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "with the issues to plan unreadable a ready issue still starts",
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": {
+     "failed": true
+    },
+    "refines": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "with the refines list failed a ready issue still starts",
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [],
+    "refines": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "WARN: the issues to plan could not be read, so no planning session starts this poll"
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
   }
  ],
  "later": [],

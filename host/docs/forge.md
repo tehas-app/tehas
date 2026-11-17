@@ -145,22 +145,6 @@ and, after 5 seconds of grace, KILL to the whole process group, as
 `timeout -k` does. The bound matters: a poll holds its lock for the whole of
 its read.
 
-## From bash
-
-`console forge` is the trait as a command:
-
-```
-console forge labels <issue>
-console forge label-state <issue> <label>
-console forge approval <issue>
-console forge add-label <issue> <label>
-console forge remove-label <issue> <label>
-```
-
-It exits 0 when the call answered, 1 when the forge failed, 64 for a bad
-argument and 78 when `TEHAS_REPO` is unset or not `owner/name`, or no gh can
-be run. The full contract is at the top of `console/ops/src/forge.rs`.
-
 ## Testing the adapter
 
 The GitHub adapter's tests, in `console/core/src/forge/tests.rs`, run it

@@ -278,7 +278,7 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
+It downloads the newest release (or the release or prerelease `--version` names) of this machine: the
 asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
 `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
 those. A machine whose `uname -m` says anything else stops before anything is

@@ -44,7 +44,7 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, clean, dev, disk, export, flags, freeze, github, health, history, host_message, labels,
+    api, clean, dev, disk, export, freeze, github, health, history, holds, host_message, labels,
     mcp, order, panel, queue, review, start, state, status, stop, top,
 };
 use std::env;
@@ -178,7 +178,7 @@ pub fn tehas(given: &[String]) -> u8 {
         return 64;
     };
     let flag = |words: Result<Vec<String>, u8>| match words {
-        Ok(words) => flags::main(&words),
+        Ok(words) => holds::main(&words),
         Err(rc) => rc,
     };
     match command.as_str() {
@@ -195,8 +195,8 @@ pub fn tehas(given: &[String]) -> u8 {
         "labels" => labels::main(rest),
         "panel" => panel::main(rest),
         "host-message" => host_message::main(rest),
-        "resume" => flags::resume(rest),
-        "drain" => flags::drain(rest),
+        "resume" => holds::resume(rest),
+        "drain" => holds::drain(rest),
         "history" => history::main(rest),
         "export" => export::main(rest),
         "stop" => stop::main(rest),
@@ -331,8 +331,8 @@ pub fn check(given: &[String]) -> u8 {
         },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
-        ["tehas", "resume"] => flags::resume_words(rest),
-        ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
+        ["tehas", "resume"] => holds::resume_words(rest),
+        ["tehas", "drain"] => holds::drain_words(rest).map(|_| ()),
         ["tehas", "history"] => history::words(rest).map(|_| ()),
         ["tehas", "export"] => export::words(rest).map(|_| ()),
         ["tehas", "stop"] => match stop::parse(rest) {

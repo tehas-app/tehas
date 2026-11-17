@@ -534,9 +534,11 @@ before=$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)
 rm -f "$fx/issues.json"
 t_protolab
 t_eq "$t_rc" 0
+t_contains "$t_out" "the open tickets could not be read (gh: gh exited 1), nothing built or removed"
 echo '{"message":"Bad credentials"}' >"$fx/issues.json"
 t_protolab
 t_eq "$t_rc" 0
+t_contains "$t_out" "the open tickets could not be read (GitHub's answer was not a list of issues), nothing built or removed"
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
 t_case "comments that cannot be read leave the ticket's page as it was"

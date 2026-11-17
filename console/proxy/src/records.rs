@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::jobs::{Backing, Issuer};
+use crate::jobs::{Backing, Issuer, Scope};
 use crate::request::{Live, Records, State};
 
 /// The rows the proxy reads: who was invited and not revoked, and which jobs
@@ -97,7 +97,11 @@ impl Records for OfProxy<'_> {
     /// never issued, or one it took back when the job ended or its contractor
     /// was revoked, names no job.
     fn live(&self, token: &str) -> Option<Live> {
-        self.issuer.look(token)
+        self.issuer.look(token, Scope::Model).ok()
+    }
+
+    fn wrong_scope(&self, token: &str) -> bool {
+        self.issuer.scope_of(token) == Some(Scope::Job)
     }
 
     fn state_of(&self, job: i64) -> Option<State> {
@@ -220,9 +224,10 @@ impl Reader for OfStore {
 }
 
 /// The hashes of the job tokens as the state store of `home` keeps them, in the
-/// rows of the jobs: `job-token` keeps one, `job-by-token` names the job of
-/// one. A store that gives no answer keeps nothing and names nothing, so a
-/// token is then neither given nor taken.
+/// rows of the jobs, one column per scope: `job-token` keeps one,
+/// `job-by-token` names the job and scope of one. A store that gives no answer
+/// keeps nothing and names nothing, so a token is then neither given nor
+/// taken.
 pub struct KeptIn {
     home: PathBuf,
 }
@@ -241,20 +246,29 @@ impl KeptIn {
 }
 
 impl Backing for KeptIn {
-    fn keep(&self, job: i64, sha256: &str) -> bool {
-        self.ask(&["job-token", "--job", &job.to_string(), "--sha256", sha256])
-            .is_some_and(|v| v["verb"] == "kept")
+    fn keep(&self, job: i64, scope: Scope, sha256: &str) -> bool {
+        self.ask(&[
+            "job-token",
+            "--job",
+            &job.to_string(),
+            "--scope",
+            scope.word(),
+            "--sha256",
+            sha256,
+        ])
+        .is_some_and(|v| v["verb"] == "kept")
     }
 
-    fn recall(&self, sha256: &str) -> Option<Live> {
+    fn recall(&self, sha256: &str) -> Option<(Live, Scope)> {
         let v = self
             .ask(&["job-by-token", "--sha256", sha256])
             .filter(|v| v["verb"] == "job")?;
-        Some(Live {
+        let live = Live {
             job: v["job"].as_i64()?,
             attempt: v["attempt"].as_i64()?,
             contractor: v["contractor"].as_str()?.to_string(),
-        })
+        };
+        Some((live, Scope::of(v["scope"].as_str()?)?))
     }
 }
 
@@ -302,7 +316,11 @@ impl Records for Of {
     /// that issued the token is, since that is the table a revocation and the
     /// end of a job empty.
     fn live(&self, token: &str) -> Option<Live> {
-        self.issuer.look(token)
+        self.issuer.look(token, Scope::Model).ok()
+    }
+
+    fn wrong_scope(&self, token: &str) -> bool {
+        self.issuer.scope_of(token) == Some(Scope::Job)
     }
 
     fn state_of(&self, job: i64) -> Option<State> {

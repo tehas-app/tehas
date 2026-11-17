@@ -44,6 +44,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::jq::{obj, J};
 use tehas_core::rukas;
 use tehas_core::time;
@@ -138,10 +139,6 @@ pub struct Given {
     pub image: String,
 }
 
-fn commit_shaped(c: &str) -> bool {
-    c.len() == 40 && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 fn text_or_null(s: Option<String>) -> J {
     s.map_or(J::Null, J::Str)
 }
@@ -154,7 +151,7 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
     } else {
         match out.image(&g.image) {
             Some((id, label)) => {
-                let label = commit_shaped(&label).then_some(label);
+                let label = tehas_core::grammar::commit_id(&label).then_some(label);
                 (label, image_version(home, &g.image, &id, out, now))
             }
             None => (None, None),
@@ -163,7 +160,7 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
     let clone = out
         .head(&home.join("repos/pi-rukas"))
         .map(|h| h.trim().to_string())
-        .filter(|h| commit_shaped(h));
+        .filter(|h| tehas_core::grammar::commit_id(h));
     if g.follow.is_empty() && image.is_none() && clone.is_none() {
         return None;
     }
@@ -261,7 +258,7 @@ fn target(
     let kept_answer = kept.as_ref().and_then(|k| {
         let c = k.get("commit").as_str()?;
         let w = k.get("what").as_str()?;
-        commit_shaped(c).then(|| (c.to_string(), w.to_string()))
+        tehas_core::grammar::commit_id(c).then(|| (c.to_string(), w.to_string()))
     });
     let at = kept
         .as_ref()
@@ -349,13 +346,8 @@ fn version_shaped(v: &str) -> bool {
 fn put(to: &Path, file: &J) {
     let Some(dir) = to.parent() else { return };
     let _ = fs::create_dir_all(dir);
-    let name = to.file_name().and_then(|n| n.to_str()).unwrap_or("rukas");
-    let new = dir.join(format!("{name}.{}.new", std::process::id()));
-    let written =
-        fs::write(&new, format!("{}\n", file.pretty())).and_then(|()| fs::rename(&new, to));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
+    let text = format!("{}\n", file.pretty());
+    let _ = write_atomic(to, text.as_bytes(), 0o644, &Temp::Pid);
 }
 
 const USAGE: &str = "usage: console rukas target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>\n       console rukas image <PI_RUKAS_REPO> <commit>";

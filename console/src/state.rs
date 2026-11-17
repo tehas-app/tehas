@@ -242,7 +242,7 @@ fn load(home: &Path, from: &str, json: bool) -> Result<(), Fail> {
     }
     let source = std::path::absolute(from).map_err(io_fail("could not name the copy"))?;
     let source = source.to_string_lossy();
-    if !crate::flags::drained(&home.join("state/limit.json")) {
+    if !crate::holds::drained(&home.join("state/limit.json")) {
         return Err((
             1,
             "the factory is not drained: run tehas drain, then load".to_string(),

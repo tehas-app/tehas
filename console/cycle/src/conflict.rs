@@ -181,7 +181,7 @@ fn started(
 /// The read of [`conflicts`] made with the program `wait` in front of git, so
 /// a test can put a `timeout` of its own there and name what a read failed on.
 fn read(wait: &str, tree: &str, branch: &str, head: &str) -> Judged {
-    if !tehas_core::grammar::is_hex(head, 40, 40) {
+    if !tehas_core::grammar::commit_id(head) {
         return not_a_commit(head);
     }
     let base = format!("refs/remotes/origin/{branch}");

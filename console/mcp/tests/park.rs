@@ -1,5 +1,7 @@
 // factory_park over a snapshot and a logs dir written by the tests.
 
+use crate::common;
+
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -53,7 +55,7 @@ impl Env {
 
     fn call(&self, args: Value) -> Result<Value, ToolError> {
         match mcp::tools::call(&self.dirs, "factory_park", &args)? {
-            Output::Json(v) => Ok(v),
+            Output::Json(v) => Ok(common::conforms("factory_park", v)),
             other => panic!("factory_park gave {other:?}"),
         }
     }

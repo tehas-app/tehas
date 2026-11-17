@@ -28,10 +28,9 @@
 //! written; 64 usage.
 
 use serde_json::{json, Value};
-use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use tehas_core::time;
+use tehas_core::file::Temp;
+use tehas_core::{call, time};
 
 /// At most this many pages of open issues are read: a thousand.
 const PAGES: usize = 10;
@@ -77,27 +76,24 @@ pub fn main(given: &[String]) -> u8 {
 }
 
 fn gh(owner: &str, name: &str, cursor: Option<&str>) -> Result<String, String> {
-    let mut cmd = Command::new("gh");
-    cmd.args(["api", "graphql", "-f"])
-        .arg(format!("query={QUERY}"))
-        .args([
-            "-f",
-            &format!("owner={owner}"),
-            "-f",
-            &format!("name={name}"),
-        ]);
+    let mut args = vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={QUERY}"),
+        "-f".to_string(),
+        format!("owner={owner}"),
+        "-f".to_string(),
+        format!("name={name}"),
+    ];
     if let Some(c) = cursor {
-        cmd.args(["-f", &format!("cursor={c}")]);
+        args.extend(["-f".to_string(), format!("cursor={c}")]);
     }
-    let out = cmd
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|e| format!("gh: {e}"))?;
-    if !out.status.success() {
+    let out = call::run("gh", &args, call::GH_BOUND);
+    if !out.ok() {
         return Err("GitHub did not answer".into());
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(out.out)
 }
 
 /// The issue nodes of every page `ask` answers, given the cursor of the next.
@@ -209,17 +205,13 @@ fn labelled(n: &Value, label: &str) -> bool {
 /// Writes the file whole: a side file renamed into place. The edge serves no
 /// *.new, so a half-written file is never public.
 fn put(out: &Path, body: &str) -> std::io::Result<()> {
-    let mut side = out.as_os_str().to_owned();
-    side.push(format!(".{}.new", std::process::id()));
-    fs::write(&side, body)?;
-    fs::rename(&side, out).inspect_err(|_| {
-        let _ = fs::remove_file(&side);
-    })
+    tehas_core::file::write_atomic(out, body.as_bytes(), 0o644, &Temp::Pid)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     const REPO: &str = "acme/widget";
 

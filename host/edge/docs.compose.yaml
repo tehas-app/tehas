@@ -8,7 +8,8 @@
 # TEHAS_SITE_ANALYTICS_SRC and TEHAS_SITE_ANALYTICS_NAME put a visitor analytics script
 # in every page; without them there is none. TEHAS_DESIGN draws every page
 # and picks the front page: beesknees26 (the business page) or pixel (the
-# factory floor); without it beesknees26.
+# factory floor); without it beesknees26. TEHAS_SITE_CONSOLE=1 serves the
+# running cycles' consoles under /live/; without it they are a 404.
 #
 # It answers from its mounts and writes nothing, so it is held as the router
 # is: a read-only root, every capability dropped but the one the image's caddy
@@ -25,6 +26,7 @@ services:
       TEHAS_SITE_ANALYTICS_NAME: "${TEHAS_SITE_ANALYTICS_NAME:-}"
       TEHAS_SITE_ANALYTICS_COOKIE: "${TEHAS_SITE_ANALYTICS_COOKIE:-0}"
       TEHAS_DESIGN: "${TEHAS_DESIGN:-beesknees26}"
+      TEHAS_SITE_CONSOLE: "${TEHAS_SITE_CONSOLE:-0}"
     volumes:
       - "./docs.Caddyfile:/etc/caddy/Caddyfile:ro"
       - "../docs:/srv/docs:ro"

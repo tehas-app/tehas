@@ -23,6 +23,9 @@ pub struct Feature {
     pub stage: Stage,
     /// The instance setting that turns it on, a switch.
     pub setting: &'static str,
+    /// The feature's own settings beside its switch. While it is building the
+    /// load refuses a line that sets one.
+    pub settings: &'static [&'static str],
     /// The release that registered it.
     pub since: &'static str,
 }
@@ -32,30 +35,45 @@ pub const FEATURES: &[Feature] = &[
         name: "outsource",
         stage: Stage::Building,
         setting: "TEHAS_OUTSOURCE",
+        settings: &[
+            "TEHAS_OUTSOURCE_TIMEOUT",
+            "TEHAS_OUTSOURCE_GRACE",
+            "TEHAS_OUTSOURCE_RETRIES",
+            "TEHAS_OUTSOURCE_REST",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_OUTSOURCE_CONTRACTORS",
+            "TEHAS_OUTSOURCE_JOIN_TTL",
+            "TEHAS_OUTSOURCE_PROXY_ADDR",
+            "TEHAS_OUTSOURCE_PROXY_IDLE",
+        ],
         since: "v1.0.0-alpha.2",
     },
     Feature {
         name: "spec-pipe",
         stage: Stage::Building,
         setting: "TEHAS_SPEC_PIPE",
+        settings: &[],
         since: "v1.0.0-alpha.3",
     },
     Feature {
         name: "protolab-zip-url",
         stage: Stage::Building,
         setting: "TEHAS_PROTOLAB_ZIP_URL",
+        settings: &["TEHAS_PROTOLAB_ZIP_HOSTS"],
         since: "v1.0.0-alpha.3",
     },
     Feature {
         name: "prototype-file",
         stage: Stage::Building,
         setting: "TEHAS_PROTOTYPE_FILE",
+        settings: &[],
         since: "v1.0.0-alpha.3",
     },
     Feature {
         name: "lean",
         stage: Stage::Building,
         setting: "TEHAS_LEAN",
+        settings: &[],
         since: "v1.0.0-alpha.3",
     },
 ];
@@ -114,6 +132,25 @@ pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
             return Err(format!(
                 "{} is on and {} is still being built in this release: set it to off or take the line out",
                 f.setting, f.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A line that sets one of a building feature's own settings, as the load
+/// refuses it: the feature leaves no setting in use while it is building.
+/// `set` is whether the instance gave the name a value. Err is the reason,
+/// without the file.
+pub fn refuse_building_settings(
+    set: &dyn Fn(&str) -> bool,
+    get: &dyn Fn(&str) -> String,
+) -> Result<(), String> {
+    for f in FEATURES.iter().filter(|f| !usable(f, get)) {
+        if let Some(name) = f.settings.iter().find(|name| set(name)) {
+            return Err(format!(
+                "{name} is set and {} is still being built in this release: take the line out",
+                f.name
             ));
         }
     }
@@ -323,6 +360,47 @@ mod tests {
         }
         let tested = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
         assert_eq!(refuse_building(&tested), Ok(()));
+    }
+
+    #[test]
+    fn the_load_refuses_a_building_features_own_setting() {
+        let set = |names: &'static [&'static str]| move |name: &str| names.contains(&name);
+        assert_eq!(
+            refuse_building_settings(&set(&["TEHAS_OUTSOURCE_REPOS"]), &vars(&[])),
+            Err("TEHAS_OUTSOURCE_REPOS is set and outsource is still being built in this release: take the line out".to_string())
+        );
+        assert_eq!(
+            refuse_building_settings(&set(&["TEHAS_PROTOLAB_ZIP_HOSTS"]), &vars(&[])),
+            Err("TEHAS_PROTOLAB_ZIP_HOSTS is set and protolab-zip-url is still being built in this release: take the line out".to_string())
+        );
+        assert_eq!(refuse_building_settings(&set(&[]), &vars(&[])), Ok(()));
+        // A test that can turn the feature on may set its settings with it off.
+        let tested = vars(&[(TEST_VAR, "outsource protolab-zip-url")]);
+        let both = set(&["TEHAS_OUTSOURCE_TIMEOUT", "TEHAS_PROTOLAB_ZIP_HOSTS"]);
+        assert_eq!(refuse_building_settings(&both, &tested), Ok(()));
+    }
+
+    #[test]
+    fn every_setting_of_a_feature_is_ruled() {
+        for f in FEATURES {
+            for name in f.settings {
+                assert!(
+                    crate::settings::rules::TABLE
+                        .iter()
+                        .any(|s| s.name == *name),
+                    "{name} has no row in the settings table"
+                );
+            }
+        }
+        // Every ruled name under a feature's switch is one of its settings.
+        for s in crate::settings::rules::TABLE {
+            if let Some(f) = FEATURES
+                .iter()
+                .find(|f| s.name.starts_with(&format!("{}_", f.setting)))
+            {
+                assert!(f.settings.contains(&s.name), "{} is not listed", s.name);
+            }
+        }
     }
 
     #[test]

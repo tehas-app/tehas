@@ -39,7 +39,7 @@
 //! token does not reach TEHAS_REPO; 64 an argument it does not know; 78 the
 //! settings name no GitHub App.
 
-use crate::flags;
+use crate::holds;
 use serde_json::Value;
 use std::env;
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -175,10 +175,7 @@ fn curl(bearer: &str, flags: &[&str], url: &str) -> Option<Vec<u8>> {
 fn slug_of(answer: &[u8]) -> Option<String> {
     let answer: Value = serde_json::from_slice(answer).ok()?;
     let slug = answer["slug"].as_str()?;
-    let mut letters = slug.bytes();
-    let good = letters.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && letters.all(|c| c.is_ascii_alphanumeric() || c == b'-');
-    good.then(|| slug.to_string())
+    settings::rules::is_login(slug).then(|| slug.to_string())
 }
 
 impl App {
@@ -440,7 +437,7 @@ fn exchanged(answer: &[u8], now: i64) -> Option<(String, i64)> {
     let token = answer["token"].as_str().filter(|t| !t.is_empty())?;
     let until = answer["expires_at"]
         .as_str()
-        .and_then(flags::epoch)
+        .and_then(holds::epoch)
         .filter(|until| *until > now)?;
     Some((token.to_string(), until))
 }

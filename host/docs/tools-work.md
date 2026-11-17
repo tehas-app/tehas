@@ -280,7 +280,7 @@ not hold, a pull request with no history in common with the branch, or a
 workspace that still does not reach the merge base after the fetch stops the
 start with 78 and the reason.
 
-`tehas finish` takes a shallow workspace as it is: its own repository takes
+`tehas-cycle finish` takes a shallow workspace as it is: its own repository takes
 the workspace's shallow history with `git fetch --update-shallow`, and the
 fetch of the remote's default branch brings the commits since the workspace
 was made, which join that history at the commit the cycle started from.
@@ -378,7 +378,9 @@ added within a version. The manifest is kept as
 `comments.json` beside it as `<issue>.images.md` and
 `<issue>.comments.json` when the cycle has them. When the next fetch is for the
 same approval, a restart of the same cycle, a link that gives other bytes than
-the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
+the kept manifest says stops the start with exit 4 and the link named; each
+file of an archive is held to its own bytes by its link and its path, and
+an archive to the same set of paths: a file added or gone stops it too. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
 images were fetched, each with its link and sha256, what was left out, and
 whether the cycle was shown them. An image that could not be fetched stops the
@@ -461,8 +463,9 @@ or a split one among them), and of its entries an absolute path, a `..` part,
 a backslash, a link, a locked file, a method other than stored or deflated, a
 damaged file and more than 200 entries. It counts what it inflates, never what
 the archive claims, and a damaged entry's bytes count too; an entry that
-inflates past the size it claims, or shares its data with another entry, is
-damaged. It runs as a child of the program that fetched, with no token and no
+claims more than the room left is over the limit before a byte of it is
+inflated; an entry that inflates past the size it claims, shares its data with
+another entry, or whose local record is not in the archive, is damaged. It runs as a child of the program that fetched, with no token and no
 environment but `PATH`. An archive it does not unpack within 60 seconds, or that
 makes it fail, is left out with a reason; a program that is missing or fails in
 any other way stops the cycle, and with no program no cycle starts on an instance
@@ -476,7 +479,8 @@ a binary, is left out with its path inside the archive under `path` and the
 reason. The unpacked files count against the limits above, the images' and the
 files', as the linked ones do; a file over what is left of them is left out and
 the ones before it are kept. They are named on from the linked ones,
-`image-1.png`, `file-1.md`, and each entry carries `"zip": "<the link>"` and
+`image-1.png`, `file-1.md`, never over a file already in the directory: a
+name taken gets a number in front, `2-image-1.png`. Each entry carries `"zip": "<the link>"` and
 `"path": "<its path in the archive>"`. The archive itself is not kept, and the
 scratch directory is removed whatever the archive held.
 

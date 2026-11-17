@@ -48,4 +48,17 @@ t_out=$(bash "$T/inner_test.sh" 2>&1)
 t_contains "$t_out" "FAIL: first: no stub stands in for curl: curl u"
 t_lacks "$t_out" "FAIL: second"
 
+t_case "t_lib_link twice leaves no lib/lib in the checkout it links to"
+mkdir -p "$T/fake/lib" "$T/linked"
+(T_ROOT=$T/fake; t_lib_link "$T/linked" && t_lib_link "$T/linked")
+t_eq "$?" 0
+t_eq "$(readlink "$T/linked/lib")" "$T/fake/lib"
+t_eq "$(ls -A "$T/fake/lib")" ""
+
+t_case "t_lib_link refuses a directory inside the checkout"
+t_out=$(T_ROOT=$T/fake; t_lib_link "$T/fake/lib" 2>&1)
+t_eq "$?" 1
+t_contains "$t_out" "is inside the checkout"
+t_eq "$(ls -A "$T/fake/lib")" ""
+
 t_done

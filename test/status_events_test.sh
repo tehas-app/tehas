@@ -12,7 +12,7 @@
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
-ln -s "$T_ROOT/lib" "$shim/lib"
+t_lib_link "$shim"
 cp "$T_CONSOLE" "$shim/libexec/console"
 mkdir -p "$shim/bin"
 ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"

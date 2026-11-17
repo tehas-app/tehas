@@ -203,7 +203,7 @@ reset() {
   mkdir -p "$T/home/tehas/libexec"
   cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
   t_verb "$cycle" tehasbot cycle
-  ln -sfn "$T_ROOT/lib" "$T/home/tehas/lib"
+  t_lib_link "$T/home/tehas"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }

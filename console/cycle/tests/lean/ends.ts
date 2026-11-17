@@ -1,4 +1,4 @@
-// Drives five lean endings through pi-rukas's own work-lean verb and prints
+// Drives six lean endings through pi-rukas's own work-lean verb and prints
 // the schema-5 document each one writes: the fixtures beside this file, read by
 // console/cycle/tests/lean.rs. Made at pi-rukas v0.14.53: copy this file to its
 // extension/smoke-tests/lib/, run `bun run smoke-tests/lib/ends.ts` there, and
@@ -24,6 +24,7 @@ const ends: Record<string, { code: number; state: "landed" | "handed-back" | "no
   draft: { code: 10, state: "handed-back", steps: [...front(), s("verify", { kind: "red", reason: "acceptance test test-ac2 is red" }), publish(true), handback(`The gate is red: acceptance test test-ac2 is red. The draft pull request ${PR} holds the work so far.`)] },
   nopr: { code: 10, state: "handed-back", steps: [s("ready", { kind: "ok" }), s("specify", { kind: "ok", dispatches: dev }), s("build", { kind: "exhausted", reason: "the developer produced no change", dispatches: dev }), handback("The build produced no change, so nothing was published.")] },
   notready: { code: 11, state: "not-ready", steps: [s("ready", { kind: "fail", failedRules: ["no pi-spec v1 block"] } as never), s("decline", { kind: "done", posted: false, channel: "host", reason: "no pi-spec v1 block" } as never)] },
+  norunner: { code: 11, state: "not-ready", steps: [s("ready", { kind: "ok" }), s("specify", { kind: "no-red-test", failedRules: ["no test runner configured (.pi/work.json verify.test)"] } as never), s("decline", { kind: "done", posted: false, channel: "host", reason: "no test runner configured (.pi/work.json verify.test)" } as never)] },
 };
 const out: Record<string, unknown> = {};
 for (const [name, e] of Object.entries(ends)) {

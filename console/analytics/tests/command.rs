@@ -400,3 +400,50 @@ fn tehas_analytics_report_prints_the_ten_days_for_a_person() {
     assert!(!out.contains("ECONNREFUSED"), "{out}");
     assert_eq!(host.outside(), "");
 }
+
+// What the copy prints is the object of api/analytics-copy.schema.json, with
+// the fields and the schema number of its samples: a home with a run, and a
+// new home, whose copy has no run and leaves `from` and `to` out.
+#[test]
+fn the_copy_prints_the_object_its_schema_and_samples_describe() {
+    let api = root().join("api");
+    let read = |f: &str| -> Value {
+        serde_json::from_str(&fs::read_to_string(api.join(f)).unwrap()).unwrap()
+    };
+    let schema = read("analytics-copy.schema.json");
+    let keys = |v: &Value| -> Vec<String> {
+        let mut k: Vec<String> = v.as_object().unwrap().keys().cloned().collect();
+        k.sort();
+        k
+    };
+
+    let host = Host::new("copy-schema");
+    host.record_a_run();
+    let copy = host.dir.join("copy.db");
+    let (code, out, err) = host.tehas(&["copy", "--to", copy.to_str().unwrap(), "--json"]);
+    assert_eq!(code, 0, "{err}");
+    let ran: Value = serde_json::from_str(&out).unwrap();
+
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-copy-schema-new");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("state")).unwrap();
+    let copy = dir.join("copy.db");
+    let new = Command::new(ANALYTICS)
+        .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
+        .env("TEHAS_HOME", &dir)
+        .output()
+        .unwrap();
+    assert_eq!(new.status.code(), Some(0), "{new:?}");
+    let new: Value = serde_json::from_slice(&new.stdout).unwrap();
+
+    for (got, sample) in [
+        (ran, "analytics-copy.sample.json"),
+        (new, "analytics-copy.empty.json"),
+    ] {
+        assert_eq!(mcp::conform::check(&got, &schema), Ok(()), "{got}");
+        let want = read(sample);
+        assert_eq!(keys(&got), keys(&want), "{sample}");
+        assert_eq!(got["api"], want["api"], "{sample}");
+        assert_eq!(got["schema"], want["schema"], "{sample}");
+    }
+}

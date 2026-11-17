@@ -2,6 +2,8 @@
 // dispatch.log, as `grep -E ' (start|skip|wait|hold|drop the refresh of) #' | tail -n N`
 // shows, which is the same set of words the tool's table reads.
 
+use crate::common;
+
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use regex::Regex;
 use serde_json::{json, Value};
@@ -22,7 +24,7 @@ fn call_in(logs: &Path, args: &Value) -> Result<Value, ToolError> {
         logs: logs.to_path_buf(),
     };
     match mcp::tools::call(&dirs, "factory_decisions", args)? {
-        Output::Json(v) => Ok(v),
+        Output::Json(v) => Ok(common::conforms("factory_decisions", v)),
         other => panic!("factory_decisions gave {other:?}"),
     }
 }

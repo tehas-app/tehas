@@ -28,6 +28,11 @@ const MAX_FILES: i64 = 40;
 const OVER: &str = "Over the 10 MB limit of a ticket.";
 const NOT_HOSTED: &str = "Not a type the lab hosts.";
 const RETRY: &str = "Could not be fetched. The lab tries again.";
+const REFUSED: &str = "GitHub did not hand it out.";
+const REFUSED_NO_TOKEN: &str =
+    "GitHub did not hand it out. The lab holds no GitHub credential, so it asked as nobody.";
+const NO_TOKEN: &str = "no GitHub credential: GH_TOKEN is empty and gh holds none; \
+a file GitHub hands out only to a signed-in account is left out";
 /// The name of a feature this pass checks.
 const ZIP_URL: &str = "protolab-zip-url";
 
@@ -101,6 +106,9 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         .unwrap_or_else(|| "gh".to_string());
     let mut gh = Bounded::new(program.clone(), CALL_BOUND);
     lab.token = token(&mut gh);
+    if lab.token.is_empty() {
+        say(NO_TOKEN);
+    }
     let home_url = home_url(&lab.domain, &lab.url);
     let zips = lab.zips.then_some(lab.zip_hosts.as_str());
     let generator = generator(&lab.domain, &lab.design, zips);
@@ -152,8 +160,16 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         None => format!("labels={LABEL}"),
     };
     let list = format!("repos/{}/issues?state=open&{filter}&per_page=100", lab.repo);
-    let Some(tickets) = gh.run(&["api", &list]).ok().and_then(|t| tickets(&t)) else {
-        return 0;
+    let tickets = match gh.run(&["api", &list]) {
+        Ok(answer) => tickets(&answer).ok_or_else(String::new),
+        Err(why) => Err(why),
+    };
+    let tickets = match tickets {
+        Ok(tickets) => tickets,
+        Err(why) => {
+            say(&unlisted(&why));
+            return 0;
+        }
     };
 
     // A label event names a label by its current name, so the label that now
@@ -333,6 +349,18 @@ fn stamp_of(hash: u64, len: usize, domain: &str, design: &str, zips: Option<&str
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
 fn allowed(who: &str, list: &str) -> bool {
     tehas_core::events::allowed_in(list, who)
+}
+
+/// The line of a pass whose list of open tickets could not be read. `why` is
+/// gh's reason from the runner's fixed list, or empty for an answer that was
+/// not a list.
+fn unlisted(why: &str) -> String {
+    let what = if why.is_empty() {
+        "GitHub's answer was not a list of issues".to_string()
+    } else {
+        format!("gh: {}", why.trim_start_matches(": "))
+    };
+    format!("the open tickets could not be read ({what}), nothing built or removed")
 }
 
 fn unread(n: u64, typed: bool) -> String {
@@ -638,7 +666,7 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
             return Some(());
         }
         fetch::REFUSED => {
-            held.skip(&name, "GitHub did not hand it out.");
+            held.skip(&name, refused(link, &lab.token));
             return Some(());
         }
         _ => {
@@ -676,6 +704,16 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
     let _ = fs::set_permissions(files.join(&name), fs::Permissions::from_mode(0o644));
     held.file(&name, J::str(kind), size);
     Some(())
+}
+
+/// Why GitHub refused a file: a link that would have carried the credential,
+/// fetched without one, says so, so it does not read as a file deleted.
+fn refused(link: &str, token: &str) -> &'static str {
+    if token.is_empty() && attach::link::sends_token(link, "-") {
+        REFUSED_NO_TOKEN
+    } else {
+        REFUSED
+    }
 }
 
 /// The bytes left for one more file, or None when it is left out, and said.
@@ -963,13 +1001,19 @@ fn read_attach(code: i32, out: &str) -> Unpacked {
     if unreadable || matches!(code, 124 | 137 | 101) {
         return Unpacked::NoZip;
     }
-    let line: String = line
+    eprintln!("{}", attach_line(code, line));
+    Unpacked::NoHost
+}
+
+/// The log line of an unpack that failed. Its text comes from a zip on a
+/// ticket, so it is masked before it is cut to one short line.
+fn attach_line(code: i32, line: &str) -> String {
+    let line: String = tehas_core::mask::mask(line)
         .chars()
         .map(|c| if c.is_control() { '?' } else { c })
         .take(300)
         .collect();
-    eprintln!("tehas: attach: unpack exited {code}: {line}");
-    Unpacked::NoHost
+    format!("tehas: attach: unpack exited {code}: {line}")
 }
 
 #[cfg(test)]
@@ -1214,6 +1258,34 @@ mod tests {
         }
         let numbers: Vec<i64> = metas(&site).iter().map(number_of).collect();
         assert_eq!(numbers, [11, 3]);
+    }
+
+    #[test]
+    fn the_line_of_a_failed_unpack_is_masked_and_cut() {
+        let token = format!("ghp_{}", "a".repeat(36));
+        let line = attach_line(1, &format!("attach: unwritable: {token}\tthere"));
+        assert!(!line.contains(&token), "{line}");
+        assert!(line.starts_with("tehas: attach: unpack exited 1: attach: unwritable: "));
+        assert!(!line.contains('\t'));
+        let long = attach_line(2, &"x".repeat(400));
+        assert_eq!(long.len(), "tehas: attach: unpack exited 2: ".len() + 300);
+    }
+
+    #[test]
+    fn a_refusal_without_a_credential_says_so() {
+        let link = "https://github.com/user-attachments/files/1/a.json";
+        assert_eq!(refused(link, ""), REFUSED_NO_TOKEN);
+        assert_eq!(refused(link, "tok"), REFUSED);
+        assert_eq!(refused("https://example.com/a.json", ""), REFUSED);
+    }
+
+    #[test]
+    fn a_list_that_could_not_be_read_says_why() {
+        assert_eq!(
+            unlisted(": HTTP 401"),
+            "the open tickets could not be read (gh: HTTP 401), nothing built or removed"
+        );
+        assert!(unlisted("").contains("not a list of issues"));
     }
 
     #[test]

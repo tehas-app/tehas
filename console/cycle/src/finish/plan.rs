@@ -124,16 +124,7 @@ fn issue_shaped(word: &str) -> bool {
 /// for, under this command's ceiling for a part. A name that is no repository is
 /// refused before a call rather than aimed at something else.
 fn repo_shaped(repo: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.len() <= 100
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
-    };
-    let Some((owner, name)) = repo.split_once('/') else {
-        return false;
-    };
-    !name.contains('/') && part(owner) && part(name)
+    tehas_core::settings::rules::is_repo(repo) && repo.split('/').all(|p| p.len() <= 100)
 }
 
 /// Whether a workspace's name is one a path may be built from: word characters,

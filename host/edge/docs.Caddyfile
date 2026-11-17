@@ -45,6 +45,15 @@
             # handlers below read /srv/live outside this list on purpose.
             @unnamed not path /status.json /running.json /endings.json /epics.json /health.json /health.down /dispatch.json /demand.json /energy.json /analytics.json /top.json /panels.json /disk.json /platform.json /rukas.json /previews.json /protolab.json /cycles/*.json /console-*.txt /console-*.txt.now
             respond @unnamed 404
+            # The consoles are what the agents of a running cycle did. This
+            # server has no sign-in, so they are not served at all unless the
+            # instance sets TEHAS_SITE_CONSOLE=on. A full key of the MCP server
+            # reads them either way (factory_console).
+            @console_private {
+                path /console-*.txt /console-*.txt.now
+                expression `"{$TEHAS_SITE_CONSOLE:0}" != "1"`
+            }
+            respond @console_private 404
             header Cache-Control "no-store"
             file_server
         }

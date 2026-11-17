@@ -188,10 +188,16 @@ impl Analytics {
             .then(|| fs::read_to_string(&raw).ok())
             .flatten()
             .and_then(|text| public(&text));
+        // The mode is set, as status.json's is, so the docs server reads both
+        // whatever the umask of the unit.
         let published = filtered.is_some_and(|line| {
-            fs::write(&new, format!("{line}\n"))
-                .and_then(|()| fs::rename(&new, &file))
-                .is_ok()
+            tehas_core::file::write_atomic(
+                &file,
+                format!("{line}\n").as_bytes(),
+                0o644,
+                &tehas_core::file::Temp::Pid,
+            )
+            .is_ok()
         });
         let _ = fs::remove_file(&raw);
         if published {
