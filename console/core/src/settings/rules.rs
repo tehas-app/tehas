@@ -346,6 +346,7 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
     always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
     given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
+    always("TEHAS_PROTOTYPE_FILE", SWITCH, "0"),
     given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
@@ -868,10 +869,11 @@ mod tests {
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
             "TEHAS_PROTOLAB_ZIP_URL",
+            "TEHAS_PROTOTYPE_FILE",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 17);
+        assert_eq!(switches.len(), 18);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
