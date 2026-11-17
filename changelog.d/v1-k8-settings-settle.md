@@ -10,3 +10,13 @@
 - `TEHAS_EGRESS_HOSTS` has one rule for the settings check and the proxy's
   list. A word the check refuses, such as `a_b.example.com` or `x.org:0443`,
   can no longer reach the proxy by another reading.
+- `PI_ENSEMBLE_HOST_ALIASES` is a ruled setting: each comma-separated entry
+  must be `name:address`, the address an IPv4 or IPv6 address or
+  `host-gateway`. Any other value stops the load with exit 78, and no
+  container is started with it.
+
+### Adopter action
+
+If `tehas update --check` or any command now stops with
+`PI_ENSEMBLE_HOST_ALIASES is not valid`, write each entry as
+`name:address`, such as `models.example:192.0.2.10`.
