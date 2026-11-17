@@ -28,9 +28,9 @@
 //! written; 64 usage.
 
 use serde_json::{json, Value};
-use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use tehas_core::file::Temp;
 use tehas_core::time;
 
 /// At most this many pages of open issues are read: a thousand.
@@ -209,17 +209,13 @@ fn labelled(n: &Value, label: &str) -> bool {
 /// Writes the file whole: a side file renamed into place. The edge serves no
 /// *.new, so a half-written file is never public.
 fn put(out: &Path, body: &str) -> std::io::Result<()> {
-    let mut side = out.as_os_str().to_owned();
-    side.push(format!(".{}.new", std::process::id()));
-    fs::write(&side, body)?;
-    fs::rename(&side, out).inspect_err(|_| {
-        let _ = fs::remove_file(&side);
-    })
+    tehas_core::file::write_atomic(out, body.as_bytes(), 0o644, &Temp::Pid)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     const REPO: &str = "acme/widget";
 

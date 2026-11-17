@@ -44,6 +44,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::jq::{obj, J};
 use tehas_core::rukas;
 use tehas_core::time;
@@ -345,13 +346,8 @@ fn version_shaped(v: &str) -> bool {
 fn put(to: &Path, file: &J) {
     let Some(dir) = to.parent() else { return };
     let _ = fs::create_dir_all(dir);
-    let name = to.file_name().and_then(|n| n.to_str()).unwrap_or("rukas");
-    let new = dir.join(format!("{name}.{}.new", std::process::id()));
-    let written =
-        fs::write(&new, format!("{}\n", file.pretty())).and_then(|()| fs::rename(&new, to));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
+    let text = format!("{}\n", file.pretty());
+    let _ = write_atomic(to, text.as_bytes(), 0o644, &Temp::Pid);
 }
 
 const USAGE: &str = "usage: console rukas target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>\n       console rukas image <PI_RUKAS_REPO> <commit>";

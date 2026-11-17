@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tehas_core::events::{plan_credit, Events};
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
     refused_by_draft, says_refusal, text_of, Refused, WHY_MAX,
@@ -44,44 +45,6 @@ fn filed_re() -> &'static Regex {
 /// plan_sid_ok: a session id the store keeps.
 fn sid_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-}
-
-/// Bytes written whole to `path`, which is then the file, at `mode` when one
-/// is given. The sibling of a failed write is taken back, so a caller that
-/// renames next sees either the old file or the bytes it was given.
-///
-/// The file is made new, never truncated: what already holds the name is not
-/// this write's to reuse. A leftover regular file of a turn that died
-/// mid-keep is taken away first; anything else under the name - a link, a
-/// directory - is left where it is and the write fails naming it, since to
-/// follow it would write through a name this run does not own.
-fn write_atomic(path: &std::path::Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
-    use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
-    match std::fs::symlink_metadata(path) {
-        Ok(m) if m.file_type().is_file() => std::fs::remove_file(path)?,
-        Ok(_) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("{} is not a regular file", path.display()),
-            ))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode.unwrap_or(0o644))
-        .open(path)?;
-    match f.write_all(bytes).and_then(|()| f.flush()) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            drop(f);
-            let _ = std::fs::remove_file(path);
-            Err(e)
-        }
-    }
 }
 
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
@@ -1073,12 +1036,17 @@ impl Writer {
     /// tehas user's, as a turn's other files are.
     fn plan_start_keep(&self, n: u64, start: &Value) -> bool {
         let file = plan_start_file(&self.home, n);
-        let new = file.with_extension("json.new");
         let kept = file
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| write_atomic(&new, format!("{start}\n").as_bytes(), Some(0o600)))
-            .and_then(|()| std::fs::rename(&new, &file));
+            .and_then(|()| {
+                write_atomic(
+                    &file,
+                    format!("{start}\n").as_bytes(),
+                    0o600,
+                    &Temp::Predictable,
+                )
+            });
         kept.is_ok()
     }
 
@@ -1231,8 +1199,12 @@ impl Writer {
         } else {
             json!({"session": doc.get("session")})
         };
-        let moved = write_atomic(&new, format!("{doc}\n").as_bytes(), None)
-            .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
+        let moved = write_atomic(
+            &self.st(n, ".out"),
+            format!("{doc}\n").as_bytes(),
+            0o644,
+            &Temp::Predictable,
+        );
         // The name of the sibling that failed, not a path a person has to
         // read off the log to find the mount.
         let name = new

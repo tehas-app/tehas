@@ -20,6 +20,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::time;
 
 const FETCH_EVERY: i64 = 3600;
@@ -132,12 +133,13 @@ fn time_of(seconds: &str) -> J {
 }
 
 fn put(live: &Path, file: &J) {
-    let new = live.join(format!("platform.json.{}.new", std::process::id()));
-    let written = fs::write(&new, format!("{}\n", file.pretty()))
-        .and_then(|()| fs::rename(&new, live.join("platform.json")));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
+    let text = format!("{}\n", file.pretty());
+    let _ = write_atomic(
+        &live.join("platform.json"),
+        text.as_bytes(),
+        0o644,
+        &Temp::Pid,
+    );
 }
 
 /// A host that runs a release: the version current points at, the newest
