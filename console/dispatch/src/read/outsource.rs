@@ -84,20 +84,14 @@ fn image_id(image: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use tehas_core::testdir::TestDir;
 
     /// A store that answers the outsource reads of a world where #5 runs here,
     /// #6 runs on box-1 and #7 lost one job. `failing` names a verb it fails.
-    fn store(name: &str, failing: &str) -> String {
-        let dir: PathBuf = std::env::temp_dir().join(format!(
-            "tehas-dispatch-outsource-{name}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("store");
+    /// The directory goes when the TestDir does.
+    fn store(name: &str, failing: &str) -> (TestDir, String) {
+        let dir = TestDir::new(&format!("dispatch-outsource-{name}"));
+        let path = dir.path().join("store");
         let script = format!(
             r#"#!/bin/sh
 [ "$1" = "{failing}" ] && {{ echo "store: busy" >&2; exit 1; }}
@@ -111,13 +105,14 @@ case "$*" in
 esac
 "#
         );
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        path.to_string_lossy().into_owned()
+        tehas_core::testing::write_exe(&path, script).unwrap();
+        let path = path.to_string_lossy().into_owned();
+        (dir, path)
     }
 
     fn of(name: &str, failing: &str) -> Value {
-        let mut calls = Calls::idle(Duration::from_secs(5), store(name, failing));
+        let (_dir, store) = store(name, failing);
+        let mut calls = Calls::idle(Duration::from_secs(5), store);
         read(&mut calls, "", &[7, 8], &[5, 6])
     }
 

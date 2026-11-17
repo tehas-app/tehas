@@ -396,7 +396,7 @@ t_lacks "$(t_calls gh)" "someone/else"
 t_contains "$(t_calls gh)" "api repos/$(sed -n 's/^TEHAS_RELEASE_REPO=//p' "$T_ROOT/host/versions.env")/releases"
 rm -f "$th/versions.env"
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "release: would switch to v1.2.0"
 
 t_case "a checkout tagged v1.0.0 is shown only the notes after its own tag, and still would switch"

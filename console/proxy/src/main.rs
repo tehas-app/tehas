@@ -38,8 +38,9 @@
 //! store, so a restart of the proxy ends every job's token.
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
-//! malformed, or the endpoint is no address this proxy can speak to; 1 it
-//! cannot listen, the proxy it asked is not there, or no token could be made.
+//! malformed, the endpoint is no address this proxy can speak to, or TEHAS_HOME
+//! is too long a path for its control socket; 1 it cannot listen, the proxy it
+//! asked is not there, or no token could be made.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -196,6 +197,9 @@ fn listen() -> ! {
     }));
     // The control socket is made before the port is bound: a proxy that cannot
     // answer for a token must not be answering model requests either.
+    if let Some(why) = serve::socket_path_refused(&control()) {
+        stop(&why, 78);
+    }
     let socket = match control_listen() {
         Ok(socket) => socket,
         Err(why) => stop(&why, 1),

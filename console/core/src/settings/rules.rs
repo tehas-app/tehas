@@ -983,7 +983,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 18);
+        assert_eq!(switches.len(), 19);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
