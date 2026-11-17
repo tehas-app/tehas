@@ -195,7 +195,7 @@ is missing, installs the packages and Docker, adds the user to the `docker`
 group, turns lingering on, installs the slice, and installs the pinned tools as
 the user in the same run, so no logout is needed. The release ends up in
 `~boss/tehas/versions/<version>`, with `~boss/tehas/current` pointing at it.
-`--version vX.Y.Z` installs another release. [Bootstrap a host](/bootstrap)
+`--version vX.Y.Z` installs another release, and `--version vX.Y.Z-beta.N` (or `-alpha.N`, `-rc.N`) a prerelease, which is never the newest. [Bootstrap a host](/bootstrap)
 has what the machine needs.
 
 To install from files you downloaded yourself, for example on a host that
