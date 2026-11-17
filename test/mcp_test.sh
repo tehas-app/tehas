@@ -73,7 +73,8 @@ $key2"
 check "" "" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
 check "   " "   " 78 "TEHAS_MCP_KEYS" ""
 check "${key1:0:31}" "" 78 "TEHAS_MCP_KEYS" ""
-check "........" "$key2" 78 "TEHAS_MCP_KEYS: key 1" ""
+# The load refuses a key of the wrong shape first, as the host setting it is.
+check "........" "$key2" 78 "TEHAS_MCP_KEYS is not valid: key 1" ""
 check "$key1" "${key2:0:31}+" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
 check "$key1" "$key1" 0 "" "$key1
 $key1"

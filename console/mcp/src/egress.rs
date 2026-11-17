@@ -333,6 +333,23 @@ mod tests {
     }
 
     #[test]
+    fn every_word_the_setting_takes_is_a_pair_the_proxy_takes() {
+        for word in [
+            "pypi.org",
+            "Files.Pythonhosted.org",
+            "m.example:8080",
+            "x.org:65535",
+        ] {
+            let given = tehas_core::egress::host_pair(word).unwrap();
+            let (host, port) = given.rsplit_once(':').unwrap();
+            assert_eq!(
+                pair(&given),
+                Some((host.to_string(), port.parse().unwrap()))
+            );
+        }
+    }
+
+    #[test]
     fn a_pair_is_a_host_and_a_port_that_is_a_number() {
         assert_eq!(pair("GitHub.com.:443"), Some(("github.com".into(), 443)));
         for bad in [

@@ -12,6 +12,7 @@ pub mod carried;
 pub mod load;
 pub mod renamed;
 pub mod rules;
+pub mod unruled;
 
 /// The settings an instance has to set itself, because nothing here can give
 /// them a default. Every command that checks the settings before it calls

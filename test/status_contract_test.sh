@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json,
-# api/status.quiet.json, api/status.readonly.json and api/status.outsourced.json,
-# are what console status json (console/src/status.rs) makes of the health files
-# in test/fixtures/status-json/, with the Protolab's list beside one of them and
-# the contractors of outsource beside another, at a fixed time. Only the
-# outsourced sample has `contractors`: with outsource off the file it comes
-# from is not there, and the other three are what they were. A program
+# api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json and
+# api/status.outsourced.json, are what console status json (console/src/status.rs)
+# makes of the health files in test/fixtures/status-json/, with the Protolab's
+# list beside one of them and the contractors of outsource beside another, at a
+# fixed time. Only the outsourced sample has `contractors`: with outsource off
+# the file it comes from is not there, and the others are what they were. A program
 # that reads the object copies the samples into its own tests, so a change
 # here is a change for it: docs/specs/2026-10-24-status-json-contract.md.
 #
@@ -23,7 +23,7 @@ schema=$api/status.schema.json
 fixtures=$T_ROOT/test/fixtures/status-json
 # 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 now=1792245620
-samples=(busy quiet readonly outsourced)
+samples=(busy quiet readonly pushfault outsourced)
 
 sample() { # <name>: the sample as the console makes it, as committed
   "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .
@@ -69,8 +69,8 @@ for name in "${samples[@]}"; do
       cp "$fixtures/$name.$beside.json" "$T/home/tehas/live/$beside.json"
   done
   t_run "$T_ROOT/bin/tehas status --json"
-  # The health file is days old: stale, so the exit status is 1.
-  t_eq "$t_rc" 1
+  # The health file is days old: stale, so the exit status is 3.
+  t_eq "$t_rc" 3
   t_eq "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' <<<"$t_out")" \
     "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' "$api/status.$name.json")"
 done
