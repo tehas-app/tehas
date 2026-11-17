@@ -974,8 +974,7 @@ mod tests {
     fn a_hung_systemctl_makes_pack_refuse_the_no_active_unit_check() {
         let d = tehas_core::testdir::TestDir::new("state-hung-systemctl");
         let systemctl = d.join("systemctl");
-        fs::write(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
         let began = std::time::Instant::now();
         // A bus that never answers is refused, not read as no unit at all: the
         // check fails closed, so pack does not go on over a running factory.
@@ -1033,8 +1032,7 @@ mod tests {
         ] {
             let d = tehas_core::testdir::TestDir::new(&format!("state-tar-refusal-{name}"));
             let tar = d.join("tar");
-            fs::write(&tar, body).unwrap();
-            fs::set_permissions(&tar, fs::Permissions::from_mode(0o755)).unwrap();
+            tehas_core::testing::write_exe(&tar, body).unwrap();
             let archive = d.join("a.tar");
             fs::write(&archive, "bytes").unwrap();
             for args in [&["-t"][..], &["-x", "-O", MANIFEST][..]] {

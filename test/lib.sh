@@ -654,7 +654,7 @@ t_console_source() {
   local member from=${2:-$T_ROOT}
   mkdir -p "$1/console"
   cp -R "$from/console/Cargo.toml" "$from/console/Cargo.lock" "$from/console/src" "$1/console/"
-  for member in analytics attach core cycle dispatch mcp merge ops proxy store xtask; do
+  for member in analytics attach contractor core cycle dispatch mcp merge ops proxy store xtask; do
     mkdir -p "$1/console/$member"
     cp -R "$from/console/$member/Cargo.toml" "$from/console/$member/src" "$1/console/$member/"
   done
@@ -1043,7 +1043,7 @@ t_record() { # <home> <issue> <JSON>
   fi
   [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
   jq --arg how "$t_how" '{links: (.links // [])}
-    + with_entries(select(.key == "comment_links" or .key == "retry_context" or .key == "driver"))
+    + with_entries(select(.key == "comment_links" or .key == "retry_context" or .key == "driver" or .key == "spec"))
     + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
   t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
     --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")

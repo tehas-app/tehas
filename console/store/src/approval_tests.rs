@@ -744,6 +744,60 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     );
 }
 
+// sha256 of "spec".
+const SPEC_SHA: &str = "d4f02eaafd1a9e9de7d10972ca8e47fa7a985825c3c9c1e249c72683cb3e4f19";
+
+#[test]
+fn approval_record_keeps_the_pin_of_a_spec() {
+    let home = home("approval-spec");
+    let spec = json!({"spec": {"link": "https://github.com/user-attachments/files/1/spec.md", "sha256": SPEC_SHA}});
+    let file = write_file(&home, "spec.json", spec.to_string().as_bytes());
+    assert_eq!(
+        record_with(&home, 43, 5, &file).unwrap()["approval"]["input"],
+        spec
+    );
+    used(&home, 43);
+    assert_eq!(view(&home, 43)["spec"], spec["spec"]);
+    let link = "https://github.com/user-attachments/files/1/spec.md";
+    for (name, bad) in [
+        ("list", json!([])),
+        ("null", Value::Null),
+        ("empty", json!({})),
+        ("no-sum", json!({"link": link})),
+        ("no-link", json!({"sha256": SPEC_SHA})),
+        (
+            "more",
+            json!({"link": link, "sha256": SPEC_SHA, "bytes": 4}),
+        ),
+        ("short", json!({"link": link, "sha256": &SPEC_SHA[1..]})),
+        (
+            "upper",
+            json!({"link": link, "sha256": SPEC_SHA.to_uppercase()}),
+        ),
+        ("number", json!({"link": 1, "sha256": SPEC_SHA})),
+        (
+            "http",
+            json!({"link": "http://github.com/user-attachments/files/1/s.md", "sha256": SPEC_SHA}),
+        ),
+        (
+            "space",
+            json!({"link": "https://github.com/a b", "sha256": SPEC_SHA}),
+        ),
+    ] {
+        let file = write_file(
+            &home,
+            &format!("{name}.json"),
+            json!({"spec": bad}).to_string().as_bytes(),
+        );
+        let (code, line) = record_with(&home, 44, 5, &file).unwrap_err();
+        assert_eq!(code, 1, "{name}: {line}");
+        assert!(
+            line.contains("holds spec of another type"),
+            "{name}: {line}"
+        );
+    }
+}
+
 #[test]
 fn approval_record_input_file_usage() {
     let base = [

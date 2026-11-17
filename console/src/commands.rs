@@ -22,6 +22,7 @@
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
+//!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -48,9 +49,10 @@ use crate::{
 use std::env;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use tehas_core::exit;
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 fn strings(words: &[&str], rest: &[String]) -> Vec<String> {
@@ -116,8 +118,9 @@ fn analytics_words(given: &[String]) -> Result<(), u8> {
     Ok(())
 }
 
-/// The analytics program takes over from here, with nothing on its standard
-/// input, and its exit statuses are the command's.
+/// The analytics program answers, with nothing on its standard input. Its own
+/// statuses are internal: the command passes on 0, 64, 78 and 141, and any
+/// other is a failure, 1. Analytics switched off is a setting, 78.
 fn analytics(given: &[String]) -> u8 {
     if let Err(rc) = analytics_words(given) {
         return rc;
@@ -126,7 +129,7 @@ fn analytics(given: &[String]) -> u8 {
         eprintln!(
             "tehas analytics: analytics is off on this host (TEHAS_ANALYTICS=off); nothing is recorded"
         );
-        return 69;
+        return exit::SETTINGS;
     }
     let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
     let bin = home.join("libexec/analytics");
@@ -135,7 +138,7 @@ fn analytics(given: &[String]) -> u8 {
             "tehas analytics: {} is not installed; install.sh builds it",
             bin.display()
         );
-        69
+        exit::FAILED
     };
     if !bin
         .metadata()
@@ -143,12 +146,29 @@ fn analytics(given: &[String]) -> u8 {
     {
         return not_installed();
     }
-    let _ = Command::new(&bin)
+    let ran = Command::new(&bin)
         .args(given)
         .stdin(Stdio::null())
         .env("TEHAS_HOME", &home)
-        .exec();
-    not_installed()
+        .status();
+    match ran {
+        Ok(status) => analytics_status(status.code(), status.signal()),
+        Err(_) => not_installed(),
+    }
+}
+
+/// The command's status for the program's exit code or the signal that ended
+/// it.
+fn analytics_status(code: Option<i32>, signal: Option<i32>) -> u8 {
+    let pipe = i32::from(exit::CLOSED) - 128;
+    match (code, signal) {
+        (Some(0), _) => exit::OK,
+        (Some(64), _) => exit::USAGE,
+        (Some(78), _) => exit::SETTINGS,
+        (Some(141), _) => exit::CLOSED,
+        (None, Some(sig)) if sig == pipe => exit::CLOSED,
+        _ => exit::FAILED,
+    }
 }
 
 pub fn tehas(given: &[String]) -> u8 {
@@ -185,6 +205,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
+        "outsource" => crate::outsource::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -298,6 +319,14 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
+        ["tehas", "outsource"] => match crate::outsource::words(rest) {
+            Ok(None) => {
+                say(crate::outsource::USAGE);
+                Err(ANSWERED)
+            }
+            Ok(Some(_)) => Ok(()),
+            Err(rc) => Err(rc),
+        },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => flags::resume_words(rest),
@@ -405,6 +434,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
+        "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
@@ -445,6 +475,23 @@ mod tests {
 
     fn words(given: &[&str]) -> Vec<String> {
         given.iter().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn the_analytics_program_s_own_statuses_are_a_failure() {
+        for (code, want) in [
+            (0, 0),
+            (64, 64),
+            (78, 78),
+            (141, 141),
+            (65, 1),
+            (70, 1),
+            (73, 1),
+        ] {
+            assert_eq!(analytics_status(Some(code), None), want, "{code}");
+        }
+        assert_eq!(analytics_status(None, Some(13)), 141);
+        assert_eq!(analytics_status(None, Some(9)), 1);
     }
 
     #[test]

@@ -13,6 +13,7 @@ use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use tehas_core::driver::Driver;
 use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
@@ -436,7 +437,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     );
     // The driver of a retry is on its record, whichever rule starts it. Only an
     // issue that carries the label choosing against the default costs a read.
-    let opt_out = crate::decide::opt_out(c.lean_default);
+    let opt_out = Driver::opt_out(c.driver_default);
     let lean: Vec<u64> = q
         .open
         .iter()
@@ -711,6 +712,14 @@ fn blocker_reads(
 /// Whether the poll stops at the pause, as decide's pause_flag and
 /// pause_label find it. A read that failed is not a pause: decide ends the
 /// poll on it.
+/// Whether the poll may start a cycle at all: not paused, and an issue ready
+/// or approved by `tehas start`. A poll that can start nothing has no start for
+/// the push probe to free, and asks the sandbox nothing.
+pub fn may_start(s: &Value, c: &Settings) -> bool {
+    let waiting = |k: &str| s[k].as_array().is_some_and(|a| !a.is_empty());
+    !paused(s, c) && (waiting("ready") || waiting("host_starts"))
+}
+
 fn paused(s: &Value, c: &Settings) -> bool {
     if !s["pause_flag"].is_null() {
         return true;

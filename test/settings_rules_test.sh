@@ -56,6 +56,14 @@ while IFS=$'\t' read -r name reason words; do
   t_eq "$name $?:$out" "$name 1:$reason"
 done < <(jq -r '.settings[] | select(.rule == "one-of") | [.name, .reason, (.words | join(" "))] | @tsv' "$file")
 
+t_case "the host settings fit the same rules: words for one-of rows, and settings valid gives the file's reason"
+t_eq "$(jq -c '[.host[] | select((.rule == "one-of") != has("words")) | .name]' "$file")" '[]'
+t_contains "$(jq -r '.host[].name' "$file")" "TEHAS_MODEL_KEY_<NAME>"
+while IFS=$'\t' read -r name reason; do
+  out=$("$T_CONSOLE" settings valid "$name" "a b")
+  t_eq "$name $?:$out" "$name 1:$reason"
+done < <(jq -r '.host[] | select(.rule != "mcp-keys") | [.name, .reason] | @tsv' "$file")
+
 t_case "the required settings are what settings required prints"
 t_eq "$(jq -r '.required[]' "$file")" "$("$T_CONSOLE" settings required)"
 

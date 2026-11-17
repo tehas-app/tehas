@@ -12,9 +12,9 @@
 //! The clock is the host's. A debug build takes `TEHAS_STORE_TEST_NOW` when it
 //! is set, the store's own test clock; a release build never reads it.
 //!
-//! Exit: 0 approved, withdrawn, or nothing to withdraw; 1 GitHub has no open
-//! issue of that number or did not answer, or the store refused or could not be
-//! read; 64 a bad argument, or a test clock that is not a Unix time, which
+//! Exit: 0 approved, withdrawn, or nothing to withdraw; 1 GitHub did not
+//! answer, or the store refused or could not be read; 3 GitHub has no open
+//! issue of that number; 64 a bad argument, or a test clock that is not a Unix time, which
 //! writes nothing.
 
 use crate::store;
@@ -23,7 +23,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 use tehas_core::approval::{body_sha256, title_sha256};
-use tehas_core::time;
+use tehas_core::{exit, time};
 
 const USAGE: &str = "usage: tehas start <issue> [--clear] [--json]";
 
@@ -99,38 +99,42 @@ fn home() -> Option<PathBuf> {
     from("TEHAS_HOME").or_else(|| from("HOME"))
 }
 
-/// The issue as GitHub's REST answer has it, or the line that says why it is
-/// not one this may approve.
-fn issue_of(repo: &str, n: u64) -> Result<Value, String> {
+/// The issue as GitHub's REST answer has it, or the status and the line that
+/// say why it is not one this may approve: no for an issue GitHub says is not
+/// there or not open, failed for an answer that did not come or could not be
+/// read.
+fn issue_of(repo: &str, n: u64) -> Result<Value, (u8, String)> {
+    let failed = |line: String| (exit::FAILED, line);
+    let no = |line: String| (exit::NO, line);
+    let unread = || failed(format!("GitHub's answer for #{n} could not be read"));
     let out = Command::new("timeout")
         .args(["20", "gh", "api", &format!("repos/{repo}/issues/{n}")])
         .output()
-        .map_err(|e| format!("gh could not be run: {e}"))?;
+        .map_err(|e| failed(format!("gh could not be run: {e}")))?;
     if !out.status.success() {
         let said = String::from_utf8_lossy(&out.stderr);
         let said = format!("{said}{}", String::from_utf8_lossy(&out.stdout));
         if said.contains("Not Found") || said.contains("HTTP 404") {
-            return Err(format!("{repo} has no issue #{n}"));
+            return Err(no(format!("{repo} has no issue #{n}")));
         }
         let line = said.lines().next().unwrap_or("").trim();
-        return Err(format!("GitHub did not answer for #{n}: {line}"));
+        return Err(failed(format!("GitHub did not answer for #{n}: {line}")));
     }
-    let v: Value = serde_json::from_slice(&out.stdout)
-        .map_err(|_| format!("GitHub's answer for #{n} could not be read"))?;
+    let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| unread())?;
     if !v.is_object() {
-        return Err(format!("GitHub's answer for #{n} could not be read"));
+        return Err(unread());
     }
     if v.get("pull_request").is_some_and(|p| !p.is_null()) {
-        return Err(format!(
+        return Err(no(format!(
             "#{n} is a pull request, not an issue the factory works on"
-        ));
+        )));
     }
     match v.get("state").and_then(Value::as_str) {
         Some("open") => Ok(v),
-        Some("closed") => Err(format!(
+        Some("closed") => Err(no(format!(
             "#{n} is closed, and a closed issue is never started"
-        )),
-        _ => Err(format!("GitHub's answer for #{n} could not be read")),
+        ))),
+        _ => Err(unread()),
     }
 }
 
@@ -156,9 +160,9 @@ fn approve(here: &std::path::Path, repo: &str, a: &Asked) -> u8 {
     };
     let issue = match issue_of(repo, n) {
         Ok(v) => v,
-        Err(why) => {
+        Err((rc, why)) => {
             eprintln!("tehas start: {why}; nothing was recorded");
-            return 1;
+            return rc;
         }
     };
     let (num, body) = (n.to_string(), body_sha256(&issue));

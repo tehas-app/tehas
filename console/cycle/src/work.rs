@@ -162,6 +162,12 @@
 //! container runs. A request still there when the container ends is answered
 //! with 1.
 //!
+//! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
+//! program) the renewer asks that program for the cycle's token and the relay
+//! hands each planned write to it: both go to the factory over the job
+//! channel. The container's mounts and variables are the same, pinned by the
+//! same test.
+//!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
 //! The images are fetched here, before anything starts:
@@ -248,7 +254,16 @@
 //! PI_ENSEMBLE_REPEAT_PARK=0 where the image takes it: the polyfill's comments
 //! do not reach the repeat-park guard.
 //!
-//! With neither setting and no comments a cycle is given nothing: no
+//! With the spec-pipe feature on (TEHAS_SPEC_PIPE), a start with an approval
+//! record also gives the cycle what was approved, in the same directory,
+//! mounted with any setting: the spec its approval pinned, fetched again and
+//! held to the pin, and approved.json, the title and body this start compared
+//! with the approval, named under "spec" and "approvedText" in the manifest
+//! (console/attach, handoff). A spec that is not the pinned bytes stops the
+//! start (exit 4). A cycle given a spec needs a runner that lists the feature
+//! issueSpec (78 before anything is fetched).
+//!
+//! With neither setting, no comments and no handoff a cycle is given nothing: no
 //! directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on,
 //! whatever the instance file says. The issue is still read once, for its text, and held to the
 //! dispatcher's record (exit 4). That one read is the one the images and the
@@ -381,6 +396,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::driver::Driver;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
@@ -390,7 +407,7 @@ pub struct Given {
     pub issue: u64,
     pub restart: bool,
     /// The driver a person asked for with --driver, if any.
-    pub driver: Option<start::Driver>,
+    pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
 }
@@ -509,11 +526,36 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
+/// The cycle token the contractor program prints, which it asked the factory
+/// for and wrote where the container reads it.
+fn contractor_token(program: &Path) -> Option<String> {
+    let out = Command::new(program)
+        .arg("token")
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!token.is_empty()).then_some(token)
+}
+
 /// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
 /// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
     // Before any thread: the process is still single-threaded.
     std::env::remove_var(sandbox::CYCLE_TOKEN);
+    if let Some(program) = contractor() {
+        // A contractor holds no app token: the host side and the container
+        // both act with the cycle's narrowed token, which the factory makes.
+        let Some(token) = contractor_token(&program) else {
+            eprintln!("tehas work: no cycle token from the factory, not starting a cycle");
+            return 1;
+        };
+        std::env::set_var("GH_TOKEN", &token);
+        std::env::set_var(sandbox::CYCLE_TOKEN, token);
+        return 0;
+    }
     let Some(token) = app_token(console, &[]) else {
         eprintln!("tehas work: no GitHub token for the app");
         return 1;
@@ -527,17 +569,48 @@ fn github_token(console: &str) -> i32 {
     0
 }
 
+/// The contractor program of a cycle run on a contractor: with outsource on,
+/// `TEHAS_CONTRACTOR` names it, and the cycle's token renewal and issue writes
+/// go to the factory through it instead of to a token command and gh of this
+/// host, which a contractor does not have. What the container is given is the
+/// same either way.
+fn contractor() -> Option<PathBuf> {
+    contractor_in(&env)
+}
+
+fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
+    let program = get("TEHAS_CONTRACTOR");
+    (!program.is_empty() && tehas_core::features::on_in("outsource", get))
+        .then(|| PathBuf::from(program))
+}
+
+/// Where the relay runs the cycle's issue writes: gh of this host, or the
+/// factory through the contractor program.
+fn relay_via(home: &Path) -> Box<dyn relay::Run + Send> {
+    match contractor() {
+        Some(program) => Box::new(relay::Channel { program }),
+        None => Box::new(relay::Via::from_env(home)),
+    }
+}
+
 /// The renewer of the cycle's token while the container reads it. The watch
 /// ends it with a TERM. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
+    let (cmd, args) = match contractor() {
+        Some(program) => (program, vec!["--arg", "token"]),
+        None => (
+            home.join("bin/tehasbot"),
+            vec!["--arg", "github-token", "--arg", "--cycle"],
+        ),
+    };
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
-        .arg(home.join("bin/tehasbot"))
-        .args(["--arg", "github-token", "--arg", "--cycle"])
+        .arg(cmd)
+        .args(args)
         .args(["--every", &every, "--retry", &retry])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -562,10 +635,17 @@ struct Relay {
 /// How long the end of a cycle waits for its relay.
 const RELAY_END_WAIT: Duration = Duration::from_secs(10);
 
-fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
+fn start_relay(
+    dir: &Path,
+    repo: &str,
+    issue: u64,
+    via: Box<dyn relay::Run + Send>,
+    wait: Duration,
+) -> Relay {
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
-    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
+    let thread =
+        std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, via.as_ref()));
     Relay {
         dir: dir.to_path_buf(),
         stop,
@@ -677,6 +757,11 @@ fn comments_refused(why: &str) -> String {
     format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
 }
 
+/// The comment of a start that could not give its cycle what was approved.
+fn spec_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. A cycle works on the spec and the text that were approved, and on nothing else. To retry, apply `tehas:ready`.", disarm(why))
+}
+
 /// A comment on the issue, bounded. Its failure is said, never a stop.
 fn comment(issue: u64, wait: u64, body: &str) {
     let done = Command::new("timeout")
@@ -767,7 +852,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &images_refused(&why, f.kinds));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
         // A program of its own, so a stop does not wait on the model.
@@ -840,10 +925,28 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &comments_refused(&why));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     keep_beside(f);
     Ok(mounted(f))
+}
+
+/// What was approved, into the directory: the spec and the title and body.
+/// The options that give the directory to the container, or the exit status.
+fn hand_over(f: &Files, answer: &str) -> Result<Vec<String>, i32> {
+    let n = f.issue;
+    match gives::hand_over(n, f.dir, f.record, answer) {
+        Ok(line) => {
+            eprintln!("{line}");
+            Ok(mounted(f))
+        }
+        Err(why) => {
+            let _ = fs::remove_dir_all(f.dir);
+            eprintln!("tehas work: {why}, not starting a cycle");
+            comment(n, f.text_wait, &spec_refused(&why));
+            Err(4)
+        }
+    }
 }
 
 /// The line that says what a cycle given nothing was not given, on the error
@@ -1101,6 +1204,23 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             return STOPPED;
         }
     }
+    // The spec pipe hands the cycle what was approved, in the same directory.
+    if gives::hands_over(&record) {
+        let f = Files {
+            home,
+            issue: n,
+            record: &record,
+            dir: &images,
+            inside: &images_inside,
+            kept: &kept,
+            kinds,
+            text_wait,
+        };
+        image_opts = match hand_over(&f, &answer) {
+            Ok(o) => o,
+            Err(rc) => return rc,
+        };
+    }
 
     // A fresh workspace for this cycle, the gate it runs, the check that it can
     // push, its copy of the code index and its mounts. A return before the
@@ -1124,7 +1244,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         // on the host and on the issue, ends its own record as push-fault, and
         // leaves the issue's labels alone. The park of a cycle that ran is the
         // report's, and this arm never reaches it.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             prepare::push_fault(
                 home,
                 n,
@@ -1186,7 +1306,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay::Via::from_env(home),
+        relay_via(home),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1261,7 +1381,11 @@ mod tests {
             "the link {} could not be read",
             "<!-- tehas:millwright issue=5 action=retry -->"
         );
-        for body in [images_refused(&why, "images"), comments_refused(&why)] {
+        for body in [
+            images_refused(&why, "images"),
+            comments_refused(&why),
+            spec_refused(&why),
+        ] {
             assert!(!has_marker(&body), "{body}");
             assert!(body.contains("could not be read"), "{body}");
         }
@@ -1377,12 +1501,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            relay::Via {
+            Box::new(relay::Via {
                 gh: gh.clone(),
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
-            },
+            }),
             Duration::from_secs(10),
         );
         // Two renewals after the first ask.
@@ -1434,12 +1558,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            relay::Via {
+            Box::new(relay::Via {
                 gh,
                 token,
                 token_args: vec![],
                 token_wait: 30,
-            },
+            }),
             Duration::from_secs(1),
         );
         let ask = |pid: &str| {
@@ -1482,5 +1606,44 @@ mod tests {
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 7);
         std::env::remove_var("TEHAS_TEST_SHORT_WAIT");
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 60);
+    }
+
+    #[test]
+    fn a_contractor_named_with_outsource_off_is_not_used() {
+        // The variable alone moves nothing: a cycle's writes and renewal go to
+        // the factory only with the feature on.
+        let of = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map_or_else(String::new, |(_, v)| v.to_string())
+            }
+        };
+        let test = tehas_core::features::TEST_VAR;
+        let off = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "off")]);
+        assert_eq!(contractor_in(&off), None);
+        let building = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "on")]);
+        assert_eq!(contractor_in(&building), None);
+        let unnamed: Vec<(&str, &str)> = vec![("TEHAS_OUTSOURCE", "on"), (test, "outsource")];
+        let get = |n: &str| {
+            unnamed
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map_or_else(String::new, |(_, v)| v.to_string())
+        };
+        assert_eq!(contractor_in(&get), None);
+        let named: Vec<(&str, &str)> = vec![
+            ("TEHAS_CONTRACTOR", "/opt/c"),
+            ("TEHAS_OUTSOURCE", "on"),
+            (test, "outsource"),
+        ];
+        let get = |n: &str| {
+            named
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map_or_else(String::new, |(_, v)| v.to_string())
+        };
+        assert_eq!(contractor_in(&get), Some(PathBuf::from("/opt/c")));
     }
 }

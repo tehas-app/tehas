@@ -567,8 +567,20 @@ const BATCH_BOUND: u64 = tehas_core::file::READ_BOUND;
 /// could not be run or answered nothing, this gives nothing and the poll's gh
 /// calls go on as they did before, each asking for a token of its own.
 pub fn read_gh_token(home: &Path, bound: Duration) -> Option<String> {
+    app_token(home, &[], bound)
+}
+
+/// The App's narrowed token a cycle pushes with, as `tehas work` asks for it:
+/// `tehasbot github-token --cycle`.
+pub fn read_cycle_token(home: &Path, bound: Duration) -> Option<String> {
+    app_token(home, &["--cycle"], bound)
+}
+
+fn app_token(home: &Path, words: &[&str], bound: Duration) -> Option<String> {
     let program = home.join("bin/tehasbot").to_string_lossy().into_owned();
-    let r = run(&program, &["github-token".to_string()], bound);
+    let mut args = vec!["github-token".to_string()];
+    args.extend(words.iter().map(|w| w.to_string()));
+    let r = run(&program, &args, bound);
     let token = r.out.lines().next().unwrap_or("").trim();
     if r.ok() && !token.is_empty() {
         Some(token.to_string())
