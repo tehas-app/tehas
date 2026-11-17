@@ -1775,3 +1775,25 @@ fn the_stamp_of_a_cycle_is_the_newest_job_of_its_issue_given_since_its_approval(
         "refused"
     );
 }
+
+#[test]
+fn the_stamp_of_a_start_is_only_a_job_still_open() {
+    let home = on("stamp-open");
+    issue(&home, 7);
+    let since = NOW.to_string();
+    let open = ["job-stamp", "--issue", "7", "--since", &since, "--open"];
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    assert_eq!(out(&home, &open)["job"], id);
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(out(&home, &open)["state"], "running");
+    // A retry under the same approval, after the job was lost, is not the
+    // lost job's: the start of it names no contractor.
+    let lose = ["job-lose", "--job", &id.to_string(), "--reason", "timeout"];
+    assert_eq!(out(&home, &lose)["verb"], "lost");
+    assert_eq!(out(&home, &open)["job"], Value::Null);
+    assert_eq!(out(&home, &open)["contractor"], Value::Null);
+    assert_eq!(
+        out(&home, &["job-stamp", "--issue", "7", "--since", &since])["job"],
+        id
+    );
+}

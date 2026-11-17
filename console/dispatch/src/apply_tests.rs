@@ -926,7 +926,7 @@ fn with_outsource_on_the_start_comment_says_who_builds_it() {
     let c = t.writes();
     assert!(
         c.iter()
-            .any(|w| w == "store job-stamp --issue 7 --since 1793008800"),
+            .any(|w| w == "store job-stamp --issue 7 --since 1793008800 --open"),
         "{c:#?}"
     );
     let all = c.join("\n");
@@ -1235,6 +1235,30 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn with_outsource_on_a_refresh_start_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    let mut a = start_of(7, "refresh");
+    a["how"] = json!("approval");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    t.apply(json!([a]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas refresh started"), "{all}");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
 }
 
 #[test]
