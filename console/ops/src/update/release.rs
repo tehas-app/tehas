@@ -3,9 +3,9 @@
 //! instance checked against the target's own rules, and the switch of
 //! ~/tehas/current.
 //!
-//! The key a signature is checked with is the one install.sh put on the host,
-//! $TEHAS_HOME/release/minisign.pub, never one that arrived in the download it
-//! is to check. Nothing is unpacked before both checks pass, and current moves
+//! The repository releases come from and the key a signature is checked with
+//! are built into tehas (tehas_core::release), never read from a file an
+//! earlier release left on the host or from the download. Nothing is unpacked before both checks pass, and current moves
 //! only after the unpack and the target's own settings check, so whatever
 //! fails leaves the host on the version it runs.
 //!
@@ -23,7 +23,7 @@ use std::io::ErrorKind;
 use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tehas_core::version;
+use tehas_core::{release, version};
 
 /// Seconds for each call out: a remote that stops answering fails the update.
 const API_LIMIT: u32 = 60;
@@ -319,41 +319,15 @@ fn instance_dir() -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
-fn repo_ok(repo: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
-    repo.split_once('/')
-        .is_some_and(|(a, b)| part(a) && part(b))
-}
-
-/// The instance's setting, else the line of the installed versions.env, which a
-/// release carries. Read as text: versions.env is not run.
-fn repo_named<'a>(setting: &'a str, versions: &'a str) -> &'a str {
-    if !setting.is_empty() {
-        return setting;
-    }
-    versions
-        .lines()
-        .filter_map(|l| l.strip_prefix("TEHAS_RELEASE_REPO="))
-        .next_back()
-        .unwrap_or("")
-}
-
-fn repo(host: &Host) -> Result<String, u8> {
-    let setting = env::var("TEHAS_RELEASE_REPO").unwrap_or_default();
-    let versions = fs::read(host.home.join("versions.env")).unwrap_or_default();
-    let versions = String::from_utf8_lossy(&versions);
-    let repo = repo_named(&setting, &versions);
-    if repo_ok(repo) {
-        return Ok(repo.to_string());
+/// TEHAS_RELEASE_REPO, else the repository built into tehas. A versions.env on
+/// the host is never read for it: a release writes that file.
+fn repo() -> Result<String, u8> {
+    if let Some(repo) = release::repo() {
+        return Ok(repo);
     }
     fault(&format!(
-        "no release repository: TEHAS_RELEASE_REPO is in neither {}/instance.env nor {}/versions.env",
-        instance_dir(),
-        host.home.display()
+        "TEHAS_RELEASE_REPO in {}/instance.env is not owner/name",
+        instance_dir()
     ));
     Err(78)
 }
@@ -365,8 +339,8 @@ fn signed_in() -> bool {
 }
 
 /// The published releases, newest first.
-pub(crate) fn list(host: &Host) -> Result<Vec<Published>, u8> {
-    let repo = repo(host)?;
+pub(crate) fn list() -> Result<Vec<Published>, u8> {
+    let repo = repo()?;
     let answer = if signed_in() {
         let (rc, out) = output(timed(API_LIMIT, "gh").args([
             "api".to_string(),
@@ -427,8 +401,8 @@ fn checkout_tag(dir: &Path) -> String {
     }
 }
 
-fn fetch(host: &Host, tag: &str, dir: &Path, tarball: &str) -> bool {
-    let Ok(repo) = repo(host) else {
+fn fetch(tag: &str, dir: &Path, tarball: &str) -> bool {
+    let Ok(repo) = repo() else {
         return false;
     };
     let names = [
@@ -470,11 +444,11 @@ fn fetch(host: &Host, tag: &str, dir: &Path, tarball: &str) -> bool {
 }
 
 /// Both checks of a download; false when either cannot say yes.
-fn verify(host: &Host, dir: &Path, tarball: &str) -> bool {
-    verify_with(host, dir, tarball, "minisign")
+fn verify(dir: &Path, tarball: &str) -> bool {
+    verify_with(dir, tarball, "minisign")
 }
 
-fn verify_with(host: &Host, dir: &Path, tarball: &str, minisign: &str) -> bool {
+fn verify_with(dir: &Path, tarball: &str, minisign: &str) -> bool {
     let sums = format!("{tarball}.sha256");
     let signature = format!("{tarball}.minisig");
     for name in [tarball, &sums, &signature] {
@@ -497,10 +471,12 @@ fn verify_with(host: &Host, dir: &Path, tarball: &str, minisign: &str) -> bool {
         fault(&format!("{tarball} does not match its .sha256"));
         return false;
     }
-    let key = host.home.join("release/minisign.pub");
-    if fs::File::open(&key).is_err() {
+    // The key built into this program, never a file a release could have put
+    // on the host.
+    let key = dir.join("release.pub");
+    if fs::write(&key, release::KEY).is_err() {
         fault(&format!(
-            "no key to check a signature with at {} (install.sh puts it there)",
+            "could not write the release key to {}",
             key.display()
         ));
         return false;
@@ -522,8 +498,7 @@ fn verify_with(host: &Host, dir: &Path, tarball: &str, minisign: &str) -> bool {
         }
         Ok(s) if !s.success() => {
             fault(&format!(
-                "{tarball} is not signed by the key in {}",
-                key.display()
+                "{tarball} is not signed by the release key built into tehas (host/release/minisign.pub)"
             ));
             false
         }
@@ -873,8 +848,8 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
         return 1;
     };
     let tarball = tarball_of(target, arch);
-    let brought = fetch(host, target, &download, &tarball)
-        && verify(host, &download, &tarball)
+    let brought = fetch(target, &download, &tarball)
+        && verify(&download, &tarball)
         && unpack(host, target, &download, &tarball);
     let _ = fs::remove_dir_all(&download);
     if !brought {
@@ -896,7 +871,7 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
 pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     let check = plan.mode == Mode::Check;
     let installed = installed(host);
-    let list = match list(host) {
+    let list = match list() {
         Ok(list) => list,
         Err(rc) => return rc,
     };
@@ -914,7 +889,7 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     let mut target = match target(&list, to) {
         Some(target) => target.to_string(),
         None => {
-            let named = repo(host).unwrap_or_default();
+            let named = repo().unwrap_or_default();
             tell(&format!(
                 "release: {named} has no published release; nothing was changed"
             ));
@@ -1081,7 +1056,7 @@ pub fn verb(given: &[String]) -> u8 {
             }
             0
         }
-        ["newest"] => match list(&host) {
+        ["newest"] => match list() {
             Ok(list) => {
                 if let Some(tag) = newest(&list) {
                     say(tag);
@@ -1408,7 +1383,9 @@ mod tests {
         );
     }
 
-    // A download as a release gives it, and a minisign that answers `rc`.
+    // A download as a release gives it, a key on the host that is not the
+    // release key, and a minisign that answers `rc` when it is handed the key
+    // built into tehas and 1 for any other.
     fn signed(d: &super::super::testing::Dir, rc: u8) -> (String, PathBuf) {
         let t = "tehas-v1.2.0-linux-x86_64.tar.gz".to_string();
         d.file(&format!("dl/{t}"), "a release\n");
@@ -1419,9 +1396,14 @@ mod tests {
         );
         d.file(&format!("dl/{t}.sha256"), &format!("{sum}\n"));
         d.file(&format!("dl/{t}.minisig"), "signed\n");
-        d.file("home/release/minisign.pub", "key\n");
+        d.file("home/release/minisign.pub", "a key a release left\n");
+        d.file("built-in.pub", release::KEY);
         let stub = d.0.join("minisign");
-        tehas_core::testing::write_exe(&stub, format!("#!/bin/sh\nexit {rc}\n")).unwrap();
+        let script = format!(
+            "#!/bin/sh\nk=\nwhile [ $# -gt 0 ]; do [ \"$1\" != -p ] || k=$2; shift; done\ncmp -s \"$k\" '{}' || exit 1\nexit {rc}\n",
+            d.0.join("built-in.pub").display()
+        );
+        tehas_core::testing::write_exe(&stub, script).unwrap();
         (t, stub)
     }
 
@@ -1429,36 +1411,21 @@ mod tests {
     fn a_download_passes_only_with_both_checks() {
         let d = dir("verify-good");
         let (t, stub) = signed(&d, 0);
-        assert!(verify_with(
-            &host(&d.0.join("home")),
-            &d.0.join("dl"),
-            &t,
-            stub.to_str().unwrap()
-        ));
+        assert!(verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
     #[test]
     fn no_minisign_fails_closed() {
         let d = dir("verify-none");
         let (t, _) = signed(&d, 0);
-        assert!(!verify_with(
-            &host(&d.0.join("home")),
-            &d.0.join("dl"),
-            &t,
-            "/no/such/minisign"
-        ));
+        assert!(!verify_with(&d.0.join("dl"), &t, "/no/such/minisign"));
     }
 
     #[test]
     fn a_signature_the_key_refuses_fails_closed() {
         let d = dir("verify-bad-sig");
         let (t, stub) = signed(&d, 1);
-        assert!(!verify_with(
-            &host(&d.0.join("home")),
-            &d.0.join("dl"),
-            &t,
-            stub.to_str().unwrap()
-        ));
+        assert!(!verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
     #[test]
@@ -1466,37 +1433,26 @@ mod tests {
         let d = dir("verify-bad-sum");
         let (t, stub) = signed(&d, 0);
         d.file(&format!("dl/{t}"), "tampered\n");
-        assert!(!verify_with(
-            &host(&d.0.join("home")),
-            &d.0.join("dl"),
-            &t,
-            stub.to_str().unwrap()
-        ));
+        assert!(!verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
     #[test]
-    fn a_missing_file_or_key_fails_closed() {
+    fn a_missing_file_fails_closed() {
         for gone in ["tar.gz", "tar.gz.sha256", "tar.gz.minisig"] {
             let d = dir(&format!("verify-{gone}"));
             let (t, stub) = signed(&d, 0);
             let name = t.replace("tar.gz", gone);
             fs::remove_file(d.0.join("dl").join(name)).unwrap();
-            assert!(!verify_with(
-                &host(&d.0.join("home")),
-                &d.0.join("dl"),
-                &t,
-                stub.to_str().unwrap()
-            ));
+            assert!(!verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
         }
+    }
+
+    #[test]
+    fn the_key_on_the_host_is_not_read() {
         let d = dir("verify-no-key");
         let (t, stub) = signed(&d, 0);
         fs::remove_file(d.0.join("home/release/minisign.pub")).unwrap();
-        assert!(!verify_with(
-            &host(&d.0.join("home")),
-            &d.0.join("dl"),
-            &t,
-            stub.to_str().unwrap()
-        ));
+        assert!(verify_with(&d.0.join("dl"), &t, stub.to_str().unwrap()));
     }
 
     #[test]
@@ -1662,19 +1618,9 @@ mod tests {
     }
 
     #[test]
-    fn a_repository_is_owner_and_name() {
-        assert!(repo_ok("tehas-app/tehas"));
-        assert!(repo_ok("a_b/c.d"));
-        for bad in ["", "no-slash", "a/b/c", "/b", "a/", "a b/c"] {
-            assert!(!repo_ok(bad), "{bad}");
-        }
-    }
-
-    #[test]
-    fn the_repository_comes_from_the_setting_then_the_last_versions_line() {
-        let versions = "TEHAS_RELEASE_REPO=a/first\nOTHER=1\nTEHAS_RELEASE_REPO=a/last\n";
-        assert_eq!(repo_named("", versions), "a/last");
-        assert_eq!(repo_named("o/n", versions), "o/n");
-        assert_eq!(repo_named("", "OTHER=1\n"), "");
+    fn the_repository_is_the_setting_or_the_built_in_one() {
+        // The host's versions.env, which a release writes, is not an input.
+        assert_eq!(release::repo_of(""), release::pinned_repo());
+        assert_eq!(release::repo_of("o/n"), "o/n");
     }
 }
