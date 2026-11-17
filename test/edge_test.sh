@@ -386,17 +386,30 @@ if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   mkdir -p "$T/srv/live" "$T/srv/docs" "$T/srv/fun" "$T/xdg"
   printf 'line\n' >"$T/srv/live/console-7.txt"
   printf '{}\n' >"$T/srv/live/status.json"
-  port=$((20000 + RANDOM % 20000))
-  sed -e "s|/srv/|$T/srv/|g" -e "s|^:8080 {|:$port {|" "$docs_caddy" >"$T/Caddyfile"
   serve() { # <TEHAS_SITE_CONSOLE value>: the codes for the console and status.json
-    local pid console status
-    XDG_DATA_HOME=$T/xdg XDG_CONFIG_HOME=$T/xdg TEHAS_SITE_CONSOLE=$1 \
-      caddy run --adapter caddyfile --config "$T/Caddyfile" >"$T/caddy.log" 2>&1 &
-    pid=$!
-    for _ in $(seq 50); do
-      curl -s -o /dev/null "http://127.0.0.1:$port/live/status.json" && break
-      sleep 0.1
+    local try port pid up console status
+    # A random port can be taken: caddy then exits on the bind, so try another.
+    for try in 1 2 3 4 5; do
+      port=$((20000 + RANDOM % 20000))
+      sed -e "s|/srv/|$T/srv/|g" -e "s|^:8080 {|:$port {|" "$docs_caddy" >"$T/Caddyfile"
+      XDG_DATA_HOME=$T/xdg XDG_CONFIG_HOME=$T/xdg TEHAS_SITE_CONSOLE=$1 \
+        caddy run --adapter caddyfile --config "$T/Caddyfile" >"$T/caddy.log" 2>&1 &
+      pid=$!
+      up=
+      for _ in $(seq 300); do
+        kill -0 "$pid" 2>/dev/null || break
+        [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/status.json")" = 200 ] && { up=1; break; }
+        sleep 0.1
+      done
+      [ -n "$up" ] && break
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      grep -q 'address already in use' "$T/caddy.log" || break
     done
+    if [ -z "$up" ]; then
+      echo "caddy never answered status.json (try $try): $(tail -n 3 "$T/caddy.log" | tr '\n' ' ')"
+      return
+    fi
     console=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/console-7.txt")
     status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/status.json")
     kill "$pid" 2>/dev/null
