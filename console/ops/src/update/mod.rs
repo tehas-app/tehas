@@ -78,7 +78,7 @@ mod report;
 mod run;
 mod sandbox;
 mod sources;
-mod steps;
+pub(crate) mod steps;
 mod wait;
 
 use std::env;

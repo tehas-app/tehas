@@ -118,17 +118,19 @@ In order, stopping at the first step that fails:
    was left as it is`, and goes on with its status unchanged.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
-6. Unless `--no-build`: it builds the sandbox image when there is none
-   (`~/tehas/sandbox/build.sh`), then runs the product's gates in it with
-   `tehas check-product --sandbox` where that command is installed. Where it is
-   not, it says the gates were not run.
+6. Unless `--no-build`: it builds the sandbox image when there is none, or
+   when `install.sh` left the `sandbox` step owed because the instance's
+   `sandbox.Dockerfile` or the platform's recipe changed
+   (`~/tehas/sandbox/build.sh`), and takes that step off the record. It then
+   runs the product's gates in it with `tehas check-product --sandbox` where
+   that command is installed. Where it is not, it says the gates were not run.
 7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
    server, runs `tehas github check` (one mint, the login, the reach
    of `TEHAS_REPO`, never the token) and prints the dashboard's address.
 
 A second run changes nothing that is right: a value that is there is kept, the
 control issue is not made again, no second app is made and an image that is
-there is not rebuilt. A
+there is not rebuilt unless its recipe changed. A
 setting that is there and differs is never replaced without `--force`. The run
 names each one and stops with 78 before it calls GitHub or the endpoint and
 before it writes anything.
