@@ -152,8 +152,10 @@ case "$url" in
   */releases/download/*) tag=${url%/*}; tag=${tag##*/}; cp "$T/releases/$tag/${url##*/}" "$out" ;;
   *) exit 22 ;;
 esac'
-  t_stub minisign 'x=""; prev=""
-for a in "$@"; do [ "$prev" != -x ] || x=$a; prev=$a; done
+  # It keeps the key it was handed, which lives in a directory the update removes.
+  t_stub minisign 'x=""; p=""; prev=""
+for a in "$@"; do [ "$prev" != -x ] || x=$a; [ "$prev" != -p ] || p=$a; prev=$a; done
+cat "$p" >"$T/calls/minisign-key"
 [ "$(cat "$x")" = signed ]'
   t_stub docker 'case "$1 $2" in "image inspect") exit "${IMAGE_RC:-1}" ;; esac'
   t_stub systemctl
@@ -215,19 +217,33 @@ t_eq "$(ls "$th/versions")" v1.0.0
 t_eq "$(t_calls install)" ""
 rm -rf "$rel/v1.2.0" && mv "$T/good" "$rel/v1.2.0"
 
-t_case "a tarball the installed key did not sign is not unpacked"
+t_case "a tarball the release key did not sign is not unpacked"
 stubs
 instance
 host_at v1.0.0
 echo forged >"$rel/v1.2.0/$(asset_of v1.2.0).minisig"
 t_run "$update"
 t_eq "$t_rc" 1
-t_contains "$t_out" "is not signed by the key in $th/release/minisign.pub"
+t_contains "$t_out" "is not signed by the release key built into tehas (host/release/minisign.pub)"
 t_eq "$(readlink "$th/current")" versions/v1.0.0
 t_eq "$(ls "$th/versions")" v1.0.0
-# The key checked with is the host's, not one in the download.
-t_contains "$(t_calls minisign)" "-p $th/release/minisign.pub"
 echo signed >"$rel/v1.2.0/$(asset_of v1.2.0).minisig"
+
+t_case "the key checked with is the one built into tehas, not the host's or the download's"
+stubs
+instance
+host_at v1.0.0
+echo "untrusted comment: a key a release left" >"$th/release/minisign.pub"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/minisign-key")" "$(cat "$T_ROOT/host/release/minisign.pub")"
+t_lacks "$(t_calls minisign)" "$th/release/minisign.pub"
+t_eq "$(readlink "$th/current")" versions/v1.2.0
+host_at v1.0.0
+rm "$th/release/minisign.pub"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(readlink "$th/current")" versions/v1.2.0
 
 t_case "with no minisign the download is refused, not taken on its .sha256 alone"
 stubs
@@ -368,6 +384,19 @@ instance TEHAS_RELEASE_REPO=someone/fork
 host_at v1.0.0
 t_run "$update --check"
 t_contains "$(t_calls gh)" "api repos/someone/fork/releases"
+
+t_case "a versions.env on the host does not name where releases come from"
+stubs
+instance
+host_at v1.0.0
+sed -i 's|^TEHAS_RELEASE_REPO=.*|TEHAS_RELEASE_REPO=someone/else|' "$th/versions.env"
+t_run "$update --check"
+t_lacks "$(t_calls gh)" "someone/else"
+t_contains "$(t_calls gh)" "api repos/$(sed -n 's/^TEHAS_RELEASE_REPO=//p' "$T_ROOT/host/versions.env")/releases"
+rm -f "$th/versions.env"
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: would switch to v1.2.0"
 
 t_case "a checkout tagged v1.0.0 is shown only the notes after its own tag, and still would switch"
 stubs

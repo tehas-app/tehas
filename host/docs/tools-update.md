@@ -48,9 +48,12 @@ real run, which builds first, is what names the rows there.
 
 ### From a release
 
-Releases are read from `TEHAS_RELEASE_REPO`, owner/name on GitHub. The
-platform's own is the line in `versions.env`; an instance may name another in
-`instance.env`. The list and the download use `gh` when it is signed in, which
+Releases are read from the repository built into tehas, the
+`TEHAS_RELEASE_REPO` line of `host/versions.env` when the release was built.
+An instance may name another, owner/name on GitHub, with `TEHAS_RELEASE_REPO`
+in `instance.env`. The `versions.env` on the host is not read for it: a
+release writes that file, so it cannot choose where the next one comes from.
+The list and the download use `gh` when it is signed in, which
 reaches a private repository with the bot's token, and `curl` from the public
 address otherwise.
 
@@ -77,9 +80,10 @@ version to move to.
    `arm64` read as those. A machine whose `uname -m` says anything else has no
    release to download and stops with the words it answered, before anything is
    fetched;
-2. check the tarball against the `.sha256` and the signature against
-   `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
-   in the download. A download that fails either check is not unpacked. With
+2. check the tarball against the `.sha256` and the signature against the key
+   built into tehas, `host/release/minisign.pub` when the release was built,
+   never `~/tehas/release/minisign.pub` or a key in the download. An instance
+   that names another repository still checks with this key. A download that fails either check is not unpacked. With
    no `minisign` on the host it stops (`sudo apt-get install minisign`);
 3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
    anything but files and directories under `tehas-<version>/`;

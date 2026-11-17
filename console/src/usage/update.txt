@@ -10,13 +10,13 @@ it, a host with ~/tehas/current updates from releases and one with a platform
 checkout from that checkout, so a host installed before the setting existed
 goes on as it did.
 
-From a release (TEHAS_UPDATE_FROM=release): the releases are read from
-TEHAS_RELEASE_REPO (versions.env carries the platform's own; the instance may
-name another), with gh when it is signed in, which reaches a private
-repository with the bot's token, and with curl from the public address
-otherwise. The tarball is checked against its .sha256 and its minisign
-signature with the key install.sh put in ~/tehas/release/minisign.pub, never a
-key from the download, and unpacked into ~/tehas/versions/<version>. The
+From a release (TEHAS_UPDATE_FROM=release): the releases are read from the
+repository built into tehas, or the one TEHAS_RELEASE_REPO in instance.env
+names, never from a file on the host, with gh when it is signed in, which
+reaches a private repository with the bot's token, and with curl from the
+public address otherwise. The tarball is checked against its .sha256 and its
+minisign signature with the key built into tehas, never a key on the host or
+in the download, and unpacked into ~/tehas/versions/<version>. The
 instance is checked against that version's own lib/config.sh, with the
 example value of any setting it is missing, and a TEHAS_ key that version
 never names is warned about. Only then is ~/tehas/current pointed at it, and
