@@ -37,6 +37,22 @@ case "$1 $2" in
   "api graphql")
     case "$*" in
       *issueTypes*) cat "$T/fx/types.json" 2>/dev/null || exit 1 ;;
+      *editor*)
+        # The texts of a ticket: its row of issues.json and comments-<n>.json,
+        # as GraphQL answers them, the comments only when the row counts
+        # some. Comments counted but not there fail.
+        echo "$*" >>"$T/calls/texts"
+        n="$*"; n=${n#*number=}; n=${n%% *}
+        c=$T/fx/comments-$n.json
+        if ! jq -e --argjson n "$n" "any(.[]; .number == \$n and .comments > 0)" "$T/fx/issues.json" >/dev/null; then
+          c=/dev/null
+        elif [ ! -e "$c" ]; then
+          exit 1
+        fi
+        jq -s -c --argjson n "$n" --slurpfile is "$T/fx/issues.json" "
+          (.[0] // []) as \$cs | (\$is[0][] | select(.number == \$n)) as \$i
+          | {data: {repository: {issue: {body: \$i.body, author: \$i.user, editor: \$i.editor,
+              comments: {nodes: [\$cs[] | {body, author: .user, editor}]}}}}}" "$c" ;;
       *number=*) n="$*"; n=${n#*number=}; cat "$T/fx/typed-${n%% *}.json" 2>/dev/null || exit 1 ;;
     esac ;;
   "api repos/acme/widget/issues/"*)
@@ -90,14 +106,14 @@ labeled() {
     [{event: "labeled", label: {name: $l}, created_at: $at,
       actor: (if $who == "" then null else {login: $who} end)}]' >"$fx/events-$1.json"
 }
-# issue <number> <title> <body> [association] [comments] [updated]
+# issue <number> <title> <body> [author] [comments] [updated]
 # Every ticket is at the prototype stage at the hand of an allowed account,
 # unless a case writes its own events.
 issue() {
-  jq -n -c --argjson n "$1" --arg title "$2" --arg body "$3" --arg who "${4:-OWNER}" \
+  jq -n -c --argjson n "$1" --arg title "$2" --arg body "$3" --arg who "${4:-alice}" \
     --argjson comments "${5:-0}" --arg updated "${6:-2026-10-09T08:00:00Z}" '
     {number: $n, title: $title, body: $body, html_url: "https://github.com/acme/widget/issues/\($n)",
-     user: {login: "alice"}, author_association: $who, updated_at: $updated, comments: $comments}'
+     user: {login: $who}, updated_at: $updated, comments: $comments}'
   labeled "$1" alice
 }
 issues() { printf '%s\n' "$@" | jq -s . >"$fx/issues.json"; }
@@ -136,10 +152,10 @@ net "$A/66666666-2222-3333-4444-555555555555" "MP4DATA" "video/mp4"
 issues "$(issue 7 'Map <script>alert(1)</script> & pins' \
   "Look: ![shot]($A/11111111-2222-3333-4444-555555555555)
 [proto.html]($F/21/proto.html) [style.css]($F/22/style.css) [all.tar]($F/23/all.tar)
-and https://example.com/not-ours.png" OWNER 2)"
+and https://example.com/not-ours.png" alice 2)"
 jq -n --arg video "$A/66666666-2222-3333-4444-555555555555" --arg other "$F/31/stranger.html" '[
-  {author_association: "COLLABORATOR", body: $video},
-  {author_association: "NONE", body: "[stranger.html](\($other))"}]' >"$fx/comments-7.json"
+  {user: {login: "alice"}, body: $video},
+  {user: {login: "mallory"}, body: "[stranger.html](\($other))"}]' >"$fx/comments-7.json"
 t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "#7: 4 files, 32 bytes, 1 left out"
@@ -157,7 +173,7 @@ t_contains "$page" "4 FILES, 32 B OF 10 MB"
 
 t_case "a type the lab does not host and a link from outside are left out, and said"
 t_contains "$page" "<span>all.tar</span><span class=\"asset-fact\">Not a type the lab hosts.</span>"
-t_contains "$page" "1 link from outside the repository"
+t_contains "$page" "1 link from outside the allowed accounts"
 t_lacks "$(t_calls curl)" "all.tar"
 t_lacks "$(t_calls curl)" "stranger.html"
 t_lacks "$(t_calls curl)" "example.com"
@@ -189,7 +205,7 @@ t_eq "$(t_calls curl)" ""
 t_eq "$(t_calls gh | grep -c comments)" 0
 
 t_case "a changed ticket is built again"
-issues "$(issue 7 'Map and pins' "![shot]($A/11111111-2222-3333-4444-555555555555)" OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 7 'Map and pins' "![shot]($A/11111111-2222-3333-4444-555555555555)" alice 0 2026-10-09T09:00:00Z)"
 t_protolab
 t_contains "$t_out" "#7: 1 files, 7 bytes, 0 left out"
 t_eq "$(files_of 7)" "./image-1.png "
@@ -203,15 +219,60 @@ t_protolab
 t_eq "$(jq -r .url "$live/protolab.json")" "https://lab.example"
 t_contains "$(cat "$site/index.html")" "Nothing in the lab."
 
-t_case "text by someone outside the repository brings nothing in"
+t_case "text by an account off the allowed list brings nothing in"
 reset
 net "$F/40/theirs.html" "<p>theirs</p>"
-issues "$(issue 8 'From a stranger' "[theirs.html]($F/40/theirs.html)" NONE)"
+issues "$(issue 8 'From a stranger' "[theirs.html]($F/40/theirs.html)" mallory)"
 t_protolab
 t_eq "$(files_of 8)" ""
 t_eq "$(t_calls curl)" ""
 t_contains "$(cat "$site/8/index.html")" "No image, video or HTML file is attached"
-t_contains "$(cat "$site/8/index.html")" "1 link from outside the repository"
+t_contains "$(cat "$site/8/index.html")" "1 link from outside the allowed accounts"
+
+t_case "the bot, an account off the list, an outside edit and a quote bring nothing in"
+reset
+for f in 50/bot 51/carol 52/edited 53/quoted 54/body 55/mine; do net "$F/$f.html" "<p>${f#*/}</p>"; done
+issues "$(issue 9 'Guarded' "[body.html]($F/54/body.html)" alice 4 | jq -c '. + {editor: {login: "tehas-bot[bot]"}}')"
+jq -n --arg F "$F" '[
+  {user: {login: "tehas-bot[bot]"}, body: "[bot.html](\($F)/50/bot.html)"},
+  {user: {login: "carol"}, body: "[carol.html](\($F)/51/carol.html)"},
+  {user: {login: "alice"}, editor: {login: "mallory"}, body: "[edited.html](\($F)/52/edited.html)"},
+  {user: {login: "alice"}, body: "> [quoted.html](\($F)/53/quoted.html)\nand [mine.html](\($F)/55/mine.html)"}]' >"$fx/comments-9.json"
+t_protolab
+t_contains "$t_out" "#9: 1 files"
+t_eq "$(files_of 9)" "./mine.html "
+t_eq "$(t_calls curl | grep -c 'files/5[0-4]/')" 0
+t_contains "$(cat "$site/9/index.html")" "5 links from outside the allowed accounts"
+
+t_case "a change with no new link and no new title fetches no file again"
+reset
+net "$F/56/kept.html" "<p>kept</p>"
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)")"
+t_protolab
+t_contains "$t_out" "#10: 1 files"
+keys=$(jq -c keys_unsorted "$site/10/.meta.json")
+rm -f "$T"/calls/*
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)" alice 1 2026-10-12T08:00:00Z)"
+jq -n '[{user: {login: "alice"}, body: "Looks good."}]' >"$fx/comments-10.json"
+t_protolab
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(t_calls curl)" ""
+t_contains "$(t_calls texts)" "number=10"
+t_contains "$(cat "$site/10/index.html")" "12 OCT 2026"
+t_eq "$(jq -r .updatedAt "$site/10/.meta.json")" "2026-10-12T08:00:00Z"
+t_eq "$(jq -c keys_unsorted "$site/10/.meta.json")" "$keys"
+t_eq "$(files_of 10)" "./kept.html "
+# Nothing changed since: the texts are not read again.
+rm -f "$T"/calls/*
+t_protolab
+t_eq "$(t_calls texts)" ""
+# A new link is a new build.
+net "$F/57/more.html" "<p>more</p>"
+issues "$(issue 10 'Kept' "[kept.html]($F/56/kept.html)" alice 1 2026-10-12T09:00:00Z)"
+jq -n --arg F "$F" '[{user: {login: "alice"}, body: "[more.html](\($F)/57/more.html)"}]' >"$fx/comments-10.json"
+t_protolab
+t_contains "$t_out" "#10: 2 files"
 
 t_case "a ticket whose prototype label came from an account outside the list gets no page"
 reset
@@ -230,7 +291,7 @@ issues "$(issue 21 'Kept then taken' 'no files')"
 labeled 21 alice
 t_protolab
 t_contains "$t_out" "#21: 0 files, 0 bytes, 0 left out"
-issues "$(issue 21 'Kept then taken' 'no files' OWNER 0 2026-10-09T11:00:00Z)"
+issues "$(issue 21 'Kept then taken' 'no files' alice 0 2026-10-09T11:00:00Z)"
 labeled 21 mallory
 t_protolab
 t_contains "$t_out" "#21: tehas:prototype was applied by 'mallory', not an allowed account"
@@ -270,7 +331,7 @@ issues "$(issue 26 'Held' 'no files')"
 labeled 26 alice
 t_protolab
 before=$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 26 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+issues "$(issue 26 'Held' 'no files' alice 0 2026-10-09T12:00:00Z)"
 rm -f "$fx/events-26.json"
 t_protolab
 t_contains "$t_out" "#26: its label events could not be read, nothing built or removed"
@@ -284,7 +345,7 @@ reset
 issues "$(issue 27 'Held' 'no files')"
 t_protolab
 before=$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 27 'Held' 'no files' OWNER 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
+issues "$(issue 27 'Held' 'no files' alice 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
 echo '{"message":"Bad credentials"}' >"$fx/events-27.json"
 echo '{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"}}' >"$fx/events-28.json"
 t_protolab
@@ -322,7 +383,7 @@ reset
 issues "$(issue 29 'Held' 'no files')"
 t_protolab
 before=$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)
-issues "$(issue 29 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+issues "$(issue 29 'Held' 'no files' alice 0 2026-10-09T12:00:00Z)"
 touch "$fx/label-fails"
 t_protolab
 t_eq "$t_rc" 0
@@ -334,7 +395,7 @@ reset
 issues "$(issue 50 'First title' 'no files')"
 t_protolab
 t_contains "$t_out" "#50: 0 files"
-issues "$(issue 50 'Their title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 50 'Their title' 'no files' alice 0 2026-10-09T09:00:00Z)"
 renamed 50 mallory 2026-10-09T09:00:00Z 'First title' 'Their title'
 t_protolab
 t_contains "$t_out" "#50: its title was changed by 'mallory' since alice approved it, left as it was"
@@ -350,7 +411,7 @@ t_contains "$(cat "$site/50/index.html")" "Their title"
 
 t_case "a title changed by an allowed account after the label is published"
 reset
-issues "$(issue 51 'Better title' 'no files' OWNER 0 2026-10-09T09:00:00Z)"
+issues "$(issue 51 'Better title' 'no files' alice 0 2026-10-09T09:00:00Z)"
 renamed 51 alice 2026-10-09T09:00:00Z 'Old title' 'Better title'
 t_protolab
 t_contains "$t_out" "#51: 0 files"
@@ -469,7 +530,7 @@ t_eq "$t_rc" 0
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
 t_case "comments that cannot be read leave the ticket's page as it was"
-issues "$(issue 13 'Stays' '' OWNER 3 2026-10-09T10:00:00Z)"
+issues "$(issue 13 'Stays' '' alice 3 2026-10-09T10:00:00Z)"
 t_protolab
 t_contains "$t_out" "#13: could not be read, left as it was"
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
@@ -675,10 +736,10 @@ t_contains "$(cat "$site/48/index.html")" 'href="files/solo.css"'
 t_case "comments past the limit of one argument are read"
 reset
 net "$F/21/proto.html" "<h1>proto</h1>"
-issues "$(issue 8 'Long thread' 'no files' OWNER 100)"
+issues "$(issue 8 'Long thread' 'no files' alice 100)"
 # 100 comments of 2 KB: over 128 KiB, which no one argument can hold.
 jq -n --arg pad "$(head -c 2000 /dev/zero | tr '\0' x)" --arg link "$F/21/proto.html" \
-  '[range(100) | {author_association: "OWNER", body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
+  '[range(100) | {user: {login: "alice"}, body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
 t_protolab
 t_eq "$t_rc" 0
 t_eq "$(files_of 8)" "./proto.html "
@@ -794,7 +855,7 @@ t_protolab
 t_contains "$t_out" "#62: 1 files"
 t_lacks "$(t_calls gh)" "api user"
 t_eq "$(cat "$T/calls/curl-headers")" "Authorization: Bearer app-token"
-issues "$(issue 62 'By setting' 'no files' OWNER 0 2026-10-09T14:00:00Z)"
+issues "$(issue 62 'By setting' 'no files' alice 0 2026-10-09T14:00:00Z)"
 labeled 62 'tehas-app-bot[bot]'
 t_protolab
 t_contains "$t_out" "#62: tehas:prototype was applied by 'tehas-app-bot[bot]', not an allowed account"

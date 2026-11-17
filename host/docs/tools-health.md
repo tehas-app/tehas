@@ -257,7 +257,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
 | `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
-| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
+| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot, or the sandbox cannot push (`checks.pushFault`) and the factory is not paused | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the time its lists
 were read (`queueAt`, or the snapshot's time when it has none, whichever is
@@ -368,6 +368,12 @@ answer: `installed` is whether `~/tehas/libexec/tehas-mcp` is there, and
 bounded at 2 s. A refused connection, no answer in time, or any other status,
 such as a proxy's 502, is `answers: false`, and the status is `warn`. A run
 of `console health report` that is given no `--mcp` leaves it `null`.
+
+`checks.pushFault` is `state/push-fault.json`, left out when there is none:
+`{at, login, line}`, each a string or `null`. A start whose push check was
+refused writes it, and the poll holds new cycles while it stands (see
+[the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)). `output`
+then says `The sandbox cannot push: <line> (<login>).`
 
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and

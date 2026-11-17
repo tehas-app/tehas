@@ -13,9 +13,7 @@ use std::sync::LazyLock;
 use tehas_core::mask::mask;
 use tehas_core::question::park_sig;
 
-/// The outcomes of a run that stopped for a person: the ones a park comment
-/// follows, from the core's vocabulary.
-pub const STOPS: [&str; 4] = tehas_core::outcome::STOPS;
+use tehas_core::outcome::{OUTCOMES, STOPS};
 /// The largest issue number: the most digits a session id holds.
 const ISSUE_MAX: u64 = 999_999_999;
 /// A larger result log is not read. A real one is some kilobytes.
@@ -50,6 +48,7 @@ pub fn tool() -> Value {
             "started": text("When it started, UTC."),
             "ended": text("When it ended, UTC."),
             "latest": flag("True when no later work run of the issue is in the window."),
+            "latestOutcome": {"type": "string", "enum": OUTCOMES, "description": "When latest is false: the outcome of the issue's newest work run, such as stopped for one interrupted or whose issue closed under it. Left out when that run recorded no outcome word."},
             "outcome": {"type": "string", "enum": STOPS, "description": "How it ended: handoff, parked, failed or refused."},
             "status": text("The status word the cycle ended with."),
             "exitCode": int("The exit status of the cycle."),
@@ -193,6 +192,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let issue = issue_arg(args)?;
     let snap = Snapshot::open(&dirs.sessions, tools::now())?;
     let mut latest = true;
+    let mut newest: Option<String> = None;
     let mut stop = None;
     for s in snap.sessions() {
         if s["issue"].as_u64() != Some(issue) || s["kind"] != "work" {
@@ -201,6 +201,12 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         if s["outcome"].as_str().is_some_and(|o| STOPS.contains(&o)) {
             stop = Some(s);
             break;
+        }
+        if latest {
+            newest = s["outcome"]
+                .as_str()
+                .filter(|o| OUTCOMES.contains(o))
+                .map(str::to_string);
         }
         latest = false;
     }
@@ -229,6 +235,9 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     out.insert("stale".into(), json!(snap.stale));
     out.insert("issue".into(), json!(issue));
     out.insert("latest".into(), json!(latest));
+    if let Some(o) = newest {
+        out.insert("latestOutcome".into(), json!(o));
+    }
     for (from, to) in [
         ("id", "id"),
         ("started", "started"),
