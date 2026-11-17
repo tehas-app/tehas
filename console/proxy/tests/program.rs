@@ -149,7 +149,7 @@ fn on_it_answers_on_its_port_and_its_control_socket_at_once() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let said = String::from_utf8_lossy(&out.stdout);
-    let token_file = dir.path().join("tehas/state/outsource/jobs/7/job-token");
+    let token_file = dir.path().join("tehas/state/outsource/jobs/7/model-token");
     assert_eq!(said.trim(), token_file.to_string_lossy());
     let token = std::fs::read_to_string(&token_file).unwrap();
     assert!(!said.contains(token.trim()));

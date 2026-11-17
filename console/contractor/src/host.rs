@@ -171,8 +171,9 @@ fn env_line(name: &str, value: &str) -> String {
     format!("{name}='{}'\n", value.replace('\'', "'\\''"))
 }
 
-/// The instance file of a job: its settings, and the job's token under the
-/// name each provider's models.json entry reads its key from.
+/// The instance file of a job: its settings, and the job's model token under
+/// the name each provider's models.json entry reads its key from. The job
+/// token is never written here: the container gets the model scope only.
 pub fn instance_env(job: &Job) -> String {
     let mut text = String::new();
     for (name, value) in &job.settings {
@@ -184,7 +185,7 @@ pub fn instance_env(job: &Job) -> String {
         for name in providers.keys() {
             text.push_str(&env_line(
                 &tehas_core::models::proxy_key_name(name),
-                &job.token,
+                &job.model_token,
             ));
         }
     }
@@ -650,7 +651,7 @@ mod tests {
             assert!(why.contains("never beside a factory"), "{marker}: {why}");
             let host = host_in(&d, String::new());
             let job = Job::of(&json!({
-                "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "t",
+                "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "t", "model_token": "m",
                 "settings": { "TEHAS_REPO": "acme/widget" }
             }))
             .unwrap();
@@ -759,7 +760,7 @@ mod tests {
         fs::create_dir_all(p.token_dir()).unwrap();
         fs::write(p.token_dir().join("token"), "t\n").unwrap();
         let job = Job::of(&json!({
-            "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "t",
+            "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "t", "model_token": "m",
             "settings": { "TEHAS_REPO": "acme/widget" }
         }))
         .unwrap();
@@ -787,9 +788,9 @@ mod tests {
     }
 
     #[test]
-    fn a_job_s_instance_file_holds_its_settings_and_its_token_under_each_provider() {
+    fn a_job_s_instance_file_holds_its_settings_and_its_model_token_under_each_provider() {
         let job = Job::of(&json!({
-            "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "tok",
+            "job": 1, "issue": 7, "attempt": 1, "timeout": 60, "token": "tok", "model_token": "mtok",
             "settings": { "TEHAS_ALLOWED_LABELERS": "alice bob", "TEHAS_REPO": "acme/it's" },
             "models": { "providers": { "main-gw": {}, "other": {} } }
         }))
@@ -797,8 +798,10 @@ mod tests {
         let text = instance_env(&job);
         assert!(text.contains("TEHAS_ALLOWED_LABELERS='alice bob'\n"));
         assert!(text.contains("TEHAS_REPO='acme/it'\\''s'\n"));
-        assert!(text.contains("PI_ENSEMBLE_API_KEY_MAIN_GW='tok'\n"));
-        assert!(text.contains("PI_ENSEMBLE_API_KEY_OTHER='tok'\n"));
+        assert!(text.contains("PI_ENSEMBLE_API_KEY_MAIN_GW='mtok'\n"));
+        assert!(text.contains("PI_ENSEMBLE_API_KEY_OTHER='mtok'\n"));
+        // The job token is the contractor program's and never the container's.
+        assert!(!text.contains("'tok'"), "{text}");
     }
 
     #[test]
