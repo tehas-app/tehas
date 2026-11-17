@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 pub mod load;
+pub mod renamed;
 pub mod rules;
 
 /// The settings an instance has to set itself, because nothing here can give

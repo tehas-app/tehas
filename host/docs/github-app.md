@@ -136,8 +136,9 @@ are refused: any command stops with exit 78 and says
 `<NAME> is no longer used: the factory acts as a GitHub App.` Take them out,
 make or give the app as above, and run any command again.
 `TEHAS_GITHUB_APP_INSTALLATION`, `TEHAS_BOT_LOGIN` and
-`TEHAS_MILLWRIGHT_LOGIN` in `instance.env` print one warning each and are
-ignored once `~/tehas/state/github/login` exists; take them out too.
+`TEHAS_MILLWRIGHT_LOGIN` are not settings: the installation is looked up and
+both logins are the one in `~/tehas/state/github/login`. Since tehas 1.0 a
+line that sets one stops every command with exit 78; take them out too.
 `tehas setup --token-file` is refused, and `--app-installation` is ignored.
 
 ## What tehas does with it

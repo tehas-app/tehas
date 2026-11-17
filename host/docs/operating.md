@@ -2041,8 +2041,9 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   from the bot counts only within the grant below, and never as a person's
   approval. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the settings
   stops with 78. Before the app's login is known there is no millwright, and
-  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
-  `instance.env` prints a warning and is ignored. The approval record names
+  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` is
+  not a setting: a line in `instance.env` stops every command with 78. The
+  approval record names
   the millwright without `[bot]`.
 - **Or a second app.** `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env`
   makes that app the millwright in place of the factory's own. The factory

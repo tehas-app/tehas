@@ -226,8 +226,8 @@ printf '#!/usr/bin/env bash\nexec %q tidy run\n' "$T_CONSOLE" >"$T/real-tidy"
 # shellcheck disable=SC2016  # expanded when the command runs
 printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/../bin/tehasbot" status\n' >"$T/health-tree/libexec/status"
 chmod +x "$T/real-tidy" "$T/health-tree/libexec/status"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_GITHUB_APP_ID=5452597 \
-  TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_GITHUB_APP_ID=5452597
+printf 'tehas-app-bot[bot]\n' >"$home/state/github/login"
 T_ENV+=(TEHAS_TIDY_CMD="$T/real-tidy" TEHAS_STATUS_CMD="$T/health-tree/libexec/status")
 # The shim first on PATH, as host/env.sh puts it.
 t_run "PATH=$home/shim:\$PATH; $rpoll"
@@ -254,7 +254,7 @@ t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
 # its calls to be recorded at all.
 analytics_stub() { # [<bash body>]
   t_stub_analytics "${1:-}"
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_ANALYTICS=on
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ANALYTICS=on
 }
 
 t_case "a poll that starts nothing runs no analytics, and a poll that starts one samples it and prunes nothing"

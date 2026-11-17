@@ -440,7 +440,7 @@ for v in TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
   printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "${v%%=*} is no longer read: this version of tehas has no improvement loop, so take the line out"
+  t_contains "$t_out" "${v%%=*} is no longer read: the improvement loop is removed, so take the line out"
 done
 
 t_case "a blank setting of the gone loop or report, and a skip of 0, load as if left out"
@@ -522,7 +522,7 @@ for bad in "TEHAS_EASY_MERGE=1" "TEHAS_EASY_MERGE=yes"; do
   printf '%s\n' "${T_MINIMAL[@]}" "$bad" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: TEHAS_EASY_MERGE is no longer read: this version of tehas has no easy merge"
+  t_contains "$t_out" "tehas: TEHAS_EASY_MERGE is no longer read: the easy merge is removed"
 done
 
 t_case "the overlap hold is gone: its setting is refused unless blank, and says what holds an issue instead"
@@ -648,13 +648,18 @@ for bad in "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" 
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-t_case "obsolete app settings warn once each, and the app's login file gives the bot and the millwright their login"
+t_case "the app's login file gives the bot and the millwright their login, and the old app settings stop the load"
 mkdir -p "$T/home/tehas/state/github"
 printf '%s\n' 'new-app[bot]' >"$T/home/tehas/state/github/login"
-t_instance "${T_MINIMAL[@]}" TEHAS_GITHUB_APP_INSTALLATION=2 'TEHAS_BOT_LOGIN=old[bot]' 'TEHAS_MILLWRIGHT_LOGIN=mw[bot]'
-t_run "$load 2>&1 >/dev/null | grep -c 'is no longer used'; $load 2>/dev/null; echo \"[\$TEHAS_BOT_LOGIN][\$TEHAS_MILLWRIGHT_LOGIN]\""
-t_contains "$t_out" "3"
-t_contains "$t_out" "[new-app[bot]][new-app[bot]]"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load; echo \"[\$TEHAS_BOT_LOGIN][\$TEHAS_MILLWRIGHT_LOGIN]\""
+t_eq "$t_out" "[new-app[bot]][new-app[bot]]"
+for line in TEHAS_GITHUB_APP_INSTALLATION=2 'TEHAS_BOT_LOGIN=old[bot]' 'TEHAS_MILLWRIGHT_LOGIN=mw[bot]'; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "tehas: ${line%%=*} is no longer read: "
+  t_contains "$t_out" "rc=78"
+done
 rm -rf "$T/home/tehas/state/github"
 
 t_case "GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN stop the load, and so does GH_TOKEN in the factory's credential file"
@@ -687,11 +692,15 @@ t_instance "${T_MINIMAL[@]}"
 t_case "an old fixer name stops the load with 78 and names the new one"
 for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
   t_case "loading rejects $old"
-  printf '%s\n' "${T_MINIMAL[@]}" "$old" TEHAS_MILLWRIGHT_LOGIN=tehas-mill >"$TEHAS_INSTANCE_DIR/instance.env"
+  printf '%s\n' "${T_MINIMAL[@]}" "$old" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   name=${old%%=*}
-  t_contains "$t_out" "$name is no longer read: rename it TEHAS_MILLWRIGHT_${name#TEHAS_FIXER_}"
+  if [ "$name" = TEHAS_FIXER_LOGIN ]; then
+    t_contains "$t_out" "$name is no longer read: the millwright is the GitHub App's login"
+  else
+    t_contains "$t_out" "$name is no longer read: rename it TEHAS_MILLWRIGHT_${name#TEHAS_FIXER_}"
+  fi
 done
 
 t_case "analytics is off unless the instance names a script and a site"
@@ -1753,7 +1762,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "759e57476c477bd411c37eae33098e2644f32acd9c352cb1709e4d7dcdfce9a0"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "6950b0a9ad2fe2a6547b9a85507369c4d0673d3b49b2564f1cf4650c9059182c"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

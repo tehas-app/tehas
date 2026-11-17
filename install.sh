@@ -840,7 +840,7 @@ if [ -z "$steps_console" ]; then
 fi
 
 # --- 2c. The ids of the accounts that may authorise work ----------------------
-# Each login of TEHAS_ALLOWED_LABELERS and TEHAS_MILLWRIGHT_LOGIN, and its
+# Each login of TEHAS_ALLOWED_LABELERS and the millwright's, and its
 # GitHub user id, in state/account-ids: a label, tick, answer or comment counts
 # only from the recorded pair (console/ops/src/ids.rs). A login that does not
 # resolve, or whose id changed, stops the run before the first copy.
