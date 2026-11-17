@@ -261,16 +261,16 @@ pub struct Refused {
     /// The sentences of the park.
     pub said: String,
     /// A few words of why, for the factory's line.
-    pub short: &'static str,
+    pub short: String,
     /// Tehas passed what the driver never takes.
     pub fault: bool,
 }
 
 impl Refused {
-    fn of(said: String, short: &'static str) -> Refused {
+    fn of(said: String, short: &str) -> Refused {
         Refused {
             said,
-            short,
+            short: short.to_string(),
             fault: false,
         }
     }
@@ -292,6 +292,29 @@ pub fn refused_said(text: &str) -> Option<Refused> {
                 "the sandbox image gave no capabilities answer",
             )
         });
+    }
+    if let Some(rc) = first.strip_prefix("install-failed ") {
+        return install_said(rc, lines.next());
+    }
+    if first == "install-lacks" {
+        let tools: Vec<String> = lines
+            .filter(|l| {
+                !l.is_empty()
+                    && l.len() <= 40
+                    && l.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            })
+            .take(10)
+            .map(|l| format!("`{l}`"))
+            .collect();
+        if tools.is_empty() {
+            return None;
+        }
+        let tools = tools.join(", ");
+        return Some(Refused::of(
+            "Rebuild the sandbox image with it, then retry.".into(),
+            &format!("the product's install failed: the sandbox image has no {tools}"),
+        ));
     }
     if first != "caps-lacking" {
         return None;
@@ -335,8 +358,54 @@ pub fn refused_said(text: &str) -> Option<Refused> {
             "tehas passed a flag the driver never takes"
         } else {
             "the sandbox image lacks what it was given"
-        },
+        }
+        .to_string(),
         fault,
+    })
+}
+
+/// The words of an `install-failed <rc>` note, with Docker's refusal of the
+/// CPU quota when its second line is `docker-cpus <asked> <counted>`.
+fn install_said(rc: &str, cpus: Option<&str>) -> Option<Refused> {
+    let digits = |w: &str| !w.is_empty() && w.len() <= 3 && w.bytes().all(|b| b.is_ascii_digit());
+    if !digits(rc) {
+        return None;
+    }
+    let refused = cpus
+        .and_then(|l| l.strip_prefix("docker-cpus "))
+        .and_then(|l| l.split_once(' '))
+        .filter(|(asked, counted)| {
+            asked
+                .split_once('.')
+                .is_some_and(|(a, b)| digits(a) && b.len() == 2 && digits(b))
+                && digits(counted)
+        });
+    Some(match refused {
+        Some((asked, counted)) => Refused::of(
+            "The Docker daemon counts the CPUs the host had when it started: restart it on the host, then retry.".into(),
+            &format!("the product's install failed: docker refused --cpus {asked}, it counts {counted} CPUs"),
+        ),
+        None if matches!(rc, "124" | "137") => Refused::of(
+            "The run log on the host holds what it printed.".into(),
+            &format!("the product's install did not end within {}s", install::WAIT),
+        ),
+        None => Refused::of(
+            "The run log on the host holds its last lines.".into(),
+            &format!("the product's install failed (exit {rc})"),
+        ),
+    })
+}
+
+/// The CPUs Docker said it counts when it refused a container's `--cpus`:
+/// "range of CPUs is from 0.01 to 16.00, as there are only 16 CPUs available".
+fn docker_counted(said: &str) -> Option<u64> {
+    said.lines().find_map(|l| {
+        let (_, rest) = l.split_once("as there are only ")?;
+        let n = rest.strip_prefix(char::is_whitespace).unwrap_or(rest);
+        let (n, tail) = n.split_once(' ')?;
+        tail.starts_with("CPUs available")
+            .then(|| n.parse().ok())
+            .flatten()
     })
 }
 
@@ -764,7 +833,14 @@ fn git_out(tree: &str, args: &[&str]) -> String {
 /// The product's dependencies, installed in the workspace in the sandbox
 /// before the cycle starts, so a worktree pi-rukas makes there finds them in
 /// its main checkout. None when they were; else the status to exit with.
-fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Option<i32> {
+/// A failure leaves its cause in `note` for the park.
+fn install(
+    state: &Value,
+    tree: &str,
+    steps: &[Step],
+    preflight: &Path,
+    note: &Path,
+) -> Option<i32> {
     let words = sandbox::install_run(
         &[list(state, "limits"), list(state, "security")].concat(),
         &sandbox::user(),
@@ -810,6 +886,7 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
     let text = String::from_utf8_lossy(own);
     let lacking = install::missing(&text);
     if rc == install::MISSING && !lacking.is_empty() {
+        let _ = fs::write(note, format!("install-lacks\n{}\n", lacking.join("\n")));
         for tool in lacking {
             say(&format!(
                 "tehas work: no {tool} in the sandbox image, which the product's install needs; not starting a cycle"
@@ -821,6 +898,13 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
         let line = format!("the install did not end within {}s", install::WAIT);
         to_preflight(preflight, &line);
     }
+    let mut cause = format!("install-failed {rc}\n");
+    let limits = list(state, "limits");
+    let asked = limits.windows(2).find(|w| w[0] == "--cpus").map(|w| &w[1]);
+    if let (Some(asked), Some(counted)) = (asked, docker_counted(&text)) {
+        cause.push_str(&format!("docker-cpus {asked} {counted}\n"));
+    }
+    let _ = fs::write(note, cause);
     say(&format!(
         "tehas work: the product's install failed (exit {rc}), not starting a cycle:"
     ));
@@ -1200,7 +1284,8 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
-        if let Some(rc) = install(&state, &tree, &steps, &preflight) {
+        let note = home.join(format!("state/cycles/{}.refused", t.issue));
+        if let Some(rc) = install(&state, &tree, &steps, &preflight, &note) {
             return rc;
         }
     }
@@ -1761,9 +1846,56 @@ mod tests {
             command: "bun install --frozen-lockfile".into(),
         };
         assert_eq!(
-            install(&json!({}), "no-such-tree", &[step], &preflight),
+            install(
+                &json!({}),
+                "no-such-tree",
+                &[step],
+                &preflight,
+                &d.join("7.refused")
+            ),
             Some(78)
         );
+    }
+
+    /// Docker's refusal of a quota above the CPUs its daemon counts is read
+    /// for that count, and nothing else is.
+    #[test]
+    fn the_cpus_docker_counts_are_read_off_its_refusal() {
+        let said = "install extension/\ndocker: Error response from daemon: range of CPUs is from 0.01 to 16.00, as there are only 16 CPUs available\nRun 'docker run --help' for more information\n";
+        assert_eq!(docker_counted(said), Some(16));
+        for said in [
+            "",
+            "error: lockfile had changes",
+            "as there are only many CPUs available",
+            "as there are only 16 cores available",
+        ] {
+            assert_eq!(docker_counted(said), None, "{said:?}");
+        }
+    }
+
+    #[test]
+    fn an_install_note_is_said_in_a_few_words() {
+        let r = refused_said("install-failed 125\ndocker-cpus 47.00 16\n").unwrap();
+        assert_eq!(
+            r.short,
+            "the product's install failed: docker refused --cpus 47.00, it counts 16 CPUs"
+        );
+        assert!(r.said.contains("restart it on the host"), "{}", r.said);
+        assert_eq!(
+            refused_said("install-failed 1\n").unwrap().short,
+            "the product's install failed (exit 1)"
+        );
+        assert_eq!(
+            refused_said("install-lacks\nbun\nuv\n").unwrap().short,
+            "the product's install failed: the sandbox image has no `bun`, `uv`"
+        );
+        for bad in [
+            "install-failed \n",
+            "install-failed 1234\n",
+            "install-lacks\n\n",
+        ] {
+            assert_eq!(refused_said(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

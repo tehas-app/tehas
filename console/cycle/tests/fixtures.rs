@@ -319,7 +319,11 @@ fn another_78_on_a_lean_start_is_a_cycle_that_stopped() {
     let (end, said) = refused(78, false);
     assert!(!end.contains(&"--never-ran".to_string()), "{end:?}");
     assert!(said.contains("stopped without a pull request"), "{said}");
-    assert!(!said.contains("lean"), "{said}");
+    assert!(
+        said.contains("before its runner ran (exit 78), driver `lean`"),
+        "{said}"
+    );
+    assert!(!said.contains("tehas:lean"), "{said}");
 }
 
 /// The park of the classic 78 of tests/fixtures/park.json, with the note
@@ -424,7 +428,10 @@ fn check_refused(note: Option<&str>, lean: bool) -> (Vec<String>, String) {
 #[test]
 fn a_start_the_check_refused_names_its_cause_in_its_park() {
     let (args, none) = check_refused(None, false);
-    assert!(!none.contains("refused this start"), "{none}");
+    assert!(
+        none.contains("tehas work stopped it before its runner ran (exit 78), driver `classic`, 0 min: a step of `tehas work` failed, and the run log on the host says which."),
+        "{none}"
+    );
     for (note, words) in [
         (
             "caps-unreadable 127\n",
@@ -435,19 +442,40 @@ fn a_start_the_check_refused_names_its_cause_in_its_park() {
             "does not support what this cycle is given: `the input PI_ENSEMBLE_SUBAGENT_MODEL`.",
         ),
         ("tree-not-ours\n", "exists and was not made by tehas"),
+        (
+            "install-failed 1\n",
+            "0 min: the product's install failed (exit 1). The run log on the host holds its last lines.",
+        ),
+        (
+            "install-failed 124\n",
+            "0 min: the product's install did not end within 1800s. The run log",
+        ),
+        (
+            "install-lacks\nbun\n",
+            "0 min: the product's install failed: the sandbox image has no `bun`. Rebuild the sandbox image with it, then retry.",
+        ),
     ] {
         let (a, body) = check_refused(Some(note), false);
         assert_eq!(a, args, "the park's reasons stay as they were");
         assert!(body.contains("stopped without a pull request"), "{body}");
         assert!(
-            body.contains("Tehas work refused this start before anything ran."),
+            body.contains("tehas work stopped it before its runner ran (exit 78), driver `classic`"),
             "{body}"
         );
         assert!(body.contains(words), "{note:?}: {body}");
     }
-    // A note that is not one says nothing.
-    let (_, body) = check_refused(Some("caps-unreadable x\n"), false);
-    assert!(!body.contains("refused this start"), "{body}");
+    // A note that is not one says nothing of its own.
+    for bad in [
+        "caps-unreadable x\n",
+        "install-failed x\n",
+        "install-lacks\nb un\n",
+    ] {
+        let (_, body) = check_refused(Some(bad), false);
+        assert!(
+            body.contains("a step of `tehas work` failed, and the run log on the host says which."),
+            "{bad:?}: {body}"
+        );
+    }
 
     let (_, lean) = check_refused(None, true);
     assert!(
@@ -462,6 +490,28 @@ fn a_start_the_check_refused_names_its_cause_in_its_park() {
         "{lean}"
     );
     assert!(!lean.contains("The log names"), "{lean}");
+}
+
+/// An install Docker refused for a CPU quota above what its daemon counts
+/// says so in a few words, with the driver, and what to do: restart Docker.
+#[test]
+fn an_install_docker_refused_for_its_cpus_names_both_numbers_in_its_park() {
+    let (_, body) = check_refused(Some("install-failed 125\ndocker-cpus 47.00 16\n"), false);
+    assert!(
+        body.contains("tehas work stopped it before its runner ran (exit 78), driver `classic`, 0 min: the product's install failed: docker refused --cpus 47.00, it counts 16 CPUs."),
+        "{body}"
+    );
+    assert!(
+        body.contains("16 CPUs. The Docker daemon counts the CPUs the host had when it started: restart it on the host, then retry."),
+        "{body}"
+    );
+    // A second line that is not the two numbers is left out.
+    let (_, body) = check_refused(Some("install-failed 125\ndocker-cpus 47 16x\n"), false);
+    assert!(
+        body.contains("0 min: the product's install failed (exit 125)."),
+        "{body}"
+    );
+    assert!(!body.contains("docker refused"), "{body}");
 }
 
 /// A flag tehas passed that `work-lean` never takes is said as a fault of

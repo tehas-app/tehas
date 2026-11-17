@@ -763,6 +763,8 @@ t_eq "$(install_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside
 t_eq "$(install_args | awk 'prev == "-w" { print } { prev = $0 }')" "$inside"
 t_eq "$(install_args | awk 'prev == "-e" { print } { prev = $0 }')" "HOME=/home/vscode"
 t_lacks "$(install_args)" "GH_TOKEN"
+# The cycle's CPU quota too, which Docker refuses above what its daemon counts.
+t_eq "$(install_args | awk 'prev == "--cpus" { print } { prev = $0 }')" "15.00"
 t_contains "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.preflight)" "install extension/: bun install --frozen-lockfile"
 
 t_case "an install that fails starts no cycle: 78, with what it said"
@@ -773,6 +775,19 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "the product's install failed (exit 1), not starting a cycle"
 t_contains "$t_out" "error: lockfile had changes"
 t_eq "$(cycle_args)" ""
+# The park reads why from the note: the run log is on the host only.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "install-failed 1"
+
+t_case "an install Docker refused for its CPUs leaves both numbers for the park"
+caps_fresh
+rm -f "$T/home/tehas/state/cycles/7.refused"
+T_ENV=("${env_ok[@]}" INSTALL_RC=125 "INSTALL_SAYS=docker: Error response from daemon: range of CPUs is from 0.01 to 8.00, as there are only 8 CPUs available")
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "install-failed 125
+docker-cpus 15.00 8"
+t_eq "$(cycle_args)" ""
+rm -f "$T/home/tehas/state/cycles/7.refused"
 
 t_case "a silent install that fails shows none of the log's earlier lines as its own"
 caps_fresh
@@ -790,6 +805,9 @@ t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehas work: no bun in the sandbox image, which the product's install needs; not starting a cycle"
 t_lacks "$t_out" "install failed"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "install-lacks
+bun"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 t_eq "$(cycle_args)" ""
 T_ENV=("${env_ok[@]}")
 
