@@ -2072,9 +2072,11 @@ mod tests {
                 r#"{"v":1,"cycles":1,"plan":true,"note":{"cycles":9}}"#,
                 r#"{"state":"ok","cycles":1,"plan":true}"#,
             ),
+            (r#"{"v":1.0,"cycles":01,"plan":true}"#, unreadable),
+            (r#"{"v":1,"cycles":1.0,"plan":true}"#, unreadable),
             (
-                r#"{"v":1.0,"cycles":01,"plan":true}"#,
-                r#"{"state":"ok","cycles":1.0,"plan":true}"#,
+                r#"{"v":1.0,"cycles":1,"plan":true}"#,
+                r#"{"state":"ok","cycles":1,"plan":true}"#,
             ),
         ];
         let value = |text: &str| serde_json::from_str::<Value>(text).unwrap();

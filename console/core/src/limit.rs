@@ -208,12 +208,16 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
         Some(value) => value,
         None => return Limit::of("unreadable"),
     };
-    // The number is there, at least 0, and whole. A number over what tehas
-    // limit writes is still a limit and is read as one, because a reader
-    // which refused it would hold every start.
-    match leading_number(cycles).and_then(|n| n.parse::<f64>().ok()) {
-        Some(f) if f >= 0.0 && f.is_finite() && f == f.trunc() => {}
-        _ => return Limit::of("unreadable"),
+    // Plain digits, no leading zero, and a number the dispatcher can hold:
+    // it reads the field as an integer, and `1.0` or `01` would read there
+    // as no number, which it would take for 0 cycles while this said ok. A
+    // number over what tehas limit writes is still a limit.
+    let whole = !cycles.is_empty()
+        && cycles.bytes().all(|b| b.is_ascii_digit())
+        && (cycles == "0" || !cycles.starts_with('0'))
+        && cycles.parse::<i64>().is_ok();
+    if !whole {
+        return Limit::of("unreadable");
     }
     match held("plan") {
         Some("true") | Some("false") => {}
@@ -536,16 +540,40 @@ mod tests {
 
     #[test]
     fn the_reading_is_always_json() {
-        for (cycles, printed) in [("01", "1.0"), ("1.", "1.0"), ("1", "1"), ("-0", "-0")] {
+        for cycles in ["0", "1", "12", "9223372036854775807"] {
             let l = parse(
                 format!(r#"{{"v":1,"cycles":{cycles},"plan":true}}"#).as_bytes(),
                 NOW,
             );
             assert_eq!(l.state, "ok", "{cycles}");
-            assert_eq!(l.fields[0], ("cycles".into(), printed.into()), "{cycles}");
-            assert!(serde_json::from_str::<Value>(&l.json()).is_ok(), "{cycles}");
+            assert_eq!(l.fields[0], ("cycles".into(), cycles.into()), "{cycles}");
+            let read: Value = serde_json::from_str(&l.json()).unwrap();
+            assert!(read["cycles"].as_i64().is_some(), "{cycles}");
         }
-        assert_eq!(state(r#"{"v":1,"cycles":1e999,"plan":true}"#), "unreadable");
+    }
+
+    #[test]
+    fn cycles_are_a_whole_number_every_reader_reads_as_one() {
+        // The dispatcher reads the field as an integer: a number it would
+        // read as none is no limit, not a limit of 0 cycles.
+        for cycles in [
+            "01",
+            "1.",
+            "1.0",
+            "-0",
+            "+1",
+            "1e2",
+            "1e999",
+            "-1",
+            "1.5",
+            "9223372036854775808",
+        ] {
+            assert_eq!(
+                state(&format!(r#"{{"v":1,"cycles":{cycles},"plan":true}}"#)),
+                "unreadable",
+                "{cycles}"
+            );
+        }
     }
 
     #[test]

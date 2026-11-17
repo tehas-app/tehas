@@ -305,7 +305,9 @@ and `state`.
   turn or answer. `tehas status` warns and says why. A file
   that cannot be read never counts as no limit. The poll still cleans up.
 - **One reading.** `tehas status`, the dispatcher and the health page read the
-  file the same way. A file that names a key twice is `unreadable`.
+  file the same way. A file that names a key twice is `unreadable`, and so is
+  one whose `cycles` is not plain digits: `1.0`, `01` or `1e2` in a file
+  repaired by hand is `unreadable`, never a limit of 0.
 - **Running cycles are never stopped.** A lower limit only holds new starts.
 - **Pause is separate.** A paused factory stays paused under any limit.
 - `set` replaces the whole limit. The same arguments twice leave the same
