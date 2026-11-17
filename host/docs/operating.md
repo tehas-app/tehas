@@ -2416,17 +2416,20 @@ settings. The steps:
 1. **Be on 0.30.** 1.0 migrates a store that v0.30.0 or later wrote. A host on
    an older release runs `tehas update --to v0.30.6` first; 1.0 refuses an
    older store with exit 78 and installs nothing.
-2. **Check.** Run `tehas update --check` and fix every line it lists. Each line
-   names a setting the instance still sets and its new name, or why it went.
-   While one is left, `tehas update` and `tehas update --check` exit 78 and
-   install nothing. Run the check again until it lists none.
+2. **Edit the settings.** Change `instance.env` and `~/.config/tehas/env`
+   from the tables below, or from the 1.0 Adopter action that
+   `tehas update --check` prints. On 0.30.x, `--check` is 0.30's own check: it
+   prints the release notes and the version it would switch to, and lists no
+   setting.
 3. **Drain.** Run `tehas drain --wait 3600` and wait for it to say no cycle
-   runs. It exits 3 when cycles still run at the end of the wait: wait, and run
-   it again. This update changes the store's schema and the settings a running
-   cycle reads, so it is the one update that asks for a drain.
+   runs. On 0.30.x it exits 1 when cycles still run at the end of the wait (3
+   from 1.0 on): wait, and run it again. This update changes the store's schema
+   and the settings a running cycle reads, so it is the one update that asks
+   for a drain.
 4. **Update.** Run `tehas update`. It asks 1.0's settings check before it
-   switches `~/tehas/current`, so an instance with a line still to fix stops
-   with 78 and nothing switched.
+   switches `~/tehas/current`. While a line is left to fix, it stops with 78,
+   names the first such line and switches nothing: fix it and run it again.
+   From 1.0 on, `tehas update --check` lists every such line at once.
 5. **Labels.** Run `tehas labels`: it makes and pins `tehas:classic` and gives
    `tehas:improvement` its new description.
 6. **Start.** Run `tehas limit clear`.
@@ -2449,7 +2452,7 @@ In `~/.config/tehas/env`, the program that manages the factory writes
 ignored, not refused.
 
 **Settings removed.** Take these lines out of `instance.env`. Set to a value,
-each stops every command with 78:
+most stop every command with 78; the exceptions are noted:
 
 - `TEHAS_IMPROVE_REPO`, `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP`,
   `TEHAS_IMPROVE_MAX_OPEN`: the improvement loop is removed. The update removes
@@ -2471,6 +2474,8 @@ each stops every command with 78:
 
 **Settings that changed.**
 
+- `TEHAS_DRIVER=lean` stops every command with 78: the lean driver is still
+  being built. Take the line out or set it to `classic` before updating.
 - `TEHAS_ENERGY` in `~/.config/tehas/env` takes `on`, `off`, `1` or `0` like
   every switch. Any other word stops every command with 78.
 - `TEHAS_RELEASE_REPO`: an instance that names a repository whose releases are
@@ -2482,7 +2487,10 @@ each stops every command with 78:
   update and names `PI_ENSEMBLE_HOST_ALIASES`, `TEHAS_WORK_REPO`,
   `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, `TEHAS_UPDATE_LOCK_WAIT`, a
   `TEHAS_MODEL_KEY_<NAME>` or an MCP setting, fix that line as the message
-  says.
+  says. `tehas disk` and `tehas setup` refuse a value in a settings file that
+  holds a `$` or a backtick outside single quotes.
+- A limit file whose `cycles` is not plain digits, such as `1.0` or `01`, reads
+  as `unreadable`. Step 6's `tehas limit clear` rewrites it.
 
 **Labels.**
 
@@ -2490,8 +2498,9 @@ each stops every command with 78:
 - `tehas:improvement` stays, described as filed by the factory.
 - `tehas:classic` is new; `tehas labels` makes it.
 - `tehas:lean` starts nothing while the lean driver is still being built: the
-  poll takes it off and says why. Take it off any issue that should run on
-  classic.
+  poll takes off the label that asked for the start and says why once.
+  `tehas:lean` stays on until you take it off; take it off any issue that
+  should run on classic.
 
 **Command forms.** Change scripts and notes that call the old forms:
 
@@ -2528,7 +2537,8 @@ reads the new names. Each one is a row of kind `field`, `value` or `word` of
   `fixer-grant`, `store-copy`, `refresh-pr-starts`, `refresh-pr-lane`,
   `refresh-pr-json` and `host-message-health`.
 
-**Exit statuses.** Every public command now uses one scheme: 0 done, 1
+**Exit statuses.** Every public command now uses one scheme, with the
+exceptions [the contract](/contract#exit-statuses) names: 0 done, 1
 failed, 3 the command worked and the answer is no or not yet, 64 a bad
 argument, 78 settings missing or malformed or a feature that is off, 141
 standard output closed. A script that reads the old numbers reads:
