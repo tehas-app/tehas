@@ -1,5 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
+use crate::common;
+
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
@@ -27,7 +29,7 @@ fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
         logs: live.join("no-logs"),
     };
     match mcp::tools::call(&dirs, name, args)? {
-        Output::Json(v) => Ok(v),
+        Output::Json(v) => Ok(common::conforms(name, v)),
         other => panic!("{name} gave {other:?}"),
     }
 }

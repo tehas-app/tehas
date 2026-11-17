@@ -1,5 +1,7 @@
 // factory_log over a snapshot and a logs directory written by the tests.
 
+use crate::common;
+
 use flate2::read::GzDecoder;
 use mcp::keys::{parse_keys, Setting};
 use mcp::logs::{acquire, base64, masked, search, MATCHES_MAX, PLAIN_MAX, SEARCH_BYTES_MAX};
@@ -98,7 +100,7 @@ impl Env {
 
     fn plain(&self, args: Value) -> Value {
         match self.log(args) {
-            Ok(Output::Json(v)) => v,
+            Ok(Output::Json(v)) => common::conforms("factory_log", v),
             other => panic!("not plain: {other:?}"),
         }
     }
@@ -321,7 +323,7 @@ impl Search {
         let mut a = args;
         a["id"] = json!(id);
         match call(&self.dirs, "factory_log", &a) {
-            Ok(Output::Json(v)) => v,
+            Ok(Output::Json(v)) => common::conforms("factory_log", v),
             other => panic!("not plain: {other:?}"),
         }
     }
@@ -332,7 +334,7 @@ impl Search {
     // those fails when the answer is not the kind it asks for.
     fn asked(&self, args: Value) -> Result<Value, String> {
         match call(&self.dirs, "factory_search", &args) {
-            Ok(Output::Json(v)) => Ok(v),
+            Ok(Output::Json(v)) => Ok(common::conforms("factory_search", v)),
             Ok(other) => panic!("not JSON: {other:?}"),
             Err(ToolError::BadArgs(why)) => Err(why),
             Err(ToolError::File { file, why }) => Err(format!("{file} {why}")),
@@ -1885,7 +1887,7 @@ fn a_running_cycles_log_is_read_by_its_issue_or_its_id() {
     let id = format!("work-9-{t}");
 
     let read = |args: Value| match call(&env.dirs, "factory_log", &args) {
-        Ok(Output::Json(v)) => v,
+        Ok(Output::Json(v)) => common::conforms("factory_log", v),
         other => panic!("{args}: {other:?}"),
     };
     let fail = |args: Value| match call(&env.dirs, "factory_log", &args) {
