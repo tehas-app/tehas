@@ -73,9 +73,10 @@ The limits:
 - **Only a label from an allowed account** puts the ticket here, as said
   above: the most recent `tehas:prototype` labelling is by an account in
   `TEHAS_ALLOWED_LABELERS`.
-- **Only files attached by an owner, member or collaborator** of the
-  repository are taken. Links by anyone else are counted on the page and not
-  fetched.
+- **Only files linked by an allowed account** are taken: in text an account
+  in `TEHAS_ALLOWED_LABELERS` wrote and nobody off the list edited last, and
+  not on a quoted line. Links by anyone else, the bot included, are counted on
+  the page and not fetched.
 - An HTML prototype runs in the browser's sandbox, apart from the dashboard
   and from every other prototype. Scripts work; storage in the browser
   (`localStorage`, cookies) does not.
