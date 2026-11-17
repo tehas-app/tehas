@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Tests for tehas api: what this factory speaks, for a program to read first.
+# To write api/api.*.json again from the command after a change to it:
+#   TEHAS_SAMPLES_WRITE=1 test/api_test.sh
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+
+# Read before test/lib.sh is sourced, which sweeps TEHAS_ names from the
+# environment.
+samples_write=${TEHAS_SAMPLES_WRITE:-}
+
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -19,6 +26,17 @@ reset() {
 installed() { # <version.txt line>: what install.sh writes beside the pages
   mkdir -p "$T/home/tehas/docs"
   echo "$1" >"$T/home/tehas/docs/version.txt"
+}
+schema=$T_ROOT/api/api.schema.json
+fits() { # <json file>: the lines test/schema.jq prints for it, none when it fits
+  jq -r --slurpfile schema "$schema" -f "$T_ROOT/test/schema.jq" "$1"
+}
+fits_text() { # <json text>: fits for an object the command printed
+  printf '%s\n' "$1" >"$T/printed.json"
+  fits "$T/printed.json"
+}
+pinned_features() { # the words of api/features.txt as one JSON array
+  grep -v '^#' "$T_ROOT/api/features.txt" | jq -Rsc 'split("\n") | map(select(. != ""))'
 }
 
 t_case "api --json: the version, the release, the repository and the features"
@@ -64,12 +82,43 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
-manual=$(cat "$T_ROOT"/host/docs/*.md)
+# The guide to updating from 0.30.x names the old words to say what replaced
+# them; the rest of the manual names only the new ones.
+manual=$(awk '/^### Updating from 0\.30\.x to 1\.0$/ {skip = 1; next} skip && /^##/ {skip = 0} !skip' "$T_ROOT"/host/docs/*.md)
 for old in refresh-pr-starts refresh-pr-lane refresh-pr-json host-message-health '`store-copy`'; do
   t_lacks "$manual" "$old"
 done
 t_eq "$(jq -r 'has("refreshScan")' <<<"$t_out")" false
 t_eq "$(t_calls gh)$(t_calls git)" ""
+
+t_case "api --json: every word and field of 0.30 is still there or a row of the renames file"
+reset
+installed v0.8.0+cb6912a
+t_run "$api --json"
+t_eq "$t_rc" 0
+renames=$T_ROOT/api/renames-1.0.tsv
+# What v0.30.6, the last 0.30 release, printed: the base 1.0 updates from.
+for word in status millwright-grant fixer-grant all-hands limit drain history export \
+  refresh-conflicts analytics state-move mcp-dashboard-keys clean disk panels state-check \
+  finish status-versions store-copy state-load freeze host-bridge cycle-writes settings-rules \
+  start-order host-message refresh-pr host-message-health refresh-pr-starts refresh-pr-lane \
+  refresh-pr-sweep refresh-pr-json host-start; do
+  row=$(awk -F '\t' -v w="$word" '$1 == "word" && $2 == w' "$renames")
+  has=$(jq --arg w "$word" '.features | index($w) != null' <<<"$t_out")
+  t_eq "$word: $has $([ -n "$row" ] && echo row)" "$word: $([ -n "$row" ] && echo "false row" || echo "true ")"
+done
+for key in api tehas commit repo features millwright fixer refreshScan poll; do
+  row=$(awk -F '\t' -v k="api.$key" '$1 == "field" && $2 == k' "$renames")
+  has=$(jq --arg k "$key" 'has($k)' <<<"$t_out")
+  t_eq "$key: $has $([ -n "$row" ] && echo row)" "$key: $([ -n "$row" ] && echo "false row" || echo "true ")"
+done
+# A word or a field that took the old one's place is there.
+while read -r new; do
+  t_eq "$new: $(jq --arg w "$new" '.features | index($w) != null' <<<"$t_out")" "$new: true"
+done < <(awk -F '\t' '$1 == "word" && $3 != "" { print $3 }' "$renames")
+while read -r new; do
+  t_eq "$new: $(jq --arg k "$new" 'has($k)' <<<"$t_out")" "$new: true"
+done < <(awk -F '\t' '$1 == "field" && $3 ~ /^api\./ { print substr($3, 5) }' "$renames")
 
 t_case "api --json: flags names every registered feature, a building one off and not in features"
 reset
@@ -263,5 +312,77 @@ reset
 t_run "$api --jsn"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas api"
+
+t_case "api.schema.json: every sample fits it, and it names every field the command prints"
+reset
+installed v0.8.0+cb6912a
+for sample in "$T_ROOT"/api/api.*.json; do
+  [ "$sample" = "$T_ROOT/api/api.schema.json" ] && continue
+  t_eq "$(basename "$sample") $(fits "$sample")" "$(basename "$sample") "
+  t_eq "$(basename "$sample") $(jq -c '.features' "$sample")" "$(basename "$sample") $(pinned_features)"
+done
+t_run "$api --json"
+t_eq "$(fits_text "$t_out")" ""
+t_eq "$(jq -c '.required' "$schema")" "$(jq -c 'keys_unsorted' <<<"$t_out")"
+t_eq "$(jq -c '.properties.flags.required' "$schema")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+
+t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
+reset
+t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
+  "$(printf '%s\n' '.zz: not in the schema' '.features[27]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
+  "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
+
+t_case "api --json: features is api/features.txt, word for word and in its order"
+reset
+installed v0.10.2
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.features' <<<"$t_out")" "$(pinned_features)"
+# A building feature is a key of flags and never a word of the list.
+for name in $(jq -r '.flags | keys[]' <<<"$t_out"); do
+  t_eq "$name $(grep -cx -- "$name" "$T_ROOT/api/features.txt")" "$name 0"
+done
+
+t_case "api --json prints the samples: no poll on record, a poll with no writes log, and one with it"
+# The clock and the wall time of the last poll are the run's, so the samples
+# keep their own; every other value is what the command printed.
+# TEHAS_SAMPLES_WRITE=1 writes the samples from the command instead.
+steady() { # <json text>: the object with the clock of its poll as the samples hold it
+  jq 'if .poll then .poll.last |= (.at = 1761400000 | .wallMs = 24000 | .ageMin = 0) else . end' <<<"$1"
+}
+sample_is() { # <name> <json text>: the object is api/api.<name>.json, but for the clock
+  t_eq "$(fits_text "$2")" ""
+  if [ -n "$samples_write" ]; then
+    steady "$2" >"$T_ROOT/api/api.$1.json"
+  else
+    t_eq "$1 $(steady "$2" | jq -c .)" "$1 $(jq -c . "$T_ROOT/api/api.$1.json")"
+  fi
+}
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.poll' <<<"$t_out")" null
+sample_is nopoll "$t_out"
+installed v0.10.2
+now=$(date +%s)
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$(jq -r '.poll | type' <<<"$t_out")" object
+sample_is nolog "$t_out"
+installed v0.8.0+cb6912a
+mkdir -p "$T/home/tehas/state/github"
+echo 'millbot[bot]' >"$T/home/tehas/state/github/login"
+printf '%s\tlabel create\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" >"$T/github-writes.log"
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/github-writes.log" --starts 1 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$(jq -r '.poll.last.kinds.label' <<<"$t_out")" 1
+sample_is sample "$t_out"
 
 t_done

@@ -97,7 +97,9 @@ A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
 that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE`,
 `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOTYPE_FILE` and `TEHAS_LEAN` in this
-release, stops every command with 78 when it is `on`.
+release, stops every command with 78 when it is `on`. So does a line that
+gives a value to one of such a feature's own settings, the `TEHAS_OUTSOURCE_*`
+settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
@@ -131,7 +133,7 @@ release, stops every command with 78 when it is `on`.
 | `TEHAS_REVIEW`                  | `off`                                    | `on` lets [tehasbot review](/tools-plan#tehasbot-review) review anything: `tehas-review.timer` starts it once a week and a run that is off exits 0 at once and calls nothing. Anything but `on`, `off`, `1` or `0` stops every command with 78 (see [the review loop](/operating#the-review-loop)) |
 | `TEHAS_MILLWRIGHT_APP`          | empty                                    | Optional. The login of a second GitHub App, `<slug>[bot]`, that the factory trusts as [its millwright](/operating#the-millwrights-grant) in place of its own app. The factory still acts as its own app; only the millwright's grant moves. A value that is not `<slug>[bot]` stops every command with 78. Empty: the millwright is the factory's own app |
 | `TEHAS_CYCLE_LOGIN`             | refused                                  | Not a setting. The login of the account a cycle's token belonged to, which a host needed when a cycle ran as a second account with `GH_CYCLE_TOKEN`. The factory acts as one GitHub App and a cycle's pull requests are the app's own, so a line for this name stops every command with 78 and says `TEHAS_CYCLE_LOGIN is no longer used: the factory acts as a GitHub App.` Take the line out and run `tehas setup --new-app`. See [Moving a host that used a token](/github-app#moving-a-host-that-used-a-token) |
-| `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehas github check](/tools-github#tehas-github-check)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` each print a warning and are ignored |
+| `TEHAS_GITHUB_APP_ID`           | required                                 | The ID of the GitHub App the factory acts as ([tehas github check](/tools-github#tehas-github-check)). `tehas setup` writes it. The installation and the bot's login are looked up and kept in `~/tehas/state/github`, not set. A line that sets `TEHAS_GITHUB_APP_INSTALLATION` or `TEHAS_BOT_LOGIN` stops every command with 78: each is a row of `api/renames-1.0.tsv` |
 | `TEHAS_GITHUB_RENEW_EVERY`      | `300`                                    | Optional. How many seconds apart the app's tokens are renewed while a cycle, a planning turn or a session runs. A positive whole number of seconds: `5m` is refused, and more than `540` is taken as `540`, so a token is renewed before it has ten minutes left. A cycle whose renewer cannot start is not started |
 | `TEHAS_ASSIGNEE`                   | empty                                    | Optional. One person's GitHub login. When the dispatcher marks an issue `tehas:running` for a cycle it also assigns the issue to this account, so GitHub shows it as taken (see [what happens next](/operating#3-what-happens-next)). A bot's login, `[bot]`, or more than one login stops every command with 78, and `tehas setup` refuses a login GitHub does not let be assigned on `TEHAS_REPO`. Empty: nobody is assigned |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
@@ -261,7 +263,7 @@ LABEL tehas.rukas.polyfills="example@0.1.0" \
 Only a `PI_ENSEMBLE_*` name that the runner does not list at all counts: a
 polyfill adds an input, it does not open one the runner keeps to itself. The
 labels are read only when the runner's answer lacks an input, and the run log
-says each input a polyfill took. `tehas review` checks the names of its own
+says each input a polyfill took. `tehasbot review` checks the names of its own
 container by the same rule. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for

@@ -48,9 +48,12 @@ enum Go {
     Energy,
 }
 
+/// The commands of `tehas` that run a script in libexec.
+const TEHAS_SCRIPTS: [&str; 2] = ["setup", "update"];
+
 fn script(which: &str, command: &str) -> Option<&'static str> {
     let scripts: &[&'static str] = match which {
-        "tehas" => &["setup", "update"],
+        "tehas" => &TEHAS_SCRIPTS,
         _ => &[],
     };
     scripts.iter().copied().find(|s| *s == command)
@@ -237,6 +240,7 @@ pub fn main(given: &[OsString]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn words(w: &[&str]) -> Vec<String> {
         w.iter().map(|w| w.to_string()).collect()
@@ -486,6 +490,326 @@ mod tests {
         let file =
             "#!/usr/bin/env bash\n# tehas work: one cycle.\n#\n#  indented\nset -u\n# not this\n";
         assert_eq!(header(file), "tehas work: one cycle.\n\n indented\n");
+    }
+
+    /// The `--flags` of a line. `--help`, which every command takes, is no
+    /// flag of one.
+    fn flags_in(line: &str) -> BTreeSet<String> {
+        let mut flags = BTreeSet::new();
+        for (i, _) in line.match_indices("--") {
+            let flag: String = line[i + 2..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                .collect();
+            if flag.starts_with(|c: char| c.is_ascii_lowercase()) && flag != "help" {
+                flags.insert(format!("--{flag}"));
+            }
+        }
+        flags
+    }
+
+    /// The subcommands a synopsis names after `tehas <command>`: none for the
+    /// command itself, `[list]` both the command and `list`. A word after two
+    /// spaces says what the line does, and `[options]` stands for flags.
+    fn subs_of(rest: &str) -> Vec<Option<String>> {
+        let word = |w: &str| {
+            let w = w.strip_suffix(':').unwrap_or(w);
+            let ok = w.starts_with(|c: char| c.is_ascii_lowercase())
+                && w.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                && w != "options";
+            ok.then(|| w.to_string())
+        };
+        let first = match rest.strip_prefix(' ') {
+            Some(r) if !r.starts_with(' ') => r.split_whitespace().next().unwrap_or(""),
+            _ => "",
+        };
+        if let Some(w) = first.strip_prefix('[').and_then(|w| w.strip_suffix(']')) {
+            if let Some(sub) = word(w) {
+                return vec![None, Some(sub)];
+            }
+        }
+        vec![word(first)]
+    }
+
+    /// The rows a command's text names, each with its flags. A line that
+    /// starts with `tehas <command>`, alone or after `Usage:`, names the
+    /// command or one subcommand, and the lines of the usage block under it
+    /// add to that row. A line that starts with a flag and says what it is
+    /// after two spaces adds its flag to each row that already names it, or to
+    /// the command itself when none does.
+    fn usage_rows(command: &str, text: &str) -> BTreeMap<Option<String>, BTreeSet<String>> {
+        let head = format!("tehas {command}");
+        let mut rows = BTreeMap::from([(None, BTreeSet::new())]);
+        let mut options = BTreeSet::new();
+        let mut in_usage = false;
+        let mut current: Vec<Option<String>> = vec![None];
+        for line in text.lines() {
+            let l = line.trim_start();
+            in_usage = (in_usage || l.starts_with("Usage:")) && !l.is_empty();
+            let synopsis = l.trim_start_matches("Usage:").trim_start();
+            let rest = synopsis
+                .strip_prefix(&head)
+                .filter(|r| r.is_empty() || r.starts_with([' ', ':']));
+            if let Some(rest) = rest {
+                current = subs_of(rest);
+            } else if l.starts_with("--") && l.contains("  ") {
+                options.extend(flags_in(l));
+                continue;
+            } else if synopsis.starts_with("tehas") {
+                current = Vec::new();
+            } else if !in_usage {
+                continue;
+            }
+            for key in &current {
+                rows.entry(key.clone()).or_default().extend(flags_in(l));
+            }
+        }
+        for flag in options {
+            let mut named = rows.values().filter(|f| f.contains(&flag)).peekable();
+            if named.peek().is_none() {
+                rows.get_mut(&None).unwrap().insert(flag);
+            }
+        }
+        rows
+    }
+
+    /// A row of api/commands.txt.
+    #[derive(Debug)]
+    struct Row {
+        command: String,
+        sub: Option<String>,
+        flags: BTreeSet<String>,
+        building: Option<String>,
+        internal: BTreeSet<String>,
+    }
+
+    fn pinned() -> Vec<Row> {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../api/commands.txt");
+        let text = fs::read_to_string(file).unwrap();
+        let lines = text
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'));
+        lines
+            .map(|l| {
+                let mut w = l.split_whitespace().peekable();
+                let command = w.next().unwrap().to_string();
+                let sub = w
+                    .next_if(|s| !s.starts_with('-') && !s.contains('='))
+                    .map(str::to_string);
+                let mut row = Row {
+                    command,
+                    sub,
+                    flags: BTreeSet::new(),
+                    building: None,
+                    internal: BTreeSet::new(),
+                };
+                for word in w {
+                    if let Some(f) = word.strip_prefix("building=") {
+                        row.building = Some(f.to_string());
+                    } else if let Some(list) = word.strip_prefix("internal=") {
+                        for f in list.split(',') {
+                            assert!(row.internal.insert(f.into()), "{l}");
+                        }
+                    } else if word.starts_with("--") {
+                        assert!(row.flags.insert(word.into()), "{l}");
+                    } else {
+                        panic!("api/commands.txt: {word} in {l:?} is no flag");
+                    }
+                }
+                assert!(
+                    row.internal.is_subset(&row.flags),
+                    "api/commands.txt: {l:?} marks a flag internal that it does not list"
+                );
+                row
+            })
+            .collect()
+    }
+
+    fn row(command: &str, sub: &Option<String>, flags: &BTreeSet<String>) -> String {
+        let mut words = vec![command];
+        words.extend(sub.as_deref());
+        words.extend(flags.iter().map(String::as_str));
+        words.join(" ")
+    }
+
+    #[test]
+    fn the_pinned_command_list_is_every_command_of_tehas() {
+        let pinned = pinned();
+        let keys: Vec<(&str, Option<&str>)> = pinned
+            .iter()
+            .map(|r| (r.command.as_str(), r.sub.as_deref()))
+            .collect();
+        let mut sorted = keys.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(keys, sorted, "api/commands.txt: one line per row, in order");
+        let mut listed: Vec<&str> = keys.iter().map(|(c, _)| *c).collect();
+        listed.dedup();
+        let mut known: Vec<&str> = VERBS.to_vec();
+        known.extend(TEHAS_SCRIPTS);
+        known.push("help");
+        known.sort_unstable();
+        assert_eq!(listed, known, "api/commands.txt against VERBS");
+    }
+
+    #[test]
+    fn the_pinned_rows_are_those_each_command_text_names() {
+        let pinned = pinned();
+        let mut commands: Vec<&str> = pinned.iter().map(|r| r.command.as_str()).collect();
+        commands.dedup();
+        let mut wrong = Vec::new();
+        for command in commands.into_iter().filter(|c| *c != "help") {
+            let text = commands::text(command).unwrap_or_else(|| panic!("no text: {command}"));
+            let named: Vec<String> = usage_rows(command, text)
+                .iter()
+                .map(|(sub, flags)| row(command, sub, flags))
+                .collect();
+            let listed: Vec<String> = pinned
+                .iter()
+                .filter(|r| r.command == command)
+                .map(|r| row(&r.command, &r.sub, &r.flags))
+                .collect();
+            if named != listed {
+                wrong.push(format!(
+                    "{}\n  (the file: {})",
+                    named.join("\n"),
+                    listed.join(" | ")
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "api/commands.txt should say, but for its marks:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_usage_names_only_pinned_commands_subcommands_and_flags() {
+        let pinned = pinned();
+        for line in TEHAS.lines().filter_map(|l| l.strip_prefix("  tehas ")) {
+            let line = line.split("  ").next().unwrap();
+            let command = line.split_whitespace().next().unwrap();
+            let rows: Vec<&Row> = pinned.iter().filter(|r| r.command == command).collect();
+            assert!(
+                !rows.is_empty(),
+                "tehas {command} is not in api/commands.txt"
+            );
+            for flag in flags_in(line) {
+                assert!(
+                    rows.iter().any(|r| r.flags.contains(&flag)),
+                    "tehas {command} {flag} is not in api/commands.txt"
+                );
+            }
+            let subs: Vec<&str> = rows.iter().filter_map(|r| r.sub.as_deref()).collect();
+            if subs.is_empty() {
+                continue;
+            }
+            let words = line.split_whitespace().skip(1);
+            let words = words.take_while(|w| !w.trim_start_matches('[').starts_with("--"));
+            let words = words.take_while(|w| !w.contains('<'));
+            for word in words.flat_map(|w| w.split('|')) {
+                let word = word.trim_matches(|c| c == '[' || c == ']' || c == '.');
+                if !word.is_empty() && word != "-" {
+                    assert!(
+                        subs.contains(&word),
+                        "tehas {command} {word} is no pinned row"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_command_of_a_building_feature_is_marked_and_only_while_it_builds() {
+        use tehas_core::features::{Stage, FEATURES};
+        let pinned = pinned();
+        let mut marked: Vec<(&str, &str)> = Vec::new();
+        for r in &pinned {
+            let Some(name) = r.building.as_deref() else {
+                continue;
+            };
+            let feature = FEATURES.iter().find(|f| f.name == name);
+            let feature = feature.unwrap_or_else(|| panic!("{}: no feature {name}", r.command));
+            assert_eq!(
+                feature.stage,
+                Stage::Building,
+                "{}: {name} has shipped",
+                r.command
+            );
+            marked.push((r.command.as_str(), name));
+        }
+        marked.dedup();
+        assert_eq!(
+            marked,
+            [("outsource", "outsource"), ("prototype", "prototype-file")]
+        );
+        for (command, name) in marked {
+            for r in pinned.iter().filter(|r| r.command == command) {
+                assert_eq!(r.building.as_deref(), Some(name), "{r:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_internal_flags_are_those_of_the_dispatcher_the_cleaner_and_the_screen() {
+        let marked: Vec<String> = pinned()
+            .iter()
+            .flat_map(|r| {
+                r.internal
+                    .iter()
+                    .map(|f| row(&r.command, &r.sub, &[f.clone()].into()))
+            })
+            .collect();
+        let plan = [
+            "--answer",
+            "--brief",
+            "--comment",
+            "--keep",
+            "--kind",
+            "--out",
+            "--session",
+        ];
+        let mut want: Vec<String> = vec!["disk --publish".into(), "index --before-cycle".into()];
+        want.extend(plan.iter().map(|f| format!("plan {f}")));
+        want.push("top --json".into());
+        assert_eq!(marked, want);
+        let page = concat!(env!("CARGO_MANIFEST_DIR"), "/../host/docs/contract.md");
+        let page = fs::read_to_string(page).unwrap();
+        for named in [
+            "`tehas plan`",
+            "`tehas index --before-cycle`",
+            "`tehas disk --publish`",
+            "`tehas top --json`",
+        ] {
+            assert!(
+                page.contains(named),
+                "host/docs/contract.md lists {named} as internal"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rows_of_a_text_are_its_synopsis_lines() {
+        let text = "tehas x: what.\n\nUsage: tehas x [--json]\n       tehas x   does x\n       tehas x set <id> --to F\n          [--at T]\n       tehas x clear\n       tehas x -h|--help\n\n  --to   a file\n  --only  alone\n     --skip, prose\nprose names --other.\ntehas y set --far\n";
+        let got: Vec<String> = usage_rows("x", text)
+            .iter()
+            .map(|(sub, flags)| row("x", sub, flags))
+            .collect();
+        assert_eq!(got, ["x --json --only", "x clear", "x set --at --to"]);
+        let got = usage_rows("disk", "tehas disk [--full]: how full\n");
+        assert_eq!(got[&None].iter().collect::<Vec<_>>(), ["--full"]);
+        assert_eq!(usage_rows("dis", "tehas disk [--full]\n")[&None].len(), 0);
+        let got: Vec<String> = usage_rows("m", "Usage: tehas m [list] [--json]\n")
+            .iter()
+            .map(|(sub, flags)| row("m", sub, flags))
+            .collect();
+        assert_eq!(got, ["m --json", "m list --json"]);
+        let got = usage_rows("p", "tehas p file: a title\ntehas p [options]\n");
+        assert_eq!(
+            got.keys().collect::<Vec<_>>(),
+            [&None, &Some("file".into())]
+        );
     }
 
     #[test]
