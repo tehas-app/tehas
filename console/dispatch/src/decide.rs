@@ -271,9 +271,8 @@ struct Poll<'a> {
     bot: String,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
-    /// The hold of a host whose sandbox cannot push, empty when it can. Said
-    /// as the hold of the poll while the fault is younger than the wait of
-    /// `host::PUSH_FAULT_HOLD`.
+    /// The hold of a host whose sandbox cannot push, empty when it can: the one
+    /// line said as the hold of the poll while the fault stands on record.
     push_hold: String,
     /// Parked issues with a box ticked: rule 5a leaves them.
     park_ticked: Vec<u64>,
@@ -1074,7 +1073,7 @@ impl<'a> Poll<'a> {
             // uses for the host that keeps what it has while nothing new
             // starts: the cycles that run, the planning turns and the
             // refreshes of a pull request that already stands on the remote
-            // are untouched by it. Part 3 gives the fault a word of its own.
+            // are untouched by it.
             why = Some(Why::Lane);
             hold = self.push_hold.clone();
             // Cycles start none; the refreshes keep what they would have been
@@ -1264,23 +1263,23 @@ impl<'a> Poll<'a> {
     /// The hold of the host's own push fault, and whether it holds the poll:
     /// while a sandbox that cannot push is on record the poll starts no cycle,
     /// so every ready issue does not fail the same check in turn. The one line
-    /// of the hold is left on `push_hold`, empty for no fault: a fault older
-    /// than `host::PUSH_FAULT_HOLD` is no fault to the poll, and Part 3
-    /// replaces that wait with a re-probe of the push check.
+    /// of the hold is left on `push_hold`, empty for no fault.
     ///
-    /// The report's word for it is `lane`, not a word of its own: the readers
-    /// outside the dispatcher (`console/ops/src/health.rs`, `console/mcp/`)
-    /// know the thirteen words of `tehas_core::hold::Why`, and `lane` is the
-    /// one of them already used for the host that keeps running while nothing
-    /// new starts. Part 3 gives the fault its own word with the re-probe and
-    /// the health line.
+    /// A fault of any age holds the starts: past `host::PUSH_FAULT_HOLD` the
+    /// poll asked the sandbox before the rules were read (`crate::poll`), and
+    /// left the record that stands, or none.
+    ///
+    /// The report's word for the hold is `lane`, not a word of its own: the
+    /// readers outside the dispatcher (`console/ops/src/health.rs`,
+    /// `console/mcp/`) know the thirteen words of `tehas_core::hold::Why`, and
+    /// `lane` is the one of them already used for the host that keeps running
+    /// while nothing new starts.
     fn push_fault(&mut self) -> bool {
         let Some(fault) = self.s.push_fault.as_ref() else {
             self.push_hold.clear();
             return false;
         };
-        let now = self.s.now.unwrap_or(0) as i64;
-        if !host::push_fault_holds(fault, now) {
+        if !host::push_fault_holds(fault) {
             self.push_hold.clear();
             return false;
         }

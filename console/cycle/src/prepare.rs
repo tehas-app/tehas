@@ -726,11 +726,9 @@ fn install(state: &Value, tree: &str, steps: &[Step], preflight: &Path) -> Optio
     Some(78)
 }
 
-/// The fault of a sandbox that cannot push: `state/push-fault.json`, one host
-/// fact with no issue in its name, so every start of the issue reads the same
-/// answer while the host stays unable to push. Part 2 holds starts on it and
-/// part 3 puts it in status and health; both read this file.
-pub const PUSH_FAULT: &str = "state/push-fault.json";
+/// The fault of a sandbox that cannot push, one host fact with no issue in its
+/// name. The poll holds starts on it and re-probes it; status and health say it.
+pub const PUSH_FAULT: &str = tehas_core::sandbox::PUSH_FAULT;
 
 /// Why the sandbox cannot push, as `git` said it: the first line of its log,
 /// with what the mask of the host hides replaced. An empty log says nothing.
@@ -742,34 +740,11 @@ fn fault_line(text: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-/// The record put on `file`, or taken off it. A check that passed removes the
-/// fault: the next start is judged on its own check, not on this one's. A line
-/// of its own always makes a fault, whatever the time it carries: only a fault
-/// that says nothing is refused, and a caller always gives one.
-fn record_fault(home: &Path, file: &str, line: &str, at: i64) {
-    let path = home.join(file);
-    if line.is_empty() {
-        let _ = fs::remove_file(&path);
-        return;
-    }
-    let doc = json!({
-        "at": time::iso(at),
-        "login": tehas_core::settings::bot_login(home).unwrap_or_default(),
-        "line": line,
-    })
-    .to_string();
-    let dir = path.parent().unwrap_or(home);
-    if fs::create_dir_all(dir).is_err() {
-        return;
-    }
-    // The one name, so a leftover of a run killed mid-write cannot block the
-    // next, and a reader never sees half of the record.
-    let _ = tehas_core::file::write_atomic(
-        &path,
-        format!("{doc}\n").as_bytes(),
-        0o600,
-        &tehas_core::file::Temp::Predictable,
-    );
+/// The record put on the file, or taken off it. A check that passed removes the
+/// fault: the next start is judged on its own check, not on this one's.
+fn record_fault(home: &Path, line: &str, at: i64) {
+    let login = tehas_core::settings::bot_login(home).unwrap_or_default();
+    tehas_core::sandbox::write_push_fault(home, line, at, &login);
 }
 
 /// Can the sandbox push at all? The client passes the timeout's TERM on to git
@@ -873,7 +848,7 @@ pub fn push_fault(home: &Path, issue: u64, line: &str) {
     if line.is_empty() {
         return;
     }
-    record_fault(home, PUSH_FAULT, line, time::now());
+    record_fault(home, line, time::now());
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
     let n = issue.to_string();
     if is_attempt(&attempt) {
@@ -1075,7 +1050,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         return rc;
     }
     // The host can push: whatever an earlier start recorded of it is gone.
-    record_fault(home, PUSH_FAULT, "", 0);
+    record_fault(home, "", 0);
     if !steps.is_empty() {
         if t.stop.came() {
             return STOPPED;
@@ -1944,7 +1919,7 @@ mod tests {
         assert!(tehas_core::grammar::an_end("push-fault"));
         // A check that passed takes the fault away, so the next start is
         // judged on its own check and not on this one's.
-        record_fault(d.path(), PUSH_FAULT, "", 0);
+        record_fault(d.path(), "", 0);
         assert!(!file.exists());
     }
 

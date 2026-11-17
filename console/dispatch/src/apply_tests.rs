@@ -214,6 +214,10 @@ fn world() -> World {
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
             read_only: false,
+            container_memory: "8g".into(),
+            push_probe_cmd: None,
+            push_probe_wait: Duration::from_secs(5),
+            aliases: String::new(),
         },
         ended: None,
         spend: None,
@@ -324,6 +328,221 @@ impl World {
 /// come from `End`, the code that really starts them.
 fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
     End::host_of(dry).runs_host_commands(w, printed);
+}
+
+/// The fault of a start whose push check was refused, as the cycle writes it.
+fn push_fault_file(t: &World, at: &str) {
+    fs::create_dir_all(t.w.home.join("state")).unwrap();
+    fs::write(
+        t.w.home.join("state/push-fault.json"),
+        format!(
+            "{{\"at\":\"{at}\",\"login\":\"tehas-bot\",\"line\":\"remote: Permission to acme/widget denied to tehas-bot\"}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// What the fault says now, or None when the file is off.
+fn push_fault_of(t: &World) -> Option<Value> {
+    let text = fs::read_to_string(t.w.home.join("state/push-fault.json")).ok()?;
+    serde_json::from_str(text.trim_end()).ok()
+}
+
+/// A stand-in for the probe, with the body given.
+fn probe(t: &mut World, name: &str, body: &str) {
+    let exe = t.dir.join(name);
+    tehas_core::testing::write_exe(&exe, body).unwrap();
+    t.w.host.push_probe_cmd = Some(exe.to_string_lossy().into_owned());
+}
+
+const OLD: &str = "2026-10-30T23:40:00Z";
+
+#[test]
+fn a_probe_that_passes_takes_the_fault_off_and_lets_the_poll_start() {
+    let mut t = world();
+    probe(&mut t, "probe-ok", "#!/bin/sh\nexit 0\n");
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"]
+    );
+    assert!(holds, "the record is the rules' to read");
+    assert!(push_fault_of(&t).is_none(), "a passing probe takes it off");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    assert!(
+        t.calls().iter().any(|c| c.starts_with("start 7")),
+        "{:?}",
+        t.calls()
+    );
+}
+
+#[test]
+fn a_probe_that_is_refused_writes_the_fault_fresh() {
+    let mut t = world();
+    probe(
+        &mut t,
+        "probe-bad",
+        "#!/bin/sh\nprintf '%s\\n' 'remote: Permission to acme/widget denied to tehas-bot' >&2\nexit 1\n",
+    );
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox cannot push: remote: Permission to acme/widget denied to tehas-bot"]
+    );
+    assert!(holds, "the renewed record holds the starts");
+    let f = push_fault_of(&t).expect("the fault stands");
+    assert_eq!(
+        f["line"],
+        "remote: Permission to acme/widget denied to tehas-bot"
+    );
+    assert_ne!(f["at"], OLD, "the fault is written fresh");
+    assert!(
+        !t.w.home.join("logs/dispatch-preflight.log").exists(),
+        "the probe's log is removed once read"
+    );
+}
+
+#[test]
+fn a_dry_run_asks_nothing_and_keeps_the_hold() {
+    let mut t = world();
+    probe(&mut t, "probe-ok", "#!/bin/sh\ntouch \"$0.ran\"\nexit 0\n");
+    push_fault_file(&t, OLD);
+    let (lines, holds) = t.w.push_probe(true);
+    assert!(lines.is_empty() && holds);
+    assert_eq!(push_fault_of(&t).unwrap()["at"], OLD);
+    assert!(!t.dir.join("probe-ok.ran").exists(), "nothing was run");
+}
+
+/// A probe the host could not run is no answer of the sandbox: nothing is
+/// written, and the poll starts as it did before there was a probe, so the
+/// start's own check decides. Holding instead would hold forever on a host
+/// fault the probe cannot see past.
+#[test]
+fn a_probe_the_host_could_not_run_records_nothing_and_holds_nothing() {
+    type Set = Box<dyn Fn(&mut World)>;
+    let mut cases: Vec<(&str, Set, &str)> = vec![
+        (
+            "no log",
+            Box::new(|t: &mut World| {
+                probe(t, "probe-ok", "#!/bin/sh\nexit 0\n");
+                fs::write(t.w.home.join("logs"), "").unwrap();
+            }),
+            "no place to write the check's log",
+        ),
+        (
+            "no image",
+            Box::new(|t: &mut World| t.w.host.image = String::new()),
+            "no sandbox image to ask",
+        ),
+        (
+            "small ceiling",
+            Box::new(|t: &mut World| t.w.host.container_memory = "6m".into()),
+            "TEHAS_CONTAINER_MEMORY is under the 10m a container needs",
+        ),
+        (
+            "no token",
+            Box::new(|_: &mut World| {}),
+            "no cycle token from the app",
+        ),
+    ];
+    for (name, body) in [
+        (
+            "no client",
+            "#!/bin/sh\nprintf '%s\\n' \"timeout: failed to run command 'docker': No such file or directory\" >&2\nexit 127\n",
+        ),
+        (
+            "no image pulled",
+            "#!/bin/sh\nprintf '%s\\n' 'docker: Error response from daemon: No such image:' >&2\nexit 125\n",
+        ),
+        (
+            "no daemon",
+            "#!/bin/sh\nprintf '%s\\n' 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\nexit 1\n",
+        ),
+    ] {
+        cases.push((
+            name,
+            Box::new(move |t: &mut World| probe(t, "probe-host", body)),
+            "",
+        ));
+    }
+    for (name, set, why) in cases {
+        let mut t = world();
+        push_fault_file(&t, OLD);
+        set(&mut t);
+        let (lines, holds) = t.w.push_probe(false);
+        assert_eq!(lines.len(), 1, "{name}: {lines:?}");
+        assert!(
+            lines[0].starts_with("WARN: the sandbox could not be asked whether it can push: ")
+                && lines[0].contains(why)
+                && lines[0].ends_with(": no fault recorded"),
+            "{name}: {lines:?}"
+        );
+        assert!(!holds, "{name}: no answer, no hold");
+        assert_eq!(
+            push_fault_of(&t).unwrap()["at"],
+            OLD,
+            "{name}: the fault keeps its time"
+        );
+    }
+}
+
+/// On a host the probe is the cycle's own push check: docker run of the image
+/// with git as its entrypoint, the cycle's git configuration that hands git the
+/// token through gh, and the App's narrowed cycle token as GH_TOKEN by name,
+/// never as an argument.
+#[test]
+fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
+    let mut t = world();
+    push_fault_file(&t, OLD);
+    let bin = t.w.home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    tehas_core::testing::write_exe(
+        bin.join("tehasbot"),
+        "#!/bin/sh\n[ \"$*\" = 'github-token --cycle' ] && echo cycle-token-x && exit 0\necho app-token-y\n",
+    )
+    .unwrap();
+    let seen = t.dir.join("docker.seen");
+    let docker = t.dir.join("docker-probe");
+    tehas_core::testing::write_exe(
+        &docker,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"GH_TOKEN=$GH_TOKEN\" \"$@\" > '{}'\nexit 0\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    t.w.docker = docker.to_string_lossy().into_owned();
+    let (lines, holds) = t.w.push_probe(false);
+    assert_eq!(
+        lines,
+        vec!["push probe: the sandbox can push: the fault is off"]
+    );
+    assert!(holds);
+    assert!(push_fault_of(&t).is_none());
+    let seen = fs::read_to_string(&seen).unwrap();
+    let words: Vec<&str> = seen.lines().collect();
+    assert_eq!(words[0], "GH_TOKEN=cycle-token-x", "{seen}");
+    assert_eq!(words[1], "run", "the poll's docker, then its verb: {seen}");
+    assert!(
+        !words[1..].iter().any(|w| w.contains("cycle-token-x")),
+        "{seen}"
+    );
+    let checkout = &t.w.host.checkout;
+    for want in [
+        "GH_TOKEN",
+        "GIT_CONFIG_VALUE_1=!gh auth git-credential",
+        "GIT_TERMINAL_PROMPT=0",
+        "--entrypoint",
+        "tehas-sandbox:test",
+        "--dry-run",
+        "HEAD:refs/heads/tehas-preflight",
+        &format!("{checkout}:{checkout}:ro"),
+    ] {
+        assert!(words.contains(&want), "{want}: {seen}");
+    }
 }
 
 fn label() -> Value {
