@@ -77,9 +77,13 @@ impl Factory for TestFactory {
         Ok(())
     }
     fn carried(&self) -> Value {
+        // The test's own account: one it may hand the cycle's folders to.
+        use std::os::unix::fs::MetadataExt;
+        let me = fs::metadata(&self.home).unwrap();
         json!({
             "settings": { "TEHAS_REPO": "acme/widget", "TEHAS_OUTSOURCE": "on" },
-            "models": { "providers": { "main": { "baseUrl": "http://factory/v1", "apiKey": "${PI_ENSEMBLE_API_KEY_MAIN}" } } }
+            "models": { "providers": { "main": { "baseUrl": "http://factory/v1", "apiKey": "${PI_ENSEMBLE_API_KEY_MAIN}" } } },
+            "uid": me.uid(), "gid": me.gid()
         })
     }
     fn timeout(&self) -> i64 {
@@ -244,7 +248,11 @@ cp "$HOME/.pi/agent/models.json" "$seen/models.json"
 "$TEHAS_CONTRACTOR" token >"$seen/token.out" || exit 8
 cat "$TEHAS_HOME/state/github-cycle/token" >"$seen/token.file"
 echo '{{"argv":["issue","comment","7","--body-file=-","--repo=acme/widget"],"input":"done"}}' | "$TEHAS_CONTRACTOR" relay >"$seen/relay.out"
-mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/work/widget-7"
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache"
+"$TEHAS_CONTRACTOR" own "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache" 2>"$seen/own.err"
+echo $? >"$seen/own.rc"
+"$TEHAS_CONTRACTOR" own "$TEHAS_HOME" 2>"$seen/own-home.err"
+echo $? >"$seen/own-home.rc"
 echo '{{"status":"merged","issue":7}}' >"$TEHAS_HOME/state/cycles/7.result.json"
 echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
 "$TEHAS_CONTRACTOR" drain
@@ -344,6 +352,23 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
     assert_eq!(
         fs::read_to_string(seen.join("token.file")).unwrap().trim(),
         CYCLE_TOKEN
+    );
+    // The cycle's folders went to the account the job named; a folder that is
+    // not the cycle's is refused.
+    use std::os::unix::fs::MetadataExt;
+    let me = fs::metadata(&factory_home).unwrap();
+    let read = |f: &str| fs::read_to_string(seen.join(f)).unwrap();
+    assert_eq!(read("own.rc").trim(), "0", "{}", read("own.err"));
+    assert!(
+        read("own.err").contains(&format!("handed to {}:{}", me.uid(), me.gid())),
+        "{}",
+        read("own.err")
+    );
+    assert_eq!(read("own-home.rc").trim(), "1");
+    assert!(
+        read("own-home.err").contains("not a folder of the cycle"),
+        "{}",
+        read("own-home.err")
     );
     let relay: Value =
         serde_json::from_str(&fs::read_to_string(seen.join("relay.out")).unwrap()).unwrap();

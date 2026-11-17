@@ -19,6 +19,14 @@
 //! program refuses a home that holds a factory ([`foreign`]), and removes a
 //! `models.json` only when it wrote it.
 //!
+//! The cycle's container runs as the factory's account, which the job names.
+//! Before it starts, `tehas work` asks this program (`own`) to hand the
+//! folders the container writes to that account: the workspace, the code
+//! index cache, the relay folder and the rest of the cycle's writable mounts.
+//! Writable is not enough: the code index refuses a cache folder it does not
+//! own. Only folders under `work/` and the agents' runs folder are handed
+//! over, and a link is never followed.
+//!
 //! No git runs in the workspace: the cycle's container wrote all of it, its
 //! hooks and `.git/config` included. A salvage push fetches the issue's branch
 //! out of it into a repository of the contractor's own and pushes from there,
@@ -26,7 +34,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{lchown, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -35,7 +43,7 @@ use serde_json::{json, Value};
 
 use crate::http::{self, As, Reply};
 use crate::identity::Identity;
-use crate::job::{Job, Work, World};
+use crate::job::{Job, Owner, Work, World};
 
 /// Where the salvage repository keeps the workspace's branches.
 const KEPT: &str = "refs/kept/heads/";
@@ -78,6 +86,10 @@ impl Paths {
     }
     pub fn cycles(&self) -> PathBuf {
         self.home.join("state/cycles")
+    }
+    /// Where the cycle keeps its agents' runs, `ensemble-runs/issue-<n>`.
+    pub fn runs(&self) -> PathBuf {
+        self.user_home.join(".pi/agent/ensemble-runs")
     }
 
     /// Everything a job leaves, in the order it is removed. `models.json` is
@@ -275,8 +287,8 @@ impl Host {
 
     fn prepare(&self, job: &Job) -> Result<(), String> {
         let p = &self.paths;
-        let job_file = json!({ "factory": self.id.factory, "token": job.token, "job": job.id });
-        write_private(&p.job_file(), job_file.to_string().as_bytes())?;
+        let kept = job_file(&self.id.factory, job);
+        write_private(&p.job_file(), kept.to_string().as_bytes())?;
         let _ = fs::set_permissions(p.outsource(), fs::Permissions::from_mode(0o700));
         write_private(
             &p.instance().join("instance.env"),
@@ -334,6 +346,83 @@ pub fn job_of(paths: &Paths) -> Option<(String, String)> {
         v["factory"].as_str()?.to_string(),
         v["token"].as_str()?.to_string(),
     ))
+}
+
+/// What the job file keeps for the cycle's calls back: the factory's address,
+/// the job's token and the account its folders are handed to.
+pub fn job_file(factory: &str, job: &Job) -> Value {
+    let mut v = json!({ "factory": factory, "token": job.token, "job": job.id });
+    if let Some(o) = job.owner {
+        v["uid"] = json!(o.uid);
+        v["gid"] = json!(o.gid);
+    }
+    v
+}
+
+/// The account the running job's folders are handed to: Ok(None) for a job
+/// that names none, Err when no job is running here.
+pub fn owner_of(paths: &Paths) -> Result<Option<Owner>, String> {
+    let text = fs::read(paths.job_file()).map_err(|_| "no job is running here".to_string())?;
+    let v: Value =
+        serde_json::from_slice(&text).map_err(|_| "the job file is not JSON".to_string())?;
+    Ok(Owner::of(&v))
+}
+
+/// The folders of `asked` that are handed over, each as its real path: a
+/// directory, not a link, inside the cycle's workspaces or its agents' runs
+/// and not that root itself. Err names the first that is not.
+pub fn ownership_plan(paths: &Paths, asked: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let roots: Vec<PathBuf> = [paths.home.join("work"), paths.runs()]
+        .iter()
+        .filter_map(|r| fs::canonicalize(r).ok())
+        .collect();
+    asked
+        .iter()
+        .map(|dir| {
+            let refused = |why: &str| format!("{} is not handed over: {why}", dir.display());
+            let meta = fs::symlink_metadata(dir).map_err(|_| refused("it is not there"))?;
+            if !meta.is_dir() {
+                return Err(refused("it is no folder"));
+            }
+            let real = fs::canonicalize(dir).map_err(|_| refused("it is not there"))?;
+            if roots.iter().any(|r| real.starts_with(r) && &real != r) {
+                Ok(real)
+            } else {
+                Err(refused("it is not a folder of the cycle"))
+            }
+        })
+        .collect()
+}
+
+/// `dir` and everything in it to `owner`. A link is changed itself, never
+/// what it points at, and is not followed into.
+pub fn hand_over(dir: &Path, owner: Owner) -> Result<(), String> {
+    lchown(dir, Some(owner.uid), Some(owner.gid))
+        .map_err(|e| format!("cannot hand {} over: {e}", dir.display()))?;
+    let meta = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if meta.is_dir() {
+        let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+            hand_over(&entry.path(), owner)?;
+        }
+    }
+    Ok(())
+}
+
+/// What `tehas-contractor own` does: the running job's folders `asked` to the
+/// account the job names. Nothing is changed when one of them is refused, or
+/// when the job names no account. Some(owner) when they were handed over.
+pub fn own(paths: &Paths, asked: &[PathBuf]) -> Result<Option<Owner>, String> {
+    let owner = owner_of(paths)?;
+    let plan = ownership_plan(paths, asked)?;
+    let Some(owner) = owner else {
+        return Ok(None);
+    };
+    for dir in &plan {
+        hand_over(dir, owner)?;
+    }
+    Ok(Some(owner))
 }
 
 struct HostWork {
@@ -778,6 +867,165 @@ mod tests {
         }));
         assert!(!ran.exists());
         assert_eq!(heads(&origin), "refs/heads/feature/issue-7-a-change\n");
+    }
+
+    fn job_with(owner: Option<Owner>) -> Job {
+        let mut job = Job::of(&json!({
+            "job": 4, "issue": 7, "attempt": 1, "timeout": 60, "token": "t", "model_token": "m"
+        }))
+        .unwrap();
+        job.owner = owner;
+        job
+    }
+
+    fn me(d: &TestDir) -> Owner {
+        use std::os::unix::fs::MetadataExt;
+        let f = d.path().join("me");
+        fs::write(&f, "").unwrap();
+        let m = fs::metadata(&f).unwrap();
+        Owner {
+            uid: m.uid(),
+            gid: m.gid(),
+        }
+    }
+
+    /// A group this user is in besides its own, which it may give a file.
+    fn other_group(primary: u32) -> Option<u32> {
+        let out = Command::new("id").arg("-G").output().ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .filter_map(|g| g.parse().ok())
+            .find(|g| *g != primary)
+    }
+
+    #[test]
+    fn the_job_file_keeps_the_account_the_job_names() {
+        let o = Owner {
+            uid: 1001,
+            gid: 1002,
+        };
+        let kept = job_file("192.0.2.7:8090", &job_with(Some(o)));
+        assert_eq!(kept["uid"], 1001);
+        assert_eq!(kept["gid"], 1002);
+        assert_eq!(Owner::of(&kept), Some(o));
+        assert_eq!(kept["token"], "t");
+        let none = job_file("192.0.2.7:8090", &job_with(None));
+        assert!(
+            none.get("uid").is_none() && none.get("gid").is_none(),
+            "{none}"
+        );
+    }
+
+    #[test]
+    fn only_real_folders_of_the_cycle_are_planned_to_be_handed_over() {
+        let d = TestDir::new("contractor-own-plan");
+        let p = paths_in(&d);
+        let ws = p.home.join("work/widget-7");
+        let cache = p.home.join("work/widget-7.state/cache");
+        let runs = p.runs().join("issue-7");
+        let outside = d.path().join("outside");
+        for dir in [&ws, &cache, &runs, &outside] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        let link = p.home.join("work/widget-7.state/relay");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let file = p.home.join("work/widget-7.state/models.json");
+        fs::write(&file, "{}").unwrap();
+        let real = |q: &Path| fs::canonicalize(q).unwrap();
+        assert_eq!(
+            ownership_plan(&p, &[ws.clone(), cache.clone(), runs.clone()]).unwrap(),
+            vec![real(&ws), real(&cache), real(&runs)]
+        );
+        for (asked, why) in [
+            (p.home.join("work"), "not a folder of the cycle"),
+            (p.runs(), "not a folder of the cycle"),
+            (outside.clone(), "not a folder of the cycle"),
+            (
+                p.home.join("work/../../../outside"),
+                "not a folder of the cycle",
+            ),
+            (p.home.clone(), "not a folder of the cycle"),
+            (link.clone(), "no folder"),
+            (file.clone(), "no folder"),
+            (p.home.join("work/widget-8"), "not there"),
+        ] {
+            let got = ownership_plan(&p, &[ws.clone(), asked.clone()]);
+            assert!(
+                got.as_ref().is_err_and(|e| e.contains(why)),
+                "{}: {got:?}",
+                asked.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_job_s_folders_go_to_its_account_and_a_link_out_of_them_is_not_followed() {
+        let d = TestDir::new("contractor-own");
+        let p = paths_in(&d);
+        let mine = me(&d);
+        let ws = p.home.join("work/widget-7");
+        let relay = p.home.join("work/widget-7.state/relay");
+        fs::create_dir_all(ws.join("src/deep")).unwrap();
+        fs::create_dir_all(&relay).unwrap();
+        fs::write(ws.join("src/deep/a.rs"), "x").unwrap();
+        let outside = d.path().join("outside.txt");
+        fs::write(&outside, "x").unwrap();
+        std::os::unix::fs::symlink(&outside, ws.join("src/out")).unwrap();
+        let asked = [ws.clone(), relay.clone()];
+
+        // No job running: nothing to hand over to.
+        assert!(own(&p, &asked).is_err_and(|e| e.contains("no job")));
+        // A job that names no account leaves the folders as they are.
+        write_private(
+            &p.job_file(),
+            job_file("f", &job_with(None)).to_string().as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(own(&p, &asked), Ok(None));
+
+        // A group of this user's own other than its first, where it has one,
+        // shows the change; otherwise its own account, which must still pass.
+        let to = Owner {
+            uid: mine.uid,
+            gid: other_group(mine.gid).unwrap_or(mine.gid),
+        };
+        write_private(
+            &p.job_file(),
+            job_file("f", &job_with(Some(to))).to_string().as_bytes(),
+        )
+        .unwrap();
+        use std::os::unix::fs::MetadataExt;
+        let owner = |q: &Path| {
+            let m = fs::symlink_metadata(q).unwrap();
+            (m.uid(), m.gid())
+        };
+        // One refused folder and nothing is handed over.
+        assert!(own(&p, &[ws.clone(), d.path().to_path_buf()]).is_err());
+        assert_eq!(owner(&ws), (mine.uid, mine.gid));
+        assert_eq!(own(&p, &asked), Ok(Some(to)));
+        for q in [
+            ws.clone(),
+            ws.join("src"),
+            ws.join("src/deep"),
+            ws.join("src/deep/a.rs"),
+            ws.join("src/out"),
+            relay.clone(),
+        ] {
+            assert_eq!(owner(&q), (to.uid, to.gid), "{}", q.display());
+        }
+        assert_eq!(owner(&outside), (mine.uid, mine.gid));
+
+        // An account this user may not give a file to is an error, said.
+        if mine.uid != 0 {
+            let err = hand_over(
+                &ws,
+                Owner {
+                    uid: mine.uid + 1,
+                    gid: mine.gid,
+                },
+            );
+            assert!(err.is_err_and(|e| e.contains("cannot hand")));
+        }
     }
 
     #[test]

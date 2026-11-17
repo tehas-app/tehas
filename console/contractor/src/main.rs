@@ -18,6 +18,10 @@
 //!       The cycle's renewer and relay call these while a job runs: a fresh
 //!       cycle token from the factory, written where the container reads it
 //!       and printed; one issue write, JSON on standard input and output.
+//!   tehas-contractor own <folder>...
+//!       The cycle calls this before its container starts: the folders the
+//!       container writes, handed to the factory's account the job names.
+//!       Only folders under $TEHAS_HOME/work and ~/.pi/agent/ensemble-runs.
 //!
 //! The settings: TEHAS_HOME, the contractor's tehas install [~/tehas];
 //! TEHAS_OUTSOURCE, which must be on, as the feature registry reads it.
@@ -42,7 +46,7 @@ use tehas_contractor::http::{self, As, Reply};
 use tehas_contractor::{doctor, identity, job};
 
 const USAGE: &str =
-    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay";
+    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay | own <folder>...";
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
@@ -87,6 +91,7 @@ fn main() {
         ["doctor"] => check(&p),
         ["token"] => token(&p),
         ["relay"] => relay(&p),
+        ["own", folders @ ..] if !folders.is_empty() => own(&p, folders),
         _ => stop(USAGE, 64),
     };
     std::process::exit(code)
@@ -170,6 +175,24 @@ fn token(p: &Paths) -> i32 {
     match host::fetch_token(&factory, &job_token, &p.token_dir()) {
         Ok(t) => {
             tehas_core::outln!("{t}");
+            0
+        }
+        Err(why) => stop(&why, 1),
+    }
+}
+
+fn own(p: &Paths, folders: &[&str]) -> i32 {
+    let asked: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
+    match host::own(p, &asked) {
+        Ok(Some(o)) => {
+            say(&format!(
+                "the cycle's folders are handed to {}:{}",
+                o.uid, o.gid
+            ));
+            0
+        }
+        Ok(None) => {
+            say("the job names no account: the cycle's folders stay this program's");
             0
         }
         Err(why) => stop(&why, 1),
