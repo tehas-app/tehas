@@ -15,6 +15,7 @@ pub mod ids;
 pub mod mcp;
 pub mod panel;
 pub mod pins;
+pub mod poll_timer;
 pub mod rukas;
 pub mod sandbox;
 pub mod settings;

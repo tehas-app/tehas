@@ -460,6 +460,29 @@ t_contains "$t_out" "tehas dispatch: unknown argument:"
 t_eq "$(t_calls gh)" ""
 t_eq "$(t_calls fake-start)" ""
 
+t_case "--soon writes the file the path unit starts a poll on, and polls nothing itself"
+reset
+mkdir -p "$T/home/tehas/state"
+rm -f "$T/home/tehas/state/dispatch.again"
+t_run "$dispatch --soon"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas dispatch: a poll is asked for ($T/home/tehas/state/dispatch.again)"
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" asked
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+t_run "$dispatch --soon"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" asked
+rm -f "$T/home/tehas/state/dispatch.again"
+
+t_case "--soon with no state directory says it could not write the file"
+reset
+rm -rf "$T/home/tehas/state"
+t_run "$dispatch --soon"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas dispatch: could not write $T/home/tehas/state/dispatch.again"
+t_eq "$(t_calls gh)" ""
+
 t_case "two arguments are refused, not combined"
 reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"

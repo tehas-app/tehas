@@ -438,8 +438,14 @@ number.
 A timer polls every two minutes, and a cycle that ends starts a poll at once. A
 poll that fails does not stop the polling: the timer counts from the last start
 as well as the last end, so the next poll comes two minutes later whatever this
-one exited with. To see the factory's state, or to see or force
-a poll by hand on the host:
+one exited with. `TEHAS_POLL_SECS` sets another interval, from 30 to 3600
+seconds: `tehas setup` and `tehas update` write it to the drop-in
+`~/.config/systemd/user/tehas-dispatch.timer.d/poll.conf`, which sets all three
+of the timer's times, and restart the timer. Back at 120, or unset, they remove
+the drop-in. Each poll costs GitHub API calls, so a quiet host can poll less
+often and let another program wake it with `tehas dispatch --soon` (see
+[tehas dispatch](/tools-dispatch#tehas-dispatch)). To see the factory's state,
+or to see or force a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle, the slice's room
@@ -447,6 +453,7 @@ tehas status --json          # the same for a program, with the demand (see the 
 tehas top                    # the same overview, on one screen that redraws itself
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
+tehas dispatch --soon        # ask for a poll from the timer's units, return at once
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
 tehas stop 12                             # end the cycle for issue 12, clear what it left
 systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
@@ -1700,7 +1707,8 @@ recording, and both commands then say so and exit 78.
   poll is running then, systemd takes that start as the running poll, which
   may have counted the cycle as still running. So the cycle also leaves
   `~/tehas/state/dispatch.again`, and `tehas-dispatch.path` starts the next
-  poll as soon as that one ends. `tehas-dispatch.service` removes the file
+  poll as soon as that one ends. `tehas dispatch --soon` writes the same file
+  for anything else that wants a poll. `tehas-dispatch.service` removes the file
   before the poll runs, so a poll that stops on bad settings does not leave it
   to start the next one at once. If systemd still fails the path unit, for
   example at the service's start limit, `tehasbot health` warns
