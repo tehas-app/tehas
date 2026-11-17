@@ -193,6 +193,7 @@ fn listen() -> ! {
             .split_whitespace()
             .map(str::to_string)
             .collect(),
+        image: env("PI_ENSEMBLE_IMAGE"),
     }));
     // The egress tunnel takes the in-house list, less the model endpoints.
     let egress = Box::leak(Box::new(tehas_proxy::egress::Egress::of_host(

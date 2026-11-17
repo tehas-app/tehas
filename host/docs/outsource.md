@@ -211,7 +211,7 @@ The same listener answers a contractor's calls about its work, at
 | `job` | the contractor's key | takes the offer in its hand: the job moves to running and its two tokens are issued |
 | `check-in` | the job token | notes that the job is alive, while it runs |
 | `token` | the job token | answers a fresh cycle token, narrowed as a local cycle's is |
-| `relay` | the job token | checks one issue write as the local relay does and makes it with the factory's token |
+| `relay` | the job token | checks one issue write as the local relay does and makes it with the factory's token, or runs one vipune call for the job (see [Memory](#memory)) |
 | `result` | the job token | keeps the cycle's result where its report reads it and finishes the job |
 | `stopped` | the job token | the job is handed back; both its tokens are spent |
 
@@ -393,8 +393,59 @@ GitHub App key:
   relay checks it, then sent to the factory, which checks it again with the
   same rules and the job's own scope and makes the write with its own token.
 
+- Each vipune call goes to the factory's memory over the same `relay`
+  call (see [Memory](#memory)).
+
 This happens only with outsource on and the contractor program naming
 itself to the cycle. Otherwise a cycle is as it was.
+
+## Memory
+
+With outsource on, a cycle's vipune memory lives in the factory, in-house
+and on a contractor alike. The image's `vipune` is a stand-in
+(`host/sandbox/vipune-shim`); the real one is at
+`/usr/local/lib/tehas/vipune`. When `tehas work` starts a cycle with
+outsource on, it leaves a file `vipune` in the cycle's relay directory, which
+the container already has at `/run/tehas/relay`. With that file there, the
+stand-in leaves each call in the directory as a relay request of kind
+`vipune`: its arguments, and `VIPUNE_RECENCY_WEIGHT` and `VIPUNE_PROJECT`
+when they are set. It prints the answer's stdout and stderr and exits with
+its status. No answer in 20 seconds exits 1 with
+`vipune: the factory's memory did not answer`. Without the file, or without
+the directory, the real vipune runs, as before.
+
+In-house the cycle's relay answers the request. On a contractor the cycle's
+relay sends it to the factory as a `relay` call with
+`{"kind": "vipune", "argv": [...], "env": {...}}` and the job token. The
+contractor program passes it on as it is. Both sides check it the same way:
+
+- The verb is one of `add`, `search`, `get`, `list`, `validate` and
+  `version`.
+- A `--db-path` is refused. The factory chooses the database.
+- The arguments are at most 16 KiB.
+- A `-p` or `--project` is dropped, not refused. The project is always
+  `TEHAS_REPO`.
+- Of the variables only `VIPUNE_RECENCY_WEIGHT`, a decimal number, and
+  `VIPUNE_PROJECT` are taken, and the project is replaced the same way.
+
+A refusal answers as vipune answers a usage error: status 64, the status of
+the pinned vipune 0.20.3, with nothing on stdout and the reason on stderr.
+pi-rukas reads it as it reads vipune's own errors, and treats a failed call as
+no memory. vipune calls do not count against a cycle's 50 issue writes.
+
+The factory runs the vipune of the sandbox image (`PI_ENSEMBLE_IMAGE`) in a
+container of its own for each call: no network, no capabilities, and only
+`state/memory/cycles` mounted. Which database a call uses comes from where it
+arrived, never from the request: `issue-<n>.db` for an in-house cycle and
+`job-<id>.db` for a contractor's job. A job's calls run one at a time, and
+only while the job is running, its attempt is current and its contractor is
+not revoked, as for every `relay` call. The database starts empty and goes
+when the cycle ends: in-house when `tehas work` ends, for a job when it
+finishes, is handed back or its contractor is revoked. That of a job lost to
+a silence goes when the next job is taken.
+
+The cycle's container gets nothing new for this: no mount, no variable, no
+token. The file `vipune` is in the relay directory it already has.
 
 ## The stamp
 
@@ -606,6 +657,11 @@ exits 78.
 ## What is not here yet
 
 Still owed, each in its own issue:
+
+- #2366 and #2367, what a cycle learns outlasting it: a cycle's database
+  starting from the factory's pool, the rows it added becoming candidates
+  when it ends and turning active when its pull request merges, and one
+  long-lived memory container in place of one per call.
 
 - #2275, placement: the dispatcher offering a job to a contractor and the
   supervisor waiting on it. Until then no job is offered, so a contractor that

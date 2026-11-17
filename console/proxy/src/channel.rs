@@ -8,7 +8,7 @@
 //! | `job` | a contractor, by its key | takes the offer in its hand, if any |
 //! | `check-in` | a job, by its token | "still here", while it runs |
 //! | `token` | a job, by its token | a fresh cycle token for the repository |
-//! | `relay` | a job, by its token | one issue write, checked and made here |
+//! | `relay` | a job, by its token | one issue write, checked and made here, or one vipune call ([`tehas_cycle::memory`]) |
 //! | `result` | a job, by its token | the cycle's result, kept for its report |
 //! | `stopped` | a job, by its token | the job handed back or given up |
 //! | `egress` | a job's container, by its model token | a tunnel to a listed host ([`crate::egress`]) |
@@ -44,12 +44,21 @@
 //! The App's key never leaves: a token renewal answers the narrowed cycle
 //! token a local cycle gets, and a relayed write is made here with the
 //! factory's own token, after the checks of the local relay.
+//!
+//! A relay of kind `vipune` (`{"kind": "vipune", "argv": [...], "env":
+//! {...}}`) is one vipune call of the job's cycle: planned again here as the
+//! local relay plans it, and run by the factory's memory for the job's own
+//! database, `job-<id>`, one call of a job at a time. A refusal answers as
+//! vipune's usage error. The calls do not count against the issue writes,
+//! and the database goes when the job is forgotten.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
+use tehas_cycle::memory::{self, Planned};
 use tehas_cycle::relay::Scope;
 
 use crate::jobs::{self, Issuer, Miss};
@@ -169,6 +178,25 @@ pub trait Factory {
         input: Option<&str>,
         scope: &mut Scope,
     ) -> Result<(String, String, i32), String>;
+    /// The repository the cycles of this factory write to.
+    fn repo(&self) -> String {
+        String::new()
+    }
+    /// One planned vipune call of a job's cycle, for its database `cycle`:
+    /// vipune's stdout, stderr and status, unchanged.
+    fn memory(&self, _cycle: &str, _planned: &Planned) -> (String, String, i32) {
+        (
+            String::new(),
+            "vipune: the factory keeps no memory\n".into(),
+            1,
+        )
+    }
+    /// The database of a cycle that ended goes.
+    fn forget_memory(&self, _cycle: &str) {}
+    /// The jobs that have a database of their own.
+    fn memory_jobs(&self) -> Vec<i64> {
+        Vec::new()
+    }
     /// Keep the result of an issue's cycle where its report reads it.
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String>;
     /// What a job carries besides its numbers and token: the settings that
@@ -238,6 +266,8 @@ pub struct Channel<'a> {
     /// The downloads. None answers them 404.
     pub downloads: Option<&'a (dyn crate::download::Downloads + Sync)>,
     scopes: Mutex<HashMap<i64, Scope>>,
+    /// One vipune call of a job at a time.
+    calls: Mutex<HashMap<i64, Arc<Mutex<()>>>>,
 }
 
 /// One request of the channel, as the listener read it.
@@ -256,6 +286,7 @@ impl<'a> Channel<'a> {
             egress: None,
             downloads: None,
             scopes: Mutex::new(HashMap::new()),
+            calls: Mutex::new(HashMap::new()),
         }
     }
 
@@ -408,6 +439,8 @@ impl<'a> Channel<'a> {
             self.issuer.forget_jobs(&[job]);
             return none;
         }
+        // What jobs lost to a silence left goes as a new one starts.
+        self.tidy_files(job);
         let carried = self.factory.carried();
         Answer::ok(json!({
             "job": job,
@@ -511,6 +544,10 @@ impl<'a> Channel<'a> {
                 Some((token, expires)) => Answer::ok(json!({ "token": token, "expires": expires })),
                 None => Answer::no(502, "no token from the factory"),
             },
+            Call::Relay if body["kind"] == memory::MARK => self.vipune(live.job, body),
+            Call::Relay if !body["kind"].is_null() => {
+                Answer::no(400, "a relay takes the kinds gh and vipune")
+            }
             Call::Relay => {
                 let Some(argv) = body["argv"].as_array().and_then(|a| {
                     a.iter()
@@ -573,12 +610,58 @@ impl<'a> Channel<'a> {
         }
     }
 
+    /// One vipune call of a running job: `argv` and `env` planned as the
+    /// local relay plans them, then run for the job's database.
+    fn vipune(&self, job: i64, body: &Value) -> Answer {
+        let Some(argv) = body["argv"].as_array().and_then(|a| {
+            a.iter()
+                .map(|w| w.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()
+        }) else {
+            return Answer::no(400, "a relay takes argv");
+        };
+        let vars = match &body["env"] {
+            Value::Null => Some(Vec::new()),
+            Value::Object(m) => m
+                .iter()
+                .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+                .collect(),
+            _ => None,
+        };
+        let Some(vars) = vars else {
+            return Answer::no(400, "a vipune relay takes env as an object of strings");
+        };
+        let lock = self
+            .calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(job)
+            .or_default()
+            .clone();
+        let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let cycle = memory::of_job(job);
+        let (out, err, rc) = memory::answer(&argv, &vars, &self.factory.repo(), &|planned| {
+            self.factory.memory(&cycle, planned)
+        });
+        Answer::ok(json!({ "out": out, "err": err, "rc": rc }))
+    }
+
     fn forget(&self, job: i64) {
         self.issuer.forget_jobs(&[job]);
+        self.forget_files(job);
+        self.scopes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&job);
+    }
+
+    /// What the factory kept for a job: its downloads and its database.
+    fn forget_files(&self, job: i64) {
         if let Some(d) = self.downloads {
             d.forget(job);
         }
-        self.scopes
+        self.factory.forget_memory(&memory::of_job(job));
+        self.calls
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&job);
@@ -589,15 +672,16 @@ impl<'a> Channel<'a> {
     /// forgotten. Only a running job is given its files, so none still
     /// needs them. A store that gives no answer removes nothing.
     pub fn tidy_files(&self, but: i64) {
-        let Some(d) = self.downloads else {
-            return;
-        };
-        for job in d.kept_jobs().into_iter().filter(|j| *j != but) {
+        let mut jobs = self.downloads.map(|d| d.kept_jobs()).unwrap_or_default();
+        jobs.extend(self.factory.memory_jobs());
+        jobs.sort_unstable();
+        jobs.dedup();
+        for job in jobs.into_iter().filter(|j| *j != but) {
             let Some(record) = self.factory.store(&["job-show", "--job", &job.to_string()]) else {
                 continue;
             };
             if record["verb"] != "job" || record["state"] != "running" {
-                d.forget(job);
+                self.forget_files(job);
             }
         }
     }
