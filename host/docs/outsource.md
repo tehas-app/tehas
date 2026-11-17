@@ -225,6 +225,31 @@ GitHub App key:
 This happens only with outsource on and the contractor program naming
 itself to the cycle. Otherwise a cycle is as it was.
 
+## The commands
+
+```
+tehas outsource invite [--name NAME] [--json]   print the command a host runs to join
+tehas outsource list [--json]                   each contractor, its status and its job
+tehas outsource status [--json]                 the contractors counted by status
+tehas outsource revoke <contractor> [--json]    end a contractor at once
+tehas outsource drain <contractor> [--json]     ask a contractor to take no new job
+```
+
+`invite` prints `tehas-contractor join <address> <name> <code>`. The address
+is `TEHAS_OUTSOURCE_PROXY_ADDR`, the code lives `TEHAS_OUTSOURCE_JOIN_TTL`
+seconds, and the store keeps only its sha256. `list` gives each contractor one
+of the statuses `idle`, `working`, `stopping`, `silent` (not heard of for
+`TEHAS_OUTSOURCE_TIMEOUT` seconds), `resting`, `draining` or `revoked`, the
+issue it is on, when it was last heard of, and its jobs done and lost.
+`status` prints the `outsource:` line: how many contractors are idle, working
+and resting, and how many cycles are outsourced. `revoke` loses the
+contractor's jobs, and its check-ins, model requests and results are refused
+from then on.
+
+Off, or while the feature is being built, every subcommand exits 78 and
+touches nothing. Exit: 0 done; 1 the store refused, or no such contractor; 64
+a bad argument.
+
 ## The contractor program
 
 `tehas-contractor` runs on the contractor's host. Its help and every line it

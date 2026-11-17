@@ -14,7 +14,8 @@
 //!     line a person reads with `tehas outsource list`.
 //!   store contractor-list
 //!     The contractors as an array: name, whether it is revoked, draining or
-//!     resting, when it was last heard of, and its two counters.
+//!     resting, when it was last heard of, its two counters, and the issue
+//!     and state of the job open in its hand, if any.
 //!   store contractor-seen --name <name>
 //!     The check-in of the spec's "Durability" 1: the second this contractor
 //!     was last heard of.
@@ -638,8 +639,20 @@ fn contractors(home: &Path, now: i64) -> Result<String, Fail> {
         for row in taken {
             let (name, revoked, draining, resting, seen, done, lost) = row.q()?;
             let resting = resting.filter(|until| *until > now);
+            let open: Option<(i64, String)> = c
+                .query_row(
+                    "SELECT issue, state FROM jobs WHERE contractor = ?1
+                       AND state IN ('offered','running','stopping') ORDER BY id DESC LIMIT 1",
+                    [&name],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .q()?;
+            let (issue, state) = open.unzip();
             out.push(obj(&[
                 ("name", j(name.as_str())),
+                ("job_issue", j(issue)),
+                ("job_state", j(state.as_deref())),
                 ("revoked", j(revoked.is_some())),
                 ("draining", j(draining == 1)),
                 ("resting", j(resting.is_some())),

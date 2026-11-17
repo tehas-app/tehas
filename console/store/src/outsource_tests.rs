@@ -1699,3 +1699,28 @@ fn a_revoked_job_takes_no_result() {
     assert_eq!(v["verb"], "refused");
     assert_eq!(v["said"], "lost does not finish");
 }
+
+#[test]
+fn the_list_names_the_job_open_in_a_contractor_s_hand() {
+    let home = on("list-job");
+    issue(&home, 7);
+    add(&home, "box1");
+    let row = first_row(&home, "contractor-list");
+    assert_eq!(
+        (row["job_issue"].clone(), row["job_state"].clone()),
+        (Value::Null, Value::Null)
+    );
+    let id = offered(&home, 7, "box1")["job"].as_i64().unwrap();
+    let row = first_row(&home, "contractor-list");
+    assert_eq!(
+        (row["job_issue"].as_i64(), row["job_state"].as_str()),
+        (Some(7), Some("offered"))
+    );
+    out(&home, &["job-check-in", "--job", &id.to_string()]);
+    assert_eq!(first_row(&home, "contractor-list")["job_state"], "running");
+    out(&home, &["job-finish", "--job", &id.to_string()]);
+    assert_eq!(
+        first_row(&home, "contractor-list")["job_issue"],
+        Value::Null
+    );
+}
