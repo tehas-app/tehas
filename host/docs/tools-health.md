@@ -381,7 +381,8 @@ then says `The sandbox cannot push: <line> (<login>).`
 
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
-there were room and when the oldest was labelled. It is `null` when no poll
+there were room (a Retry ticked on a park among them) and when the oldest was
+labelled or ticked. It is `null` when no poll
 wrote it in the last ten minutes. `checks.slice` also carries `free`, the free
 slots, and `awaitRoom`, the room under `TEHAS_MAX_AWAITING` when that poll
 read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
