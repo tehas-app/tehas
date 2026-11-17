@@ -748,7 +748,7 @@ T_DISPATCH=$T/dispatch/libexec/tehas-dispatch
 t_dispatch_why=""
 t_dispatch() {
   [ -x "$T_DISPATCH" ] && return 0
-  mkdir -p "$T/dispatch/libexec" && ln -sfn "$T_ROOT/lib" "$T/dispatch/lib" || return 1
+  mkdir -p "$T/dispatch/libexec" && t_lib_link "$T/dispatch" || return 1
   if [ -n "${T_DISPATCH_BIN:-}" ]; then
     cp "$T_DISPATCH_BIN" "$T_DISPATCH" && return 0
     t_dispatch_why="tehas-dispatch built for this run cannot be copied: $T_DISPATCH_BIN"
@@ -855,13 +855,25 @@ t_verb() {
   printf '%s\n' "#!$T_BASH" "exec \"$T_CONSOLE\" run \"\$(cd \"\${0%/*}\" && pwd)\" \"\$EUID\" \"\$BASH\" $2 $3 \"\$@\"" >"$1"
   chmod +x "$1"
 }
+# t_lib_link <dir>: <dir>/lib as a link to this checkout's lib/, the way a
+# host's tree has it. -n replaces a link already there instead of following it:
+# plain `ln -s` onto an existing link to lib/ writes lib/lib into the checkout.
+# A <dir> inside the checkout is refused for the same reason.
+t_lib_link() {
+  local d root
+  d=$(cd "$1" 2>/dev/null && pwd -P) || { t_bad "t_lib_link: no directory $1"; return 1; }
+  root=$(cd "$T_ROOT" && pwd -P) || return 1
+  case "$d/" in "$root/"*) t_bad "t_lib_link: $1 is inside the checkout"; return 1 ;; esac
+  [ -L "$d/lib" ] || [ ! -d "$d/lib" ] || return 0
+  ln -sfn "$T_ROOT/lib" "$d/lib"
+}
 # t_front <tree>: bin/tehas and bin/tehasbot of this checkout in <tree>/bin,
 # with the console in <tree>/libexec and lib/ beside them, as a host has them:
 # `$tree/bin/tehasbot dispatch` then runs with <tree>/libexec as its own.
 t_front() {
   t_console || return 1
   mkdir -p "$1/bin" "$1/libexec"
-  [ -e "$1/lib" ] || ln -s "$T_ROOT/lib" "$1/lib"
+  t_lib_link "$1" || return 1
   cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$1/bin/"
   cp "$T_CONSOLE" "$1/libexec/console"
 }
@@ -874,7 +886,7 @@ t_health() {
   [ -x "$T_HEALTH" ] && return 0
   t_console || return 1
   mkdir -p "$T/health-tree/libexec" "$T/health-tree/bin"
-  ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
+  t_lib_link "$T/health-tree" || return 1
   cp "$T_ROOT/bin/tehasbot" "$T/health-tree/bin/tehasbot"
   # shellcheck disable=SC2016  # expanded when the command runs
   printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/../bin/tehasbot" health\n' >"$T_HEALTH"

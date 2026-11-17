@@ -52,6 +52,12 @@ the dispatcher pre-checks the same function before it writes an `update` or
 credits a start, so a draft that says nothing of the issue asks instead: the
 console's `update` answer comes back with the question and no `update` key, and
 a draft the check refuses is never marked `clear`.
+What the dispatcher writes of a plan goes through the console's mask
+(`tehas_core::mask`) first: the issue's new title and body, the comment that
+ends the session and the comment on an issue a refine replaced. Tokens,
+passwords, private addresses and the host's secret values are replaced, and
+the title is cut at 256 characters, the most GitHub takes. The sum a start is
+bound to is taken of the masked text, which is the text the issue holds.
 Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not

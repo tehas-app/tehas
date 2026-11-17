@@ -65,7 +65,7 @@
 //! however it was started.
 
 use crate::commands;
-use crate::flags::{epoch, REASON};
+use crate::holds::{epoch, REASON};
 use crate::jq::{obj, J};
 use crate::outsource;
 use crate::platform;
@@ -84,6 +84,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::github_fails;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
@@ -340,7 +341,7 @@ fn control(
 fn host_pause_flag(file: &Path) -> (J, bool) {
     // Read as no flag by the one reading of the file: it holds the factory and
     // says nothing more.
-    match crate::flags::read_pause(file).state() {
+    match crate::holds::read_pause(file).state() {
         "none" => return (J::Null, false),
         "ok" => {}
         _ => return (obj(vec![("at", J::Null), ("reason", J::Null)]), true),
@@ -739,13 +740,14 @@ fn with_read_only(s: J, starts: Option<Vec<serde_json::Value>>) -> J {
 }
 
 fn put(live: &Path, file: &J) -> Result<(), String> {
-    let new = live.join(format!("status.json.{}.new", std::process::id()));
-    let written = fs::write(&new, format!("{}\n", file.pretty()))
-        .and_then(|()| fs::rename(&new, live.join("status.json")));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
-    written.map_err(|e| e.to_string())
+    let text = format!("{}\n", file.pretty());
+    write_atomic(
+        &live.join("status.json"),
+        text.as_bytes(),
+        0o644,
+        &Temp::Pid,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// This program under a time limit, for a call whose reads have none of their

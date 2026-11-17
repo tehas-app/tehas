@@ -183,7 +183,7 @@ fn world(cycle: Cycle) -> (Fake, Shared) {
 
 fn job() -> Job {
     Job::of(&json!({
-        "job": 3, "issue": 7, "attempt": 1, "timeout": 60, "token": "job-token",
+        "job": 3, "issue": 7, "attempt": 1, "timeout": 60, "token": "job-token", "model_token": "model-token",
         "settings": { "TEHAS_REPO": "acme/widget" }, "models": {}
     }))
     .unwrap()
@@ -219,6 +219,14 @@ fn a_job_is_read_from_its_answer_and_no_job_is_none() {
         Job::of(&json!({ "job": 1, "issue": 2, "attempt": 1, "timeout": 60, "token": "" })),
         None
     );
+    // A job needs a model token of its own, apart from the job token.
+    for model in [json!(null), json!(""), json!("job-token")] {
+        let v = json!({ "job": 1, "issue": 2, "attempt": 1, "timeout": 60,
+                        "token": "job-token", "model_token": model });
+        assert_eq!(Job::of(&v), None, "{v}");
+    }
+    assert_eq!(j.token, "job-token");
+    assert_eq!(j.model_token, "model-token");
 }
 
 #[test]
@@ -367,7 +375,7 @@ fn drain_versus_crash_the_crash_reports_the_cycle_s_own_end() {
 fn the_loop_wipes_first_runs_a_job_and_ends_when_drained() {
     let mut w = world(ends_at(30));
     w.0.jobs.borrow_mut().push_back(json!({
-        "job": 3, "issue": 7, "attempt": 1, "timeout": 60, "token": "job-token"
+        "job": 3, "issue": 7, "attempt": 1, "timeout": 60, "token": "job-token", "model_token": "model-token"
     }));
     w.0.drain_at = Some(1200);
     assert_eq!(run(&w, 30, 60), 0);

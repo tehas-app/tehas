@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/state-check.schema.json",
+  "title": "tehas state check --json",
+  "description": "What tehas state check --json prints, version 1: the state store's own answer to its check, whole and in its order. A store that fails its check prints no object. host/docs/api.md says what each field means. `rows` names each table of the store and its number of rows, and a later schema of the store may add tables. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
+  "type": "object",
+  "required": ["api", "verb", "ok", "schema", "integrity", "rows"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "verb": {"const": "check"},
+    "ok": {"const": true},
+    "schema": {"type": "integer", "minimum": 1},
+    "integrity": {"const": "ok"},
+    "rows": {"description": "Each table of the store, and its number of rows, an integer from 0.", "type": "object", "minProperties": 1}
+  }
+}

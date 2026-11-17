@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "asked": false,
+  "pr": 50,
+  "issue": 7,
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "why": "it does not conflict: GitHub says MERGEABLE"
+}

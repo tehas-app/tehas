@@ -30,6 +30,7 @@ use std::path::Path;
 use tehas_core::plan::{
     checked, clip, keep_spec, made, refusal_document, text_of, APPLY_READY, CLIP, SPEC_INFO,
 };
+use tehas_core::settings::rules::is_repo;
 
 mod start;
 mod turn;
@@ -96,14 +97,11 @@ fn filed_ok(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://github.com/") else {
         return false;
     };
-    let name = |s: &str| {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
     match rest.split('/').collect::<Vec<_>>()[..] {
         [owner, repo, "issues", n] => {
-            name(owner) && name(repo) && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())
+            is_repo(&format!("{owner}/{repo}"))
+                && !n.is_empty()
+                && n.bytes().all(|b| b.is_ascii_digit())
         }
         _ => false,
     }

@@ -24,6 +24,17 @@ t_case "an exit status row names a tehas command, the old status and the new one
 t_eq "$(awk -F '\t' 'NR > 1 && $2 ~ / exit=/ && !($1 == "value" && $2 ~ /^tehas [a-z-]+( --[a-z-]+)? exit=[0-9]+$/ && $3 ~ /^[0-9]+$/) { print NR }' "$file")" ""
 t_contains "$(cut -f 2 "$file")" "tehas check-product exit=78"
 
+t_case "every label of 0.30 is a label of host/labels.tsv or a label row"
+# The labels of v0.30.6, the last 0.30 release, which 1.0 updates from.
+for label in tehas:ready tehas:running tehas:awaiting-merge tehas:shipped tehas:pause \
+  needs-human-attention tehas:question tehas:plan tehas:refine tehas:planning tehas:replaced \
+  tehas:refined tehas:millwright-escalated tehas:lean tehas:blocked tehas:refreshing \
+  tehas:all-hands epic tehas:finish tehas:prototype tehas:improvement cross-project; do
+  row=$(awk -F '\t' -v l="$label" '$1 == "label" && $2 == l' "$file")
+  kept=$(cut -f 1 "$T_ROOT/host/labels.tsv" | grep -c -x -F -- "$label")
+  t_eq "$label: $kept $([ -n "$row" ] && echo row)" "$label: $([ -n "$row" ] && echo "0 row" || echo "1 ")"
+done
+
 t_case "the file ends with a newline and holds no carriage return"
 t_eq "$(tail -c 1 "$file" | od -An -c | tr -d ' ')" '\n'
 t_eq "$(grep -c $'\r' "$file")" 0

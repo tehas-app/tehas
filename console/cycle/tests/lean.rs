@@ -189,6 +189,8 @@ fn a_lean_run_that_found_the_issue_not_ready_asks_for_a_pi_spec_block() {
     assert_eq!(added, ["needs-human-attention"]);
     assert!(comment.contains("not ready to build from"), "{comment}");
     assert!(comment.contains("needs a `pi-spec v1` block"), "{comment}");
+    assert!(!comment.contains("The issue's text is fine"), "{comment}");
+    assert!(!comment.contains("verify.test"), "{comment}");
     assert_eq!(
         comment.matches("no pi-spec v1 block").count(),
         1,
@@ -231,6 +233,69 @@ fn a_not_ready_report_lean_posted_itself_still_asks_for_a_pi_spec_block() {
     );
     assert!(!comment.contains("The rules it failed follow"), "{comment}");
     assert!(!comment.contains("no pi-spec v1 block"), "{comment}");
+}
+
+#[test]
+fn a_lean_run_declined_for_the_repository_s_setup_says_the_issue_is_fine() {
+    let r = ended("norunner", 11, json!([]), "lean");
+    assert_eq!(r.arm, "not-ready");
+    let (added, comment) = said(&r);
+    assert_eq!(added, ["needs-human-attention"]);
+    assert!(comment.contains("The issue's text is fine"), "{comment}");
+    assert!(comment.contains("`.pi/work.json`"), "{comment}");
+    assert!(comment.contains("`verify.test`"), "{comment}");
+    assert!(
+        comment.contains("host/docs/new-project.md#the-lean-drivers-settings"),
+        "{comment}"
+    );
+    assert!(!comment.contains("not ready to build from"), "{comment}");
+    assert!(!comment.contains("pi-spec"), "{comment}");
+    assert!(!comment.contains("rules it failed"), "{comment}");
+    assert!(
+        comment.contains("To retry, apply `tehas:ready`"),
+        "{comment}"
+    );
+    assert_eq!(
+        comment.matches("no test runner configured").count(),
+        1,
+        "{comment}"
+    );
+    let park = r.actions.iter().find_map(|a| match a {
+        Action::Park(p) => Some(p.args.clone()),
+        _ => None,
+    });
+    assert!(park
+        .unwrap()
+        .windows(2)
+        .any(|w| w == ["--reason", "not-ready"]));
+}
+
+#[test]
+fn a_lean_run_whose_work_json_does_not_load_names_the_file() {
+    let bad = doc("norunner").replace(
+        "no test runner configured (.pi/work.json verify.test)",
+        ".pi/work.json is unusable: budgets.biuld is not a state",
+    );
+    let r = read("unusable", &bad, 11, json!([]), "lean");
+    assert_eq!(r.arm, "not-ready");
+    let (_, comment) = said(&r);
+    assert!(comment.contains("The issue's text is fine"), "{comment}");
+    assert!(comment.contains("`.pi/work.json`"), "{comment}");
+    assert!(!comment.contains("pi-spec"), "{comment}");
+}
+
+#[test]
+fn a_repository_rule_beside_an_issue_rule_keeps_the_spec_text() {
+    let both = doc("norunner").replace(
+        "no test runner configured (.pi/work.json verify.test)",
+        "pi-spec v1 block is empty; no test runner configured (.pi/work.json verify.test)",
+    );
+    let r = read("both", &both, 11, json!([]), "lean");
+    assert_eq!(r.arm, "not-ready");
+    let (_, comment) = said(&r);
+    assert!(comment.contains("not ready to build from"), "{comment}");
+    assert!(comment.contains("needs a `pi-spec v1` block"), "{comment}");
+    assert!(!comment.contains("The issue's text is fine"), "{comment}");
 }
 
 #[test]

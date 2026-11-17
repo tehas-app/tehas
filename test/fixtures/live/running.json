@@ -1,0 +1,6 @@
+{
+  "cycles": [
+    { "issue": 41, "running": true, "status": "running", "step": "develop", "statusText": "", "startedAt": 1794913200, "updatedAt": 1794916790, "console": "console-41.txt" }
+  ],
+  "last": { "issue": 36, "running": false, "status": "pr", "step": "handoff", "statusText": "", "startedAt": 1794900000, "updatedAt": 1794904800, "console": "console-36.txt" }
+}

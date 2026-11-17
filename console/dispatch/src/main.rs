@@ -1,12 +1,6 @@
-//! tehas-dispatch: the dispatcher in Rust. `poll` is the one command that
-//! acts. `snapshot` and `decide` read what one poll would read and print it,
-//! or what it would decide, and write nothing.
+//! tehas-dispatch: the dispatcher in Rust.
 //!
 //! Usage:
-//!   tehas-dispatch snapshot             print the snapshot, as JSON
-//!   tehas-dispatch decide [--dry-run]   print the decision of a poll on it:
-//!                                       {exit, log, actions, picked, needs,
-//!                                       report, demand, gh_requests, seconds}
 //!   tehas-dispatch poll [--dry-run]     one poll, as tehasbot dispatch runs it:
 //!                                       it acts. 78 before it when models.json
 //!                                       names a bad or unset key
@@ -18,18 +12,13 @@
 //! leaves them (tehasbot loads them), $TEHAS_HOME, and gh, systemctl, curl,
 //! docker and $TEHAS_HOME/libexec/store from the PATH and the home.
 //!
-//! Exit: 0 it printed its answer, whatever the decision says; 1 a
-//! read it cannot do without failed, said on standard error; 64 an argument
-//! it does not know; 78 a setting tehas_load always leaves set is not set.
+//! Exit: poll ends as tehasbot dispatch does; 64 an argument it does not know;
+//! 78 a setting tehas_load always leaves set is not set.
 //! refresh has its own text and statuses: tehas refresh --help.
 
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
-use tehas_core::hold::Report;
-use tehas_dispatch::read::build::{fill, snapshot, Sources};
-use tehas_dispatch::read::run::Calls;
-use tehas_dispatch::{decide, Settings, Snapshot};
+use tehas_dispatch::Settings;
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -50,16 +39,13 @@ fn set_in(env: &Value, k: &str) -> bool {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (print_snapshot, dry, poll) = match a.as_slice() {
+    let dry = match a.as_slice() {
         ["-h" | "--help"] => {
             tehas_core::outln!("{}", usage());
             return;
         }
-        ["snapshot"] => (true, false, false),
-        ["decide"] => (false, false, false),
-        ["decide", "--dry-run"] => (false, true, false),
-        ["poll"] => (false, false, true),
-        ["poll", "--dry-run"] => (false, true, true),
+        ["poll"] => false,
+        ["poll", "--dry-run"] => true,
         ["refresh", rest @ ..] => std::process::exit(tehas_dispatch::refresh::main(rest)),
         _ => {
             eprintln!(
@@ -97,11 +83,9 @@ fn main() {
         );
         std::process::exit(78);
     }
-    if poll {
-        if let Err(why) = tehas_core::models::host_keys_ok() {
-            eprintln!("tehas: {why}");
-            std::process::exit(78);
-        }
+    if let Err(why) = tehas_core::models::host_keys_ok() {
+        eprintln!("tehas: {why}");
+        std::process::exit(78);
     }
     let mut env = Value::Object(env);
     if let Some(why) = Settings::refused(&env) {
@@ -123,56 +107,9 @@ fn main() {
     // The poll's own libexec, which the refine brief's path is named by.
     env["libexec"] = json!(tehas_dispatch::poll::here(Path::new(&home)));
     let settings = Settings::parse(&env);
-    if poll {
-        std::process::exit(tehas_dispatch::poll::run_poll(
-            &PathBuf::from(&home),
-            &settings,
-            dry,
-        ));
-    }
-    let now = tehas_core::time::now();
-    let began = Instant::now();
-    let home = PathBuf::from(home);
-    let mut src = Sources {
-        home: &home,
-        calls: Calls::idle(
-            Duration::from_secs(
-                std::env::var("tehas_store_bound")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(20),
-            ),
-            home.join("libexec/store").to_string_lossy().into_owned(),
-        ),
-        systemctl: "systemctl".into(),
-        now,
-        models: tehas_dispatch::read::models::Models::read(),
-        endpoint: (String::new(), String::new()),
-    };
-    let snap = match snapshot(&mut src, &settings) {
-        Ok(s) => s,
-        Err(f) => {
-            eprintln!("{}", f.line);
-            std::process::exit(1);
-        }
-    };
-    if print_snapshot {
-        tehas_core::outln!("{snap}");
-        return;
-    }
-    let mut snap = snap;
-    let mut d = decide(&Snapshot::parse(&snap), &settings, dry);
-    // What the decision asked for and the poll reads only when asked: read
-    // it, and decide again.
-    while fill(&src, &mut snap, &d.needs) {
-        d = decide(&Snapshot::parse(&snap), &settings, dry);
-    }
-    let out = json!({
-        "exit": d.exit, "log": d.log, "actions": d.actions, "picked": d.picked,
-        "needs": d.needs, "report": d.report.as_ref().map(Report::to_value),
-        "demand": d.demand,
-        "gh_requests": src.calls.gh_count,
-        "seconds": (began.elapsed().as_millis() as f64 / 1000.0),
-    });
-    tehas_core::outln!("{out}");
+    std::process::exit(tehas_dispatch::poll::run_poll(
+        &PathBuf::from(&home),
+        &settings,
+        dry,
+    ));
 }

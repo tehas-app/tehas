@@ -1,0 +1,312 @@
+{
+  "availability": {
+    "n": 313,
+    "seconds": 757765,
+    "share": 0.155
+  },
+  "cycleTime": {
+    "median": 3873,
+    "n": 218,
+    "p90": 9921
+  },
+  "daily": [
+    {
+      "day": "2026-11-08",
+      "failed": 0,
+      "minutes": 2,
+      "runs": 13,
+      "shipped": 0
+    },
+    {
+      "day": "2026-11-09",
+      "failed": 0,
+      "minutes": 1,
+      "runs": 3,
+      "shipped": 3
+    },
+    {
+      "day": "2026-11-10",
+      "failed": 3,
+      "minutes": 2174,
+      "runs": 32,
+      "shipped": 13
+    },
+    {
+      "day": "2026-11-11",
+      "failed": 2,
+      "minutes": 1843,
+      "runs": 23,
+      "shipped": 4
+    },
+    {
+      "day": "2026-11-12",
+      "failed": 6,
+      "minutes": 5760,
+      "runs": 60,
+      "shipped": 45
+    },
+    {
+      "day": "2026-11-13",
+      "failed": 0,
+      "minutes": 872,
+      "runs": 16,
+      "shipped": 16
+    },
+    {
+      "day": "2026-11-14",
+      "failed": 0,
+      "minutes": 1552,
+      "runs": 20,
+      "shipped": 8
+    },
+    {
+      "day": "2026-11-15",
+      "failed": 0,
+      "minutes": 1162,
+      "runs": 17,
+      "shipped": 9
+    },
+    {
+      "day": "2026-11-16",
+      "failed": 1,
+      "minutes": 2767,
+      "runs": 34,
+      "shipped": 14
+    },
+    {
+      "day": "2026-11-17",
+      "failed": 0,
+      "minutes": 0,
+      "runs": 0,
+      "shipped": 1
+    }
+  ],
+  "firstPassYield": {
+    "n": 78,
+    "share": 0.474
+  },
+  "from": 1794052740,
+  "handoffRate": {
+    "n": 218,
+    "share": 0.633
+  },
+  "leadTime": {
+    "median": 38144,
+    "n": 78,
+    "p90": 243595
+  },
+  "machineTime": {
+    "n": 218,
+    "perShipped": 8566,
+    "seconds": 967985
+  },
+  "planned": {
+    "inLine": 10,
+    "n": 10,
+    "planning": 0,
+    "trend": [
+      {
+        "day": "2026-11-08",
+        "n": 2
+      },
+      {
+        "day": "2026-11-09",
+        "n": 2
+      },
+      {
+        "day": "2026-11-10",
+        "n": 5
+      },
+      {
+        "day": "2026-11-11",
+        "n": 25
+      },
+      {
+        "day": "2026-11-12",
+        "n": 2
+      },
+      {
+        "day": "2026-11-13",
+        "n": 1
+      },
+      {
+        "day": "2026-11-14",
+        "n": 8
+      },
+      {
+        "day": "2026-11-15",
+        "n": 7
+      },
+      {
+        "day": "2026-11-16",
+        "n": 8
+      },
+      {
+        "day": "2026-11-17",
+        "n": 10
+      }
+    ]
+  },
+  "planningTurns": {
+    "n": 58
+  },
+  "refine": {
+    "leadTime": {
+      "n": 0
+    },
+    "n": 0,
+    "others": {
+      "n": 101,
+      "shipped": 71,
+      "shippedShare": 0.703,
+      "started": 101
+    },
+    "sessions": 15,
+    "shipped": 0,
+    "started": 0
+  },
+  "report": 1,
+  "runs": {
+    "failed": 12,
+    "handoff": 135,
+    "merged": 0,
+    "n": 218,
+    "parked": 3,
+    "pr": 38,
+    "refused": 29,
+    "stopped": 1
+  },
+  "shipped": {
+    "n": 113
+  },
+  "stations": {
+    "n": 188,
+    "steps": [
+      {
+        "n": 9,
+        "passed": 9,
+        "share": 1.0,
+        "step": "ready"
+      },
+      {
+        "n": 9,
+        "passed": 0,
+        "share": 0.0,
+        "step": "specify"
+      },
+      {
+        "n": 179,
+        "passed": 163,
+        "share": 0.911,
+        "step": "explore"
+      },
+      {
+        "n": 163,
+        "passed": 157,
+        "share": 0.963,
+        "step": "plan"
+      },
+      {
+        "n": 157,
+        "passed": 157,
+        "share": 1.0,
+        "step": "branch"
+      },
+      {
+        "n": 157,
+        "passed": 88,
+        "share": 0.561,
+        "step": "develop"
+      },
+      {
+        "n": 97,
+        "passed": 90,
+        "share": 0.928,
+        "step": "adversarial"
+      },
+      {
+        "n": 81,
+        "passed": 79,
+        "share": 0.975,
+        "step": "commit-pr"
+      },
+      {
+        "n": 80,
+        "passed": 67,
+        "share": 0.838,
+        "step": "lens-review"
+      },
+      {
+        "n": 11,
+        "passed": 11,
+        "share": 1.0,
+        "step": "lens-fix"
+      },
+      {
+        "n": 72,
+        "passed": 48,
+        "share": 0.667,
+        "step": "ci"
+      },
+      {
+        "n": 170,
+        "passed": 170,
+        "share": 1.0,
+        "step": "handoff"
+      }
+    ]
+  },
+  "stopReasons": {
+    "n": 179,
+    "top": [
+      {
+        "n": 54,
+        "reason": "verify"
+      },
+      {
+        "n": 29,
+        "reason": "refused"
+      },
+      {
+        "n": 20,
+        "reason": "awaiting-human-merge"
+      },
+      {
+        "n": 16,
+        "reason": "intent-park"
+      },
+      {
+        "n": 9,
+        "reason": "round-cap"
+      }
+    ]
+  },
+  "to": 1794916740,
+  "tokens": {
+    "cacheRead": 19808873088,
+    "input": 316682466,
+    "n": 187,
+    "output": 26358161,
+    "perShipped": 181548772,
+    "shipped": 111,
+    "total": 20151913715
+  },
+  "versions": [
+    {
+      "medianSeconds": 5070,
+      "medianTokens": 50830109,
+      "n": 43,
+      "prShare": 0.233,
+      "rukas": "0.14.84",
+      "tokensN": 43
+    },
+    {
+      "medianSeconds": 2488,
+      "medianTokens": 85803950,
+      "n": 7,
+      "prShare": 0.429,
+      "rukas": "0.14.83",
+      "tokensN": 7
+    }
+  ]
+}

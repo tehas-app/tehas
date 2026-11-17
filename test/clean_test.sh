@@ -14,7 +14,7 @@ t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec" "$shim/bin"
 ln -s "$T_ROOT/bin/tehasbot" "$shim/bin/tehasbot"
-ln -s "$T_ROOT/lib" "$shim/lib"
+t_lib_link "$shim"
 cp "$T_CONSOLE" "$shim/libexec/console"
 clean="$shim/bin/tehasbot clean"
 # Where the command's own environment is: the same $T/home/tehas the run gets

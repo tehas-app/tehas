@@ -38,40 +38,34 @@ t_stub gh 'case "$1 $2" in
   "api graphql")
     [ ! -e "$T/fx/graphql-fails" ] || exit 1
     [ ! -e "$T/fx/graphql-hangs" ] || exec sleep 20
-    # One call names every issue it asks about, as number:<n> terms of the
-    # search, and the answer holds one node per issue. The number of each
-    # closer file is the number it answers for, so the whole answer is built
-    # here from the terms the caller sent. A name that has no file closes the
-    # call: the stub would answer nothing about an issue the caller named, and
-    # a caller that reads no answer adds no label, so the case would pass for
-    # the wrong reason. NO_NODE makes it answer a whole search that never
-    # speaks of the issues it was asked about, as a lagged index does.
-    # The call is matched on "$*", the arguments joined into one word, so the
-    # number has to be split out of the word that carries it.
-    terms=""
-    for a in "$@"; do case $a in q=*) terms=${a#q=} ;; esac; done
+    # One call names every issue it asks about, each under an alias of the
+    # document as issue(number: <n>), and the answer holds one node per issue.
+    # The number of each closer file is the number it answers for, so the whole
+    # answer is built here from the issues the caller named. A name that has no
+    # file closes the call: the stub would answer nothing about an issue the
+    # caller named, and a caller that reads no answer adds no label, so the case
+    # would pass for the wrong reason. NO_NODE makes it answer a whole read
+    # that never speaks of the issues it was asked about.
+    query=""
+    for a in "$@"; do case $a in query=*) query=${a#query=} ;; esac; done
     if [ -e "$T/fx/no-node" ]; then
-      echo '{"data":{"search":{"nodes":[]}}}'
+      echo '{"data":{"repository":{}}}'
       exit 0
     fi
     nodes=""
-    for a in $terms; do
-      case $a in
-        number:*)
-          n=${a#number:}
-          if [ ! -e "$T/fx/closer-$n.json" ]; then
-            echo "no closer file for issue $n" >&2
-            exit 1
-          fi
-          [ -z "$nodes" ] || nodes=$nodes,
-          nodes=$nodes$(cat "$T/fx/closer-$n.json") ;;
-      esac
+    for n in $(printf "%s" "$query" | grep -o "issue(number: [0-9]*)" | tr -dc "0-9\n"); do
+      if [ ! -e "$T/fx/closer-$n.json" ]; then
+        echo "no closer file for issue $n" >&2
+        exit 1
+      fi
+      [ -z "$nodes" ] || nodes=$nodes,
+      nodes=$nodes\"i$n\":$(cat "$T/fx/closer-$n.json")
     done
     if [ -e "$T/fx/answer-errors" ]; then
       # A query GitHub declined and answered anyway: errors beside the data.
       echo "{\"errors\":[{\"message\":\"declined\"}],$(cat "$T/fx/answer-errors")}"
     else
-      echo "{\"data\":{\"search\":{\"nodes\":[$nodes]}}}"
+      echo "{\"data\":{\"repository\":{$nodes}}}"
     fi ;;
 esac'
 reset() {
@@ -164,8 +158,8 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 7 --repo acme/widget --remove-label tehas:running
 issue edit 8 --repo acme/widget --remove-label tehas:question"
 t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "number:7"
-t_lacks "$(reads)" "number:8"
+t_contains "$(reads)" "i7: issue(number: 7)"
+t_lacks "$(reads)" "issue(number: 8)"
 
 t_case "one search a poll, for the closed issues of the repository"
 # The search is the one call of a poll that found nothing to tidy, and no poll that
@@ -201,8 +195,8 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 45 --repo acme/widget --remove-label tehas:awaiting-merge --add-label tehas:shipped
 issue edit 46 --repo acme/widget --remove-label tehas:running"
 t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "number:45"
-t_lacks "$(reads)" "number:46"
+t_contains "$(reads)" "i45: issue(number: 45)"
+t_lacks "$(reads)" "issue(number: 46)"
 t_eq "$(printf '%s\n' "$t_out" | grep -c 'was not added')" 0
 
 t_case "an open issue is never touched, whatever the answer says"
@@ -240,7 +234,9 @@ t_eq "$(edits)" "issue edit 12 --repo acme/widget --remove-label tehas:running -
 t_lacks "$t_out" "#11"
 # The issue that waits for its cycle is not asked about at all.
 t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "-f q=repo:acme/widget is:issue is:closed number:12"
+t_contains "$(reads)" "-f owner=acme -f name=widget -f query="
+t_contains "$(reads)" "i12: issue(number: 12)"
+t_lacks "$(reads)" "issue(number: 11)"
 t_contains "$(reads)" "first: 100"
 
 t_case "the labels come off an issue the search listed without tehas:shipped, when the closer was merged"
@@ -250,7 +246,7 @@ echo '[{"number":13,"state":"CLOSED","labels":[{"name":"tehas:running"}]}]' >"$f
 t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 13 --repo acme/widget --remove-label tehas:running --add-label tehas:shipped"
-t_contains "$(reads)" "q=repo:acme/widget is:issue is:closed number:13"
+t_contains "$(reads)" 'repository(owner: $owner, name: $name) { i13: issue(number: 13)'
 
 t_case "a dry run removes nothing and says what it would remove"
 reset
@@ -333,7 +329,9 @@ echo '[{"number":30,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"}]}
 t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(reads | wc -l)" 1
-t_contains "$(reads)" "number:30 number:31 number:32"
+t_contains "$(reads)" "i30: issue(number: 30)"
+t_contains "$(reads)" "i31: issue(number: 31)"
+t_contains "$(reads)" "i32: issue(number: 32)"
 t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" 1
 t_eq "$(edits)" "issue edit 30 --repo acme/widget --remove-label tehas:awaiting-merge --add-label tehas:shipped
 issue edit 31 --repo acme/widget --remove-label tehas:awaiting-merge
@@ -431,7 +429,7 @@ t_lacks "$t_out" "the read of what closed these issues failed"
 t_case "a GraphQL answer that carries errors adds nothing, even where it holds a merged closer"
 reset
 merged 43
-echo '{"data":{"search":{"nodes":[{"number":43,"timelineItems":{"nodes":[{"closer":{"merged":true}}]}}]}}}' >"$fx/answer-errors"
+echo '{"data":{"repository":{"i43":{"number":43,"timelineItems":{"nodes":[{"closer":{"merged":true}}]}}}}}' >"$fx/answer-errors"
 echo '[{"number":43,"state":"CLOSED","labels":[{"name":"tehas:question"}]}]' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 0
@@ -468,14 +466,12 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 23 --repo acme/widget --remove-label tehas:running --add-label tehas:shipped"
 t_lacks "$t_out" "#1:"
 t_eq "$(reads | wc -l)" 1
-t_lacks "$(reads)" "number:1"
-t_contains "$(reads)" "number:23"
+t_lacks "$(reads)" "issue(number: 1)"
+t_contains "$(reads)" "i23: issue(number: 23)"
 
 t_case "the candidates past the page of the read are left to a later poll"
-# More candidates than the page of the shared read, twice over: the terms of a
-# search are capped, so the read is asked about the page of the console's query
-# of them and
-# no more, and the rest keep their state labels for the polls that follow.
+# More candidates than the page of the shared read, twice over: the read is
+# asked about the page of the console's query of them and no more, and the rest keep their state labels for the polls that follow.
 reset
 page=$(tehas_page_count)
 last=$((page + page + 100))
@@ -494,10 +490,10 @@ t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(reads | wc -l)" 1
 t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" "$page"
-t_contains "$(reads)" "number:100"
+t_contains "$(reads)" "i100: issue(number: 100)"
 # The candidates past the page were not named: a list past the ceiling of a
-# search is no answer at all, so a longer one is refused rather than truncated.
-t_lacks "$(reads)" "number:$last"
+# read is bounded, so a longer one is left to later polls rather than asked.
+t_lacks "$(reads)" "issue(number: $last)"
 t_eq "$(edits | wc -l)" "$((last - 100 + 1))"
 
 t_case "an edit that fails is logged and the next issue is still tidied"

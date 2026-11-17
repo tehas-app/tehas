@@ -13,7 +13,7 @@
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$T/tree/libexec" "$T/tree/bin"
 ln -sfn "$T_ROOT/bin/tehasbot" "$T/tree/bin/tehasbot"
-ln -sfn "$T_ROOT/lib" "$T/tree/lib"
+t_lib_link "$T/tree"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
 preview="$T/tree/bin/tehasbot preview"
 fx=$T/fx

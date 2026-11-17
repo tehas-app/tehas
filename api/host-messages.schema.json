@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/host-messages.schema.json",
   "title": "tehas host-message list --json",
-  "description": "What tehas host-message list --json prints, version 1: the short messages posted for this factory. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The same object is state/host-messages.json.",
+  "description": "What tehas host-message list --json prints, version 1: the short messages posted for this factory. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The same object is state/host-messages.json. test/host_message_test.sh checks the sample beside this file against it.",
   "type": "object",
   "required": ["api", "messages"],
   "additionalProperties": false,

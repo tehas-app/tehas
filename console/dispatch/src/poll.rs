@@ -434,6 +434,7 @@ fn writer(
         starts: 0,
         fetched: false,
         looked: HashMap::new(),
+        say_now: Some(say),
     }
 }
 

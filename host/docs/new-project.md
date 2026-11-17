@@ -29,7 +29,7 @@ are on; pi-rukas reads the rest of it.
 | `.pi/verify-cmd-full`                                    | Full gate, same format; stands in for CI                                                                                                                                                                         | Recommended                             |
 | `.pi/verify-cmd-fast`                                    | Optional developer's gate, same format. With it, pi-rukas tells the developer to run this command and not `.pi/verify-cmd`, and runs it ahead of `.pi/verify-cmd` wherever its driver gates |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
-| `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
+| `.pi/worktree-setup`                                     | POSIX `sh` script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0. Run as `sh .pi/worktree-setup`, so its first line and its mode are not read: a bash script fails there | If a bare checkout cannot run the gates |
 | `.pi/work.json`                                          | The lean driver's settings: whether lean may merge, its gates, its budgets. Only lean reads it. See [`.pi/work.json`](#the-lean-drivers-settings) | Optional |
 | `.pi/install-cmd`                                        | The install of the product's dependencies, run at the root of the cycle's clone before the cycle, in place of the one tehas finds from the lockfiles (below). Same format as the gate                              | Only when the lockfiles cannot tell it  |
 | `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
@@ -141,7 +141,8 @@ pi-rukas's: its `docs/lean.md` is the reference.
 Only the lean driver reads `.pi/work.json`, at the run's base commit, never from
 the working tree. Without it lean takes its defaults, and they name no
 `verify.test`: a spec with a `test` criterion then ends not ready, `no test
-runner configured`. A person writes it: it is under `.pi/`, so a cycle never
+runner configured`. tehas's comment on the issue then says the repository needs
+the setting and that the issue's text is fine. A person writes it: it is under `.pi/`, so a cycle never
 changes it (AGENTS.md rule 7).
 
 ```json
@@ -194,7 +195,7 @@ is missing, installs the packages and Docker, adds the user to the `docker`
 group, turns lingering on, installs the slice, and installs the pinned tools as
 the user in the same run, so no logout is needed. The release ends up in
 `~boss/tehas/versions/<version>`, with `~boss/tehas/current` pointing at it.
-`--version vX.Y.Z` installs another release. [Bootstrap a host](/bootstrap)
+`--version vX.Y.Z` installs another release, and `--version vX.Y.Z-beta.N` (or `-alpha.N`, `-rc.N`) a prerelease, which is never the newest. [Bootstrap a host](/bootstrap)
 has what the machine needs.
 
 To install from files you downloaded yourself, for example on a host that
@@ -314,10 +315,10 @@ The build runs with the instance directory as its context, so the file can
 `COPY` a script or a config that lives beside it. A `sandbox.Dockerfile` that
 changed since the last install makes `install.sh` owe the `sandbox` step, the
 same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
-then rebuilds. A file that does not build fails the build and the tag cycles run
-is left where it was, on the image the host had; a build that is killed partway
-leaves it on the platform image, without your layer, so re-run
-`~/tehas/sandbox/build.sh` after fixing the file.
+or a run of `tehas setup` then rebuilds. A file that does not build fails the
+build and the tag cycles run is left where it was, on the image the host had; a
+build that is killed partway leaves it on the platform image, without your
+layer, so re-run `~/tehas/sandbox/build.sh` after fixing the file.
 
 After a change to the file, rebuild and check the gates again:
 

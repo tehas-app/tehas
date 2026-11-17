@@ -25,6 +25,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
+use tehas_core::file::Temp;
 use tehas_core::size::{measure, Size, MAX_BYTES, MAX_LINES};
 use tehas_core::time;
 
@@ -142,10 +143,7 @@ fn trim(held: &[u8], ledger: &Path) -> Result<(), ()> {
         .filter(|(_, b)| **b == b'\n')
         .nth(lines - KEPT - 1)
         .map_or(0, |(i, _)| i + 1);
-    let mut side = ledger.as_os_str().to_owned();
-    side.push(".new");
-    fs::write(&side, &held[from..]).map_err(|_| ())?;
-    fs::rename(&side, ledger).map_err(|_| ())
+    tehas_core::file::write_atomic(ledger, &held[from..], 0o644, &Temp::Predictable).map_err(|_| ())
 }
 
 #[cfg(test)]

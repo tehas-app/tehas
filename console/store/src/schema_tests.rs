@@ -92,6 +92,20 @@ fn at_16(name: &str) -> TestDir {
     home
 }
 
+/// A store at 17: the last release's, brought forward to 17 and no further,
+/// as a host on a pre-release of 1.0 before schema 18 holds it.
+fn at_17(name: &str) -> TestDir {
+    let home = release(name, 14);
+    let mut c = conn(&home);
+    for (to, run) in db::STEPS {
+        if (15..=17).contains(to) {
+            run(&mut c).unwrap();
+        }
+    }
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
+    home
+}
+
 /// The columns of a contractor's report, which schema 17 adds.
 const REPORT_COLUMNS: [&str; 5] = [
     "report_image",
@@ -109,6 +123,7 @@ fn step_sql(to: i64) -> &'static str {
         15 => db::OUTSOURCE_SCHEMA,
         16 => db::STEP_16,
         17 => db::STEP_17,
+        18 => db::STEP_18,
         _ => unreachable!("no step to {to}"),
     }
 }
@@ -233,13 +248,13 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_17() {
-    assert_eq!(db::SCHEMA_VERSION, 17);
-    let home = home("schema-17");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
+fn init_writes_schema_18() {
+    assert_eq!(db::SCHEMA_VERSION, 18);
+    let home = home("schema-18");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "17"
+        "18"
     );
     // The five tables of the feature are laid by every init, and stay empty
     // while it is off.
@@ -256,8 +271,13 @@ fn init_writes_schema_17() {
     for t in ["planning", "plan_history"] {
         assert!(columns(&c, t).contains(&"auto".to_string()), "{t}");
     }
-    // Schema 17: a job keeps its token's hash, a contractor its last report.
-    assert!(columns(&c, "jobs").contains(&"token_sha256".to_string()));
+    // Schema 17: a contractor keeps its last report. Schema 18: a job keeps
+    // the hash of its token of each scope.
+    let jobs = columns(&c, "jobs");
+    for col in ["model_token_sha256", "job_token_sha256"] {
+        assert!(jobs.contains(&col.to_string()), "{col}");
+    }
+    assert!(!jobs.contains(&"token_sha256".to_string()));
     for col in REPORT_COLUMNS {
         assert!(
             columns(&c, "contractors").contains(&col.to_string()),
@@ -326,7 +346,7 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 }
 
 #[test]
-fn a_store_of_each_0_30_release_comes_to_17_with_every_row() {
+fn a_store_of_each_0_30_release_comes_to_18_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -399,6 +419,9 @@ fn a_store_of_each_0_30_release_comes_to_17_with_every_row() {
     let home = at_16("release-16");
     migrate(&home).unwrap();
     same_shape_as_init(&home, &b, "16");
+    let home = at_17("release-17");
+    migrate(&home).unwrap();
+    same_shape_as_init(&home, &b, "17");
 }
 
 /// Plan 6.7: an update stopped at any step, then run again. A step is one
@@ -406,7 +429,7 @@ fn a_store_of_each_0_30_release_comes_to_17_with_every_row() {
 /// and a stop inside a step leaves it where the step began. Either way the
 /// next migrate goes on from there to the schema init writes, with every row.
 #[test]
-fn a_migrate_stopped_at_any_step_comes_to_17_when_it_runs_again() {
+fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
     let made = home("stopped-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
@@ -678,9 +701,15 @@ fn the_step_from_16_keeps_the_outsource_rows_and_adds_its_columns_empty() {
         .is_err());
     let before = rows(&conn(&home));
     migrate(&home).unwrap();
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 17);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(rows(&conn(&home)), before);
-    assert_eq!(count(&home, "jobs WHERE token_sha256 IS NULL"), 1);
+    assert_eq!(
+        count(
+            &home,
+            "jobs WHERE model_token_sha256 IS NULL AND job_token_sha256 IS NULL"
+        ),
+        1
+    );
     for col in REPORT_COLUMNS {
         assert_eq!(
             count(&home, &format!("contractors WHERE {col} IS NULL")),
@@ -695,6 +724,45 @@ fn the_step_from_16_keeps_the_outsource_rows_and_adds_its_columns_empty() {
         ),
         200
     );
+}
+
+/// The step to 18 keeps a job's token hash as the hash of its job scope and
+/// adds the model scope empty.
+#[test]
+fn the_step_from_17_keeps_the_token_hash_as_the_job_scope() {
+    let home = at_17("step-18-rows");
+    let sha = "1".repeat(64);
+    conn(&home)
+        .execute_batch(&format!(
+            "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
+             INSERT INTO contractors (name, public_key, added_at) VALUES ('box1', '{KEY}', 100);
+             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at, token_sha256)
+               VALUES (7, 'box1', 1, 'running', 100, 4000, 100, '{sha}');
+             INSERT INTO jobs (issue, contractor, attempt, state, offered_at, expires_at, updated_at)
+               VALUES (7, 'box1', 2, 'offered', 100, 4000, 100);"
+        ))
+        .unwrap();
+    let before = rows(&conn(&home));
+    migrate(&home).unwrap();
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 18);
+    assert_eq!(rows(&conn(&home)), before);
+    assert_eq!(
+        count(
+            &home,
+            &format!(
+                "jobs WHERE id = 1 AND job_token_sha256 = '{sha}' AND model_token_sha256 IS NULL"
+            )
+        ),
+        1
+    );
+    assert_eq!(
+        count(
+            &home,
+            "jobs WHERE id = 2 AND model_token_sha256 IS NULL AND job_token_sha256 IS NULL"
+        ),
+        1
+    );
+    assert!(!columns(&conn(&home), "jobs").contains(&"token_sha256".to_string()));
 }
 
 #[test]
@@ -742,6 +810,7 @@ fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
         ("12", release("load-old-12", 12)),
         ("15", at_15("load-old-15")),
         ("16", at_16("load-old-16")),
+        ("17", at_17("load-old-17")),
     ] {
         let from = one::<i64>(&old, "PRAGMA user_version");
         let into = home(&format!("load-old-into-{name}"));

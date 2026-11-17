@@ -633,12 +633,13 @@ pub fn socket_path_refused(path: &std::path::Path) -> Option<String> {
     })
 }
 
-/// The name of the file a job's token is handed over in. It sits in the job's
+/// The name of the file a job's model token is handed over in: the model
+/// scope, the only token a container is given. It sits in the job's
 /// own directory in the state, is written once, and is read only by the process
 /// that starts the contractor's container: #2274 reads it to write the
 /// container's `models.json`. The token is never in a command line, a log line
 /// or the store.
-pub const TOKEN_FILE: &str = "job-token";
+pub const TOKEN_FILE: &str = "model-token";
 
 /// Write a job's token where the process that starts its container can read it.
 /// The directory is 0700 and the file is made 0600, so no other user can read

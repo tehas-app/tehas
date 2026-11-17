@@ -364,4 +364,62 @@ t_contains "$(cat "$T_ROOT/host/docs/_layout.html")" '<link rel="icon" type="ima
 # come before it.
 t_eq "$(awk '/handle \/favicon.ico \{/ {f = NR} /rewrite \* \/_layout.html/ {l = NR} END {print (f && f < l) ? "before" : "after"}' "$docs_caddy")" before
 
+t_case "the consoles under /live/ are a 404 unless TEHAS_SITE_CONSOLE is on"
+live=$(awk '/^        handle_path \/live\/\* \{/,/^        \}/' "$docs_caddy")
+[ -n "$live" ] || t_bad "the live handler was not read from $docs_caddy"
+private=$(printf '%s\n' "$live" | awk '/^[[:space:]]*@console_private \{/ {on = 1} on {print} on && /^[[:space:]]*\}/ {exit}')
+[ -n "$private" ] || t_bad "no @console_private matcher in the live handler"
+t_contains "$private" 'path /console-*.txt /console-*.txt.now'
+# Off unless the value is 1: unset, empty or anything else keeps them out.
+t_contains "$private" 'expression `"{$TEHAS_SITE_CONSOLE:0}" != "1"`'
+respond_line=$(printf '%s\n' "$live" | grep -n -m1 '^[[:space:]]*respond @console_private 404$')
+server_line=$(printf '%s\n' "$live" | grep -n -m1 'file_server')
+[ -n "$respond_line" ] && [ -n "$server_line" ] || t_bad "no respond @console_private 404 before file_server"
+t_eq "$((10#${respond_line%%:*} < 10#${server_line%%:*} ? 1 : 0))" 1
+# The container gets the switch as the loader writes it, 1 or 0, and 0 when
+# compose runs without the settings.
+t_contains "$(cat "$docs_compose")" 'TEHAS_SITE_CONSOLE: "${TEHAS_SITE_CONSOLE:-0}"'
+t_contains "$(cat "$T_ROOT/instances/example/optional.env")" '#TEHAS_SITE_CONSOLE=off'
+
+t_case "where there is a caddy and a curl, the server keeps the console out until the switch is 1"
+if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  mkdir -p "$T/srv/live" "$T/srv/docs" "$T/srv/fun" "$T/xdg"
+  printf 'line\n' >"$T/srv/live/console-7.txt"
+  printf '{}\n' >"$T/srv/live/status.json"
+  serve() { # <TEHAS_SITE_CONSOLE value>: the codes for the console and status.json
+    local try port pid up console status
+    # A random port can be taken: caddy then exits on the bind, so try another.
+    for try in 1 2 3 4 5; do
+      port=$((20000 + RANDOM % 20000))
+      sed -e "s|/srv/|$T/srv/|g" -e "s|^:8080 {|:$port {|" "$docs_caddy" >"$T/Caddyfile"
+      XDG_DATA_HOME=$T/xdg XDG_CONFIG_HOME=$T/xdg TEHAS_SITE_CONSOLE=$1 \
+        caddy run --adapter caddyfile --config "$T/Caddyfile" >"$T/caddy.log" 2>&1 &
+      pid=$!
+      up=
+      for _ in $(seq 300); do
+        kill -0 "$pid" 2>/dev/null || break
+        [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/status.json")" = 200 ] && { up=1; break; }
+        sleep 0.1
+      done
+      [ -n "$up" ] && break
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      grep -q 'address already in use' "$T/caddy.log" || break
+    done
+    if [ -z "$up" ]; then
+      echo "caddy never answered status.json (try $try): $(tail -n 3 "$T/caddy.log" | tr '\n' ' ')"
+      return
+    fi
+    console=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/console-7.txt")
+    status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/live/status.json")
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "$console $status"
+  }
+  t_eq "$(serve '')" "404 200"
+  t_eq "$(serve 0)" "404 200"
+  t_eq "$(serve on)" "404 200"
+  t_eq "$(serve 1)" "200 200"
+fi
+
 t_done

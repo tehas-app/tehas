@@ -1,7 +1,8 @@
-//! The flags one instance keeps under `state/`: the limit `tehas limit` sets
+//! The holds one instance keeps under `state/`: the limit `tehas limit` sets
 //! and the pause `tehas pause` sets. Reading, validating, writing and printing
 //! them, for `tehas limit`, `tehas pause`, `tehas resume` and `tehas drain`, so
-//! that every command which honours a flag reads it through one Rust function.
+//! that every command which honours a hold reads it through one Rust function.
+//! The subcommand keeps its old name, `console flags`.
 //!
 //!   console flags limit show [--json]
 //!   console flags limit set --cycles N [--plan on|off]
@@ -1050,7 +1051,7 @@ mod tests {
     use tehas_core::testdir::TestDir;
 
     fn dir(name: &str) -> TestDir {
-        TestDir::new(&format!("flags-{name}"))
+        TestDir::new(&format!("holds-{name}"))
     }
 
     // The file of a home, with its state/ directory made.

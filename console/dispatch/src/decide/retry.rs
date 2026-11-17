@@ -25,7 +25,7 @@ fn labels(v: &Value) -> Vec<String> {
 
 pub(crate) fn hex40(v: Option<&Value>) -> bool {
     v.and_then(Value::as_str)
-        .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        .is_some_and(tehas_core::grammar::commit_id)
 }
 
 /// Why the labels `have` of an issue keep its refresh from starting, None
@@ -129,21 +129,7 @@ const MAX_START: u64 = 99_999_999_999;
 /// may order a formatted start against the approval's stamp as text. An empty
 /// stamp is no instant, and an approval that names none is not held on it.
 fn is_instant(s: &str) -> bool {
-    let b = s.as_bytes();
-    let some = |from: usize, to: usize| b[from..to].iter().all(|c| c.is_ascii_digit());
-    b.len() == 20
-        && some(0, 4)
-        && b[4] == b'-'
-        && some(5, 7)
-        && b[7] == b'-'
-        && some(8, 10)
-        && b[10] == b'T'
-        && some(11, 13)
-        && b[13] == b':'
-        && some(14, 16)
-        && b[16] == b':'
-        && some(17, 19)
-        && b[19] == b'Z'
+    tehas_core::time::iso_shaped(s)
 }
 
 /// A cycle_history row: the parked start of a refresh since `at`, the approval

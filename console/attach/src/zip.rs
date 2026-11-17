@@ -134,13 +134,22 @@ impl<'a> Archive<'a> {
         if entry.encrypted || entry.overlaps {
             return Err(ReadError::Bad);
         }
+        // The size is the central directory's: one over the limit is refused
+        // before a byte of it is inflated or written.
+        if entry.size > limit {
+            return Err(ReadError::Over);
+        }
         let local = usize::try_from(entry.local_offset).map_err(|_| ReadError::Bad)?;
         if u32_at(self.data, local) != Some(LOCAL_SIG) {
             return Err(ReadError::Bad);
         }
-        let name_len = u16_at(self.data, local + 26).ok_or(ReadError::Bad)? as usize;
-        let extra_len = u16_at(self.data, local + 28).ok_or(ReadError::Bad)? as usize;
-        let start = local + LOCAL_LEN + name_len + extra_len;
+        let name_len = u16_at(self.data, local.checked_add(26).ok_or(ReadError::Bad)?)
+            .ok_or(ReadError::Bad)? as usize;
+        let extra_len = u16_at(self.data, local.checked_add(28).ok_or(ReadError::Bad)?)
+            .ok_or(ReadError::Bad)? as usize;
+        let start = local
+            .checked_add(LOCAL_LEN + name_len + extra_len)
+            .ok_or(ReadError::Bad)?;
         let len = usize::try_from(entry.compressed).map_err(|_| ReadError::Bad)?;
         let end = start.checked_add(len).ok_or(ReadError::Bad)?;
         let packed = self.data.get(start..end).ok_or(ReadError::Bad)?;
@@ -159,23 +168,27 @@ impl<'a> Archive<'a> {
 
 /// Mark every entry whose local record and data share a byte with another's.
 /// One stream named by many entries would otherwise be inflated once each.
+/// An entry whose span cannot be worked out is marked too, and left out of
+/// the comparison: its local record is not in the archive.
 fn mark_overlaps(data: &[u8], entries: &mut [Entry]) {
-    let span = |e: &Entry| -> (u64, u64) {
+    let span = |e: &Entry| -> Option<(u64, u64)> {
         let at = e.local_offset;
-        let head = usize::try_from(at)
-            .ok()
-            .and_then(|l| Some(u16_at(data, l + 26)? as u64 + u16_at(data, l + 28)? as u64))
-            .unwrap_or(0);
-        (at, at + LOCAL_LEN as u64 + head + e.compressed)
+        let l = usize::try_from(at).ok()?;
+        let head =
+            u16_at(data, l.checked_add(26)?)? as u64 + u16_at(data, l.checked_add(28)?)? as u64;
+        let end = at
+            .checked_add(LOCAL_LEN as u64)?
+            .checked_add(head)?
+            .checked_add(e.compressed)?;
+        Some((at, end))
     };
-    let mut spans: Vec<(u64, u64, usize)> = entries
-        .iter()
-        .enumerate()
-        .map(|(i, e)| {
-            let (a, b) = span(e);
-            (a, b, i)
-        })
-        .collect();
+    let mut spans: Vec<(u64, u64, usize)> = Vec::with_capacity(entries.len());
+    for (i, e) in entries.iter_mut().enumerate() {
+        match span(e) {
+            Some((a, b)) => spans.push((a, b, i)),
+            None => e.overlaps = true,
+        }
+    }
     spans.sort_unstable();
     let mut reach: Option<(u64, usize)> = None;
     for &(start, end, i) in &spans {
@@ -275,4 +288,69 @@ fn copy(
         return Err(ReadError::Bad);
     }
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(local_offset: u64, compressed: u64) -> Entry {
+        Entry {
+            name: b"a.txt".to_vec(),
+            unix_mode: None,
+            dos_dir: false,
+            encrypted: false,
+            method: 0,
+            crc: 0,
+            compressed,
+            size: compressed,
+            local_offset,
+            overlaps: false,
+        }
+    }
+
+    // A local record of `name_len` name bytes at 0, then `data` bytes.
+    fn local(name_len: u16, data: usize) -> Vec<u8> {
+        let mut d = vec![0u8; LOCAL_LEN];
+        d[..4].copy_from_slice(&LOCAL_SIG.to_le_bytes());
+        d[26..28].copy_from_slice(&name_len.to_le_bytes());
+        d.resize(LOCAL_LEN + name_len as usize + data, b'x');
+        d
+    }
+
+    #[test]
+    fn an_entry_whose_span_overflows_is_marked_and_refused() {
+        let data = local(1, 4);
+        let mut entries = vec![entry(u64::MAX - 8, 4), entry(0, 4)];
+        mark_overlaps(&data, &mut entries);
+        assert!(entries[0].overlaps);
+        assert!(!entries[1].overlaps);
+        let archive = Archive {
+            data: &data,
+            entries: entries.clone(),
+            more: false,
+        };
+        let mut inflated = 0;
+        assert!(matches!(
+            archive.read(&entries[0], 100, &mut Vec::new(), &mut inflated),
+            Err(ReadError::Bad)
+        ));
+    }
+
+    #[test]
+    fn an_entry_whose_local_record_is_past_the_end_is_marked() {
+        let data = local(1, 4);
+        let mut entries = vec![entry(data.len() as u64 - 2, 4), entry(0, 4)];
+        mark_overlaps(&data, &mut entries);
+        assert!(entries[0].overlaps);
+        assert!(!entries[1].overlaps);
+    }
+
+    #[test]
+    fn entries_that_share_bytes_are_both_marked() {
+        let data = local(1, 100);
+        let mut entries = vec![entry(0, 4), entry(4, 4)];
+        mark_overlaps(&data, &mut entries);
+        assert!(entries[0].overlaps && entries[1].overlaps);
+    }
 }

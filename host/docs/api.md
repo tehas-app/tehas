@@ -151,7 +151,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` ([`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) and `flags` (the object below is there). A shipped optional feature adds its name of `flags` here; a building one does not |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host) and `flags` (the object below is there). A shipped optional feature adds its name of `flags` here; a building one does not |
 | `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)), `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) and `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -175,6 +175,10 @@ It reads the instance settings, `~/tehas/docs/version.txt`, which
 status` does: a store that is busy or missing is `"poll": null`, not a
 failure of the command. Exit 0; 64 on an argument it does not know; 78 when the
 settings are missing or malformed.
+
+`api/api.schema.json` in the repository is the schema of the object, with
+samples beside it that the command printed. The words of `features` are `api/features.txt`, in the
+order the command prints them: within 1.x a word is only added, at the end.
 
 ## tehas status --json
 
@@ -226,7 +230,7 @@ tehas status --json
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
 | `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
-| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
+| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, the parked issues where an allowed labeller ticked Retry in the park comment, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
 | `demand.labelAlone` | The issues `tehas:blocked` holds by the label alone, by number, at most 50: the label counts, and no comment of an allowed labeller or the millwright names their blockers, so they never start until one does or a person takes the label off. A marker in the issue's body is not read. Left out when there are none |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
@@ -255,10 +259,10 @@ tehas status --json
 | `versions.rukas.version` | The version the sandbox image's pi-rukas answers, such as `v0.14.53`; `null` when it is not known |
 | `versions.rukas.latest` | The version of the pi-rukas commit the host follows (`PI_RUKAS_FOLLOW`); `null` when that commit is no release, as when the host follows a branch |
 | `versions.rukas.behind` | `true` when the image is not on the commit the host follows, compared by commit, so it can be `true` while both versions are `null` |
-| `prototypes` | The issues with a [Protolab](/tools-protolab#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab |
+| `prototypes` | The issues with a [Protolab](/tools-protolab#tehasbot-protolab) page, from `live/protolab.json` as the Protolab last wrote it. Left out when there is no such list, as on a host that does not run the Protolab. Its fields may change in a minor release, as those of `running[].progress` may |
 | `prototypes.issue` | The issue number |
 | `prototypes.builtAt` | When its page was last built; left out for a page whose time cannot be read |
-| `contractors` | The contractors of [outsource](/outsource), from `live/contractors.json` as `tehasbot status` last wrote it: `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, how many contractors have each status, `outsourced`, how many cycles are on a contractor now, and `list`, each contractor with `name`, `status`, `issue` (the issue of the job in its hand, left out when it holds none), `lastSeenAt` (when it last called, left out when it never has), `jobsDone` and `jobsLost`, and from its last report `image` (the id of the sandbox image it runs), `rukas` (the pi-rukas version that image is labelled with), `memMb` and `diskKb` (its free memory in MiB and free disk in KiB) and `reportedAt` (when the factory took the report), each left out when it did not say. Present only while outsource is on: with it off the file is not there and the object has no `contractors`. Outsource is still being built in this release, so no factory has it yet |
+| `contractors` | The contractors of [outsource](/outsource), from `live/contractors.json` as `tehasbot status` last wrote it: `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, how many contractors have each status, `outsourced`, how many cycles are on a contractor now, and `list`, each contractor with `name`, `status`, `issue` (the issue of the job in its hand, left out when it holds none), `lastSeenAt` (when it last called, left out when it never has), `jobsDone` and `jobsLost`, and from its last report `image` (the id of the sandbox image it runs), `rukas` (the pi-rukas version that image is labelled with), `memMb` and `diskKb` (its free memory in MiB and free disk in KiB) and `reportedAt` (when the factory took the report), each left out when it did not say. Present only while outsource is on: with it off the file is not there and the object has no `contractors`. Outsource is still being built in this release, so no factory has it yet, and its fields may change while outsource is still being built, as those of `running[].progress` may |
 
 Everything in the object is as the health file wrote it at `time`, and is
 `age` seconds old. The dispatcher writes it at each poll, every two minutes,
@@ -312,7 +316,7 @@ and `state`.
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
-| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
+| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/holds.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
 | `plan` | `false`: no new planning session. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
@@ -403,9 +407,19 @@ it, or `null` with `cleared: false` when none waited.
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
 | `issue` | The issue |
-| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and `bodySha256` and `titleSha256`, the SHA-256 sums of the text and the title. `null` from a `--clear` that found none |
+| `approval` | What was recorded or taken back. `null` from a `--clear` that found none |
+| `approval.at` | When it was recorded |
+| `approval.by` | `host` |
+| `approval.how` | `host` |
+| `approval.bodySha256` | The SHA-256 sum of the issue's text the approval covers |
+| `approval.titleSha256` | The SHA-256 sum of its title |
 | `cleared` | `true` when `--clear` took an approval back |
+
+`api/start.schema.json` in the source says what the object holds, and
+`api/start.sample.json`, `api/start.cleared.json` and `api/start.none.json`
+are samples of it.
 
 The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 "host"`) and `tehas status` say the cycle was started from the host. The
@@ -664,6 +678,17 @@ with a higher number. The rest of the object is the one
 [`tehas history --json`](#tehas-history) prints for what was copied, and `to`,
 the directory.
 
+| Field | Meaning |
+| --- | --- |
+| `api` | The API version, 1 |
+| `version` | The layout of the export directory, 1 |
+| `runs` | The lines copied, each as [`tehas history --json`](#tehas-history) prints it |
+| `next` | The cursor to keep: the last line's `cursor`, or the one given to `--after` when nothing was copied |
+| `to` | The directory written, an absolute name |
+
+`api/export.schema.json` in the source says what the object holds, and
+`api/export.sample.json` and `api/export.empty.json` are samples of it.
+
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
 `logs/`, its agents' `transcripts/`, its Protolab page under `protolab/`, and
@@ -803,9 +828,15 @@ store's own answer to `store check`, whole and in its order:
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
+| `verb` | `check`, the store's verb that answered |
+| `ok` | `true`. A store that fails its check prints no object |
 | `schema` | The schema version of the store |
 | `integrity` | `ok`: SQLite's integrity check passed. Any other answer is no object: see the exit statuses |
 | `rows` | Each table of the store and its number of rows. A later schema may add tables |
+
+`api/state-check.schema.json` in the source says what the object holds, and
+`api/state-check.sample.json`, a new store's, is a sample of it.
 
 Without `--json` it prints the same as `schema`, `integrity` and one `rows`
 line per table, for a person. It reads only and refuses nothing, so it can be
@@ -926,13 +957,16 @@ SSH, `incus exec` or `kubectl exec`, as it runs any other.
 
 | Field | Meaning |
 | --- | --- |
+| `api` | The API version, 1 |
 | `schema` | The copy's schema version, `PRAGMA user_version`. A program that knows another version does not read it |
 | `from` | The oldest start of a run in the copy, Unix seconds; left out when it has no run |
 | `to` | The newest end of a run in the copy (its start for a run that has no end), Unix seconds; left out when it has no run |
 | `runs` | How many runs the copy holds |
 
-The fields are read from the copy, not from the factory's database, so they
-describe the file the program fetches. The command takes no lock a cycle holds
+`api/analytics-copy.schema.json` in the source says what the object holds, and
+`api/analytics-copy.sample.json` and `api/analytics-copy.empty.json`, a copy
+with no run, are samples of it. The fields are read from the copy, not from the
+factory's database, so they describe the file the program fetches. The command takes no lock a cycle holds
 and makes no network call. It never replaces a file: name a new one each time.
 A copy fetched again holds the same rows, and more: rows are keyed so that
 storing them twice is harmless (see [Analytics](/analytics#fetching-it)).
@@ -972,7 +1006,7 @@ A dry run removes
 nothing, takes no issue's lock and backs the store up not at all, so its figure
 is an estimate of a tree that is moving while it is measured.
 
-The feature `clean` in [`tehas api`](#tehas-api) says the command exists.
+The feature `clean` in [`tehas api`](#tehas-api) says the hourly cleaner runs on this host.
 Exit 0 when every step worked; 1 when a step failed or the log could not be
 written, with what could be removed removed; 3 when another run holds the
 cleaner's lock, which changes nothing; 64 on an argument the command does not
@@ -1268,7 +1302,10 @@ list does not hold, so a file a new writer puts under `live/` is not served
 until both the table and the Caddyfile name it. Every file here is plain and
 written through a side name and a rename, so a reader sees a whole file or the
 last one. The console files mask tokens, keys and passwords as they are
-written, and still: treat all of it as public.
+written, and still: treat all of it as public. The two console names are
+served only where the instance sets `TEHAS_SITE_CONSOLE=on`; without it they
+answer 404 like a name the list does not hold ([The live console on
+the site](/host#the-live-console-on-the-site)).
 
 | Name | Written by | Read by |
 | --- | --- | --- |

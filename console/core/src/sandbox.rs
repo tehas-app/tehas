@@ -822,7 +822,7 @@ pub fn settings_ok() -> Result<(), String> {
 
 /// The -v options with what they name made on the host, because Docker would
 /// create a missing mount source as a root-owned directory. The caller makes
-/// <host>; `tehas-cycle sandbox mounts` writes <state>/models.json. Asks [`settings_ok`] again, and says
+/// <host>; the caller also writes <state>/models.json. Asks [`settings_ok`] again, and says
 /// why on Err.
 pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
     if [p.tree, p.host, p.state, p.runs]

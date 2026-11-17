@@ -42,6 +42,15 @@ impl Driver {
         }
     }
 
+    /// The flags of a run that this driver's verb never takes, in any release
+    /// of the runner. Tehas passing one is a fault of tehas, not of the image.
+    pub const fn never_takes(self) -> &'static [&'static str] {
+        match self {
+            Driver::Classic => &[],
+            Driver::Lean => &["--restart"],
+        }
+    }
+
     pub const fn other(self) -> Driver {
         match self {
             Driver::Classic => Driver::Lean,
@@ -100,6 +109,12 @@ mod tests {
         assert_eq!(Driver::Lean.verb(), "work-lean");
         assert_eq!(Driver::Classic.label(), "tehas:classic");
         assert_eq!(Driver::Lean.label(), "tehas:lean");
+    }
+
+    #[test]
+    fn lean_never_takes_a_restart_and_classic_takes_every_flag() {
+        assert_eq!(Driver::Lean.never_takes(), &["--restart"]);
+        assert!(Driver::Classic.never_takes().is_empty());
     }
 
     #[test]

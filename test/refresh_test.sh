@@ -258,6 +258,18 @@ t_eq "$(jq -c '[.api, .asked, .pr, .issue, .headSha]' <<<"$t_out")" '[1,false,50
 t_contains "$(jq -r .why <<<"$t_out")" "GitHub did not answer for pull request #50"
 t_eq "$(requests)" ""
 
+t_case "--pr N --json prints the samples of api/refresh: asked, declined and failed"
+for sample in asked declined failed; do
+  reset
+  case $sample in
+    asked) one "$(pr 50 7)" ;;
+    declined) one "$(pr 50 7 '.mergeable = "MERGEABLE"')" ;;
+    failed) : >"$fx/pr-fails" ;;
+  esac
+  t_run "$refresh --pr 50 --json 2>/dev/null"
+  t_eq "$sample $(jq -c . <<<"$t_out")" "$sample $(jq -c . "$T_ROOT/api/refresh.$sample.json")"
+done
+
 t_case "--pr without a number above 0 is refused with 64 and calls nothing"
 reset
 for args in "--pr 0" "--pr x" "--pr" "--pr 50 51" "--pr 50 --jsn" "--json --pr 50" "--pr 0 --json"; do

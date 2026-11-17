@@ -12,7 +12,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use tehas_core::file::{read_regular, ReadError};
 pub use tehas_core::grammar::count;
-use tehas_core::grammar::{digits, is_hex, is_image};
+use tehas_core::grammar::{commit_id, digits, is_hex, is_image};
 
 /// The exit status and the line for standard error.
 pub type Fail = (u8, String);
@@ -319,7 +319,7 @@ pub fn commit(s: &str) -> Option<String> {
 }
 
 pub fn head_sha(s: &str) -> Option<String> {
-    is_hex(s, 40, 40).then(|| s.to_string())
+    commit_id(s).then(|| s.to_string())
 }
 
 pub fn image(s: &str) -> Option<String> {

@@ -594,6 +594,59 @@ fn at_most_two_archives_and_a_file_of_one_keeps_what_the_directory_holds() {
 }
 
 #[test]
+fn a_second_archive_never_replaces_what_the_first_or_the_directory_holds() {
+    let (_scratch, dir) = scratch();
+    let (one, two) = (file(1, "a.zip"), file(2, "b.zip"));
+    let png2 = [PNG, b"2"].concat();
+    let mut net = Fake::default();
+    net.bytes.insert(
+        one.clone(),
+        zip_of(&[("a.png", PNG), ("retry-context.md", b"one"), ("part", b"x")]),
+    );
+    net.bytes.insert(
+        two.clone(),
+        zip_of(&[
+            ("image-1.png", &png2),
+            ("file-1.md", b"two"),
+            ("retry-context.md", b"two"),
+        ]),
+    );
+    fs::write(format!("{dir}/retry-context.md"), "kept").unwrap();
+    // A link where the next file goes is taken too, and stays a link.
+    std::os::unix::fs::symlink("/nonexistent", format!("{dir}/file-2.md")).unwrap();
+    let mut t = take(&net, &dir, ALL);
+    t.all(&[body(&one), body(&two)]).unwrap();
+    assert_eq!(names(&t.images), ["image-1.png", "image-2.png"]);
+    assert_eq!(names(&t.files), ["file-1.md", "2-file-2.md", "file-3.md"]);
+    assert_eq!(
+        fs::read_to_string(format!("{dir}/retry-context.md")).unwrap(),
+        "kept"
+    );
+    assert!(fs::symlink_metadata(format!("{dir}/file-2.md"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    for e in t.images.iter().chain(&t.files) {
+        let mut s = Sniffer::default();
+        s.write_all(&fs::read(format!("{dir}/{}", e.shown("file"))).unwrap())
+            .unwrap();
+        assert_eq!(s.finish().sha256, e.shown("sha256"));
+    }
+    assert_eq!(
+        listing(&dir),
+        [
+            "2-file-2.md",
+            "file-1.md",
+            "file-2.md",
+            "file-3.md",
+            "image-1.png",
+            "image-2.png",
+            "retry-context.md"
+        ]
+    );
+}
+
+#[test]
 fn an_archive_pays_the_limits_of_what_it_holds() {
     let (_scratch, dir) = scratch();
     let zip = file(1, "a.zip");

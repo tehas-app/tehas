@@ -150,7 +150,7 @@ fn unit_line(u: &J) -> String {
 
 /// " (<age>)" of a time, or nothing when it cannot be read.
 fn stamp(t: &J, now: i64) -> String {
-    match t.as_str().and_then(crate::flags::epoch) {
+    match t.as_str().and_then(crate::holds::epoch) {
         Some(e) => format!(" ({})", status::ago(e, now)),
         None => String::new(),
     }
@@ -200,7 +200,7 @@ pub fn frame(snapshot: &J, cols: usize, rows: usize) -> Vec<String> {
     let now = s
         .get("generatedAt")
         .as_str()
-        .and_then(crate::flags::epoch)
+        .and_then(crate::holds::epoch)
         .unwrap_or_else(tehas_core::time::now);
     let objects = |v: &J| -> Vec<J> {
         v.items()

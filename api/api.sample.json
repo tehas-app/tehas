@@ -1,0 +1,65 @@
+{
+  "api": 1,
+  "tehas": "v0.8.0",
+  "commit": "cb6912a",
+  "repo": "acme/widget",
+  "features": [
+    "status",
+    "millwright-grant",
+    "all-hands",
+    "limit",
+    "drain",
+    "history",
+    "export",
+    "analytics",
+    "state-move",
+    "mcp-dashboard-keys",
+    "clean",
+    "disk",
+    "panels",
+    "state-check",
+    "finish",
+    "status-versions",
+    "state-copy",
+    "state-load",
+    "freeze",
+    "host-bridge",
+    "cycle-writes",
+    "settings-rules",
+    "start-order",
+    "host-message",
+    "refresh-pr",
+    "host-start",
+    "flags"
+  ],
+  "flags": {
+    "outsource": false,
+    "spec-pipe": false,
+    "protolab-zip-url": false,
+    "prototype-file": false,
+    "lean": false
+  },
+  "millwright": "millbot[bot]",
+  "poll": {
+    "last": {
+      "at": 1761400000,
+      "wallMs": 24000,
+      "cpuMs": 3100,
+      "gh": 3,
+      "writes": 1,
+      "starts": 1,
+      "kinds": {
+        "label": 1,
+        "comment": 0,
+        "edit": 0,
+        "other": 0
+      },
+      "ageMin": 0
+    },
+    "hour": {
+      "polls": 2,
+      "cpuMs": 6200,
+      "writes": 1
+    }
+  }
+}

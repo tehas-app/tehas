@@ -236,6 +236,27 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `stop #N: its issue is closed` or `stop #N: its pull request <url> is
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
+- `ignore #N: tehas:finish was applied by '<who>', not an allowed account`:
+  someone outside `TEHAS_ALLOWED_LABELERS` asked for the finish of a stopped
+  cycle. The label stays and nothing runs. An allowed account takes it off,
+  writes the marked comment and applies `tehas:finish` again. See
+  [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `wait #N: tehas:finish waits: <why>`: the issue's label events, its comments
+  or its approval could not be read. The label stays and the next poll tries
+  again. If the line keeps coming, the rest of it says what could not be read.
+  See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: refused, asked by <who>: <why>`, with `(<label|millwright>)`
+  after the name when the command itself refused: a rule of the ask was not
+  met, or `tehas-cycle finish` refused. The label came off and the bot replied
+  with `result=refused` and the one line of why. Fix what it names, then ask
+  again. See [Finishing a stopped cycle](/operating#finishing-a-stopped-cycle).
+- `finish #N: opened <url>, asked by <who> (<label|millwright>): <reason>`: the
+  finish opened its draft pull request, and the bot replied with its address.
+  Review it as any other pull request.
+
+  The finish step runs only on a poll that is not paused, not a dry run and
+  did not fail, and takes at most three asks a poll; the rest wait for the
+  next one.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, refused the request with an HTTP code (401 for a wrong or missing
   token, 429 for a rate limit), could not be asked because curl could not be
@@ -513,8 +534,10 @@ The common ones:
 | `container-killed`                  | The container ended with 137 and nobody here stopped it: the kernel killed it for memory, or something outside the cycle killed it. The record's `capReason` names the step in flight and how many processes in the container were killed for memory, and `err.txt` says the same | Read the memory kills first: a cycle that keeps reaching this cap needs a larger share of the slice or fewer cycles at once. A pull request it had opened is named in the comment |
 | `process-limit:<step>`              | The container reached its `--pids-limit` and refused starts of a process, and the run named no other cap. The comment says how many were refused and the limit it reached | Read the run log the comment names for what ran at that step. The limit follows the container's share of the slice: `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`, both on the cycle's record |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
-| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or the start was a restart or a refresh, which `work-lean` does not take. The run log names what the image lacks. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry (under `TEHAS_DRIVER=lean`, apply `tehas:classic` instead). The issue runs classic. A Retry ticked with the label still on waits for it to come off. For lean, rebuild the sandbox image on a newer pi-rukas before the next lean start |
+| `the sandbox image cannot run it as this start asks` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and the sandbox image cannot run `work-lean` as asked: its pi-rukas is older than v0.14.47, or lacks a flag, input or feature this start gives it, such as `--continue-pr` for a refresh. The comment names each one. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | To keep it on lean, rebuild the sandbox image on a pi-rukas that supports what the comment names, then apply `tehas:ready` again. To run it on classic instead, which changes its driver, take `tehas:lean` off, then tick Retry (under `TEHAS_DRIVER=lean`, apply `tehas:classic` instead). A Retry ticked with the label still on waits for it to come off |
+| `` tehas gave `work-lean` what it never takes `` | The issue carries `tehas:lean`, and tehas passed `work-lean` a flag it takes in no release, such as `--restart`. The comment names the flag. This is a fault in tehas, not in the issue or the sandbox image: no image and no label fixes it. `tehas work` stopped with exit 78 and nothing ran | Update tehas to a release that fixes it, then retry. Taking `tehas:lean` off would only run the issue on classic, which is a change of driver and not a fix |
 | `lean found this issue not ready to build from` | A lean run read the issue's `pi-spec v1` block and refused it (runner exit 11). The rules it failed follow in the comment | Fix the block, or run pi-rukas's `/plan` to write it, then apply `tehas:ready` |
+| `lean stopped on the repository's setup, not on this issue` | A lean run refused the issue for the repository's `.pi/work.json` (runner exit 11): it names no `verify.test` while the spec has a `test` criterion, or the file does not load. The issue's text is fine. Lean's reason follows in the comment | A person adds `verify.test` to `.pi/work.json` or fixes the field it names; see [the lean driver's settings](/new-project#the-lean-drivers-settings). Then apply `tehas:ready` |
 | `Lean left its pull request a draft` | A lean run handed back with a draft pull request: its gate did not clear the head it pushed. A draft never waits for a merge | Read the reason in the comment and the pull request before you retry |
 | `` Lean says its pull request is `<state>`, not `ready` `` | A lean run handed back a pull request that its own result does not call `ready`: its gate never cleared the head it pushed, the pull request's checks were red twice (lean builds once more on the first red), or a `manual` or unrun `command` criterion holds it a draft. It does not wait for a merge | Read lean's reason that follows in the comment, then fix the pull request by hand or retry from a clean start |
 | A lean park with no pull request (`` driver `lean` `` in the comment) | Lean handed back before it opened one: it ran out of build rounds, a step ran out of its budget, the cycle's deadline came, or its gate stayed red. The comment carries lean's failure kind and reason | Read the reason; fix the spec block or the budgets in [`.pi/work.json`](/new-project#the-lean-drivers-settings), then retry from a clean start |
@@ -620,7 +643,7 @@ current park, on the state store. The poll's log says which case it is:
 | --- | --- | --- |
 | `tehas work: --driver takes lean or classic, not <word>` (exit 64) | `--driver` by hand was given another word. With no word at all it prints its usage, also exit 64 | Run it again with `--driver lean` or `--driver classic` |
 | `tehas work: the approval of #<N> names a driver this tehas does not know, not starting a cycle` (exit 78) | The start's approval record holds a `driver` other than `lean` or `classic`: it was written by a newer tehas, or by hand | Update tehas, or apply `tehas:ready` again for a new approval |
-| `tehas work: <image> does not support what this cycle is given, not starting a cycle:` then `(driver lean, work-lean; it does not run classic in its place)` (exit 78) | The sandbox image's pi-rukas cannot run `work-lean` as this start asks. The lines below name each flag or feature it lacks. A `--restart` or a refresh (`--continue-pr`) is refused here too, since `work-lean` takes neither | Rebuild the sandbox image on a newer pi-rukas, or take `tehas:lean` off and retry on classic. For a refresh, start a fresh cycle instead. See the `the sandbox image cannot run it as this start asks` row of [the park table](#the-cycle-parked-needs-human-attention) |
+| `tehas work: <image> does not support what this cycle is given, not starting a cycle:` then `(driver lean, work-lean; it does not run classic in its place)` (exit 78) | The sandbox image's pi-rukas cannot run `work-lean` as this start asks. The lines below name each flag, input or feature it lacks. A refresh (`--continue-pr`) is refused here when the image does not list it for `work-lean`. A line that ends `(tehas passed it, and work-lean never takes it: a fault of tehas, not of the image)` names a flag tehas should not have passed | Rebuild the sandbox image on a newer pi-rukas, or take `tehas:lean` off to run it on classic, which changes its driver. For a refresh, start a fresh cycle instead. For a line that names a fault of tehas, update tehas. See [the park table](#the-cycle-parked-needs-human-attention) |
 
 Classic never runs in lean's place.
 

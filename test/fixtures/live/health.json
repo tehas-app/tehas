@@ -1,0 +1,16 @@
+{
+  "status": "ok",
+  "time": "2026-11-17T12:00:00Z",
+  "output": "Takes new work.",
+  "checks": {
+    "queue": { "time": "2026-11-17T12:00:00Z", "paused": false, "inLine": 2, "building": 1, "review": 1, "stopped": 1 },
+    "platform": { "generatedAt": "2026-11-17T11:55:00Z", "release": "v1.0.0", "newest": "v1.0.0", "behind": 0, "upstream": "releases", "fetchedAt": "2026-11-17T11:00:00Z" },
+    "rukas": { "image": "0123456789abcdef0123456789abcdef01234567", "imageVersion": "v0.14.84", "behind": false },
+    "manager": { "version": "v0.9.0" },
+    "hostMessages": {
+      "list": [
+        { "id": "upkeep-1", "level": "info", "text": "Upkeep tonight at 22:00 UTC.", "link": "https://example.org/upkeep", "at": "2026-11-17T11:00:00Z" }
+      ]
+    }
+  }
+}

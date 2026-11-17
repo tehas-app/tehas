@@ -244,16 +244,12 @@ fn gives_nothing(
         let read;
         let data = if data.is_empty() {
             let repo = env("TEHAS_REPO");
-            let out = Command::new("gh")
-                .args(["api", &format!("repos/{repo}/issues/{issue}")])
-                .stdin(Stdio::null())
-                .stderr(Stdio::null())
-                .output()
-                .map_err(|_| unread)?;
-            if !out.status.success() {
+            let args = ["api".to_string(), format!("repos/{repo}/issues/{issue}")];
+            let out = call::run("gh", &args, call::GH_BOUND);
+            if !out.ok() {
                 return Err(unread.to_string());
             }
-            read = String::from_utf8_lossy(&out.stdout).into_owned();
+            read = out.out;
             read.as_str()
         } else {
             data

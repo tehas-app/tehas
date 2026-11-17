@@ -587,7 +587,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     // The last line of a real update: a version installed into a factory that
     // `tehas drain` stopped is installed but never proven, because nothing
     // starts while the drain holds. --check and --pending say nothing new.
-    let drained = crate::flags::home_drained(&run.host.home);
+    let drained = crate::holds::home_drained(&run.host.home);
     if !cycle_token_pushes(run.host) {
         tell(if drained {
             STAYS_DRAINED_LINE
@@ -699,7 +699,7 @@ mod tests {
 
     /// The bytes at the name every reader of the drained state opens.
     fn limit_at(home: &Path, doc: &str) {
-        let file = home.join(crate::flags::LIMIT_FILE);
+        let file = home.join(crate::holds::LIMIT_FILE);
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, doc).unwrap();
     }
@@ -709,19 +709,19 @@ mod tests {
         let d = dir("drained");
         let home = d.0.path();
         // Nothing at the name is no drain.
-        assert!(!crate::flags::home_drained(home));
+        assert!(!crate::holds::home_drained(home));
         // What tehas drain writes, and the same limit with a future `until`: a
         // clock which has not run out ends no drain.
         limit_at(
             home,
             r#"{"v":1,"cycles":0,"plan":false,"until":null,"reason":"draining"}"#,
         );
-        assert!(crate::flags::home_drained(home));
+        assert!(crate::holds::home_drained(home));
         limit_at(
             home,
             r#"{"v":1,"cycles":0,"plan":false,"until":"2036-01-01T00:00:00Z"}"#,
         );
-        assert!(crate::flags::home_drained(home));
+        assert!(crate::holds::home_drained(home));
         // A limit that lets a cycle run, and one whose clock has run out.
         for not in [
             r#"{"v":1,"cycles":1,"plan":false,"until":null}"#,
@@ -730,7 +730,7 @@ mod tests {
             r#"not json"#,
         ] {
             limit_at(home, not);
-            assert!(!crate::flags::home_drained(home), "{not} read as drained");
+            assert!(!crate::holds::home_drained(home), "{not} read as drained");
         }
     }
 

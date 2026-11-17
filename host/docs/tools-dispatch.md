@@ -208,6 +208,12 @@ starts no retry, and goes on to open a planning session and start the ready
 queue as it does when the list is empty. Everything else it reads still ends
 the poll when it fails: an entry of that list with no number, an issue's
 comments, and the state store.
+Only a new planning session needs the lists of issues labelled `tehas:plan`
+and `tehas:refine`. When either cannot be read, the poll logs `WARN: the
+issues to plan could not be read, so no planning session starts this poll`
+once, starts no planning session, and goes on to the refine a park is owed
+and the ready queue as it does when both lists are empty. An entry of those
+lists with no number still ends the poll.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. To count the running cycles the poll asks the state store once,

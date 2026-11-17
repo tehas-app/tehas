@@ -62,12 +62,18 @@ With `--json` it also prints one object on standard output on exit 0, 3 and
 {"api": 1, "asked": false, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
 ```
 
-`api` is the version of the object, 1, as in every `--json` object of the
-[factory API](/api). `asked` is `true` when the request was written, and `why`
-is then `null`; otherwise `why` holds the same words as standard error.
-`issue` and `headSha`, the head commit of the pull request, are `null` when
-GitHub did not name them, as when its read failed. Exit 64 and 78 print no
-object. The old name `tehasbot refresh --pr N --json` prints the same object.
+| Field | Meaning |
+| --- | --- |
+| `api` | The version of the object, 1, as in every `--json` object of the [factory API](/api) |
+| `asked` | `true` when the request was written |
+| `pr` | The pull request asked about |
+| `issue` | The issue it closes; `null` when GitHub did not name it, as when its read failed |
+| `headSha` | The head commit of the pull request; `null` when GitHub did not name it |
+| `why` | `null` when the request was written; otherwise the same words as standard error |
+
+Exit 64 and 78 print no object. `api/refresh.schema.json` in the source says
+what the object holds, and `api/refresh.asked.json`, `api/refresh.declined.json`
+and `api/refresh.failed.json` are samples of it. The old name `tehasbot refresh --pr N --json` prints the same object.
 
 ## tehas github check
 
@@ -109,6 +115,10 @@ Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
+Until then the kept token is used without asking GitHub: when the app loses
+`TEHAS_REPO`, or is installed again, commands fail with the old token for up
+to 50 minutes. Removing `~/tehas/state/github/token` and
+`~/tehas/state/github-cycle/token` makes the next command make a new one.
 The web token and the token go to curl on its standard input, never on its
 command line. Without `--check` it prints the token and nothing else. `--check`
 is [tehas github check](#tehas-github-check).

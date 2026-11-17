@@ -73,6 +73,10 @@ pub struct Writer {
     /// (`looked_key`): one found done is not sent again, and one no read
     /// could settle is not sent at all (#1754).
     pub looked: HashMap<String, Looked>,
+    /// Writes a line of the poll's log at once. A start's lines go through it
+    /// before its unit runs, so they come before the lines of the cycle itself,
+    /// which writes to the same log. None keeps them with the rest.
+    pub say_now: Option<fn(&str)>,
 }
 
 /// What the settle's read found of an open write that this poll may decide

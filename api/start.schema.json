@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/start.schema.json",
+  "title": "tehas start --json",
+  "description": "What tehas start <issue> --json and tehas start <issue> --clear --json print, version 1: the approval recorded or taken back. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/json_contract_test.sh checks the samples beside this file against it and what the command prints.",
+  "type": "object",
+  "required": ["api", "issue", "approval", "cleared"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "issue": {"type": "integer", "minimum": 1},
+    "approval": {
+      "description": "The approval recorded, or the one --clear took back. null from a --clear that found none.",
+      "type": ["object", "null"],
+      "required": ["at", "by", "how", "bodySha256", "titleSha256"],
+      "additionalProperties": false,
+      "properties": {
+        "at": {"type": "string", "format": "date-time"},
+        "by": {"const": "host"},
+        "how": {"const": "host"},
+        "bodySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "titleSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "cleared": {"type": "boolean"}
+  }
+}

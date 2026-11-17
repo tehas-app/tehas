@@ -27,6 +27,8 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tehas_core::events::{plan_credit, Events};
+use tehas_core::file::{write_atomic, Temp};
+use tehas_core::mask::mask;
 use tehas_core::plan::{
     carries_update, clear_plan, draft_holds, is_refusal, keep_spec, refusal_document,
     refused_by_draft, says_refusal, text_of, Refused, WHY_MAX,
@@ -44,44 +46,6 @@ fn filed_re() -> &'static Regex {
 /// plan_sid_ok: a session id the store keeps.
 fn sid_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-}
-
-/// Bytes written whole to `path`, which is then the file, at `mode` when one
-/// is given. The sibling of a failed write is taken back, so a caller that
-/// renames next sees either the old file or the bytes it was given.
-///
-/// The file is made new, never truncated: what already holds the name is not
-/// this write's to reuse. A leftover regular file of a turn that died
-/// mid-keep is taken away first; anything else under the name - a link, a
-/// directory - is left where it is and the write fails naming it, since to
-/// follow it would write through a name this run does not own.
-fn write_atomic(path: &std::path::Path, bytes: &[u8], mode: Option<u32>) -> std::io::Result<()> {
-    use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
-    match std::fs::symlink_metadata(path) {
-        Ok(m) if m.file_type().is_file() => std::fs::remove_file(path)?,
-        Ok(_) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("{} is not a regular file", path.display()),
-            ))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode.unwrap_or(0o644))
-        .open(path)?;
-    match f.write_all(bytes).and_then(|()| f.flush()) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            drop(f);
-            let _ = std::fs::remove_file(path);
-            Err(e)
-        }
-    }
 }
 
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
@@ -106,8 +70,9 @@ fn refused_document(why: &str, session: Option<&Value>) -> Value {
 }
 
 /// The comment of a replaced issue: the issues that hold the plan, then the
-/// planner's words, disarmed (text::disarm).
+/// planner's words, masked and disarmed (text::disarm).
 pub(crate) fn replaced_text(said: &str, words: &str) -> String {
+    let words = mask(words);
     let words = words.trim_end_matches('\n');
     let tail = if words.is_empty() {
         String::new()
@@ -115,6 +80,17 @@ pub(crate) fn replaced_text(said: &str, words: &str) -> String {
         format!("\n\n{}", tehas_core::text::disarm(words))
     };
     format!("Replaced by {said}.{tail}")
+}
+
+/// GitHub refuses an issue title longer than this.
+const TITLE_MAX: usize = 256;
+
+/// The title and body a drafted plan puts on its issue, as GitHub is given
+/// them: masked, as every other planner-authored text is, and the title cut to
+/// what GitHub holds. The mask leaves masked text as it is, so the sum of a
+/// start taken of this text matches the text the write puts on the issue.
+pub(crate) fn update_text(title: &str, body: &str) -> (String, String) {
+    (mask(title).chars().take(TITLE_MAX).collect(), mask(body))
 }
 
 /// A filed issue's body once it says it replaces #n. The body was read from
@@ -1059,9 +1035,14 @@ impl Writer {
         if link_list(&body).iter().any(|l| !approved.contains(l)) {
             return Err("the plan links an attachment the issue did not".into());
         }
+        // The outcome keeps the draft's own text, so a retry checks it against
+        // the draft as this poll did; `plan_update` masks it at the write, and
+        // the start binds the text that write puts on the issue.
+        let (title, masked) = update_text(&plan.title, &body);
+        let sum = plan_sum(&json!({"title": title, "body": masked}));
         let update = json!({"title": plan.title, "body": body});
         let next = json!({"session": out.get("session"), "text": plan.text, "question": null,
-            "update": update, "start": {"by": by, "sum": plan_sum(&update)}});
+            "update": update, "start": {"by": by, "sum": sum}});
         if !self.outcome_said(n, &next) {
             return Err("the plan could not be kept for the next poll".into());
         }
@@ -1073,12 +1054,17 @@ impl Writer {
     /// tehas user's, as a turn's other files are.
     fn plan_start_keep(&self, n: u64, start: &Value) -> bool {
         let file = plan_start_file(&self.home, n);
-        let new = file.with_extension("json.new");
         let kept = file
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| write_atomic(&new, format!("{start}\n").as_bytes(), Some(0o600)))
-            .and_then(|()| std::fs::rename(&new, &file));
+            .and_then(|()| {
+                write_atomic(
+                    &file,
+                    format!("{start}\n").as_bytes(),
+                    0o600,
+                    &Temp::Predictable,
+                )
+            });
         kept.is_ok()
     }
 
@@ -1102,6 +1088,7 @@ impl Writer {
         start: Option<&Value>,
         log: &mut Vec<String>,
     ) -> bool {
+        let (title, body) = update_text(title, body);
         if start.is_some_and(|x| !self.plan_start_keep(n, x)) {
             log.push(format!(
                 "WARN: the start of the plan of #{n} could not be kept; the next poll tries again"
@@ -1115,12 +1102,12 @@ impl Writer {
             "--repo".into(),
             self.repo.clone(),
             "--title".into(),
-            title.into(),
+            title,
             "--body-file".into(),
             "-".into(),
         ];
         if !matches!(
-            self.write(n, "issue-edit", args, Some(body), None),
+            self.write(n, "issue-edit", args, Some(&body), None),
             Wrote::Done(_)
         ) {
             log.push(format!(
@@ -1231,8 +1218,12 @@ impl Writer {
         } else {
             json!({"session": doc.get("session")})
         };
-        let moved = write_atomic(&new, format!("{doc}\n").as_bytes(), None)
-            .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
+        let moved = write_atomic(
+            &self.st(n, ".out"),
+            format!("{doc}\n").as_bytes(),
+            0o644,
+            &Temp::Predictable,
+        );
         // The name of the sibling that failed, not a path a person has to
         // read off the log to find the mount.
         let name = new
@@ -1457,10 +1448,10 @@ impl Writer {
             if lost {
                 return false;
             }
-            self.say(n, &tehas_core::text::disarm(said), log);
+            self.say(n, &tehas_core::text::disarm(&mask(said)), log);
             return true;
         }
-        self.say(n, &tehas_core::text::disarm(said), log);
+        self.say(n, &tehas_core::text::disarm(&mask(said)), log);
         log.push(format!("planning #{n} ended"));
         true
     }
@@ -1607,6 +1598,26 @@ mod disarm_tests {
         );
         assert!(t.starts_with("Replaced by #7, #8.\n\nDone."), "{t}");
         assert!(!has_marker(&t), "{t}");
+    }
+
+    #[test]
+    fn replaced_text_masks_the_planners_words() {
+        // The address is built, not written out: this file is linted.
+        let words = format!("Done with ghp_abcdefghijklmnop1234 on 10.{}.2.3.", 1);
+        let t = replaced_text("#7", &words);
+        assert_eq!(
+            t,
+            "Replaced by #7.\n\nDone with ghp_*** on [private address]."
+        );
+    }
+
+    #[test]
+    fn update_text_masks_and_cuts_the_title_to_what_github_holds() {
+        let long = format!("feat: 10.{}.2.3 {}", 1, "x".repeat(400));
+        let (title, body) = update_text(&long, "Use API_KEY=hunter2word.");
+        assert!(title.starts_with("feat: [private address] x"), "{title}");
+        assert_eq!(title.chars().count(), 256);
+        assert_eq!(body, "Use API_KEY=***");
     }
 
     #[test]
