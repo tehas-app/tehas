@@ -232,6 +232,36 @@ fn each_file_of_an_archive_must_keep_its_bytes() {
 }
 
 #[test]
+fn an_archive_must_keep_its_set_of_files() {
+    let approval = json!({"at": "1", "by": "a", "how": "label"});
+    let m = |paths: &[&str]| {
+        let files: Vec<Value> = paths
+            .iter()
+            .map(|p| json!({"link": LINK, "zip": LINK, "path": p, "sha256": "s"}))
+            .collect();
+        json!({"files": files, "approval": approval}).to_string()
+    };
+    assert_eq!(changed(&m(&["a.md"]), &m(&["a.md"])), None);
+    // A file added to the archive, or one approved and now gone.
+    assert_eq!(
+        changed(&m(&["a.md"]), &m(&["a.md", "build.sh"])).as_deref(),
+        Some(LINK)
+    );
+    assert_eq!(
+        changed(&m(&["a.md", "b.md"]), &m(&["a.md"])).as_deref(),
+        Some(LINK)
+    );
+    // An archive the retry does not give at all is left out, not changed.
+    let none = json!({"files": [], "approval": approval}).to_string();
+    assert_eq!(changed(&m(&["a.md"]), &none), None);
+    // Another approval holds no one to the old set.
+    let other = json!({"files": [{"link": LINK, "zip": LINK, "path": "x.md", "sha256": "s"}],
+        "approval": {"at": "2", "by": "a", "how": "label"}})
+    .to_string();
+    assert_eq!(changed(&m(&["a.md"]), &other), None);
+}
+
+#[test]
 fn said_names_what_was_given_and_what_was_left_out() {
     let m = json!({"images": [{"link": "L", "file": "image-1.png", "sha256": "S", "source": "comment:3"}],
         "files": [], "leftOut": [{"link": "M", "reason": "Too big.", "source": "body"}], "leftOutMore": 2});

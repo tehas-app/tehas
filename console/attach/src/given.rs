@@ -15,6 +15,7 @@ use regex::Regex;
 use serde::de::{DeserializeOwned, Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -452,18 +453,36 @@ fn changed_from(kept: &Value, new: &Value) -> Result<Option<String>, Why> {
         let path = get(e, "path")?.as_str().unwrap_or_default();
         Ok((link.to_string(), format!("{link}\n{path}")))
     };
-    let mut old = Map::new();
+    // The paths of each archive: one given in both must give the same set.
+    type Paths = BTreeMap<String, BTreeSet<String>>;
+    let archive = |e: &Value, paths: &mut Paths| -> Result<(), Why> {
+        if let Some(zip) = get(e, "zip")?.as_str() {
+            let path = get(e, "path")?.as_str().unwrap_or_default();
+            paths
+                .entry(zip.to_string())
+                .or_default()
+                .insert(path.to_string());
+        }
+        Ok(())
+    };
+    let (mut old, mut old_paths) = (Map::new(), Paths::new());
     for e in entries(kept)? {
         old.insert(key(e)?.1, get(e, "sha256")?.clone());
+        archive(e, &mut old_paths)?;
     }
+    let mut new_paths = Paths::new();
     for e in entries(new)? {
         let (link, at) = key(e)?;
         match old.get(&at) {
             Some(sum) if !sum.is_null() && sum != get(e, "sha256")? => return Ok(Some(link)),
             _ => {}
         }
+        archive(e, &mut new_paths)?;
     }
-    Ok(None)
+    Ok(new_paths
+        .into_iter()
+        .find(|(zip, paths)| old_paths.get(zip).is_some_and(|was| was != paths))
+        .map(|(zip, _)| zip))
 }
 
 /// The same link of the same approval must give the same bytes: what was
