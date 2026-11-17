@@ -221,6 +221,14 @@ fn a_lean_start_refused_with_78_is_parked_as_one_that_never_ran() {
         "{said}"
     );
     assert!(said.contains("take `tehas:lean` off"), "{said}");
+    assert!(
+        said.contains("To run it on classic instead, which changes its driver,"),
+        "{said}"
+    );
+    assert!(
+        said.contains("To keep it on lean, rebuild the sandbox image"),
+        "{said}"
+    );
 }
 
 /// The park of a refused lean start is on record as one, so the poll can hold
@@ -251,7 +259,7 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
             })
             .unwrap()
     };
-    let lead = "Take `tehas:lean` off this issue, then tick a box.";
+    let lead = "To run it on classic instead, take `tehas:lean` off this issue, then tick a box.";
     let p = parks(78, true);
     let reason = p.args.iter().position(|a| a == "--reason").unwrap();
     assert_eq!(p.args[reason + 1], "lean-refused", "{:?}", p.args);
@@ -293,13 +301,15 @@ fn under_a_lean_default_the_park_of_a_refused_lean_start_asks_for_tehas_classic(
         .unwrap();
     let said = format!("{p:?}");
     assert!(
-        said.contains("To run it on classic, apply `tehas:classic`, then retry"),
+        said.contains("To run it on classic instead, which changes its driver, apply `tehas:classic`, then retry"),
         "{said}"
     );
     assert!(!said.contains("take `tehas:lean` off"), "{said}");
     let (_, body) = p.question(7, false);
     assert!(
-        body.contains("Apply `tehas:classic` to this issue, then tick a box."),
+        body.contains(
+            "To run it on classic instead, apply `tehas:classic` to this issue, then tick a box."
+        ),
         "{body}"
     );
 }
@@ -448,10 +458,72 @@ fn a_start_the_check_refused_names_its_cause_in_its_park() {
     let reason = args.iter().position(|a| a == "--reason").unwrap();
     assert_eq!(args[reason + 1], "lean-refused", "{args:?}");
     assert!(
-        lean.contains("does not support what this cycle is given: `the feature leanHandoffHost`. To run it on classic"),
+        lean.contains("does not support what this cycle is given: `the feature leanHandoffHost`. To keep it on lean"),
         "{lean}"
     );
     assert!(!lean.contains("The log names"), "{lean}");
+}
+
+/// A flag tehas passed that `work-lean` never takes is said as a fault of
+/// tehas: no advice to take the label off, which would only run it on classic,
+/// and no hold of a Retry for the label.
+#[test]
+fn a_lean_start_refused_for_a_flag_tehas_passed_names_tehas_at_fault() {
+    let (args, body) = check_refused(Some("caps-lacking\nnever-taken the flag --restart\n"), true);
+    assert!(!args.contains(&"lean-refused".to_string()), "{args:?}");
+    assert!(
+        body.contains("tehas gave `work-lean` what it never takes (runner exit 78). This is a fault in tehas, not in the issue or the sandbox image."),
+        "{body}"
+    );
+    assert!(
+        body.contains("Tehas passed what this driver never takes: `the flag --restart`."),
+        "{body}"
+    );
+    assert!(
+        body.contains("Update tehas to a release that fixes it, then retry"),
+        "{body}"
+    );
+    assert!(!body.contains("tehas:lean"), "{body}");
+    assert!(!body.contains("cannot run it as this start asks"), "{body}");
+}
+
+/// A start the check refused before the runner ran logs one line that names
+/// the refusal, and none of the warnings of a run whose result went missing.
+/// It ends as refused, and the end keeps a few words of why.
+#[test]
+fn a_start_refused_before_its_runner_logs_the_refusal_not_a_missing_result() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
+    let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut c = cases
+        .into_iter()
+        .find(|c| {
+            c["case"]
+                == "a 78 on a classic start stays a stopped cycle, with its approval on record"
+        })
+        .unwrap();
+    c["facts"]["files"]["refused"] = "caps-lacking\nthe input PI_ENSEMBLE_X\n".into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    assert_eq!(
+        r.log,
+        vec!["#7: tehas work refused the start before its runner ran (exit 78): the sandbox image lacks what it was given"]
+    );
+    let status = r.end.windows(2).find(|w| w[0] == "--status").unwrap()[1].clone();
+    assert_eq!(status, "refused", "{:?}", r.end);
+    assert!(r.done.contains("status=refused"), "{}", r.done);
+    assert_eq!(r.refused_why, "the sandbox image lacks what it was given");
+    // A run that ran and left no result still warns.
+    c["facts"]["files"]["runner_exit"] = "0\n".into();
+    let facts = Facts::from_json(&c["facts"]).unwrap();
+    let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    assert!(
+        r.log
+            .iter()
+            .any(|l| l.contains("holds nothing, so its step is read")),
+        "{:?}",
+        r.log
+    );
+    assert!(r.refused_why.is_empty());
 }
 
 /// All cases of a suite whose question or comment says these words.
