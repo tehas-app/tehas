@@ -191,6 +191,23 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 [Outsource](/outsource) says what the feature does once it ships.
 
+### spec-pipe
+
+Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
+78 and says `spec-pipe` is still being built.
+
+- `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
+  `spec-pipe` in `features`.
+- The poll asks an issue's body nothing more: a `Spec:` line is text, and a
+  body with one starts as any other.
+- A start fetches no spec and its approval keeps no pin. The approval record
+  in the state store has room for one, which is internal.
+- A cycle is given no `spec` and no `approved.json`, and its manifest names
+  neither.
+- No command, no label, no `--json` field, no MCP tool.
+
+[tehas work](/tools-work) says what the feature gives a cycle once it ships.
+
 ### protolab-zip-url
 
 Building. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
@@ -206,6 +223,20 @@ exit 78 and says `protolab-zip-url` is still being built.
 
 [A zip by address](/tools-protolab#a-zip-by-address) says what the feature
 does once it ships.
+
+### prototype-file
+
+Building. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
+exit 78 and says `prototype-file` is still being built.
+
+- `tehas api --json` has `"prototype-file": false` in `flags`, and no word
+  `prototype-file` in `features`.
+- `tehas prototype file` exits 78 and files nothing. `tehas help prototype`
+  prints its text, and the list of `tehas help` does not name it.
+- No label, no `--json` field, no MCP tool.
+
+[`tehas prototype file`](/tools-protolab#tehas-prototype-file) says what the
+feature does once it ships.
 
 ## Exit statuses
 

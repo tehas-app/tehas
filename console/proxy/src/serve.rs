@@ -617,6 +617,22 @@ pub fn started(at: &str, idle: Duration) -> String {
     )
 }
 
+/// The longest path a unix socket binds at on Linux: 108 bytes of
+/// `sun_path`, the last a NUL.
+pub const SOCKET_PATH_MAX: usize = 107;
+
+/// Why the control socket cannot be at `path`, said before the bind: a path
+/// over [`SOCKET_PATH_MAX`] fails it with words that name no setting.
+pub fn socket_path_refused(path: &std::path::Path) -> Option<String> {
+    let len = path.as_os_str().len();
+    (len > SOCKET_PATH_MAX).then(|| {
+        format!(
+            "the control socket {} is {len} bytes long, over the {SOCKET_PATH_MAX} a unix socket allows: TEHAS_HOME is too long a path",
+            path.display()
+        )
+    })
+}
+
 /// The name of the file a job's token is handed over in. It sits in the job's
 /// own directory in the state, is written once, and is read only by the process
 /// that starts the contractor's container: #2274 reads it to write the
@@ -684,6 +700,16 @@ impl Serve<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_control_socket_path_over_the_unix_bound_is_refused_and_named() {
+        let fits = std::path::PathBuf::from(format!("/{}", "a".repeat(SOCKET_PATH_MAX - 1)));
+        assert_eq!(socket_path_refused(&fits), None);
+        let over = std::path::PathBuf::from(format!("/{}", "a".repeat(SOCKET_PATH_MAX)));
+        let why = socket_path_refused(&over).unwrap();
+        assert!(why.contains("108 bytes long"), "{why}");
+        assert!(why.contains("TEHAS_HOME"), "{why}");
+    }
 
     #[test]
     fn the_ask_of_a_stream_is_read_whatever_the_spacing() {

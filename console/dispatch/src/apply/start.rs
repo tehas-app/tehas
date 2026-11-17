@@ -72,9 +72,10 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
-    /// TEHAS_CONTAINER_MEMORY, what one container is given: the probe's own
-    /// container is held to it, as a cycle's is.
-    pub container_memory: String,
+    /// The memory ceiling of one container in MiB, tehas.slice's MemoryMax
+    /// over TEHAS_SLICE_CONTAINERS: the probe's own container is held to it,
+    /// as a cycle's is. 0 when the slice cannot be used.
+    pub container_mb: u64,
     /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
     pub checkout: String,
     pub branch: String,
@@ -522,11 +523,8 @@ impl Writer {
         if self.host.image.is_empty() {
             return Err("no sandbox image to ask".into());
         }
-        let ceiling = tehas_core::slice::bytes(&self.host.container_memory)
-            .map(|b| b / (1024 * 1024))
-            .unwrap_or(8 * 1024);
-        let Some(security) = tehas_core::sandbox::security(ceiling) else {
-            return Err("TEHAS_CONTAINER_MEMORY is under the 10m a container needs".into());
+        let Some(security) = tehas_core::sandbox::security(self.host.container_mb) else {
+            return Err("tehas.slice gives a container less than the 10m it needs".into());
         };
         let network = tehas_core::sandbox::network(&self.host.aliases)?;
         let Some(token) = crate::read::run::read_cycle_token(&self.home, self.bound) else {
