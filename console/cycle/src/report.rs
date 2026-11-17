@@ -555,6 +555,30 @@ pub fn record_image(rec: &Value, attempt: u64) -> (String, String) {
     (id, rukas)
 }
 
+/// Where the manual explains `.pi/work.json`, for a comment on a product's
+/// issue, which a relative link would not reach.
+const LEAN_SETTINGS_DOC: &str =
+    "https://github.com/tehas-app/tehas/blob/main/host/docs/new-project.md#the-lean-drivers-settings";
+
+/// What the repository must change, when every rule lean declined with is
+/// about the repository's `.pi/work.json` rather than the issue. The result
+/// has no field for the kind of a rule, so the rules are matched by the words
+/// pi-rukas declines with: `docs/lean.md` names the missing runner, and its
+/// `ready` step refuses a file that does not load. Each comes alone: `ready`
+/// loads the file only once the spec passed, and `specify` runs after `ready`.
+fn lean_repo_setting(rules: &str) -> Option<&'static str> {
+    const NO_RUNNER: &str = "no test runner configured (.pi/work.json verify.test)";
+    const UNUSABLE: &str = ".pi/work.json is unusable: ";
+    let rules = rules.trim();
+    if rules == NO_RUNNER {
+        Some("The repository needs `verify.test` in `.pi/work.json`: the command that runs one test file, which lean uses to prove its acceptance tests red before it builds.")
+    } else if rules.starts_with(UNUSABLE) {
+        Some("The repository's `.pi/work.json` does not load: fix the field lean's reason names.")
+    } else {
+        None
+    }
+}
+
 pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut r = Report::default();
     let issue = f.issue;
@@ -603,19 +627,21 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .find(|s| !s.is_empty())
         .unwrap_or("-")));
     let result_branch = v(&text(&outcome, "branch"));
-    let (handoff, lean_posted) = {
+    let (handoff, lean_posted, repo_setting) = {
         let b = text(&outcome, "handoffBody");
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
         let b = v(&marker.replace(&b, ""));
+        let repo_setting = lean_repo_setting(&b);
         // Lean on the forge channel posted this itself: one comment, not two.
         let posted = lean && !b.is_empty() && text(&outcome, "handoffChannel") == "forge";
         if posted {
             (
                 "Lean posted its report on this issue itself, so it is not repeated here.".into(),
                 true,
+                repo_setting,
             )
         } else {
-            (b, false)
+            (b, false, repo_setting)
         }
     };
     let pr_state = text(&outcome, "prState");
@@ -1575,6 +1601,17 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             )
         }));
         status = "handoff".into();
+    } else if let (true, 11, "aborted", Some(setting)) = (lean, rc, status.as_str(), repo_setting) {
+        r.arm = "not-ready";
+        parked_now = true;
+        let follows = if lean_posted {
+            ""
+        } else {
+            " Lean's reason follows."
+        };
+        r.actions.push(park(park_args("not-ready", &cap, &status, &step, &pr), format!(
+            "Tehas cycle stopped: lean stopped on the repository's setup, not on this issue ({summary}, runner exit {runner_rc}). The issue's text is fine. {setting} A person makes the change: a cycle never changes `.pi/`. See [the lean driver's settings]({LEAN_SETTINGS_DOC}), then retry.{follows} {kept_said}; {log_where}.{killed}"
+        ), String::new()));
     } else if lean && rc == 11 && status == "aborted" {
         r.arm = "not-ready";
         parked_now = true;
