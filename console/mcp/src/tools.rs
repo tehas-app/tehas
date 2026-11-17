@@ -4,6 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::contractors;
 use crate::decisions;
 use crate::disk;
 use crate::events;
@@ -15,6 +16,7 @@ use crate::sessions;
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
 use tehas_core::hold;
 use tehas_core::mask::mask;
@@ -839,7 +841,8 @@ pub const DASHBOARD: [&str; 4] = [
 pub enum Scope {
     /// Every tool the server has.
     Full,
-    /// The four of `DASHBOARD`, and no other.
+    /// The four of `DASHBOARD`, and `factory_contractors` while outsource
+    /// is on.
     Dashboard,
 }
 
@@ -858,10 +861,30 @@ impl Scope {
 /// reader of that list: `list_scoped` filters the published entries by it, so
 /// what a key may call and what it is told exists cannot say different things.
 pub(crate) fn serves(scope: Scope, name: &str) -> bool {
+    serves_in(scope, name, outsource())
+}
+
+/// `serves` for a server with outsource on or off. `factory_contractors` is
+/// a tool of outsource: served to either key while it is on, and to none
+/// while it is off.
+fn serves_in(scope: Scope, name: &str, outsource: bool) -> bool {
     match scope {
-        Scope::Full => known(name),
-        Scope::Dashboard => DASHBOARD.contains(&name),
+        Scope::Full => known_in(name, outsource),
+        Scope::Dashboard => DASHBOARD.contains(&name) || (outsource && name == contractors::NAME),
     }
+}
+
+/// Whether this server serves the tools of outsource: set once at start-up by
+/// `--outsource`, which `tehasbot mcp serve` passes while the feature is on.
+static OUTSOURCE: AtomicBool = AtomicBool::new(false);
+
+/// The server serves the tools of outsource from now on.
+pub fn serve_outsource() {
+    OUTSOURCE.store(true, Ordering::Relaxed);
+}
+
+fn outsource() -> bool {
+    OUTSOURCE.load(Ordering::Relaxed)
 }
 
 /// A key of the settings with the scope of the list it was read from: the
@@ -978,6 +1001,8 @@ fn build_entries() -> Value {
         // factory_disk last: the catalog holds it beside the tools that read
         // the live files, and it reads just one published file of them.
         a.push(disk::tool());
+        // factory_contractors after it, listed only while outsource is on.
+        a.push(contractors::tool());
         for t in a.iter_mut() {
             let note = t["name"].as_str().and_then(outside_note);
             if let (Some(note), Some(d)) = (note, t["description"].as_str()) {
@@ -1074,7 +1099,12 @@ const CALLED: [&str; 16] = [
 /// Whether the server has a tool of this name. The access log asks it before
 /// naming one, so a name it prints is one this dispatch serves.
 pub fn known(name: &str) -> bool {
-    CALLED.contains(&name)
+    known_in(name, outsource())
+}
+
+/// `known` for a server with outsource on or off.
+fn known_in(name: &str, outsource: bool) -> bool {
+    CALLED.contains(&name) || (outsource && name == contractors::NAME)
 }
 
 /// The tools of a `tools/list` for a key of this scope: every one of them for
@@ -1087,10 +1117,19 @@ pub fn known(name: &str) -> bool {
 /// The entries are held once for the process, so a request for the list costs
 /// a clone of the entries it needs and not the building of all sixteen.
 pub fn list_scoped(scope: Scope) -> Value {
+    list_scoped_in(scope, outsource())
+}
+
+/// `list_scoped` for a server with outsource on or off.
+fn list_scoped_in(scope: Scope, outsource: bool) -> Value {
     Value::Array(
         entries()
             .iter()
-            .filter(|t| t["name"].as_str().is_some_and(|n| serves(scope, n)))
+            .filter(|t| {
+                t["name"]
+                    .as_str()
+                    .is_some_and(|n| serves_in(scope, n, outsource))
+            })
             .cloned()
             .collect(),
     )
@@ -1146,6 +1185,8 @@ pub(crate) fn call_held(
         "factory_park" => park::call(dirs, args)?,
         "factory_decisions" => decisions::call(dirs, args)?,
         "factory_disk" => disk::call(dirs)?,
+        // Past the guard only while outsource is on: `known` admits it then.
+        contractors::NAME => contractors::call(live)?,
         // The guard above admits only the names of `CALLED` and every one of
         // them has an arm, which the test beside it proves name by name.
         _ => unreachable!("known admits only the names matched above"),
@@ -1201,6 +1242,9 @@ pub fn spec_of(name: &str) -> Option<Value> {
     // match so the match holds only the tools whose spec is written here.
     if name == "factory_disk" {
         return Some(disk::spec());
+    }
+    if name == contractors::NAME {
+        return Some(contractors::spec());
     }
     let issues = json!([{
         "number": true, "title": true, "url": true, "updatedAt": true, "closedAt": true
@@ -1917,6 +1961,37 @@ mod tests {
                 "{name} is described differently to the two keys"
             );
         }
+    }
+
+    // factory_contractors is a tool of outsource: with it off the server has
+    // the sixteen and a call of it is an unknown tool; with it on it is the
+    // last of the catalog and a dashboard key is served it too.
+    #[test]
+    fn the_contractors_tool_is_served_only_while_outsource_is_on() {
+        let name = contractors::NAME;
+        assert!(!known_in(name, false));
+        assert!(known_in(name, true));
+        assert!(!known(name), "a server is started without --outsource here");
+        assert!(matches!(
+            call_held(&fixture_dirs(), name, &json!({})),
+            Err(ToolError::Unknown(_))
+        ));
+        let off = list_scoped_in(Scope::Full, false);
+        assert!(!names_of(&off).contains(&name));
+        assert_eq!(names_of(&off).len(), 16);
+        let on = list_scoped_in(Scope::Full, true);
+        assert_eq!(names_of(&on).len(), 17);
+        assert_eq!(names_of(&on).last(), Some(&name));
+        let mut short = DASHBOARD.to_vec();
+        short.push(name);
+        assert_eq!(names_of(&list_scoped_in(Scope::Dashboard, true)), short);
+        assert_eq!(
+            names_of(&list_scoped_in(Scope::Dashboard, false)),
+            DASHBOARD.to_vec()
+        );
+        assert!(serves_in(Scope::Dashboard, name, true));
+        assert!(!serves_in(Scope::Dashboard, name, false));
+        assert!(!serves_in(Scope::Full, name, false));
     }
 
     // The names of the entries of the catalog, in the order it gives them.
