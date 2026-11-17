@@ -949,7 +949,9 @@ and the poll holds every start while the file stands. The log has one line,
 prints `push      the sandbox cannot push: <git's line> (<login>)` while the
 file stands. Nothing is parked and no issue loses `tehas:ready`. Once the file
 is ten minutes old the poll asks the sandbox itself, with no cycle spent on it:
-it runs the same dry-run push a start runs, with the App's cycle token. A check
+it runs the same dry-run push a start runs, with the App's cycle token, in a
+fresh copy of the product checkout as a start's workspace is, and with the
+sandbox image already on the host. A check
 that passes takes the file off and the queue starts as usual; one that is
 refused writes the fault fresh and the hold begins again from that moment.
 When the poll cannot ask at all (no sandbox image, no cycle token, no docker or

@@ -7,7 +7,9 @@
 //! to any container, and not a setting: the Docker socket, SSH keys,
 //! ~/.config/tehas, the product checkout, the rest of the host environment. Of
 //! ~/.config/tehas/env a container is given the bot's token and the model
-//! endpoints' tokens that models.json names, by name, never by value.
+//! endpoints' tokens that models.json names, by name, never by value. A
+//! container that pushes, or asks whether it can, is given a fresh copy of the
+//! checkout ([`clone`]) that carries only the remote.
 //!
 //! Every list here is docker options, one word each.
 

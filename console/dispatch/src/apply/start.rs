@@ -444,12 +444,17 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option
     Some(lifts.then_some(note))
 }
 
+/// Where the probe copies the checkout for its one check, under the home.
+const PROBE_TREE: &str = "state/push-probe";
+
 impl Writer {
     /// Ask the sandbox whether it can push, when the fault of
     /// `state/push-fault.json` has aged out: the dry-run container a cycle's
     /// start runs (`tehas_core::sandbox::push_check`), with the cycle's own
-    /// token, network and git configuration, against the host's checkout. The
-    /// caller reads the file back and the rules decide on it.
+    /// token, network and git configuration, in a fresh copy of the checkout
+    /// as the cycle's workspace is (`tehas_core::sandbox::clone`), so no
+    /// container is given the host's checkout. The caller reads the file back
+    /// and the rules decide on it.
     ///
     /// A pass takes the file off. A refusal writes it fresh with git's line, so
     /// the hold starts again. A probe the host could not run records nothing,
@@ -462,10 +467,17 @@ impl Writer {
         if dry {
             return (Vec::new(), true);
         }
+        let tree = self.home.join(PROBE_TREE);
+        let said = self.push_probe_in(&tree);
+        let _ = std::fs::remove_dir_all(&tree);
+        said
+    }
+
+    fn push_probe_in(&mut self, tree: &std::path::Path) -> (Vec<String>, bool) {
         let not_asked = |why: &str| {
             format!("WARN: the sandbox could not be asked whether it can push: {why}: no fault recorded")
         };
-        let (words, token) = match self.push_probe_words() {
+        let (words, token) = match self.push_probe_words(tree) {
             Ok(w) => w,
             Err(why) => return (vec![not_asked(&why)], false),
         };
@@ -497,8 +509,11 @@ impl Writer {
 
     /// The probe's command and the token it is given as GH_TOKEN, or why the
     /// host cannot ask. Every reason is a fault of the host, not an answer of
-    /// the sandbox.
-    fn push_probe_words(&self) -> Result<(Vec<String>, Option<String>), String> {
+    /// the sandbox. `tree` is where the copy of the checkout is made.
+    fn push_probe_words(
+        &self,
+        tree: &std::path::Path,
+    ) -> Result<(Vec<String>, Option<String>), String> {
         if let Some(cmd) = &self.host.push_probe_cmd {
             return Ok((vec![cmd.clone()], None));
         }
@@ -512,32 +527,39 @@ impl Writer {
             return Err("TEHAS_CONTAINER_MEMORY is under the 10m a container needs".into());
         };
         let network = tehas_core::sandbox::network(&self.host.aliases)?;
-        let who = tehas_core::sandbox::Identity {
-            tree: &self.host.checkout,
-            name: "",
-            email: "",
-        };
-        let kind = tehas_core::sandbox::Kind::Cycle;
-        let env = tehas_core::sandbox::env_options(kind, &who, &[], &[]);
         let Some(token) = crate::read::run::read_cycle_token(&self.home, self.bound) else {
             return Err("no cycle token from the app".into());
         };
+        let tree_s = tree.to_string_lossy().into_owned();
+        let _ = std::fs::remove_dir_all(tree);
+        let copied = tree
+            .parent()
+            .is_some_and(|p| std::fs::create_dir_all(p).is_ok())
+            && tehas_core::sandbox::clone(&self.host.checkout, &tree_s, &self.host.branch);
+        if !copied {
+            return Err("the checkout could not be copied for the check".into());
+        }
+        let who = tehas_core::sandbox::Identity {
+            tree: &tree_s,
+            name: "",
+            email: "",
+        };
+        let env =
+            tehas_core::sandbox::env_options(tehas_core::sandbox::Kind::Cycle, &who, &[], &[]);
         let mut words = tehas_core::sandbox::push_check(
             &security,
             &tehas_core::sandbox::user(),
             &env,
             &network,
-            &self.host.checkout,
-            &self.host.checkout,
+            &tree_s,
+            &tree_s,
             &self.host.image,
         );
-        // The poll's own docker in place of the bare name, and the checkout
-        // read-only: it is the poll's, and a dry run writes nothing.
+        // The poll's own docker in place of the bare name, and the host's own
+        // image: a pull inside the poll would put docker's words where git's
+        // should be.
         words[0] = self.docker.clone();
-        let mount = format!("{0}:{0}", self.host.checkout);
-        for w in words.iter_mut().filter(|w| **w == mount) {
-            w.push_str(":ro");
-        }
+        words.insert(2, "--pull=never".into());
         Ok((words, Some(token)))
     }
 

@@ -447,6 +447,19 @@ fn a_probe_the_host_could_not_run_records_nothing_and_holds_nothing() {
             Box::new(|_: &mut World| {}),
             "no cycle token from the app",
         ),
+        (
+            "no copy of the checkout",
+            Box::new(|t: &mut World| {
+                let bin = t.w.home.join("bin");
+                fs::create_dir_all(&bin).unwrap();
+                tehas_core::testing::write_exe(
+                    bin.join("tehasbot"),
+                    "#!/bin/sh\necho cycle-token-x\n",
+                )
+                .unwrap();
+            }),
+            "the checkout could not be copied for the check",
+        ),
     ];
     for (name, body) in [
         (
@@ -489,14 +502,66 @@ fn a_probe_the_host_could_not_run_records_nothing_and_holds_nothing() {
     }
 }
 
+/// A product checkout with `origin/main`, as the poll's fetch leaves it, made
+/// with the host's own git: the probe copies it as a cycle's start does.
+fn checkout_with_origin(t: &World) {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    let upstream = t.dir.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git(&upstream, &["init", "-q", "-b", "main"]);
+    git(
+        &upstream,
+        &["commit", "-q", "--allow-empty", "-m", "product"],
+    );
+    let checkout = std::path::PathBuf::from(&t.w.host.checkout);
+    fs::create_dir_all(&checkout).unwrap();
+    git(&checkout, &["init", "-q", "-b", "main"]);
+    git(
+        &checkout,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/example-owner/example-product.git",
+        ],
+    );
+    let up = upstream.to_string_lossy().into_owned();
+    git(
+        &checkout,
+        &[
+            "fetch",
+            "-q",
+            &up,
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    );
+    // What a cycle's push check is never given: the host checkout's own hooks
+    // and the files beside its history.
+    fs::write(checkout.join(".git/hooks/pre-push"), "#!/bin/sh\nexit 0\n").unwrap();
+    fs::write(checkout.join("untracked.txt"), "host only\n").unwrap();
+}
+
 /// On a host the probe is the cycle's own push check: docker run of the image
 /// with git as its entrypoint, the cycle's git configuration that hands git the
 /// token through gh, and the App's narrowed cycle token as GH_TOKEN by name,
-/// never as an argument.
+/// never as an argument. Like the cycle's, it runs in a fresh copy of the
+/// checkout that carries only the remote, never in the host's checkout, and
+/// with the host's own image, never one pulled inside the poll.
 #[test]
 fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
     let mut t = world();
     push_fault_file(&t, OLD);
+    checkout_with_origin(&t);
     let bin = t.w.home.join("bin");
     fs::create_dir_all(&bin).unwrap();
     tehas_core::testing::write_exe(
@@ -505,12 +570,15 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
     )
     .unwrap();
     let seen = t.dir.join("docker.seen");
+    let tree_seen = t.dir.join("tree.seen");
     let docker = t.dir.join("docker-probe");
     tehas_core::testing::write_exe(
         &docker,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"GH_TOKEN=$GH_TOKEN\" \"$@\" > '{}'\nexit 0\n",
-            seen.display()
+            "#!/bin/sh\nprintf '%s\\n' \"GH_TOKEN=$GH_TOKEN\" \"$@\" > '{}'\nprev=''\nfor a; do [ \"$prev\" = -w ] && ls -A \"$a\" > '{}' && git -C \"$a\" remote get-url origin >> '{}'; prev=$a; done\nexit 0\n",
+            seen.display(),
+            tree_seen.display(),
+            tree_seen.display()
         ),
     )
     .unwrap();
@@ -525,24 +593,94 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
     let seen = fs::read_to_string(&seen).unwrap();
     let words: Vec<&str> = seen.lines().collect();
     assert_eq!(words[0], "GH_TOKEN=cycle-token-x", "{seen}");
-    assert_eq!(words[1], "run", "the poll's docker, then its verb: {seen}");
     assert!(
         !words[1..].iter().any(|w| w.contains("cycle-token-x")),
         "{seen}"
     );
     let checkout = &t.w.host.checkout;
-    for want in [
+    assert!(
+        !words.iter().any(|w| w.contains(checkout.as_str())),
+        "the host's checkout is given to no container: {seen}"
+    );
+    // Every word, in order, as a cycle's push check has them, the poll's own
+    // docker and --pull=never aside.
+    let tree = t.w.home.join("state/push-probe");
+    let tree = tree.to_string_lossy();
+    let user = tehas_core::sandbox::user();
+    let got: Vec<String> = words[1..]
+        .iter()
+        .map(|w| w.replace(tree.as_ref(), "@TREE@").replace(&user, "@USER@"))
+        .collect();
+    let want = [
+        "run",
+        "--pull=never",
+        "--rm",
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "CHOWN",
+        "--cap-add",
+        "FOWNER",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--tmpfs",
+        "/tmp:rw,exec,nosuid,nodev,size=4096m,mode=1777",
+        "--user",
+        "@USER@",
+        "-e",
+        "HOME=/home/vscode",
+        "-e",
         "GH_TOKEN",
+        "-e",
+        "PI_ENSEMBLE_SANDBOX_MODE=1",
+        "-e",
+        "PI_ENSEMBLE_WORKSPACE_ROOT=@TREE@",
+        "-e",
+        "CBM_CACHE_DIR=/home/vscode/.tehas-cache",
+        "-e",
+        "GIT_CONFIG_COUNT=4",
+        "-e",
+        "GIT_CONFIG_KEY_0=credential.https://github.com.helper",
+        "-e",
+        "GIT_CONFIG_VALUE_0=",
+        "-e",
+        "GIT_CONFIG_KEY_1=credential.https://github.com.helper",
+        "-e",
         "GIT_CONFIG_VALUE_1=!gh auth git-credential",
+        "-e",
+        "GIT_CONFIG_KEY_2=user.name",
+        "-e",
+        "GIT_CONFIG_VALUE_2=",
+        "-e",
+        "GIT_CONFIG_KEY_3=user.email",
+        "-e",
+        "GIT_CONFIG_VALUE_3=",
+        "-e",
         "GIT_TERMINAL_PROMPT=0",
+        "-w",
+        "@TREE@",
+        "-v",
+        "@TREE@:@TREE@",
         "--entrypoint",
+        "git",
         "tehas-sandbox:test",
+        "push",
         "--dry-run",
+        "origin",
         "HEAD:refs/heads/tehas-preflight",
-        &format!("{checkout}:{checkout}:ro"),
-    ] {
-        assert!(words.contains(&want), "{want}: {seen}");
-    }
+    ];
+    assert_eq!(got, want, "{seen}");
+    // The copy carries the remote and the commit, none of the host's files or
+    // hooks, and is gone once the probe has its answer.
+    let in_tree = fs::read_to_string(&tree_seen).unwrap();
+    assert_eq!(
+        in_tree, ".git\nhttps://github.com/example-owner/example-product.git\n",
+        "{in_tree}"
+    );
+    assert!(
+        !t.w.home.join("state/push-probe").exists(),
+        "the copy is removed"
+    );
 }
 
 fn label() -> Value {

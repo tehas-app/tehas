@@ -1635,8 +1635,10 @@ recording, and both commands then say so and exit 69.
   reading the log.
   Once the file is ten minutes old the poll asks the sandbox itself, before
   it reads the queue, with no cycle spent on it. It runs the dry-run push a
-  start runs, with the App's cycle token, against the product checkout,
-  bounded like a start's check. A check that passes takes the file off and the
+  start runs, with the App's cycle token, in a fresh copy of the product
+  checkout under `~/tehas/state/push-probe` that it removes after, bounded
+  like a start's check. No container is given the checkout itself, and the
+  image is not pulled inside the poll (`--pull=never`). A check that passes takes the file off and the
   queue starts. One that is refused writes the fault fresh, and the hold starts
   again from that moment. When the poll cannot ask at all (no sandbox image,
   no cycle token, docker or its daemon not there), it records nothing, logs
