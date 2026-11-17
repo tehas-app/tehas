@@ -8,9 +8,10 @@
 //! twice. Unreadable is never none, so a reader holds every start rather than
 //! finding no flag where something is.
 
+use crate::file::{read_regular, ReadError, READ_BOUND};
 use crate::limit::{object, oneline, quoted};
 use serde_json::{json, Value};
-use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 /// A reading of the flag. The fields are empty unless the state is `ok`; the
@@ -48,14 +49,21 @@ impl Pause {
 /// The flag at <file>. A name the file system does not know is no flag; a name
 /// it knows but cannot read through is unreadable.
 pub fn read(file: &Path) -> Pause {
-    match fs::symlink_metadata(file) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Pause::of("none"),
-        Err(_) => return Pause::of("unreadable"),
-        Ok(_) => {}
-    }
-    match fs::read(file) {
-        Ok(bytes) => parse(&bytes),
+    match bytes(file) {
+        Ok(None) => Pause::of("none"),
+        Ok(Some(b)) => parse(&b),
         Err(_) => Pause::of("unreadable"),
+    }
+}
+
+/// The bytes at <file>, or None when nothing is at the name. A link, a file
+/// over `READ_BOUND` or one that cannot be read is an error, which a reader
+/// takes as unreadable.
+pub fn bytes(file: &Path) -> Result<Option<Vec<u8>>, ReadError> {
+    match read_regular(file, READ_BOUND) {
+        Ok((b, _)) => Ok(Some(b)),
+        Err(ReadError::Io(e)) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
@@ -97,6 +105,7 @@ pub fn parse(bytes: &[u8]) -> Pause {
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
+    use std::fs;
     use std::os::unix::fs::symlink;
 
     #[test]
@@ -138,5 +147,30 @@ mod tests {
         fs::remove_file(&file).unwrap();
         fs::create_dir(&file).unwrap();
         assert_eq!(read(&file).value(), json!("unreadable"));
+    }
+
+    #[test]
+    fn a_flag_over_the_bound_or_through_a_link_is_unreadable() {
+        let d = TestDir::new("pause-bound");
+        let file = d.join("pause.json");
+        let pad = " ".repeat(READ_BOUND as usize);
+        fs::write(&file, format!(r#"{{"at":"t","reason":"r"}}{pad}"#)).unwrap();
+        assert_eq!(read(&file).value(), json!("unreadable"));
+        let real = d.join("real.json");
+        fs::write(&real, r#"{"at":"t","reason":"r"}"#).unwrap();
+        assert_eq!(read(&real).state, "ok");
+        fs::remove_file(&file).unwrap();
+        symlink(&real, &file).unwrap();
+        assert_eq!(read(&file).value(), json!("unreadable"));
+    }
+
+    #[test]
+    fn a_long_reason_within_the_bound_is_cut_to_200() {
+        let d = TestDir::new("pause-long");
+        let file = d.join("pause.json");
+        let long = "x".repeat(10_000);
+        fs::write(&file, format!(r#"{{"at":"t","reason":"{long}"}}"#)).unwrap();
+        let p = read(&file);
+        assert_eq!((p.state, p.reason.chars().count()), ("ok", 200));
     }
 }
