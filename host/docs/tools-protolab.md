@@ -107,7 +107,8 @@ The line counts by the rule of a link above: written by an account in
 line from anyone else is counted on the page as a link from outside. The
 address is a file attached on GitHub, or an https address whose host is one of
 `TEHAS_PROTOLAB_ZIP_HOSTS` exactly, with no port, no account and no `..`.
-Empty, the default, allows no host. A redirect is followed only to an address
+The list takes domain names only, not IP addresses. Empty, the default, allows
+no host. A redirect is followed only to an address
 on those hosts, at most three, and no token is sent to them. Bytes whose
 sha256 is not the one on the line are refused and nothing of them is kept. The
 zip is unpacked by `libexec/attach` as an attached one, after the attached

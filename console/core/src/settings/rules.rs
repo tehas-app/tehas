@@ -526,7 +526,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
         Rule::Domains => refuse(
-            v.is_empty() || v.split(' ').all(is_domain),
+            v.is_empty() || v.split(' ').all(is_named_domain),
             "expected domains such as files.example.org, in lower case, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
@@ -598,6 +598,13 @@ fn is_domain(s: &str) -> bool {
             && !l.ends_with('-')
     };
     s.contains('.') && s.split('.').all(label)
+}
+/// A domain whose last label is not all digits, so no IPv4 address passes.
+fn is_named_domain(s: &str) -> bool {
+    is_domain(s)
+        && s.rsplit('.')
+            .next()
+            .is_some_and(|l| !l.bytes().all(|b| b.is_ascii_digit()))
 }
 fn is_workaround(entry: &str) -> bool {
     let Some((name, version)) = entry.split_once('@') else {
@@ -1040,6 +1047,11 @@ mod tests {
             "files.example.org:443",
             "https://files.example.org",
             "*.example.org",
+            "files..example.org",
+            "files.example.org.",
+            "127.0.0.1",
+            "192.0.2.10",
+            "files.example.org 198.51.100.7",
         ] {
             refuses("TEHAS_PROTOLAB_ZIP_HOSTS", bad, why);
         }
