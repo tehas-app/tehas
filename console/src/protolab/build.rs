@@ -102,7 +102,8 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     let mut gh = Bounded::new(program.clone(), CALL_BOUND);
     lab.token = token(&mut gh);
     let home_url = home_url(&lab.domain, &lab.url);
-    let generator = generator(&lab.domain, &lab.design);
+    let zips = lab.zips.then_some(lab.zip_hosts.as_str());
+    let generator = generator(&lab.domain, &lab.design, zips);
 
     // The bot's own login, asked once before anything of a ticket is read,
     // built or removed: whatever a cycle labels, it labels as the bot. A login
@@ -301,21 +302,32 @@ fn home_url(domain: &str, url: &str) -> String {
 /// What every stamp starts with: the console writes the pages, so a page whose
 /// words changed is built again, and so is one drawn in another design. Read
 /// through /proc, which still works while an update has replaced the file.
-fn generator(domain: &str, design: &str) -> String {
+/// With zips by address on, the hosts they may come from are part of it too,
+/// so a host added or taken off, or the switch turned, builds every page again.
+fn generator(domain: &str, design: &str, zips: Option<&str>) -> String {
     let bytes = fs::read("/proc/self/exe").unwrap_or_default();
     let mut hash = DefaultHasher::new();
     bytes.hash(&mut hash);
-    stamp_of(hash.finish(), bytes.len(), domain, design)
+    stamp_of(hash.finish(), bytes.len(), domain, design, zips)
 }
 
-fn stamp_of(hash: u64, len: usize, domain: &str, design: &str) -> String {
+fn stamp_of(hash: u64, len: usize, domain: &str, design: &str, zips: Option<&str>) -> String {
     let domain = if domain.is_empty() { "path" } else { domain };
     let design = if design == "pixel" {
         "pixel"
     } else {
         "beesknees26"
     };
-    format!("{hash:016x}-{len}-{domain}-{design}")
+    let mut stamp = format!("{hash:016x}-{len}-{domain}-{design}");
+    if let Some(hosts) = zips {
+        let mut hosts: Vec<&str> = hosts.split(' ').filter(|h| !h.is_empty()).collect();
+        hosts.sort_unstable();
+        hosts.dedup();
+        let mut hash = DefaultHasher::new();
+        hosts.hash(&mut hash);
+        stamp.push_str(&format!("-zips-{:016x}", hash.finish()));
+    }
+    stamp
 }
 
 /// Whole logins, split by spaces, exact case. An empty name is nobody.
@@ -1144,13 +1156,26 @@ mod tests {
     #[test]
     fn the_stamp_says_the_console_the_domain_and_the_design() {
         assert_eq!(
-            stamp_of(255, 7, "", ""),
+            stamp_of(255, 7, "", "", None),
             "00000000000000ff-7-path-beesknees26"
         );
         assert_eq!(
-            stamp_of(255, 7, "a.org", "pixel"),
+            stamp_of(255, 7, "a.org", "pixel", None),
             "00000000000000ff-7-a.org-pixel"
         );
+    }
+
+    #[test]
+    fn with_zips_on_the_stamp_says_the_hosts_in_any_order() {
+        let off = stamp_of(255, 7, "", "", None);
+        let none = stamp_of(255, 7, "", "", Some(""));
+        let one = stamp_of(255, 7, "", "", Some("a.org"));
+        let two = stamp_of(255, 7, "", "", Some("a.org b.org"));
+        assert!(none.starts_with(&format!("{off}-zips-")));
+        assert_ne!(none, one);
+        assert_ne!(one, two);
+        assert_eq!(two, stamp_of(255, 7, "", "", Some("b.org a.org")));
+        assert!(!two.contains(' '));
     }
 
     #[test]
