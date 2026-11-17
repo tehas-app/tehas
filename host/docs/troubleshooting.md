@@ -558,6 +558,17 @@ own: apply `tehas:ready`. `ERROR: the spec of #<n> could not be fetched
 that failed on the way, a 5xx among them: nothing changed, the poll ends
 with 1, and the next poll tries again.
 
+The cycle fetches the spec once more as it starts and holds it to the same
+pin. `Tehas started no cycle: the bytes of its spec are not the ones
+approved` means the file changed between the poll and the start; `its spec
+could not be fetched (curl exited <n>)` is a fetch that failed. Nothing ran:
+apply `tehas:ready` again once the spec is right. `tehas work: <image> does
+not support what this cycle is given` followed by `the feature issueSpec`
+means the sandbox image's pi-rukas does not read a spec: the start stops with
+78 rather than run a cycle that would never see it. Rebuild the image on a
+pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
+issue again.
+
 The caps this factory has posted are explained one by one in the next
 section.
 
