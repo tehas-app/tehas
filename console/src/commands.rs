@@ -260,7 +260,7 @@ fn dispatch_words(given: &[String]) -> Result<(), u8> {
     let first = given.first().map(String::as_str);
     let help = matches!(first, Some("-h" | "--help"));
     let unknown = match (first, given.get(1)) {
-        (Some(word), _) if !help && word != "--dry-run" => Some(word),
+        (Some(word), _) if !help && !matches!(word, "--dry-run" | "--soon") => Some(word),
         (_, Some(second)) => Some(second.as_str()),
         _ => None,
     };
@@ -654,6 +654,7 @@ mod tests {
             &["tehasbot", "clean", "--dry-run"],
             &["tehasbot", "dispatch"],
             &["tehasbot", "dispatch", "--dry-run"],
+            &["tehasbot", "dispatch", "--soon"],
             &["tehasbot", "preview"],
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
@@ -676,6 +677,8 @@ mod tests {
             &["tehasbot", "dispatch", "--dryrun"],
             &["tehasbot", "dispatch", "--dry-run", "--help"],
             &["tehasbot", "dispatch", "--help", "--dry-run"],
+            &["tehasbot", "dispatch", "--soon", "--dry-run"],
+            &["tehasbot", "dispatch", "--dry-run", "--soon"],
             &["tehasbot", "preview", "--help"],
         ] {
             assert_eq!(says(bad), 64, "{bad:?}");

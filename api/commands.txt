@@ -15,7 +15,7 @@ api --json
 check-product --sandbox
 dev --author --issue
 disk --cycles --full --json --publish internal=--publish
-dispatch --dry-run
+dispatch --dry-run --soon
 drain --json --wait
 export --after --json
 freeze --json --reason

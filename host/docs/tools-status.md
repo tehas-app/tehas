@@ -27,7 +27,9 @@ platform the host runs (the release `~/tehas/current` points at, or how far
 the platform checkout is behind origin), the current or last cycle, each
 planning turn in flight, and what the dispatcher's last poll read of `tehas.slice`. The `poll` line is
 what the polls cost, read from the state store, and is there once a poll is on
-record ([What a poll costs](/operating#what-a-poll-costs)). The `slice` line reads
+record ([What a poll costs](/operating#what-a-poll-costs)). Where
+`TEHAS_POLL_SECS` moved the timer off two minutes, it ends with `every <n> s`,
+read from the timer's drop-in. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. While the factory
 is paused it adds one line for each switch that is set:

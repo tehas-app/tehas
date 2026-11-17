@@ -83,6 +83,9 @@ fn branch() -> Result<String, u8> {
 }
 
 fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
+    if rest.first().is_some_and(|w| w == "--soon") {
+        return Ok(dispatch_soon(Path::new(&var("TEHAS_HOME"))));
+    }
     branch()?;
     let poll = dispatcher(libexec);
     if !a_program(Path::new(&poll)) {
@@ -95,6 +98,23 @@ fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
         .exec();
     eprintln!("tehas: {poll} cannot run (run install.sh): {failed}");
     Ok(78)
+}
+
+/// `tehas dispatch --soon`: the file tehas-dispatch.path starts a poll on, and
+/// nothing else. While a poll runs the file waits, and the next poll starts
+/// when that one ends.
+fn dispatch_soon(home: &Path) -> u8 {
+    let again = home.join("state/dispatch.again");
+    match File::create(&again) {
+        Ok(_) => {
+            tehas_core::outln!("tehas dispatch: a poll is asked for ({})", again.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("tehas dispatch: could not write {}: {e}", again.display());
+            1
+        }
+    }
 }
 
 /// tehas-dispatch's own refresh verb takes over, with the status a shell's exec

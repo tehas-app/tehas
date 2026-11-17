@@ -394,6 +394,43 @@ t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls systemctl)" ""
 
+t_case "TEHAS_POLL_SECS writes the timer's drop-in once, and the default removes it"
+dropin=$T/home/.config/systemd/user/tehas-dispatch.timer.d/poll.conf
+rm -rf "$T/home/.config/systemd/user/tehas-dispatch.timer.d"
+t_instance "${T_MINIMAL[@]}" TEHAS_POLL_SECS=300
+platform 0 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "update: tehas-dispatch.timer polls every 300 s"
+t_eq "$(grep -c '=300s$' "$dropin")" 3
+t_eq "$(grep -c '^On[A-Za-z]*Sec=$' "$dropin")" 3
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user is-active tehas-dispatch.timer
+--user restart tehas-dispatch.timer"
+t_eq "$(owed_steps)" ""
+rm -f "$T"/calls/*
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "polls every"
+t_eq "$(t_calls systemctl)" ""
+instance
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "update: tehas-dispatch.timer polls every 120 s again"
+t_eq "$([ -e "$dropin" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user is-active tehas-dispatch.timer
+--user restart tehas-dispatch.timer"
+
+t_case "a TEHAS_POLL_SECS out of bounds stops the update before the drop-in"
+t_instance "${T_MINIMAL[@]}" TEHAS_POLL_SECS=10
+platform 0 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_POLL_SECS is not valid: expected a whole number of seconds from 30 to 3600"
+t_eq "$([ -e "$dropin" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
 t_case "a second update while one runs exits 1 and calls nothing"
 instance
 platform 2 "$ASK"
