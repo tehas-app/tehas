@@ -158,7 +158,7 @@
       }
     },
     "contractors": {
-      "description": "The contractors of outsource, as live/contractors.json last had them: how many have each status, how many cycles are outsourced, and each contractor. Present only while the factory has outsource on; left out otherwise.",
+      "description": "The contractors of outsource, as live/contractors.json last had them: how many have each status, how many cycles are outsourced, and each contractor. Present only while the factory has outsource on; left out otherwise. Its fields may change while outsource is still being built: a program shows them, and does not decide on them.",
       "type": "object",
       "required": ["idle", "working", "stopping", "silent", "resting", "draining", "revoked", "outsourced", "list"],
       "additionalProperties": false,
