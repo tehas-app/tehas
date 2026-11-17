@@ -13,7 +13,8 @@
 //!     (tehas_core::retry); a write is not:
 //!       - one search for the closed issues that carry a state label, the most
 //!         recently updated first, up to `shipped::PAGE`, the rest on later polls;
-//!       - one read of what closed them, for the issues that may earn the label;
+//!       - one read of what closed them, for the issues that may earn the label,
+//!         each named by its number in the repository (a search has no term for it);
 //!       - one `gh issue edit` per issue, with all its labels.
 //!
 //! An issue whose cycle holds its lock waits for the cycle. A failed read still
@@ -395,16 +396,20 @@ fn closers(
     settings: &Settings,
     rows: &[Row],
 ) -> Result<Vec<u64>, String> {
-    let mut q = format!("q=repo:{} is:issue is:closed", settings.repo);
-    for row in rows.iter().filter(|row| row.ask) {
-        q.push_str(&format!(" number:{}", row.number));
-    }
-    let query = format!("query={}", shipped::QUERY);
+    let asked: Vec<u64> = rows
+        .iter()
+        .filter(|row| row.ask)
+        .map(|r| r.number)
+        .collect();
+    let (owner, name) = settings.repo.split_once('/').unwrap_or_default();
+    let owner = format!("owner={owner}");
+    let name = format!("name={name}");
+    let query = format!("query={}", shipped::by_number(&asked));
     let answer = read(
         gh,
         budget,
         sleep,
-        &["api", "graphql", "-f", &q, "-f", &query],
+        &["api", "graphql", "-f", &owner, "-f", &name, "-f", &query],
     )?;
     shipped::numbers(&answer, &[settings.control.to_string()]).ok_or_else(String::new)
 }
@@ -968,17 +973,14 @@ mod tests {
     /// A whole answer of the read: `merged` closed by a merge, `by_hand` not.
     fn closed(merged: &[u64], by_hand: &[u64]) -> String {
         let node = |n: &u64, closer: &str| {
-            format!("{{\"number\":{n},\"timelineItems\":{{\"nodes\":[{{\"closer\":{closer}}}]}}}}")
+            format!("\"i{n}\":{{\"number\":{n},\"timelineItems\":{{\"nodes\":[{{\"closer\":{closer}}}]}}}}")
         };
         let nodes: Vec<String> = merged
             .iter()
             .map(|n| node(n, "{\"merged\":true}"))
             .chain(by_hand.iter().map(|n| node(n, "null")))
             .collect();
-        format!(
-            "{{\"data\":{{\"search\":{{\"nodes\":[{}]}}}}}}",
-            nodes.join(",")
-        )
+        format!("{{\"data\":{{\"repository\":{{{}}}}}}}", nodes.join(","))
     }
 
     /// One poll against the stub, a dry one when asked, with the issues of
@@ -1015,8 +1017,8 @@ mod tests {
         assert_eq!(
             gh.calls[1],
             format!(
-                "api graphql -f q=repo:acme/widget is:issue is:closed number:12 -f query={}",
-                shipped::QUERY
+                "api graphql -f owner=acme -f name=widget -f query={}",
+                shipped::by_number(&[12])
             )
         );
         assert_eq!(gh.calls.len(), 3);
@@ -1159,7 +1161,7 @@ mod tests {
         );
         let (rc, log) = poll(&mut gh, false, &[11]);
         assert_eq!(rc, 0);
-        assert!(gh.calls[1].contains("is:closed number:12 -f"));
+        assert!(gh.calls[1].contains(" i12: issue(number: 12) ") && !gh.calls[1].contains("i11:"));
         assert_eq!(gh.edits().len(), 1);
         assert!(gh.edits()[0].starts_with("issue edit 12 "));
         assert!(!log.iter().any(|l| l.contains("#11")));
@@ -1175,7 +1177,7 @@ mod tests {
             &closed(&[1, 23], &[]),
         );
         poll(&mut gh, false, &[]);
-        assert!(gh.calls[1].contains("is:closed number:23 -f"));
+        assert!(gh.calls[1].contains(" i23: issue(number: 23) ") && !gh.calls[1].contains("i1:"));
         assert_eq!(gh.edits().len(), 1);
         assert!(gh.edits()[0].starts_with("issue edit 23 "));
     }

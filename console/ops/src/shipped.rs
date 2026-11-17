@@ -66,6 +66,26 @@ pub const SHIPPED: &str = "tehas:shipped";
 // pull request is no merge.
 pub const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue { number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } } } } } }";
 
+// The fields of one issue that QUERY asks for, for a read that names its
+// issues by number. A test pins that QUERY asks for the same.
+const ISSUE: &str = "number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } }";
+
+/// The document of a read of the issues `numbers` of the repository that the
+/// variables $owner and $name name, each under an alias of its own. A search
+/// has no term that picks an issue by its number, so tidy reads them this way.
+/// The answer holds the issues under `data.repository`, which `list` reads as
+/// it reads the nodes of a search.
+pub fn by_number(numbers: &[u64]) -> String {
+    let mut doc = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
+    );
+    for n in numbers {
+        doc.push_str(&format!(" i{n}: issue(number: {n}) {{ {ISSUE} }}"));
+    }
+    doc.push_str(" } }");
+    doc
+}
+
 pub fn main(given: &[String]) -> u8 {
     if given.iter().map(String::as_str).eq(["page"]) {
         tehas_core::outln!("{PAGE}");
@@ -94,17 +114,22 @@ fn nodes(answer: &str) -> Option<Vec<Value>> {
     if doc.get("errors").is_some_and(holds_something) {
         return None;
     }
-    let list = doc
-        .get("data")?
-        .as_object()?
-        .get("search")?
-        .as_object()?
-        .get("nodes")?
-        .as_array()?;
+    let data = doc.get("data")?.as_object()?;
+    // A read by number answers each issue under its alias; a null one is an
+    // issue the read did not find, and no answer.
+    let list: Vec<Value> = match data.get("search") {
+        Some(search) => search.as_object()?.get("nodes")?.as_array()?.clone(),
+        None => data
+            .get("repository")?
+            .as_object()?
+            .values()
+            .cloned()
+            .collect(),
+    };
     if list.iter().any(|n| !speaks(n)) {
         return None;
     }
-    Some(list.clone())
+    Some(list)
 }
 
 /// The number GitHub gave a node: a whole number of its own, and no number
@@ -877,6 +902,34 @@ mod tests {
         assert!(QUERY.ends_with("closer { ... on PullRequest { merged } } } } } } } } }"));
         assert!(QUERY
             .contains("closedByPullRequestsReferences(first: 20) { nodes { __typename merged } }"));
+    }
+
+    #[test]
+    fn a_read_by_number_asks_what_the_search_asks_and_names_each_issue() {
+        assert!(QUERY.contains(&format!("... on Issue {{ {ISSUE} }}")));
+        let doc = by_number(&[63, 65]);
+        assert_eq!(
+            doc,
+            format!("query($owner: String!, $name: String!) {{ repository(owner: $owner, name: $name) {{ i63: issue(number: 63) {{ {ISSUE} }} i65: issue(number: 65) {{ {ISSUE} }} }} }}")
+        );
+        assert_eq!(doc.matches('{').count(), doc.matches('}').count());
+        assert_eq!(doc.matches('(').count(), doc.matches(')').count());
+    }
+
+    #[test]
+    fn the_answer_of_a_read_by_number_is_read_as_a_search_is() {
+        let closer = |merged: bool| json!({"nodes": [{"closer": {"merged": merged}}]});
+        let answer = json!({"data": {"repository": {
+            "i63": {"number": 63, "closedAt": "2026-11-03T14:27:20Z", "timelineItems": closer(true)},
+            "i65": {"number": 65, "closedAt": "2026-11-03T14:20:00Z", "timelineItems": closer(false)},
+            "i1": {"number": 1, "timelineItems": closer(true)}
+        }}})
+        .to_string();
+        assert_eq!(super::numbers(&answer, &["1".to_string()]), Some(vec![63]));
+        // An issue the read did not find is no answer for any of them.
+        let missing = json!({"data": {"repository": {"i63": null}}}).to_string();
+        assert_eq!(super::numbers(&missing, &[]), None);
+        assert_eq!(super::numbers(&json!({"data": {}}).to_string(), &[]), None);
     }
 
     #[test]
