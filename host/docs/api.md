@@ -176,6 +176,10 @@ status` does: a store that is busy or missing is `"poll": null`, not a
 failure of the command. Exit 0; 64 on an argument it does not know; 78 when the
 settings are missing or malformed.
 
+`api/api.schema.json` in the repository is the schema of the object, with
+samples beside it. The words of `features` are `api/features.txt`, in the
+order the command prints them: within 1.x a word is only added, at the end.
+
 ## tehas status --json
 
 ```

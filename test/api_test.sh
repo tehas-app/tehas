@@ -20,6 +20,17 @@ installed() { # <version.txt line>: what install.sh writes beside the pages
   mkdir -p "$T/home/tehas/docs"
   echo "$1" >"$T/home/tehas/docs/version.txt"
 }
+schema=$T_ROOT/api/api.schema.json
+fits() { # <json file>: the lines test/schema.jq prints for it, none when it fits
+  jq -r --slurpfile schema "$schema" -f "$T_ROOT/test/schema.jq" "$1"
+}
+fits_text() { # <json text>: fits for an object the command printed
+  printf '%s\n' "$1" >"$T/printed.json"
+  fits "$T/printed.json"
+}
+pinned_features() { # the words of api/features.txt as one JSON array
+  grep -v '^#' "$T_ROOT/api/features.txt" | jq -Rsc 'split("\n") | map(select(. != ""))'
+}
 
 t_case "api --json: the version, the release, the repository and the features"
 reset
@@ -263,5 +274,58 @@ reset
 t_run "$api --jsn"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas api"
+
+t_case "api.schema.json: every sample fits it, and it names every field the command prints"
+reset
+installed v0.8.0+cb6912a
+for sample in "$T_ROOT"/api/api.*.json; do
+  [ "$sample" = "$T_ROOT/api/api.schema.json" ] && continue
+  t_eq "$(basename "$sample") $(fits "$sample")" "$(basename "$sample") "
+  t_eq "$(basename "$sample") $(jq -c '.features' "$sample")" "$(basename "$sample") $(pinned_features)"
+done
+t_run "$api --json"
+t_eq "$(fits_text "$t_out")" ""
+t_eq "$(jq -c '.required' "$schema")" "$(jq -c 'keys_unsorted' <<<"$t_out")"
+t_eq "$(jq -c '.properties.flags.required' "$schema")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+
+t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
+reset
+t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
+  "$(printf '%s\n' '.zz: not in the schema' '.features[27]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
+t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
+  "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
+
+t_case "api --json: features is api/features.txt, word for word and in its order"
+reset
+installed v0.10.2
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.features' <<<"$t_out")" "$(pinned_features)"
+# A building feature is a key of flags and never a word of the list.
+for name in $(jq -r '.flags | keys[]' <<<"$t_out"); do
+  t_eq "$name $(grep -cx -- "$name" "$T_ROOT/api/features.txt")" "$name 0"
+done
+
+t_case "api --json with a poll on record, and with none, fits the schema"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.10.2
+t_run "$api --json"
+t_eq "$(fits_text "$t_out")" ""
+now=$(date +%s)
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$(jq -r '.poll | type' <<<"$t_out")" object
+t_eq "$(fits_text "$t_out")" ""
+printf '%s\tlabel create\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" >"$T/github-writes.log"
+t_at "$now" poll-record --started "$((now - 24))" --cpu-ms 3100 --gh 3 \
+  --writes-log "$T/github-writes.log" --starts 1 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$(jq -r '.poll.last.kinds.label' <<<"$t_out")" 1
+t_eq "$(fits_text "$t_out")" ""
 
 t_done
