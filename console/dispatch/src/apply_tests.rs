@@ -63,6 +63,7 @@ case "$name $1" in
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
     cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
+  "store job-stamp") cat "$d/job" 2>/dev/null || echo '{"api":1,"verb":"job-stamp","ok":true,"job":null}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -182,6 +183,7 @@ fn world() -> World {
             refused_labels: Vec::new(),
             bot: "tehas-bot".into(),
             owner: String::new(),
+            outsource: false,
             systemctl: s("start"),
             start_cmd: Some(s("start")),
             stop_cmd: Some(s("start")),
@@ -904,6 +906,61 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
     );
     // The input file goes once the store has it.
     assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn with_outsource_off_the_start_comment_asks_no_stamp() {
+    let mut t = world();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(!all.contains("job-stamp"), "{all}");
+}
+
+#[test]
+fn with_outsource_on_the_start_comment_says_who_builds_it() {
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.apply(json!([start_of(7, "label")]));
+    let c = t.writes();
+    assert!(
+        c.iter()
+            .any(|w| w == "store job-stamp --issue 7 --since 1793008800"),
+        "{c:#?}"
+    );
+    let all = c.join("\n");
+    assert!(all.contains("is removed.\n\nBuilt by: in-house\n"), "{all}");
+
+    let mut t = world();
+    t.w.host.outsource = true;
+    fs::write(
+        t.dir.join("job"),
+        r#"{"api":1,"verb":"job-stamp","ok":true,"job":4,"contractor":"box-1"}"#,
+    )
+    .unwrap();
+    t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(
+        all.contains("is removed.\n\nBuilt by contractor: box-1 (job 4)\n"),
+        "{all}"
+    );
+
+    // A store that cannot say leaves the comment without a stamp.
+    let mut t = world();
+    t.w.host.outsource = true;
+    t.fail("store", "job-stamp");
+    let a = t.apply(json!([start_of(7, "label")]));
+    let all = t.writes().join("\n");
+    assert!(all.contains("Tehas cycle started"), "{all}");
+    assert!(!all.contains("Built by"), "{all}");
+    assert!(
+        a.log
+            .iter()
+            .any(|l| l.starts_with("WARN: #7: the store did not say who builds it")),
+        "{:#?}",
+        a.log
+    );
 }
 
 #[test]

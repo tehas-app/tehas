@@ -236,6 +236,39 @@ GitHub App key:
 This happens only with outsource on and the contractor program naming
 itself to the cycle. Otherwise a cycle is as it was.
 
+## The stamp
+
+With outsource on, the factory says who built each cycle. It writes the
+stamp itself; a contractor never does.
+
+- **The start comment** on the issue ends with a line: `Built by contractor:
+  <name> (job <id>)` for a cycle placed on a contractor, `Built by: in-house`
+  for one run on this host. The contractor is the one holding the issue's job
+  given out since the cycle's approval.
+- **The report's comments** at the end of the cycle end with the same line.
+- **The pull request's body** gets the line as its last line when the cycle
+  ends. An older stamp line in the body is replaced, so the line is there once.
+- **Commits.** Each commit of a contractor's pull request over its base
+  branch carries a `Built-by: <name>` trailer. When the cycle ends the factory
+  reads the branch into a repository of its own; a commit whose trailer is
+  missing or names someone else is written again with the right one, and so
+  are the commits after it. Each keeps its tree, author and committer. The
+  branch is pushed with a lease on the commit it was read at, so work pushed
+  since is never overwritten. A pull request that is merged or closed, one
+  from a fork, and the end of a cycle after a stop are not rewritten.
+- **The store** keeps who built it in the job's row: `store job-stamp --issue
+  <n> --since <approval>` answers the job, its contractor, attempt and state,
+  or null for a cycle run in-house.
+- **The analytics** keep the contractor's name in `runs.contractor_id`
+  ([the analytics](/analytics)). An in-house run leaves it empty.
+
+When the store cannot say which job a contractor's cycle was, the comments
+and the pull request carry no stamp and the log says so: a guess would be
+wrong.
+
+With outsource off nothing of this happens: no line, no trailer check, no
+store call.
+
 ## The commands
 
 ```
@@ -329,7 +362,9 @@ Still owed, each in its own issue:
 - #2275, placement: the dispatcher offering a job to a contractor and the
   supervisor waiting on it. Until then no job is offered, so a contractor that
   asks gets none.
-- #2276, the stamp on a result.
+- The image digest and pi-rukas version of a contractor's cycle as the job
+  is given out. The job's row has no column for them, and adding one is a
+  store schema change, which this release does not make.
 - #2277, the counts in `tehas status`, the dashboard and the MCP server.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
