@@ -16,7 +16,7 @@ use std::path::Path;
 pub const REASON: usize = 200;
 
 /// A reading of the limit: its state, and its fields in the order they print,
-/// each as JSON text, with the number printed as jq prints it.
+/// each as JSON text.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Limit {
     pub state: &'static str,
@@ -92,61 +92,6 @@ pub fn leading_number(text: &str) -> Option<&str> {
     digits.then(|| &text[..i])
 }
 
-/// The number of a document, printed the way jq prints a number which came
-/// out of that text. An integer of digits is kept byte for byte, so the limit
-/// `tehas limit` wrote comes back exactly as it went in. Anything else jq
-/// holds as a double and prints from the shortest digits which read back as
-/// the value: a document which wrote the point keeps the point, so `1.0` and
-/// `0.0` come back with it, and a document which wrote none prints the few
-/// digits and the exponent which carries the rest. Everything which reads as
-/// nothing prints as `0`, the way jq has always printed the number.
-fn number(text: &str) -> String {
-    let body = match leading_number(text) {
-        Some(body) => body,
-        None => return text.to_string(),
-    };
-    // The number of the document comes back as jq printed it from that
-    // document: the bytes of the number, kept whole, so the limit which
-    // `tehas limit` wrote is read again exactly as it went in — `1` as `1`,
-    // `1.0` as `1.0`, `-0.0` as `-0.0`, and a whole number of digits without
-    // the point jq would have given a value it held as a double.
-    if number_body(body) && serde_json::from_str::<Value>(body).is_ok_and(|v| v.is_number()) {
-        return body.to_string();
-    }
-    // Only a number the document did not write whole, such as one with the
-    // digits of a whole number behind an exponent, is rebuilt from the value
-    // jq holds: the fewest digits which read back, and the exponent which
-    // carries the rest.
-    let f: f64 = body.parse().unwrap_or(f64::NAN);
-    if !f.is_finite() {
-        return format!("{}1E+309", if f < 0.0 { "-" } else { "" });
-    }
-    let digits = format!("{f:e}");
-    let (mant, power) = digits.split_once('e').unwrap_or((digits.as_str(), "0"));
-    let power: i32 = power.parse().unwrap_or(0);
-    if power == 0 {
-        return if f == f.trunc() {
-            format!("{f:.1}")
-        } else {
-            format!("{f}")
-        };
-    }
-    let mant = mant.trim_end_matches('0').trim_end_matches('.');
-    format!("{mant}E{}{power}", if power < 0 { "" } else { "+" })
-}
-
-/// Whether `body` is the whole of a number of the document: nothing else
-/// stands behind it but white, which is what jq's reader prints as written.
-fn number_body(body: &str) -> bool {
-    let text = body.trim_start();
-    if text.contains(['e', 'E']) {
-        return false;
-    }
-    let mut b = text.as_bytes();
-    b = b.strip_prefix(b"-").unwrap_or(b);
-    !b.is_empty() && b.iter().all(|c| c.is_ascii_digit() || *c == b'.')
-}
-
 /// The limit as every command which honours it reads it.
 /// A file which is not there is no limit; anything else which is not a limit
 /// of version 1 is unreadable, never none, so a reader holds every start
@@ -166,8 +111,7 @@ pub fn read(file: &Path, now: i64) -> Limit {
 /// The reading of the bytes of a file, unreadable when they are no limit of
 /// version 1. The checks are jq's select, one for one, including what an
 /// absent key reads as: `.until == null` is true of a document with no until
-/// at all. jq keeps a number of the file it can print again, so the cycles are
-/// printed from the bytes they were written with.
+/// at all. The cycles are plain digits that fit an i64, printed as written.
 pub fn parse(bytes: &[u8], now: i64) -> Limit {
     let text = match std::str::from_utf8(bytes) {
         Ok(text) => text,
@@ -178,12 +122,11 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
     // `.until == null` is true of a document with no until at all.
     let keys = match Skip::new(bytes).object() {
         Some(keys) => keys,
-        // jq's reader is more forgiving than a strict one where a number is
-        // concerned: it reads the number at the front of a value and stops at
-        // the first byte which cannot belong to it, so `01` is the number 1
-        // and `1e999` is a number of no use to anyone. The scanner below is
-        // as forgiving, so a document which is a document reaches the checks;
-        // what is no document at all is no limit.
+        // The scanner reads a number as jq's reader does, from its front to
+        // the first byte which cannot belong to it, so a document which is a
+        // document reaches the checks; what is no document at all is no
+        // limit. Only `v` is read that forgivingly: the cycles must be plain
+        // digits, checked below.
         None => return Limit::of("unreadable"),
     };
     // jq and serde keep the last of a key named twice and a scan for the key
@@ -245,7 +188,7 @@ pub fn parse(bytes: &[u8], now: i64) -> Limit {
         },
     };
     let mut out = Limit::of(if expired { "expired" } else { "ok" });
-    out.fields.push(("cycles".into(), number(cycles)));
+    out.fields.push(("cycles".into(), cycles.to_string()));
     out.fields
         .push(("plan".into(), held("plan").unwrap_or("null").to_string()));
     if let Some(s) = until {
