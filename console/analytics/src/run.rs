@@ -20,6 +20,8 @@
 //!   with them.
 //! - rukas: the pi-rukas commit of the image's tehas.rukas label as the cycle
 //!   started, or null.
+//! - contractor: the name of the contractor that ran the cycle, absent or null
+//!   for a cycle run in-house. Only an instance with outsource on gives one.
 //!
 //! Every file is read as tehas wrote it, and none through a link. Where a
 //! file is missing its columns are NULL. Under $TEHAS_HOME:
@@ -141,6 +143,8 @@ pub struct Run {
     /// The driver the result says ran the issue, beside `driver`, the one the
     /// approval bound.
     pub result_driver: Option<String>,
+    /// The contractor that ran the cycle, from the facts; None in-house.
+    pub contractor_id: Option<String>,
     pub steps: Vec<Step>,
     pub roles: Vec<Role>,
     pub gates: Vec<GateRun>,
@@ -280,6 +284,11 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             .get("attempt")
             .and_then(Value::as_i64)
             .filter(|n| *n > 0),
+        contractor_id: facts
+            .get("contractor")
+            .and_then(Value::as_str)
+            .and_then(tehas_core::stamp::name)
+            .map(str::to_string),
         ..Run::default()
     };
     run.ended = text(last, "at")
@@ -627,10 +636,10 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
            cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
            runner_ms, result_schema, gate_runs, gate_ms, driver, tool_calls, tool_errors,
-           result_driver)
+           result_driver, contractor_id)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45)",
         params![
             run.id,
             run.issue,
@@ -676,6 +685,7 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.tool_calls,
             run.tool_errors,
             run.result_driver,
+            run.contractor_id,
         ],
     )?;
     crate::db::image_built(&tx, run.image.as_deref(), run.image_built)?;
