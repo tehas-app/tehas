@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "source": "power-feed",
+  "sourceUrl": "https://power.example.net/",
+  "periodSeconds": 15,
+  "factoryModels": ["model-large"],
+  "totals": { "watts": 1190, "kWh24h": 14.23, "kWh30d": 448.12, "hosts": 2, "reporting": 2, "energyHosts": 2 },
+  "hosts": [
+    { "name": "node-a", "source": "dcmi", "watts": 456, "kWh24h": 12.79, "kWh30d": 393.04, "ramUsedMb": 10023, "ramTotalMb": 64198 },
+    { "name": "node-b", "source": "nvidia-smi", "watts": 734, "kWh24h": 1.44, "kWh30d": 55.08, "ramUsedMb": 52624, "ramTotalMb": 253212 }
+  ],
+  "models": [
+    { "name": "model-large", "hosts": ["node-b"], "engines": [{ "version": "2.9.0", "engine": "engine-a" }], "slots": 2, "busy": 1, "queued": 0 }
+  ],
+  "samples": [
+    { "t": 1794916755, "w": { "node-a": 450, "node-b": 700 }, "k": { "node-b": 100000 } },
+    { "t": 1794916770, "w": { "node-a": 452, "node-b": 720 }, "k": { "node-b": 112000 } },
+    { "t": 1794916785, "w": { "node-a": 455, "node-b": 730 }, "k": { "node-b": 125000 } },
+    { "t": 1794916800, "w": { "node-a": 456, "node-b": 734 }, "k": { "node-b": 139000 } }
+  ]
+}

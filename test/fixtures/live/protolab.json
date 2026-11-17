@@ -1,0 +1,8 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "limitBytes": 10485760,
+  "tickets": [
+    { "number": 45, "title": "Try a dark mode for the reader", "files": 2, "address": "https://lab-45.example.org/", "url": "https://github.com/acme/widget/issues/45" }
+  ],
+  "url": "https://lab.example.org"
+}

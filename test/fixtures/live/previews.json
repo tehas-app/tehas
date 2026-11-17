@@ -1,0 +1,10 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "disk": { "freeBytes": 214748364800, "low": false, "minFreeBytes": 5368709120 },
+  "lastSweep": { "removed": 0, "time": "2026-11-17T11:00:00Z" },
+  "previews": [
+    { "address": "https://uat-main.example.org/", "name": "main", "number": null, "reason": "", "sha": "0123456789abcdef0123456789abcdef01234567", "state": "serving", "time": "2026-11-17T09:00:00Z", "title": "", "url": null },
+    { "address": "https://uat-46.example.org/", "number": 46, "reason": "", "sha": "89abcdef0123456789abcdef0123456789abcdef", "state": "serving", "time": "2026-11-17T11:50:00Z", "title": "Export the report as CSV", "url": "https://github.com/acme/widget/pull/46" },
+    { "address": null, "number": 47, "reason": "the build failed", "sha": "fedcba9876543210fedcba9876543210fedcba98", "state": "build-failed", "time": "2026-11-17T11:30:00Z", "title": "Dates in the list use the viewer's locale", "url": "https://github.com/acme/widget/pull/47" }
+  ]
+}
