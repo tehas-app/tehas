@@ -1566,7 +1566,7 @@ tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 The report is the one on the plain dashboard. The copy is for deeper analysis
 elsewhere; it holds no token, host or address. What is in it, column by
 column, is on [Analytics](/analytics). `TEHAS_ANALYTICS=off` stops the
-recording, and both commands then say so and exit 69.
+recording, and both commands then say so and exit 78.
 
 ## Limits that hold work back
 

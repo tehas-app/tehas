@@ -119,7 +119,7 @@ command with 78 when it is `on`.
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `off`                                    | `on` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_EGRESS`                  | `off`                                    | `on` puts every cycle, planning turn, review and `tehas dev` session on an internal network whose one way out is a proxy that connects only to listed hosts. See [Where a container may connect](/host#where-a-container-may-connect) |
-| `TEHAS_EGRESS_HOSTS`            | empty                                    | Hosts the proxy allows beside its own list, one space apart, each a name on port 443 or `name:port`, as `pypi.org files.pythonhosted.org` |
+| `TEHAS_EGRESS_HOSTS`            | empty                                    | Hosts the proxy allows beside its own list, one space apart, each a name on port 443 or `name:port`, as `pypi.org files.pythonhosted.org`. A name is letters, digits, `-` and at least one dot (no `_`); a port is 1 to 65535 with no leading zero. The load checks each word by the rule that makes the proxy's list, so a word it takes is a word the proxy allows |
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
 | `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
@@ -158,10 +158,10 @@ command with 78 when it is `on`.
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](/tools-clean#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_ISSUE_TYPES`            | empty                                    | Optional. `kind=Type` pairs separated by single spaces, such as `improvement=Improvement prototype=Prototype`: the organisation's issue type that marks a kind in place of its label, `tehas:improvement` for the dispatcher, `tehas:prototype` for the Protolab. A kind left out stays its label. Another kind, a kind named twice, or a type name of anything but letters, digits, `-` and `_` stops every command with 78; a type the organisation does not have stops the poll and the Protolab with 78 (see [Kinds as issue types](/operating#kinds-as-issue-types)). Empty: the labels |
-| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
+| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from: an absolute path of letters, digits and `._-`, else every command stops with 78. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_UPDATE_FROM`             | `release` or `git`, what the host has    | Where `tehas update` takes new versions from: `release`, a published release unpacked into `~/tehas/versions`, or `git`, the platform checkout, for a host that develops tehas. Unset, a host with `~/tehas/current` uses releases and one with a platform checkout uses the checkout, so a host installed before the setting existed goes on as it did; a host with neither stops with 78 and names the setting. Another word stops every command with 78 (see [tehas update](/tools-update#tehas-update)) |
-| `TEHAS_RELEASE_REPO`            | the line in `versions.env`               | Optional. `owner/name` on GitHub the releases are read from, for an instance that updates from releases and takes them from another repository than the platform's own. The platform's is the line of the installed `versions.env`; the instance's wins. The list and the download use `gh` when it is signed in, which reaches a private repository with the bot's token, and `curl` from the public address otherwise. Neither names a repository, and `tehas update` stops with 78 naming both files (see [From a release](/tools-update#from-a-release)) |
+| `TEHAS_RELEASE_REPO`            | built into tehas                         | Optional. `owner/name` on GitHub the releases are read from, for an instance that updates from releases and takes them from another repository than the platform's own. The platform's is built into tehas from `host/versions.env`; the `versions.env` on the host is not read for it. The signature is checked with the key built into tehas whichever repository is named. The list and the download use `gh` when it is signed in, which reaches a private repository with the bot's token, and `curl` from the public address otherwise. A value that is not owner/name stops `tehas update` with 78 (see [From a release](/tools-update#from-a-release)) |
 | `TEHAS_WORKSTREAMS`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_MAX_CYCLES=1` (or with the setting left out): with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)). |
 | `TEHAS_MAX_CYCLES`      | the host's CPUs minus one, at least 1 | The most cycles side by side: a whole number. `auto` is refused with 78: tehas 1.0 removed auto sizing. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave `TEHAS_SLICE_CONTAINERS` containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most `TEHAS_SLICE_CONTAINERS`; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_MAX_CYCLES` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
@@ -185,9 +185,9 @@ command with 78 when it is `on`.
 `--budget`, which gives it to `store poll-idle --budget` as it stands, so the
 rule is the store's own: what it would refuse stops the load instead of leaving
 the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
-| `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended |
+| `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended. A whole number of at least 1, at most 9 digits. The poll reads it again by the same rule and stops with 78 on a value it cannot read |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
-| `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
+| `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated, such as `models.example:192.0.2.10`. A name is letters, digits, `.` and `-`; an address is an IPv4 or IPv6 address, the IPv6 one bare or in brackets, or `host-gateway`. Docker's `name=address` form is taken too. Anything else stops every command with 78, and no container is started with it |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and when it states none pi-rukas's default: MEDIUM up to v0.14.49, HIGH from v0.14.50. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image. Only its tag is the instance's to change: `sandbox/build.sh` tags what it builds under the default repository, and `tehasbot clean` takes the dated tags of that name, so a setting with another repository leaves the build's dated tags uncleaned |
 
@@ -239,7 +239,22 @@ tehas neither checks its value nor passes it on under another name. It does
 check the name: before a cycle starts, `tehas work` asks the image's runner
 (`pi-rukas-headless --capabilities`) which inputs it reads, and a
 `PI_ENSEMBLE_*` name the container would be given that the runner does not list
-as one a host sets stops the cycle with 78, naming it. Unlike a
+as one a host sets stops the cycle with 78, naming it, unless a polyfill the
+image carries declares it. A polyfill is named in the image label
+`tehas.rukas.polyfills` as `<name>@<version>` and declares its inputs in the
+label `tehas.rukas.polyfill.<name>.inputs`, full names separated by spaces or
+commas. In the instance's `sandbox.Dockerfile`:
+
+```
+LABEL tehas.rukas.polyfills="example@0.1.0" \
+      tehas.rukas.polyfill.example.inputs="PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_TOKEN"
+```
+
+Only a `PI_ENSEMBLE_*` name that the runner does not list at all counts: a
+polyfill adds an input, it does not open one the runner keeps to itself. The
+labels are read only when the runner's answer lacks an input, and the run log
+says each input a polyfill took. `tehas review` checks the names of its own
+container by the same rule. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for
 `PI_ENSEMBLE_REVIEW_THRESHOLD` is to ignore it. The channel also carries
@@ -267,6 +282,25 @@ tehas: TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget t
 Delete the line. An instance with no `TEHAS_MAX_CYCLES` line goes from
 one cycle at a time, the default of the earlier version, to the host's CPUs
 minus one; set the line to keep a lower ceiling.
+
+## Host settings
+
+These are the host's, not the instance's: the environment a command runs in,
+or `~/.config/tehas/env`, gives them, and `instance.env` does not. Each is
+checked when it holds a value, and one that its rule refuses stops every
+command with 78 and a line that names it and not its value.
+`api/settings-rules.json` lists them under `host`.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `TEHAS_HOME` | `~/tehas` | The tehas home. An absolute path of letters, digits and `._-` between slashes, with no `..` and no slash at the end |
+| `TEHAS_INSTANCE_DIR` | the first line of `~/.config/tehas/instance-dir`, else `~/.config/tehas` | The instance directory. An absolute path, as `TEHAS_HOME` |
+| `TEHAS_MODEL_KEY_<NAME>` | unset | A model endpoint's token, which `models.json` names as `$TEHAS_MODEL_KEY_<NAME>`. One word of printable characters with no quote, backslash, `$` or backtick. Only in `~/.config/tehas/env`: `instance.env` that sets one is refused |
+| `TEHAS_MCP` | unset, off | Whether the [MCP server](/mcp-server) runs: `on` or `off` (`1` or `0`) |
+| `TEHAS_MCP_KEYS`, `TEHAS_MCP_DASHBOARD_KEYS` | unset | The MCP server's keys, separated by white space, each at least 32 characters of `A-Za-z0-9_-`. A refusal names a key by its place. Only in `~/.config/tehas/env` |
+| `TEHAS_ENERGY` | unset | The energy section: `off` takes it away, `on` asks for it, unset leaves it to the sampler |
+| `TEHAS_ENERGY_URL` | unset | The cluster address the energy sampler asks, with no token, in place of the model endpoint's. An `http://` or `https://` address |
+| `TEHAS_UPDATE_LOCK_WAIT` | `10` | Seconds `tehas update` and `install.sh` wait for another update's lock. A whole number from 0, refuse at once, to 300. From the environment of that run only: `tehas update` and `install.sh` check it themselves and stop with 78 on any other value |
 
 ## The gates (run by the cycle, usable by hand)
 

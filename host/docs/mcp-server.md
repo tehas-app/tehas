@@ -106,7 +106,10 @@ for accidents, not a wall.
    or a key of both lists stops the server with exit 78 and one line that names
    the settings, never a key. `TEHAS_MCP_DASHBOARD_KEYS` may be left out, which
    leaves a server of full keys only, as it was. A line for either setting in
-   `instance.env` is refused the same way.
+   `instance.env` is refused the same way. Both are
+   [host settings](/tools#host-settings): a key that is not like that stops
+   every command with 78 at the load, whether `TEHAS_MCP` is on or not, and
+   the line names the key by its place.
 
 3. Start it, and have it start with the host:
 

@@ -21,7 +21,9 @@ Usage:
 
 Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 does not know, which starts no poll; 78 instance settings are missing or
-malformed, tehas-dispatch is not installed or cannot run, or the state store
+malformed (TEHAS_PLAN_TIMEOUT and TEHAS_PLAN_MAX_TURNS are read again by
+the poll, by the same rules, before the lock), tehas-dispatch is not
+installed or cannot run, or the state store
 is not installed or cannot be used (before any call to GitHub when it is not
 installed); 1 a call to GitHub failed or its
 answer could not be read, the state store could not be read, systemd cannot

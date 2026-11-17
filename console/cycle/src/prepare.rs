@@ -22,7 +22,7 @@
 //! the host runs nothing in it. The host runs git only in a tree no container
 //! has touched.
 
-use crate::start::{self, is_record, record_value, Driver};
+use crate::start::{self, is_record, record_value};
 use crate::{caps, conflict, host, ran_with};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -32,6 +32,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::driver::Driver;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -394,9 +396,25 @@ pub fn check(c: &Check) -> i32 {
     {
         names.push_str(" PI_ENSEMBLE_EXTRA_IMAGE_DIRS");
     }
-    let lacking = (caps_rc == 0)
+    let mut lacking = (caps_rc == 0)
         .then(|| caps::unsupported(&answer, verb, &flags.join(" "), &names, &features))
         .flatten();
+    // An input the runner does not list passes when a polyfill the image
+    // carries declares it. The labels are asked only then.
+    if lacking.as_deref().is_some_and(|l| l.contains("the input ")) {
+        let declared = caps::polyfill_inputs(&answer, &crate::gives::image_labels(&image));
+        let kept: Vec<&str> = names
+            .split(' ')
+            .filter(|n| match declared.iter().find(|(i, _)| i == n) {
+                Some((i, p)) => {
+                    eprintln!("tehas work: the input {i} is read by the polyfill {p} of {image}");
+                    false
+                }
+                None => true,
+            })
+            .collect();
+        lacking = caps::unsupported(&answer, verb, &flags.join(" "), &kept.join(" "), &features);
+    }
     let Some(lacking) = lacking else {
         eprintln!(
             "tehas work: {image} gave no --capabilities answer (exit {caps_rc}), not starting a cycle"
@@ -801,7 +819,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
     for line in last_lines(preflight, 3, &format!("the push check (exit {rc})")) {
         say(&format!("    {line}"));
     }
-    Some(3)
+    Some(i32::from(NO_PUSH))
 }
 
 /// The last `n` lines of the log, or a line that says it could not be read or
@@ -1044,7 +1062,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         // A check the sandbox refused is the host's fault, not the issue's. One
         // that could not be run at all is not: it wrote no words of its own, and
         // the filesystem fault that stopped it is no refusal of a push.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             push_fault(home, t.issue, &preflight_line(&preflight));
         }
         return rc;
@@ -1267,7 +1285,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     // Inspected once: the id the record gets is the one the container runs.
     let seen = (!r.attempt.is_empty()).then(|| inspect(r)).flatten();
     if !r.attempt.is_empty() && !on_record(home, r, &state, &seen) {
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
     let mut env_words = list(&state, "env");

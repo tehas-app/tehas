@@ -20,7 +20,7 @@
 //! <now> is epoch seconds. A health file older than ten minutes is not
 //! believed: its first line says stale.
 //!
-//! Exit: 0 the factory is taking work or is paused (pass, warn); 1 it is not
+//! Exit: 0 the factory is taking work or is paused (pass, warn); 3 it is not
 //! (fail), the file is stale, or there is no health file with a status in it;
 //! 2 usage; 64 an argument of `tehas status` other than --json.
 
@@ -31,6 +31,7 @@ use crate::update::release::{older, prerelease, tag_ok};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tehas_core::exit;
 
 /// The age after which a health file is not believed.
 pub const MAX_AGE: i64 = 600;
@@ -180,7 +181,7 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
         Some(h) if h.get("status").as_str().is_some() => h,
         _ => {
             eprintln!("tehas status: no health file at {file} yet: the dispatcher has not run");
-            return 1;
+            return exit::NO;
         }
     };
     let stale = stale(&health, now);
@@ -215,7 +216,11 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
             tehas_core::outln!("{}", said.dump())
         }
     }
-    u8::from(stale || health.get("status").as_str() == Some("fail"))
+    if stale || health.get("status").as_str() == Some("fail") {
+        exit::NO
+    } else {
+        exit::OK
+    }
 }
 
 /// Older than the rule, or written at a time that cannot be read.

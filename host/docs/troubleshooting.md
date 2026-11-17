@@ -1155,6 +1155,41 @@ On a host that updates from its checkout, run `./install.sh` in `~/tehas/platfor
 it builds the console. A console left by an interrupted `--to` to an older version
 answers the same way, and the same steps mend it.
 
+## tehas update says the cycle token cannot push
+
+A cycle's container pushes with the GitHub App's cycle token, which
+`tehasbot github-token --cycle` makes: the app's token narrowed to
+`TEHAS_REPO`, with Contents and Pull requests write and Issues read. A real
+`tehas update` and `install.sh --check` push with it once, as a dry run, from
+the product checkout to its `origin`. When that is refused, every cycle would
+stop at once with exit 3 and `tehas work: the sandbox cannot push to origin`,
+so the update says so first:
+
+```
+Cycle token:  CANNOT PUSH (tehas-app-bot[bot] was refused a dry-run push to origin)
+    remote: Write access to repository not granted.
+    fatal: unable to access 'https://github.com/tehas-app/tehas.git/': The requested URL returned error: 403
+```
+
+The update exits 1. What it installed stays installed. A drained factory stays
+drained, and the last line says so; on a factory that is not drained, the
+poll's push-fault hold below keeps it from starting one issue after another.
+
+The token is the app's to fix, not the update's:
+
+- The app is installed on the repository, by the account that owns it: an
+  installation on a personal account does not reach an organisation's
+  repository, and the other way round. `tehasbot github-token --cycle --check`
+  says which repositories the token reaches.
+- The installation has Contents and Pull requests read and write and Issues
+  read. When the app asks for new permissions, the owner of the installation
+  accepts them in its settings; until then the token has the old ones.
+- A ruleset on the repository lets the app push `tehas/` branches.
+
+Then run `tehas update --check`. When it says `Cycle token:  OK`, run
+`tehas limit clear`. `the app made no cycle token` instead means tehasbot
+could not make one at all; its own line follows.
+
 ## install.sh --check says `Follow-ups: NOT DONE`
 
 A follow-up that was asked for has not run. The lines are in

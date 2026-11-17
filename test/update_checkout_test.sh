@@ -17,7 +17,7 @@ mkdir -p "$th/state"
 printf 'edge --force-recreate\n' >"$owed_file"
 before=$(head_sha)
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "follow-up(s) an earlier run did not finish"
 t_contains "$t_out" "next: edge --force-recreate"
 t_contains "$t_out" "Installed:    OK"
@@ -82,7 +82,7 @@ t_eq "$(t_calls build)" ""
 
 t_case "--check on a held platform says so and still reports"
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "an update will not move the checkout until it is removed"
 t_contains "$t_out" "checkout: would fast-forward"
 t_eq "$(state | cut -d' ' -f2)" "$(cut -d' ' -f2 <<<"$before")"
@@ -218,7 +218,7 @@ echo "  differs: '"$th"'/libexec/dispatch"
 exit 1'
 before=$(head_sha)
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "checkout: would fast-forward"
 t_contains "$t_out" "DRIFT (1 files)"
 t_lacks "$t_out" "installed:"
@@ -234,21 +234,22 @@ t_eq "$(t_calls install)" "install --check"
 t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 
-t_case "--check exits 1 when only the checkout is behind"
+t_case "--check exits 3 when only the checkout is behind"
 instance
 platform 2 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "Installed:    OK"'
 before=$(head_sha)
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "checkout: would fast-forward $before"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" "install --check"
 
-t_case "--check names what an update does not fix apart from something to update"
+t_case "--check names what an update does not fix apart from something to update, exit 1"
 for finding in "Dependencies: NOT OK" "Slice:        MISSING (sudo ./bootstrap.sh slice)" \
-  "Login:        NOT CURRENT" "Tests:        FAILED"; do
+  "Login:        NOT CURRENT" "Tests:        FAILED" \
+  "Cycle token:  CANNOT PUSH (acme-factory[bot] was refused a dry-run push to origin)"; do
   instance
   platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "'"$finding"'"
