@@ -116,7 +116,7 @@ carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
   '' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "console/src/export.rs $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "console/src/export.rs $an/run.rs $an/tests.rs console/core/src/snapshot.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
   "console/src/export.rs $an/run.rs $an/tests.rs" \

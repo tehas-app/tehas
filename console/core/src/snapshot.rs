@@ -3,6 +3,11 @@
 //! a session, in the order the writer selects them, and the shape numbers of
 //! the headers are here so that a field is added or renamed once, in one list
 //! both sides read, and not in a writer's list and a reader's that can drift.
+//! The rule that finds a run's log files by the stamp in their names is here
+//! too: the writer lists an ended run's logs with it, and the reader finds a
+//! running cycle's logs with it.
+
+use std::path::Path;
 
 /// What a field holds, spelled once for both sides: the column kind the writer
 /// reads from SQLite and the JSON type the reader names in its schema. `Time`
@@ -156,6 +161,105 @@ pub const ROLE_FIELDS: [Field; 11] = [
     ("cost", Shape::Real, "Model cost as the runner reported it."),
     ("ms", Shape::Int, "Milliseconds of model time."),
 ];
+
+/// How long before a run's start its log's stamp may be: the stamp is taken
+/// as the cycle begins, the run's start a little before or after.
+pub const STAMP_BEFORE: i64 = 120;
+
+// 261020-100000 as Unix seconds, UTC.
+fn stamp_secs(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    let ok = b.len() == 13
+        && b[6] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 6 || c.is_ascii_digit());
+    ok.then_some(())?;
+    let t = format!(
+        "20{}-{}-{}T{}:{}:{}Z",
+        &s[0..2],
+        &s[2..4],
+        &s[4..6],
+        &s[7..9],
+        &s[9..11],
+        &s[11..13]
+    );
+    crate::time::from_iso(&t)
+}
+
+fn regular_size(p: &Path) -> Option<u64> {
+    std::fs::symlink_metadata(p)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+}
+
+/// The names in the logs directory, read once for all runs.
+pub fn log_names(logs: &Path) -> Vec<String> {
+    std::fs::read_dir(logs)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect()
+}
+
+/// The log files of a run that exist as regular files: (word, file name,
+/// bytes). A log belongs to the run when the stamp in its name, taken when
+/// the cycle began, is no more than STAMP_BEFORE seconds before the run's
+/// start and not after its end (now for a run that has not ended). When
+/// several stamps fall in that window only the latest is the run's: an
+/// earlier one is a short run of the same issue that ended just before.
+pub fn log_files(
+    logs: &Path,
+    names: &[String],
+    kind: &str,
+    issue: i64,
+    started: i64,
+    ended: Option<i64>,
+    now: i64,
+) -> Vec<(String, String, u64)> {
+    let (own, tails): (&str, &[(&str, &str)]) = match kind {
+        "work" => (
+            "work",
+            &[
+                ("transcript", ".jsonl"),
+                ("err", ".jsonl.err"),
+                ("preflight", ".jsonl.preflight"),
+                ("console", ".jsonl.console"),
+                ("result", ".jsonl.result.json"),
+            ],
+        ),
+        "plan" => ("plan", &[("progress", ".jsonl"), ("result", ".json")]),
+        _ => return Vec::new(),
+    };
+    let prefix = format!("{own}-{issue}-");
+    let upto = ended.unwrap_or(now);
+    let mut stamps: Vec<&str> = names
+        .iter()
+        .filter_map(|n| n.strip_prefix(&prefix)?.get(..13))
+        .filter(|s| stamp_secs(s).is_some_and(|t| t >= started - STAMP_BEFORE && t <= upto))
+        .collect();
+    stamps.sort_unstable();
+    stamps.dedup();
+    let mut found = Vec::new();
+    for stamp in stamps.iter().rev() {
+        for (word, tail) in tails {
+            let name = format!("{prefix}{stamp}{tail}");
+            if let Some(bytes) = regular_size(&logs.join(&name)) {
+                found.push(((*word).to_string(), name, bytes));
+            }
+        }
+        if !found.is_empty() {
+            break;
+        }
+    }
+    let dispatch = format!("dispatch-{own}-{issue}.log");
+    if let Some(bytes) = regular_size(&logs.join(&dispatch)) {
+        found.push(("dispatch".to_string(), dispatch, bytes));
+    }
+    found
+}
 
 #[cfg(test)]
 mod tests {
