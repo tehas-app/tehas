@@ -439,6 +439,11 @@ impl<'a> Channel<'a> {
 /// models.json a job carries puts every provider behind this proxy.
 pub const CARRIED: &[&str] = &[
     "TEHAS_REPO",
+    // Required by every load, so the contractor's `tehas work` loads: a
+    // number, public logins and the App's public id, none of them a secret.
+    "TEHAS_CONTROL_ISSUE",
+    "TEHAS_ALLOWED_LABELERS",
+    "TEHAS_GITHUB_APP_ID",
     "TEHAS_BRANCH",
     "TEHAS_DRIVER",
     "TEHAS_READ_ONLY",
