@@ -25,6 +25,10 @@
 //! agent runs here on a timer with no person in front of it: a weekly run says 78
 //! for an instance that could not review rather than exiting 0 on it.
 //!
+//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
+//! under the settings: the model proxy of outsource, which says itself
+//! whether the feature is on.
+//!
 //! tehasbot cycle, tehas work and tehas index are `tehas-cycle` beside this
 //! program, by exec under the settings. It takes the command's lock itself and
 //! hands it down to what it starts (console/cycle/src/lock.rs).
@@ -170,9 +174,15 @@ fn preview_run(rest: &[String], settle: OsString) -> u8 {
 /// `tehas-cycle <verb>` beside this program, with the words of the command.
 /// No program there is 78 before anything runs.
 fn cycle_program(libexec: &str, who: &str, words: &[String]) -> u8 {
-    let program = format!("{libexec}/tehas-cycle");
+    beside(libexec, "tehas-cycle", who, words)
+}
+
+/// `<name>` beside this program, by exec with `words`. No program there is 78
+/// before anything runs.
+fn beside(libexec: &str, name: &str, who: &str, words: &[String]) -> u8 {
+    let program = format!("{libexec}/{name}");
     if !a_program(Path::new(&program)) {
-        eprintln!("{who}: no tehas-cycle at {program} (run install.sh)");
+        eprintln!("{who}: no {name} at {program} (run install.sh)");
         return 78;
     }
     let failed = Command::new(&program).args(words).exec();
@@ -284,6 +294,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             cycle_program(libexec, "tehas index", &words)
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
+        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
+            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
+        }
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,
