@@ -7,6 +7,7 @@ pub mod approval;
 #[cfg(feature = "mask")]
 pub mod call;
 pub mod cycle_notes;
+pub mod depth;
 pub mod disk;
 pub mod driver;
 pub mod egress;

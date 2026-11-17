@@ -532,12 +532,14 @@ impl Writer {
         let Some(token) = crate::read::run::read_cycle_token(&self.home, self.bound) else {
             return Err("no cycle token from the app".into());
         };
+        // A dry run of the default branch's tip, which GitHub already holds,
+        // needs no history behind it.
         let tree_s = tree.to_string_lossy().into_owned();
         let _ = std::fs::remove_dir_all(tree);
         let copied = tree
             .parent()
             .is_some_and(|p| std::fs::create_dir_all(p).is_ok())
-            && tehas_core::sandbox::clone(&self.host.checkout, &tree_s, &self.host.branch);
+            && tehas_core::sandbox::clone(&self.host.checkout, &tree_s, &self.host.branch, 1);
         if !copied {
             return Err("the checkout could not be copied for the check".into());
         }
