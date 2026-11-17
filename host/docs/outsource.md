@@ -249,14 +249,20 @@ stamp itself; a contractor never does.
 - **The report's comments** at the end of the cycle end with the same line.
 - **The pull request's body** gets the line as its last line when the cycle
   ends. An older stamp line in the body is replaced, so the line is there once.
-- **Commits.** Each commit of a contractor's pull request over its base
-  branch carries a `Built-by: <name>` trailer. When the cycle ends the factory
-  reads the branch into a repository of its own; a commit whose trailer is
-  missing or names someone else is written again with the right one, and so
-  are the commits after it. Each keeps its tree, author and committer. The
-  branch is pushed with a lease on the commit it was read at, so work pushed
-  since is never overwritten. A pull request that is merged or closed, one
-  from a fork, and the end of a cycle after a stop are not rewritten.
+- **Commits.** Each commit a contractor's cycle adds to its pull request's
+  branch carries a `Built-by: <name>` trailer. Before the cycle is handed to
+  the contractor, the factory notes the heads of the repository's branches in
+  `state/cycles/<issue>.heads`. When the cycle ends it reads the branch into a
+  repository of its own and checks the commits over the head the branch had
+  then, or over the base branch for a new branch. Commits an earlier cycle or
+  a person pushed are left as they are. A commit whose trailer is missing or
+  names someone else is written again with the right one, and so are the
+  commits after it. Each keeps its tree, author and committer. The branch is
+  pushed with a lease on the commit it was read at, so work pushed since is
+  never overwritten. A pull request that is merged or closed, one from a
+  fork, the end of a cycle after a stop, and a cycle whose heads could not be
+  noted are not rewritten, and a read-only instance only says what it would
+  push.
 - **The store** keeps who built it in the job's row: `store job-stamp --issue
   <n> --since <approval>` answers the job, its contractor, attempt and state,
   or null for a cycle run in-house. With `--open` it answers only a job
@@ -264,9 +270,10 @@ stamp itself; a contractor never does.
 - **The analytics** keep the contractor's name in `runs.contractor_id`
   ([the analytics](/analytics)). An in-house run leaves it empty.
 
-When the store cannot say which job a contractor's cycle was, the comments
-and the pull request carry no stamp and the log says so: a guess would be
-wrong.
+When the store cannot say which job a contractor's cycle was, or the
+cycle's approval has no time to ask it with, the comments and the pull
+request carry no stamp and the log says so: a guess would be wrong, and a
+contractor's cycle is never stamped in-house.
 
 With outsource off nothing of this happens: no line, no trailer check, no
 store call.

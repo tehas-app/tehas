@@ -30,21 +30,28 @@ impl Built {
     /// when its job is null. An answer whose name or number is not of
     /// their shape is no job.
     pub fn of_answer(answer: &Value) -> Built {
+        Built::contractor_of(answer).unwrap_or(Built::InHouse)
+    }
+
+    /// The contractor and job the store's answer to `job-stamp` names, or
+    /// None when it names no job or one out of shape. A cycle known to have
+    /// run on a contractor is stamped with this or not at all.
+    pub fn contractor_of(answer: &Value) -> Option<Built> {
         if answer.get("verb").and_then(Value::as_str) != Some("job-stamp") {
-            return Built::InHouse;
+            return None;
         }
         let name = answer
             .get("contractor")
             .and_then(Value::as_str)
-            .and_then(name);
-        let job = answer.get("job").and_then(Value::as_i64).filter(|j| *j > 0);
-        match (name, job) {
-            (Some(name), Some(job)) => Built::Contractor {
-                name: name.to_string(),
-                job,
-            },
-            _ => Built::InHouse,
-        }
+            .and_then(name)?;
+        let job = answer
+            .get("job")
+            .and_then(Value::as_i64)
+            .filter(|j| *j > 0)?;
+        Some(Built::Contractor {
+            name: name.to_string(),
+            job,
+        })
     }
 
     /// The line the pull request and the comments carry.
@@ -197,7 +204,11 @@ mod tests {
             json!(null),
         ] {
             assert_eq!(Built::of_answer(&bad), Built::InHouse, "{bad}");
+            assert_eq!(Built::contractor_of(&bad), None, "{bad}");
         }
+        // A cycle known to be a contractor's is that job or nothing.
+        assert_eq!(Built::contractor_of(&job), Some(alpha()));
+        assert_eq!(Built::contractor_of(&none), None);
     }
 
     #[test]

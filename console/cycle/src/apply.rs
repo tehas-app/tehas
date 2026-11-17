@@ -224,6 +224,8 @@ struct Writer<'a> {
     /// Who built the cycle, where outsource is on: the line below each
     /// comment and the pull request's body.
     stamp: Option<Built>,
+    /// The branch heads on GitHub as a contractor's cycle started.
+    heads: Option<crate::stamp::Heads>,
 }
 
 impl Writer<'_> {
@@ -625,12 +627,23 @@ impl Writer<'_> {
             ));
             return;
         }
+        let Some(heads) = &self.heads else {
+            log(&format!(
+                "WARN: the Built-by: trailers of {} were not checked: the branch heads as the cycle started were not noted",
+                pull.head
+            ));
+            return;
+        };
+        if tehas_core::read_only::refuse(&format!("push the Built-by: rewrite of {}", pull.head)) {
+            return;
+        }
         let scratch = self
             .home
             .join(crate::stamp::SCRATCH)
             .join(self.issue.to_string());
         let remote = format!("https://github.com/{}.git", self.repo);
-        match crate::stamp::fix_trailers(&scratch, &remote, &pull.base, &pull.head, name) {
+        let from = heads.at(&pull.head);
+        match crate::stamp::fix_trailers(&scratch, &remote, &pull.base, &pull.head, from, name) {
             Ok(Trailers::Kept) => {}
             Ok(Trailers::Rewritten(k)) => log(&format!(
                 "#{}: {k} commit(s) of {} did not name {name} in Built-by: and were written again",
@@ -904,6 +917,11 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         }
     };
     let built = crate::stamp::built(home, s);
+    // The note goes with the cycle's other notes before the actions run.
+    let heads = built
+        .as_ref()
+        .and_then(Built::contractor)
+        .and_then(|_| crate::stamp::heads(home, issue));
     let gh = Gh::of(s.signalled);
     let mut ask = Tried {
         repo: facts.repo.clone(),
@@ -932,6 +950,7 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         handoff_failed: None,
         handoff_maybe: false,
         stamp: built.clone(),
+        heads,
     };
     for a in &mut r.actions {
         match a {

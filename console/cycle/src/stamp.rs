@@ -2,8 +2,12 @@
 //! work, on each comment the report posts, as the last line of the pull
 //! request's body, and as the `Built-by:` trailer of a contractor's commits.
 //! A contractor's cycle wrote its commits on the contractor, so the factory
-//! checks the trailer of each commit of the pull request's branch when the
-//! cycle ends and rewrites the ones that do not name the contractor.
+//! checks the trailer of each commit the cycle added to the pull request's
+//! branch when the cycle ends and rewrites the ones that do not name the
+//! contractor. What the cycle added is what the branch holds over its head
+//! as the cycle started, which the supervisor notes before the job waiter
+//! runs (`state/cycles/<issue>.heads`), or over its base for a new branch.
+//! Commits an earlier cycle or a person pushed are left as they are.
 //!
 //! The rewrite is made in a repository of the report's own, never in a tree a
 //! container wrote. Each commit keeps its tree, its author and its committer;
@@ -27,7 +31,9 @@ pub const SCRATCH: &str = "state/outsource/stamp";
 /// Who built the cycle `s`, or None where outsource is off or the store could
 /// not say which job a contractor's cycle was. A cycle run by `tehas work`
 /// ran here; one a job waiter waited on ran on the contractor of the issue's
-/// newest job since the cycle's approval.
+/// newest job since the cycle's approval. A job waiter's cycle is never
+/// stamped in-house: with no approval time or no job in the store's answer
+/// it carries no stamp.
 pub fn built(home: &Path, s: &Start) -> Option<Built> {
     if !tehas_core::features::on("outsource") {
         return None;
@@ -35,17 +41,89 @@ pub fn built(home: &Path, s: &Start) -> Option<Built> {
     if s.runner == Runner::Work {
         return Some(Built::InHouse);
     }
-    let since = s.approval_at.parse::<i64>().unwrap_or(0).to_string();
     let issue = s.issue.to_string();
+    let unknown = |why: &str| {
+        crate::after::log(&format!(
+            "WARN: #{issue}: the store did not say which job built it ({why}): its comments and pull request carry no stamp"
+        ));
+        None
+    };
+    let Some(since) = s.approval_at.parse::<i64>().ok().filter(|t| *t > 0) else {
+        return unknown("the cycle's approval has no time");
+    };
+    let since = since.to_string();
     match host::store(home, &["job-stamp", "--issue", &issue, "--since", &since]) {
-        Ok(v) => Some(Built::of_answer(&v)),
-        Err(word) => {
-            crate::after::log(&format!(
-                "WARN: #{issue}: the store did not say which job built it ({word}): its comments and pull request carry no stamp"
-            ));
-            None
-        }
+        Ok(v) => Built::contractor_of(&v).or_else(|| unknown("its answer names no job")),
+        Err(word) => unknown(&word),
     }
+}
+
+/// The note of the branch heads on GitHub as a contractor's cycle started,
+/// `state/cycles/<issue>.heads`, as `git ls-remote --heads` answers.
+pub const HEADS: &str = "heads";
+
+/// The branches of a repository at their commits.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Heads(Vec<(String, String)>);
+
+impl Heads {
+    /// `git ls-remote` lines; a line that is not a branch at a commit is left
+    /// out.
+    pub fn of(text: &str) -> Heads {
+        Heads(
+            text.lines()
+                .filter_map(|l| {
+                    let (id, name) = l.split_once('\t')?;
+                    let branch = name.trim().strip_prefix("refs/heads/")?;
+                    (commit_shaped(id) && branch_shaped(branch))
+                        .then(|| (branch.to_string(), id.to_string()))
+                })
+                .collect(),
+        )
+    }
+
+    /// The commit `branch` was at, or None when it was not there.
+    pub fn at(&self, branch: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(b, _)| b == branch)
+            .map(|(_, id)| id.as_str())
+    }
+}
+
+fn heads_path(home: &Path, issue: u64) -> std::path::PathBuf {
+    home.join(format!("state/cycles/{issue}.{HEADS}"))
+}
+
+/// The heads the supervisor noted as the cycle started, or None when there is
+/// no note. Read before the end of the cycle clears it.
+pub fn heads(home: &Path, issue: u64) -> Option<Heads> {
+    std::fs::read_to_string(heads_path(home, issue))
+        .ok()
+        .map(|t| Heads::of(&t))
+}
+
+/// Notes the branch heads of `repo` on GitHub before a job waiter runs the
+/// cycle `issue` elsewhere: the report checks only the commits the cycle
+/// added over them. A read that fails leaves no note, and the report then
+/// checks no trailer.
+pub fn note_heads(home: &Path, issue: u64, repo: &str) {
+    let path = heads_path(home, issue);
+    let _ = std::fs::remove_file(&path);
+    let remote = format!("https://github.com/{repo}.git");
+    let r = git(home, &["ls-remote", "--heads", &remote], None, &[]);
+    let written = r.ok() && std::fs::write(&path, &r.out).is_ok();
+    if !written {
+        crate::after::log(&format!(
+            "WARN: #{issue}: {}: the Built-by: trailers of its commits will not be checked",
+            said("the branch heads could not be noted", &r)
+        ));
+    }
+}
+
+/// A commit's full id.
+fn commit_shaped(id: &str) -> bool {
+    matches!(id.len(), 40 | 64) && id.bytes().all(|c| c.is_ascii_hexdigit())
 }
 
 /// A comment's body with the stamp's line below it.
@@ -193,20 +271,27 @@ fn read_commit(dir: &Path, id: &str) -> Result<Commit, String> {
     })
 }
 
-/// Checks the `Built-by:` trailer of every commit of `branch` over `base` on
-/// `remote` and, when one does not name `name`, writes those commits and the
-/// ones after them again with the trailer and pushes the branch, leased on the
-/// commit it was fetched at. `scratch` is the report's own directory, made
-/// anew and removed after.
+/// Checks the `Built-by:` trailer of every commit of `branch` on `remote`
+/// over `base` and over `from`, the branch's head as the cycle started (None:
+/// the branch is new), and, when one does not name `name`, writes those
+/// commits and the ones after them again with the trailer and pushes the
+/// branch, leased on the commit it was fetched at. A `from` the branch no
+/// longer holds, as after a rebase, leaves every commit over `base` the
+/// cycle's. `scratch` is the report's own directory, made anew and removed
+/// after.
 pub fn fix_trailers(
     scratch: &Path,
     remote: &str,
     base: &str,
     branch: &str,
+    from: Option<&str>,
     name: &str,
 ) -> Result<Trailers, String> {
     if !branch_shaped(base) || !branch_shaped(branch) {
         return Err("the branch or its base is not a branch name".into());
+    }
+    if from.is_some_and(|f| !commit_shaped(f)) {
+        return Err("the branch's head at the start is not a commit".into());
     }
     if tehas_core::stamp::name(name).is_none() {
         return Err("the contractor's name is not a name".into());
@@ -215,7 +300,7 @@ pub fn fix_trailers(
     if let Err(e) = std::fs::create_dir_all(scratch) {
         return Err(format!("{} could not be made: {e}", scratch.display()));
     }
-    let done = rewrite(scratch, remote, base, branch, name);
+    let done = rewrite(scratch, remote, base, branch, from, name);
     let _ = std::fs::remove_dir_all(scratch);
     done
 }
@@ -225,6 +310,7 @@ fn rewrite(
     remote: &str,
     base: &str,
     branch: &str,
+    from: Option<&str>,
     name: &str,
 ) -> Result<Trailers, String> {
     let r = git(dir, &["init", "--quiet", "--bare"], None, &[]);
@@ -259,19 +345,24 @@ fn rewrite(
         return Err(said(&format!("{branch} could not be read"), &r));
     }
     let old = r.out.trim().to_string();
-    let r = git(
-        dir,
-        &[
-            "rev-list",
-            "--reverse",
-            "--topo-order",
-            "refs/stamp/head",
-            "--not",
-            "refs/stamp/base",
-        ],
-        None,
-        &[],
-    );
+    let mut list = vec![
+        "rev-list",
+        "--reverse",
+        "--topo-order",
+        "refs/stamp/head",
+        "--not",
+        "refs/stamp/base",
+    ];
+    // The fetch brought what the branch and its base hold: a start head that
+    // is not here is one the branch no longer holds.
+    let held = |id: &str| {
+        let obj = format!("{id}^{{commit}}");
+        git(dir, &["cat-file", "-e", &obj], None, &[]).ok()
+    };
+    if let Some(f) = from.filter(|f| held(f)) {
+        list.push(f);
+    }
+    let r = git(dir, &list, None, &[]);
     if !r.ok() {
         return Err(said(
             &format!("the commits of {branch} could not be listed"),
@@ -440,7 +531,7 @@ mod tests {
         let scratch = d.join("scratch");
         let base = sh(&remote, &["rev-parse", "main"]);
         assert_eq!(
-            fix_trailers(&scratch, r, "main", "feature/issue-7-x", "box-1"),
+            fix_trailers(&scratch, r, "main", "feature/issue-7-x", None, "box-1"),
             Ok(Trailers::Rewritten(2))
         );
         assert!(!scratch.exists(), "the scratch is removed");
@@ -462,10 +553,79 @@ mod tests {
         // A second check finds every commit stamped and pushes nothing.
         let head = sh(&remote, &["rev-parse", "feature/issue-7-x"]);
         assert_eq!(
-            fix_trailers(&scratch, r, "main", "feature/issue-7-x", "box-1"),
+            fix_trailers(&scratch, r, "main", "feature/issue-7-x", None, "box-1"),
             Ok(Trailers::Kept)
         );
         assert_eq!(sh(&remote, &["rev-parse", "feature/issue-7-x"]), head);
+    }
+
+    #[test]
+    fn the_commits_on_the_branch_before_the_cycle_are_left_as_they_were() {
+        let d = TestDir::new("stamp-from");
+        let (remote, _) = remote(&d);
+        let r = remote.to_str().unwrap();
+        // The two commits were there as the contractor's cycle started: an
+        // in-house cycle's, say. The contractor adds one.
+        let start = sh(&remote, &["rev-parse", "feature/issue-7-x"]);
+        let start = start.trim();
+        let work = d.join("work");
+        std::fs::write(work.join("a"), "4").unwrap();
+        sh(&work, &["commit", "--quiet", "-am", "Third"]);
+        sh(&work, &["push", "--quiet", r, "feature/issue-7-x"]);
+        let scratch = d.join("scratch");
+        assert_eq!(
+            fix_trailers(
+                &scratch,
+                r,
+                "main",
+                "feature/issue-7-x",
+                Some(start),
+                "box-1"
+            ),
+            Ok(Trailers::Rewritten(1))
+        );
+        assert_eq!(
+            sh(&remote, &["rev-parse", "feature/issue-7-x^"]).trim(),
+            start
+        );
+        let last = sh(&remote, &["log", "-1", "--format=%B", "feature/issue-7-x"]);
+        assert_eq!(last.trim_end(), "Third\n\nBuilt-by: box-1");
+        let before = sh(&remote, &["log", "--format=%B", "main..feature/issue-7-x^"]);
+        assert!(!before.contains("box-1"), "{before}");
+        assert!(before.contains("Built-by: other"), "{before}");
+        // A start head the branch no longer holds, as after a rebase the
+        // cycle pushed, leaves every commit over the base the contractor's.
+        let gone = "f".repeat(40);
+        assert_eq!(
+            fix_trailers(
+                &scratch,
+                r,
+                "main",
+                "feature/issue-7-x",
+                Some(&gone),
+                "box-1"
+            ),
+            Ok(Trailers::Rewritten(3))
+        );
+    }
+
+    #[test]
+    fn the_heads_note_names_each_branch_at_its_commit() {
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let text = format!(
+            "{a}\trefs/heads/main\n{b}\trefs/heads/feature/issue-7-x\n{a}\trefs/tags/v1\nnot a line\n"
+        );
+        let h = Heads::of(&text);
+        assert_eq!(h.at("main"), Some(a.as_str()));
+        assert_eq!(h.at("feature/issue-7-x"), Some(b.as_str()));
+        assert_eq!(h.at("v1"), None);
+        assert_eq!(h.at("feature/issue-8"), None);
+        let d = TestDir::new("stamp-heads");
+        assert!(heads(d.path(), 7).is_none());
+        std::fs::create_dir_all(d.join("state/cycles")).unwrap();
+        std::fs::write(d.join("state/cycles/7.heads"), &text).unwrap();
+        assert_eq!(heads(d.path(), 7).unwrap().at("main"), Some(a.as_str()));
     }
 
     #[test]
@@ -477,10 +637,29 @@ mod tests {
             ("ma..in", "feature/issue-7", "box-1"),
             ("main", "feature/issue-7", "box 1"),
         ] {
-            assert!(fix_trailers(&scratch, "/nowhere", base, branch, name).is_err());
+            assert!(fix_trailers(&scratch, "/nowhere", base, branch, None, name).is_err());
             assert!(!scratch.exists());
         }
-        assert!(fix_trailers(&scratch, "/nowhere", "main", "feature/issue-7", "box-1").is_err());
+        assert!(fix_trailers(
+            &scratch,
+            "/nowhere",
+            "main",
+            "feature/issue-7",
+            None,
+            "box-1"
+        )
+        .is_err());
+        assert!(!scratch.exists());
+        let from = Some("--upload-pack=x");
+        assert!(fix_trailers(
+            &scratch,
+            "/nowhere",
+            "main",
+            "feature/issue-7",
+            from,
+            "box-1"
+        )
+        .is_err());
         assert!(!scratch.exists());
     }
 }
