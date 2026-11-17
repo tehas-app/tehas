@@ -183,7 +183,11 @@ fn in_scratch(
 
 /// The run's repository, `<dir>/repo`, holding the workspace's branches and
 /// `HEAD` under `refs/kept/` and its `info/exclude`, with `origin` the plan's
-/// remote. Nothing of the workspace's config comes with them.
+/// remote. Nothing of the workspace's config comes with them. A workspace has
+/// TEHAS_CLONE_DEPTH commits of history, and git refuses refs whose shallow
+/// roots it would have to take unless asked with `--update-shallow`. The fetch
+/// of the remote's default branch then brings what it gained since, down to
+/// the commit the cycle started from, which the workspace holds.
 fn taken(h: &mut dyn Host, workspace: &Path, dir: &Path) -> Result<PathBuf, Why> {
     let repo = dir.join("repo");
     std::fs::create_dir(&repo).map_err(|e| Why::only(format!("{}: {e}", repo.display())))?;
@@ -194,7 +198,15 @@ fn taken(h: &mut dyn Host, workspace: &Path, dir: &Path) -> Result<PathBuf, Why>
     git(
         h,
         &repo,
-        &["fetch", "--quiet", "--no-tags", &from, &head, &heads],
+        &[
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--update-shallow",
+            &from,
+            &head,
+            &heads,
+        ],
     )
     .let_say(&format!("{} is no git repository", workspace.display()))?;
     copy_exclude(workspace, &repo);
