@@ -233,7 +233,6 @@ impl InImage {
         argv.push(format!("--user={}", self.user));
         argv.push("--env=HOME=/home/vscode".to_string());
         argv.push(format!("--volume={}:/memory", self.dir.display()));
-        argv.push("--env=ORT_INTRA_OP_NUM_THREADS=1".to_string());
         argv.push("--env=HF_HUB_OFFLINE=1".to_string());
         for (k, v) in &planned.vars {
             argv.push(format!("--env={k}={v}"));
@@ -509,7 +508,6 @@ mod tests {
                 "--user=1000:1000",
                 "--env=HOME=/home/vscode",
                 "--volume=/h/state/memory/cycles:/memory",
-                "--env=ORT_INTRA_OP_NUM_THREADS=1",
                 "--env=HF_HUB_OFFLINE=1",
                 "--env=VIPUNE_PROJECT=acme/widget",
                 "--env=VIPUNE_RECENCY_WEIGHT=0.3",
