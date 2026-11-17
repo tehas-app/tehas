@@ -421,6 +421,46 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   runs in its place. `tehas:classic` and an unlabelled start run classic as
   before. The labels stay in the label set.
 - The state store is at schema 17. `install.sh` brings a store of any v0.30 release, or of 15 or 16, forward with every row; the new columns start empty. With outsource on, a job keeps the sha256 of its model proxy token (never the token), so a running job's token still works after the proxy restarts. A contractor's `hello` carries a report (sandbox image id, pi-rukas version, free memory and disk), the store keeps the last one, placement can fit a contractor whose report has the room, and `live/contractors.json`, `tehas status --json` and the MCP tool `factory_contractors` show it. With outsource off nothing writes these columns and status, the live files and the MCP catalog are as before. Outsource is still being built, so no factory has it on yet.
+- The schema of `tehas status --json` and the manual say the fields of `contractors` may change while outsource is still being built.
+- The features page says what has been seen on a host and what only the tests cover. Rows of features still being built say so first, and stale claims are gone (#1790).
+- The manual names no command that does not exist: `tehasbot clean`, `tehasbot review` and `tehas-cycle finish` where it said `tehas clean`, `tehas review` and `tehas finish`. `tehasbot clean --help` names `console clean ended` in place of a script that is gone (#1790).
+- Troubleshooting lists the four lines the poll logs for a `tehas:finish` ask (#1695).
+- The features page's Known limits name what a person running tehas should know
+  before 1.0 and what to do about each: the token, network and model key a
+  cycle's container holds, what the cycle's token may write, GitHub's bad
+  minutes, the issue read again after the approval check, the lean driver,
+  `live/` files, the MCP server on a private network, a ticked retry under a
+  limit of 0, and a kept installation token.
+- The operating manual has "Updating from 0.30.x to 1.0": edit the settings,
+  drain, update, labels, and every setting, label, command form, field and
+  exit status 1.0 renamed or removed, with what to do for each.
+- The manual's front end page says the pages read the files under `/live/` add-only, and a committed sample of each file the pages read is now tested against the page code.
+- `host/release/install --version` takes a prerelease too, such as `v1.0.0-beta.1`, so a new host can install a beta.
+- `api/renames-1.0.tsv` lists the names 1.0 removed that it missed: the label `cross-project`, `tehasbot improve`, the feature words `fixer-grant`, `refresh-conflicts` and `refresh-pr-sweep`, and the fields `fixer` and `refreshScan` of `tehas api --json`.
+- `TEHAS_REFRESH_CONFLICTS` and `TEHAS_REFRESH_EVERY` are rows of `api/renames-1.0.tsv`, so `tehas update --check` lists a line that still sets one. A value the timed scan took still loads and is dropped; any other stops every command with 78 and a line that says the scan is removed.
+- A line that gives a value to a setting of a feature still being built, a `TEHAS_OUTSOURCE_*` setting or `TEHAS_PROTOLAB_ZIP_HOSTS` in this release, stops every command with 78 and names the feature, as its switch set to `on` does. Nothing read these lines while the feature could not be turned on.
+- `api/status.schema.json` says the fields of `prototypes` may change in a minor release, as `running[].progress` does, and the status samples no longer name another program in an order's reason. The manual says the feature word `clean` means the hourly cleaner runs on the host, and no longer says `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN` are ignored: both stop every command with 78.
+- The public surface is pinned in the repository: `api/commands.txt` lists every `tehas` command, its subcommands and the flags of each, with the flags only a unit or the dashboard writes marked internal; `api/api.schema.json` with samples is the schema of `tehas api --json`, and `api/features.txt` holds the words of its `features`. The gate fails a command, a subcommand, a flag or a feature word that changes without them.
+- `tehas start --json`, `tehas state check --json`, `tehas refresh --pr N --json`, `tehas export --json` and `tehas analytics copy --json` each have a schema and samples in `api/`, and the manual names every field. `tehas top --json` is marked not public.
+- `console forge`, an internal command the manual offered to bash callers, is gone: nothing called it, and the contract lists `console` subcommands as internal.
+- When a lean run ends not ready because the repository's `.pi/work.json` names no `verify.test`, or does not load, the park comment now says the repository needs the setting, links the manual, and says the issue's text is fine. Before, it asked for a better `pi-spec v1` block. The retry boxes are unchanged.
+- The park of a lean start that `tehas work` refused now names what was not supported and who is at fault. When the sandbox image's pi-rukas lacks it, the comment says to rebuild the image to keep the issue on lean, or to take `tehas:lean` off to run it on classic, said as a change of driver. When tehas passed `work-lean` a flag it never takes, the comment says this is a fault in tehas and asks for an update, not for the label to come off; a Retry of that park is not held for the label.
+- `dispatch.log` has a start's line before the lines of the cycle it starts. Before, a start refused at once could log `done #N` before `start #N`.
+- A start refused before its runner ran logs one line that names the refusal, in place of the warnings about a missing result and progress.
+- A classic start refused by `tehas work`'s check now ends as `refused`, as a refused lean start does, and not as `unknown`.
+- `/health` and `tehas status` say when the last start was refused, with a few words of why, rather than nothing: `The last start was refused before anything ran: #7, the sandbox image lacks what it was given.` The status does not fail on it.
+- The shell tests link `lib/` into their scratch trees with one helper that replaces a link already there, so an interrupted or repeated run no longer leaves a stray `lib/lib` in the checkout.
+- The manual says `.pi/worktree-setup` is run with POSIX `sh`, not by its first line; that a preview can send same-site requests to a host that fronts the dashboard's domain, and what such a host does about it; and that a kept GitHub token is used for up to 50 minutes after the app loses the repository.
+- A plan's title and body, the comment that ends a planning session and the comment on an issue a refine replaced are masked before they reach GitHub, as other planner text already was. A plan's title is cut at 256 characters.
+- The crates' build scripts in `install.sh` are no longer given the model keys or any other variable whose name holds KEY, PASSWD or CREDENTIAL, in any case.
+- A poll that cannot read the issues labelled `tehas:plan` or `tehas:refine` no longer ends: it logs a warning, starts no planning session and still starts cycles from the ready queue (#1702).
+- The Protolab's log says why a pass found nothing: the open tickets could not be read, with gh's reason, or GitHub's answer was not a list. A pass with no GitHub credential says so, and a file GitHub refused to it is listed on the page as asked for without one. The unpacker's line about a zip is masked for tokens before it is logged.
+- A Retry ticked in a park comment now counts as waiting work in `demand.waiting`, so a program that holds the limit at 0 while nothing waits raises it and the retry starts (#1776).
+- Store schema 18: an outsourced job has two tokens. The model token goes into the container's `models.json` and reaches only the model paths. The job token stays with the contractor program and reaches only the job channel. Each is refused on the other's paths with 403. Both are made together, end together, and survive a restart of the model proxy. Outsource is still being built and cannot be switched on.
+- `tehas setup` rebuilds the sandbox image when the instance's `sandbox.Dockerfile` changed. It used to leave an image on the current pi-rukas commit as it was, so the change reached cycles only after `tehas update`.
+- The poll's tidy gives `tehas:shipped` to a closed issue that a merged pull request closed when it tidies several issues at once. Its read of what closed them now names each issue by number in the repository; the search it used before matched the issues' text, so it often found none of them and logged that no merged pull request was read as the closer.
+- The docs server no longer serves the live console of a running cycle unless the instance sets `TEHAS_SITE_CONSOLE=on`. Without it `/live/console-<n>.txt` and its `.now` file answer 404 and the console panels of the site stay empty. A full key of the MCP server still reads the console.
+- An archive attached to an issue is read more strictly: an entry that claims more than the room left is refused before any of it is unpacked, an entry whose place in the archive cannot be worked out is left out as damaged, an unpacked file never replaces one already in the directory, and a retry holds an archive to the files it gave, each to its own bytes, with none added or gone (#2248, #2258).
 
 ### Held back
 
@@ -529,6 +569,17 @@ Files linked by a member or collaborator who is not in `TEHAS_ALLOWED_LABELERS` 
 An instance with `TEHAS_DRIVER=lean` in `instance.env` must take the line out
 or set it to `classic` before updating, or every command stops with 78. Take
 `tehas:lean` off any issue that should run, so it runs on classic.
+
+Before updating from 0.30.x to 1.0, edit the renamed and removed settings in
+`instance.env` and `~/.config/tehas/env`, then run `tehas drain --wait 3600`
+until no cycle runs. Then run `tehas update`, `tehas labels` and
+`tehas limit clear`. While a setting is left to fix, `tehas update` stops with
+78, names it and switches nothing. The manual's section "Updating from 0.30.x
+to 1.0" in `operating.md` lists every name and what to do for each.
+
+A program that reads `api/renames-1.0.tsv` picks up the new rows. Take `cross-project` off open issues. Take any `TEHAS_OUTSOURCE_*` or `TEHAS_PROTOLAB_ZIP_HOSTS` line out of `instance.env`.
+
+An instance whose public site should keep showing the live console sets `TEHAS_SITE_CONSOLE=on` in `instance.env`, then runs the docs server's `docker compose ... up -d` line again.
 
 ## v0.30.6 (2026-11-15)
 
