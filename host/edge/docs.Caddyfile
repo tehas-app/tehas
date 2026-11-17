@@ -28,8 +28,8 @@
     route {
         # /host/ belongs to a host that fronts the domain, never to tehas: the
         # dashboard reads a 404 for /host/bridge.json as "no host". See "The
-        # host bridge" in api.md.
-        @host path /host /host/*
+        # host bridge" in api.md. Bare /host is the manual's page "The host".
+        @host path /host/*
         respond @host 404
         # Dashboard data: the queue snapshot and the running cycle's console.
         # Plain files written by the dispatcher; the page polls them, the

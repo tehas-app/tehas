@@ -81,7 +81,7 @@ t_eq "$(grep -c 'host-tokens\|token-use\|token-table' "$T_ROOT/host/fun/business
 t_eq "$(grep -c 'drawTokens\|tokensOf' "$T_ROOT/host/fun/host-bridge.js")" 0
 
 t_case "the docs server answers every path under /host/ with 404, before anything else it serves"
-t_contains "$(cat "$caddyfile")" "@host path /host /host/*"
+t_contains "$(cat "$caddyfile")" "@host path /host/*"
 t_contains "$(cat "$caddyfile")" "respond @host 404"
 # The first thing in the route, so no handler below can answer under /host/.
 t_eq "$(awk '/^    route \{/ {r = NR} /respond @host 404/ {h = NR} /handle|rewrite|file_server/ && r && !f {f = NR}
@@ -97,6 +97,8 @@ t_case "the docs server answers 404 for any path under /host/, even where a file
 if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   mkdir -p "$T/srv/live" "$T/srv/docs/host/ticket" "$T/srv/docs/host/x" "$T/srv/fun" "$T/xdg"
   printf '{}\n' >"$T/srv/live/status.json"
+  printf 'page\n' >"$T/srv/docs/_layout.html"
+  printf '# The host\n' >"$T/srv/docs/host.md"
   for f in bridge.json index.html ticket/7 x/y; do printf 'tehas\n' >"$T/srv/docs/host/$f"; done
   paths=(/host/ /host/bridge.json /host/ticket/7 /host/x/y /host/index.html /host/.x /Host/bridge.json)
   want="" codes="" up=""
@@ -115,6 +117,7 @@ if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
     done
     if [ -n "$up" ]; then
       for p in "${paths[@]}"; do codes+="$p $(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port$p") "; done
+      page=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/host")
     fi
     kill "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
@@ -123,6 +126,8 @@ if command -v caddy >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   done
   [ -n "$up" ] || t_bad "caddy never answered status.json (try $try): $(tail -n 3 "$T/caddy.log" | tr '\n' ' ')"
   t_eq "$codes" "$want"
+  # The manual's page "The host" is /host, outside the host's namespace.
+  [ "$page" != 404 ] || t_bad "the docs server answered 404 for /host, the manual's page"
 else
   t_skip "no caddy or no curl here; the lines of the Caddyfile are checked above"
 fi
