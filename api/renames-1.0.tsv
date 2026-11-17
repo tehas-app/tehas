@@ -32,5 +32,5 @@ setting	TEHAS_CONCURRENCY	TEHAS_WORKSTREAMS	workstreams inside one cycle; same v
 setting	TEHAS_TICKET_CONCURRENCY	TEHAS_MAX_CYCLES	the most cycles side by side; same values
 setting	TEHAS_REFRESH_MAX	TEHAS_REFRESH_MAX_PER_PR	refreshes of one pull request since its approval; same values
 setting	TEHAS_OWNER	TEHAS_ASSIGNEE	the login a claimed issue is assigned to; same values
-setting	TEHAS_INDUSTRY_VERSION	TEHAS_MANAGER_VERSION	in ~/.config/tehas/env, written by the program that manages the factory; same values
+setting	TEHAS_INDUSTRY_VERSION	TEHAS_MANAGER_VERSION	in ~/.config/tehas/env, written by the program that manages the factory; same values; the old name is ignored, not refused
 field	factory_status.industry	factory_status.manager	the program that manages the factory, as health's checks.manager has it

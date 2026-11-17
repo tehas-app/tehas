@@ -1751,7 +1751,10 @@ mod tests {
 
     #[test]
     fn every_setting_row_of_the_renames_file_is_refused() {
-        for row in renamed::rows() {
+        for row in renamed::rows()
+            .into_iter()
+            .filter(|r| !renamed::quiet(r.old, "x"))
+        {
             let line = format!("{}=x", row.old);
             let got = refused(&[&line]);
             assert_eq!(got, format!("{} (see {FILE})", row.why()));
@@ -1766,6 +1769,16 @@ mod tests {
                 format!("{} (see /h/.config/tehas/env)", row.why())
             );
         }
+    }
+
+    #[test]
+    fn the_managers_version_under_its_old_name_is_dropped_not_refused() {
+        let vars = loads(&["TEHAS_INDUSTRY_VERSION=v0.9.0"]);
+        assert!(!vars.is_set("TEHAS_INDUSTRY_VERSION"));
+        assert!(!vars.is_set("TEHAS_MANAGER_VERSION"));
+        let mut host =
+            Fake::with(&[]).file("/h/.config/tehas/env", "TEHAS_INDUSTRY_VERSION=v0.9.0\n");
+        assert_eq!(run(&mut host).1, Ok(()));
     }
 
     #[test]
