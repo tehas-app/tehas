@@ -23,11 +23,13 @@ use std::time::{Duration, Instant};
 
 use crate::channel::{self, Asked, Channel};
 use crate::count::{self, Row};
+use crate::egress;
 use crate::forward::{self, Answer, Upstream};
 
 use crate::log::{self, Line, Sink};
 
 use crate::request::{self, Ask, Live, Records, Refused};
+use tehas_core::tunnel;
 
 /// How long a contractor has to send its head. A cycle sends a line and a
 /// prompt; a connection that sends neither is cut, which keeps the proxy from
@@ -107,6 +109,13 @@ impl Outcome {
 
 /// One request of one contractor, from the head to the last byte of the answer.
 pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
+    one_held(client, serve, &mut None)
+}
+
+/// [`one`], holding a hand of the listener. An egress tunnel gives its hand
+/// back once it is open: it is counted among the tunnels instead, so a
+/// cycle's downloads never crowd out a check-in.
+pub fn one_held(client: &mut TcpStream, serve: &Serve, hand: &mut Option<Ticket>) -> Outcome {
     let began = Instant::now();
     // What the records and this process's tokens say for the request, which is
     // what the rules are judged against, and no further until the next one.
@@ -120,6 +129,9 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
     };
     let (method, path) = (method.as_str(), path.as_str());
     if let (Some(call), Some(chan)) = (channel::Call::of(path), serve.channel) {
+        if call == channel::Call::Egress {
+            return egress_one(client, chan, method, path, &head, serve, hand);
+        }
         return channel_one(client, chan, call, method, &head, length, serve);
     }
     let ask = Ask::new(path);
@@ -263,6 +275,17 @@ fn channel_one(
             .refused()
             .map_or_else(String::new, |w| format!(": refused {w}"))
     )));
+    let complete = write_json(client, &answer);
+    Outcome {
+        status: answer.status,
+        live,
+        usage: None,
+        complete,
+    }
+}
+
+/// One answer of the channel, as JSON, and whether it was written whole.
+fn write_json(client: &mut TcpStream, answer: &channel::Answer) -> bool {
     let text = format!("{}\n", answer.body);
     let head = format!(
         "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -271,16 +294,143 @@ fn channel_one(
         text.len()
     );
     use std::io::Write;
-    let complete = client
+    client
         .write_all(head.as_bytes())
         .and_then(|()| client.write_all(text.as_bytes()))
         .and_then(|()| client.flush())
-        .is_ok();
+        .is_ok()
+}
+
+/// One egress tunnel ([`crate::egress`]): the Upgrade, the model token and
+/// its job, the destination held to the list, then the bytes until both
+/// sides end or the tunnel is idle. A refusal is one log line and one JSON
+/// answer, and no connection to the destination. The log names the job, the
+/// contractor and the destination, never a token or a byte of the tunnel.
+fn egress_one(
+    client: &mut TcpStream,
+    chan: &Channel,
+    method: &str,
+    path: &str,
+    head: &[u8],
+    serve: &Serve,
+    hand: &mut Option<Ticket>,
+) -> Outcome {
+    let began = Instant::now();
+    let end = forward::head_end(head).unwrap_or(head.len());
+    let fields = String::from_utf8_lossy(&head[..end]).into_owned();
+    let to = path.split_once("to=").map_or("", |(_, t)| t);
+    let to = log::shown(to);
+    let say = |status: u16, live: Option<&Live>, word: Option<&str>| {
+        let who = live.map_or_else(
+            || "no job".to_string(),
+            |l| format!("job {} contractor {}", l.job, l.contractor),
+        );
+        serve.sink.line(&Line(format!(
+            "GET {}egress {status} {} ms {who} to {to}{}",
+            channel::PREFIX,
+            began.elapsed().as_millis(),
+            word.map_or_else(String::new, |w| format!(": refused {w}"))
+        )));
+    };
+    let refuse_with = |client: &mut TcpStream, answer: channel::Answer, live: Option<Live>| {
+        say(answer.status, live.as_ref(), answer.refused());
+        let complete = write_json(client, &answer);
+        Outcome {
+            status: answer.status,
+            live,
+            usage: None,
+            complete,
+        }
+    };
+    let Some(egress) = chan.egress else {
+        return refuse_with(
+            client,
+            channel::Answer::no(404, "no egress route here"),
+            None,
+        );
+    };
+    if method != "GET" || !egress::upgrade_asked(&fields) {
+        let no = channel::Answer::no(400, "an egress tunnel is a GET with Upgrade: tehas-egress");
+        return refuse_with(client, no, None);
+    }
+    let bearer = request::bearer(&fields);
+    let live = match chan.admit(channel::Call::Egress, bearer.as_deref()) {
+        Ok((live, _)) => live,
+        Err(no) => {
+            let live = bearer.as_deref().and_then(|t| chan.issuer.peek(t));
+            return refuse_with(client, no, live);
+        }
+    };
+    let (host, port) = match egress.judge(path) {
+        Ok(pair) => pair,
+        Err(why) => {
+            return refuse_with(
+                client,
+                channel::Answer::no(why.status, &why.word),
+                Some(live),
+            )
+        }
+    };
+    let Some(place) = egress.place() else {
+        return refuse_with(
+            client,
+            channel::Answer::no(503, "too many tunnels"),
+            Some(live),
+        );
+    };
+    let upstream = match egress.reach(&host, port) {
+        Ok(s) => s,
+        Err(why) => {
+            return refuse_with(
+                client,
+                channel::Answer::no(why.status, &why.word),
+                Some(live),
+            )
+        }
+    };
+    use std::io::Write;
+    let switched = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nconnection: Upgrade\r\nupgrade: {}\r\n\r\n",
+        egress::UPGRADE
+    );
+    if client
+        .write_all(switched.as_bytes())
+        .and_then(|()| client.flush())
+        .is_err()
+    {
+        return Outcome {
+            status: 101,
+            live: Some(live),
+            usage: None,
+            complete: false,
+        };
+    }
+    say(101, Some(&live), None);
+    drop(hand.take());
+    let Ok(down) = client.try_clone() else {
+        return Outcome {
+            status: 101,
+            live: Some(live),
+            usage: None,
+            complete: false,
+        };
+    };
+    let opened = Instant::now();
+    let moved = tunnel::pipe(down, upstream, egress.idle);
+    drop(place);
+    serve.sink.line(&Line(format!(
+        "egress job {} contractor {} to {host}:{port} closed after {} s: {} bytes up, {} bytes down",
+        live.job,
+        live.contractor,
+        opened.elapsed().as_secs(),
+        moved.up,
+        moved.down
+    )));
     Outcome {
-        status: answer.status,
-        live,
+        status: 101,
+        live: Some(live),
         usage: None,
-        complete,
+        complete: true,
     }
 }
 
@@ -518,8 +668,9 @@ pub fn listen(serve: &'static Serve<'static>, at: &str) -> Result<TcpListener, S
             .stack_size(256 * 1024)
             .spawn(move || {
                 let mut stream = stream;
-                one(&mut stream, serve);
-                drop(ticket);
+                let mut hand = Some(ticket);
+                one_held(&mut stream, serve, &mut hand);
+                drop(hand);
             })
             .ok();
     }
