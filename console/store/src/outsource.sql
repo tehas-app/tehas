@@ -1,4 +1,5 @@
--- 3.15 outsource: laid in every store by init and by the step to 15. Rows
+-- 3.15 outsource: laid in every store by init and by the step to 15, as
+-- schema 15 wrote it. The columns of schema 17 are db::STEP_17's. Rows
 -- are written only where the instance has TEHAS_OUTSOURCE=1, which the store
 -- keeps as the meta row outsource = 1 (db::has_outsource). Times are UTC
 -- Unix seconds, as everywhere here. The table of record is jobs, whose one

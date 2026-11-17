@@ -367,13 +367,95 @@ impl Work for HostWork {
     }
 }
 
+/// How long the image's labels may take to read.
+const INSPECT_WAIT: &str = "30";
+
+/// What this box says it has with each hello: the id and the pi-rukas label
+/// of the sandbox image its cycles run (PI_ENSEMBLE_IMAGE, as `tehas work`
+/// reads it), its free memory in MiB and the free disk of its tehas home in
+/// KiB. What cannot be read is left out, and the factory fits no cycle to a
+/// box that left out what a cycle needs.
+pub fn report(home: &Path, image: &str) -> Value {
+    let mut out = serde_json::Map::new();
+    if !image.is_empty() {
+        let inspected = Command::new("timeout")
+            .args([
+                "-k",
+                "5",
+                INSPECT_WAIT,
+                "docker",
+                "image",
+                "inspect",
+                "--format",
+            ])
+            .arg("{{.Id}} {{index .Config.Labels \"tehas.rukas\"}}")
+            .arg(image)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|o| o.status.success());
+        if let Some(o) = inspected {
+            let (id, rukas) = image_of(&String::from_utf8_lossy(&o.stdout));
+            out.extend(id.map(|v| ("image".to_string(), json!(v))));
+            out.extend(rukas.map(|v| ("rukas".to_string(), json!(v))));
+        }
+    }
+    if let Some(mb) = fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|t| mem_mb(&t))
+    {
+        out.insert("mem_mb".to_string(), json!(mb));
+    }
+    let df = Command::new("df")
+        .arg("-Pk")
+        .arg(home)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success());
+    if let Some(kb) = df.and_then(|o| disk_kb(&String::from_utf8_lossy(&o.stdout))) {
+        out.insert("disk_kb".to_string(), json!(kb));
+    }
+    Value::Object(out)
+}
+
+/// The id and the `tehas.rukas` label of `docker image inspect`'s one line.
+/// A label docker has no value for prints `<no value>`, which is none.
+pub fn image_of(text: &str) -> (Option<String>, Option<String>) {
+    let mut words = text.split_whitespace();
+    let id = words.next().filter(|w| w.starts_with("sha256:"));
+    let rukas = words.next().filter(|w| !w.starts_with('<'));
+    (id.map(str::to_string), rukas.map(str::to_string))
+}
+
+/// MemAvailable of /proc/meminfo, in MiB.
+pub fn mem_mb(meminfo: &str) -> Option<u64> {
+    meminfo.lines().find_map(|l| {
+        let kb = l.strip_prefix("MemAvailable:")?.trim().strip_suffix("kB")?;
+        kb.trim().parse::<u64>().ok().map(|kb| kb / 1024)
+    })
+}
+
+/// The available KiB of `df -Pk`'s one file system.
+pub fn disk_kb(df: &str) -> Option<u64> {
+    df.lines().nth(1)?.split_whitespace().nth(3)?.parse().ok()
+}
+
 impl World for Host {
     fn ask(&self, call: &str) -> Reply {
         let who = As::Contractor {
             name: &self.id.name,
             key: &self.id.key,
         };
-        http::post(&self.id.factory, call, who, &json!({}), CALL_WAIT)
+        let body = if call == "hello" {
+            let image = std::env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default();
+            json!({ "report": report(&self.paths.home, &image) })
+        } else {
+            json!({})
+        };
+        http::post(&self.id.factory, call, who, &body, CALL_WAIT)
     }
 
     fn call(&self, call: &str, token: &str, body: &Value) -> Reply {
@@ -717,5 +799,31 @@ mod tests {
         assert!(text.contains("TEHAS_REPO='acme/it'\\''s'\n"));
         assert!(text.contains("PI_ENSEMBLE_API_KEY_MAIN_GW='tok'\n"));
         assert!(text.contains("PI_ENSEMBLE_API_KEY_OTHER='tok'\n"));
+    }
+
+    #[test]
+    fn a_report_reads_the_image_line_the_memory_and_the_disk() {
+        let id = format!("sha256:{}", "a".repeat(64));
+        assert_eq!(
+            image_of(&format!("{id} v0.14.50\n")),
+            (Some(id.clone()), Some("v0.14.50".to_string()))
+        );
+        assert_eq!(image_of(&format!("{id} <no value>\n")), (Some(id), None));
+        assert_eq!(image_of(""), (None, None));
+        let meminfo = "MemTotal:       65805312 kB\nMemFree:         1000000 kB\nMemAvailable:   32768000 kB\n";
+        assert_eq!(mem_mb(meminfo), Some(32000));
+        assert_eq!(mem_mb("MemTotal: 1 kB\n"), None);
+        let df = "Filesystem     1024-blocks      Used Available Capacity Mounted on\n/dev/sda1        100000000  40000000  60000000      40% /\n";
+        assert_eq!(disk_kb(df), Some(60_000_000));
+        assert_eq!(disk_kb("Filesystem\n"), None);
+    }
+
+    #[test]
+    fn a_report_of_this_box_has_its_memory_and_disk_and_no_image_unnamed() {
+        let d = TestDir::new("contractor-report");
+        let r = report(d.path(), "");
+        assert!(r["mem_mb"].as_u64().is_some(), "{r}");
+        assert!(r["disk_kb"].as_u64().is_some(), "{r}");
+        assert!(r.get("image").is_none(), "{r}");
     }
 }

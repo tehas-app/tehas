@@ -47,8 +47,15 @@ image that follows `release:0` today has it.
 The job token is a secret of the proxy's own. It lives in the proxy's memory
 and nowhere else on the factory. It is issued when a contractor takes its job
 with the channel's `job` call, and goes to the contractor in that answer. It
-dies with the job, with revocation, and with a restart of the proxy. It is
-never in a command line, never in a log and never in the store.
+dies with the job and with revocation. It is never in a command line, never in
+a log and never in the store. The store keeps its sha256 in the job's row, and
+the proxy gives no token whose hash the store did not keep. A proxy that
+restarts checks a token it does not hold against those hashes, so the token of
+a job that is running, stopping, or lost to a silence of its current attempt
+still works, and a job does not take the lost path for a restart. A token of a
+job that ended, of an attempt a newer one replaced, or of a revoked contractor
+names no job. A token the control socket issues for a job the store does not
+hold is kept in memory only.
 
 ## How it is switched on
 
@@ -142,8 +149,8 @@ proxy's memory. `tehas-proxy --counts` prints them and clears them. A count
 names no token, no path and no byte of a body.
 
 The endpoint's own token figures, `usage` of an answer or of the last chunk of
-a stream, are read of each answer but not kept yet: keeping them needs a store
-schema change, which this release does not make. The proxy never guesses a
+a stream, are read of each answer but not kept yet: nothing reads them. The
+proxy never guesses a
 token count, and an answer it could not finish writing gives no figures.
 
 ## What it never does
@@ -154,7 +161,8 @@ token count, and an answer it could not finish writing gives no figures.
 - Never writes the factory's model key anywhere but one request, and never
   gives it to a contractor. The endpoint sees the factory's `Host` and its own
   key: the contractor's token and its own `Host` are dropped.
-- Never holds the job token in the store, a log or a command line.
+- Never holds the job token in the store, a log or a command line. The store
+  holds only its sha256.
 - Never forwards a path outside the table, and never reads a body to decide
   anything beyond the one word of the ask that says whether the answer is a
   stream.
@@ -177,7 +185,7 @@ The same listener answers a contractor's calls about its work, at
 | Call | Made with | What the factory does |
 | --- | --- | --- |
 | `join` | the one-time code of `tehas outsource invite` | registers the host's name and the hash of its key; the code is spent |
-| `hello` | the contractor's key | notes that the contractor is there |
+| `hello` | the contractor's key | notes that the contractor is there, and keeps the report it carries |
 | `job` | the contractor's key | takes the offer in its hand: the job moves to running and its token is issued |
 | `check-in` | the job's token | notes that the job is alive, while it runs |
 | `token` | the job's token | answers a fresh cycle token, narrowed as a local cycle's is |
@@ -192,6 +200,15 @@ never either one.
 Every call, the join included, is refused with 403 `not allowed` when
 `TEHAS_OUTSOURCE_CONTRACTORS` does not list the contractor's name. A refused
 join does not spend its code.
+
+A `hello` carries the contractor's report: the id of its sandbox image
+(`docker image inspect` of `PI_ENSEMBLE_IMAGE`), the pi-rukas version the image
+is labelled with, its free memory in MiB and the free disk of its tehas home in
+KiB. The store keeps the last one with the second it came, in place of the one
+before. A field the contractor left out, or sent in a shape the store does not
+take, is kept as none. Placement fits a cycle to a contractor only when its
+report names this host's image id, the memory a cycle may use and
+`TEHAS_CYCLE_MIN_FREE` of disk, and is no older than `TEHAS_OUTSOURCE_TIMEOUT`.
 
 What each call needs:
 
@@ -318,7 +335,9 @@ off, the same run takes the file away, so a factory with the feature off has
 none. The file holds, at `time`, the counts by status and how many cycles are
 outsourced (`counts`), and per contractor its `name`, `status` (the words of
 `tehas outsource list`), `issue` (the issue of the job in its hand, left out
-when it holds none), `lastSeenAt`, `jobsDone` and `jobsLost`. No address, no
+when it holds none), `lastSeenAt`, `jobsDone` and `jobsLost`, and from its
+last report `image`, `rukas`, `memMb`, `diskKb` and `reportedAt`, each left out
+when it did not say. No address, no
 key and no host name but the contractor's own. The docs server does not serve
 it under `/live/` yet: the dashboard's Contractors panel, which reads it, is
 still to come.
@@ -410,19 +429,12 @@ Still owed, each in its own issue:
   supervisor waiting on it. Until then no job is offered, so a contractor that
   asks gets none.
 - The image digest and pi-rukas version of a contractor's cycle as the job
-  is given out, and of each contractor in `contractors.json`. The store has
-  no column for them, and adding one is a store schema change, which this
-  release does not make.
+  is given out, on the stamp of its work.
 - The dashboard's Contractors panel, and serving `contractors.json` under
   `/live/` for it.
 - The endpoint's token figures per contractor and per job, kept in the store.
-  The same reason.
+  Nothing reads them yet.
 - #2278, the install of the proxy and the contractor program, their units,
   and the join installer.
 - #2354, TLS and signed requests on the channel. Version 1 is plain http with
   bearer keys: bind the proxy's address on a network you control.
-- Job tokens that outlive a restart of the proxy. They are held in its memory
-  only, so a restart refuses every running job's check-in with 401 `no job`,
-  and each such job takes the lost path and costs its issue a retry. Keeping
-  a hash of each token in the store needs a store schema change, which this
-  release does not make.

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::jobs::Issuer;
+use crate::jobs::{Backing, Issuer};
 use crate::request::{Live, Records, State};
 
 /// The rows the proxy reads: who was invited and not revoked, and which jobs
@@ -216,6 +216,45 @@ impl Reader for OfStore {
             })
             .collect();
         Rows { contractors, jobs }
+    }
+}
+
+/// The hashes of the job tokens as the state store of `home` keeps them, in the
+/// rows of the jobs: `job-token` keeps one, `job-by-token` names the job of
+/// one. A store that gives no answer keeps nothing and names nothing, so a
+/// token is then neither given nor taken.
+pub struct KeptIn {
+    home: PathBuf,
+}
+
+impl KeptIn {
+    pub fn at(home: &Path) -> KeptIn {
+        KeptIn {
+            home: home.to_path_buf(),
+        }
+    }
+
+    fn ask(&self, args: &[&str]) -> Option<Value> {
+        let text = store::call(&self.home, args, &mut std::io::empty()).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+}
+
+impl Backing for KeptIn {
+    fn keep(&self, job: i64, sha256: &str) -> bool {
+        self.ask(&["job-token", "--job", &job.to_string(), "--sha256", sha256])
+            .is_some_and(|v| v["verb"] == "kept")
+    }
+
+    fn recall(&self, sha256: &str) -> Option<Live> {
+        let v = self
+            .ask(&["job-by-token", "--sha256", sha256])
+            .filter(|v| v["verb"] == "job")?;
+        Some(Live {
+            job: v["job"].as_i64()?,
+            attempt: v["attempt"].as_i64()?,
+            contractor: v["contractor"].as_str()?.to_string(),
+        })
     }
 }
 

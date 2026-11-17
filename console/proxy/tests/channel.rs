@@ -4,13 +4,14 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Answer, Asked, Call, Channel, Factory};
 use tehas_proxy::jobs::Issuer;
+use tehas_proxy::records::KeptIn;
 
 const KEY: &str = "the-contractor-key-of-box1";
 
@@ -115,7 +116,7 @@ impl Factory for Fake {
         thread_local!(static N: RefCell<u32> = const { RefCell::new(0) });
         N.with(|n| {
             *n.borrow_mut() += 1;
-            Some(format!("job-token-{}", n.borrow()))
+            Some(format!("jobtoken{:024}", n.borrow()))
         })
     }
     fn allowed(&self, name: &str) -> bool {
@@ -529,4 +530,113 @@ fn a_name_off_the_allowed_list_is_refused_on_every_call() {
     let chan = Channel::new(&chan_issuer, &fake);
     let body = json!({ "code": code, "name": "box2", "key": key_hash(KEY) });
     assert_eq!(ask(&chan, Call::Join, None, None, body).status, 200);
+}
+
+const IMAGE: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// The row of box1 in the store's list.
+fn box1(home: &Path) -> Value {
+    let v = call(home, &["contractor-list"]);
+    let row = &v["rows"][0];
+    serde_json::from_str(row.as_str().unwrap()).unwrap()
+}
+
+#[test]
+fn a_hello_writes_the_report_it_carries_and_the_list_answers_it() {
+    let (home, issuer) = offered("chan-report");
+    let fake = Fake::at(home.path());
+    let chan = Channel::new(&issuer, &fake);
+    let report = json!({ "report": {
+        "image": IMAGE, "rukas": "v0.14.50", "mem_mb": 32000, "disk_kb": 50_000_000,
+        "address": "192.0.2.7",
+    }});
+    let a = ask(&chan, Call::Hello, Some(KEY), Some("box1"), report);
+    assert_eq!(a.status, 200, "{a:?}");
+    let r = box1(home.path())["report"].clone();
+    assert_eq!(r["digest"], IMAGE);
+    assert_eq!(r["rukas"], "v0.14.50");
+    assert_eq!(
+        (r["mem_mb"].as_i64(), r["disk_kb"].as_i64()),
+        (Some(32000), Some(50_000_000))
+    );
+    assert!(!r.to_string().contains("192.0.2.7"));
+    // A hello with no report keeps it.
+    assert_eq!(by_key(&chan, Call::Hello).status, 200);
+    assert_eq!(box1(home.path())["report"]["digest"], IMAGE);
+    // A report of a shape the store does not take replaces it with nothing
+    // that fits: no image, no memory.
+    let bad = json!({ "report": { "image": "latest", "mem_mb": -5, "rukas": "a b" } });
+    assert_eq!(
+        ask(&chan, Call::Hello, Some(KEY), Some("box1"), bad).status,
+        200
+    );
+    let r = box1(home.path())["report"].clone();
+    assert_eq!(
+        (r["digest"].clone(), r["mem_mb"].as_i64()),
+        (Value::Null, Some(0))
+    );
+    // Another key's hello writes nothing.
+    let other = json!({ "report": { "image": IMAGE, "mem_mb": 1 } });
+    let a = ask(&chan, Call::Hello, Some("another-key"), Some("box1"), other);
+    assert_eq!(a.status, 401);
+    assert_eq!(box1(home.path())["report"]["mem_mb"], 0);
+}
+
+#[test]
+fn a_restarted_proxy_takes_the_token_of_a_running_job_by_its_kept_hash() {
+    let (home, _) = offered("chan-restart");
+    let h = home.path();
+    let fake = Fake::at(h);
+    let before = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let token = {
+        let chan = Channel::new(&before, &fake);
+        taken(&chan)
+    };
+    // The store holds the token's hash, never the token.
+    let db = std::fs::read(h.join("state/tehas.db")).unwrap();
+    let wal = std::fs::read(h.join("state/tehas.db-wal")).unwrap_or_default();
+    for file in [&db, &wal] {
+        assert!(!String::from_utf8_lossy(file).contains(&token));
+    }
+    let job = before.peek(&token).unwrap().job;
+    drop(before);
+    // The proxy restarted: a new process with an empty table.
+    let after = Issuer::backed(Arc::new(KeptIn::at(h)));
+    assert!(after.is_empty());
+    let chan = Channel::new(&after, &fake);
+    let t = Some(token.as_str());
+    let a = ask(&chan, Call::CheckIn, t, None, json!({}));
+    assert_eq!(a.status, 200, "{a:?}");
+    assert_eq!(after.peek(&token).map(|l| l.job), Some(job));
+    // A token of the same shape that was never issued is no job.
+    let guessed: String = token.chars().rev().collect();
+    let a = ask(&chan, Call::CheckIn, Some(&guessed), None, json!({}));
+    assert_eq!((a.status, a.refused()), (401, Some("no job")));
+    // Once the job ends, a third process takes the token for nothing.
+    let a = ask(
+        &chan,
+        Call::Result,
+        t,
+        None,
+        json!({ "result": {"ok": true}, "exit": 0 }),
+    );
+    assert_eq!(a.status, 200, "{a:?}");
+    let again = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let chan = Channel::new(&again, &fake);
+    let a = ask(&chan, Call::CheckIn, t, None, json!({}));
+    assert_eq!((a.status, a.refused()), (401, Some("no job")));
+}
+
+#[test]
+fn a_restarted_proxy_refuses_the_token_of_a_revoked_contractor() {
+    let (home, _) = offered("chan-restart-revoked");
+    let h = home.path();
+    let fake = Fake::at(h);
+    let before = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let token = taken(&Channel::new(&before, &fake));
+    call(h, &["contractor-revoke", "--name", "box1"]);
+    let after = Issuer::backed(Arc::new(KeptIn::at(h)));
+    let chan = Channel::new(&after, &fake);
+    let a = ask(&chan, Call::CheckIn, Some(&token), None, json!({}));
+    assert_eq!((a.status, a.refused()), (401, Some("no job")));
 }
