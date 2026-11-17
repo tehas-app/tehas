@@ -1183,6 +1183,63 @@ fn steps(t: &World) -> Vec<String> {
         .collect()
 }
 
+/// A start whose `Spec:` line stops it, with no label of a person's to take
+/// off: what asked for it is used up, so the next poll does not pick it again.
+fn spec_stopped(n: u64, given: &str) -> Value {
+    let mut a = start_of(n, given);
+    a["remove"] = json!([]);
+    a["spec"] = json!({"why": "its `Spec:` line is not a link and its sha256", "off": []});
+    a
+}
+
+#[test]
+fn a_spec_that_stops_a_host_start_takes_the_hosts_approval_off_the_record() {
+    let mut t = world();
+    let a = t.apply(json!([spec_stopped(7, "host"), start_of(8, "label")]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        &a.log[..2],
+        &[
+            "skip #7: its `Spec:` line is not a link and its sha256",
+            "the host's approval of #7 of 2026-10-26T10:00:00Z is off the record: run `tehas start 7` again once its `Spec:` line is right",
+        ]
+    );
+    let w = t.writes();
+    assert_eq!(w[0], "store approval-record 7 --undo --at 1793008800");
+    // The host reads the log: nothing is said on the issue.
+    assert!(!w.iter().any(|c| c.starts_with("gh ") && c.contains(" 7 ")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+    assert!(w.iter().any(|c| c == "start 8"));
+}
+
+#[test]
+fn a_spec_that_stops_an_outage_retry_spends_the_retry() {
+    let mut t = world();
+    let a = t.apply(json!([spec_stopped(7, "outage-retry")]));
+    assert_eq!(a.exit, None);
+    let w = t.writes();
+    assert!(w.iter().any(|c| c == "store park-retry 7"), "{w:?}");
+    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")
+        && c.contains("Tehas started nothing on this issue: its `Spec:` line is not a link")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+}
+
+#[test]
+fn a_spec_that_stops_a_refresh_drops_its_request() {
+    let mut t = world();
+    let request = t.w.home.join("state/refresh/7.json");
+    fs::write(&request, "{}").unwrap();
+    let mut a = spec_stopped(7, "refresh");
+    a["refresh_pr"] = json!(12);
+    let got = t.apply(json!([a]));
+    assert_eq!(got.exit, None);
+    assert!(!request.exists());
+    let w = t.writes();
+    assert!(!w.iter().any(|c| c.contains("tehas:refreshing")));
+    assert!(w.iter().any(|c| c.starts_with("gh issue comment 7 ")));
+    assert!(!w.iter().any(|c| c == "start 7"));
+}
+
 #[test]
 fn a_start_on_an_epics_approval_is_recorded_as_the_persons_label() {
     let mut t = world();
