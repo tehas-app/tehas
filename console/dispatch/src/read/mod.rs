@@ -6,6 +6,7 @@ pub mod build;
 pub mod github;
 pub mod host;
 pub mod models;
+pub mod outsource;
 pub mod retry;
 pub mod run;
 pub mod store;

@@ -1,19 +1,21 @@
 ---
-title: The forge interface
-description: "What tehas asks of the site its issues live on, as a contract for a second adapter: each term, what it returns, how GitHub answers it, and what a forge must offer at minimum."
+title: The forge trait
+description: "How tehas asks GitHub about labels through one internal trait: each term, what it returns and how GitHub answers it. Internal: tehas 1.0 promises no forge interface."
 ---
 
-# The forge interface
+# The forge trait
 
 The forge is the site an instance's issues live on. tehas asks it a few
 things in its own terms: the labels an issue carries, the newest event of one
 label, who applied the label that approves work, and putting a label on or
 taking it off. The trait that holds those terms is `Forge` in
-`console/core/src/forge.rs`. This page sets it out as the contract a second
-adapter, for GitLab or Forgejo, would be written against.
+`console/core/src/forge.rs`. This page describes it for a person who reads or
+changes that code.
 
-GitHub is the only adapter today, and every term is backed by labels. No other
-forge is supported, and nothing on a host chooses one. The trait names no
+The trait is internal. tehas 1.0 promises no forge interface: GitHub is the
+only forge, nothing on a host chooses another, and the trait may change in any
+1.x release. What tehas writes to GitHub, and the labels it reads, are what
+the [contract](/contract) freezes. Every term is backed by labels. The trait names no
 endpoint, no field and no JSON shape, so an adapter is free to answer a term
 from a label or from a native field of its site. A caller never names the
 site's own fields.
@@ -61,8 +63,7 @@ GitHub documents no order for an issue's events, so the adapter sorts them:
   answers.
 
 Only `labeled` and `unlabeled` events count. A `renamed` event that names the
-label in passing is not a label on the issue. A second adapter keeps these
-rules, or the same history reads differently on two forges. The pause is the
+label in passing is not a label on the issue. The pause is the
 one reader that breaks the tie the other way, so a pause lifted in the second
 it was applied still holds. It is no term of the trait: its rule reads the
 events itself.
@@ -102,9 +103,9 @@ These terms must name the account behind the change:
 the instance's bot, with the token the runner holds, so the site records the
 bot as its account and the next read of the events says so.
 
-## What a forge must offer
+## What a second forge would need
 
-At minimum:
+No second forge is planned. If one were added, it would need at least:
 
 - **Labels on issues**, which a token can add and remove one at a time.
 - **A full history of label changes** for each issue, each event naming the
@@ -124,7 +125,7 @@ it from labels alone.
 ## Outside the trait today
 
 These still reach GitHub without the trait, through `gh` in the bash or the
-dispatcher. A second adapter would need them as well:
+dispatcher:
 
 - blockers: `tehas:blocked` and the `<!-- tehas:blocked by=... -->` comment
   marker, with the open or closed state of each issue it names (see
@@ -141,9 +142,8 @@ The GitHub adapter does not start gh itself. It asks a `GhRunner`, which runs
 one call and returns its output or the reason it failed. A host uses
 `Bounded`: the instance's `host/shim/gh` under a 30-second bound, then TERM
 and, after 5 seconds of grace, KILL to the whole process group, as
-`timeout -k` does. A second adapter brings its own runner for its own
-program or HTTP client, and keeps the bound: a poll holds its lock for the
-whole of its read.
+`timeout -k` does. The bound matters: a poll holds its lock for the whole of
+its read.
 
 ## From bash
 
@@ -161,10 +161,9 @@ It exits 0 when the call answered, 1 when the forge failed, 64 for a bad
 argument and 78 when `TEHAS_REPO` is unset or not `owner/name`, or no gh can
 be run. The full contract is at the top of `console/ops/src/forge.rs`.
 
-## Testing an adapter
+## Testing the adapter
 
 The GitHub adapter's tests, in `console/core/src/forge/tests.rs`, run it
 against a stub runner that answers from fixtures, so no test needs a network,
-a token or a repository. A second adapter is tested the same way: the stub
-returns the site's answers, and each case checks the term's answer and the
-call the adapter made.
+a token or a repository: the stub returns the site's answers, and each case
+checks the term's answer and the call the adapter made.

@@ -1,0 +1,30 @@
+tehas outsource: the contractors that run this factory's cycles.
+
+Usage: tehas outsource invite [--name NAME] [--json]
+       tehas outsource list [--json]
+       tehas outsource status [--json]
+       tehas outsource revoke <contractor> [--json]
+       tehas outsource drain <contractor> [--json]
+       tehas outsource -h|--help   print this text and exit 0
+
+invite makes a one-time code and prints the command a host runs to join:
+tehas-contractor join <address> <name> <code>. The address is
+TEHAS_OUTSOURCE_PROXY_ADDR; the code lives TEHAS_OUTSOURCE_JOIN_TTL seconds and
+the store keeps only its sha256. Without --name the name is made from the code.
+
+list says each contractor: its status (idle, working, stopping, silent,
+resting, draining or revoked), the issue it is on, when it was last heard
+of, and its jobs done and lost. A contractor is silent when it has not been
+heard of for TEHAS_OUTSOURCE_TIMEOUT seconds.
+
+status counts the contractors by status and the cycles outsourced.
+
+revoke ends a contractor at once: its jobs are lost, and its check-ins, its
+model requests and its results are refused. drain asks it to take no new job.
+
+With --json each prints one object with api 1.
+
+Outsource is still being built in this release: every subcommand exits 78.
+
+Exit: 0 done; 1 the store refused, or no such contractor; 64 a bad argument;
+78 outsource is off, or the instance settings are missing or malformed.

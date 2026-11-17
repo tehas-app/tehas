@@ -73,7 +73,8 @@ $key2"
 check "" "" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
 check "   " "   " 78 "TEHAS_MCP_KEYS" ""
 check "${key1:0:31}" "" 78 "TEHAS_MCP_KEYS" ""
-check "........" "$key2" 78 "TEHAS_MCP_KEYS: key 1" ""
+# The load refuses a key of the wrong shape first, as the host setting it is.
+check "........" "$key2" 78 "TEHAS_MCP_KEYS is not valid: key 1" ""
 check "$key1" "${key2:0:31}+" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
 check "$key1" "$key1" 0 "" "$key1
 $key1"
@@ -130,6 +131,22 @@ run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --
 t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
 rm -rf "$T/home/.pi" "$T/home/.gitconfig"
+
+t_case "with outsource on in a test build the server is told to serve factory_contractors, and only then"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=on
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+T_ENV+=(TEHAS_TEST_FEATURES=outsource)
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -e '^run ' | grep -o -e '--server-version .*')" "--server-version v0.7.30+abc1234 --outsource"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE=off
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+T_ENV+=(TEHAS_TEST_FEATURES=outsource)
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "--outsource"
 
 t_case "the secret values the host masks reach the container as sums, by name, never as values"
 reset

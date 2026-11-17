@@ -36,9 +36,9 @@ install check and runs no gate. All of it is removed afterwards.
 It changes nothing in the product. The result is written to
 $TEHAS_HOME/state/check-product.json, which tehas status reads.
 
-Exit: 0 every check passed; 1 the sandbox could not be run; 64 a wrong
-argument; 78 the instance settings are missing or malformed, or a check
-failed.
+Exit: 0 every check passed; 1 the sandbox could not be run; 3 a check
+failed; 64 a wrong argument; 78 the instance settings are missing or
+malformed.
 
 Instance settings (lib/config.sh): TEHAS_REPO, required; TEHAS_WORK_REPO,
 derived. --sandbox also uses PI_ENSEMBLE_IMAGE.

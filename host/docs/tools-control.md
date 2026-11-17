@@ -39,9 +39,9 @@ tehas drain [--wait SECONDS] [--json]
 
 Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
-end. Exit 0 when none is running, 1 when some still are or a poll held its
+end. Exit 0 when none is running, 3 when some still are or a poll held its
 lock for the whole wait (`not drained:`, `drained: false` with `--json`). Each
-exit 0 or 1 prints the answer. `tehas limit clear` ends it.
+exit 0 or 3 prints the answer. `tehas limit clear` ends it.
 
 While the factory stands drained the dispatcher's hold line names the way out:
 it ends `; tehas limit clear starts the factory`, after the words a limit of no
@@ -195,8 +195,8 @@ of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
 `.timed`, `.signal`, `.oom`, `.forks`, `.disk`, `.nostart`, `.lean-refused`,
-`.refused`, `.refresh-conflict`, `.comments`, `.progress.json`, `.result.json`, `.freeze`
-and `.frozen`, a `.nostart.new`, `.runner_exit.new` or `.status.new` whose
+`.refused`, `.refresh-conflict`, `.comments`, `.progress.json`, `.result.json`, `.freeze`,
+`.frozen` and `.heads`, a `.nostart.new`, `.runner_exit.new` or `.status.new` whose
 write never finished, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -264,3 +264,18 @@ could not be read or ended, 64 with no issue number, an issue that is not a
 positive number, or an argument it does not know, 78 when the instance
 settings are missing or malformed or the state store is not installed or
 cannot be used, which changes nothing.
+
+## tehas outsource
+
+```
+tehas outsource invite [--name NAME] [--json]
+tehas outsource list [--json]
+tehas outsource status [--json]
+tehas outsource revoke <contractor> [--json]
+tehas outsource drain <contractor> [--json]
+```
+
+The contractors that run this factory's cycles: invite a host, list them,
+count them, end one at once, or ask one to take no new job. Outsource is still
+being built in this release, so every subcommand exits 78. See
+[outsource](/outsource#the-commands).

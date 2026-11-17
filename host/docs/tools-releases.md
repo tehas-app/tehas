@@ -116,9 +116,11 @@ The public key for a signature is `host/release/minisign.pub`, and its
 fingerprint is `FE1F47199BDF1A8A`, named in the key's own first line. It is not
 the tarball that holds the copy to check with: whoever packs the release signs
 it, and a key that arrives inside the download it authenticates is the
-attacker's, not the project's. The key is read from the repository, or from
-`~/tehas/release/minisign.pub`, where `install.sh` puts it, and compared with
-that fingerprint before `minisign` is asked anything:
+attacker's, not the project's. `tehas update` checks with the copy built into
+the console it runs, never a file on the host. By hand, the key is read from
+the repository, or from `~/tehas/release/minisign.pub`, where `install.sh`
+puts it, and compared with that fingerprint before `minisign` is asked
+anything:
 
 ```
 minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p ~/tehas/release/minisign.pub

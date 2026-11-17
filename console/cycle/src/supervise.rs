@@ -426,6 +426,11 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             return 78;
         }
     }
+    // A contractor pushes to the branch: the report checks the trailers of
+    // only what it added over the heads as they are now.
+    if g.runner == Runner::Job {
+        crate::stamp::note_heads(home, g.issue, &repo);
+    }
     let (rc, signalled) = supervise(home, g, &attempt, restart, &stop);
     let start = Start {
         issue: g.issue,

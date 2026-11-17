@@ -536,6 +536,39 @@ apply `tehas:ready` again. The block is the only text pi-rukas's lean driver
 plans from, and its `/plan` writes one; [Choosing the
 driver](/operating#choosing-the-driver) says what the block must look like.
 
+With `TEHAS_SPEC_PIPE=on`, a start whose issue has a `Spec:` line tehas cannot
+read starts nothing either: the poll takes the label off and says once why,
+for example `` its `Spec:` line is not a link and its sha256 `` or `` the link
+of its `Spec:` line is not a file attached on GitHub ``. Write the one line
+`Spec: <link of the attached file> sha256:<64 hex digits of its bytes>`, or
+take it out, and apply `tehas:ready` again.
+
+A start with a `Spec:` line also fetches the file and checks that its bytes
+have the sha256 the line names. When they do not, or GitHub refuses the link
+with a 4xx, nothing starts and the poll says once why, for example `` the
+bytes of its spec are not the ones its `Spec:` line names: they have sha256
+<hex> ``. The file attached is not the one the line was written for: attach
+the spec, write its link and the sha256 of its bytes (`sha256sum spec.md`),
+and apply `tehas:ready` again. A start from `tehas start` is not told on the
+issue: the line is in `~/tehas/logs/dispatch.log`, and the host's approval is
+taken off the record, so run `tehas start <n>` again once the line is right.
+An outage's retry or a refresh stopped this way is not tried again on its
+own: apply `tehas:ready`. `ERROR: the spec of #<n> could not be fetched
+(curl exited <n>)`, with `HTTP <status>` when GitHub answered, is a fetch
+that failed on the way, a 5xx among them: nothing changed, the poll ends
+with 1, and the next poll tries again.
+
+The cycle fetches the spec once more as it starts and holds it to the same
+pin. `Tehas started no cycle: the bytes of its spec are not the ones
+approved` means the file changed between the poll and the start; `its spec
+could not be fetched (curl exited <n>)` is a fetch that failed. Nothing ran:
+apply `tehas:ready` again once the spec is right. `tehas work: <image> does
+not support what this cycle is given` followed by `the feature issueSpec`
+means the sandbox image's pi-rukas does not read a spec: the start stops with
+78 rather than run a cycle that would never see it. Rebuild the image on a
+pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
+issue again.
+
 The caps this factory has posted are explained one by one in the next
 section.
 
@@ -944,12 +977,34 @@ tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 
 While the sandbox cannot push, `tehas work` records the fault in
 `~/tehas/state/push-fault.json` with the time, the bot's login and git's line,
-and the poll holds every start until the file is ten minutes old or a start
-whose check passes takes it off. The log has one line,
-`holding: the sandbox cannot push: <git's line> (<login>)`. Nothing is parked
-and no issue loses `tehas:ready`: fix the host (usually the bot's token or the
-remote's URL) and the next start works. Planning turns and refreshes run
-through the hold.
+and the poll holds every start while the file stands. The log has one line,
+`holding: the sandbox cannot push: <git's line> (<login>)`, and `tehas status`
+prints `push      the sandbox cannot push: <git's line> (<login>)` while the
+file stands. Nothing is parked and no issue loses `tehas:ready`. Once the file
+is ten minutes old the poll asks the sandbox itself, with no cycle spent on it:
+it runs the same dry-run push a start runs, with the App's cycle token, in a
+fresh copy of the product checkout as a start's workspace is, and with the
+sandbox image already on the host. It asks only when the poll could start a
+cycle: not while the factory is paused or nothing is ready. A check
+that passes takes the file off and the queue starts as usual; one that is
+refused writes the fault fresh and the hold begins again from that moment.
+When the poll cannot ask at all (no sandbox image, no cycle token, no docker or
+no daemon), it records nothing, logs `WARN: the sandbox could not be asked
+whether it can push: ...`, and lets the next start's own check decide. Planning
+turns and refreshes run through the hold.
+
+The fix is nearly always the App's install rather than the host's git: the
+install whose token the sandbox is given needs **Contents: Read and write** on
+the product repository. Check it on the App's page under *Installation access*,
+or with a person's own credentials:
+
+```
+git -C ~/tehas/repos/<name> push --dry-run origin HEAD:refs/heads/tehas-preflight
+```
+
+When that push is refused too, the repository, not the container, is the
+problem. When it works, the fault is in what the sandbox is given: a token
+without Contents write, a remote that is not the App's, or an expired install.
 
 The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
@@ -1132,6 +1187,41 @@ touch ~/tehas/state/update-hold           # stay there until a fixed release is 
 On a host that updates from its checkout, run `./install.sh` in `~/tehas/platform`:
 it builds the console. A console left by an interrupted `--to` to an older version
 answers the same way, and the same steps mend it.
+
+## tehas update says the cycle token cannot push
+
+A cycle's container pushes with the GitHub App's cycle token, which
+`tehasbot github-token --cycle` makes: the app's token narrowed to
+`TEHAS_REPO`, with Contents and Pull requests write and Issues read. A real
+`tehas update` and `install.sh --check` push with it once, as a dry run, from
+the product checkout to its `origin`. When that is refused, every cycle would
+stop at once with exit 3 and `tehas work: the sandbox cannot push to origin`,
+so the update says so first:
+
+```
+Cycle token:  CANNOT PUSH (tehas-app-bot[bot] was refused a dry-run push to origin)
+    remote: Write access to repository not granted.
+    fatal: unable to access 'https://github.com/tehas-app/tehas.git/': The requested URL returned error: 403
+```
+
+The update exits 1. What it installed stays installed. A drained factory stays
+drained, and the last line says so; on a factory that is not drained, the
+poll's push-fault hold below keeps it from starting one issue after another.
+
+The token is the app's to fix, not the update's:
+
+- The app is installed on the repository, by the account that owns it: an
+  installation on a personal account does not reach an organisation's
+  repository, and the other way round. `tehasbot github-token --cycle --check`
+  says which repositories the token reaches.
+- The installation has Contents and Pull requests read and write and Issues
+  read. When the app asks for new permissions, the owner of the installation
+  accepts them in its settings; until then the token has the old ones.
+- A ruleset on the repository lets the app push `tehas/` branches.
+
+Then run `tehas update --check`. When it says `Cycle token:  OK`, run
+`tehas limit clear`. `the app made no cycle token` instead means tehasbot
+could not make one at all; its own line follows.
 
 ## install.sh --check says `Follow-ups: NOT DONE`
 

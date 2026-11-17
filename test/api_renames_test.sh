@@ -20,6 +20,10 @@ t_eq "$(awk -F '\t' 'NR > 1 && $1 !~ /^(setting|label|command|field|word|tool|va
 t_case "no old name is listed twice"
 t_eq "$(awk -F '\t' 'NR > 1 { print $2 }' "$file" | sort | uniq -d)" ""
 
+t_case "an exit status row names a tehas command, the old status and the new one"
+t_eq "$(awk -F '\t' 'NR > 1 && $2 ~ / exit=/ && !($1 == "value" && $2 ~ /^tehas [a-z-]+( --[a-z-]+)? exit=[0-9]+$/ && $3 ~ /^[0-9]+$/) { print NR }' "$file")" ""
+t_contains "$(cut -f 2 "$file")" "tehas check-product exit=78"
+
 t_case "the file ends with a newline and holds no carriage return"
 t_eq "$(tail -c 1 "$file" | od -An -c | tr -d ' ')" '\n'
 t_eq "$(grep -c $'\r' "$file")" 0
