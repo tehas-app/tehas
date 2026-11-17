@@ -132,6 +132,7 @@
       }
     },
     "prototypes": {
+      "description": "The issues with a Protolab page, as the Protolab last listed them. Its fields may change in a minor release: a program shows them, and does not decide on them. Left out when there is no such list.",
       "type": "array",
       "items": {
         "type": "object",

@@ -2380,7 +2380,8 @@ minutes when `TEHAS_REFRESH_CONFLICTS=1`. That scan is gone: `install.sh`
 stops and disables the timer and removes its two unit files. Neither name is
 a setting any more. A line with a value they took (`0` or `1`, and 1 to 1440
 minutes) still loads and does nothing, so take it out when you can; any other
-value stops every command with 78.
+value stops every command with 78. Both are rows of `api/renames-1.0.tsv`, so
+`tehas update --check` lists such a line.
 
 ## Updating tehas
 

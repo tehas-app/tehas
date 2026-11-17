@@ -94,8 +94,9 @@ with says so and exits 78 before it calls GitHub.
 
 ### A zip by address
 
-Still being built: a release refuses `TEHAS_PROTOLAB_ZIP_URL=on` with exit 78
-and lists `protolab-zip-url` in `flags` as `false`. When it ships, a ticket may
+Still being built: a release refuses `TEHAS_PROTOLAB_ZIP_URL=on`, and a line
+that gives `TEHAS_PROTOLAB_ZIP_HOSTS` a value, with exit 78, and lists
+`protolab-zip-url` in `flags` as `false`. When it ships, a ticket may
 name a zip that is not attached to it, on a line of its own:
 
 ```
