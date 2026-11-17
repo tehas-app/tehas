@@ -201,9 +201,12 @@ fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
 fn is_number(s: &str) -> bool {
     all(s, |c| c.is_ascii_digit()) && !s.starts_with('0')
 }
+/// Logins separated by single spaces, each by the rule the settings load
+/// holds `TEHAS_ALLOWED_LABELERS` to, so setup never writes a line the load
+/// refuses.
 fn is_logins(s: &str) -> bool {
     s.split(' ')
-        .all(|l| all(l, |c| c.is_ascii_alphanumeric() || c == '-'))
+        .all(tehas_core::settings::rules::is_login)
 }
 fn is_endpoint(s: &str) -> bool {
     let rest = s
@@ -1556,6 +1559,7 @@ mod tests {
         assert!(is_repo("acme/widget") && is_repo("a.b_c/d-e"));
         assert!(!is_repo("acme widget") && !is_repo("acme/") && !is_repo("a/b/c"));
         assert!(is_logins("alice bob") && !is_logins("alice  bob") && !is_logins(" alice"));
+        assert!(!is_logins("-alice") && !is_logins("alice -bob"));
         assert!(is_endpoint("http://gb1:8086/v1") && !is_endpoint("gb1:8086"));
         assert!(!is_endpoint("http://") && !is_endpoint("https://a b"));
         assert!(is_provider("main") && is_provider("m-2_x") && !is_provider("Main"));
