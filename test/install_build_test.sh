@@ -19,7 +19,8 @@ dir=$CARGO_TARGET_DIR/release
 mkdir -p "$dir" && echo built >"$dir/${*: -1}"
 # install.sh runs the store, so the store has to be a program.
 [ "${*: -1}" != store ] || { cp "$T/store-stand-in" "$dir/store"; chmod 755 "$dir/store"; }'
-t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept
+t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key \
+  TEHAS_MODEL_KEY_MAIN=hidden-model DB_PASSWD=hidden-passwd cloud_credential=hidden-cred PLAIN=kept
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$(cat "$T/cargo.env")" "hidden-"

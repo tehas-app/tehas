@@ -297,10 +297,11 @@ build_ready() {
   # whatever cargo's own configuration says, and the old one is removed first,
   # so what is installed is what this build made. The build scripts of the
   # crates run here: they are given no variable that is named like a secret,
-  # the bot's token among them.
+  # the bot's token and the model keys among them. The words are those of
+  # secret::NAME_WORDS in the console, in any case.
   target=${CARGO_TARGET_DIR:-$root/console/target}
   hidden=()
-  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -iE 'TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL')
   # The bound is one build's own, so it names no tool of its own: without
   # timeout(1) every build would be reported as one that did not build.
   if ! command -v timeout >/dev/null; then
