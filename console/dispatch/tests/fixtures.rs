@@ -564,6 +564,10 @@ fn run_suite(name: &str) {
     for c in suite["cases"].as_array().unwrap() {
         let name = c["case"].as_str().unwrap();
         let (mut settings, mut snap) = base();
+        // A suite's own settings, under each case's.
+        if let Some(s) = suite.get("settings") {
+            merge(&mut settings, s);
+        }
         if let Some(s) = c.get("settings") {
             merge(&mut settings, s);
         }
@@ -769,6 +773,11 @@ fn plan_answer() {
 #[test]
 fn lean() {
     run_suite("lean");
+}
+
+#[test]
+fn outsource() {
+    run_suite("outsource");
 }
 
 #[test]

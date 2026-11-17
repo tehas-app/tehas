@@ -72,6 +72,7 @@ impl Proxy {
             records: Box::leak(Box::new(proxy.factory.clone())),
             sink: Box::leak(Box::new(Kept(Arc::clone(&proxy.lines)))),
             idle: Duration::from_secs(5),
+            channel: None,
         }));
         // The unit's hands, the same bound of streams and the same one request
         // per connection, on a thread of the case's. The case's Drop ends the

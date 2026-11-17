@@ -18,22 +18,30 @@
 //! TEHAS_OUTSOURCE, the switch; TEHAS_OUTSOURCE_PROXY_ADDR, the address and port to
 //! listen on, never the dashboard's; TEHAS_OUTSOURCE_TIMEOUT, how long a job
 //! may go without a contractor's check-in; TEHAS_OUTSOURCE_PROXY_IDLE, how long one
-//! of its model streams may go silent. The instance's models.json names the
+//! of its model streams may go silent; TEHAS_OUTSOURCE_CONTRACTORS, the names
+//! the job channel answers. The instance's models.json names the
 //! endpoint and the variable of its key of the provider the instance's agents
 //! run on, which is the endpoint a cycle's container is given too. The key is
 //! read from this process's environment, written into one request at a time,
 //! and never written anywhere else: a contractor is never told it.
 //!
-//! The job tokens are this process's own, held in memory and nowhere else. The
-//! process that starts a contractor's container asks for one over the proxy's
-//! control socket in the state directory and writes it to the job's directory,
-//! where #2274 reads it for the container's models.json. A token is never in a
-//! command line, never in a log, never in the store. The asking process is
-//! told the path it was written to and nothing of the token itself.
+//! The same listener answers the job channel (src/channel.rs): a contractor's
+//! join, its hello and its ask for work by its key, and a running job's
+//! check-in, token renewal, relayed issue writes, result and stop by the job's
+//! token, which is issued when the job is taken.
+//!
+//! The job tokens are this process's own, held in memory. A contractor is
+//! given its job's token in the answer to the channel's `job` call. The
+//! control socket in the state directory can issue one too, written to a job
+//! directory, and the asking process is told the path and nothing of the
+//! token. A token is never in a command line, never in a log, never in the
+//! store: the store keeps its sha256 in the job's row, so a proxy that
+//! restarts still takes the token of a job that is going.
 //!
 //! Exit: 0 the feature is off, or the word was done; 78 a setting is missing or
-//! malformed, or the endpoint is no address this proxy can speak to; 1 it
-//! cannot listen, the proxy it asked is not there, or no token could be made.
+//! malformed, the endpoint is no address this proxy can speak to, or TEHAS_HOME
+//! is too long a path for its control socket; 1 it cannot listen, the proxy it
+//! asked is not there, or no token could be made.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -156,7 +164,9 @@ fn listen() -> ! {
     ) {
         stop(&why, if on() { 78 } else { 0 });
     }
-    let issuer = Box::leak(Box::new(Issuer::new()));
+    let issuer = Box::leak(Box::new(Issuer::backed(std::sync::Arc::new(
+        records::KeptIn::at(&home()),
+    ))));
     let store = Box::leak(Box::new(records::OfStore::at(&home(), issuer)));
     // The two lists of the factory and this process's own tokens, asked
     // together for every request.
@@ -164,15 +174,35 @@ fn listen() -> ! {
     // One value of the rules, made now and read by every request of the
     // process: the listener's threads borrow it for the life of the program,
     // which is the life the borrow needs.
+    // A relayed issue write is masked with the factory's own host names too,
+    // as the local relay masks with the ones the console masks.
+    let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models::host_path(), ""));
+    let factory = Box::leak(Box::new(tehas_proxy::host::OfHost {
+        home: home(),
+        repo: env("TEHAS_REPO"),
+        addr: at.clone(),
+        timeout: i64::try_from(timeout).unwrap_or(i64::MAX),
+        contractors: env("TEHAS_OUTSOURCE_CONTRACTORS")
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+    }));
+    let channel = Box::leak(Box::new(tehas_proxy::channel::Channel::new(
+        issuer, factory,
+    )));
     let proxy: &'static Serve<'static> = Box::leak(Box::new(Serve {
         endpoint,
         key,
         records,
         sink: &log::Journal,
         idle: Duration::from_secs(idle),
+        channel: Some(channel),
     }));
     // The control socket is made before the port is bound: a proxy that cannot
     // answer for a token must not be answering model requests either.
+    if let Some(why) = serve::socket_path_refused(&control()) {
+        stop(&why, 78);
+    }
     let socket = match control_listen() {
         Ok(socket) => socket,
         Err(why) => stop(&why, 1),
@@ -265,7 +295,7 @@ fn control_one(stream: UnixStream, issuer: &Issuer) {
                 let _ = writeln!(writer, "issue wants a job, an attempt and a contractor");
                 return;
             };
-            match issuer.issue(job, attempt, contractor, &mut tehas_proxy::jobs::random) {
+            match issuer.issue_held(job, attempt, contractor, &mut tehas_proxy::jobs::random) {
                 Some(token) => {
                     let _ = writeln!(writer, "{token}");
                 }

@@ -67,17 +67,35 @@ impl Drop for Running {
     }
 }
 
-/// The status of a request with no token, once the port answers.
-fn status_of_no_token(addr: &str) -> Option<u16> {
-    let until = Instant::now() + Duration::from_secs(20);
+/// How long a test waits for the proxy to start or to end. A loaded host
+/// running several gates at once has taken more than 20 s to start it.
+const WAIT: Duration = Duration::from_secs(90);
+
+/// The status of a request with no token, once the port answers. An answer with
+/// no status line, as from a port another process held a moment, is tried
+/// again until the deadline. A proxy that ended before it answered fails the
+/// test at once, with what it said.
+fn status_of_no_token(child: &mut Child, addr: &str) -> Option<u16> {
+    let until = Instant::now() + WAIT;
     while Instant::now() < until {
+        if let Some(status) = child.try_wait().unwrap() {
+            let mut said = String::new();
+            if let Some(mut err) = child.stderr.take() {
+                let _ = err.read_to_string(&mut said);
+            }
+            panic!("the proxy ended before it answered, {status}: {said}");
+        }
         if let Ok(mut s) = TcpStream::connect(addr) {
             s.set_read_timeout(Some(Duration::from_secs(10))).ok();
-            s.write_all(b"GET /v1/models HTTP/1.1\r\nHost: x\r\n\r\n")
-                .ok()?;
             let mut got = String::new();
-            let _ = s.read_to_string(&mut got);
-            return got.split_whitespace().nth(1)?.parse().ok();
+            if s.write_all(b"GET /v1/models HTTP/1.1\r\nHost: x\r\n\r\n")
+                .is_ok()
+            {
+                let _ = s.read_to_string(&mut got);
+            }
+            if let Some(code) = got.split_whitespace().nth(1).and_then(|c| c.parse().ok()) {
+                return Some(code);
+            }
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -118,10 +136,10 @@ fn a_building_feature_stays_off_without_the_test_variable() {
 fn on_it_answers_on_its_port_and_its_control_socket_at_once() {
     let dir = home("proxy-on", "http://127.0.0.1:9/v1");
     let addr = format!("127.0.0.1:{}", free_port());
-    let _running = Running(proxy(dir.path(), "1", &addr, &[]).spawn().unwrap());
+    let mut running = Running(proxy(dir.path(), "1", &addr, &[]).spawn().unwrap());
     // A request with no token is refused by the listener, which is what says
     // the port is served while the control line is open.
-    assert_eq!(status_of_no_token(&addr), Some(401));
+    assert_eq!(status_of_no_token(&mut running.0, &addr), Some(401));
     let sock = dir.path().join("tehas/state/outsource/proxy.sock");
     assert!(sock.exists(), "no control socket at {sock:?}");
     // The control line answers too: a token is issued and written to the job's
@@ -143,7 +161,7 @@ fn a_port_it_cannot_bind_ends_it_with_1() {
     let taken = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = taken.local_addr().unwrap().to_string();
     let mut child = proxy(dir.path(), "1", &addr, &[]).spawn().unwrap();
-    let until = Instant::now() + Duration::from_secs(20);
+    let until = Instant::now() + WAIT;
     let code = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status.code();
@@ -167,4 +185,18 @@ fn on_with_no_home_stops_with_78() {
         .unwrap();
     assert_eq!(out.status.code(), Some(78), "{out:?}");
     assert!(String::from_utf8_lossy(&out.stderr).contains("TEHAS_HOME"));
+}
+
+#[test]
+fn a_home_too_long_for_its_control_socket_stops_with_78_at_once() {
+    let dir = home("proxy-long", "http://127.0.0.1:9/v1");
+    let addr = format!("127.0.0.1:{}", free_port());
+    let deep = dir.path().join("d".repeat(110));
+    let out = proxy(dir.path(), "1", &addr, &[])
+        .env("TEHAS_HOME", &deep)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(78), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("TEHAS_HOME is too long"));
+    assert!(TcpStream::connect(&addr).is_err(), "a proxy bound {addr}");
 }

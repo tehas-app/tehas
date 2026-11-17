@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::thread::Builder;
 use std::time::{Duration, Instant};
 
+use crate::channel::{self, Asked, Channel};
 use crate::count::{self, Row};
 use crate::forward::{self, Answer, Upstream};
 
@@ -66,6 +67,9 @@ pub struct Serve<'a> {
     /// How long a model stream may go silent: the instance's own bound, which
     /// `tehas_load` refuses when it is no longer than the check-in timeout.
     pub idle: Duration,
+    /// The job channel on the same listener ([`crate::channel`]). None
+    /// answers its paths as any path that is not a model path.
+    pub channel: Option<&'a Channel<'a>>,
 }
 
 /// What one request is worth: whose job it was, the status the contractor was
@@ -115,6 +119,9 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
         return refuse(client, 400, None);
     };
     let (method, path) = (method.as_str(), path.as_str());
+    if let (Some(call), Some(chan)) = (channel::Call::of(path), serve.channel) {
+        return channel_one(client, chan, call, method, &head, length, serve);
+    }
     let ask = Ask::new(path);
     // The path first, before the token is read: a probe of a path the proxy
     // does not serve is refused whatever it carried (rule 3).
@@ -196,6 +203,96 @@ pub fn one(client: &mut TcpStream, serve: &Serve) -> Outcome {
         usage,
         complete,
     }
+}
+
+/// One call of the job channel: its whole body read, at most
+/// [`channel::BODY_MAX`], answered with one JSON object. The log line names
+/// the call, the status and whose job or contractor it was, never a body or a
+/// token.
+fn channel_one(
+    client: &mut TcpStream,
+    chan: &Channel,
+    call: channel::Call,
+    method: &str,
+    head: &[u8],
+    length: usize,
+    serve: &Serve,
+) -> Outcome {
+    let began = Instant::now();
+    if method != "POST" || length > channel::BODY_MAX {
+        serve.sink.line(&Line(format!(
+            "{method} {}{} 400: no call of the job channel",
+            channel::PREFIX,
+            call.word()
+        )));
+        return refuse(client, 400, None);
+    }
+    let end = forward::head_end(head).unwrap_or(head.len());
+    let mut body = head[end..].to_vec();
+    let _ = client.set_read_timeout(Some(BODY_WAIT));
+    let mut chunk = [0u8; 8192];
+    while body.len() < length {
+        match client.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => body.extend_from_slice(&chunk[..n]),
+        }
+    }
+    body.truncate(length);
+    let fields = String::from_utf8_lossy(&head[..end]);
+    let bearer = request::bearer(&fields);
+    let name = header(&fields, channel::NAME_HEADER);
+    let answer = chan.answer(&Asked {
+        call,
+        bearer: bearer.as_deref(),
+        name: name.as_deref(),
+        body: &body,
+    });
+    let live = bearer.as_deref().and_then(|t| chan.issuer.peek(t));
+    let who = match (&live, &name) {
+        (Some(l), _) => format!("job {} contractor {}", l.job, l.contractor),
+        (None, Some(n)) => format!("contractor {}", log::shown(n)),
+        _ => "no job".to_string(),
+    };
+    serve.sink.line(&Line(format!(
+        "POST {}{} {} {} ms {who}{}",
+        channel::PREFIX,
+        call.word(),
+        answer.status,
+        began.elapsed().as_millis(),
+        answer
+            .refused()
+            .map_or_else(String::new, |w| format!(": refused {w}"))
+    )));
+    let text = format!("{}\n", answer.body);
+    let head = format!(
+        "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        answer.status,
+        reason(answer.status),
+        text.len()
+    );
+    use std::io::Write;
+    let complete = client
+        .write_all(head.as_bytes())
+        .and_then(|()| client.write_all(text.as_bytes()))
+        .and_then(|()| client.flush())
+        .is_ok();
+    Outcome {
+        status: answer.status,
+        live,
+        usage: None,
+        complete,
+    }
+}
+
+/// The value of one field of a head, by its name in any case.
+fn header(fields: &str, name: &str) -> Option<String> {
+    fields.lines().skip(1).find_map(|line| {
+        let (n, v) = line.split_once(':')?;
+        n.trim()
+            .eq_ignore_ascii_case(name)
+            .then(|| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
 }
 
 /// The endpoint's answer, on the contractor's socket: its head and what came
@@ -290,8 +387,11 @@ fn reason(status: u16) -> &'static str {
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
         429 => "Too Many Requests",
         502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        200 => "OK",
         _ => "Error",
     }
 }
@@ -517,6 +617,22 @@ pub fn started(at: &str, idle: Duration) -> String {
     )
 }
 
+/// The longest path a unix socket binds at on Linux: 108 bytes of
+/// `sun_path`, the last a NUL.
+pub const SOCKET_PATH_MAX: usize = 107;
+
+/// Why the control socket cannot be at `path`, said before the bind: a path
+/// over [`SOCKET_PATH_MAX`] fails it with words that name no setting.
+pub fn socket_path_refused(path: &std::path::Path) -> Option<String> {
+    let len = path.as_os_str().len();
+    (len > SOCKET_PATH_MAX).then(|| {
+        format!(
+            "the control socket {} is {len} bytes long, over the {SOCKET_PATH_MAX} a unix socket allows: TEHAS_HOME is too long a path",
+            path.display()
+        )
+    })
+}
+
 /// The name of the file a job's token is handed over in. It sits in the job's
 /// own directory in the state, is written once, and is read only by the process
 /// that starts the contractor's container: #2274 reads it to write the
@@ -584,6 +700,16 @@ impl Serve<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_control_socket_path_over_the_unix_bound_is_refused_and_named() {
+        let fits = std::path::PathBuf::from(format!("/{}", "a".repeat(SOCKET_PATH_MAX - 1)));
+        assert_eq!(socket_path_refused(&fits), None);
+        let over = std::path::PathBuf::from(format!("/{}", "a".repeat(SOCKET_PATH_MAX)));
+        let why = socket_path_refused(&over).unwrap();
+        assert!(why.contains("108 bytes long"), "{why}");
+        assert!(why.contains("TEHAS_HOME"), "{why}");
+    }
 
     #[test]
     fn the_ask_of_a_stream_is_read_whatever_the_spacing() {

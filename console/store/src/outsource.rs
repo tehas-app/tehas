@@ -14,10 +14,17 @@
 //!     line a person reads with `tehas outsource list`.
 //!   store contractor-list
 //!     The contractors as an array: name, whether it is revoked, draining or
-//!     resting, when it was last heard of, and its two counters.
-//!   store contractor-seen --name <name>
+//!     resting, when it was last heard of, its two counters, the issue
+//!     and state of the job open in its hand, if any, and its last `report`
+//!     ({digest, rukas, mem_mb, disk_kb, at}), null when it never sent one.
+//!   store contractor-seen --name <name> [--image <id>] [--rukas <version>]
+//!                         [--mem-mb <n>] [--disk-kb <n>]
 //!     The check-in of the spec's "Durability" 1: the second this contractor
-//!     was last heard of.
+//!     was last heard of. With any of the four, the report it sent with its
+//!     hello replaces the one before, whole, at this second: the sandbox
+//!     image's id (`sha256:` and 64 hex digits), the pi-rukas version the
+//!     image is labelled with, and its free memory and disk. One it left out
+//!     is kept as null, which placement reads as no fit.
 //!   store contractor-rest --name <name> --for <seconds>
 //!     The rest period of "Durability" 4: the contractor gets no work until
 //!     the seconds have passed.
@@ -52,7 +59,8 @@
 //!   store job-finish --job <id> [--sha256 <hex>]
 //!     The result came in from the current attempt. A late contractor with an
 //!     older attempt answers `stale`, which is the store's answer and not its
-//!     caller's.
+//!     caller's. A job lost to a silence, not to a revocation, still takes the
+//!     result of its attempt until the issue's next attempt is given out.
 //!   store job-release --job <id>
 //!     The contractor handed the job back on purpose. Not a failure, and it
 //!     costs the contractor nothing.
@@ -71,6 +79,35 @@
 //!     while it was down are sorted out by the same call that sorts out the
 //!     ones that expire now, so a verb cannot lose a job by forgetting to.
 //!     answers how many of each kind it closed out.
+//!   store contractor-auth --name <name> --key <hex>
+//!     Whether a contractor's call may be answered: the name is registered,
+//!     not revoked, and holds this key. answers `allowed` with whether it is
+//!     draining, or `refused` with `revoked`, `unknown` or `another key`. The
+//!     key is the hash the contractor joined with: the store compares, so the
+//!     caller is never handed the key it is checking against.
+//!   store job-offered --contractor <name>
+//!     The oldest offer still open in this contractor's hand, which it takes
+//!     when it asks for work: answers `job` with its number, issue and attempt,
+//!     or `none`.
+//!   store job-stamp --issue <n> --since <unix> [--open]
+//!     Who built the issue's cycle that started on an approval of --since:
+//!     the newest job given out for the issue at or after that second,
+//!     whatever its state: its number, contractor, attempt and state, each
+//!     null when the cycle ran in-house. With --open only a job offered or
+//!     running counts: a start asks so, and a retry after a lost job is not
+//!     that job's. Answered under its own verb, as a caller of libexec/store
+//!     reads it. The stamp of the issue's comments, its pull request and its
+//!     commits.
+//!   store job-token --job <id> --sha256 <hex>
+//!     The sha256 of the token the model proxy issued for an open job, never
+//!     the token: a proxy that restarts checks a presented token against it.
+//!     answers `kept`, or `refused` for a job that is not open, or `stale`.
+//!   store job-by-token --sha256 <hex>
+//!     The job whose token has this hash, while a call of its token may still
+//!     be answered: running or stopping, or lost to a silence and not to a
+//!     revocation, of the issue's current attempt, on a contractor that is not
+//!     revoked. answers `job` with its number, issue, attempt, contractor and
+//!     state, or `none`.
 //!   store job-attempts --issue <n>
 //!     The record of what the outsourced attempts of an issue have cost, in
 //!     the words "this issue has spent its outsourced attempts" are read:
@@ -130,7 +167,10 @@ const SPAN_MAX: i64 = 2_419_200;
 pub enum Call {
     ContractorAdd(Add),
     ContractorList,
-    Seen(String),
+    Seen {
+        name: String,
+        report: Option<Report>,
+    },
     Rest {
         name: String,
         secs: i64,
@@ -171,6 +211,58 @@ pub enum Call {
         at_start: bool,
     },
     Attempts(i64),
+    Auth {
+        name: String,
+        key: String,
+    },
+    Offered(String),
+    Stamp {
+        issue: i64,
+        since: i64,
+        open: bool,
+    },
+    Token {
+        job: i64,
+        sha: String,
+    },
+    ByToken(String),
+}
+
+/// What a contractor said it has, with its hello. A field it did not say, or
+/// said in no shape the store takes, is None.
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct Report {
+    pub image: Option<String>,
+    pub rukas: Option<String>,
+    pub mem_mb: Option<i64>,
+    pub disk_kb: Option<i64>,
+}
+
+/// The id docker gives an image: `sha256:` and 64 lowercase hex digits.
+pub fn image_id(s: &str) -> Option<String> {
+    let hex = s.strip_prefix("sha256:")?;
+    verbs::sha256(hex).map(|_| s.to_string())
+}
+
+/// The longest pi-rukas version a report may name.
+const RUKAS_MAX: usize = 64;
+
+/// A pi-rukas version as an image's label names it: a tag or a commit, of
+/// letters, digits and `.+-_`.
+pub fn rukas_version(s: &str) -> Option<String> {
+    let ok = !s.is_empty()
+        && s.len() <= RUKAS_MAX
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b));
+    ok.then(|| s.to_string())
+}
+
+/// The most memory in MiB or disk in KiB a report is believed: a petabyte.
+pub const AMOUNT_MAX: i64 = 1_000_000_000_000;
+
+/// An amount of a report: a count of units, at most [`AMOUNT_MAX`].
+pub fn amount(s: &str) -> Option<i64> {
+    tehas_core::grammar::digits(s, 13, true).filter(|n| *n <= AMOUNT_MAX)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -198,7 +290,7 @@ pub enum JobShow {
 
 /// A contractor's name, as a join and a check-in arrive with it: the shape of
 /// a host's name, and nothing wider.
-fn host(s: &str) -> Option<String> {
+pub(crate) fn host(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let ok = !bytes.is_empty()
         && bytes.len() <= NAME_MAX
@@ -260,15 +352,34 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
         "contractor-list" => {
             Args::parse("contractor-list", rest, &[], false).map(|_| Call::ContractorList)
         }
-        "contractor-seen" => {
-            Args::parse("contractor-seen", rest, &[("--name", Kind::Value)], false).and_then(|a| {
-                Ok(Call::Seen(a.strict_need(
-                    "--name",
-                    "a host's name",
-                    host,
-                )?))
+        "contractor-seen" => Args::parse(
+            "contractor-seen",
+            rest,
+            &[
+                ("--name", Kind::Value),
+                ("--image", Kind::Value),
+                ("--rukas", Kind::Value),
+                ("--mem-mb", Kind::Value),
+                ("--disk-kb", Kind::Value),
+            ],
+            false,
+        )
+        .and_then(|a| {
+            let report = Report {
+                image: a.strict(
+                    "--image",
+                    "an image id, sha256: and 64 hex digits",
+                    image_id,
+                )?,
+                rukas: a.strict("--rukas", "a pi-rukas version", rukas_version)?,
+                mem_mb: a.strict("--mem-mb", "a number of MiB", amount)?,
+                disk_kb: a.strict("--disk-kb", "a number of KiB", amount)?,
+            };
+            Ok(Call::Seen {
+                name: a.strict_need("--name", "a host's name", host)?,
+                report: (report != Report::default()).then_some(report),
             })
-        }
+        }),
         "contractor-rest" => Args::parse(
             "contractor-rest",
             rest,
@@ -463,6 +574,63 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 at_start: a.has("--now"),
             })
         }),
+        "contractor-auth" => Args::parse(
+            "contractor-auth",
+            rest,
+            &[("--name", Kind::Value), ("--key", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Auth {
+                name: a.strict_need("--name", "a host's name", host)?,
+                key: a.strict_need("--key", "a key as 64 hex digits", verbs::sha256)?,
+            })
+        }),
+        "job-offered" => Args::parse("job-offered", rest, &[("--contractor", Kind::Value)], false)
+            .and_then(|a| {
+                Ok(Call::Offered(a.strict_need(
+                    "--contractor",
+                    "a host's name",
+                    host,
+                )?))
+            }),
+        "job-stamp" => Args::parse(
+            "job-stamp",
+            rest,
+            &[
+                ("--issue", Kind::Value),
+                ("--since", Kind::Value),
+                ("--open", Kind::Switch),
+            ],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Stamp {
+                issue: a.strict_need("--issue", "an issue number", verbs::number)?,
+                since: a.strict_need("--since", "a second", verbs::number)?,
+                open: a.has("--open"),
+            })
+        }),
+        "job-token" => Args::parse(
+            "job-token",
+            rest,
+            &[("--job", Kind::Value), ("--sha256", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Token {
+                job: a.strict_need("--job", "a job number", verbs::number)?,
+                sha: a.strict_need("--sha256", "64 hex digits", verbs::sha256)?,
+            })
+        }),
+        "job-by-token" => Args::parse("job-by-token", rest, &[("--sha256", Kind::Value)], false)
+            .and_then(|a| {
+                Ok(Call::ByToken(a.strict_need(
+                    "--sha256",
+                    "64 hex digits",
+                    verbs::sha256,
+                )?))
+            }),
         "job-attempts" => Args::parse("job-attempts", rest, &[("--issue", Kind::Value)], false)
             .and_then(|a| {
                 Ok(Call::Attempts(a.strict_need(
@@ -482,7 +650,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::ContractorAdd(a) => add(home, a, now),
         Call::ContractorList => contractors(home, now),
-        Call::Seen(n) => seen(home, n, now),
+        Call::Seen { name, report } => seen(home, name, report.as_ref(), now),
         Call::Rest { name, secs } => rest(home, name, *secs, now),
         Call::Drain { name, on } => drain(home, name, *on, now),
         Call::Revoke(n) => revoke(home, n, now),
@@ -499,6 +667,11 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Show(s) => show(home, s),
         Call::Sweep { timeout, at_start } => sweep(home, *timeout, *at_start, now),
         Call::Attempts(issue) => attempts(home, *issue),
+        Call::Auth { name, key } => auth(home, name, key),
+        Call::Offered(name) => offered(home, name, now),
+        Call::Stamp { issue, since, open } => stamp(home, *issue, *since, *open),
+        Call::Token { job, sha } => token(home, *job, sha, now),
+        Call::ByToken(sha) => by_token(home, sha),
     }
 }
 
@@ -579,29 +752,56 @@ fn contractors(home: &Path, now: i64) -> Result<String, Fail> {
     look(home, move |c| {
         let mut rows = c
             .prepare(
-                "SELECT name, revoked_at, draining, resting_until, last_seen_at, jobs_done, jobs_lost
+                "SELECT name, revoked_at, draining, resting_until, last_seen_at, jobs_done, jobs_lost,
+                        report_image, report_rukas, report_mem_mb, report_disk_kb, report_at
                    FROM contractors ORDER BY name",
             )
             .q()?;
         let taken = rows
             .query_map([], |r| {
+                let report = r
+                    .get::<_, Option<i64>>(11)?
+                    .map(|at| -> rusqlite::Result<String> {
+                        Ok(obj(&[
+                            ("digest", j(r.get::<_, Option<String>>(7)?)),
+                            ("rukas", j(r.get::<_, Option<String>>(8)?)),
+                            ("mem_mb", j(r.get::<_, Option<i64>>(9)?)),
+                            ("disk_kb", j(r.get::<_, Option<i64>>(10)?)),
+                            ("at", j(at)),
+                        ]))
+                    });
                 Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<i64>>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, Option<i64>>(3)?,
-                    r.get::<_, Option<i64>>(4)?,
-                    r.get::<_, i64>(5)?,
-                    r.get::<_, i64>(6)?,
+                    (
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<i64>>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                        r.get::<_, Option<i64>>(4)?,
+                        r.get::<_, i64>(5)?,
+                        r.get::<_, i64>(6)?,
+                    ),
+                    report.transpose()?,
                 ))
             })
             .q()?;
         let mut out = Vec::new();
         for row in taken {
-            let (name, revoked, draining, resting, seen, done, lost) = row.q()?;
+            let ((name, revoked, draining, resting, seen, done, lost), report) = row.q()?;
             let resting = resting.filter(|until| *until > now);
+            let open: Option<(i64, String)> = c
+                .query_row(
+                    "SELECT issue, state FROM jobs WHERE contractor = ?1
+                       AND state IN ('offered','running','stopping') ORDER BY id DESC LIMIT 1",
+                    [&name],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .q()?;
+            let (issue, state) = open.unzip();
             out.push(obj(&[
                 ("name", j(name.as_str())),
+                ("job_issue", j(issue)),
+                ("job_state", j(state.as_deref())),
                 ("revoked", j(revoked.is_some())),
                 ("draining", j(draining == 1)),
                 ("resting", j(resting.is_some())),
@@ -609,25 +809,41 @@ fn contractors(home: &Path, now: i64) -> Result<String, Fail> {
                 ("last_seen_at", j(seen)),
                 ("jobs_done", j(done)),
                 ("jobs_lost", j(lost)),
+                ("report", report.unwrap_or_else(|| "null".to_string())),
             ]));
         }
         Ok(line("contractors", &[("rows", j(out))]))
     })
 }
 
-fn seen(home: &Path, name: &str, now: i64) -> Result<String, Fail> {
+fn seen(home: &Path, name: &str, report: Option<&Report>, now: i64) -> Result<String, Fail> {
     let name = name.to_string();
+    let report = report.cloned();
     work(home, move |c| {
-        let changed = c
-            .execute(
+        let changed = match &report {
+            None => c.execute(
                 "UPDATE contractors SET last_seen_at = ?1 WHERE name = ?2",
                 params![now, name],
-            )
-            .q()?;
+            ),
+            Some(r) => c.execute(
+                "UPDATE contractors SET last_seen_at = ?1, report_image = ?3, report_rukas = ?4,
+                        report_mem_mb = ?5, report_disk_kb = ?6, report_at = ?1
+                   WHERE name = ?2",
+                params![now, name, r.image, r.rukas, r.mem_mb, r.disk_kb],
+            ),
+        }
+        .q()?;
         if changed == 0 {
             return Err(unknown(&name));
         }
-        Ok(line("seen", &[("name", j(name.as_str())), ("at", j(now))]))
+        Ok(line(
+            "seen",
+            &[
+                ("name", j(name.as_str())),
+                ("at", j(now)),
+                ("report", j(report.is_some())),
+            ],
+        ))
     })
 }
 
@@ -900,6 +1116,169 @@ fn invite_use(home: &Path, code: &str, name: &str, key: &str, now: i64) -> Resul
     })
 }
 
+fn lost_reason(c: &Connection, id: i64) -> Result<Option<String>, Fail> {
+    c.query_row(
+        "SELECT lost_reason FROM jobs WHERE id = ?1",
+        params![id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .q()
+    .map(Option::flatten)
+}
+
+fn auth(home: &Path, name: &str, key: &str) -> Result<String, Fail> {
+    look(home, move |c| {
+        let held: Option<(String, Option<i64>, i64)> = c
+            .query_row(
+                "SELECT public_key, revoked_at, draining FROM contractors WHERE name = ?1",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .q()?;
+        let said = match held {
+            None => "unknown",
+            Some((_, Some(_), _)) => "revoked",
+            Some((held, None, _)) if held != key => "another key",
+            Some((_, None, draining)) => {
+                return Ok(line(
+                    "allowed",
+                    &[("name", j(name)), ("draining", j(draining == 1))],
+                ))
+            }
+        };
+        Ok(line("refused", &[("name", j(name)), ("said", j(said))]))
+    })
+}
+
+fn offered(home: &Path, name: &str, now: i64) -> Result<String, Fail> {
+    look(home, move |c| {
+        let held: Option<(i64, i64, i64, i64)> = c
+            .query_row(
+                "SELECT id, issue, attempt, expires_at FROM jobs
+                   WHERE contractor = ?1 AND state = 'offered' AND expires_at > ?2
+                   ORDER BY id LIMIT 1",
+                params![name, now],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .q()?;
+        Ok(match held {
+            Some((id, issue, attempt, expires)) => line(
+                "job",
+                &[
+                    ("job", j(id)),
+                    ("issue", j(issue)),
+                    ("attempt", j(attempt)),
+                    ("contractor", j(name)),
+                    ("state", j("offered")),
+                    ("expires_at", j(expires)),
+                ],
+            ),
+            None => line("none", &[("contractor", j(name))]),
+        })
+    })
+}
+
+fn stamp(home: &Path, issue: i64, since: i64, open: bool) -> Result<String, Fail> {
+    look(home, move |c| {
+        let job = c
+            .query_row(
+                "SELECT id, issue, contractor, attempt, state FROM jobs
+                   WHERE issue = ?1 AND offered_at >= ?2
+                     AND (?3 = 0 OR state IN ('offered', 'running'))
+                   ORDER BY id DESC LIMIT 1",
+                params![issue, since, open],
+                read_job,
+            )
+            .optional()
+            .q()?;
+        // Answered under its own verb, as every caller of libexec/store
+        // reads an answer: the job, or null for a cycle run in-house.
+        let (id, contractor, attempt, state) = match &job {
+            Some(job) => (
+                Some(job.id),
+                Some(job.contractor.as_str()),
+                Some(job.attempt),
+                Some(job.state.as_str()),
+            ),
+            None => (None, None, None, None),
+        };
+        Ok(line(
+            "job-stamp",
+            &[
+                ("issue", j(issue)),
+                ("job", j(id)),
+                ("contractor", j(contractor)),
+                ("attempt", j(attempt)),
+                ("state", j(state)),
+            ],
+        ))
+    })
+}
+
+/// The hash of an open job's token, kept for a proxy that restarts. The token
+/// itself never reaches the store.
+fn token(home: &Path, id: i64, sha: &str, now: i64) -> Result<String, Fail> {
+    let sha = sha.to_string();
+    work(home, move |c| {
+        let job = held(c, id)?;
+        if stale(c, &job)? {
+            return Ok(stale_line(&job));
+        }
+        if !matches!(job.state.as_str(), "offered" | "running") {
+            return Ok(held_line(
+                "refused",
+                &job,
+                &format!("{} takes no token", job.state),
+            ));
+        }
+        c.execute(
+            "UPDATE jobs SET token_sha256 = ?1, updated_at = ?2 WHERE id = ?3",
+            params![sha, now, id],
+        )
+        .q()?;
+        Ok(line("kept", &[("job", j(id)), ("issue", j(job.issue))]))
+    })
+}
+
+/// The job a token's hash names, while a call of the token may be answered.
+/// The rules of each call are the caller's; this says only whether the token
+/// still names a job at all, so a token of a job that ended, of an attempt
+/// that was replaced or of a revoked contractor names none.
+fn by_token(home: &Path, sha: &str) -> Result<String, Fail> {
+    look(home, move |c| {
+        let job = c
+            .query_row(
+                "SELECT j.id, j.issue, j.contractor, j.attempt, j.state FROM jobs j
+                   JOIN contractors k ON k.name = j.contractor
+                  WHERE j.token_sha256 = ?1 AND k.revoked_at IS NULL
+                    AND (j.state IN ('running', 'stopping')
+                         OR (j.state = 'lost' AND j.lost_reason IS NOT 'revoked'))
+                  ORDER BY j.id DESC LIMIT 1",
+                params![sha],
+                read_job,
+            )
+            .optional()
+            .q()?;
+        let job = match job {
+            Some(job) if !superseded(c, &job)? => job,
+            _ => return Ok(line("none", &[])),
+        };
+        Ok(line(
+            "job",
+            &[
+                ("job", j(job.id)),
+                ("issue", j(job.issue)),
+                ("attempt", j(job.attempt)),
+                ("contractor", j(job.contractor.as_str())),
+                ("state", j(job.state.as_str())),
+            ],
+        ))
+    })
+}
+
 fn key_of(c: &Connection, name: &str) -> Result<Option<String>, Fail> {
     c.query_row(
         "SELECT public_key FROM contractors WHERE name = ?1",
@@ -1024,7 +1403,8 @@ fn finish(home: &Path, id: i64, sha: Option<&str>, now: i64) -> Result<String, F
         if stale(c, &job)? {
             return Ok(stale_line(&job));
         }
-        if !matches!(job.state.as_str(), "running" | "stopping") {
+        let salvaged = job.state == "lost" && lost_reason(c, id)?.as_deref() != Some("revoked");
+        if !matches!(job.state.as_str(), "running" | "stopping") && !salvaged {
             return Ok(held_line(
                 "refused",
                 &job,

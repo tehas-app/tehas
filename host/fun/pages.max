@@ -1,0 +1,11 @@
+# The byte ceilings of the pages and islands, held by the workspace test in
+# console/ops/src/update/pages.rs. host/docs/frontend.md says how each figure
+# is counted. A change may lower a line; a raise is a person's call, made in
+# the same change that grows the page.
+#
+#   page <name> <script bytes> <markup and style bytes>
+#   island <name> <bytes>
+page business 99010 40291
+page floor 144217 68311
+page dashboard 49316 53011
+page manual 0 49681

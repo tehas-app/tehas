@@ -252,6 +252,8 @@ pub struct Snapshot {
     /// numbers would hold an issue back on nothing.
     pub pulls_name: BTreeMap<u64, Vec<u64>>,
     pub leftovers: Option<Vec<Leftover>>,
+    /// What the outsource feature reads, present only while it is on.
+    pub outsource: Option<crate::place::Outsourcing>,
 }
 
 fn failed(v: &Value) -> bool {
@@ -315,7 +317,7 @@ fn opt(v: &Value) -> Option<Value> {
     }
 }
 
-fn reading(v: &Value) -> Reading {
+pub(crate) fn reading(v: &Value) -> Reading {
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     Reading {
         show: v.get("show").and_then(Value::as_object).cloned(),
@@ -664,6 +666,7 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
+            outsource: v.get("outsource").map(crate::place::Outsourcing::parse),
         }
     }
 }

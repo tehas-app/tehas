@@ -27,12 +27,38 @@ pub struct Feature {
     pub since: &'static str,
 }
 
-pub const FEATURES: &[Feature] = &[Feature {
-    name: "outsource",
-    stage: Stage::Building,
-    setting: "TEHAS_OUTSOURCE",
-    since: "v1.0.0-alpha.2",
-}];
+pub const FEATURES: &[Feature] = &[
+    Feature {
+        name: "outsource",
+        stage: Stage::Building,
+        setting: "TEHAS_OUTSOURCE",
+        since: "v1.0.0-alpha.2",
+    },
+    Feature {
+        name: "spec-pipe",
+        stage: Stage::Building,
+        setting: "TEHAS_SPEC_PIPE",
+        since: "v1.0.0-alpha.3",
+    },
+    Feature {
+        name: "protolab-zip-url",
+        stage: Stage::Building,
+        setting: "TEHAS_PROTOLAB_ZIP_URL",
+        since: "v1.0.0-alpha.3",
+    },
+    Feature {
+        name: "prototype-file",
+        stage: Stage::Building,
+        setting: "TEHAS_PROTOTYPE_FILE",
+        since: "v1.0.0-alpha.3",
+    },
+    Feature {
+        name: "lean",
+        stage: Stage::Building,
+        setting: "TEHAS_LEAN",
+        since: "v1.0.0-alpha.3",
+    },
+];
 
 /// The internal variable that lets a test turn building features on: their
 /// names, one space apart.
@@ -94,6 +120,29 @@ pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
     Ok(())
 }
 
+/// Why `what` cannot run while the feature is not on, or Ok when it is. The
+/// words every refusal of a part of a feature says, so the load, the poll and
+/// a command name the feature and its switch the same way.
+pub fn needs(name: &str, what: &str, get: &dyn Fn(&str) -> String) -> Result<(), String> {
+    let Some(f) = find(name) else {
+        return Err(format!(
+            "{what} needs {name}, which this release does not have"
+        ));
+    };
+    if on_in(name, get) {
+        Ok(())
+    } else if !usable(f, get) {
+        Err(format!(
+            "{what} needs the feature {name}, and {name} is still being built in this release"
+        ))
+    } else {
+        Err(format!(
+            "{what} needs the feature {name}: set {}=on",
+            f.setting
+        ))
+    }
+}
+
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
@@ -109,6 +158,15 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         move |name: &str| map.get(name).cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn the_contract_page_says_what_each_feature_leaves_visible_while_it_is_off() {
+        let page = include_str!("../../../host/docs/contract.md");
+        for f in FEATURES {
+            let heading = format!("\n### {}\n", f.name);
+            assert!(page.contains(&heading), "contract.md has no {heading:?}");
+        }
     }
 
     #[test]
@@ -136,6 +194,84 @@ mod tests {
     fn outsource_is_building() {
         assert_eq!(find("outsource").map(|f| f.stage), Some(Stage::Building));
         assert!(!shipped().contains(&"outsource"));
+    }
+
+    #[test]
+    fn the_spec_pipe_is_building_and_follows_its_switch_only_in_a_test() {
+        assert_eq!(find("spec-pipe").map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&"spec-pipe"));
+        assert!(!on_in("spec-pipe", &vars(&[("TEHAS_SPEC_PIPE", "on")])));
+        let tested = vars(&[("TEHAS_SPEC_PIPE", "on"), (TEST_VAR, "spec-pipe")]);
+        assert!(on_in("spec-pipe", &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_SPEC_PIPE", "1")])),
+            Err("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn the_protolab_zip_url_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "protolab-zip-url";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on")])));
+        let tested = vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_PROTOLAB_ZIP_URL", "1")])),
+            Err("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn the_prototype_file_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "prototype-file";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_PROTOTYPE_FILE", "on")])));
+        let tested = vars(&[("TEHAS_PROTOTYPE_FILE", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_PROTOTYPE_FILE", "on")])),
+            Err("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn lean_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "lean";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_LEAN", "on")])));
+        let tested = vars(&[("TEHAS_LEAN", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_LEAN", "on")])),
+            Err("TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn a_part_that_needs_a_feature_names_it_and_its_switch() {
+        let what = "TEHAS_DRIVER=lean";
+        assert_eq!(
+            needs("lean", what, &vars(&[("TEHAS_LEAN", "on")])),
+            Err("TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release".to_string())
+        );
+        assert_eq!(
+            needs(
+                "lean",
+                what,
+                &vars(&[("TEHAS_LEAN", "off"), (TEST_VAR, "lean")])
+            ),
+            Err("TEHAS_DRIVER=lean needs the feature lean: set TEHAS_LEAN=on".to_string())
+        );
+        let tested = vars(&[("TEHAS_LEAN", "on"), (TEST_VAR, "lean")]);
+        assert_eq!(needs("lean", what, &tested), Ok(()));
+        assert_eq!(
+            needs("nope", what, &tested),
+            Err("TEHAS_DRIVER=lean needs nope, which this release does not have".to_string())
+        );
     }
 
     #[test]

@@ -15,7 +15,6 @@
 
 use crate::jq::{obj, J};
 use crate::update::release::{older, prerelease, stale, tag_ok};
-use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -81,28 +80,6 @@ fn newest_of(answer: &str) -> Option<String> {
     newest.map(str::to_string)
 }
 
-/// The instance's setting, else the last line of the installed versions.env,
-/// read as text. None when neither names owner/name.
-fn release_repo(home: &Path) -> Option<String> {
-    let repo = env::var("TEHAS_RELEASE_REPO")
-        .ok()
-        .filter(|r| !r.is_empty())
-        .or_else(|| {
-            let text = fs::read_to_string(home.join("versions.env")).ok()?;
-            text.lines()
-                .filter_map(|l| l.strip_prefix("TEHAS_RELEASE_REPO="))
-                .next_back()
-                .map(str::to_string)
-        })?;
-    let word = |w: &str| {
-        !w.is_empty()
-            && w.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
-    };
-    let (owner, name) = repo.split_once('/')?;
-    (word(owner) && word(name)).then_some(repo)
-}
-
 fn run(program: &str, args: &[&str]) -> call::Ran {
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     call::run(program, &args, Duration::from_secs(FETCH_LIMIT))
@@ -111,8 +88,8 @@ fn run(program: &str, args: &[&str]) -> call::Ran {
 /// The newest published release, or nothing when GitHub does not answer or
 /// names none. gh when it is signed in, which reaches a private repository
 /// with the bot's token; the public address otherwise.
-fn newest_read(home: &Path) -> Option<String> {
-    let repo = release_repo(home)?;
+fn newest_read() -> Option<String> {
+    let repo = tehas_core::release::repo()?;
     let path = format!("repos/{repo}/releases?per_page=100");
     let ran = if run("gh", &["auth", "status"]).ok() {
         run("gh", &["api", &path])
@@ -188,7 +165,7 @@ fn release(home: &Path, live: &Path, installed: &str) {
         // The attempt is remembered first, so a read that hangs or fails is
         // not tried at every poll.
         stamp_write(&stamp, now, &fetched);
-        if let Some(got) = newest_read(home) {
+        if let Some(got) = newest_read() {
             newest = got;
             fetched = now.to_string();
             let _ = fs::write(&cache, format!("{newest}\n"));
