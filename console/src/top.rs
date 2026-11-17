@@ -781,8 +781,6 @@ fn host(later: &Value, earlier: &Value, page: f64) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(test)]
-    use std::os::unix::fs::PermissionsExt;
 
     /// The publisher's loop at the bound it gives its own child: a child that
     /// never ends is stopped at that bound and costs one mark, and the 78 of the
@@ -799,13 +797,12 @@ mod tests {
         // one and is ended by the second, so it stops of its own accord and
         // leaves no child - the bound's TERM ends the hung one, and its grace
         // bounds how long the wait for that takes.
-        fs::write(
+        tehas_core::testing::write_exe(
             &tehasbot,
             "#!/bin/sh\nif [ -f \"$TEHAS_PUBLISH_MARK\" ]; then exit 78; fi\n\
              : >\"$TEHAS_PUBLISH_MARK\"\nexec sleep 600\n",
         )
         .unwrap();
-        fs::set_permissions(&tehasbot, fs::Permissions::from_mode(0o755)).unwrap();
         std::env::set_var("TEHAS_PUBLISH_MARK", d.join("mark"));
         let began = Instant::now();
         let ended = std::panic::catch_unwind(|| {
