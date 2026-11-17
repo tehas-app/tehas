@@ -910,6 +910,11 @@ impl Writer {
             let said = self.stamped(n, recorded, said, log);
             self.say(n, &said, log);
         }
+        if let Some(say) = self.say_now {
+            for line in log.drain(..) {
+                say(&line);
+            }
+        }
         let why = match self.unit_start(n, before, log) {
             Ok(()) => {
                 self.analytics(&["event".into(), n.to_string(), "started".into()], log);

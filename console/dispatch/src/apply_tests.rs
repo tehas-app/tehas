@@ -229,6 +229,7 @@ fn world() -> World {
         starts: 0,
         fetched: false,
         looked: Default::default(),
+        say_now: None,
     };
     World {
         dir,
@@ -1282,6 +1283,45 @@ fn a_start_off_read_only_leaves_no_record() {
     let mut t = world();
     t.apply(json!([start_of(7, "label")]));
     assert!(tehas_core::read_only::recorded(&t.w.home).is_empty());
+}
+
+thread_local! {
+    /// What `say_now` wrote, each line with whether the unit had started then.
+    static SAID_NOW: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static CALLS_LOG: std::cell::RefCell<PathBuf> = const { std::cell::RefCell::new(PathBuf::new()) };
+}
+
+fn say_now(line: &str) {
+    let started = CALLS_LOG.with(|p| {
+        fs::read_to_string(&*p.borrow())
+            .unwrap_or_default()
+            .lines()
+            .any(|l| l == "start 7")
+    });
+    SAID_NOW.with(|s| s.borrow_mut().push((line.to_string(), started)));
+}
+
+/// The cycle writes its own end to the poll's log, and a start that is
+/// refused at once ends before the start returns: the start's line is written
+/// before its unit runs, not after it.
+#[test]
+fn a_start_writes_its_line_before_its_unit_runs() {
+    let mut t = world();
+    CALLS_LOG.with(|p| *p.borrow_mut() = t.dir.join("calls.log"));
+    t.w.say_now = Some(say_now);
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    let said = SAID_NOW.with(|s| s.borrow().clone());
+    assert_eq!(
+        said,
+        vec![("start #7 (labelled by alice)".to_string(), false)]
+    );
+    assert!(steps(&t).contains(&"start 7".to_string()));
+    assert!(
+        !a.log.iter().any(|l| l.starts_with("start #7")),
+        "{:?}",
+        a.log
+    );
 }
 
 #[test]

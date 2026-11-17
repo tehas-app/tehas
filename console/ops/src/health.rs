@@ -1694,18 +1694,31 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         _ => (J::Arr(vec![]), J::Null),
     };
     let zero = J::num(0.0);
+    let started_since = running.items().iter().any(|c| {
+        // A cycle of no known start is running now.
+        c.get("startedAt").is_null()
+            || c.get("startedAt")
+                .cmp(last.get("updatedAt").or(&zero))
+                .is_ge()
+    });
+    let refused = !last.is_null() && in_list(last.get("status"), &[REFUSED]);
     let failed = !last.is_null()
         && !ended_well(&last)
         // A start that was refused ran nothing, so it is no failed cycle: the
         // same rule `a_failed_ending` applies to the list of the last ten.
-        && !in_list(last.get("status"), &[REFUSED])
-        && !running.items().iter().any(|c| {
-            // A cycle of no known start is running now.
-            c.get("startedAt").is_null()
-                || c.get("startedAt")
-                    .cmp(last.get("updatedAt").or(&zero))
-                    .is_ge()
-        });
+        && !refused
+        && !started_since;
+    // It is said where the factory has nothing more pressing to say: a start
+    // was refused, not a cycle failed. The end's notice says why.
+    let refused_line = (refused && !started_since).then(|| {
+        let n = last.get("issue").text();
+        match last.get("statusText").as_str().filter(|t| !t.is_empty()) {
+            Some(why) => format!("The last start was refused before anything ran: #{n}, {why}."),
+            None => {
+                format!("The last start was refused before anything ran: #{n}. Its park says why.")
+            }
+        }
+    });
     let behind = !platform.is_null()
         && platform.get("behind").above_zero()
         && now
@@ -1921,6 +1934,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "Labelled epic with no sub-issues: {}. Link their parts to them as sub-issues.",
             named.join(", ")
         )
+    } else if let Some(line) = refused_line {
+        line
     } else if !running.is_empty() {
         let issues: Vec<String> = running
             .items()
@@ -3370,6 +3385,37 @@ mod tests {
                 None => assert_ne!(r.get("status").text(), "fail", "{word}"),
             }
         }
+    }
+
+    #[test]
+    fn a_refused_last_start_is_said_as_refused_with_why() {
+        let h = home("refused-why");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","statusText":"the sandbox image lacks what it was given","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        let (status, output) = said(&r);
+        assert_ne!(status, "fail");
+        assert_eq!(
+            output,
+            "The last start was refused before anything ran: #7, the sandbox image lacks what it was given."
+        );
+        // An end of before the notice was kept says where to look.
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
+        );
+        assert_eq!(
+            said(&h.report(&Given::default())).1,
+            "The last start was refused before anything ran: #7. Its park says why."
+        );
+        // A cycle started since is what the line says.
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[{"issue":8,"running":true,"startedAt":300}],"last":{"issue":7,"running":false,"status":"refused","step":"-","startedAt":100,"updatedAt":200}}"#,
+        );
+        assert_eq!(said(&h.report(&Given::default())).1, "Working on #8.");
     }
 
     #[test]

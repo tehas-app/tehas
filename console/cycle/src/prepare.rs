@@ -179,7 +179,7 @@ pub fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Ve
         limit.div_ceil(60).to_string(),
         "--json".to_string(),
     ];
-    if restart && driver == Driver::Classic {
+    if restart && !driver.never_takes().contains(&"--restart") {
         flags.push("--restart".to_string());
     }
     if refresh {
@@ -238,24 +238,66 @@ fn refuse(c: &Check, cause: &str) -> i32 {
     78
 }
 
+/// The mark of a line of a `caps-lacking` note for a flag tehas passed that the
+/// driver never takes ([`Driver::never_takes`]): a fault of tehas, not of the
+/// image.
+const NEVER_TAKEN: &str = "never-taken ";
+
+/// The lines of an unsupported answer, each flag the driver never takes marked
+/// with [`NEVER_TAKEN`].
+pub fn mark_never_taken(lacking: &str, driver: Driver) -> String {
+    lacking
+        .lines()
+        .map(|l| match l.strip_prefix("the flag ") {
+            Some(f) if driver.never_takes().contains(&f) => format!("{NEVER_TAKEN}{l}\n"),
+            _ => format!("{l}\n"),
+        })
+        .collect()
+}
+
+/// What a park says of the note [`refuse`] left.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Refused {
+    /// The sentences of the park.
+    pub said: String,
+    /// A few words of why, for the factory's line.
+    pub short: &'static str,
+    /// Tehas passed what the driver never takes.
+    pub fault: bool,
+}
+
+impl Refused {
+    fn of(said: String, short: &'static str) -> Refused {
+        Refused {
+            said,
+            short,
+            fault: false,
+        }
+    }
+}
+
 /// The words a park says of the note [`refuse`] left, or None when the text is
 /// not one. Only words the check wrote are said, each line checked again.
-pub fn refused_said(text: &str) -> Option<String> {
+pub fn refused_said(text: &str) -> Option<Refused> {
     let mut lines = text.lines();
     let first = lines.next()?;
     if first == "tree-not-ours" {
-        return Some("The directory that holds the workspaces exists and was not made by tehas, so tehas work did not touch it.".into());
+        return Some(Refused::of("The directory that holds the workspaces exists and was not made by tehas, so tehas work did not touch it.".into(), "the directory of the workspaces is not tehas's"));
     }
     if let Some(rc) = first.strip_prefix("caps-unreadable ") {
         let ok = !rc.is_empty() && rc.len() <= 3 && rc.bytes().all(|b| b.is_ascii_digit());
         return ok.then(|| {
-            format!("The sandbox image gave no `--capabilities` answer that tehas could read (exit {rc}).")
+            Refused::of(
+                format!("The sandbox image gave no `--capabilities` answer that tehas could read (exit {rc})."),
+                "the sandbox image gave no capabilities answer",
+            )
         });
     }
     if first != "caps-lacking" {
         return None;
     }
-    let lacks: Vec<String> = lines
+    let (mut lacks, mut never) = (Vec::new(), Vec::new());
+    for l in lines
         .filter(|l| {
             !l.is_empty()
                 && l.len() <= 200
@@ -263,15 +305,39 @@ pub fn refused_said(text: &str) -> Option<String> {
                     .all(|b| b.is_ascii_alphanumeric() || b" ._,-".contains(&b))
         })
         .take(20)
-        .map(|l| format!("`{l}`"))
-        .collect();
-    if lacks.is_empty() {
+    {
+        match l.strip_prefix(NEVER_TAKEN) {
+            Some(rest) if !rest.is_empty() => never.push(format!("`{rest}`")),
+            Some(_) => {}
+            None => lacks.push(format!("`{l}`")),
+        }
+    }
+    let mut said = Vec::new();
+    if !never.is_empty() {
+        said.push(format!(
+            "Tehas passed what this driver never takes: {}. That is a fault in tehas, not in the sandbox image or the issue.",
+            never.join(", ")
+        ));
+    }
+    if !lacks.is_empty() {
+        said.push(format!(
+            "The sandbox image does not support what this cycle is given: {}.",
+            lacks.join(", ")
+        ));
+    }
+    if said.is_empty() {
         return None;
     }
-    Some(format!(
-        "The sandbox image does not support what this cycle is given: {}.",
-        lacks.join(", ")
-    ))
+    let fault = !never.is_empty();
+    Some(Refused {
+        said: said.join(" "),
+        short: if fault {
+            "tehas passed a flag the driver never takes"
+        } else {
+            "the sandbox image lacks what it was given"
+        },
+        fault,
+    })
 }
 
 /// The first step. Its exit status.
@@ -445,8 +511,14 @@ pub fn check(c: &Check) -> i32 {
             let _ = fs::File::create(&c.lean_note);
             eprintln!("    (driver lean, {verb}; it does not run classic in its place)");
         }
-        for line in lacking.trim_end_matches('\n').lines() {
-            eprintln!("    {line}");
+        let lacking = mark_never_taken(&lacking, c.driver);
+        for line in lacking.lines() {
+            match line.strip_prefix(NEVER_TAKEN) {
+                Some(l) => eprintln!(
+                    "    {l} (tehas passed it, and {verb} never takes it: a fault of tehas, not of the image)"
+                ),
+                None => eprintln!("    {line}"),
+            }
         }
         return refuse(c, &format!("caps-lacking\n{lacking}"));
     }
@@ -1696,28 +1768,27 @@ mod tests {
 
     #[test]
     fn a_refusal_note_is_said_only_in_the_words_the_check_wrote() {
+        let said = |t: &str| refused_said(t).unwrap().said;
         assert_eq!(
-            refused_said("caps-unreadable 127\n").unwrap(),
+            said("caps-unreadable 127\n"),
             "The sandbox image gave no `--capabilities` answer that tehas could read (exit 127)."
         );
-        assert!(refused_said("tree-not-ours\n")
-            .unwrap()
-            .contains("was not made by tehas"));
+        assert!(said("tree-not-ours\n").contains("was not made by tehas"));
         assert_eq!(
-            refused_said("caps-lacking\nthe flag --restart\nthe feature leanHandoffHost\n")
-                .unwrap(),
+            said("caps-lacking\nthe flag --restart\nthe feature leanHandoffHost\n"),
             "The sandbox image does not support what this cycle is given: `the flag --restart`, `the feature leanHandoffHost`."
         );
         // A line the check did not write is left out, and a note with none
         // of its lines, or another first line, is no note.
         assert_eq!(
-            refused_said("caps-lacking\nthe input A\n`@x` <b>\n").unwrap(),
+            said("caps-lacking\nthe input A\n`@x` <b>\n"),
             "The sandbox image does not support what this cycle is given: `the input A`."
         );
         for t in [
             "",
             "caps-lacking\n",
             "caps-lacking\n@x\n",
+            "caps-lacking\nnever-taken \n",
             "caps-unreadable\n",
             "caps-unreadable 12a\n",
             "caps-unreadable 1000\n",
@@ -1725,6 +1796,35 @@ mod tests {
         ] {
             assert_eq!(refused_said(t), None, "{t:?}");
         }
+    }
+
+    /// A flag tehas passed that the driver never takes is tehas's fault, said
+    /// apart from what the image lacks.
+    #[test]
+    fn a_flag_the_driver_never_takes_is_said_as_a_fault_of_tehas() {
+        let note = mark_never_taken(
+            "the flag --restart\nthe flag --continue-pr\nthe input A\n",
+            Driver::Lean,
+        );
+        assert_eq!(
+            note,
+            "never-taken the flag --restart\nthe flag --continue-pr\nthe input A\n"
+        );
+        // Classic takes a restart: a missing one is the image's.
+        assert_eq!(
+            mark_never_taken("the flag --restart\n", Driver::Classic),
+            "the flag --restart\n"
+        );
+        let r = refused_said(&format!("caps-lacking\n{note}")).unwrap();
+        assert!(r.fault);
+        assert_eq!(r.short, "tehas passed a flag the driver never takes");
+        assert_eq!(
+            r.said,
+            "Tehas passed what this driver never takes: `the flag --restart`. That is a fault in tehas, not in the sandbox image or the issue. The sandbox image does not support what this cycle is given: `the flag --continue-pr`, `the input A`."
+        );
+        let r = refused_said("caps-lacking\nthe input A\n").unwrap();
+        assert!(!r.fault);
+        assert_eq!(r.short, "the sandbox image lacks what it was given");
     }
 
     #[test]
