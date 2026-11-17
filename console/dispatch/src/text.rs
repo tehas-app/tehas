@@ -74,8 +74,8 @@ pub fn no_mark_said(ask: &str, why: &str) -> String {
     format!("{why}. {fix} and applies `{ask}` again.")
 }
 
-/// The most bytes a spec is fetched with: one file of an issue's.
-pub const SPEC_MOST: i64 = 1024 * 1024;
+/// The most bytes a spec is fetched with, at a start and again for its cycle.
+pub const SPEC_MOST: i64 = attach::handoff::SPEC_MOST;
 
 /// Why the bytes fetched for a spec stop its start: the pinned fetch found
 /// other bytes, or GitHub refused the link (curl's 22 on an answer of 4xx) or
