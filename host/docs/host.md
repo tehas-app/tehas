@@ -657,11 +657,9 @@ and no `~/tehas/current`, so `tehas update` keeps pulling the checkout. To move
 it to releases, once a signed release is published:
 
 1. Install minisign, which checks the signature: `sudo apt-get install minisign`.
-2. Check that `~/tehas/release/minisign.pub` is there. `install.sh` has put it
-   there since the key was added; run `tehas update` once from the checkout if
-   it is missing.
-3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
-4. Run `tehas update --check`, read the Adopter action of each release it
+   The key it checks with is built into tehas.
+2. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
+3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
 The checkout stays where it is and is no longer read. To go back to it, set

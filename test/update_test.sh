@@ -349,6 +349,14 @@ t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the console at $T/bin/broken-console does not answer (exit 2)"
 t_contains "$t_out" "troubleshooting"
+# The status decides, not the word: a console that says 1 and fails is not asked
+# to run the update.
+t_stub broken-console 'echo 1; exit 3'
+rm -f "$T/calls/broken-console"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the console at $T/bin/broken-console does not answer (exit 3)"
+t_eq "$(t_calls broken-console)" "update api"
 T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" GH_TOKEN=ghs_test)
 t_eq "$(state | cut -d' ' -f2)" "$(head_sha)"
 t_eq "$(t_calls install)" ""

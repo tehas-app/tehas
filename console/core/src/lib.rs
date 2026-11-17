@@ -43,6 +43,7 @@ pub mod plan;
 pub mod question;
 pub mod queue_lists;
 pub mod read_only;
+pub mod release;
 #[cfg(feature = "mask")]
 pub mod retry;
 pub mod review;
