@@ -110,7 +110,9 @@ With the feature off, `install.sh` builds, copies and compares none of the
 three: no program, no unit, and the same `next: units` line as before. A host
 that turns it off keeps what an earlier run installed, and those files are no
 longer brought current. The proxy reads the switch when it starts, says the
-feature is off and ends 0, so nothing listens. To take the unit away as well:
+feature is off and ends 0. A proxy that is already running keeps listening
+until it is stopped or restarted, and no update step does either for a feature
+that is off. To stop it and take the unit away:
 
 ```
 systemctl --user disable --now tehas-outsource-proxy.service
@@ -144,7 +146,9 @@ the instance settings and runs `tehas-proxy` with them. The proxy reads the
 contractors and the jobs from the state store under `TEHAS_HOME`. The unit is
 restarted when it fails, but not after 78, a setting it cannot take: the
 journal says which, once. An update that brings a new proxy or a new unit
-file asks for the unit's restart on its `next: units` line.
+file asks for the unit's restart on its `next: units` line. While the feature
+is on, so does a change to `env.sh` or to any other unit file, as it does for
+the other units, because the proxy keeps the environment it started with.
 
 The proxy's control socket is `~/tehas/state/outsource/proxy.sock`. The
 socket can also issue a job's model token by hand (`tehas-proxy --issue`),
