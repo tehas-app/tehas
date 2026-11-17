@@ -444,3 +444,24 @@ fn an_npm_release_younger_than_npms_min_release_age_is_not_taken() {
     .unwrap();
     assert!(lines.contains(&"Pi 1.4.0 1.5.0".to_string()), "{lines:?}");
 }
+
+#[test]
+fn move_takes_a_release_or_a_prerelease_and_nothing_else() {
+    let args = |v: &str| {
+        ["move", "--release", v, "--root"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+    };
+    // A root that is no tree fails after the arguments are taken: 1, not 64.
+    for good in ["v1.0.0", "v1.0.0-beta.1", "v1.0.0-rc.2"] {
+        let mut a = args(good);
+        a.push("/nonexistent/tehas-pins-root".to_string());
+        assert_ne!(super::main(&a), 64, "{good}");
+    }
+    for bad in ["1.0.0", "v1.0", "v1.0.0-beta", "latest"] {
+        let mut a = args(bad);
+        a.push("/nonexistent/tehas-pins-root".to_string());
+        assert_eq!(super::main(&a), 64, "{bad}");
+    }
+}
