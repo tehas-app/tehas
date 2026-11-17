@@ -14,9 +14,13 @@
   must be `name:address`, the address an IPv4 or IPv6 address or
   `host-gateway`. Any other value stops the load with exit 78, and no
   container is started with it.
+- `tehas disk` and `tehas setup` refuse a value they read from a settings file
+  that a shell would expand (a `$` or a backtick outside single quotes), with a
+  line that names the key and not its value. Before, they took it as written
+  while the shell that sources the same file expanded it.
 
 ### Adopter action
 
-If `tehas update --check` or any command now stops with
+If a command now stops with
 `PI_ENSEMBLE_HOST_ALIASES is not valid`, write each entry as
 `name:address`, such as `models.example:192.0.2.10`.
