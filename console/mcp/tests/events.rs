@@ -1,6 +1,8 @@
 // factory_events over dispatch.log and refresh.log: the fixtures, and logs
 // the tests write, grow, truncate and rotate.
 
+use crate::common;
+
 use mcp::events::{DEFAULT_EVENTS, EVENTS_MAX, READ_MAX, TEXT_CUT};
 use mcp::keys::{parse_keys, Setting};
 use mcp::rpc::{handle, Request};
@@ -65,7 +67,7 @@ fn line(t: i64, text: &str) -> String {
 
 fn events_call(dirs: &Dirs, args: Value) -> Result<Value, ToolError> {
     match call(dirs, "factory_events", &args)? {
-        Output::Json(v) => Ok(v),
+        Output::Json(v) => Ok(common::conforms("factory_events", v)),
         other => panic!("not JSON: {other:?}"),
     }
 }

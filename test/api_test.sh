@@ -82,7 +82,9 @@ t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`refresh-pr` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '"host-start"'
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`host-start` ('
 t_contains "$(cat "$T_ROOT/host/docs/api.md")" '`flags` ('
-manual=$(cat "$T_ROOT"/host/docs/*.md)
+# The guide to updating from 0.30.x names the old words to say what replaced
+# them; the rest of the manual names only the new ones.
+manual=$(awk '/^### Updating from 0\.30\.x to 1\.0$/ {skip = 1; next} skip && /^##/ {skip = 0} !skip' "$T_ROOT"/host/docs/*.md)
 for old in refresh-pr-starts refresh-pr-lane refresh-pr-json host-message-health '`store-copy`'; do
   t_lacks "$manual" "$old"
 done

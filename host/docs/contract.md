@@ -75,8 +75,8 @@ Internal:
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
-| `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, `test/status_contract_test.sh` |
-| MCP | The tools, their input and output schemas | The MCP server's tests |
+| `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints |
+| MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
 | `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
 

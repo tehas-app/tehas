@@ -246,7 +246,9 @@ draws the rest. The factory line and the queue counts are the ones `tehas status
 prints: both commands take them from the console (`console/src/status.rs`), so
 they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
-changing.
+changing. The snapshot is not public: it is the dashboard's own, has no schema
+in `api/` and may change in any release. A program reads
+[`tehas status --json`](/api#tehas-status---json) instead.
 
 The host section compares two readings of `/proc`: the machine's cpu count, its
 three load averages, what share of its cpus and of its memory is in use between

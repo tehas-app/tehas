@@ -1,5 +1,7 @@
 // The session tools over a snapshot written by the tests.
 
+use crate::common;
+
 use mcp::sessions::{find, links};
 use mcp::snapshot::Snapshot;
 use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
@@ -64,7 +66,7 @@ impl Env {
 
     fn call(&self, name: &str, args: Value) -> Result<Value, ToolError> {
         match mcp::tools::call(&self.dirs, name, &args)? {
-            Output::Json(v) => Ok(v),
+            Output::Json(v) => Ok(common::conforms(name, v)),
             other => panic!("{name} gave {other:?}"),
         }
     }
@@ -1088,7 +1090,7 @@ fn an_issue_being_planned() {
         logs: root.join("no-logs"),
     };
     let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6})) {
-        Ok(Output::Json(v)) => v,
+        Ok(Output::Json(v)) => common::conforms("factory_issue", v),
         other => panic!("not JSON: {other:?}"),
     };
     assert_eq!(out["stage"], "planning");

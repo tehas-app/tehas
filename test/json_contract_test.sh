@@ -22,7 +22,12 @@ samples_write=${TEHAS_SAMPLES_WRITE:-}
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
-t_stub gh
+# gh answers the one read of the start samples, the open issue 12.
+printf '%s\n' '{"number": 12, "state": "open", "title": "A title", "body": "Words."}' >"$T/issue-12.json"
+# shellcheck disable=SC2016  # the stub's words are expanded when it runs
+t_stub gh 'case "$1 $2" in
+  "api repos/acme/widget/issues/12") cat "$T/issue-12.json" ;;
+esac'
 
 api=$T_ROOT/api
 
@@ -317,6 +322,45 @@ surfaces=(
   'bound	full.containers[0].image	.full.containers[0].image = "a"	.full.containers[0].image = "a" * 201	longer than 200	full'
   'bound	filesystems[0].paths[0]	.filesystems[0].paths = ["/home/boss/tehas"]	.filesystems[0].paths = [1]	integer, not string'
   'required	["api","time","filesystems"]'
+
+  # The answer of `tehas start <issue> --json` and of `--clear --json`: the
+  # approval recorded, the one taken back, and none to take back. The surface
+  # has no state, so it has no `state` lines.
+  'surface	start'
+  'sample	sample'
+  'sample	cleared'
+  'sample	none'
+  'check	del(.cleared) | .zz = 1 | .issue = "12"	.: cleared is missing'
+  'check	del(.cleared) | .zz = 1 | .issue = "12"	.zz: not in the schema'
+  'check	del(.cleared) | .zz = 1 | .issue = "12"	.issue: string, not integer'
+  'check	.approval.zz = 1	.approval.zz: not in the schema'
+  'bound	issue	.issue = 1	.issue = 0	under 1'
+  'bound	approval.bodySha256	.approval.bodySha256 = ("a" * 64)	.approval.bodySha256 = ("A" * 64)	does not match'
+  'required	["api","issue","approval","cleared"]'
+
+  # The answer of `tehas state check --json`: the store's own answer to its
+  # check, of a new store. A store that fails its check prints no object, so
+  # there is one sample.
+  'surface	state-check'
+  'sample	sample'
+  'check	del(.rows) | .zz = 1 | .schema = "17"	.: rows is missing'
+  'check	del(.rows) | .zz = 1 | .schema = "17"	.zz: not in the schema'
+  'check	del(.rows) | .zz = 1 | .schema = "17"	.schema: string, not integer'
+  'bound	schema	.schema = 1	.schema = 0	under 1'
+  'bound	rows	.rows = {"cycles": 0}	.rows = {}	fewer than 1 properties'
+  'required	["api","verb","ok","schema","integrity","rows"]'
+
+  # The answer of `tehas export --json`: the runs of the history samples, copied,
+  # and none after the cursor of a store with no end. `runs` is the schema of
+  # history's, which a case below compares.
+  'surface	export'
+  'sample	sample'
+  'sample	empty'
+  'check	del(.to) | .zz = 1 | .version = 2	.: to is missing'
+  'check	del(.to) | .zz = 1 | .version = 2	.zz: not in the schema'
+  'check	del(.to) | .zz = 1 | .version = 2	.version: 2, not 1'
+  'bound	to	.to = "/a"	.to = "a"	does not match'
+  'required	["api","version","runs","next","to"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -718,6 +762,34 @@ disk_without_clock() { # <json>: the object with the run's moment taken out
          | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")'
 }
 
+# The issue `tehas start` approves in the start samples, as the stub of gh
+# above answers it, and the clock of the approval: the moment the limit is
+# written at. The console is run as itself and not through bin/tehas, whose
+# load of the instance drops the test clock, so the repository is named too.
+start_env="TEHAS_REPO=acme/widget TEHAS_STORE_TEST_NOW=$limit_written"
+
+# <name>: the store that sample is a reading of. `cleared` takes back an
+# approval recorded first; `none` finds nothing to take back.
+start_world() { # <name>
+  t_store_home "$T/home/tehas"
+  [ "$1" = cleared ] || return 0
+  t_run "$start_env '$T_CONSOLE' tehas start 12 >/dev/null 2>&1" ||
+    t_bad "approving #12 failed: $t_out"
+}
+
+start_reading() { # <name>
+  local clear=
+  [ "$1" = sample ] || clear=--clear
+  t_run "$start_env '$T_CONSOLE' tehas start 12 $clear --json | jq ."
+}
+
+# The directory of the export samples, and the name `to` is given in them: the
+# scratch tree of a run is named anew each run, so the sample names it /tmp.
+export_dir=$T/archive
+export_stable() { # <json>: the object with the scratch tree named /tmp
+  jq --arg t "$T/" '.to |= (if startswith($t) then "/tmp/" + ltrimstr($t) else . end)'
+}
+
 # <surface> <name>: the object the code prints for that sample, as committed, on
 # standard output as one JSON object. The console of this run prints it, and the
 # same program wrote the file. Not bin/tehas: that goes through console front,
@@ -782,6 +854,24 @@ printed() { # <surface> <name>
         *) disk_reading "$name" ;;
       esac
       printf '%s\n' "$t_out"
+      ;;
+    start)
+      start_world "$name"
+      start_reading "$name"
+      printf '%s\n' "$t_out"
+      ;;
+    state-check)
+      t_store_home "$T/home/tehas"
+      t_run "'$T_CONSOLE' tehas state check --json | jq ."
+      printf '%s\n' "$t_out"
+      ;;
+    export)
+      # The history world of the same name: the four ends of the history
+      # samples, or a store with none. The cursor is a second before the first.
+      # The console is run as itself, so the repository the links name is given.
+      history_world "$name"
+      t_run "TEHAS_REPO=acme/widget '$T_CONSOLE' tehas export --json --after $((history_end - 61))-1 '$export_dir'"
+      printf '%s\n' "$t_out" | export_stable
       ;;
     *) return 1 ;;
   esac
@@ -1329,5 +1419,86 @@ $changes"
     t_contains "$lines" "$word"
   done
 done
+
+# The objects whose samples the test of their own command holds to what it
+# prints, and that test: here each schema is held to the rules of the table's,
+# and its samples to the schema. A third word `open` is a file the docs server
+# serves rather than a --json object, which the schema leaves open; `own` is
+# an object whose own test walks its fields and the manual's names for them.
+pinned=(
+  'status	test/status_contract_test.sh	own'
+  'refresh	test/refresh_test.sh'
+  'analytics-copy	console/analytics/tests/command.rs'
+  'state-copy	test/state_test.sh'
+  'state-load	test/state_test.sh'
+  'disk-cycles	test/disk_test.sh	own'
+  'host-messages	test/host_message_test.sh'
+  'settings-rules	test/settings_rules_test.sh	own'
+  'host-bridge	test/host_bridge_test.sh	open'
+)
+
+t_case "every schema in api/ is a surface of the table or pinned by its own test"
+known=" "
+for line in "${surfaces[@]}"; do
+  [ "$(surface_line "$line" 1)" = surface ] && known+="$(surface_line "$line" 2) "
+done
+for line in "${pinned[@]}"; do known+="$(surface_line "$line" 1) "; done
+# test/api_test.sh holds api.schema.json itself: every sample, every field the
+# command prints, and what the schema refuses.
+known+="api "
+for file in "$api"/*.schema.json; do
+  name=$(basename "$file" .schema.json)
+  case $known in *" $name "*) ;; *) t_bad "api/$name.schema.json is held by no test of this file" ;; esac
+done
+
+manual_all=$(cat "$T_ROOT"/host/docs/*.md)
+for line in "${pinned[@]}"; do
+  surface=$(surface_line "$line" 1)
+  owner=$(surface_line "$line" 2)
+  how=$(surface_line "$line" 3)
+  schema=$api/$surface.schema.json
+  samples=()
+  for file in "$api/$surface".*.json "$api/$surface.json"; do
+    [ -f "$file" ] && [ "$file" != "$schema" ] && samples+=("$file")
+  done
+
+  t_case "api/$surface.schema.json is 2020-12, names its test, and $owner reads it"
+  t_eq "$(jq -r '."$schema"' "$schema")" "https://json-schema.org/draft/2020-12/schema"
+  t_eq "$(jq -r '."$id"' "$schema")" "https://github.com/tehas-app/tehas/api/$surface.schema.json"
+  t_contains "$(jq -r '.description' "$schema")" "$owner"
+  t_contains "$(cat "$T_ROOT/$owner")" "api/$surface."
+  [ "$how" = open ] || t_eq "$(jq '.additionalProperties' "$schema")" "false"
+
+  t_case "the samples of $surface fit api/$surface.schema.json"
+  [ "${#samples[@]}" -gt 0 ] || t_bad "api/ holds no sample of $surface"
+  for file in "${samples[@]}"; do
+    lines=$(check "$schema" "$file") || t_bad "the schema check could not be run"
+    t_eq "$(basename "$file") $lines" "$(basename "$file") "
+  done
+
+  [ -z "$how" ] || continue
+  t_case "the samples of $surface between them hold every field of its schema"
+  paths=$(schema_paths "$schema") || t_bad "the schema could not be walked"
+  held=$(for file in "${samples[@]}"; do held_paths "$file"; done | sort -u)
+  t_eq "$(comm -23 <(printf '%s\n' "$paths") <(printf '%s\n' "$held"))" ""
+
+  t_case "the manual names every field of the schema of $surface"
+  unnamed=""
+  for path in $paths; do
+    case $manual_all in *"| \`$path\` |"*) ;; *) unnamed+=" $path" ;; esac
+  done
+  t_eq "$unnamed" ""
+done
+
+t_case "the runs of an export are the runs of history"
+t_eq "$(jq -cS '.properties.runs' "$api/export.schema.json")" \
+  "$(jq -cS '.properties.runs' "$api/history.schema.json")"
+t_eq "$(jq -c '.runs' "$api/export.sample.json")" "$(jq -c '.runs' "$api/history.sample.json")"
+
+t_case "tehas top --json is not public: no schema, and the manual says so"
+t_eq "$(find "$api" -name 'top*' | wc -l)" 0
+t_contains "$(cat "$T_ROOT/host/docs/api.md")" "\`tehas top --json\` is not:"
+t_contains "$(cat "$T_ROOT/host/docs/tools-status.md")" "The snapshot is not public"
+t_contains "$(cat "$T_ROOT/host/docs/contract.md")" "\`tehas top --json\`, a snapshot for the screen"
 
 t_done
