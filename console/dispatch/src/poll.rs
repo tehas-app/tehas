@@ -391,7 +391,7 @@ fn writer(
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
             image: env("PI_ENSEMBLE_IMAGE"),
-            container_memory: env("TEHAS_CONTAINER_MEMORY"),
+            container_mb: 0,
             plan_cmd: match opt("TEHAS_PLAN_CMD") {
                 Some(cmd) => vec![cmd],
                 None => vec![
@@ -823,6 +823,10 @@ fn body(
     if push_fault_aged_out(snap.get("push_fault").unwrap_or(&Value::Null), w.before)
         && may_start(&snap, settings)
     {
+        let slice = crate::snapshot::reading(snap.get("slice").unwrap_or(&Value::Null));
+        w.host.container_mb =
+            crate::slice::usable(&slice, &settings.reserve, &settings.slice_containers)
+                .map_or(0, |u| u.ceiling_mb);
         let (lines, holds) = w.push_probe(dry);
         for l in &lines {
             say(l);

@@ -216,7 +216,7 @@ fn world() -> World {
             lock_poll: Duration::from_millis(500),
             launch_poll: Duration::from_millis(500),
             read_only: false,
-            container_memory: "8g".into(),
+            container_mb: 8 * 1024,
             push_probe_cmd: None,
             push_probe_wait: Duration::from_secs(5),
             aliases: String::new(),
@@ -441,8 +441,8 @@ fn a_probe_the_host_could_not_run_records_nothing_and_holds_nothing() {
         ),
         (
             "small ceiling",
-            Box::new(|t: &mut World| t.w.host.container_memory = "6m".into()),
-            "TEHAS_CONTAINER_MEMORY is under the 10m a container needs",
+            Box::new(|t: &mut World| t.w.host.container_mb = 6),
+            "tehas.slice gives a container less than the 10m it needs",
         ),
         (
             "no token",
