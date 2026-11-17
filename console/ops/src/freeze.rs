@@ -16,10 +16,9 @@ use crate::holds::oneline;
 use crate::stop::is_issue;
 use serde_json::{json, Value};
 use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::Write as _;
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::fs;
 use std::path::{Path, PathBuf};
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::lock::{probe, Probe};
 use tehas_core::time;
 
@@ -121,20 +120,7 @@ fn write_request(file: &Path, reason: &str) -> bool {
         held(&time::iso(time::now())),
         held(reason),
     );
-    let tmp = file.with_extension("freeze.new");
-    let _ = fs::remove_file(&tmp);
-    let written = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .and_then(|mut f| f.write_all(doc.as_bytes()))
-        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)))
-        .and_then(|()| fs::rename(&tmp, file));
-    if written.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    written.is_ok()
+    write_atomic(file, doc.as_bytes(), 0o600, &Temp::Predictable).is_ok()
 }
 
 fn cycles_dir() -> Option<PathBuf> {
@@ -241,6 +227,7 @@ pub fn thaw(given: &[String]) -> u8 {
 mod tests {
     use super::*;
     use std::fs::File;
+    use std::os::unix::fs::PermissionsExt as _;
     use tehas_core::testdir::TestDir;
 
     fn args(given: &[&str]) -> Vec<String> {

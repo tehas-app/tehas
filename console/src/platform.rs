@@ -20,6 +20,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::time;
 
 const FETCH_EVERY: i64 = 3600;
@@ -132,12 +133,13 @@ fn time_of(seconds: &str) -> J {
 }
 
 fn put(live: &Path, file: &J) {
-    let new = live.join(format!("platform.json.{}.new", std::process::id()));
-    let written = fs::write(&new, format!("{}\n", file.pretty()))
-        .and_then(|()| fs::rename(&new, live.join("platform.json")));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
+    let text = format!("{}\n", file.pretty());
+    let _ = write_atomic(
+        &live.join("platform.json"),
+        text.as_bytes(),
+        0o644,
+        &Temp::Pid,
+    );
 }
 
 /// A host that runs a release: the version current points at, the newest
@@ -200,8 +202,7 @@ fn release(home: &Path, live: &Path, installed: &str) {
 fn built_from(home: &Path) -> Option<String> {
     let text = fs::read_to_string(home.join("current/COMMIT")).ok()?;
     let line = text.lines().next()?.trim();
-    let hex = line.len() == 40 && line.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    hex.then(|| line.to_string())
+    tehas_core::grammar::commit_id(line).then(|| line.to_string())
 }
 
 fn git(co: &Path, args: &[&str]) -> Option<String> {

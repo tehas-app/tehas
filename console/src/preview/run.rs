@@ -12,6 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use tehas_core::grammar::commit_id;
 
 pub const NET: &str = "tehas-previews";
 /// Names the default branch's preview where a pull request's is named by its
@@ -98,10 +99,6 @@ fn domain_name(name: &str) -> bool {
                 .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
     };
     name.contains('.') && name.split('.').all(label)
-}
-
-fn commit_id(word: &str) -> bool {
-    word.len() == 40 && word.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// The answer of `gh api`, its errors going nowhere.

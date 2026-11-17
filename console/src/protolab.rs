@@ -280,25 +280,7 @@ fn day(updated: &str) -> String {
     const MONTHS: [&str; 12] = [
         "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
     ];
-    let b = updated.as_bytes();
-    let digits = |r: std::ops::Range<usize>| {
-        b.get(r.clone())
-            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
-    };
-    if b.len() != 20
-        || !digits(0..4)
-        || b[4] != b'-'
-        || !digits(5..7)
-        || b[7] != b'-'
-        || !digits(8..10)
-        || b[10] != b'T'
-        || !digits(11..13)
-        || b[13] != b':'
-        || !digits(14..16)
-        || b[16] != b':'
-        || !digits(17..19)
-        || b[19] != b'Z'
-    {
+    if !tehas_core::time::iso_shaped(updated) {
         return "-".to_string();
     }
     let month = updated[5..7].parse::<i64>().unwrap_or(0);

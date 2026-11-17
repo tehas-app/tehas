@@ -472,7 +472,7 @@ impl Run {
         git(&["init", "-q", "-b", &self.branch, &tree])
             && fetch(&refspec)
             && (held(&self.base)
-                || (tehas_core::grammar::is_hex(&self.base, 40, 40) && fetch(&self.base)))
+                || (tehas_core::grammar::commit_id(&self.base) && fetch(&self.base)))
             && git(&[
                 "-C",
                 &tree,
