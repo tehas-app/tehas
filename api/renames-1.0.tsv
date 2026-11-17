@@ -10,3 +10,9 @@ command	tehas setup --token-file		refused since the GitHub App; now an unknown o
 command	tehas setup --app-installation		was ignored; now an unknown option (64)
 command	tehas analytics export	tehas analytics copy --to	same copy and the same --json object; the old form exits 64 and names the new one
 command	tehas pause <reason>	tehas pause --reason	a bare reason is refused with 64 and names --reason
+word	store-copy	state-copy	tehas state copy; every tehas state verb has a state- word
+word	refresh-pr-starts	refresh-pr	folded into one word
+word	refresh-pr-lane	refresh-pr	folded into one word
+word	refresh-pr-json	refresh-pr	folded into one word
+word	host-message-health	host-message	folded into one word
+value	TEHAS_ENERGY=<word>	on	TEHAS_ENERGY takes on, off, 1 or 0 like every switch; any other word stops every command with 78

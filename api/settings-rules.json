@@ -21,10 +21,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_WORK_IMAGES",
@@ -32,10 +34,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_WORK_DESCRIBE",
@@ -43,10 +47,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_WORK_FILES",
@@ -54,10 +60,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_WORK_COMMENTS",
@@ -65,10 +73,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_WORK_ZIPS",
@@ -76,10 +86,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_ANALYTICS",
@@ -88,7 +100,9 @@
       "default": "on",
       "words": [
         "on",
-        "off"
+        "off",
+        "1",
+        "0"
       ],
       "reason": "expected on or off"
     },
@@ -98,10 +112,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_DESIGN",
@@ -120,10 +136,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_DRIVER",
@@ -142,10 +160,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_OUTSOURCE",
@@ -153,10 +173,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_OUTSOURCE_TIMEOUT",
@@ -220,10 +242,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_CONCURRENCY",
@@ -315,10 +339,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_MILLWRIGHT_MAX_FEEDS",
@@ -333,10 +359,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_REFRESH_MAX",
@@ -358,10 +386,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_EGRESS",
@@ -369,10 +399,12 @@
       "when": "always",
       "default": "0",
       "words": [
-        "0",
-        "1"
+        "on",
+        "off",
+        "1",
+        "0"
       ],
-      "reason": "expected 0 or 1"
+      "reason": "expected on or off"
     },
     {
       "name": "TEHAS_EGRESS_HOSTS",

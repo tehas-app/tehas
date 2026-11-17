@@ -178,7 +178,7 @@ In the instance's `instance.env`:
 
 ```
 TEHAS_DOMAIN=tehas.app
-TEHAS_PREVIEWS=1
+TEHAS_PREVIEWS=on
 ```
 
 Where the file is depends on the instance directory:
@@ -192,7 +192,7 @@ Where the file is depends on the instance directory:
 - Anywhere else: edit the file in place on the host.
 
 `TEHAS_PREVIEW_MAX` and `TEHAS_PREVIEW_MIN_FREE` have defaults; see
-[Commands](/tools). `TEHAS_PREVIEWS=1` without a domain stops every command
+[Commands](/tools). `TEHAS_PREVIEWS=on` without a domain stops every command
 that reads the settings with exit 78.
 
 `TEHAS_DOMAIN` by itself is enough for the Protolab's names: each ticket is
