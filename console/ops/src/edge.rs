@@ -30,6 +30,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+use tehas_core::file::{write_atomic, Temp};
 #[cfg(test)]
 use tehas_core::hostnet::version;
 pub use tehas_core::hostnet::words;
@@ -57,13 +58,7 @@ pub fn lock(home: &Path, name: &str, wait: Option<Duration>) -> Option<File> {
 /// The bytes become the file. A server may read it at any moment, so they are
 /// written beside it and renamed. A failure leaves the file as it was.
 pub fn put(file: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut beside = file.as_os_str().to_owned();
-    beside.push(".new");
-    fs::write(&beside, bytes)
-        .and_then(|()| fs::rename(&beside, file))
-        .inspect_err(|_| {
-            let _ = fs::remove_file(&beside);
-        })
+    write_atomic(file, bytes, 0o644, &Temp::Predictable)
 }
 
 /// The new directory takes the place by rename. The old one is moved aside

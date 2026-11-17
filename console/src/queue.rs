@@ -84,6 +84,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::call;
 use tehas_core::events::{label_actor, pause_holds, Event, Events};
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::github_fails;
 use tehas_core::queue_lists::{AWAITING, COMPLETED, PLANNED, QUEUED, RUNNING, STOPPED};
 use tehas_core::retry::{retry_with, Budget};
@@ -739,13 +740,14 @@ fn with_read_only(s: J, starts: Option<Vec<serde_json::Value>>) -> J {
 }
 
 fn put(live: &Path, file: &J) -> Result<(), String> {
-    let new = live.join(format!("status.json.{}.new", std::process::id()));
-    let written = fs::write(&new, format!("{}\n", file.pretty()))
-        .and_then(|()| fs::rename(&new, live.join("status.json")));
-    if written.is_err() {
-        let _ = fs::remove_file(&new);
-    }
-    written.map_err(|e| e.to_string())
+    let text = format!("{}\n", file.pretty());
+    write_atomic(
+        &live.join("status.json"),
+        text.as_bytes(),
+        0o644,
+        &Temp::Pid,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// This program under a time limit, for a call whose reads have none of their

@@ -405,7 +405,7 @@ fn note_commit(tree: &str, keep: &str) -> io::Result<()> {
 pub(super) fn reach_pin(src: &str, tree: &str, keep: &str, branch: &str, depth: u32) {
     let pin = fs::read_to_string(format!("{keep}/commit")).unwrap_or_default();
     let pin = pin.trim_end_matches('\n');
-    if tehas_core::grammar::is_hex(pin, 40, 40) {
+    if tehas_core::grammar::commit_id(pin) {
         let tip = format!("refs/remotes/origin/{branch}");
         let _ = tehas_core::depth::reach(src, tree, &[&tip], pin, depth);
     }

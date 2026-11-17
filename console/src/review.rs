@@ -509,11 +509,7 @@ fn git(repo: &str, args: &[&str], said: &mut String) -> Option<String> {
 fn recorded(record: &str) -> Option<String> {
     let doc: Value = serde_json::from_str(&fs::read_to_string(record).ok()?).ok()?;
     let commit = doc.get("commit")?.as_str()?;
-    (commit.len() == 40
-        && commit
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-    .then(|| commit.to_string())
+    tehas_core::grammar::commit_id(commit).then(|| commit.to_string())
 }
 
 // The start is the recorded commit when the tip still reaches it (a

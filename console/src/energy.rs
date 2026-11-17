@@ -39,9 +39,10 @@
 use crate::jq::{obj, J};
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use tehas_core::file::{write_atomic, Temp};
 use tehas_core::models::{auth, host_path, ModelFile};
 use tehas_core::time;
 
@@ -244,16 +245,11 @@ fn judge(code: &str, body: &str) -> Answer {
 }
 
 fn write(file: &Path, value: &J) -> u8 {
-    let mut temp = file.as_os_str().to_owned();
-    temp.push(format!(".{}.new", std::process::id()));
-    let temp = PathBuf::from(temp);
-    let done = std::fs::write(&temp, format!("{}\n", value.pretty()))
-        .and_then(|()| std::fs::rename(&temp, file));
-    if done.is_err() {
-        let _ = std::fs::remove_file(&temp);
-        return 1;
+    let text = format!("{}\n", value.pretty());
+    match write_atomic(file, text.as_bytes(), 0o644, &Temp::Pid) {
+        Ok(()) => 0,
+        Err(_) => 1,
     }
-    0
 }
 
 /// The models the factory uses: PI_ENSEMBLE_SUBAGENT_MODEL and each

@@ -1427,9 +1427,9 @@ fn check_state(a: &Value) -> Option<Check> {
         return Some(Check::None);
     }
     let sha_ok = |r: &Value| {
-        r.get("head_sha").and_then(Value::as_str).is_some_and(|s| {
-            s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        })
+        r.get("head_sha")
+            .and_then(Value::as_str)
+            .is_some_and(tehas_core::grammar::commit_id)
     };
     if !runs.iter().all(sha_ok) {
         return None;
