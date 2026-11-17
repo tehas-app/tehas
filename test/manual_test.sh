@@ -287,6 +287,29 @@ for word in 'tehas tidy' 'tehasbot work'; do
   [ -z "$hits" ] || t_bad "names a command that is not one: $hits"
 done
 
+# Every page, not only the tools pages: a command named in code type is a
+# command a person types, so its word must be a verb the front routes.
+# `tehas is up to date` is what `tehas update --check` prints, not a command.
+t_case "every tehas or tehasbot command a page names in code type is a verb of it"
+for which in tehas tehasbot; do
+  grep -noE "\`$which [a-z][a-z-]*[\` ]" "${pages[@]}" |
+    sed -E "s/\`$which ([a-z-]*).\$/\\1/" | while IFS= read -r hit; do
+    word=${hit##*:}
+    case "$which $word" in
+    'tehas is' | "$which help") continue ;;
+    esac
+    grep -qxF "$word" "$T/verbs-$which" || echo "$hit is no verb of $which"
+  done
+done >"$T/tmp-named" 2>&1
+t_eq "$(cat "$T/tmp-named")" ""
+
+t_case "the rule above finds a command that is not a verb"
+printf 'Run `tehas finish 7` and `tehasbot clean`.\n' >"$T/named.md"
+hits=$(grep -noE '`tehas [a-z][a-z-]*[` ]' "$T/named.md" | sed -E 's/`tehas ([a-z-]*).$/\1/')
+t_eq "${hits##*:}" finish
+grep -qxF finish "$T/verbs-tehas" && t_bad "finish read as a verb of tehas"
+grep -qxF clean "$T/verbs-tehasbot" || t_bad "clean not read as a verb of tehasbot"
+
 # ---------------------------------------------------------------------------
 # What the manual says about the two reads that used to guess. The importer of
 # an older tehas's records now holds a file whose value its own verbs would
