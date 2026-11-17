@@ -321,7 +321,7 @@ pub fn tools() -> Vec<Value> {
         ),
         (
             "leftOut",
-            count("Sessions that matched and were left out because a field of theirs is not of the type or a word the schema names. Left out when none."),
+            count("Sessions skipped while filling this page because a field of theirs is not of the type or a word the schema names. A page counts only its own; later pages count theirs. Left out when none."),
         ),
     ]);
     let one_out = schema(vec![
