@@ -4,9 +4,10 @@
 //! 78, and `tehas api --json` lists it in `flags` as false and not in
 //! `features`. Promoting one to shipped only adds.
 //!
-//! A build that tests a building feature names it in [`TEST_VAR`], one of the
-//! internal names of `KEPT` (settings/load.rs). No release note, label or
-//! manual page tells an operator to set it.
+//! A test turns a building feature on by naming it in [`TEST_VAR`], in the
+//! environment it starts a program with. Only a build with debug assertions
+//! reads it, as the store reads its tests' answers; a release never does, and
+//! the load refuses the variable in instance.env and in ~/.config/tehas/env.
 
 use crate::settings::rules::switch;
 
@@ -42,10 +43,16 @@ fn find(name: &str) -> Option<&'static Feature> {
 }
 
 fn usable(feature: &Feature, get: &dyn Fn(&str) -> String) -> bool {
+    usable_in(feature, get, cfg!(debug_assertions))
+}
+
+/// `tested` is whether this build reads [`TEST_VAR`].
+fn usable_in(feature: &Feature, get: &dyn Fn(&str) -> String, tested: bool) -> bool {
     feature.stage == Stage::Shipped
-        || get(TEST_VAR)
-            .split_whitespace()
-            .any(|word| word == feature.name)
+        || tested
+            && get(TEST_VAR)
+                .split_whitespace()
+                .any(|word| word == feature.name)
 }
 
 /// [`on`] over the variables `get` gives, for the load, which reads its own.
@@ -147,6 +154,14 @@ mod tests {
         }
         let get = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsourcer")]);
         assert!(!on_in("outsource", &get));
+    }
+
+    #[test]
+    fn a_release_build_ignores_the_test_variable() {
+        let outsource = find("outsource").unwrap();
+        let get = vars(&[("TEHAS_OUTSOURCE", "on"), (TEST_VAR, "outsource")]);
+        assert!(!usable_in(outsource, &get, false));
+        assert!(usable_in(outsource, &get, true));
     }
 
     #[test]
