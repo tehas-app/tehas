@@ -7,12 +7,9 @@
 //! that would take the uid tag, and the decision on what that turn printed.
 
 use crate::runner;
-use std::env;
 use std::io::{self, Read, Write};
-use std::path::Path;
 use std::process::{Command, Stdio};
-use tehas_core::models;
-use tehas_core::sandbox::{self, Identity, Kind, Paths};
+use tehas_core::sandbox;
 use tehas_core::slice::{self, Host, Load};
 
 /// What the output of a sandbox smoke run says of the image. `Started` is the
@@ -161,37 +158,6 @@ fn limits(who: &str, what: &str) -> i32 {
     print(&words)
 }
 
-fn env_options(kind: Kind, tree: &str, name: &str, email: &str) -> i32 {
-    let who = Identity { tree, name, email };
-    print(&sandbox::env_options(
-        kind,
-        &who,
-        &sandbox::ensemble(kind),
-        &sandbox::tokens(),
-    ))
-}
-
-// The options are held until the container's models.json and endpoints are
-// written, so a run that could not write them is given none.
-fn mounts(kind: Kind, p: &Paths) -> i32 {
-    match sandbox::prepared_mounts(kind, p) {
-        Ok(words) => {
-            let state = Path::new(p.state);
-            let out = state.join("models.json");
-            match models::write_for_container(&out, &state.join("endpoints")) {
-                Some(()) => print(&words),
-                None => 1,
-            }
-        }
-        Err(why) => {
-            if !why.is_empty() {
-                eprintln!("{why}");
-            }
-            1
-        }
-    }
-}
-
 fn verify(words: &[String]) -> i32 {
     match slice::verify(words, &Load::from_env()) {
         Some(n) => {
@@ -199,16 +165,6 @@ fn verify(words: &[String]) -> i32 {
             0
         }
         None => 1,
-    }
-}
-
-fn ok() -> i32 {
-    match sandbox::settings_ok() {
-        Ok(()) => 0,
-        Err(line) => {
-            eprintln!("{line}");
-            78
-        }
     }
 }
 
@@ -258,27 +214,7 @@ pub fn table() -> String {
 pub fn main(args: &[String]) -> Option<i32> {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     Some(match a.as_slice() {
-        ["ok"] => ok(),
         ["limits", who, what] => limits(who, what),
-        ["hosts"] => {
-            match sandbox::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()) {
-                Ok(words) => print(&words),
-                Err(why) => {
-                    eprintln!("tehas-cycle: PI_ENSEMBLE_HOST_ALIASES is not valid: {why}");
-                    78
-                }
-            }
-        }
-        ["env", kind, tree, name, email] => env_options(Kind::parse(kind)?, tree, name, email),
-        ["mounts", kind, tree, host, state, runs] => mounts(
-            Kind::parse(kind)?,
-            &Paths {
-                tree,
-                host,
-                state,
-                runs,
-            },
-        ),
         ["verify", ..] => verify(&args[1..]),
         ["table"] => {
             tehas_core::outln!("{}", table());
@@ -288,14 +224,6 @@ pub fn main(args: &[String]) -> Option<i32> {
             tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
-        ["clone", src, tree, branch] => match tehas_core::depth::from_env() {
-            Ok(depth) => i32::from(!sandbox::clone(src, tree, branch, depth)),
-            Err(line) => {
-                eprintln!("{line}");
-                78
-            }
-        },
-        ["seed", state, index] => i32::from(!sandbox::seed(state, index)),
         ["smoke-run", image] => smoke_run_verb(image),
         _ => return None,
     })

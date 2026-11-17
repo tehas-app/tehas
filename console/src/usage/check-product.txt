@@ -21,8 +21,8 @@ reads only what is committed there:
             --sandbox
 
 --sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp/<name>, the
-repository name of TEHAS_REPO. The clone is made as a cycle's workspace is
-(tehas-cycle sandbox clone): the default branch at origin's tip and
+repository name of TEHAS_REPO. The clone is made as a cycle's workspace is:
+the default branch at origin's tip and
 TEHAS_CLONE_DEPTH commits of its history, with origin/<default branch> and
 origin/HEAD set, then a work branch with one
 empty commit, so a gate that diffs against origin/main finds its base and a
