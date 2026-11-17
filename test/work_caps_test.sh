@@ -371,11 +371,16 @@ t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s
   --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" --input-file "$T/lean-input.json" \
   --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
 t_started "$T/home/tehas" 7
+lean_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=lean)
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_LEAN=on
 t_run "$work 7"
 caps_refused
 t_contains "$t_out" "the flag --continue-pr"
 t_contains "$t_out" "driver lean, work-lean"
 rm -f "$T/home/tehas/state/cycles/7.lean-refused" "$T/home/tehas/state/cycles/7.refused"
+T_ENV=("${lean_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 t_store_db "$T/home/tehas"
 caps_good
 

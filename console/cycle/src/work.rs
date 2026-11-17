@@ -99,7 +99,9 @@
 //!                lean nor classic; no cycle was started.
 //!             78 the instance settings are invalid, the state store is not
 //!                installed, tehas.slice is not usable on this host, the
-//!                approval names a driver this tehas does not know, the image
+//!                approval names a driver this tehas does not know, the driver
+//!                is lean (by hand or by the approval) and the lean feature is
+//!                not on, the image
 //!                does not support what the cycle is given (on driver lean
 //!                state/cycles/<issue>.lean-refused says so), the image gave
 //!                no capabilities answer or the workspaces' directory was not

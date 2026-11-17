@@ -696,6 +696,40 @@ lean_fresh() {
 }
 stub_github
 
+# lean is still being built: off, a lean start of any kind is 78, starts
+# nothing and never runs classic in its place.
+t_case "with lean off, --driver lean is 78, starts no container and names the feature"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver lean"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: --driver lean needs the feature lean, and lean is still being built in this release; not starting a cycle"
+t_eq "$(cycle_args)" ""
+t_eq "$(t_calls docker | grep -c -e --cidfile)" 0
+
+t_case "with lean off, a record that says driver lean is 78 and does not run classic"
+lean_fresh
+caps_lean
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the approval of #7, which names driver lean, needs the feature lean"
+t_eq "$(cycle_args)" ""
+
+t_case "with lean off, --driver classic and a record with no driver run classic work"
+lean_fresh
+caps_lean
+t_run "$work 7 --driver classic"
+t_eq "$t_rc" 2
+t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json "
+
+# From here a test build turns lean on, as the lean cases ran before it was
+# a feature.
+lean_env=("${T_ENV[@]}")
+T_ENV+=(TEHAS_TEST_FEATURES=lean)
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_LEAN=on
+
 t_case "a record with no driver runs classic work"
 lean_fresh
 caps_lean
@@ -772,6 +806,8 @@ t_run "$work 7 --driver classic --restart"
 t_eq "$t_rc" 2
 t_eq "$(verb_line)" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json --restart "
 
+T_ENV=("${lean_env[@]}")
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 caps_good
 
 t_case "the cycle starts the token renewer, and one that cannot start refuses the cycle before its container"

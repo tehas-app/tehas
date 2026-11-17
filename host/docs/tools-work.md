@@ -20,7 +20,9 @@ in place of `work`, with the same flags, mounts and variables. The driver is
 the one the start's approval binds (`tehas:lean`, see
 [Choosing the driver](/operating#choosing-the-driver)), else classic.
 `--driver` names it by hand and wins over the approval's; any other word is
-exit 64. The runner is given
+exit 64. The lean driver is a feature still being built: while it is off,
+`--driver lean` and an approval that names driver lean exit 78 and start no
+cycle, and classic does not run in their place. The runner is given
 `TEHAS_WORK_TIMEOUT` in whole minutes and stops itself there; a runner that
 has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 `docker stop`. `tehas work` waits for the runner to exit and reads nothing
