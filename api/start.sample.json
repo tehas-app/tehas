@@ -1,0 +1,12 @@
+{
+  "api": 1,
+  "approval": {
+    "at": "2026-10-17T14:00:20Z",
+    "bodySha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+    "by": "host",
+    "how": "host",
+    "titleSha256": "0a9a20f49dbd422283b6a858111d86882d94027385d849a3dfd5bf3d6c1dd71f"
+  },
+  "cleared": false,
+  "issue": 12
+}

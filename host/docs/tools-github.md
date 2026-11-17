@@ -62,12 +62,18 @@ With `--json` it also prints one object on standard output on exit 0, 3 and
 {"api": 1, "asked": false, "pr": 50, "issue": 7, "headSha": "<40 hex>", "why": "it does not conflict: GitHub says MERGEABLE"}
 ```
 
-`api` is the version of the object, 1, as in every `--json` object of the
-[factory API](/api). `asked` is `true` when the request was written, and `why`
-is then `null`; otherwise `why` holds the same words as standard error.
-`issue` and `headSha`, the head commit of the pull request, are `null` when
-GitHub did not name them, as when its read failed. Exit 64 and 78 print no
-object. The old name `tehasbot refresh --pr N --json` prints the same object.
+| Field | Meaning |
+| --- | --- |
+| `api` | The version of the object, 1, as in every `--json` object of the [factory API](/api) |
+| `asked` | `true` when the request was written |
+| `pr` | The pull request asked about |
+| `issue` | The issue it closes; `null` when GitHub did not name it, as when its read failed |
+| `headSha` | The head commit of the pull request; `null` when GitHub did not name it |
+| `why` | `null` when the request was written; otherwise the same words as standard error |
+
+Exit 64 and 78 print no object. `api/refresh.schema.json` in the source says
+what the object holds, and `api/refresh.asked.json`, `api/refresh.declined.json`
+and `api/refresh.failed.json` are samples of it. The old name `tehasbot refresh --pr N --json` prints the same object.
 
 ## tehas github check
 
