@@ -353,6 +353,18 @@ t_lacks "$(t_calls steps)" "build"
 t_lacks "$(t_calls steps)" "check-product"
 rm -f "$plat/bin/tehas"
 
+t_case "a sandbox step install.sh left owed rebuilds the image outright and is taken off the record"
+fresh
+# As install.sh records it when the instance's sandbox.Dockerfile changed.
+printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\nmkdir -p "$T/home/tehas/state"\nprintf "units tehas-dispatch.timer\\nsandbox\\n" >"$T/home/tehas/state/update-pending"\n' >"$plat/install.sh"
+run_setup "${args[@]}"
+t_eq "$t_rc" 0
+t_eq "$(t_calls steps | tail -n 1)" "build"
+t_lacks "$(t_calls steps)" "build --if-moved"
+t_eq "$(cat "$T/home/tehas/state/update-pending")" "units tehas-dispatch.timer"
+printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\n' >"$plat/install.sh"
+rm -f "$T/home/tehas/state/update-pending"
+
 t_case "a product check that failed stops setup with 1, not its own 3"
 fresh
 printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n[ "$1" != check-product ] || exit 3\n' >"$plat/bin/tehas"
