@@ -76,6 +76,10 @@ pub(super) const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
+    // The contractor program a cycle on a contractor relays through
+    // (cycle/src/work.rs), named by that program and read only with outsource
+    // on.
+    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
     "TEHAS_PUSH_PROBE_CMD",
@@ -1232,6 +1236,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "2"),
             ("TEHAS_OUTSOURCE_REST", "1800"),
             ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
@@ -1391,6 +1396,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "-1"),
             ("TEHAS_OUTSOURCE_REST", "two"),
             ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
         ] {
             let why = run(&mut Fake::with(&[&format!("{name}={value}")]))

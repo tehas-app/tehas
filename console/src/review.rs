@@ -228,6 +228,10 @@ fn review() -> u8 {
         Ok(branch) => branch,
         Err(line) => return refuse(line),
     };
+    let depth = match tehas_core::depth::from_env() {
+        Ok(depth) => depth,
+        Err(line) => return refuse(line),
+    };
     // No container starts outside the slice, and none with half its limits.
     let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas review", "a review");
     let taken = match taken {
@@ -361,11 +365,21 @@ fn review() -> u8 {
         && fs::write(works.join(".tehas-workspaces"), "").is_ok()
         && gone(&tree)
         && gone(&container)
-        && sandbox::clone(&src, &tree, &branch);
+        && sandbox::clone(&src, &tree, &branch, depth);
     if !made {
         return refuse(format!(
             "tehas review: could not make the workspace {tree}, not starting a review"
         ));
+    }
+    // The range is read in the workspace: it reaches back to its start.
+    let tip = format!("refs/remotes/origin/{branch}");
+    if start != head {
+        if let Err(why) = tehas_core::depth::reach(&src, &tree, &[&tip], &start, depth) {
+            return refuse(format!(
+                "tehas review: the workspace {tree} does not hold the range from {}: {why}, not starting a review",
+                short(&start)
+            ));
+        }
     }
     if let Some(rc) = ended(&signalled) {
         return rc;

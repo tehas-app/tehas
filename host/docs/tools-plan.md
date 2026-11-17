@@ -83,8 +83,9 @@ runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=on` the
 issue's images. A turn that fails and leaves no record, its container killed
 or never started, leaves the record an earlier turn kept, so a retry goes on
 from it. Every later turn's workspace is at that commit and gets the
-record back. A later turn whose commit is missing or gone starts at the tip of
-the branch and says so. The answer reaches the runner as
+record back. Its clone, of `TEHAS_CLONE_DEPTH` commits, is deepened to that
+commit when the branch has moved past the depth since. A later turn whose
+commit is missing or gone starts at the tip of the branch and says so. The answer reaches the runner as
 `.tehas/answer.md` in the workspace, which git ignores. The dispatcher keeps
 the directory at `~/tehas/work/<name>-plan-<issue>.keep`, beside the turn's
 workspace and out of the state directory, writes a later turn's answer there
@@ -181,6 +182,9 @@ tehasbot review
 
 One run is one turn of `pi-rukas-headless lens-review --since <commit>
 --json`, over a clone made fresh for the run and removed when it is over. The
+clone holds the default branch and `TEHAS_CLONE_DEPTH` commits of its history,
+deepened until it reaches the commit the run starts from, as the product
+checkout has it; a clone that cannot be stops the run with 78. The
 commit to start from is read from `~/tehas/state/review.json`: the commit the
 last review read. A record is trusted only when it holds a whole commit and
 that commit is one the branch still reaches; with no record there, or one that
@@ -221,7 +225,7 @@ named in the line that says so.
 | 10, 20 | findings, or serious findings: the status the runner gave |
 | 2 | the runner failed, ran out of time, or its record could not be written down |
 | 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
-| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, the image's runner has no `lens-review` verb in its `--capabilities`, or the review would be given a `PI_ENSEMBLE_*` setting that answer does not list as an input. A family such as `PI_ENSEMBLE_MODEL_<ROLE>` takes its listed members, and a setting whose name says it is secret (it holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case) is not checked. Nothing was cloned and nothing ran |
+| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, the image's runner has no `lens-review` verb in its `--capabilities`, or the review would be given a `PI_ENSEMBLE_*` setting that answer does not list as an input. A family such as `PI_ENSEMBLE_MODEL_<ROLE>` takes its listed members, and a setting whose name says it is secret (it holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case) is not checked. Nothing was cloned and nothing ran. Also 78 when the clone could not be deepened to the commit the run starts from, and nothing ran |
 
 ### What a review files
 

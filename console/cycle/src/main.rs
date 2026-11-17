@@ -8,11 +8,14 @@
 //!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
 //!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
-//!       [--status-arg <word>]...
+//!       [--status-arg <word>]... [--runner work|job]
 //!                                     report an ended cycle, every GitHub
 //!                                     write through the action journal, then
 //!                                     what follows its end (src/apply.rs), as
-//!                                     `cycle` does once tehas work is over
+//!                                     `cycle` does once tehas work is over.
+//!                                     --runner job reports a cycle run on a
+//!                                     contractor and needs the outsource
+//!                                     feature on (78)
 //!   tehas-cycle approved <issue> <attempt>
 //!                                     print {at, how, driver} of the approval
 //!                                     that attempt used, or null: read
@@ -199,7 +202,9 @@
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
 //!                                     with, as one line
 //!   tehas-cycle sandbox clone <src> <tree> <branch>
-//!                                     make <tree>, a clone of <src>
+//!                                     make <tree>, a clone of <src> at
+//!                                     TEHAS_CLONE_DEPTH; 78 for a depth
+//!                                     that is not one
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
 //!   tehas-cycle sandbox smoke-run <image>
@@ -262,7 +267,7 @@
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
-//! it does not know; 78 run without an absolute TEHAS_HOME, or cycle
+//! it does not know; 78 run without an absolute TEHAS_HOME, or cycle or report
 //! --runner job with the outsource feature off.
 //!
 //! finish is asked the whole of its words and reads no setting of its own, so it
@@ -346,6 +351,10 @@ fn main() {
             let start = start(issue(n, &args), &args, rest);
             if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
+            }
+            if start.runner == Runner::Job && !tehas_core::features::on("outsource") {
+                after::log("ERROR: --runner job needs the outsource feature on: it is off");
+                std::process::exit(78);
             }
             std::process::exit(apply::run(&home, &start));
         }
@@ -621,6 +630,7 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--console" => start.console = v,
             "--status-cmd" => start.status_cmd = v,
             "--status-arg" => start.status_args.push(v),
+            "--runner" => start.runner = Runner::named(&v).unwrap_or_else(|| wrong(args)),
             _ => wrong(args),
         }
     }

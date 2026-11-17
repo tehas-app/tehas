@@ -22,6 +22,7 @@
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
+//!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -204,6 +205,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
+        "outsource" => crate::outsource::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -317,6 +319,14 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
+        ["tehas", "outsource"] => match crate::outsource::words(rest) {
+            Ok(None) => {
+                say(crate::outsource::USAGE);
+                Err(ANSWERED)
+            }
+            Ok(Some(_)) => Ok(()),
+            Err(rc) => Err(rc),
+        },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => flags::resume_words(rest),
@@ -424,6 +434,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
+        "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
