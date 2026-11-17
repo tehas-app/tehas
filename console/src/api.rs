@@ -238,6 +238,22 @@ mod tests {
     }
 
     #[test]
+    fn features_is_the_pinned_list_and_no_building_feature_is_in_it() {
+        use tehas_core::features::{Stage, FEATURES as REGISTRY};
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../api/features.txt");
+        let text = std::fs::read_to_string(file).unwrap();
+        let pinned: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+        assert_eq!(
+            features(),
+            pinned,
+            "api/features.txt: words are only added, at the end"
+        );
+        for f in REGISTRY.iter().filter(|f| f.stage == Stage::Building) {
+            assert!(!pinned.contains(&f.name), "{} is still being built", f.name);
+        }
+    }
+
+    #[test]
     fn a_building_feature_is_a_flag_and_no_word_of_features() {
         let words = features();
         let flags = tehas_core::features::flags();

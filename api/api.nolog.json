@@ -1,0 +1,60 @@
+{
+  "api": 1,
+  "tehas": "v0.10.2",
+  "commit": null,
+  "repo": "tehas-app/tehas",
+  "features": [
+    "status",
+    "millwright-grant",
+    "all-hands",
+    "limit",
+    "drain",
+    "history",
+    "export",
+    "analytics",
+    "state-move",
+    "mcp-dashboard-keys",
+    "clean",
+    "disk",
+    "panels",
+    "state-check",
+    "finish",
+    "status-versions",
+    "state-copy",
+    "state-load",
+    "freeze",
+    "host-bridge",
+    "cycle-writes",
+    "settings-rules",
+    "start-order",
+    "host-message",
+    "refresh-pr",
+    "host-start",
+    "flags"
+  ],
+  "flags": {
+    "outsource": false,
+    "spec-pipe": false,
+    "protolab-zip-url": false,
+    "prototype-file": false,
+    "lean": false
+  },
+  "millwright": "millbot[bot]",
+  "poll": {
+    "last": {
+      "at": 1761400000,
+      "wallMs": 24000,
+      "cpuMs": 3100,
+      "gh": 12,
+      "writes": null,
+      "starts": null,
+      "kinds": null,
+      "ageMin": 0
+    },
+    "hour": {
+      "polls": 1,
+      "cpuMs": 3100,
+      "writes": null
+    }
+  }
+}
