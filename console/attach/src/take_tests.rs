@@ -199,7 +199,7 @@ fn the_token_goes_to_github_com_only_and_on_standard_input() {
     assert!(with);
     assert_eq!(
         args.join(" "),
-        "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type} -H @- https://github.com/a/b/assets/1/x"
+        "-sSfL --path-as-is --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 9 -o /d/.part -w %{content_type}\\n%{response_code} -H @- https://github.com/a/b/assets/1/x"
     );
     assert!(!args.iter().any(|a| a.contains("tok")));
     let (args, with) = curl_args(
