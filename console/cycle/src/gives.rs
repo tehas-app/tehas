@@ -386,9 +386,12 @@ pub fn image_labels(image: &str) -> String {
     inspect(image, "{{json .Config.Labels}}").unwrap_or_default()
 }
 
+/// A docker that does not answer is as one that does not say.
 fn inspect(image: &str, format: &str) -> Option<String> {
-    let out = Command::new("docker")
-        .args(["image", "inspect", "--format", format, image])
+    let out = Command::new("timeout")
+        .args([
+            "-k", "2", "10", "docker", "image", "inspect", "--format", format, image,
+        ])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output();
