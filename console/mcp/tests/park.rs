@@ -177,6 +177,58 @@ fn the_newest_stop_is_answered_and_says_whether_a_run_came_after() {
     assert_eq!(out["id"], format!("work-7-{}", t + 1000));
     assert_eq!(out["cap"], "verify-failed:develop");
     assert_eq!(out["latest"], false);
+    // The newest work run, not the planning turn.
+    assert_eq!(out["latestOutcome"], "merged");
+}
+
+// A run that stopped without a park, interrupted or with its issue closed under
+// it, is no park: the park before it is answered, and the answer names the
+// newer run's outcome, so the caller knows the park is not the issue's last word.
+#[test]
+fn a_newer_stopped_run_is_named_beside_the_park_before_it() {
+    let t = now() - 7200;
+    let mut newest = run("work", 7, t + 2000, "stopped");
+    newest["status"] = json!("interrupted");
+    let env = Env::new("newer-stop", &[newest, parked(t)]);
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["id"], format!("work-7-{t}"));
+    assert_eq!(out["outcome"], "handoff");
+    assert_eq!(out["latest"], false);
+    assert_eq!(out["latestOutcome"], "stopped");
+
+    // The latest run is the park: no outcome of another run to name.
+    let env = Env::new("latest-stop", &[parked(t)]);
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["latest"], true);
+    assert!(out.get("latestOutcome").is_none(), "{out}");
+
+    // A newer run whose outcome is no outcome word names none.
+    let env = Env::new(
+        "newer-odd",
+        &[run("work", 7, t + 2000, "landed"), parked(t)],
+    );
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["latest"], false);
+    assert!(out.get("latestOutcome").is_none(), "{out}");
+}
+
+// The words the park tool answers are the core's: its outcome enum is the
+// core's stop words, and the newer run's outcome is any outcome word.
+#[test]
+fn the_park_schema_names_the_cores_outcome_words() {
+    let tool = list_scoped(Scope::Full)
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "factory_park")
+        .cloned()
+        .unwrap();
+    let p = &tool["outputSchema"]["properties"];
+    assert_eq!(p["outcome"]["enum"], json!(tehas_core::outcome::STOPS));
+    assert_eq!(
+        p["latestOutcome"]["enum"],
+        json!(tehas_core::outcome::OUTCOMES)
+    );
 }
 
 #[test]
@@ -423,6 +475,8 @@ fn the_answer_is_its_schema() {
     // checksCut needs more than 20 lines; the bound test shows it.
     let mut all = got.clone();
     all.insert("checksCut".into());
+    // latestOutcome needs a later run; the case of a newer stopped run shows it.
+    all.insert("latestOutcome".into());
     assert_eq!(all, want);
 }
 
