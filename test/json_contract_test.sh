@@ -163,24 +163,25 @@ surfaces=(
   # line leave the list as the sample holds it: a word for the array answers the
   # three above it and nothing of a line, and the object of each check is still
   # a listing of the surface.
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.: next is missing'
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.zz: not in the schema'
-  'check	del(.next) | .zz = 1 | .cycles = "1"	.cycles: string, not array'
-  'check	del(.next) | del(.cycles[3].outcome)	.cycles[3]: outcome is missing'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.: next is missing'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.zz: not in the schema'
+  'check	del(.next) | .zz = 1 | .runs = "1"	.runs: string, not array'
+  'check	del(.next) | del(.runs[3].outcome)	.runs[3]: outcome is missing'
   # An unknown field of a line, held by a plan line on purpose: the walk of the
-  # bounds below bends one field of `.cycles[3]` and asks the check about the
+  # bounds below bends one field of `.runs[3]` and asks the check about the
   # object whole, so a word a line of that sample does not hold would be found
   # wrong there before it is found wrong here.
-  'check	del(.next) | .cycles[3].zz = 1	.cycles[3].zz: not in the schema'
-  'check	del(.next) | .cycles[3].kind = "cycle"	.cycles[3].kind: "cycle" is not one of ["work","plan"]'
+  'check	del(.next) | .runs[3].zz = 1	.runs[3].zz: not in the schema'
+  'check	del(.next) | .runs[0].progress = {}	.runs[0].progress: fewer than 1 properties'
+  'check	del(.next) | .runs[3].kind = "cycle"	.runs[3].kind: "cycle" is not one of ["work","plan"]'
   # The bounds of the schema, each of a field of one line: the least value the
   # schema lets through and one step past it, as the command prints or refuses
   # them. The field of the line names the field as the schema does, with the
-  # place of its own line in the listing after it: `cycles[0].issue`. The path
+  # place of its own line in the listing after it: `runs[0].issue`. The path
   # the check prints holds both of them, as the drain's `running` is reported at
   # `.running[0]`: a name that goes into an element of a field of a line holds
-  # that element too, `cycles[3].filed[0]`, which the check prints as
-  # `.cycles[3].filed[0]`. The places are those of the one sample the case of
+  # that element too, `runs[3].filed[0]`, which the check prints as
+  # `.runs[3].filed[0]`. The places are those of the one sample the case of
   # the bounds bends, `api/history.sample.json`, whose first line is the end of a
   # cycle and whose last is the end of a planning turn, so a field of either kind
   # is named on a line that holds it. An issue of 1 and 0, the least
@@ -190,26 +191,26 @@ surfaces=(
   # (console/src/history.rs); the step number and the round of a heartbeat, which
   # the store keeps from 1 to 1000 (console/store/src/live.rs); and the count of
   # a run of parks, which the command gives only from 1 (console/src/history.rs).
-  'bound	cycles[0].issue	.cycles[0].issue = 1	.cycles[0].issue = 0	under 1'
-  'bound	cycles[0].status	.cycles[0].status = 255	.cycles[0].status = 256	over 255'
-  'bound	cycles[0].cursor	.cycles[0].cursor = "9999999999-999999999-999999999999999"	.cycles[0].cursor = "12345678901-12-1"	does not match'
-  'bound	cycles[0].stepNumber	.cycles[0].stepNumber = 1000	.cycles[0].stepNumber = 1001	over 1000'
-  'bound	cycles[0].repeat	.cycles[0].repeat = 1	.cycles[0].repeat = 0	under 1'
+  'bound	runs[0].issue	.runs[0].issue = 1	.runs[0].issue = 0	under 1'
+  'bound	runs[0].status	.runs[0].status = 255	.runs[0].status = 256	over 255'
+  'bound	runs[0].cursor	.runs[0].cursor = "9999999999-999999999-999999999999999"	.runs[0].cursor = "12345678901-12-1"	does not match'
+  'bound	runs[0].progress.stepNumber	.runs[0].progress.stepNumber = 1000	.runs[0].progress.stepNumber = 1001	over 1000'
+  'bound	runs[0].repeat	.runs[0].repeat = 1	.runs[0].repeat = 0	under 1'
   # The round of the plan line: the store keeps a heartbeat's step number, total
   # and round from 1 to 1000 (console/store/src/live.rs), and a line prints them
   # only when its end copied them from a heartbeat of its own step.
-  'bound	cycles[3].round	.cycles[3].round = 1	.cycles[3].round = 0	under 1'
+  'bound	runs[3].progress.round	.runs[3].progress.round = 1	.runs[3].progress.round = 0	under 1'
   # The park reason of a line, which the plan line of that sample does not
   # print: the store keeps an empty word as no reason at all
   # (console/store/src/cycle.rs), so the least the schema lets through is one
   # word of a reason and the step past it nothing, which no line prints.
-  'bound	cycles[3].parkReason	.cycles[3].parkReason = "merge"	.cycles[3].parkReason = ""	shorter than 1'
+  'bound	runs[3].parkReason	.runs[3].parkReason = "merge"	.runs[3].parkReason = ""	shorter than 1'
   # The issues a turn filed, of the one line of either sample that prints it:
   # none at all is what a plan line that filed nothing leaves out, and an
   # element that is no text is one step past what the command ever puts there
   # (console/src/history.rs keeps the addresses and drops the rest).
-  'bound	cycles[3].filed[0]	.cycles[3].filed = []	.cycles[3].filed = [1]	integer, not string'
-  'required	["api","cycles","next"]'
+  'bound	runs[3].filed[0]	.runs[3].filed = []	.runs[3].filed = [1]	integer, not string'
+  'required	["api","runs","next"]'
 
   # The list `tehas panel --json` prints: the pages of the project the dashboard
   # links, and the same object as state/panels.json and live/panels.json. The two
@@ -266,7 +267,7 @@ surfaces=(
   # the host's - how many file systems the watched paths fold into, and which
   # places the home holds - so the reading each sample is made of plants its own
   # home and says what `df` and the daemon answer, as test/disk_test.sh does.
-  # `generatedAt` is the clock of the run that made the answer, which no name in
+  # `time` is the clock of the run that made the answer, which no name in
   # the environment bounds: the case of the clock below compares the two samples
   # with what the command prints now with that one field taken out of both sides,
   # and asks that the field is there, of the right shape, and nothing else.
@@ -277,9 +278,9 @@ surfaces=(
   # missing, a field the schema does not know at the top of it, and the list of
   # file systems given a word where the command prints an array. Three lines,
   # the shape of every check of the table.
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.: generatedAt is missing'
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.zz: not in the schema'
-  'check	del(.generatedAt) | .zz = 1 | .filesystems = "1"	.filesystems: string, not array'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.: time is missing'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.zz: not in the schema'
+  'check	del(.time) | .zz = 1 | .filesystems = "1"	.filesystems: string, not array'
   # The same three of the reading that carries `full`, bent on the object of that
   # name: the sample of the third word of the row is read and bent, as the rows of
   # the surface's own `sample` are. It cannot be taken out of the object the way
@@ -315,7 +316,7 @@ surfaces=(
   'bound	full.docker.lines	.full.docker.lines = ["a"]	.full.docker.lines = ["a"] + [range(12) | "b"]	more than 12 items	full'
   'bound	full.containers[0].image	.full.containers[0].image = "a"	.full.containers[0].image = "a" * 201	longer than 200	full'
   'bound	filesystems[0].paths[0]	.filesystems[0].paths = ["/home/boss/tehas"]	.filesystems[0].paths = [1]	integer, not string'
-  'required	["api","generatedAt","filesystems"]'
+  'required	["api","time","filesystems"]'
 )
 
 # The limit of the `limit` samples, as it is set: one cycle at a time, no
@@ -694,7 +695,7 @@ disk_full_reading() { # the reading of the sample with `full`, and no side file
   t_run "'$T_CONSOLE' disk --full --json --max-depth 2 | jq ."
 }
 
-# The clock of the answer is the run's own: `generatedAt` is the moment the
+# The clock of the answer is the run's own: `time` is the moment the
 # reading was made, and no name in the environment bounds it, so the two samples
 # cannot hold a moment a later run prints. The samples keep the moment of the run
 # that wrote them, and every case that compares a sample with what the command
@@ -705,14 +706,14 @@ disk_full_reading() { # the reading of the sample with `full`, and no side file
 # so the two sides of each comparison are two runs of one host.
 disk_without_clock() { # <json>: the object with the run's moment taken out
   # The two fields that hold no fact of the host are taken out of both sides of
-  # every comparison, and are written out of api/ by the rewrite. `generatedAt` is
+  # every comparison, and are written out of api/ by the rewrite. `time` is
   # the moment of the reading. The name of the scratch tree of this run, which
   # `mktemp` makes different for every run of one checkout
   # (test/lib.sh, `T`), stands in the paths of the home and of its places: the
   # name is no more a fact of the host than the moment is, so the tree is named
   # `<home>` on both sides, the way the manual names the home.
   local home=$T/home
-  jq -c --arg home "$home" 'del(.generatedAt)
+  jq -c --arg home "$home" 'del(.time)
          | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
          | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")'
 }
@@ -886,26 +887,26 @@ enum_of() { # <schema file> <path>
 
 # The path the check prints for the field of a `bound` line of a listing. The
 # name of such a line holds the field as the schema names it and the place of
-# its own line in the array of them, `cycles[0].issue`; a name that stops at a
+# its own line in the array of them, `runs[0].issue`; a name that stops at a
 # field of a line that holds a list leaves that field's element out,
-# `cycles[3].filed`, the way the drain's `running` is named without its element.
-# The check reports the whole path, `.cycles[0].issue` and
-# `.cycles[3].filed[0]`, so the one element a name leaves out is put back here.
+# `runs[3].filed`, the way the drain's `running` is named without its element.
+# The check reports the whole path, `.runs[0].issue` and
+# `.runs[3].filed[0]`, so the one element a name leaves out is put back here.
 #
 # The two words are named, not worked out. A name of the table already holds the
-# element of the array of lines - the `0` of `cycles[0]`, or the `0` of the
+# element of the array of lines - the `0` of `runs[0]`, or the `0` of the
 # scratch path of `filesystems[0].paths[0]` - and holds no element of a field of
 # its own, which is the one the check adds and the table's name leaves out: a
-# row that goes into such a field names the second element too, `cycles[3].filed[0]`, and
+# row that goes into such a field names the second element too, `runs[3].filed[0]`, and
 # is printed as it is named. No rule of the shape of a name tells the two apart,
-# since `cycles[3].round` and `cycles[3].filed` have the same shape and one of
+# since `runs[3].round` and `runs[3].filed` have the same shape and one of
 # them gains an element and the other does not, so each of the five rows that
 # goes into a field of a line says so on its own line, and the row of a listing
 # that names no field of its own, the drain's `running`, is named too.
 path_of_bound() { # <path>: the dotted path the check prints for it
   case $1 in
     running) printf '%s\n' "running[0]" ;;
-    'cycles[3].filed[0]') printf '%s\n' "cycles[3].filed[0]" ;;
+    'runs[3].filed[0]') printf '%s\n' "runs[3].filed[0]" ;;
     'full.places[0].cut') printf '%s\n' "full.places[0].cut[0]" ;;
     'full.places[0].bytes') printf '%s\n' "full.places[0].bytes[0]" ;;
     'full.containers[0].image') printf '%s\n' "full.containers[0].image[0]" ;;
@@ -1018,7 +1019,7 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
       has("enum") or has("type")) | keys_unsorted[] | select(IN("$schema", "$id",
         "title", "description", "type", "const", "enum", "required",
         "additionalProperties", "properties", "items", "minimum", "maximum",
-        "minLength", "maxLength", "pattern", "maxItems", "format") | not)]' "$schema")" "[]"
+        "minLength", "maxLength", "pattern", "maxItems", "minProperties", "format") | not)]' "$schema")" "[]"
   t_contains "$(jq -r '.description' "$schema")" "test/json_contract_test.sh"
 
   # The state of every sample, taken from what the console prints and not from
@@ -1079,8 +1080,8 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
       # rewrite leaves is the file the cases below compare.
       if [ "$surface" = disk ]; then
         if jq -c --arg home "$T/home" --argjson kept \
-          "$(jq .generatedAt "$api/$surface.$name.json")" \
-          '. + {generatedAt: $kept}
+          "$(jq .time "$api/$surface.$name.json")" \
+          '. + {time: $kept}
            | .filesystems[].paths |= map(sub("^" + $home + "/"; "<home>/"))
            | .full.places[]?.path |= sub("^" + $home + "/"; "<home>/")' \
           "$api/$surface.$name.json" >"$T/rewrite-clock.json"; then
@@ -1142,8 +1143,8 @@ $changes"
       # name of the scratch tree of the run, in the two fields the command cannot
       # print twice, so the comparison below is of the two objects without them.
       # The fields themselves are the case of the clock's.
-      jq -c 'del(.generatedAt)' "$rewrite/$surface.$name.json" >"$T/rewrite-a.json"
-      jq -c 'del(.generatedAt)' "$api/$surface.$name.json" >"$T/rewrite-b.json"
+      jq -c 'del(.time)' "$rewrite/$surface.$name.json" >"$T/rewrite-a.json"
+      jq -c 'del(.time)' "$api/$surface.$name.json" >"$T/rewrite-b.json"
       t_eq "$(cat "$T/rewrite-a.json")" "$(cat "$T/rewrite-b.json")"
       continue
     fi
@@ -1151,19 +1152,19 @@ $changes"
   done
 
   # The one field of this surface no sample can hold as the command prints it:
-  # `generatedAt` is the moment the reading was made. The case asks that both
+  # `time` is the moment the reading was made. The case asks that both
   # sides of it are there, both of the shape the schema states for it, and that
   # the two moments are not the same field of a copied file - the samples are two
   # readings of one host made by two runs, and the fields beside them are asked
   # for, field by field, by the case of the diff above.
   if [ "$surface" = disk ]; then
-    t_case "the disk samples carry a generatedAt of the run that made them"
+    t_case "the disk samples carry a time of the run that made them"
     for name in "${names[@]}"; do
-      t_eq "$(jq -r '.generatedAt | type' "$api/$surface.$name.json")" "string"
-      t_eq "$(jq -r '.generatedAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$api/$surface.$name.json")" "true"
+      t_eq "$(jq -r '.time | type' "$api/$surface.$name.json")" "string"
+      t_eq "$(jq -r '.time | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$api/$surface.$name.json")" "true"
       printed_now=$(printed "$surface" "$name") ||
         t_bad "the console printed no object for $surface $name"
-      t_eq "$(jq -r '.generatedAt | type' <<<"$printed_now")" "string"
+      t_eq "$(jq -r '.time | type' <<<"$printed_now")" "string"
     done
   fi
 
@@ -1283,7 +1284,7 @@ $changes"
   # A bound of a path under another object is reported at the path the check
   # prints, which holds the element of an array and so is not the table's own
   # path: `.running` is reported as `.running[0]`, and a field of a line of a
-  # listing as `.cycles[0].filed[0]`.
+  # listing as `.runs[0].filed[0]`.
   t_case "the check keeps the bounds of the schema of $surface"
   for bound in "${bounds[@]}"; do
     bound_field=$(surface_line "$bound" 1)
@@ -1313,10 +1314,10 @@ $changes"
       # drain's `running`. The names of a listing hold the place of their own
       # line, so the element of the array of lines is put back where the check
       # puts it, and the element of a field of a line that holds a list is put
-      # back too: `cycles[0].issue` is reported at `.cycles[0].issue` and
-      # `cycles[3].filed` at `.cycles[3].filed[0]`.
+      # back too: `runs[0].issue` is reported at `.runs[0].issue` and
+      # `runs[3].filed` at `.runs[3].filed[0]`.
       running) t_contains "$lines" ".running[0]:" ;;
-      cycles.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
+      runs.*) t_contains "$lines" ".$(path_of_bound "$bound_field"):" ;;
       # A bound of a list is named at the element the command prints it at. A row
       # whose own name already holds that element - the disk surface's
       # `filesystems[0].paths[0]` - is reported at the name the row holds, since

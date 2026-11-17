@@ -188,8 +188,9 @@ tehas status --json
   "paused": {"local": true, "label": false},
   "allHands": false,
   "limit": {"state": "none"},
-  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z", "step": "lens-review",
-               "stepNumber": 7, "stepTotal": 9, "round": 2, "stepSince": "2026-10-17T13:41:00Z"}],
+  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z",
+               "progress": {"step": "lens-review", "stepNumber": 7, "stepTotal": 9, "round": 2,
+                            "stepSince": "2026-10-17T13:41:00Z"}}],
   "planning": [{"issue": 7, "turn": 2, "since": "2026-10-17T13:47:00Z"}],
   "demand": {"waiting": 2, "oldestWait": 5400},
   "hold": {"why": "pause", "text": "paused by the flag tehas pause wrote: weekend"},
@@ -214,7 +215,7 @@ tehas status --json
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `order` | The start order, as [`tehas order --json`](#tehas-order) prints it without `api`, or `{"state": "unreadable"}` when the store did not answer. Left out by a factory that predates `start-order` |
-| `running` | The running cycles: `issue`, `since` (when it started) and `step`, and where the step is: `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines |
+| `running` | The running cycles: `issue`, `since` (when it started) and `progress`, where the cycle is as its driver reports it: `step`, `stepNumber` (the step the cycle is on, from 1, as the driver counts it), `stepTotal` (how many steps the cycle has), `round` (the round of a step that has run before in this cycle, from 2, or the round the driver gave), `roundLimit` (the most rounds the step may run, when the driver gives a limit) and `stepSince` (when the step started). Each is left out when not known yet, and `progress` is left out when none is known. `stepNumber`, `stepTotal` and `roundLimit` are there only when the driver puts them on its `step-started` lines. `progress` is driver-specific and may change in a minor release: show it, do not decide on it |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept). A session whose last turn ended in error and waits for a person is not in flight and is not here; the text summary has a line for it |
 | `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
@@ -282,9 +283,9 @@ checks, at a start, that the text is unchanged since the label, that no open
 pull request closes the issue, and the millwright's grant.
 
 The source holds a JSON Schema of this object, `api/status.schema.json`, and
-two samples made by the code that prints it, `api/status.busy.json` and
-`api/status.quiet.json`. Its tests keep the three in step, and a program can
-copy the samples into its own tests.
+three samples made by the code that prints it, `api/status.busy.json`,
+`api/status.quiet.json` and `api/status.readonly.json`. Its tests keep them in
+step, and a program can copy the samples into its own tests.
 
 It reads `~/tehas/live/health.json` and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
@@ -383,7 +384,7 @@ tehas start <issue> --clear [--json]
 ```
 
 ```json
-{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "body_sha256": "...", "title_sha256": "..."}, "cleared": false}
+{"api": 1, "issue": 12, "approval": {"at": "2026-10-17T14:05:00Z", "by": "host", "how": "host", "bodySha256": "...", "titleSha256": "..."}, "cleared": false}
 ```
 
 Approves an open issue for a start, from the host, in place of a
@@ -406,7 +407,7 @@ it, or `null` with `cleared: false` when none waited.
 | Field | Meaning |
 | --- | --- |
 | `issue` | The issue |
-| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and the sums of the text and the title. `null` from a `--clear` that found none |
+| `approval` | What was recorded or taken back: `at`, `by` and `how` (both `host`), and `bodySha256` and `titleSha256`, the SHA-256 sums of the text and the title. `null` from a `--clear` that found none |
 | `cleared` | `true` when `--clear` took an approval back |
 
 The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
@@ -540,11 +541,11 @@ tehas history [--json] [--after CURSOR] [--issue N]
 ```
 
 ```json
-{"api": 1, "cycles": [
+{"api": 1, "runs": [
    {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
     "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
     "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
-    "step": "review", "stepNumber": 9, "stepTotal": 9,
+    "progress": {"step": "review", "stepNumber": 9, "stepTotal": 9},
     "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
     "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
@@ -555,12 +556,14 @@ tehas history [--json] [--after CURSOR] [--issue N]
  "next": "1760700300-7-42"}
 ```
 
-What has ended, oldest first: one line for each cycle and each planning turn,
-in the order the state store wrote them.
+What has ended, oldest first: one line, a run, for each cycle and each planning
+turn, in the order the state store wrote them.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. `stepNumber`, `stepTotal` and `round` say where the step
-a cycle ended in was, as its last heartbeat at that step said, and are left out
-when it is not known, as `running` of `tehas status --json` leaves them out. `repeat` is on the park of a run of parks only: the parks
+the two the same way. `progress` says where the step a cycle ended in was: the
+step, and `stepNumber`, `stepTotal` and `round` as its last heartbeat at that
+step said, each left out when it is not known, as `running` of
+`tehas status --json` leaves them out. Like that one, `progress` is
+driver-specific and may change in a minor release. `repeat` is on the park of a run of parks only: the parks
 in a row that stopped exactly as this one did, this one not counted, so 1 on the
 first repeat. A line of a listing that begins partway through a run counts only
 the parks the listing holds. It reads the history of both from the state store,
@@ -601,41 +604,42 @@ Without `--json`, one line each, oldest first.
 `api/history.sample.json` and `api/history.empty.json` beside it: a listing of
 three ends of two issues and an empty listing. The two are what the command
 prints, so `test/json_contract_test.sh` keeps them in step with it, and a
-program can copy them into its own tests. One schema of `cycles` covers both
+program can copy them into its own tests. One schema of `runs` covers both
 kinds of line, so a field only one kind prints is optional there and `kind`
 says which line it belongs to. The table gives every field of the schema as the
-schema names it, under `cycles` for a field of a line.
+schema names it, under `runs` for a field of a line.
 
 | Field | Meaning |
 | --- | --- |
 | `api` | The API version, 1 |
-| `cycles` | The lines, oldest first: one for each cycle and each planning turn that ended |
+| `runs` | The lines, oldest first: one for each cycle and each planning turn that ended |
 | `next` | The cursor to keep, as the last line's `cursor`, or `null` when the listing holds no line and none was asked for with `--after` |
-| `cycles.cursor` | The seconds of the end, the issue, and the line's place in the order the store wrote the ends, as `1760700000-12-41` |
-| `cycles.kind` | `work` for a cycle, `plan` for a planning turn |
-| `cycles.issue` | The issue the line is about |
-| `cycles.ended` | When the cycle or the turn ended |
-| `cycles.started` | When it started; left out when the record holds no start |
-| `cycles.status` | Its exit status; left out for a turn whose unit left no readable one |
-| `cycles.outcome` | What it reported: for a cycle the status of its end, for a turn `finished`, `failed`, `interrupted`, `not-started`, `not-readable` or `lost` |
-| `cycles.turn` | The turn's number in its session, from 1. A field of a plan line |
-| `cycles.step` | The step a cycle ended in. A field of a work line |
-| `cycles.stepNumber` | The step the cycle was on, from 1, as its last heartbeat at that step said. Left out when it is not known, as `running` of [`tehas status --json`](#tehas-status---json) leaves it out. A field of a work line |
-| `cycles.stepTotal` | How many steps the cycle has, from the same heartbeat. A field of a work line |
-| `cycles.round` | The round of a step that ran before in this cycle, from 2, or the round the driver gave. A field of a work line |
-| `cycles.cap` | The cap it stopped at. A field of a work line |
-| `cycles.parkReason` | Why it was parked. A field of a work line, left out when the end named no reason |
-| `cycles.failureKind` | The failure the millwright named. A field of a work line |
-| `cycles.failureCause` | Its cause, as the millwright gave it. A field of a work line |
-| `cycles.provider` | Whether its provider was asked. A field of a work line |
-| `cycles.parked` | Whether the cycle parked. A field of a work line |
-| `cycles.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
-| `cycles.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
-| `cycles.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
-| `cycles.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
-| `cycles.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
-| `cycles.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
-| `cycles.filed` | The issues the turn filed, when it filed any. A field of a plan line |
+| `runs.cursor` | The seconds of the end, the issue, and the line's place in the order the store wrote the ends, as `1760700000-12-41` |
+| `runs.kind` | `work` for a cycle, `plan` for a planning turn |
+| `runs.issue` | The issue the line is about |
+| `runs.ended` | When the cycle or the turn ended |
+| `runs.started` | When it started; left out when the record holds no start |
+| `runs.status` | Its exit status; left out for a turn whose unit left no readable one |
+| `runs.outcome` | What it reported: for a cycle the status of its end, for a turn `finished`, `failed`, `interrupted`, `not-started`, `not-readable` or `lost` |
+| `runs.turn` | The turn's number in its session, from 1. A field of a plan line |
+| `runs.progress` | Where the step a cycle ended in was, as its driver reported it. Driver-specific and may change in a minor release. Left out when nothing of it is known. A field of a work line |
+| `runs.progress.step` | The step a cycle ended in |
+| `runs.progress.stepNumber` | The step the cycle was on, from 1, as its last heartbeat at that step said. Left out when it is not known, as `running` of [`tehas status --json`](#tehas-status---json) leaves it out |
+| `runs.progress.stepTotal` | How many steps the cycle has, from the same heartbeat |
+| `runs.progress.round` | The round of a step that ran before in this cycle, from 2, or the round the driver gave |
+| `runs.cap` | The cap it stopped at. A field of a work line |
+| `runs.parkReason` | Why it was parked. A field of a work line, left out when the end named no reason |
+| `runs.failureKind` | The failure the millwright named. A field of a work line |
+| `runs.failureCause` | Its cause, as the millwright gave it. A field of a work line |
+| `runs.provider` | Whether its provider was asked. A field of a work line |
+| `runs.parked` | Whether the cycle parked. A field of a work line |
+| `runs.repeat` | The parks in a row that stopped exactly as this one did, this one not counted, so 1 on the first repeat. On the park of a run of parks only. A field of a work line |
+| `runs.pr` | The pull request, as an address of the repository the instance names. A field of a work line that had one |
+| `runs.by` | Who asked for it. Left out for a cycle run by hand, which names no account |
+| `runs.how` | How it was asked for: `label`, `refresh`, `retry-tick`, `outage-retry`, `millwright`, `host` ([`tehas start`](#tehas-start)) or `hand` |
+| `runs.label` | The label that started the turn's session, `tehas:plan` or `tehas:refine`. A field of a plan line |
+| `runs.auto` | `true` for a refine the factory started on its own when a cycle parked as underspecified or too-large. Left out otherwise. A field of a plan line |
+| `runs.filed` | The issues the turn filed, when it filed any. A field of a plan line |
 
 Exit 0 when it printed, also with nothing to list; 1 when the state store was
 busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
@@ -649,10 +653,17 @@ tehas export [--json] --after CURSOR <dir>
 ```
 
 ```json
-{"api": 1, "cycles": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
+{"api": 1, "version": 1, "runs": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
   "ended": "2026-10-17T13:20:00Z", "status": 0, "outcome": "merged"}],
  "next": "1760700000-12-41", "to": "/home/boss/archive"}
 ```
+
+`version` is the layout of the export directory, 1 today. The directory says it
+too, in `<dir>/export.json`: `{"version": 1}`, written on every export. A
+program that reads an archive reads that file first, and a later layout comes
+with a higher number. The rest of the object is the one
+[`tehas history --json`](#tehas-history) prints for what was copied, and `to`,
+the directory.
 
 The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
@@ -976,7 +987,7 @@ tehas disk [--full] [--cycles] [--json] [--publish]
 ```
 
 ```json
-{"api": 1, "generatedAt": "2026-10-31T23:09:32Z", "dockerRoot": "/var/lib/docker",
+{"api": 1, "time": "2026-10-31T23:09:32Z", "dockerRoot": "/var/lib/docker",
  "filesystems": [
    {"paths": ["/home/boss/tehas"], "mount": "overlay",
     "freeBytes": 22348619337728, "totalBytes": 30723834994688},
@@ -1003,7 +1014,7 @@ field of one entry and under `full` for a field of what fills them.
 | Field | Meaning |
 | --- | --- |
 | `api` | The API version, 1 |
-| `generatedAt` | When the answer was made, UTC. The command's own reads write nothing, so this says how old the answer on the terminal is |
+| `time` | When the answer was made, UTC. The command's own reads write nothing, so this says how old the answer on the terminal is |
 | `dockerRoot` | The directory Docker keeps its images in, as `docker info` named it. Left out when the daemon named none, which is a host with no Docker and the entry of `/var/lib/docker` all the same |
 | `filesystems` | One entry per file system the factory cares about, in the order the paths were asked |
 | `filesystems.paths` | Every watched path that stands on this file system, the one that opened the entry first |
