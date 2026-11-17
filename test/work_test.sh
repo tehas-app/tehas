@@ -292,7 +292,7 @@ t_case "the remote path: on a contractor the container gets exactly the same mou
 # its token and relays its issue writes through the contractor program, and
 # gives its container nothing more and nothing else (AGENTS.md rule 4).
 local_mounts=$(after -v | LC_ALL=C sort)
-t_stub contractor 'case $1 in relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; esac'
+t_stub contractor 'case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; esac'
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_OUTSOURCE=on
 saved_env=("${T_ENV[@]}")
 T_ENV+=(TEHAS_TEST_FEATURES=outsource "TEHAS_CONTRACTOR=$T/bin/contractor")
@@ -302,6 +302,11 @@ t_eq "$t_rc" 2
 t_eq "$(after -v | LC_ALL=C sort)" "$local_mounts"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 t_contains "$(tail -n 1 "$T/renew.calls")" "renew --cmd $T/bin/contractor --arg token "
+# A contractor holds no app token: the container's token is the cycle token
+# the factory made, and no app token was asked for.
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_from_factory"
+t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "ghs_from_factory"
+t_lacks "$(cat "$T"/calls/docker.token 2>/dev/null)" "ghs_app"
 T_ENV=("${saved_env[@]}")
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 

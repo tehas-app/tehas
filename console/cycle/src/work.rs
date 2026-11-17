@@ -515,11 +515,36 @@ fn app_token(console: &str, words: &[&str]) -> Option<String> {
     (!token.is_empty()).then_some(token)
 }
 
+/// The cycle token the contractor program prints, which it asked the factory
+/// for and wrote where the container reads it.
+fn contractor_token(program: &Path) -> Option<String> {
+    let out = Command::new(program)
+        .arg("token")
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!token.is_empty()).then_some(token)
+}
+
 /// The host's token and the cycle's: GH_TOKEN is the app's and the cycle token
 /// is the app's narrowed one (#1814).
 fn github_token(console: &str) -> i32 {
     // Before any thread: the process is still single-threaded.
     std::env::remove_var(sandbox::CYCLE_TOKEN);
+    if let Some(program) = contractor() {
+        // A contractor holds no app token: the host side and the container
+        // both act with the cycle's narrowed token, which the factory makes.
+        let Some(token) = contractor_token(&program) else {
+            eprintln!("tehas work: no cycle token from the factory, not starting a cycle");
+            return 1;
+        };
+        std::env::set_var("GH_TOKEN", &token);
+        std::env::set_var(sandbox::CYCLE_TOKEN, token);
+        return 0;
+    }
     let Some(token) = app_token(console, &[]) else {
         eprintln!("tehas work: no GitHub token for the app");
         return 1;
