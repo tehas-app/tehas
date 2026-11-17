@@ -842,8 +842,7 @@ mod run_tests {
         let mut s = Store::new("mcp-stopped");
         s.queue();
         let bin = s.home.join("libexec/tehas-mcp");
-        fs::write(&bin, "").unwrap();
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&bin, "").unwrap();
         // A port nothing listens on: the server is stopped.
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap()
