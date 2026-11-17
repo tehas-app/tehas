@@ -2203,7 +2203,6 @@ fn a_sample_reads_the_report_the_dispatcher_writes() {
         limit_room: Some(1),
         refresh_room: Some(2),
         endpoint: Some("backup".into()),
-        slots: Some(json!({"cycles": 6, "cyclesHow": "auto"})),
         held: Vec::new(),
     };
     let mut v = r.to_value();

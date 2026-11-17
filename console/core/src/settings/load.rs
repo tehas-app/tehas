@@ -1670,19 +1670,13 @@ mod tests {
         let vars = loads(&[
             "TEHAS_REPO=widget",
             "TEHAS_ALLOWED_LABELERS=alice ",
-            "TEHAS_CONTAINER_MEMORY=1m",
             "TEHAS_REVIEW_REPO=acme",
         ]);
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             names,
-            [
-                "TEHAS_REPO",
-                "TEHAS_ALLOWED_LABELERS",
-                "TEHAS_CONTAINER_MEMORY",
-                "TEHAS_REVIEW_REPO"
-            ]
+            ["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS", "TEHAS_REVIEW_REPO"]
         );
         assert_eq!(found[0].1, "expected owner/name");
     }
@@ -2005,10 +1999,7 @@ mod tests {
 
     /// Settings the example instance names whose rule lives with the program
     /// that reads them, not in the table.
-    const RULED_ELSEWHERE: [&str; 8] = [
-        // The dispatcher holds their rules and defaults (dispatch/src/slots.rs).
-        "TEHAS_CYCLE_CPUS",
-        "TEHAS_CYCLE_CEILING",
+    const RULED_ELSEWHERE: [&str; 6] = [
         // Defaults of this load: the sandbox image, the product's clone and
         // the cycle's host names.
         "PI_ENSEMBLE_IMAGE",
