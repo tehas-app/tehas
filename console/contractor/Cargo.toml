@@ -22,11 +22,12 @@ rustix = { version = "1", default-features = false, features = ["process", "std"
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core" }
+# The rule of which branch is an issue's, shared with tehas-cycle finish.
+tehas-cycle = { path = "../cycle" }
 
 [dev-dependencies]
 # The factory's side of the job channel and its store, which the tests run
 # the program against over a real socket.
 store = { path = "../store" }
-tehas-cycle = { path = "../cycle" }
 tehas-proxy = { path = "../proxy" }
 rusqlite = "0.38"

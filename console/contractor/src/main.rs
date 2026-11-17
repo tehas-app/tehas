@@ -28,8 +28,9 @@
 //! cloned from [https://github.com].
 //!
 //! Exit: 0 done (run: drained); 1 failed, refused or revoked; 3 doctor
-//! found something; 64 a word it does not know; 78 outsource is off, or
-//! this host has not joined.
+//! found something; 64 a word it does not know; 78 outsource is off, this
+//! host has not joined, or (run) TEHAS_HOME holds a factory or the user's
+//! models.json is not this program's.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -130,6 +131,10 @@ fn run(p: &Paths) -> i32 {
         work,
         git_base,
     };
+    // Refused before the first wipe, which would remove a factory's files.
+    if let Some(why) = host::foreign(p) {
+        stop(&why, 78);
+    }
     let _ = std::fs::remove_file(p.drain_file());
     job::run(&host, grace, 30)
 }

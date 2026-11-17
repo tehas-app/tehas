@@ -311,6 +311,18 @@ fn a_lost_job_takes_the_salvage_path_and_a_late_result_is_sent() {
 }
 
 #[test]
+fn a_job_a_newer_attempt_replaced_is_stopped_and_pushes_and_reports_nothing() {
+    let w = world(never_ends(Some(10), true));
+    w.0.script("check-in", vec![Reply::No(409, "stale".to_string())]);
+    assert_eq!(run_job(&w, &job(), 30), End::Lost("stale".to_string()));
+    let ev = w.0.events();
+    assert!(ev.contains(&"TERM".to_string()));
+    assert!(!ev.contains(&"push".to_string()), "{ev:?}");
+    assert_eq!(w.0.calls("stopped") + w.0.calls("result"), 0);
+    assert_eq!(ev.last().map(String::as_str), Some("wipe"));
+}
+
+#[test]
 fn a_cycle_that_outlives_its_grace_is_killed_and_never_before() {
     let w = world(never_ends(None, false));
     w.0.script("check-in", vec![Reply::No(403, "lost".to_string())]);
