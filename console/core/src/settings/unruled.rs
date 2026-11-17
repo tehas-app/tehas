@@ -11,6 +11,14 @@ use super::{load, renamed, rules};
 
 /// One name each.
 pub const UNRULED: &[(&str, &str)] = &[
+    (
+        "TEHAS_VIPUNE_BIN",
+        "the vipune stand-in's path to the real vipune, inside the image",
+    ),
+    (
+        "TEHAS_VIPUNE_WAIT",
+        "the vipune stand-in's wait for the relay's answer, inside the image",
+    ),
     ("TEHAS_WORK_DIR", "set by the load: where a cycle works"),
     (
         "TEHAS_CYCLE_LOGIN",
