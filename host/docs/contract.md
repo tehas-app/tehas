@@ -191,6 +191,22 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 [Outsource](/outsource) says what the feature does once it ships.
 
+### protolab-zip-url
+
+Building. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
+exit 78 and says `protolab-zip-url` is still being built.
+
+- `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
+  `protolab-zip-url` in `features`.
+- The setting `TEHAS_PROTOLAB_ZIP_HOSTS` is in `api/settings-rules.json` and
+  is checked like any setting, but nothing fetches from its hosts while the
+  feature is off, and it is not contract.
+- A `Zip:` line in a ticket is text on the Protolab page, as it always was.
+- No command, no label, no `--json` field, no MCP tool.
+
+[A zip by address](/tools-protolab#a-zip-by-address) says what the feature
+does once it ships.
+
 ## Exit statuses
 
 A status means the same in every public command, but for the exceptions a

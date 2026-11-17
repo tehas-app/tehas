@@ -100,6 +100,9 @@ pub enum Rule {
     CleanAfter,
     /// Days a kept workspace of an open issue waits before the sweep.
     KeepDays,
+    /// Commits of history a cycle's tree is given, 0 for all of it: the count
+    /// grammar of [`is_count`], 0 included.
+    CloneDepth,
     /// An idle poll's budget for `store poll-idle --budget`: the three figures
     /// in this order, any left out; another order would bound the wrong
     /// figure. Each figure as the store's count reads it, no leading 0.
@@ -118,10 +121,18 @@ pub enum Rule {
     /// shape of [`Rule::Repo`]. The empty value is no repository, which is the
     /// default of TEHAS_OUTSOURCE_REPOS.
     Repos,
+    /// The contractors the job channel answers: names as a join gives them
+    /// (a letter or digit, then letters, digits and `._-`, at most 64), one
+    /// space apart. The empty value refuses every contractor, the default of
+    /// TEHAS_OUTSOURCE_CONTRACTORS.
+    Contractors,
     OneWord,
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// Domains as [`Rule::Domain`] reads them, one space apart, none around
+    /// them. The empty value is no domain at all.
+    Domains,
     /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
     /// outsource model proxy listens on exactly this: no port means a proxy
     /// with no port to listen on, which is no proxy.
@@ -173,6 +184,7 @@ impl Rule {
             Rule::RefreshSlots => "refresh-slots",
             Rule::CleanAfter => "clean-after",
             Rule::KeepDays => "keep-days",
+            Rule::CloneDepth => "clone-depth",
             Rule::PollBudget => "poll-budget",
             Rule::MeasureBound => "measure-bound",
             Rule::ScratchDir => "scratch-dir",
@@ -180,8 +192,10 @@ impl Rule {
             Rule::Follow => "follow",
             Rule::BranchCheck => "branch-check",
             Rule::Repos => "repos",
+            Rule::Contractors => "contractors",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
+            Rule::Domains => "domains",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
             Rule::Path => "path",
@@ -220,6 +234,7 @@ impl Rule {
             Rule::RefreshSlots => "9",
             Rule::CleanAfter => "123456",
             Rule::KeepDays => "0",
+            Rule::CloneDepth => "-1",
             Rule::PollBudget => "wall=1,cpu=1",
             Rule::MeasureBound => "0",
             Rule::ScratchDir => "scratch",
@@ -227,8 +242,10 @@ impl Rule {
             Rule::Follow => "main",
             Rule::BranchCheck => "verify&x=1",
             Rule::Repos => "acme/widget  other/widget",
+            Rule::Contractors => "box1  box2",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
+            Rule::Domains => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
             Rule::Path => "repos/app",
@@ -315,6 +332,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_OUTSOURCE_RETRIES", Rule::Count, "2"),
     always("TEHAS_OUTSOURCE_REST", Rule::Count, "1800"),
     given_or("TEHAS_OUTSOURCE_REPOS", Rule::Repos, ""),
+    given_or("TEHAS_OUTSOURCE_CONTRACTORS", Rule::Contractors, ""),
     always("TEHAS_OUTSOURCE_JOIN_TTL", Rule::Count, "3600"),
     // The model proxy. Its idle bound is checked against the check-in timeout
     // by the load: a stream must outlive the job that waits on it.
@@ -356,6 +374,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_SLICE_CONTAINERS", Rule::SliceContainers, "4"),
     always("TEHAS_CLEAN_AFTER", Rule::CleanAfter, "24"),
     always("TEHAS_WORKSPACE_KEEP_DAYS", Rule::KeepDays, "7"),
+    always("TEHAS_CLONE_DEPTH", Rule::CloneDepth, "100"),
     always(
         "TEHAS_POLL_BUDGET",
         Rule::PollBudget,
@@ -368,6 +387,9 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
+    always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
+    given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
+    always("TEHAS_PROTOTYPE_FILE", SWITCH, "0"),
     given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
@@ -550,6 +572,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             leading(v, 4),
             "expected a whole number of days of at least 1",
         ),
+        Rule::CloneDepth => refuse(is_count(v), CLONE_DEPTH_WHY),
         Rule::PollBudget => poll_budget(v),
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
         Rule::ScratchDir => refuse(is_path(v), "expected an absolute path such as /mnt/scratch"),
@@ -566,6 +589,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             v.is_empty() || v.split(' ').all(is_repo),
             "expected owner/name repositories separated by single spaces",
         ),
+        Rule::Contractors => refuse(
+            v.is_empty() || v.split(' ').all(is_contractor),
+            "expected contractor names separated by single spaces",
+        ),
         Rule::OneWord => refuse(
             !v.is_empty() && !v.bytes().any(is_space),
             "expected one word",
@@ -573,6 +600,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         Rule::EgressHosts => refuse(
             v.split(' ').all(|w| crate::egress::host_pair(w).is_some()),
             "expected host names such as pypi.org or host:port, separated by single spaces",
+        ),
+        Rule::Domains => refuse(
+            v.is_empty() || v.split(' ').all(is_named_domain),
+            "expected domains such as files.example.org, in lower case, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
         Rule::HostAliases => crate::sandbox::hosts(v).map(|_| ()),
@@ -609,6 +640,7 @@ const ADDRESS_WHY: &str =
 const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
 const POSITIVE: &str = "expected a positive whole number";
+const CLONE_DEPTH_WHY: &str = "expected a whole number of 0 or more, 0 for full history";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
     !s.is_empty() && s.chars().all(ok)
@@ -649,6 +681,12 @@ fn is_space(b: u8) -> bool {
 fn is_login(s: &str) -> bool {
     all(s, class("-")) && !s.starts_with('-')
 }
+/// A contractor's name, the shape the state store takes at a join.
+fn is_contractor(s: &str) -> bool {
+    s.len() <= 64
+        && s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
+        && all(s, class("._-"))
+}
 fn is_repo(s: &str) -> bool {
     matches!(s.split_once('/'), Some((o, n)) if all(o, class("_.-")) && all(n, class("_.-")))
 }
@@ -670,6 +708,13 @@ pub(crate) fn is_domain(s: &str) -> bool {
             && !l.ends_with('-')
     };
     s.contains('.') && s.split('.').all(label)
+}
+/// A domain whose last label is not all digits, so no IPv4 address passes.
+fn is_named_domain(s: &str) -> bool {
+    is_domain(s)
+        && s.rsplit('.')
+            .next()
+            .is_some_and(|l| !l.bytes().all(|b| b.is_ascii_digit()))
 }
 fn is_workaround(entry: &str) -> bool {
     let Some((name, version)) = entry.split_once('@') else {
@@ -933,10 +978,12 @@ mod tests {
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
             "TEHAS_SPEC_PIPE",
+            "TEHAS_PROTOLAB_ZIP_URL",
+            "TEHAS_PROTOTYPE_FILE",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 17);
+        assert_eq!(switches.len(), 18);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1094,6 +1141,35 @@ mod tests {
     }
 
     #[test]
+    fn the_zip_hosts_are_domains_in_lower_case_or_none() {
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "");
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "files.example.org");
+        takes(
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "files.example.org cdn.example.net",
+        );
+        let why =
+            "expected domains such as files.example.org, in lower case, separated by single spaces";
+        for bad in [
+            "localhost",
+            "Files.example.org",
+            "files.example.org  cdn.example.net",
+            " files.example.org",
+            "files.example.org ",
+            "files.example.org:443",
+            "https://files.example.org",
+            "*.example.org",
+            "files..example.org",
+            "files.example.org.",
+            "127.0.0.1",
+            "192.0.2.10",
+            "files.example.org 198.51.100.7",
+        ] {
+            refuses("TEHAS_PROTOLAB_ZIP_HOSTS", bad, why);
+        }
+    }
+
+    #[test]
     fn a_domain_has_two_labels_in_lower_case() {
         takes("TEHAS_DOMAIN", "a-b.example.org");
         let why =
@@ -1212,6 +1288,16 @@ mod tests {
                 bad,
                 "expected a whole number from 0 to 8",
             );
+        }
+    }
+
+    #[test]
+    fn a_clone_depth_is_a_whole_number_and_0_is_full_history() {
+        for good in ["0", "1", "100", "999999999"] {
+            takes("TEHAS_CLONE_DEPTH", good);
+        }
+        for bad in ["", "-1", "01", "1000000000", "100 ", "full", "é"] {
+            refuses("TEHAS_CLONE_DEPTH", bad, CLONE_DEPTH_WHY);
         }
     }
 
@@ -1382,6 +1468,29 @@ mod tests {
             "acme/widget not-a-repo",
         ] {
             refuses("TEHAS_OUTSOURCE_REPOS", bad, why);
+        }
+    }
+
+    #[test]
+    fn the_outsource_contractors_are_names_one_space_apart() {
+        takes("TEHAS_OUTSOURCE_CONTRACTORS", "");
+        takes("TEHAS_OUTSOURCE_CONTRACTORS", "box1");
+        takes(
+            "TEHAS_OUTSOURCE_CONTRACTORS",
+            "box1 contractor-1a2b3c4d my.box_2",
+        );
+        let why = "expected contractor names separated by single spaces";
+        let long = "b".repeat(65);
+        for bad in [
+            "box1  box2",
+            " box1",
+            "box1 ",
+            "-box",
+            "box/1",
+            "box;rm",
+            long.as_str(),
+        ] {
+            refuses("TEHAS_OUTSOURCE_CONTRACTORS", bad, why);
         }
     }
 

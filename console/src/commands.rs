@@ -22,6 +22,8 @@
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
+//!   console tehas outsource invite|list|status|revoke|drain [...] [--json]
+//!   console tehas prototype file ...
 //!   console tehas|tehasbot mcp serve|key
 //!   console tehasbot health
 //!   console tehasbot status
@@ -204,6 +206,8 @@ pub fn tehas(given: &[String]) -> u8 {
         "dev-login" => dev::login(rest),
         "mcp" => mcp::main(rest),
         "github" => github_verb(rest),
+        "outsource" => crate::outsource::main(rest),
+        "prototype" => crate::prototype::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -317,6 +321,14 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
+        ["tehas", "outsource"] => match crate::outsource::words(rest) {
+            Ok(None) => {
+                say(crate::outsource::USAGE);
+                Err(ANSWERED)
+            }
+            Ok(Some(_)) => Ok(()),
+            Err(rc) => Err(rc),
+        },
         ["tehas", "panel"] => panel::words(rest).map(|_| ()),
         ["tehas", "host-message"] => host_message::words(rest).map(|_| ()),
         ["tehas", "resume"] => flags::resume_words(rest),
@@ -395,7 +407,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "PI_ENSEMBLE_SUBAGENT_MODEL",
             "PI_ENSEMBLE_SUBAGENT_PROVIDER",
         ],
-        ["tehasbot", "protolab"] => &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"],
+        ["tehasbot", "protolab"] | ["tehas", "prototype"] => {
+            &["TEHAS_REPO", "TEHAS_ALLOWED_LABELERS"]
+        }
         _ => &[],
     }
 }
@@ -424,11 +438,13 @@ pub fn text(command: &str) -> Option<&'static str> {
         "limit" => include_str!("usage/limit.txt"),
         "mcp" => include_str!("usage/mcp.txt"),
         "order" => include_str!("usage/order.txt"),
+        "outsource" => crate::outsource::USAGE,
         "start" => include_str!("usage/start.txt"),
         "dev" => dev::USAGE,
         "panel" => include_str!("usage/panel.txt"),
         "pause" => include_str!("usage/pause.txt"),
         "plan" => include_str!("usage/plan.txt"),
+        "prototype" => include_str!("usage/prototype.txt"),
         // The dispatcher's own text, which `tehasbot refresh --help` prints.
         "refresh" => include_str!("../dispatch/src/usage/refresh.txt"),
         "review" => include_str!("usage/review.txt"),

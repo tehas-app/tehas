@@ -73,9 +73,10 @@ The limits:
 - **Only a label from an allowed account** puts the ticket here, as said
   above: the most recent `tehas:prototype` labelling is by an account in
   `TEHAS_ALLOWED_LABELERS`.
-- **Only files attached by an owner, member or collaborator** of the
-  repository are taken. Links by anyone else are counted on the page and not
-  fetched.
+- **Only files linked by an allowed account** are taken: in text an account
+  in `TEHAS_ALLOWED_LABELERS` wrote and nobody off the list edited last, and
+  not on a quoted line. Links by anyone else, the bot included, are counted on
+  the page and not fetched.
 - An HTML prototype runs in the browser's sandbox, apart from the dashboard
   and from every other prototype. Scripts work; storage in the browser
   (`localStorage`, cookies) does not.
@@ -110,6 +111,7 @@ issue text.
 | A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=on`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=on`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | The text of comments, on a retry with comments | `comments.json` beside the images, when `Retry with the issue and all its comments` was ticked: what allowed accounts that may write said on the issue and its pull requests up to the tick. Read by the sandbox image's pi-rukas or its polyfill | Not given | Not shown |
+| The spec an issue's `Spec:` line names, and the approved title and body | With `TEHAS_SPEC_PIPE=on`, still being built: the spec, held to the sha256 its approval pinned, and `approved.json`, beside the images and named in the manifest. A spec needs a sandbox image whose pi-rukas lists `issueSpec` | Not given | Not shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=on`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
 | A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=on`, its files given as above | The same | Unpacked, its files shown as above |

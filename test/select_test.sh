@@ -87,6 +87,7 @@ crate tehas-mcp"
 t_case "the real workspace: a store change selects the crates that run the store"
 t_eq "$(real_pick console/store/src/db.rs)" "crate console
 crate store
+crate tehas-contractor
 crate tehas-dispatch
 crate tehas-ops
 crate tehas-proxy"

@@ -14,7 +14,8 @@
 //!     line a person reads with `tehas outsource list`.
 //!   store contractor-list
 //!     The contractors as an array: name, whether it is revoked, draining or
-//!     resting, when it was last heard of, and its two counters.
+//!     resting, when it was last heard of, its two counters, and the issue
+//!     and state of the job open in its hand, if any.
 //!   store contractor-seen --name <name>
 //!     The check-in of the spec's "Durability" 1: the second this contractor
 //!     was last heard of.
@@ -52,7 +53,8 @@
 //!   store job-finish --job <id> [--sha256 <hex>]
 //!     The result came in from the current attempt. A late contractor with an
 //!     older attempt answers `stale`, which is the store's answer and not its
-//!     caller's.
+//!     caller's. A job lost to a silence, not to a revocation, still takes the
+//!     result of its attempt until the issue's next attempt is given out.
 //!   store job-release --job <id>
 //!     The contractor handed the job back on purpose. Not a failure, and it
 //!     costs the contractor nothing.
@@ -71,6 +73,25 @@
 //!     while it was down are sorted out by the same call that sorts out the
 //!     ones that expire now, so a verb cannot lose a job by forgetting to.
 //!     answers how many of each kind it closed out.
+//!   store contractor-auth --name <name> --key <hex>
+//!     Whether a contractor's call may be answered: the name is registered,
+//!     not revoked, and holds this key. answers `allowed` with whether it is
+//!     draining, or `refused` with `revoked`, `unknown` or `another key`. The
+//!     key is the hash the contractor joined with: the store compares, so the
+//!     caller is never handed the key it is checking against.
+//!   store job-offered --contractor <name>
+//!     The oldest offer still open in this contractor's hand, which it takes
+//!     when it asks for work: answers `job` with its number, issue and attempt,
+//!     or `none`.
+//!   store job-stamp --issue <n> --since <unix> [--open]
+//!     Who built the issue's cycle that started on an approval of --since:
+//!     the newest job given out for the issue at or after that second,
+//!     whatever its state: its number, contractor, attempt and state, each
+//!     null when the cycle ran in-house. With --open only a job offered or
+//!     running counts: a start asks so, and a retry after a lost job is not
+//!     that job's. Answered under its own verb, as a caller of libexec/store
+//!     reads it. The stamp of the issue's comments, its pull request and its
+//!     commits.
 //!   store job-attempts --issue <n>
 //!     The record of what the outsourced attempts of an issue have cost, in
 //!     the words "this issue has spent its outsourced attempts" are read:
@@ -171,6 +192,16 @@ pub enum Call {
         at_start: bool,
     },
     Attempts(i64),
+    Auth {
+        name: String,
+        key: String,
+    },
+    Offered(String),
+    Stamp {
+        issue: i64,
+        since: i64,
+        open: bool,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -198,7 +229,7 @@ pub enum JobShow {
 
 /// A contractor's name, as a join and a check-in arrive with it: the shape of
 /// a host's name, and nothing wider.
-fn host(s: &str) -> Option<String> {
+pub(crate) fn host(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let ok = !bytes.is_empty()
         && bytes.len() <= NAME_MAX
@@ -463,6 +494,43 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 at_start: a.has("--now"),
             })
         }),
+        "contractor-auth" => Args::parse(
+            "contractor-auth",
+            rest,
+            &[("--name", Kind::Value), ("--key", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Auth {
+                name: a.strict_need("--name", "a host's name", host)?,
+                key: a.strict_need("--key", "a key as 64 hex digits", verbs::sha256)?,
+            })
+        }),
+        "job-offered" => Args::parse("job-offered", rest, &[("--contractor", Kind::Value)], false)
+            .and_then(|a| {
+                Ok(Call::Offered(a.strict_need(
+                    "--contractor",
+                    "a host's name",
+                    host,
+                )?))
+            }),
+        "job-stamp" => Args::parse(
+            "job-stamp",
+            rest,
+            &[
+                ("--issue", Kind::Value),
+                ("--since", Kind::Value),
+                ("--open", Kind::Switch),
+            ],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Stamp {
+                issue: a.strict_need("--issue", "an issue number", verbs::number)?,
+                since: a.strict_need("--since", "a second", verbs::number)?,
+                open: a.has("--open"),
+            })
+        }),
         "job-attempts" => Args::parse("job-attempts", rest, &[("--issue", Kind::Value)], false)
             .and_then(|a| {
                 Ok(Call::Attempts(a.strict_need(
@@ -499,6 +567,9 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Show(s) => show(home, s),
         Call::Sweep { timeout, at_start } => sweep(home, *timeout, *at_start, now),
         Call::Attempts(issue) => attempts(home, *issue),
+        Call::Auth { name, key } => auth(home, name, key),
+        Call::Offered(name) => offered(home, name, now),
+        Call::Stamp { issue, since, open } => stamp(home, *issue, *since, *open),
     }
 }
 
@@ -600,8 +671,20 @@ fn contractors(home: &Path, now: i64) -> Result<String, Fail> {
         for row in taken {
             let (name, revoked, draining, resting, seen, done, lost) = row.q()?;
             let resting = resting.filter(|until| *until > now);
+            let open: Option<(i64, String)> = c
+                .query_row(
+                    "SELECT issue, state FROM jobs WHERE contractor = ?1
+                       AND state IN ('offered','running','stopping') ORDER BY id DESC LIMIT 1",
+                    [&name],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .q()?;
+            let (issue, state) = open.unzip();
             out.push(obj(&[
                 ("name", j(name.as_str())),
+                ("job_issue", j(issue)),
+                ("job_state", j(state.as_deref())),
                 ("revoked", j(revoked.is_some())),
                 ("draining", j(draining == 1)),
                 ("resting", j(resting.is_some())),
@@ -900,6 +983,108 @@ fn invite_use(home: &Path, code: &str, name: &str, key: &str, now: i64) -> Resul
     })
 }
 
+fn lost_reason(c: &Connection, id: i64) -> Result<Option<String>, Fail> {
+    c.query_row(
+        "SELECT lost_reason FROM jobs WHERE id = ?1",
+        params![id],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .q()
+    .map(Option::flatten)
+}
+
+fn auth(home: &Path, name: &str, key: &str) -> Result<String, Fail> {
+    look(home, move |c| {
+        let held: Option<(String, Option<i64>, i64)> = c
+            .query_row(
+                "SELECT public_key, revoked_at, draining FROM contractors WHERE name = ?1",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .q()?;
+        let said = match held {
+            None => "unknown",
+            Some((_, Some(_), _)) => "revoked",
+            Some((held, None, _)) if held != key => "another key",
+            Some((_, None, draining)) => {
+                return Ok(line(
+                    "allowed",
+                    &[("name", j(name)), ("draining", j(draining == 1))],
+                ))
+            }
+        };
+        Ok(line("refused", &[("name", j(name)), ("said", j(said))]))
+    })
+}
+
+fn offered(home: &Path, name: &str, now: i64) -> Result<String, Fail> {
+    look(home, move |c| {
+        let held: Option<(i64, i64, i64, i64)> = c
+            .query_row(
+                "SELECT id, issue, attempt, expires_at FROM jobs
+                   WHERE contractor = ?1 AND state = 'offered' AND expires_at > ?2
+                   ORDER BY id LIMIT 1",
+                params![name, now],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .q()?;
+        Ok(match held {
+            Some((id, issue, attempt, expires)) => line(
+                "job",
+                &[
+                    ("job", j(id)),
+                    ("issue", j(issue)),
+                    ("attempt", j(attempt)),
+                    ("contractor", j(name)),
+                    ("state", j("offered")),
+                    ("expires_at", j(expires)),
+                ],
+            ),
+            None => line("none", &[("contractor", j(name))]),
+        })
+    })
+}
+
+fn stamp(home: &Path, issue: i64, since: i64, open: bool) -> Result<String, Fail> {
+    look(home, move |c| {
+        let job = c
+            .query_row(
+                "SELECT id, issue, contractor, attempt, state FROM jobs
+                   WHERE issue = ?1 AND offered_at >= ?2
+                     AND (?3 = 0 OR state IN ('offered', 'running'))
+                   ORDER BY id DESC LIMIT 1",
+                params![issue, since, open],
+                read_job,
+            )
+            .optional()
+            .q()?;
+        // Answered under its own verb, as every caller of libexec/store
+        // reads an answer: the job, or null for a cycle run in-house.
+        let (id, contractor, attempt, state) = match &job {
+            Some(job) => (
+                Some(job.id),
+                Some(job.contractor.as_str()),
+                Some(job.attempt),
+                Some(job.state.as_str()),
+            ),
+            None => (None, None, None, None),
+        };
+        Ok(line(
+            "job-stamp",
+            &[
+                ("issue", j(issue)),
+                ("job", j(id)),
+                ("contractor", j(contractor)),
+                ("attempt", j(attempt)),
+                ("state", j(state)),
+            ],
+        ))
+    })
+}
+
 fn key_of(c: &Connection, name: &str) -> Result<Option<String>, Fail> {
     c.query_row(
         "SELECT public_key FROM contractors WHERE name = ?1",
@@ -1024,7 +1209,8 @@ fn finish(home: &Path, id: i64, sha: Option<&str>, now: i64) -> Result<String, F
         if stale(c, &job)? {
             return Ok(stale_line(&job));
         }
-        if !matches!(job.state.as_str(), "running" | "stopping") {
+        let salvaged = job.state == "lost" && lost_reason(c, id)?.as_deref() != Some("revoked");
+        if !matches!(job.state.as_str(), "running" | "stopping") && !salvaged {
             return Ok(held_line(
                 "refused",
                 &job,

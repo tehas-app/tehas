@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json,
-# api/status.quiet.json, api/status.readonly.json and api/status.pushfault.json, are what console status json (console/src/status.rs) makes of
-# the health files in test/fixtures/status-json/, with the Protolab's list beside
-# one of them, at a fixed time. A program
+# api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json and
+# api/status.outsourced.json, are what console status json (console/src/status.rs)
+# makes of the health files in test/fixtures/status-json/, with the Protolab's
+# list beside one of them and the contractors of outsource beside another, at a
+# fixed time. Only the outsourced sample has `contractors`: with outsource off
+# the file it comes from is not there, and the others are what they were. A program
 # that reads the object copies the samples into its own tests, so a change
 # here is a change for it: docs/specs/2026-10-24-status-json-contract.md.
 #
@@ -20,7 +23,7 @@ schema=$api/status.schema.json
 fixtures=$T_ROOT/test/fixtures/status-json
 # 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 now=1792245620
-samples=(busy quiet readonly pushfault)
+samples=(busy quiet readonly pushfault outsourced)
 
 sample() { # <name>: the sample as the console makes it, as committed
   "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .
@@ -60,9 +63,11 @@ t_case "tehas status --json prints what the sample holds, but for the clock"
 mkdir -p "$T/home/tehas/live"
 for name in "${samples[@]}"; do
   cp "$fixtures/$name.health.json" "$T/home/tehas/live/health.json"
-  rm -f "$T/home/tehas/live/protolab.json"
-  [ ! -e "$fixtures/$name.protolab.json" ] ||
-    cp "$fixtures/$name.protolab.json" "$T/home/tehas/live/protolab.json"
+  for beside in protolab contractors; do
+    rm -f "$T/home/tehas/live/$beside.json"
+    [ ! -e "$fixtures/$name.$beside.json" ] ||
+      cp "$fixtures/$name.$beside.json" "$T/home/tehas/live/$beside.json"
+  done
   t_run "$T_ROOT/bin/tehas status --json"
   # The health file is days old: stale, so the exit status is 3.
   t_eq "$t_rc" 3
@@ -84,7 +89,7 @@ for path in $(schema_paths); do
     # paused has a row for each of its fields and none of its own; limit,
     # order, running and planning have one row that names their fields.
     paused) continue ;;
-    limit.* | order.* | running.* | planning.*) word=${path%%.*} ;;
+    limit.* | order.* | running.* | planning.* | contractors.*) word=${path%%.*} ;;
     *) word=$path ;;
   esac
   case $manual in *"| \`$word\` |"*) ;; *) unnamed+=" $word" ;; esac
@@ -128,5 +133,21 @@ t_case "a schema keyword the check does not know is an error, not passed over"
 jq '.properties.age.multipleOf = 10' "$schema" >"$T/schema.json"
 t_contains "$(jq -r --slurpfile schema "$T/schema.json" -f "$T_ROOT/test/schema.jq" "$api/status.busy.json")" \
   ".age: the schema uses multipleOf, which this check does not know"
+
+t_case "contractors is only in the sample made with the contractors' file beside the health file"
+for name in busy quiet readonly; do
+  t_eq "$(jq 'has("contractors")' "$api/status.$name.json")" false
+done
+t_eq "$(jq -c '.contractors | [.working, .outsourced, (.list | map(.name))]' "$api/status.outsourced.json")" '[1,1,["box1","box2","box3"]]'
+
+t_case "the check finds a contractor's status out of its list and a count it does not know"
+jq '.contractors.list[0].status = "away" | .contractors.away = 1' "$api/status.outsourced.json" >"$T/bad.json"
+out=$(check "$T/bad.json")
+t_contains "$out" '.contractors.list[0].status: "away" is not one of'
+t_contains "$out" ".contractors.away: not in the schema"
+
+t_case "the schema says running and room count a cycle outsourced to a contractor"
+t_contains "$(jq -r '.properties.running.description' "$schema")" "outsourced to a contractor is one of them"
+t_contains "$(jq -r '.properties.room.description' "$schema")" "outsourced to a contractor takes a place"
 
 t_done
