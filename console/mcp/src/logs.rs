@@ -2,8 +2,9 @@
 //! whole gzipped, and `factory_search`: the search over those logs.
 //!
 //! The logs directory also holds the host's own logs. A file is opened only
-//! by a name the session's snapshot line holds, after that name matches the
-//! one pattern its word allows for the session's kind and issue. A caller
+//! by a name the session's snapshot line holds, or for a running cycle a name
+//! the stamp rule of `tehas_core::snapshot` builds, after that name matches
+//! the one pattern its word allows for the session's kind and issue. A caller
 //! never gives a path, and the search opens no file the snapshot does not
 //! name.
 
@@ -19,6 +20,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 pub use tehas_core::file::base64;
 use tehas_core::mask::mask;
+use tehas_core::snapshot::{log_files, log_names};
 
 /// A larger file is not served.
 pub const LOG_MAX: u64 = 16 * 1024 * 1024;
@@ -41,6 +43,8 @@ const MATCH_LINE: usize = 400;
 /// The most a `factory_search` answer holds, and the default. `limit` of the
 /// tool may ask for fewer; the search of the rest answers with what is left.
 const DEFAULT_LIMIT: u64 = 50;
+/// The largest issue number: the most digits a session id holds.
+const ISSUE_MAX: u64 = 999_999_999;
 /// The most session ids one `factory_search` is given.
 const IDS_MAX: usize = 50;
 /// The bytes one `factory_search` call reads through. The tool always asks
@@ -327,17 +331,18 @@ pub fn tool() -> Value {
     let text = |desc: &str| json!({"type": "string", "description": desc});
     json!({
         "name": "factory_log",
-        "description": "One log file of a session of the last 30 days, masked. Plain: text from offset, at most bytes, 1 MiB at most; follow next for the rest. gzip: the whole masked file compressed, as an embedded application/gzip resource. Work sessions have transcript, err, preflight, console, result and dispatch; planning sessions have progress, result and dispatch. dispatch is per issue and holds every run of it. Files over 16 MiB are not served.",
+        "description": "One log file of a session of the last 30 days, or of a running cycle, masked. Give id, a session id, or issue for the logs of that issue's running cycle; its id is the one the run has in factory_sessions once it ends. Plain: text from offset, at most bytes, 1 MiB at most; follow next for the rest. gzip: the whole masked file compressed, as an embedded application/gzip resource. Work sessions have transcript, err, preflight, console, result and dispatch; planning sessions have progress, result and dispatch. dispatch is per issue and holds every run of it. Files over 16 MiB are not served.",
         "inputSchema": {"type": "object", "properties": {
-            "id": {"type": "string", "pattern": sessions::ID.as_str(), "description": "The session id from factory_sessions."},
+            "id": {"type": "string", "pattern": sessions::ID.as_str(), "description": "The session id from factory_sessions. Give this or issue."},
+            "issue": {"type": "integer", "minimum": 1, "maximum": ISSUE_MAX, "description": "An issue with a running cycle: that cycle's logs. Give this or id."},
             "file": {"type": "string", "enum": WORDS, "description": "Which log, a word factory_session lists."},
             "gzip": {"type": "boolean", "description": "The whole file gzipped. Not with offset or bytes."},
             "offset": {"type": "integer", "minimum": 0, "description": "Where to start, in bytes of the masked text. 0 without it."},
             "bytes": {"type": "integer", "minimum": 1, "maximum": PLAIN_MAX, "description": "How many bytes of masked text, 1 MiB without it."},
-        }, "required": ["id", "file"], "additionalProperties": false},
+        }, "required": ["file"], "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
-            "id": text("The session id."),
+            "id": text("The session id, of a running cycle the id its run will have."),
             "file": text("The word."),
             "size": int("The masked file's size in bytes. Plain: given only when the read got to the end of the file; a read that gives next may leave it out."),
             "offset": int("Plain: where the text starts, at the start of a character."),
@@ -395,13 +400,102 @@ pub fn search_tool() -> Value {
     )
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
-    let id = args["id"]
-        .as_str()
-        .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
-    if !sessions::ID.is_match(id) {
-        return Err(bad("id is like work-12-1792485967"));
+/// What a call of `factory_log` names: a session by its id, or the running
+/// cycle of an issue.
+enum Asked<'a> {
+    Id(&'a str),
+    Issue(u64),
+}
+
+fn asked(args: &Value) -> Result<Asked<'_>, ToolError> {
+    match (&args["id"], &args["issue"]) {
+        (Value::Null, Value::Null) => Err(bad("give id or issue")),
+        (Value::Null, v) => v
+            .as_u64()
+            .filter(|n| (1..=ISSUE_MAX).contains(n))
+            .map(Asked::Issue)
+            .ok_or_else(|| bad(&format!("issue is an integer from 1 to {ISSUE_MAX}"))),
+        (v, Value::Null) => {
+            let id = v
+                .as_str()
+                .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
+            if !sessions::ID.is_match(id) {
+                return Err(bad("id is like work-12-1792485967"));
+            }
+            Ok(Asked::Id(id))
+        }
+        _ => Err(bad("give id or issue, not both")),
     }
+}
+
+/// The running cycle of `issue` as `live/running.json` has it, started at
+/// `started` when that is given, as a record of the snapshot's shape. Its logs
+/// are found by the stamps of their names, as the writer of the snapshot finds
+/// an ended run's, and its id is the one the run has in the snapshot once it
+/// ends. None when no cycle of the issue is running; a cycle the store marked
+/// lost is not.
+fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Value>, ToolError> {
+    let Some(file) = sessions::published(dirs, "running.json")? else {
+        return Ok(None);
+    };
+    let Some(t) = file["cycles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["issue"].as_u64() == Some(issue) && c["running"] == true)
+        .filter_map(|c| c["startedAt"].as_i64())
+        .find(|t| started.is_none_or(|s| s == *t))
+    else {
+        return Ok(None);
+    };
+    let names = log_names(&dirs.logs);
+    let found = log_files(
+        &dirs.logs,
+        &names,
+        "work",
+        issue as i64,
+        t,
+        None,
+        tools::now(),
+    );
+    let logs: Vec<Value> = found
+        .into_iter()
+        .map(|(word, name, bytes)| json!({"word": word, "name": name, "bytes": bytes}))
+        .collect();
+    Ok(Some(json!({
+        "id": format!("work-{issue}-{t}"), "kind": "work", "issue": issue, "logs": logs,
+    })))
+}
+
+/// The session a call names: by id the snapshot's, else a running cycle that
+/// has that id; by issue its running cycle.
+fn session_of(dirs: &Dirs, asked: &Asked) -> Result<Value, ToolError> {
+    match *asked {
+        Asked::Issue(n) => {
+            running(dirs, n, None)?.ok_or_else(|| bad(&format!("no running cycle for issue {n}")))
+        }
+        Asked::Id(id) => {
+            let snap = Snapshot::open(&dirs.sessions, tools::now())?;
+            let missing = match sessions::find(&snap, id) {
+                Ok(s) => return Ok(s),
+                Err(e) => e,
+            };
+            let mut parts = id.split('-');
+            let (kind, issue, t) = (parts.next(), parts.next(), parts.next());
+            match (
+                kind,
+                issue.and_then(|n| n.parse().ok()),
+                t.and_then(|t| t.parse().ok()),
+            ) {
+                (Some("work"), Some(n), Some(t)) => running(dirs, n, Some(t))?.ok_or(missing),
+                _ => Err(missing),
+            }
+        }
+    }
+}
+
+pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
+    let asked = asked(args)?;
     let word = match args["file"].as_str() {
         Some(w) if WORDS.contains(&w) => w,
         _ => return Err(bad(&format!("file is one of {}", WORDS.join(", ")))),
@@ -430,8 +524,8 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
 
     let place =
         acquire().ok_or_else(|| bad("two logs are being sent; try again in a few seconds"))?;
-    let snap = Snapshot::open(&dirs.sessions, tools::now())?;
-    let s = sessions::find(&snap, id)?;
+    let s = session_of(dirs, &asked)?;
+    let id = s["id"].as_str().unwrap_or("");
     let kind = s["kind"].as_str().unwrap_or("");
     let issue = s["issue"].as_u64().filter(|n| *n > 0);
     let (words, issue) = match (words_of(kind), issue) {
