@@ -198,7 +198,7 @@ pub enum JobShow {
 
 /// A contractor's name, as a join and a check-in arrive with it: the shape of
 /// a host's name, and nothing wider.
-fn host(s: &str) -> Option<String> {
+pub(crate) fn host(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let ok = !bytes.is_empty()
         && bytes.len() <= NAME_MAX
