@@ -617,6 +617,7 @@ files=(
   "sandbox/base.Dockerfile|$TEHAS_HOME/sandbox/base.Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
+  "sandbox/vipune-shim|$TEHAS_HOME/sandbox/vipune-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   # The npm trees the sandbox base installs pi, ctx7 and parallel-cli from.

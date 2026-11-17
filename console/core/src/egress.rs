@@ -91,11 +91,20 @@ pub fn host_pair(word: &str) -> Option<String> {
     crate::settings::rules::is_domain(name).then(|| format!("{name}:{port}"))
 }
 
-/// The pairs the proxy is given, sorted and each once: the base, the main
-/// and backup endpoint of every provider in <models>, and the words of
-/// <extra>.
-pub fn allowed(models: &ModelFile, extra: &str) -> Vec<String> {
+/// The pairs of the factory's list, sorted and each once: the base and the
+/// words of <extra>, which is `TEHAS_EGRESS_HOSTS`. No model endpoint: the
+/// outsource tunnel takes this list, and model traffic stays on its route.
+pub fn listed(extra: &str) -> Vec<String> {
     let mut pairs: Vec<String> = BASE.iter().map(|h| format!("{h}:443")).collect();
+    pairs.extend(extra.split_whitespace().filter_map(host_pair));
+    pairs.sort();
+    pairs.dedup();
+    pairs
+}
+
+/// The main and backup endpoint of every provider in <models>, as pairs.
+pub fn model_pairs(models: &ModelFile) -> Vec<String> {
+    let mut pairs = Vec::new();
     if let Some(providers) = models.json.get("providers").and_then(|p| p.as_object()) {
         for name in providers.keys() {
             for end in ["main", "backup"] {
@@ -103,10 +112,63 @@ pub fn allowed(models: &ModelFile, extra: &str) -> Vec<String> {
             }
         }
     }
-    pairs.extend(extra.split_whitespace().filter_map(host_pair));
+    pairs
+}
+
+/// The pairs the proxy is given, sorted and each once: the base, the main
+/// and backup endpoint of every provider in <models>, and the words of
+/// <extra>.
+pub fn allowed(models: &ModelFile, extra: &str) -> Vec<String> {
+    let mut pairs = listed(extra);
+    pairs.extend(model_pairs(models));
     pairs.sort();
     pairs.dedup();
     pairs
+}
+
+/// The pairs a proxy lets through: host in lower case, and port.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Allowed(Vec<(String, u16)>);
+
+fn norm(host: &str) -> String {
+    host.trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// `host:port` as `--allow` and CONNECT write it. None for anything else: no
+/// port, a port that is no number or 0, an empty host.
+pub fn pair(word: &str) -> Option<(String, u16)> {
+    let (host, port) = word.rsplit_once(':')?;
+    let port: u16 = port.parse().ok().filter(|p| *p != 0)?;
+    let host = norm(host);
+    let ok = !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+    ok.then_some((host, port))
+}
+
+impl Allowed {
+    /// The list from `--allow` words; Err names the first that is no pair.
+    pub fn parse(words: &[String]) -> Result<Allowed, String> {
+        words
+            .iter()
+            .map(|w| pair(w).ok_or_else(|| format!("--allow {w} is not host:port")))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Allowed)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn allows(&self, host: &str, port: u16) -> bool {
+        let host = norm(host);
+        self.0.iter().any(|(h, p)| *h == host && *p == port)
+    }
 }
 
 /// The words a sandbox container is given with the limit on: the internal
@@ -413,6 +475,28 @@ mod tests {
         assert_eq!(
             allowed(&ModelFile { json: json!(null) }, "").len(),
             BASE.len()
+        );
+    }
+
+    #[test]
+    fn the_factory_s_list_is_the_base_and_the_setting_and_no_endpoint() {
+        let models = ModelFile {
+            json: json!({"providers": {
+                "a": {"baseUrl": "http://models.example:8080/v1", "backupBaseUrl": "https://fleet.example/v1"}
+            }}),
+        };
+        let got = listed(" pypi.org github.com bad_word ");
+        assert_eq!(got.len(), BASE.len() + 1, "{got:?}");
+        assert!(got.contains(&"pypi.org:443".to_string()));
+        assert!(!got
+            .iter()
+            .any(|p| p.starts_with("models.") || p.starts_with("fleet.")));
+        assert_eq!(
+            model_pairs(&models),
+            vec![
+                "models.example:8080".to_string(),
+                "fleet.example:443".to_string()
+            ]
         );
     }
 

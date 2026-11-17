@@ -18,6 +18,11 @@
 //!       The cycle's renewer and relay call these while a job runs: a fresh
 //!       cycle token from the factory, written where the container reads it
 //!       and printed; one issue write, JSON on standard input and output.
+//!   tehas-contractor own --as <uid:gid> <folder>...
+//!       The cycle calls this before its container starts, naming the account
+//!       the container runs as: the folders the container writes, handed to
+//!       the factory's account the job names when the container runs as it.
+//!       Only folders under $TEHAS_HOME/work and ~/.pi/agent/ensemble-runs.
 //!
 //! The settings: TEHAS_HOME, the contractor's tehas install [~/tehas];
 //! TEHAS_OUTSOURCE, which must be on, as the feature registry reads it.
@@ -42,7 +47,7 @@ use tehas_contractor::http::{self, As, Reply};
 use tehas_contractor::{doctor, identity, job};
 
 const USAGE: &str =
-    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay";
+    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay | own --as <uid:gid> <folder>...";
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
@@ -87,6 +92,11 @@ fn main() {
         ["doctor"] => check(&p),
         ["token"] => token(&p),
         ["relay"] => relay(&p),
+        ["own", "--as", user, folders @ ..] if !folders.is_empty() => match job::Owner::parse(user)
+        {
+            Some(container) => own(&p, container, folders),
+            None => stop(USAGE, 64),
+        },
         _ => stop(USAGE, 64),
     };
     std::process::exit(code)
@@ -176,27 +186,59 @@ fn token(p: &Paths) -> i32 {
     }
 }
 
+fn own(p: &Paths, container: job::Owner, folders: &[&str]) -> i32 {
+    let asked: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
+    match host::own(p, container, &asked) {
+        Ok(host::Handed::To(o)) => {
+            say(&format!(
+                "the cycle's folders are handed to {}:{}",
+                o.uid, o.gid
+            ));
+            0
+        }
+        Ok(host::Handed::Unnamed) => {
+            say("the job names no account: the cycle's folders stay as they are");
+            0
+        }
+        Ok(host::Handed::Elsewhere { job, container }) => {
+            say(&format!(
+                "the container runs as {}:{}, not the job's {}:{}: the cycle's folders stay as they are",
+                container.uid, container.gid, job.uid, job.gid
+            ));
+            0
+        }
+        Err(why) => stop(&why, 1),
+    }
+}
+
 fn relay(p: &Paths) -> i32 {
+    let mut text = String::new();
+    let read = std::io::stdin()
+        .take(4 << 20)
+        .read_to_string(&mut text)
+        .is_ok();
+    let ask = serde_json::from_str::<Value>(&text).ok();
+    // A vipune call (kind vipune) is passed on as it is; a failure reads as
+    // vipune's, so the cycle goes on without memory.
+    let who = match ask.as_ref().map(|a| &a["kind"]) {
+        Some(k) if k == "vipune" => "vipune: the factory's memory",
+        _ => "gh-shim: the relay",
+    };
     let failed = |why: &str| {
         tehas_core::outln!(
             "{}",
-            json!({ "out": "", "err": format!("gh-shim: the relay {why}"), "rc": 1 })
+            json!({ "out": "", "err": format!("{who} {why}"), "rc": 1 })
         );
         0
     };
-    let Some((factory, job_token)) = host::job_of(p) else {
-        return failed("has no job running");
-    };
-    let mut text = String::new();
-    if std::io::stdin()
-        .take(4 << 20)
-        .read_to_string(&mut text)
-        .is_err()
-    {
+    if !read {
         return failed("could not read the request");
     }
-    let Ok(ask) = serde_json::from_str::<Value>(&text) else {
+    let Some(ask) = ask else {
         return failed("got no request");
+    };
+    let Some((factory, job_token)) = host::job_of(p) else {
+        return failed("has no job running");
     };
     let wait = Duration::from_secs(120);
     match http::post(&factory, "relay", As::Job(&job_token), &ask, wait) {

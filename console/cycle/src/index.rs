@@ -539,7 +539,12 @@ impl Run {
         // index current has no container to start.
         let load = Load::from_env();
         let limits = match slice::usable(&Host::here(), &load.reserve, &load.containers) {
-            Ok(usable) => slice::limits(&usable, &load),
+            Ok(usable) => {
+                if let Some(line) = usable.capped() {
+                    warn(&line);
+                }
+                slice::limits(&usable, &load)
+            }
             Err(why) => {
                 warn(&why);
                 return 78;

@@ -106,7 +106,8 @@
 //!                state/cycles/<issue>.lean-refused says so), the image gave
 //!                no capabilities answer or the workspaces' directory was not
 //!                made by tehas (these three say why in
-//!                state/cycles/<issue>.refused), or the product names no gate
+//!                state/cycles/<issue>.refused), the product's install failed
+//!                (said there too), or the product names no gate
 //!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml
 //!                at the commit the cycle's clone was made at; no cycle was
 //!                started, nothing was pushed, and the workspace made for the
@@ -167,8 +168,10 @@
 //! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
 //! program) the renewer asks that program for the cycle's token and the relay
 //! hands each planned write to it: both go to the factory over the job
-//! channel. The container's mounts and variables are the same, pinned by the
-//! same test.
+//! channel. Before the container starts, the program is asked to hand the
+//! sources of its read-write mounts to the factory's account (`own`,
+//! src/prepare.rs). The container's mounts and variables are the same, pinned
+//! by the same test.
 //!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
@@ -576,7 +579,7 @@ fn github_token(console: &str) -> i32 {
 /// go to the factory through it instead of to a token command and gh of this
 /// host, which a contractor does not have. What the container is given is the
 /// same either way.
-fn contractor() -> Option<PathBuf> {
+pub(crate) fn contractor() -> Option<PathBuf> {
     contractor_in(&env)
 }
 
@@ -587,12 +590,31 @@ fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
 }
 
 /// Where the relay runs the cycle's issue writes: gh of this host, or the
-/// factory through the contractor program.
-fn relay_via(home: &Path) -> Box<dyn relay::Run + Send> {
-    match contractor() {
-        Some(program) => Box::new(relay::Channel { program }),
-        None => Box::new(relay::Via::from_env(home)),
+/// factory through the contractor program. With outsource on, an in-house
+/// cycle's vipune calls are answered here too, from the factory's memory
+/// (src/memory.rs).
+fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send + Sync> {
+    match (contractor(), in_house_memory(home)) {
+        (Some(program), _) => Box::new(relay::Channel { program }),
+        (None, Some(memory)) => Box::new(relay::InHouse {
+            via: relay::Via::from_env(home),
+            memory: Box::new(memory),
+            cycle: crate::memory::of_issue(issue),
+        }),
+        (None, None) => Box::new(relay::Via::from_env(home)),
     }
+}
+
+/// Whether the factory's memory answers this cycle's vipune calls: with
+/// outsource on, in-house and on a contractor alike.
+fn memory_on() -> bool {
+    tehas_core::features::on("outsource")
+}
+
+/// The factory's memory of an in-house cycle, when it is on.
+fn in_house_memory(home: &Path) -> Option<crate::memory::InImage> {
+    (memory_on() && contractor().is_none())
+        .then(|| crate::memory::InImage::of_home(home, &env("PI_ENSEMBLE_IMAGE")))
 }
 
 /// The renewer of the cycle's token while the container reads it. The watch
@@ -641,9 +663,10 @@ fn start_relay(
     dir: &Path,
     repo: &str,
     issue: u64,
-    via: Box<dyn relay::Run + Send>,
+    via: Box<dyn relay::Run + Send + Sync>,
     wait: Duration,
 ) -> Relay {
+    relay::mark_memory(dir, memory_on());
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
     let thread =
@@ -796,12 +819,11 @@ fn approved(issue: u64, record: &str, console: &str) -> Approved {
     if start::is_record(record) {
         // The dispatcher's record of the start: who approved and which links. A
         // start of the millwright's counts on the person's approval it rests on.
-        let by = start::record_value(Path::new(record))
-            .and_then(|r| r.get("by").and_then(|b| b.as_str().map(String::from)))
-            .unwrap_or_default();
-        let ok = gives::allowed(&by)
-            || (gives::millwright_is(&by) && gives::millwright_base(record).is_some());
-        return if ok { Approved::Yes } else { Approved::No };
+        return if gives::record_approves(record) {
+            Approved::Yes
+        } else {
+            Approved::No
+        };
     }
     // By hand. The label approved the text, links and all.
     let console = [env("TEHAS_CONSOLE_CMD"), env("TEHAS_CONSOLE")]
@@ -1304,11 +1326,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let email = git_email();
     // The relay masks what it posts with the names the console masks.
     let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models, &email));
+    // An in-house cycle's database starts empty and goes with the cycle.
+    let memory = in_house_memory(home);
+    let cycle = crate::memory::of_issue(n);
+    if let Some(m) = &memory {
+        crate::memory::Vipune::forget(m, &cycle);
+    }
     let relay = start_relay(
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay_via(home),
+        relay_via(home, n),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1332,6 +1360,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
+    if let Some(m) = &memory {
+        crate::memory::Vipune::forget(m, &cycle);
+    }
     reap(renew);
     rc
 }

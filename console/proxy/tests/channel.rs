@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use tehas_core::testdir::TestDir;
+use tehas_cycle::memory::Planned;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Answer, Asked, Call, Channel, Factory};
 use tehas_proxy::jobs::Issuer;
@@ -42,6 +43,9 @@ fn made(name: &str, outsource: bool) -> TestDir {
     home
 }
 
+/// One call the memory ran: the database, the arguments and the variables.
+type Remembered = (String, Vec<String>, Vec<(String, String)>);
+
 /// The factory of a test: the real store of `home`, and the rest written down.
 struct Fake {
     home: PathBuf,
@@ -52,6 +56,9 @@ struct Fake {
     allowed: Vec<&'static str>,
     /// The store gives no answer while this is set: busy, locked, failing.
     down: AtomicBool,
+    /// The vipune calls the memory ran, and the databases it was told to drop.
+    remembered: Mutex<Vec<Remembered>>,
+    forgotten: Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -63,6 +70,8 @@ impl Fake {
             token: Some(("ghs_cycle".to_string(), 99)),
             allowed: vec!["box1"],
             down: AtomicBool::new(false),
+            remembered: Mutex::new(Vec::new()),
+            forgotten: Mutex::new(Vec::new()),
         }
     }
 }
@@ -99,6 +108,20 @@ impl Factory for Fake {
             scope,
         )
     }
+    fn repo(&self) -> String {
+        "example-owner/example-product".into()
+    }
+    fn memory(&self, cycle: &str, planned: &Planned) -> (String, String, i32) {
+        self.remembered.lock().unwrap().push((
+            cycle.to_string(),
+            planned.args.clone(),
+            planned.vars.clone(),
+        ));
+        ("{\"memories\":[]}\n".into(), "noise\n".into(), 0)
+    }
+    fn forget_memory(&self, cycle: &str) {
+        self.forgotten.lock().unwrap().push(cycle.to_string());
+    }
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String> {
         self.kept
             .lock()
@@ -107,7 +130,8 @@ impl Factory for Fake {
         Ok(())
     }
     fn carried(&self) -> Value {
-        json!({ "settings": { "TEHAS_REPO": "example-owner/example-product" }, "models": {} })
+        json!({ "settings": { "TEHAS_REPO": "example-owner/example-product" }, "models": {},
+                "uid": 1001, "gid": 1002 })
     }
     fn timeout(&self) -> i64 {
         600
@@ -237,6 +261,11 @@ fn a_contractor_takes_the_offer_in_its_hand_once_and_its_job_runs() {
     assert_eq!(
         a.body["settings"]["TEHAS_REPO"],
         "example-owner/example-product"
+    );
+    // The factory's account, which the contractor hands the cycle's folders to.
+    assert_eq!(
+        (&a.body["uid"], &a.body["gid"]),
+        (&json!(1001), &json!(1002))
     );
     let token = a.body["token"].as_str().unwrap();
     let job = a.body["job"].as_i64().unwrap();
@@ -749,4 +778,128 @@ fn a_revoked_contractor_s_tokens_of_both_scopes_are_refused() {
     let chan = Channel::new(&after, &fake);
     let a = ask(&chan, Call::CheckIn, Some(&job), None, json!({}));
     assert_eq!((a.status, a.refused()), (401, Some("no job")));
+}
+
+#[test]
+fn the_factory_s_account_is_read_from_id_s_numbers_and_null_where_there_are_none() {
+    use tehas_proxy::host::account;
+    assert_eq!(account("1001:1002"), (json!(1001), json!(1002)));
+    assert_eq!(account("0:0"), (json!(0), json!(0)));
+    assert_eq!(account(":"), (Value::Null, Value::Null));
+    assert_eq!(account(""), (Value::Null, Value::Null));
+    assert_eq!(account("1001:x"), (json!(1001), Value::Null));
+    // This process's own, as the factory's containers run.
+    let (uid, gid) = account(&tehas_core::sandbox::user());
+    assert!(uid.is_u64() && gid.is_u64(), "{uid} {gid}");
+}
+
+fn vipune(argv: &[&str]) -> Value {
+    json!({ "kind": "vipune", "argv": argv, "env": { "VIPUNE_PROJECT": "someone/else", "VIPUNE_RECENCY_WEIGHT": "0.3" } })
+}
+
+#[test]
+fn a_vipune_relay_reaches_the_memory_for_the_job_s_own_database() {
+    let (home, issuer) = offered("chan-vipune");
+    let fake = Fake::at(home.path());
+    let chan = Channel::new(&issuer, &fake);
+    let (token, model) = taken_pair(&chan);
+    let job = issuer.peek(&token).unwrap().job;
+    let t = Some(token.as_str());
+    let a = ask(
+        &chan,
+        Call::Relay,
+        t,
+        None,
+        vipune(&["search", "q", "-p", "x/y"]),
+    );
+    assert_eq!(a.status, 200, "{a:?}");
+    assert_eq!(a.body["out"], "{\"memories\":[]}\n");
+    assert_eq!(a.body["err"], "noise\n");
+    assert_eq!(a.body["rc"], 0);
+    assert_eq!(
+        fake.remembered.lock().unwrap().as_slice(),
+        [(
+            format!("job-{job}"),
+            vec!["search".to_string(), "q".to_string()],
+            vec![
+                (
+                    "VIPUNE_PROJECT".to_string(),
+                    "example-owner/example-product".to_string()
+                ),
+                ("VIPUNE_RECENCY_WEIGHT".to_string(), "0.3".to_string())
+            ]
+        )]
+    );
+    // Each refused shape answers vipune's usage error and runs nothing.
+    for argv in [
+        &["delete", "x"][..],
+        &["add", "x", "--db-path=/etc/passwd"],
+        &["mcp"],
+    ] {
+        let a = ask(&chan, Call::Relay, t, None, vipune(argv));
+        assert_eq!(
+            (a.status, a.body["rc"].as_i64()),
+            (200, Some(64)),
+            "{argv:?}"
+        );
+        assert_eq!(a.body["out"], "", "{argv:?}");
+    }
+    let bad = json!({ "kind": "vipune", "argv": ["list"], "env": { "LD_PRELOAD": "/x" } });
+    assert_eq!(ask(&chan, Call::Relay, t, None, bad).body["rc"], 64);
+    assert_eq!(fake.remembered.lock().unwrap().len(), 1);
+    // No issue write ran, and none was counted.
+    assert!(fake.relayed.lock().unwrap().is_empty());
+    // A kind the factory does not know, and the model token, are refused.
+    let a = ask(
+        &chan,
+        Call::Relay,
+        t,
+        None,
+        json!({ "kind": "curl", "argv": [] }),
+    );
+    assert_eq!(a.status, 400);
+    let a = ask(&chan, Call::Relay, Some(&model), None, vipune(&["list"]));
+    assert_eq!((a.status, a.refused()), (403, Some("scope")));
+    // The job handed back: its database goes.
+    ask(&chan, Call::Stopped, t, None, json!({ "why": "drain" }));
+    assert_eq!(
+        fake.forgotten.lock().unwrap().as_slice(),
+        [format!("job-{job}")]
+    );
+}
+
+#[test]
+fn a_vipune_relay_of_a_replaced_or_revoked_job_is_refused() {
+    let (home, issuer) = offered("chan-vipune-stale");
+    let fake = Fake::at(home.path());
+    let chan = Channel::new(&issuer, &fake);
+    let token = taken(&chan);
+    let job = issuer.peek(&token).unwrap().job.to_string();
+    call(
+        home.path(),
+        &["job-lose", "--job", &job, "--reason", "timeout"],
+    );
+    let a = ask(&chan, Call::Relay, Some(&token), None, vipune(&["list"]));
+    assert_eq!((a.status, a.refused()), (403, Some("lost")));
+    call(
+        home.path(),
+        &["contractor-add", "--name", "box2", "--key", &key_hash("k2")],
+    );
+    call(
+        home.path(),
+        &["job-offer", "--issue", "7", "--contractor", "box2"],
+    );
+    // Replaced by a newer attempt, it is refused still.
+    let a = ask(&chan, Call::Relay, Some(&token), None, vipune(&["list"]));
+    assert_eq!((a.status, a.refused()), (403, Some("lost")));
+
+    let (home, issuer) = offered("chan-vipune-revoked");
+    let fake2 = Fake::at(home.path());
+    let chan = Channel::new(&issuer, &fake2);
+    let token = taken(&chan);
+    call(home.path(), &["contractor-revoke", "--name", "box1"]);
+    let a = ask(&chan, Call::Relay, Some(&token), None, vipune(&["list"]));
+    assert_eq!((a.status, a.refused()), (403, Some("revoked")));
+    assert!(fake.remembered.lock().unwrap().is_empty());
+    assert!(fake2.remembered.lock().unwrap().is_empty());
 }

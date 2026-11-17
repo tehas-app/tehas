@@ -125,6 +125,21 @@ test("each breach of a ticket note drops that note alone; at most 3 a ticket and
   assert.equal(readOf(v).notes.size, 0);
 });
 
+test("a note's link is a path under /host/ or an https:// address, else the note is dropped", () => {
+  for (const link of ["/host/t/3", "/host/", `/host/${"x".repeat(506)}`, "https://host.example/t/3"]) {
+    const v = full();
+    v.ticketNotes = [{ issue: 3, text: "n", link }];
+    assert.deepEqual(notesOf(readOf(v), 3), [{ text: "n", link }], link);
+  }
+  for (const link of ["/host", "/hosts/t/3", "/other/t/3", "host/t/3", "//host.example/t", "http://host.example/t/3",
+    "javascript:alert(1)", "data:text/html,x", "https://u:p@host.example/t", `/host/${"x".repeat(507)}`,
+    "/host/a b", "/host/\nx", ""]) {
+    const v = full();
+    v.ticketNotes = [{ issue: 3, text: "n", link }];
+    assert.deepEqual(notesOf(readOf(v), 3), [], link);
+  }
+});
+
 // The least of a document: the elements the module makes, as plain objects.
 test("each breach of a menu item drops that item alone; ids unique and four the most", () => {
   const m = (id, over = {}) => ({ id, label: `Page ${id}`, url: `https://${id}.host.example/p`, ...over });

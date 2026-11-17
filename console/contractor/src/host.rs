@@ -10,14 +10,34 @@
 //! | `state/outsource/job.json` | the factory's address and the job's token (0600) |
 //! | `state/outsource/instance/instance.env` | the job's settings (0600) |
 //! | `state/outsource/salvage/` | the repository a salvage push is made from |
+//! | `state/outsource/downloads/` | the job's downloads before they are unpacked |
+//! | `state/index/` | the factory's code index, which `tehas work` copies into the cycle |
 //! | `state/github-cycle/token` | the cycle's token, as the container reads it (0600) |
 //! | `~/.pi/agent/models.json` | the job's models.json, every provider behind the factory |
-//! | `repos/<name>` | the product, cloned for the job |
-//! | `work/`, `state/cycles/` | the cycle's workspace and notes |
+//! | `repos/<name>` | the product, cloned from the factory's bundle of its tip |
+//! | `work/`, `state/cycles/` | the cycle's workspace and notes, and the issue's files in `work/<name>-<issue>.images` |
 //!
 //! The wipe removes whole directories a factory install keeps too, so the
 //! program refuses a home that holds a factory ([`foreign`]), and removes a
 //! `models.json` only when it wrote it.
+//!
+//! The product comes from the factory as a git bundle of its tip, and the code
+//! index and the issue's files from the factory too (proxy/src/download.rs):
+//! nothing of a job is cloned or fetched from GitHub here. The salvage push
+//! goes through the job's local end of the factory's egress route
+//! ([`crate::egress`]): the factory's listener is this program's one
+//! connection for a job. The sandbox image is fetched by the image route when
+//! the factory's hello names another than this box has.
+//!
+//! The job names the factory's account. Before the cycle's container starts,
+//! `tehas work` asks this program (`own`) to hand the folders the container
+//! writes to that account: the workspace, the code index cache, the relay
+//! folder and the rest of the cycle's writable mounts. Writable is not
+//! enough: the code index refuses a cache folder it does not own. They are
+//! handed over only when the container runs as that account, which `tehas
+//! work` names with `--as`; otherwise they stay with the account it runs as.
+//! Only folders under `work/` and the agents' runs folder are handed over,
+//! and a link is never followed.
 //!
 //! No git runs in the workspace: the cycle's container wrote all of it, its
 //! hooks and `.git/config` included. A salvage push fetches the issue's branch
@@ -26,16 +46,17 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{lchown, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::egress::Local;
 use crate::http::{self, As, Reply};
 use crate::identity::Identity;
-use crate::job::{Job, Work, World};
+use crate::job::{Job, Owner, Work, World};
 
 /// Where the salvage repository keeps the workspace's branches.
 const KEPT: &str = "refs/kept/heads/";
@@ -79,6 +100,21 @@ impl Paths {
     pub fn cycles(&self) -> PathBuf {
         self.home.join("state/cycles")
     }
+    /// Where the cycle keeps its agents' runs, `ensemble-runs/issue-<n>`.
+    pub fn runs(&self) -> PathBuf {
+        self.user_home.join(".pi/agent/ensemble-runs")
+    }
+    pub fn downloads(&self) -> PathBuf {
+        self.outsource().join("downloads")
+    }
+    pub fn index(&self) -> PathBuf {
+        self.home.join("state/index")
+    }
+    /// Where an image download is kept until it is loaded, so a broken one
+    /// resumes.
+    pub fn images(&self) -> PathBuf {
+        self.outsource().join("images")
+    }
 
     /// Everything a job leaves, in the order it is removed. `models.json` is
     /// not on it: it goes only with [`Paths::models_made`].
@@ -87,6 +123,8 @@ impl Paths {
             self.job_file(),
             self.instance(),
             self.salvage(),
+            self.downloads(),
+            self.index(),
             self.token_dir(),
             self.home.join("repos"),
             self.home.join("work"),
@@ -231,10 +269,25 @@ fn git_pinned() -> Command {
     cmd
 }
 
-/// git given a token by its environment, never by its command line.
-fn git_with(token: &str) -> Command {
+/// git given a token by its environment, never by its command line, and
+/// sent through `proxy`, the job's local end of the factory's egress route
+/// ([`crate::egress`]). No proxy variable of this user's and no `NO_PROXY`
+/// takes it around that.
+pub fn git_with(token: &str, proxy: &str) -> Command {
     let mut cmd = git_pinned();
-    cmd.env("GIT_CONFIG_COUNT", "1")
+    for name in [
+        "NO_PROXY",
+        "no_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+    ] {
+        cmd.env_remove(name);
+    }
+    cmd.env("GIT_CONFIG_COUNT", "2")
         .env("GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader")
         .env(
             "GIT_CONFIG_VALUE_0",
@@ -242,8 +295,16 @@ fn git_with(token: &str) -> Command {
                 "AUTHORIZATION: basic {}",
                 base64(format!("x-access-token:{token}").as_bytes())
             ),
-        );
+        )
+        .env("GIT_CONFIG_KEY_1", "http.proxy")
+        .env("GIT_CONFIG_VALUE_1", proxy);
     cmd
+}
+
+/// The job's local end of the egress route, or why there is none.
+fn local_end(factory: &str, job: &Job) -> Result<Local, String> {
+    Local::start(factory, &job.model_token)
+        .map_err(|e| format!("the job's way out could not start: {e}"))
 }
 
 fn ran(cmd: &mut Command) -> bool {
@@ -275,8 +336,8 @@ impl Host {
 
     fn prepare(&self, job: &Job) -> Result<(), String> {
         let p = &self.paths;
-        let job_file = json!({ "factory": self.id.factory, "token": job.token, "job": job.id });
-        write_private(&p.job_file(), job_file.to_string().as_bytes())?;
+        let kept = job_file(&self.id.factory, job);
+        write_private(&p.job_file(), kept.to_string().as_bytes())?;
         let _ = fs::set_permissions(p.outsource(), fs::Permissions::from_mode(0o700));
         write_private(
             &p.instance().join("instance.env"),
@@ -287,18 +348,216 @@ impl Host {
         write_private(&p.models_made(), b"")?;
         write_private(&p.models(), format!("{models}\n").as_bytes())?;
         let (repo, name) = Host::product(job).ok_or("the job names no TEHAS_REPO")?;
-        let token = fetch_token(&self.id.factory, &job.token, &p.token_dir())?;
-        let into = p.home.join("repos").join(&name);
-        let cloned = git_with(&token)
-            .args(["clone", "--quiet", &format!("{}/{repo}.git", self.git_base)])
-            .arg(&into)
-            .stdout(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
-        if !cloned {
-            return Err(format!("{repo} could not be cloned"));
+        fetch_token(&self.id.factory, &job.token, &p.token_dir())?;
+        self.source(job, &repo, &p.home.join("repos").join(&name))?;
+        if let Err(why) = self.code_index(job) {
+            self.say(&format!(
+                "job {}: {why}, this cycle searches without a code index",
+                job.id
+            ));
+        }
+        self.files(
+            job,
+            &p.home
+                .join("work")
+                .join(format!("{name}-{}.images", job.issue)),
+        )
+    }
+
+    fn fetch(&self, job: &Job, path: &str, dest: &Path) -> Result<http::Fetched, Reply> {
+        let _ = fs::create_dir_all(self.paths.downloads());
+        http::fetch(
+            &self.id.factory,
+            path,
+            As::Job(&job.token),
+            dest,
+            false,
+            FETCH_WAIT,
+        )
+    }
+
+    /// The product at `into`, from the factory's bundle of its tip, as the
+    /// factory's own checkout is: `origin/<branch>` at the tip and the
+    /// repository's address as origin, so the cycle's pushes go where they
+    /// do in-house.
+    fn source(&self, job: &Job, repo: &str, into: &Path) -> Result<(), String> {
+        let bundle = self.paths.downloads().join("source.bundle");
+        let got = self
+            .fetch(job, "bundle", &bundle)
+            .map_err(|r| format!("the factory gave no source: {}", said(&r)))?;
+        let (Some(tip), Some(branch)) = (got.field("x-tehas-tip"), got.field("x-tehas-branch"))
+        else {
+            return Err("the factory's source names no tip or branch".to_string());
+        };
+        let branch_ok = !branch.starts_with('-')
+            && ran(git_pinned().args(["check-ref-format", "--branch", branch]));
+        if !branch_ok || tip.len() < 40 || !tip.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("the factory's source names no tip or branch".to_string());
+        }
+        let remote = format!("refs/remotes/origin/{branch}");
+        let made = ran(git_pinned()
+            .args(["init", "--quiet", "-b", branch])
+            .arg(into))
+            && ran(git_pinned().arg("-C").arg(into).args([
+                "remote",
+                "add",
+                "origin",
+                &format!("{}/{repo}.git", self.git_base),
+            ]))
+            && ran(git_pinned()
+                .arg("-C")
+                .arg(into)
+                .args(["fetch", "--quiet", "--no-tags"])
+                .arg(&bundle)
+                .arg(format!("+{remote}:{remote}")))
+            && ran(git_pinned().arg("-C").arg(into).args([
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                &remote,
+            ]))
+            && ran(git_pinned()
+                .arg("-C")
+                .arg(into)
+                .args(["checkout", "--quiet", "-B", branch, tip]));
+        let _ = fs::remove_file(&bundle);
+        if !made {
+            return Err(format!(
+                "{repo} could not be made from the factory's bundle"
+            ));
         }
         Ok(())
+    }
+
+    /// The factory's code index in `state/index`, where `tehas work` copies it
+    /// into the cycle's cache from.
+    fn code_index(&self, job: &Job) -> Result<(), String> {
+        let pack = self.paths.downloads().join("index.pack");
+        let got = self
+            .fetch(job, "index", &pack)
+            .map_err(|r| format!("the factory gave no code index ({})", said(&r)))?;
+        let unpacked = unpack(&pack, got.field("x-tehas-pack"), &self.paths.index());
+        let _ = fs::remove_file(&pack);
+        unpacked.map_err(|why| format!("the code index could not be unpacked ({why})"))
+    }
+
+    /// The issue's images and files at `dir`, as the factory fetched and
+    /// checked them. None given is no error; a refusal is the one an
+    /// in-house start stops on, and the job does not start.
+    fn files(&self, job: &Job, dir: &Path) -> Result<(), String> {
+        let pack = self.paths.downloads().join("files.pack");
+        let got = match self.fetch(job, "attachments", &pack) {
+            Ok(got) => got,
+            Err(Reply::No(404, _)) => return Ok(()),
+            Err(r) => return Err(format!("the factory gave no files: {}", said(&r))),
+        };
+        let unpacked = unpack(&pack, got.field("x-tehas-pack"), dir);
+        let _ = fs::remove_file(&pack);
+        unpacked.map_err(|why| format!("the issue's files could not be unpacked ({why})"))
+    }
+}
+
+/// The words of a refusal or of no answer, for a line of the log.
+fn said(r: &Reply) -> String {
+    match r {
+        Reply::Ok(_) => "an answer".to_string(),
+        Reply::No(status, word) => format!("{status} {word}"),
+        Reply::Down(why) => why.clone(),
+    }
+}
+
+/// How long one read of a download may take.
+const FETCH_WAIT: Duration = Duration::from_secs(300);
+
+/// A tar the factory packed, `pack` saying how (`zstd` or `tar`), unpacked
+/// into `dir`, which is made anew. The owner and modes of the tar are not
+/// kept: the files are this user's.
+pub fn unpack(file: &Path, pack: Option<&str>, dir: &Path) -> Result<(), String> {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut tar = Command::new("tar");
+    tar.args(["-x", "--no-same-owner", "--no-same-permissions", "-C"])
+        .arg(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let done = match pack {
+        Some("tar") => tar.arg("-f").arg(file).stdin(Stdio::null()).status(),
+        Some("zstd") => {
+            let mut zstd = Command::new("zstd")
+                .args(["-q", "-d", "-c"])
+                .arg(file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("zstd: {e}"))?;
+            let out = zstd.stdout.take().ok_or("zstd gave no output")?;
+            let status = tar.args(["-f", "-"]).stdin(out).status();
+            let z = zstd.wait().map_err(|e| e.to_string())?;
+            if !z.success() {
+                return Err(format!("zstd {z}"));
+            }
+            status
+        }
+        other => return Err(format!("a pack of no known kind: {other:?}")),
+    };
+    match done {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("tar {s}")),
+        Err(e) => Err(format!("tar: {e}")),
+    }
+}
+
+/// The id of the image docker holds by `name`, or None.
+fn image_id_of(name: &str) -> Option<String> {
+    let out = Command::new("timeout")
+        .args([
+            "-k",
+            "5",
+            INSPECT_WAIT,
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+        ])
+        .arg("{{.Id}}")
+        .arg(name)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    id.starts_with("sha256:").then_some(id)
+}
+
+/// Load a `docker save` the factory packed, `pack` saying how.
+fn docker_load(file: &Path, pack: Option<&str>) -> Result<(), String> {
+    let mut load = Command::new("docker");
+    load.args(["load", "--quiet"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let status = match pack {
+        Some("tar") => load.arg("-i").arg(file).stdin(Stdio::null()).status(),
+        Some("zstd") => {
+            let mut zstd = Command::new("zstd")
+                .args(["-q", "-d", "-c"])
+                .arg(file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("zstd: {e}"))?;
+            let out = zstd.stdout.take().ok_or("zstd gave no output")?;
+            let status = load.stdin(out).status();
+            let _ = zstd.wait();
+            status
+        }
+        other => return Err(format!("a pack of no known kind: {other:?}")),
+    };
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("docker load {s}")),
+        Err(e) => Err(format!("docker load: {e}")),
     }
 }
 
@@ -334,6 +593,102 @@ pub fn job_of(paths: &Paths) -> Option<(String, String)> {
         v["factory"].as_str()?.to_string(),
         v["token"].as_str()?.to_string(),
     ))
+}
+
+/// What the job file keeps for the cycle's calls back: the factory's address,
+/// the job's token and the account its folders are handed to.
+pub fn job_file(factory: &str, job: &Job) -> Value {
+    let mut v = json!({ "factory": factory, "token": job.token, "job": job.id });
+    if let Some(o) = job.owner {
+        v["uid"] = json!(o.uid);
+        v["gid"] = json!(o.gid);
+    }
+    v
+}
+
+/// The account the running job's folders are handed to: Ok(None) for a job
+/// that names none, Err when no job is running here.
+pub fn owner_of(paths: &Paths) -> Result<Option<Owner>, String> {
+    let text = fs::read(paths.job_file()).map_err(|_| "no job is running here".to_string())?;
+    let v: Value =
+        serde_json::from_slice(&text).map_err(|_| "the job file is not JSON".to_string())?;
+    Ok(Owner::of(&v))
+}
+
+/// The folders of `asked` that are handed over, each as its real path: a
+/// directory, not a link, inside the cycle's workspaces or its agents' runs
+/// and not that root itself. Err names the first that is not.
+pub fn ownership_plan(paths: &Paths, asked: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let roots: Vec<PathBuf> = [paths.home.join("work"), paths.runs()]
+        .iter()
+        .filter_map(|r| fs::canonicalize(r).ok())
+        .collect();
+    asked
+        .iter()
+        .map(|dir| {
+            let refused = |why: &str| format!("{} is not handed over: {why}", dir.display());
+            let meta = fs::symlink_metadata(dir).map_err(|_| refused("it is not there"))?;
+            if !meta.is_dir() {
+                return Err(refused("it is no folder"));
+            }
+            let real = fs::canonicalize(dir).map_err(|_| refused("it is not there"))?;
+            if roots.iter().any(|r| real.starts_with(r) && &real != r) {
+                Ok(real)
+            } else {
+                Err(refused("it is not a folder of the cycle"))
+            }
+        })
+        .collect()
+}
+
+/// `dir` and everything in it to `owner`. A link is changed itself, never
+/// what it points at, and is not followed into.
+pub fn hand_over(dir: &Path, owner: Owner) -> Result<(), String> {
+    lchown(dir, Some(owner.uid), Some(owner.gid))
+        .map_err(|e| format!("cannot hand {} over: {e}", dir.display()))?;
+    let meta = fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if meta.is_dir() {
+        let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+            hand_over(&entry.path(), owner)?;
+        }
+    }
+    Ok(())
+}
+
+/// What `tehas-contractor own` did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Handed {
+    /// The folders now belong to this account.
+    To(Owner),
+    /// The job names no account: the folders stay as they are.
+    Unnamed,
+    /// The container runs as another account than the job names: the folders
+    /// stay as they are, so the container still owns what it writes.
+    Elsewhere { job: Owner, container: Owner },
+}
+
+/// What `tehas-contractor own` does: the running job's folders `asked` to the
+/// account the job names, when the container runs as that account. A folder
+/// outside the cycle is refused before anything is changed; a file that
+/// cannot be handed over stops it there, and what was done stays done.
+pub fn own(paths: &Paths, container: Owner, asked: &[PathBuf]) -> Result<Handed, String> {
+    let owner = owner_of(paths)?;
+    let plan = ownership_plan(paths, asked)?;
+    let Some(owner) = owner else {
+        return Ok(Handed::Unnamed);
+    };
+    if owner != container {
+        return Ok(Handed::Elsewhere {
+            job: owner,
+            container,
+        });
+    }
+    for dir in &plan {
+        hand_over(dir, owner)?;
+    }
+    Ok(Handed::To(owner))
 }
 
 struct HostWork {
@@ -463,6 +818,44 @@ impl World for Host {
         http::post(&self.id.factory, call, As::Job(token), body, CALL_WAIT)
     }
 
+    fn image(&self, id: &str) -> Result<bool, String> {
+        let name = std::env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default();
+        if name.is_empty() {
+            return Err("PI_ENSEMBLE_IMAGE names no image".to_string());
+        }
+        if image_id_of(&name).as_deref() == Some(id) {
+            return Ok(false);
+        }
+        let hex = id.strip_prefix("sha256:").unwrap_or(id);
+        if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("the factory named no image id".to_string());
+        }
+        fs::create_dir_all(self.paths.images()).map_err(|e| e.to_string())?;
+        let file = self.paths.images().join(format!("{hex}.pack"));
+        let who = As::Contractor {
+            name: &self.id.name,
+            key: &self.id.key,
+        };
+        let got = http::fetch(
+            &self.id.factory,
+            &format!("image?id={id}"),
+            who,
+            &file,
+            true,
+            FETCH_WAIT,
+        )
+        .map_err(|r| format!("the factory gave no image: {}", said(&r)))?;
+        let loaded = docker_load(&file, got.field("x-tehas-pack"));
+        let _ = fs::remove_dir_all(self.paths.images());
+        loaded?;
+        if image_id_of(&name).as_deref() != Some(id) {
+            return Err(format!(
+                "{name} is not the image the factory named after the load"
+            ));
+        }
+        Ok(true)
+    }
+
     fn start(&self, job: &Job) -> Result<Box<dyn Work>, String> {
         if let Some(why) = foreign(&self.paths) {
             return Err(why);
@@ -545,7 +938,10 @@ impl World for Host {
         let Ok(token) = fs::read_to_string(self.paths.token_dir().join("token")) else {
             return false;
         };
-        ran(git_with(token.trim())
+        let Ok(local) = local_end(&self.id.factory, job) else {
+            return false;
+        };
+        ran(git_with(token.trim(), &local.url())
             .arg("-C")
             .arg(&own)
             .args(["push", "--quiet", "--no-verify"])
@@ -778,6 +1174,211 @@ mod tests {
         }));
         assert!(!ran.exists());
         assert_eq!(heads(&origin), "refs/heads/feature/issue-7-a-change\n");
+    }
+
+    fn job_with(owner: Option<Owner>) -> Job {
+        let mut job = Job::of(&json!({
+            "job": 4, "issue": 7, "attempt": 1, "timeout": 60, "token": "t", "model_token": "m"
+        }))
+        .unwrap();
+        job.owner = owner;
+        job
+    }
+
+    fn me(d: &TestDir) -> Owner {
+        use std::os::unix::fs::MetadataExt;
+        let f = d.path().join("me");
+        fs::write(&f, "").unwrap();
+        let m = fs::metadata(&f).unwrap();
+        Owner {
+            uid: m.uid(),
+            gid: m.gid(),
+        }
+    }
+
+    /// A group this user is in besides its own, which it may give a file.
+    fn other_group(primary: u32) -> Option<u32> {
+        let out = Command::new("id").arg("-G").output().ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .filter_map(|g| g.parse().ok())
+            .find(|g| *g != primary)
+    }
+
+    #[test]
+    fn the_job_file_keeps_the_account_the_job_names() {
+        let o = Owner {
+            uid: 1001,
+            gid: 1002,
+        };
+        let kept = job_file("192.0.2.7:8090", &job_with(Some(o)));
+        assert_eq!(kept["uid"], 1001);
+        assert_eq!(kept["gid"], 1002);
+        assert_eq!(Owner::of(&kept), Some(o));
+        assert_eq!(kept["token"], "t");
+        let none = job_file("192.0.2.7:8090", &job_with(None));
+        assert!(
+            none.get("uid").is_none() && none.get("gid").is_none(),
+            "{none}"
+        );
+    }
+
+    #[test]
+    fn only_real_folders_of_the_cycle_are_planned_to_be_handed_over() {
+        let d = TestDir::new("contractor-own-plan");
+        let p = paths_in(&d);
+        let ws = p.home.join("work/widget-7");
+        let cache = p.home.join("work/widget-7.state/cache");
+        let runs = p.runs().join("issue-7");
+        let outside = d.path().join("outside");
+        for dir in [&ws, &cache, &runs, &outside] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        let link = p.home.join("work/widget-7.state/relay");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let file = p.home.join("work/widget-7.state/models.json");
+        fs::write(&file, "{}").unwrap();
+        let real = |q: &Path| fs::canonicalize(q).unwrap();
+        assert_eq!(
+            ownership_plan(&p, &[ws.clone(), cache.clone(), runs.clone()]).unwrap(),
+            vec![real(&ws), real(&cache), real(&runs)]
+        );
+        for (asked, why) in [
+            (p.home.join("work"), "not a folder of the cycle"),
+            (p.runs(), "not a folder of the cycle"),
+            (outside.clone(), "not a folder of the cycle"),
+            (
+                p.home.join("work/../../../outside"),
+                "not a folder of the cycle",
+            ),
+            (p.home.clone(), "not a folder of the cycle"),
+            (link.clone(), "no folder"),
+            (file.clone(), "no folder"),
+            (p.home.join("work/widget-8"), "not there"),
+        ] {
+            let got = ownership_plan(&p, &[ws.clone(), asked.clone()]);
+            assert!(
+                got.as_ref().is_err_and(|e| e.contains(why)),
+                "{}: {got:?}",
+                asked.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_job_s_folders_go_to_its_account_and_a_link_out_of_them_is_not_followed() {
+        let d = TestDir::new("contractor-own");
+        let p = paths_in(&d);
+        let mine = me(&d);
+        let ws = p.home.join("work/widget-7");
+        let relay = p.home.join("work/widget-7.state/relay");
+        fs::create_dir_all(ws.join("src/deep")).unwrap();
+        fs::create_dir_all(&relay).unwrap();
+        fs::write(ws.join("src/deep/a.rs"), "x").unwrap();
+        let outside = d.path().join("outside.txt");
+        fs::write(&outside, "x").unwrap();
+        std::os::unix::fs::symlink(&outside, ws.join("src/out")).unwrap();
+        let asked = [ws.clone(), relay.clone()];
+
+        // No job running: nothing to hand over to.
+        assert!(own(&p, mine, &asked).is_err_and(|e| e.contains("no job")));
+        // A job that names no account leaves the folders as they are.
+        write_private(
+            &p.job_file(),
+            job_file("f", &job_with(None)).to_string().as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(own(&p, mine, &asked), Ok(Handed::Unnamed));
+
+        // A group of this user's own other than its first, where it has one,
+        // shows the change; otherwise its own account, which must still pass.
+        let to = Owner {
+            uid: mine.uid,
+            gid: other_group(mine.gid).unwrap_or(mine.gid),
+        };
+        write_private(
+            &p.job_file(),
+            job_file("f", &job_with(Some(to))).to_string().as_bytes(),
+        )
+        .unwrap();
+        use std::os::unix::fs::MetadataExt;
+        let owner = |q: &Path| {
+            let m = fs::symlink_metadata(q).unwrap();
+            (m.uid(), m.gid())
+        };
+        // One refused folder and nothing is handed over.
+        assert!(own(&p, to, &[ws.clone(), d.path().to_path_buf()]).is_err());
+        assert_eq!(owner(&ws), (mine.uid, mine.gid));
+        // A container that runs as another account than the job names keeps
+        // the folders: it must own what it writes.
+        let other = Owner {
+            uid: to.uid + 1,
+            gid: to.gid,
+        };
+        assert_eq!(
+            own(&p, other, &asked),
+            Ok(Handed::Elsewhere {
+                job: to,
+                container: other
+            })
+        );
+        assert_eq!(owner(&ws), (mine.uid, mine.gid));
+        assert_eq!(own(&p, to, &asked), Ok(Handed::To(to)));
+        for q in [
+            ws.clone(),
+            ws.join("src"),
+            ws.join("src/deep"),
+            ws.join("src/deep/a.rs"),
+            ws.join("src/out"),
+            relay.clone(),
+        ] {
+            assert_eq!(owner(&q), (to.uid, to.gid), "{}", q.display());
+        }
+        assert_eq!(owner(&outside), (mine.uid, mine.gid));
+
+        // An account this user may not give a file to is an error, said.
+        if mine.uid != 0 {
+            let err = hand_over(
+                &ws,
+                Owner {
+                    uid: mine.uid + 1,
+                    gid: mine.gid,
+                },
+            );
+            assert!(err.is_err_and(|e| e.contains("cannot hand")));
+        }
+    }
+
+    #[test]
+    fn git_goes_through_the_local_end_and_no_proxy_variable_of_the_user_s() {
+        let cmd = git_with("ghs_x", "http://127.0.0.1:4711");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let get = |k: &str| envs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        assert_eq!(get("GIT_CONFIG_COUNT"), Some(Some("2".into())));
+        assert_eq!(get("GIT_CONFIG_KEY_1"), Some(Some("http.proxy".into())));
+        assert_eq!(
+            get("GIT_CONFIG_VALUE_1"),
+            Some(Some("http://127.0.0.1:4711".into()))
+        );
+        for name in [
+            "NO_PROXY",
+            "no_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+        ] {
+            assert_eq!(get(name), Some(None), "{name}");
+        }
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(!args.iter().any(|a| a.to_string_lossy().contains("ghs_x")));
     }
 
     #[test]

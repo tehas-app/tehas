@@ -77,6 +77,7 @@ fn room(count: &str, cids: &[String]) -> String {
         active: var("TEHAS_SLICE_ACTIVE"),
         ceiling_mb: num(&var("TEHAS_SLICE_CEILING_MB")).unwrap_or(0),
         cpus: 0,
+        nproc: 0,
     };
     let probed = s.max != 0 && reserve_b != 0 && s.ceiling_mb != 0;
     let r: Room = match num(count) {
