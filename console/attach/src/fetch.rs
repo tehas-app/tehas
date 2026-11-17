@@ -15,6 +15,11 @@ use std::process::{Command, Stdio};
 pub const TOO_BIG: i32 = 63;
 /// curl's exit status for an answer of 400 or more.
 pub const REFUSED: i32 = 22;
+/// curl's exit status for too many redirects, and [`fetch_within`]'s for a
+/// redirect to an address it may not follow.
+pub const MOVED: i32 = 47;
+/// The redirects a fetch follows.
+const HOPS: usize = 3;
 
 /// What a fetch ended with: curl's exit status, 128 and the signal when one
 /// ended it, 127 when it could not run, and the content type it printed.
@@ -48,6 +53,33 @@ pub fn curl_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>
     args.push(most.to_string());
     args.extend(["-o".to_string(), file.to_string()]);
     args.extend(["-w".to_string(), "%{content_type}".to_string()]);
+    finish_args(args, link, token)
+}
+
+/// curl's arguments for one step of [`fetch_within`]: no redirect is followed,
+/// and curl prints the address it was sent on to after the content type.
+pub fn hop_args(link: &str, file: &str, most: i64, token: &str) -> (Vec<String>, bool) {
+    let mut args: Vec<String> = [
+        "-sSf",
+        "--path-as-is",
+        "--proto",
+        "=https",
+        "--max-time",
+        "120",
+        "--max-filesize",
+    ]
+    .map(String::from)
+    .to_vec();
+    args.push(most.to_string());
+    args.extend(["-o".to_string(), file.to_string()]);
+    args.extend([
+        "-w".to_string(),
+        "%{content_type}\\n%{redirect_url}".to_string(),
+    ]);
+    finish_args(args, link, token)
+}
+
+fn finish_args(mut args: Vec<String>, link: &str, token: &str) -> (Vec<String>, bool) {
     let with_token = link::sends_token(link, token);
     if with_token {
         args.extend(["-H".to_string(), "@-".to_string()]);
@@ -65,7 +97,69 @@ fn status_of(status: std::process::ExitStatus) -> i32 {
 
 /// Download `link` into `file`, at most `most` bytes.
 pub fn fetch(link: &str, file: &Path, most: i64, token: &str) -> Fetched {
-    let (args, with_token) = curl_args(link, &file.to_string_lossy(), most, token);
+    run_curl(curl_args(link, &file.to_string_lossy(), most, token), token)
+}
+
+/// What one step of [`fetch_within`] says to do next.
+#[derive(Debug, PartialEq)]
+pub enum Hop {
+    /// The fetch is over: this is its answer.
+    Done(Fetched),
+    /// Fetch this address next.
+    Next(String),
+}
+
+/// The step after one answer of curl run with [`hop_args`]: the address it was
+/// sent on to when `allowed` takes it and `hops` redirects are not yet used,
+/// [`MOVED`] when not, or the answer itself.
+pub fn next_hop(got: Fetched, hops: usize, allowed: &dyn Fn(&str) -> bool) -> Hop {
+    let (content_type, moved) = got
+        .content_type
+        .split_once('\n')
+        .map_or((got.content_type.as_str(), ""), |(t, m)| (t, m));
+    let content_type = content_type.to_string();
+    if got.code != 0 || moved.is_empty() {
+        return Hop::Done(Fetched {
+            code: got.code,
+            content_type,
+        });
+    }
+    if hops >= HOPS || !allowed(moved) {
+        return Hop::Done(Fetched {
+            code: MOVED,
+            content_type,
+        });
+    }
+    Hop::Next(moved.to_string())
+}
+
+/// Download `link` into `file` as [`fetch`] does, following a redirect only to
+/// an address `allowed` takes, so every address asked is one the caller
+/// allows. Ends with [`MOVED`] on any other.
+pub fn fetch_within(
+    link: &str,
+    file: &Path,
+    most: i64,
+    token: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Fetched {
+    let mut at = link.to_string();
+    for hops in 0.. {
+        let got = run_curl(hop_args(&at, &file.to_string_lossy(), most, token), token);
+        match next_hop(got, hops, allowed) {
+            Hop::Done(got) => {
+                if got.code != 0 {
+                    let _ = fs::remove_file(file);
+                }
+                return got;
+            }
+            Hop::Next(next) => at = next,
+        }
+    }
+    unreachable!("next_hop ends the walk after {HOPS} redirects")
+}
+
+fn run_curl((args, with_token): (Vec<String>, bool), token: &str) -> Fetched {
     let mut curl = Command::new("curl");
     curl.args(args).stdout(Stdio::piped());
     curl.stdin(if with_token {
@@ -154,7 +248,23 @@ pub fn check_pin(pin: &str, file: &Path) -> Result<(), Unpinned> {
 /// the ones pinned.
 pub fn fetch_pinned(pin: &Pin, file: &Path, token: &str) -> Result<Fetched, Unpinned> {
     let _ = fs::remove_file(file);
-    let got = fetch(pin.link, file, pin.most, token);
+    pinned(pin, file, fetch(pin.link, file, pin.most, token))
+}
+
+/// [`fetch_pinned`] with the redirects of [`fetch_within`]: every address asked
+/// is one `allowed` takes.
+pub fn fetch_pinned_within(
+    pin: &Pin,
+    file: &Path,
+    token: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Result<Fetched, Unpinned> {
+    let _ = fs::remove_file(file);
+    let got = fetch_within(pin.link, file, pin.most, token, allowed);
+    pinned(pin, file, got)
+}
+
+fn pinned(pin: &Pin, file: &Path, got: Fetched) -> Result<Fetched, Unpinned> {
     if got.code != 0 {
         let _ = fs::remove_file(file);
         return Err(Unpinned::Fetch(got));
@@ -204,6 +314,58 @@ mod tests {
         assert!(!args.iter().any(|a| a.contains("tok")));
         let (args, with) = curl_args("https://example.com/x.zip", "f", 9, "tok");
         assert!(!with && !args.contains(&"-H".to_string()));
+    }
+
+    #[test]
+    fn a_step_follows_no_redirect_and_says_where_it_was_sent() {
+        let (args, with) = hop_args("https://files.example.org/p.zip", "f", 9, "tok");
+        assert!(!with);
+        assert_eq!(
+            args.join(" "),
+            "-sSf --path-as-is --proto =https --max-time 120 --max-filesize 9 -o f -w %{content_type}\\n%{redirect_url} https://files.example.org/p.zip"
+        );
+        let (args, with) = hop_args("https://github.com/a/b/assets/1/x", "f", 9, "tok");
+        assert!(with && args.contains(&"@-".to_string()));
+    }
+
+    fn answer(code: i32, printed: &str) -> Fetched {
+        Fetched {
+            code,
+            content_type: printed.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_redirect_is_followed_only_to_an_allowed_address_and_three_times() {
+        let ok = |a: &str| a.starts_with("https://files.example.org/");
+        assert_eq!(
+            next_hop(answer(0, "application/zip\n"), 0, &ok),
+            Hop::Done(answer(0, "application/zip"))
+        );
+        assert_eq!(
+            next_hop(answer(0, "application/zip"), 0, &ok),
+            Hop::Done(answer(0, "application/zip"))
+        );
+        assert_eq!(
+            next_hop(answer(22, "text/html\n"), 0, &ok),
+            Hop::Done(answer(22, "text/html"))
+        );
+        assert_eq!(
+            next_hop(answer(0, "\nhttps://files.example.org/b.zip"), 2, &ok),
+            Hop::Next("https://files.example.org/b.zip".to_string())
+        );
+        assert_eq!(
+            next_hop(answer(0, "\nhttps://files.example.org/b.zip"), 3, &ok),
+            Hop::Done(answer(MOVED, ""))
+        );
+        assert_eq!(
+            next_hop(
+                answer(0, "text/html\nhttps://elsewhere.example/b.zip"),
+                0,
+                &ok
+            ),
+            Hop::Done(answer(MOVED, "text/html"))
+        );
     }
 
     #[test]

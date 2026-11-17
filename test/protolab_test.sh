@@ -65,8 +65,11 @@ esac'
 
 # curl hands out $T/fx/net/<address, with _ for every other character>. A file
 # <name>.type is the content type it prints, <name>.rc an exit status to fail
-# with. What arrives on standard input (the header file) is kept per call.
-t_stub curl '
+# with, <name>.moved the address a redirect sends it on to. What arrives on
+# standard input (the header file) is kept per call. A case may stub curl its
+# own way; net_curl puts this one back.
+net_curl() {
+  t_stub curl '
 out="" url="" max=0 header=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -80,11 +83,18 @@ done
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
+if [ -f "$T/fx/net/$key.moved" ]; then
+  : >"$out"
+  printf "text/html\n%s" "$(cat "$T/fx/net/$key.moved")"
+  exit 0
+fi
 [ -f "$T/fx/net/$key" ] || exit 22
 [ "$(stat -c %s "$T/fx/net/$key")" -le "$max" ] || exit 63
 cp "$T/fx/net/$key" "$out"
 cat "$T/fx/net/$key.type" 2>/dev/null
 exit 0'
+}
+net_curl
 
 A=https://github.com/user-attachments/assets
 F=https://github.com/user-attachments/files
@@ -723,6 +733,137 @@ issues "$(issue 53 'No checker' "[good.zip]($F/17/good.zip)")"
 t_protolab
 t_contains "$(cat "$site/53/index.html")" "$(left_out good.zip 'This host cannot unpack a zip.')"
 t_contains "$t_out" "attach: absent"
+
+# --- protolab-zip-url: a zip named by address and sha256 -------------------
+X=https://files.example.org/p
+sum_of() { sha256sum "$1" | cut -d' ' -f1; }
+good_sum=$(sum_of "$zips/good.zip")
+# zip_url: the feature on, as a test build may have it, with one allowed host,
+# and the curl of the start of this file.
+zip_url() {
+  reset
+  net_curl
+  t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org
+  T_ENV=(TEHAS_TEST_FEATURES=protolab-zip-url)
+}
+
+t_case "zip by address: off, a Zip: line is text and nothing is fetched for it"
+reset
+net_curl
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 80 'Off' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "#80: 0 files, 0 bytes, 0 left out"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: set on in a release, every run is refused with 78 before GitHub is asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+t_protolab
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release"
+t_eq "$(t_calls gh)" ""
+
+t_case "zip by address: one from an allowed host with its sha256 is unpacked as an attached zip"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 81 'By address' "The prototype.
+Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_eq "$t_rc" 0
+t_contains "$t_out" "#81: 4 files"
+t_eq "$(files_of 81)" "./good/app.js ./good/data/sample.json ./good/index.html ./good/prototype.md "
+t_contains "$(cat "$site/81/index.html")" '<iframe src="files/good/index.html"'
+t_eq "$(find "$site" -name '*.zip' -o -name '.part' | wc -l)" 0
+# No redirect is followed by curl, and the token goes nowhere but GitHub.
+t_contains "$(t_calls curl)" "-sSf --path-as-is"
+t_lacks "$(t_calls curl)" "-sSfL"
+t_lacks "$(cat "$T/calls/curl-headers" 2>/dev/null)" "files.example.org"
+
+t_case "zip by address: bytes of another sha256 are refused and nothing of them kept"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 82 'Other bytes' "Zip: $X/good.zip sha256:$(printf '%064d' 0)")"
+t_protolab
+t_contains "$t_out" "#82: 0 files, 0 bytes, 1 left out"
+t_contains "$(cat "$site/82/index.html")" "$(left_out good.zip 'Not the bytes its sha256 names.')"
+t_eq "$(find "$site/82/files" -type f | wc -l)" 0
+
+t_case "zip by address: a host off the list is never asked"
+zip_url
+net_file "https://other.example.org/good.zip" "$zips/good.zip"
+issues "$(issue 83 'Elsewhere' "Zip: https://other.example.org/good.zip sha256:$good_sum
+Zip: http://files.example.org/p/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#83: 0 files, 0 bytes, 2 left out"
+t_contains "$(cat "$site/83/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_lacks "$(t_calls curl)" "example.org"
+
+t_case "zip by address: an empty list of hosts allows none"
+zip_url
+t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_ZIP_URL=on
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 84 'No hosts' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/84/index.html")" "$(left_out good.zip 'Not from a host the instance allows.')"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: a redirect is followed on the listed hosts and nowhere else"
+zip_url
+printf %s "$X/moved/good.zip" >"$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).moved"
+net_file "$X/moved/good.zip" "$zips/good.zip"
+printf %s "https://evil.example/good.zip" >"$fx/net/$(printf %s "$X/away.zip" | tr -c 'A-Za-z0-9' _).moved"
+net_file "https://evil.example/good.zip" "$zips/good.zip"
+issues "$(issue 85 'Moved' "Zip: $X/good.zip sha256:$good_sum
+Zip: $X/away.zip sha256:$good_sum")"
+t_protolab
+t_contains "$t_out" "#85: 4 files"
+t_eq "$(files_of 85)" "./good/app.js ./good/data/sample.json ./good/index.html ./good/prototype.md "
+t_contains "$(cat "$site/85/index.html")" "$(left_out away.zip 'Sent on to an address the instance does not allow.')"
+t_lacks "$(t_calls curl)" "evil.example"
+
+t_case "zip by address: held to the 40 files a ticket, after the attached files"
+zip_url
+net "$F/5/first.html" "<p>first</p>"
+net_file "$X/many.zip" "$zips/many.zip"
+issues "$(issue 86 'Many by address' "[first.html]($F/5/first.html)
+Zip: $X/many.zip sha256:$(sum_of "$zips/many.zip")")"
+t_protolab
+t_eq "$(find "$site/86/files" -type f | wc -l)" 40
+t_eq "$(grep -o 'More than 40 files.' "$site/86/index.html" | wc -l)" 6
+
+t_case "zip by address: held to the 10 MB a ticket by what it unpacks to"
+zip_url
+net_file "$X/bomb.zip" "$zips/bomb.zip"
+issues "$(issue 87 'Bomb by address' "Zip: $X/bomb.zip sha256:$(sum_of "$zips/bomb.zip")")"
+t_protolab
+t_eq "$(find "$T/home" -name big.txt | wc -l)" 0
+t_contains "$(cat "$site/87/index.html")" "$(left_out bomb/big.txt 'Over the 10 MB limit of a ticket.')"
+
+t_case "zip by address: a line from outside the list, or quoted, or of another form, fetches nothing"
+zip_url
+net_file "$X/good.zip" "$zips/good.zip"
+issues "$(issue 88 'Theirs' "> Zip: $X/good.zip sha256:$good_sum
+Zip: $X/good.zip" alice 1)"
+jq -n --arg line "Zip: $X/theirs.zip sha256:$good_sum" '[{user: {login: "mallory"}, body: $line}]' >"$fx/comments-88.json"
+t_protolab
+t_contains "$t_out" "#88: 0 files, 0 bytes, 1 left out"
+page=$(cat "$site/88/index.html")
+t_contains "$page" "2 links from outside the allowed accounts"
+t_contains "$page" "<span>good.zip</span><span class=\"asset-fact\">Not a zip and its sha256"
+t_lacks "$(t_calls curl)" "files.example.org"
+
+t_case "zip by address: a download that fails for now is tried again on the next run"
+zip_url
+printf 7 >"$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
+issues "$(issue 89 'Later' "Zip: $X/good.zip sha256:$good_sum")"
+t_protolab
+t_contains "$(cat "$site/89/index.html")" "$(left_out good.zip 'Could not be fetched. The lab tries again.')"
+rm "$fx/net/$(printf %s "$X/good.zip" | tr -c 'A-Za-z0-9' _).rc"
+net_file "$X/good.zip" "$zips/good.zip"
+t_protolab
+t_contains "$t_out" "#89: 4 files"
 
 t_case "a name with no slash keeps the same address as before"
 reset

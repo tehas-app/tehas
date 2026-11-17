@@ -27,12 +27,20 @@ pub struct Feature {
     pub since: &'static str,
 }
 
-pub const FEATURES: &[Feature] = &[Feature {
-    name: "outsource",
-    stage: Stage::Building,
-    setting: "TEHAS_OUTSOURCE",
-    since: "v1.0.0-alpha.2",
-}];
+pub const FEATURES: &[Feature] = &[
+    Feature {
+        name: "outsource",
+        stage: Stage::Building,
+        setting: "TEHAS_OUTSOURCE",
+        since: "v1.0.0-alpha.2",
+    },
+    Feature {
+        name: "protolab-zip-url",
+        stage: Stage::Building,
+        setting: "TEHAS_PROTOLAB_ZIP_URL",
+        since: "v1.0.0-alpha.3",
+    },
+];
 
 /// The internal variable that lets a test turn building features on: their
 /// names, one space apart.
@@ -136,6 +144,20 @@ mod tests {
     fn outsource_is_building() {
         assert_eq!(find("outsource").map(|f| f.stage), Some(Stage::Building));
         assert!(!shipped().contains(&"outsource"));
+    }
+
+    #[test]
+    fn the_protolab_zip_url_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "protolab-zip-url";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on")])));
+        let tested = vars(&[("TEHAS_PROTOLAB_ZIP_URL", "on"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_PROTOLAB_ZIP_URL", "1")])),
+            Err("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out".to_string())
+        );
     }
 
     #[test]

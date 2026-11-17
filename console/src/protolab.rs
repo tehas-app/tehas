@@ -29,7 +29,15 @@
 //!   which files     Only links to GitHub's own attachment storage, in the issue
 //!                   text and its comments, written by an account in
 //!                   TEHAS_ALLOWED_LABELERS and last edited by none outside it,
-//!                   on a line that is no quote. Nothing else is fetched.
+//!                   on a line that is no quote. Nothing else is fetched,
+//!                   save a zip named by address and sha256 below.
+//!   a zip by address  With protolab-zip-url on (TEHAS_PROTOLAB_ZIP_URL, still
+//!                   being built), a line `Zip: <link> sha256:<64 hex>` in such
+//!                   a text names a zip: a file attached on GitHub, or an https
+//!                   address on a host of TEHAS_PROTOLAB_ZIP_HOSTS, followed
+//!                   only to addresses on those hosts. Bytes of another sha256
+//!                   are refused. It is unpacked as an attached zip is, under
+//!                   the same limits, after the attached files.
 //!   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
 //!                   css js mjs json txt. A zip is unpacked into a folder of
 //!                   its own by libexec/attach, which takes the same types and
@@ -89,10 +97,44 @@ pub fn main(given: &[String]) -> u8 {
     }
 }
 
-/// The links of a ticket to fetch, and how many came from outside.
+/// The links of a ticket to fetch, the zips it names by address, and how many
+/// came from outside.
 struct Refs {
     fetch: Vec<String>,
+    zips: Vec<ZipMark>,
     outside: i64,
+}
+
+/// What a `Zip:` line says: the zip's link and sha256, or, for a line of
+/// another form, its first word.
+type ZipMark = Result<Zip, String>;
+
+#[derive(Clone, Debug, PartialEq, Hash)]
+struct Zip {
+    link: String,
+    sha256: String,
+}
+
+/// The word that opens a line naming a zip by address.
+const ZIP_MARK: &str = "Zip:";
+
+/// The zip a line names: `Zip: <link> sha256:<64 lower-case hex>`. None when
+/// the line does not start with [`ZIP_MARK`].
+fn zip_mark(line: &str) -> Option<ZipMark> {
+    let rest = line.trim().strip_prefix(ZIP_MARK)?;
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let hex = |h: &str| {
+        h.len() == 64
+            && h.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    Some(match words[..] {
+        [link, sum] if sum.strip_prefix("sha256:").is_some_and(hex) => Ok(Zip {
+            link: link.to_string(),
+            sha256: sum["sha256:".len()..].to_string(),
+        }),
+        _ => Err(words.first().map_or_else(String::new, |w| w.to_string())),
+    })
 }
 
 impl Refs {
@@ -101,6 +143,9 @@ impl Refs {
     fn key(&self, title: &str) -> String {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&(title, &self.fetch, self.outside), &mut hasher);
+        if !self.zips.is_empty() {
+            std::hash::Hash::hash(&self.zips, &mut hasher);
+        }
         format!("{:016x}", std::hash::Hasher::finish(&hasher))
     }
 }
@@ -110,12 +155,15 @@ impl Refs {
 /// editor, the logins vouched. A link is fetched when an allowed account wrote
 /// the text, nobody off the list edited it last, and the line is no quote: a
 /// quote reply carries someone else's words. Any other link is only counted.
-fn refs(issue: &Value, allowed: &dyn Fn(&str) -> bool) -> Refs {
+/// With `zips`, a `Zip:` line is read by the same rule and its link is no
+/// attachment link.
+fn refs(issue: &Value, allowed: &dyn Fn(&str) -> bool, zips: bool) -> Refs {
     let mut texts = vec![issue];
     if let Some(nodes) = issue.pointer("/comments/nodes").and_then(Value::as_array) {
         texts.extend(nodes);
     }
     let mut mine = Vec::new();
+    let mut named: Vec<ZipMark> = Vec::new();
     let mut theirs = Vec::new();
     for text in texts {
         let ours = allowed(&login_of(text, "author"))
@@ -125,6 +173,20 @@ fn refs(issue: &Value, allowed: &dyn Fn(&str) -> bool) -> Refs {
             };
         for line in text_of(text, "body").lines() {
             let quoted = line.trim_start().starts_with('>');
+            let unquoted = line.trim_start_matches(|c: char| c == '>' || c.is_whitespace());
+            if let Some(mark) = zip_mark(unquoted).filter(|_| zips) {
+                if ours && !quoted {
+                    if !named.contains(&mark) {
+                        named.push(mark);
+                    }
+                } else {
+                    let link = mark.map_or_else(|word| word, |zip| zip.link);
+                    if !theirs.contains(&link) {
+                        theirs.push(link);
+                    }
+                }
+                continue;
+            }
             for link in links(line) {
                 let keep = if ours && !quoted {
                     &mut mine
@@ -139,6 +201,7 @@ fn refs(issue: &Value, allowed: &dyn Fn(&str) -> bool) -> Refs {
     }
     Refs {
         fetch: mine,
+        zips: named,
         outside: theirs.len() as i64,
     }
 }
@@ -964,7 +1027,7 @@ mod tests {
                 None
             ),
         ]);
-        let got = refs(&issue(&body, "alice", None, comments), &alice);
+        let got = refs(&issue(&body, "alice", None, comments), &alice, false);
         assert_eq!(
             got.fetch,
             [
@@ -988,7 +1051,11 @@ mod tests {
                 Some("alice")
             ),
         ]);
-        let got = refs(&issue(SHOT, "alice", Some("mallory"), comments), &alice);
+        let got = refs(
+            &issue(SHOT, "alice", Some("mallory"), comments),
+            &alice,
+            false,
+        );
         assert_eq!(
             got.fetch,
             ["https://github.com/user-attachments/files/9/mine.html"]
@@ -996,26 +1063,35 @@ mod tests {
         assert_eq!(got.outside, 2);
         // An editor with no login is nobody on the list.
         let ghost = serde_json::json!({"body": SHOT, "author": {"login": "alice"}, "editor": {}});
-        assert!(refs(&ghost, &alice).fetch.is_empty());
+        assert!(refs(&ghost, &alice, false).fetch.is_empty());
     }
 
     #[test]
     fn a_link_on_a_quoted_line_is_someone_elses() {
         let theirs = "https://github.com/user-attachments/files/41/theirs.html";
         let body = format!("> {theirs}\n  >> [x]({theirs})\nmine: {SHOT}");
-        let got = refs(&issue(&body, "alice", None, serde_json::json!([])), &alice);
+        let got = refs(
+            &issue(&body, "alice", None, serde_json::json!([])),
+            &alice,
+            false,
+        );
         assert_eq!(got.fetch, [SHOT]);
         assert_eq!(got.outside, 1);
     }
 
     #[test]
     fn a_text_with_no_author_or_no_comments_is_read_as_far_as_it_goes() {
-        let got = refs(&serde_json::json!({"body": SHOT, "author": null}), &alice);
+        let got = refs(
+            &serde_json::json!({"body": SHOT, "author": null}),
+            &alice,
+            false,
+        );
         assert!(got.fetch.is_empty());
         assert_eq!(got.outside, 1);
         let got = refs(
             &serde_json::json!({"body": SHOT, "author": {"login": "alice"}}),
             &alice,
+            false,
         );
         assert_eq!(got.fetch, [SHOT]);
     }
@@ -1024,16 +1100,107 @@ mod tests {
     fn the_key_of_the_refs_follows_the_title_the_links_and_the_rest() {
         let a = Refs {
             fetch: vec![SHOT.to_string()],
+            zips: Vec::new(),
             outside: 0,
         };
         let b = Refs {
             fetch: vec![SHOT.to_string()],
+            zips: Vec::new(),
             outside: 1,
         };
         assert_eq!(a.key("Map"), a.key("Map"));
         assert_ne!(a.key("Map"), a.key("Maps"));
         assert_ne!(a.key("Map"), b.key("Map"));
         assert!(!a.key("Map").contains(' '));
+        let zipped = |sha256: &str| Refs {
+            fetch: vec![SHOT.to_string()],
+            zips: vec![Ok(Zip {
+                link: ZIP.to_string(),
+                sha256: sha256.to_string(),
+            })],
+            outside: 0,
+        };
+        assert_ne!(zipped(&SUM).key("Map"), a.key("Map"));
+        assert_ne!(zipped(&SUM).key("Map"), zipped(&"b".repeat(64)).key("Map"));
+    }
+
+    const ZIP: &str = "https://files.example.org/p/proto.zip";
+    static SUM: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| "a".repeat(64));
+
+    #[test]
+    fn a_zip_line_names_its_link_and_sha256() {
+        let zip = Zip {
+            link: ZIP.to_string(),
+            sha256: SUM.clone(),
+        };
+        assert_eq!(
+            zip_mark(&format!("Zip: {ZIP} sha256:{}", *SUM)),
+            Some(Ok(zip.clone()))
+        );
+        assert_eq!(
+            zip_mark(&format!("  Zip:\t{ZIP}   sha256:{}  \r", *SUM)),
+            Some(Ok(zip))
+        );
+        for line in [
+            "",
+            "zip: x sha256:y",
+            "A Zip: mid-line",
+            "- Zip: a list item",
+        ] {
+            assert_eq!(zip_mark(line), None, "{line:?}");
+        }
+        for (line, word) in [
+            ("Zip:".to_string(), ""),
+            (format!("Zip: {ZIP}"), ZIP),
+            (format!("Zip: {ZIP} {}", *SUM), ZIP),
+            (format!("Zip: {ZIP} sha256:{}", SUM.to_uppercase()), ZIP),
+            (format!("Zip: {ZIP} sha256:{}", &SUM[1..]), ZIP),
+            (format!("Zip: {ZIP} x sha256:{}", *SUM), ZIP),
+        ] {
+            assert_eq!(zip_mark(&line), Some(Err(word.to_string())), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_zip_line_is_read_only_with_the_feature_and_by_the_rule_of_links() {
+        let line = format!("Zip: {ZIP} sha256:{}", *SUM);
+        let github = format!(
+            "Zip: https://github.com/user-attachments/files/5/p.zip sha256:{}",
+            *SUM
+        );
+        let body = format!("{line}\n{line}\n> {line}\n{github}\nZip: nonsense");
+        let comments = serde_json::json!([comment(
+            &format!("Zip: https://files.example.org/theirs.zip sha256:{}", *SUM),
+            "mallory",
+            None
+        )]);
+        let ticket = issue(&body, "alice", None, comments);
+        let off = refs(&ticket, &alice, false);
+        assert!(off.zips.is_empty());
+        // Off, a Zip: line is text as before: its GitHub link is an attachment.
+        assert_eq!(
+            off.fetch,
+            ["https://github.com/user-attachments/files/5/p.zip"]
+        );
+        assert_eq!(off.outside, 0);
+        let on = refs(&ticket, &alice, true);
+        assert!(on.fetch.is_empty());
+        assert_eq!(
+            on.zips,
+            [
+                Ok(Zip {
+                    link: ZIP.to_string(),
+                    sha256: SUM.clone()
+                }),
+                Ok(Zip {
+                    link: "https://github.com/user-attachments/files/5/p.zip".to_string(),
+                    sha256: SUM.clone()
+                }),
+                Err("nonsense".to_string()),
+            ]
+        );
+        // The quoted line and mallory's line.
+        assert_eq!(on.outside, 2);
     }
 
     #[test]
