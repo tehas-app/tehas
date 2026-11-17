@@ -3,7 +3,7 @@
 //! version it has, each with what moves with it.
 //!
 //!   console pins check --root <dir>
-//!   console pins move --root <dir> [--release vX.Y.Z]
+//!   console pins move --root <dir> [--release vX.Y.Z[-beta.N]]
 //!
 //! `check` changes nothing and prints one line per tool:
 //! `<name> <pinned> <newest of that major>`, and `held <newest>` after it when
@@ -52,9 +52,7 @@ pub fn main(given: &[String]) -> u8 {
     while let Some(a) = it.next() {
         match (a.as_str(), it.next()) {
             ("--root", Some(v)) => root = Some(PathBuf::from(v)),
-            ("--release", Some(v))
-                if cmd == "move" && Ver::parse(v.strip_prefix('v').unwrap_or("")).is_some() =>
-            {
+            ("--release", Some(v)) if cmd == "move" && tehas_core::version::is_tag(v) => {
                 release = Some(v.clone())
             }
             _ => return usage(),
@@ -78,7 +76,7 @@ pub fn main(given: &[String]) -> u8 {
 
 fn usage() -> u8 {
     eprintln!("usage: console pins check --root <dir>");
-    eprintln!("       console pins move --root <dir> [--release vX.Y.Z]");
+    eprintln!("       console pins move --root <dir> [--release vX.Y.Z[-beta.N]]");
     64
 }
 

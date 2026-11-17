@@ -6,7 +6,7 @@
 # and npm for the npm trees.
 #
 # Usage: scripts/pins.sh check
-#        scripts/pins.sh move [--release vX.Y.Z]
+#        scripts/pins.sh move [--release vX.Y.Z[-beta.N]]
 #   check    print each tool's pin and what it would move to; change nothing
 #   move     write the moves into this tree and the release's CHANGELOG.md
 #            section, --release's or else Unreleased
@@ -17,7 +17,7 @@ set -uo pipefail
 case "${1:-}" in
   -h | --help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
   check | move) ;;
-  *) echo "pins: usage: pins.sh check | move [--release vX.Y.Z]" >&2; exit 64 ;;
+  *) echo "pins: usage: pins.sh check | move [--release vX.Y.Z[-beta.N]]" >&2; exit 64 ;;
 esac
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
 exec cargo run --quiet --locked --manifest-path "$root/console/Cargo.toml" -p console -- \
