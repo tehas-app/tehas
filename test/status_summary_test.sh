@@ -7,13 +7,13 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/status_lib.sh
 . "$(dirname "$0")/status_lib.sh" || exit 1
-t_case "summary: a health file older than ten minutes is not believed, exit 1"
+t_case "summary: a health file older than ten minutes is not believed, exit 3"
 reset
 t_run "$status"
 jq --arg t "$(date -u -d '-3 hours' +%FT%TZ)" '.time = $t' "$live/health.json" >"$live/health.json.old"
 mv "$live/health.json.old" "$live/health.json"
 t_run "$summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "factory   stale: the dispatcher last reported 3 h ago"
 t_contains "$t_out" "It said pass: Idle, taking work."
 t_contains "$t_out" "queue     2 in line"
@@ -29,20 +29,20 @@ t_case "summary: a time that cannot be read counts as old"
 jq '.time = "yesterday"' "$live/health.json" >"$live/health.json.old"
 mv "$live/health.json.old" "$live/health.json"
 t_run "$summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "factory   stale: the dispatcher last reported at an unknown time"
 
-t_case "summary: no snapshot yet is a failure with the reason"
+t_case "summary: no snapshot yet fails, exit 3, with the reason"
 reset
 t_run "$health; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "factory   fail: No queue snapshot yet"
 t_contains "$t_out" "queue     no snapshot yet"
 
-t_case "summary: no health file is exit 1 with one line, and nothing is written"
+t_case "summary: no health file is exit 3 with one line, and nothing is written"
 reset
 t_run "$summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "tehas status: no health file at $live/health.json yet"
 t_eq "$([ -e "$live" ] && echo there)" ""
 
@@ -51,7 +51,7 @@ reset
 mkdir -p "$live"
 echo "not json" >"$live/health.json"
 t_run "$summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "no health file"
 
 t_case "summary reads nothing but the health file: no settings, no gh, no write"
@@ -233,28 +233,28 @@ echo true >"$T/paused"
 t_run "$status && $summary --json"
 t_eq "$(jq -c '[.paused, .hold.why]' <<<"$t_out")" '[{"local":false,"label":true},"pause"]'
 
-t_case "status --json: a failed cycle is exit 1, as the text is"
+t_case "status --json: a failed cycle is exit 3, as the text is"
 reset
 cycle false aborted develop
 t_run "$status && $summary --json"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(jq -r .state <<<"$t_out")" fail
 t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "#12 ended as aborted"
 
-t_case "status --json: a stale health file is exit 1 and says so"
+t_case "status --json: a stale health file is exit 3 and says so"
 reset
 t_run "$status"
 jq --arg t "$(date -u -d '-3 hours' +%FT%TZ)" '.time = $t' "$live/health.json" >"$live/health.json.old"
 mv "$live/health.json.old" "$live/health.json"
 t_run "$summary --json"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(jq -c '[.stale, .age >= 10800]' <<<"$t_out")" '[true,true]'
 t_eq "$(jq "$shape" <<<"$t_out")" true
 
-t_case "status --json: no health file is exit 1 with nothing on standard output"
+t_case "status --json: no health file is exit 3 with nothing on standard output"
 reset
 t_run "$summary --json 2>/dev/null"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$t_out" ""
 
 t_case "status --json reads nothing but the health file: no settings, no gh, no write"

@@ -33,6 +33,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tehas_core::driver::Driver;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
@@ -843,7 +844,7 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
     for line in last_lines(preflight, 3, &format!("the push check (exit {rc})")) {
         say(&format!("    {line}"));
     }
-    Some(3)
+    Some(i32::from(NO_PUSH))
 }
 
 /// The last `n` lines of the log, or a line that says it could not be read or
@@ -1086,7 +1087,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         // A check the sandbox refused is the host's fault, not the issue's. One
         // that could not be run at all is not: it wrote no words of its own, and
         // the filesystem fault that stopped it is no refusal of a push.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             push_fault(home, t.issue, &preflight_line(&preflight));
         }
         return rc;
@@ -1309,7 +1310,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     // Inspected once: the id the record gets is the one the container runs.
     let seen = (!r.attempt.is_empty()).then(|| inspect(r)).flatten();
     if !r.attempt.is_empty() && !on_record(home, r, &state, &seen) {
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     let image = run_image(&seen, &env("PI_ENSEMBLE_IMAGE"));
     let mut env_words = list(&state, "env");

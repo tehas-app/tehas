@@ -51,11 +51,14 @@ listed here when a release has it.
 4. **A field without a value is left out**, never `null`, unless this page
    says the field itself is `null` when unknown. A program accepts fields it
    does not know.
-5. **Exit statuses**: 0 done; 1 the command ran and the answer is "no" or "not
-   yet"; 64 a bad argument; 78 missing or malformed instance settings; 141
-   standard output closed before the command finished printing (as in
-   `tehas status | head -1`), with nothing on standard error, as a shell
-   command SIGPIPE ended would.
+5. **Exit statuses**: 0 done; 1 failed, a call, a read or a write did not
+   succeed; 3 the command worked and the answer is "no" or "not yet"; 64 a
+   bad argument; 78 missing or malformed instance settings, or a feature that
+   is off; 141 standard output closed before the command finished printing
+   (as in `tehas status | head -1`), with nothing on standard error, as a
+   shell command SIGPIPE ended would. A status means the same in every
+   command. [The contract](/contract#exit-statuses) has the table of each
+   public command.
 6. **Reading makes no network call** and takes no lock a cycle holds, so a
    program can call it every few seconds. It reports what the dispatcher's
    last poll saw, with that poll's time.
@@ -206,7 +209,7 @@ tehas status --json
 | --- | --- |
 | `time` | When the health file was written: at the dispatcher's last poll, or when a cycle last ended |
 | `age` | Seconds since `time` |
-| `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 1 |
+| `stale` | `true` when `time` is more than ten minutes ago. The exit status is then 3 |
 | `state` | `pass`, `warn` or `fail`, as the [health file](/tools-health#tehasbot-health) says it |
 | `reasons` | Why the state is not `pass`, for a person; empty on `pass` |
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
@@ -268,7 +271,7 @@ step, and a program can copy the samples into its own tests.
 
 It reads `~/tehas/live/health.json` and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
-standard output and exits 1. Exit 0 on `pass` and `warn`; 1 on `fail`, a stale
+standard output and exits 3. Exit 0 on `pass` and `warn`; 3 on `fail`, a stale
 file or no file; 64 on an argument other than `--json`.
 
 ## tehas limit
@@ -394,9 +397,10 @@ The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
 millwright may retry such a cycle as one a person's label started, and may
 ask for its finish.
 
-Exit 0 recorded, taken back or nothing to take back; 1 GitHub has no open
-issue of that number or did not answer, or the store refused; 64 on a bad
-argument, which writes nothing; 78 without an instance.
+Exit 0 recorded, taken back or nothing to take back; 1 GitHub did not answer,
+or the store refused; 3 GitHub has no open issue of that number (none, a pull
+request or a closed issue); 64 on a bad argument, which writes nothing; 78
+without an instance.
 
 ## tehas drain
 
@@ -428,8 +432,9 @@ running, and one cycle's still running.
 | `limit.until` | Left out: a drain's limit lasts until `tehas limit clear` |
 | `limit.reason` | `draining` |
 
-Exit 0 when no cycle is running; 1 when some still are at the end of the
-wait; 64 on a bad argument; 78 without an instance.
+Exit 0 when no cycle is running; 3 when some still are at the end of the
+wait, or a poll held its lock for the whole of it; 64 on a bad argument; 78
+without an instance.
 
 ## tehas freeze and tehas thaw
 
@@ -918,10 +923,10 @@ A copy fetched again holds the same rows, and more: rows are keyed so that
 storing them twice is harmless (see [Analytics](/analytics#fetching-it)).
 
 The feature `analytics` in [`tehas api`](#tehas-api) says the command exists.
-It does not say analytics is on: exit 0; 64 on a bad argument; 69 when the
-instance has `TEHAS_ANALYTICS=off` or the program is not installed, which
-writes nothing; 70 when the database cannot be read; 73 when `<file>` exists or
-cannot be made; 78 without an instance. `tehas analytics export <file>`, the
+It does not say analytics is on: exit 0; 1 when the program is not installed,
+the database cannot be read, or `<file>` exists or cannot be made; 64 on a bad
+argument; 78 without an instance or when the instance has
+`TEHAS_ANALYTICS=off`, which writes nothing. `tehas analytics export <file>`, the
 name before 1.0, exits 64 and names `tehas analytics copy --to`.
 
 ## tehasbot clean

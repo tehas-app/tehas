@@ -1056,11 +1056,21 @@ t_contains "$t_out" "pi-rukas: the image was not moved to the commit versions.en
 t_case "--check says the commit moved and builds nothing"
 instance
 platform 0
-rukas_build 1
+rukas_build 3
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_eq "$(t_calls build)" "build --check"
 t_contains "$t_out" "pi-rukas: stub"
+
+# A build check that failed is no answer that something moved.
+t_case "--check whose build check failed exits 1, and 78 for its settings"
+for pair in "1 1" "124 1" "78 78"; do
+  instance
+  platform 0
+  rukas_build "${pair% *}"
+  t_run "$update --check"
+  t_eq "$t_rc" "${pair#* }"
+done
 
 t_case "a versions.env with no PI_RUKAS_FOLLOW leaves the image alone"
 instance

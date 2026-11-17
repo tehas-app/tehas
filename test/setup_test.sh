@@ -332,6 +332,15 @@ t_lacks "$(t_calls steps)" "build"
 t_lacks "$(t_calls steps)" "check-product"
 rm -f "$plat/bin/tehas"
 
+t_case "a product check that failed stops setup with 1, not its own 3"
+fresh
+printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n[ "$1" != check-product ] || exit 3\n' >"$plat/bin/tehas"
+chmod +x "$plat/bin/tehas"
+run_setup "${args[@]}"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas check-product --sandbox failed (exit 3)"
+rm -f "$plat/bin/tehas"
+
 # A checkout setup finds, as tehas state unpack leaves it: a real clone of a
 # bare origin whose URL ends in the repository, one commit behind. The gates
 # record the commit they were given.

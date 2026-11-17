@@ -92,7 +92,8 @@ checkout_host() { # [tag]
 }
 
 # The platform checkout as a git repository: an empty install.sh, one commit, and
-# <tag> on it.
+# <tag> on it. The install.sh cannot be run, so a --check that reaches it fails
+# with 1 whatever it would switch to.
 tag_checkout() { # <tag>
   git init -q --initial-branch=main "$th/platform"
   git -C "$th/platform" config user.name test
@@ -167,7 +168,7 @@ stubs
 instance
 host_at v1.0.0
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "release: installed v1.0.0, newest v1.2.0"
 t_contains "$t_out" "== v1.1.0"
 t_contains "$t_out" "Set TEHAS_EXAMPLE_KNOB in instance.env."
@@ -399,7 +400,7 @@ stubs
 instance
 checkout_host
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "release: installed none, this host ran from its platform checkout, newest v1.2.0"
 t_contains "$t_out" "== v1.0.0"
 t_contains "$t_out" "== v1.1.0"
@@ -412,7 +413,7 @@ instance
 host_at v1.0.0
 rm -f "$th/current"
 t_run "$update --check"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "release: installed none, this host ran from its platform checkout, newest v1.2.0"
 t_contains "$t_out" "== v1.0.0"
 t_contains "$t_out" "release: would switch to v1.2.0"
