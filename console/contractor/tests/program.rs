@@ -32,10 +32,14 @@ fn call(home: &Path, args: &[&str]) -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
+type Remembered = (String, Vec<String>);
+
 struct TestFactory {
     home: PathBuf,
     kept: Arc<Mutex<Vec<(i64, String, i64)>>>,
     relayed: Arc<Mutex<Vec<Vec<String>>>>,
+    /// The vipune calls the factory's memory ran: the database, the arguments.
+    remembered: Arc<Mutex<Vec<Remembered>>>,
 }
 
 impl Factory for TestFactory {
@@ -70,6 +74,16 @@ impl Factory for TestFactory {
             &Gh(Arc::clone(&self.relayed)),
             scope,
         )
+    }
+    fn repo(&self) -> String {
+        "acme/widget".into()
+    }
+    fn memory(&self, cycle: &str, planned: &tehas_cycle::memory::Planned) -> (String, String, i32) {
+        self.remembered
+            .lock()
+            .unwrap()
+            .push((cycle.to_string(), planned.args.clone()));
+        ("remembered\n".into(), String::new(), 0)
     }
     fn keep(&self, issue: i64, result: &[u8], exit: i64) -> Result<(), String> {
         self.kept
@@ -274,11 +288,13 @@ fn a_host_joins_runs_one_job_to_its_result_and_is_left_clean() {
     }));
     let kept = Arc::new(Mutex::new(Vec::new()));
     let relayed = Arc::new(Mutex::new(Vec::new()));
+    let remembered = Arc::new(Mutex::new(Vec::new()));
     let at = listen_with(
         TestFactory {
             home: factory_home.clone(),
             kept: Arc::clone(&kept),
             relayed: Arc::clone(&relayed),
+            remembered: Arc::clone(&remembered),
         },
         None,
         Some(downloads),
@@ -310,6 +326,8 @@ cat "$TEHAS_HOME/work/widget-7.images/manifest.json" >"$seen/manifest"
 "$TEHAS_CONTRACTOR" token >"$seen/token.out" || exit 8
 cat "$TEHAS_HOME/state/github-cycle/token" >"$seen/token.file"
 echo '{{"argv":["issue","comment","7","--body-file=-","--repo=acme/widget"],"input":"done"}}' | "$TEHAS_CONTRACTOR" relay >"$seen/relay.out"
+echo '{{"kind":"vipune","argv":["search","the cache","-p","x/y"],"env":{{"VIPUNE_PROJECT":"acme/widget"}}}}' | "$TEHAS_CONTRACTOR" relay >"$seen/vipune.out"
+echo '{{"kind":"vipune","argv":["delete","1"]}}' | "$TEHAS_CONTRACTOR" relay >"$seen/vipune-refused.out"
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache"
 me="$(id -u):$(id -g)"
 "$TEHAS_CONTRACTOR" own --as "$me" "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache" 2>"$seen/own.err"
@@ -472,6 +490,31 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
         serde_json::from_str(&fs::read_to_string(seen.join("relay.out")).unwrap()).unwrap();
     assert_eq!(relay["rc"], 0, "{relay}");
     assert_eq!(relayed.lock().unwrap().len(), 1);
+    // A vipune call goes over the same route and reaches the factory's
+    // memory for the job's own database; a refused one answers vipune's
+    // usage error and runs nothing.
+    let said: Value =
+        serde_json::from_str(&fs::read_to_string(seen.join("vipune.out")).unwrap()).unwrap();
+    assert_eq!(
+        (said["out"].as_str(), said["rc"].as_i64()),
+        (Some("remembered\n"), Some(0)),
+        "{said}"
+    );
+    let refused: Value =
+        serde_json::from_str(&fs::read_to_string(seen.join("vipune-refused.out")).unwrap())
+            .unwrap();
+    assert_eq!(
+        (refused["out"].as_str(), refused["rc"].as_i64()),
+        (Some(""), Some(64)),
+        "{refused}"
+    );
+    assert_eq!(
+        remembered.lock().unwrap().as_slice(),
+        [(
+            format!("job-{job}"),
+            vec!["search".to_string(), "the cache".to_string()]
+        )]
+    );
 
     // What the factory got.
     let kept = kept.lock().unwrap().clone();
@@ -632,6 +675,7 @@ fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
             home: factory_home.clone(),
             kept: Arc::new(Mutex::new(Vec::new())),
             relayed: Arc::new(Mutex::new(Vec::new())),
+            remembered: Arc::new(Mutex::new(Vec::new())),
         },
         Some(egress),
         None,
@@ -718,6 +762,7 @@ fn factory_with(d: &Path, downloads: Option<&'static OfHome>) -> (PathBuf, Strin
             home: home.clone(),
             kept: Arc::new(Mutex::new(Vec::new())),
             relayed: Arc::new(Mutex::new(Vec::new())),
+            remembered: Arc::new(Mutex::new(Vec::new())),
         },
         None,
         downloads,

@@ -589,12 +589,31 @@ fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
 }
 
 /// Where the relay runs the cycle's issue writes: gh of this host, or the
-/// factory through the contractor program.
-fn relay_via(home: &Path) -> Box<dyn relay::Run + Send> {
-    match contractor() {
-        Some(program) => Box::new(relay::Channel { program }),
-        None => Box::new(relay::Via::from_env(home)),
+/// factory through the contractor program. With outsource on, an in-house
+/// cycle's vipune calls are answered here too, from the factory's memory
+/// (src/memory.rs).
+fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send> {
+    match (contractor(), in_house_memory(home)) {
+        (Some(program), _) => Box::new(relay::Channel { program }),
+        (None, Some(memory)) => Box::new(relay::InHouse {
+            via: relay::Via::from_env(home),
+            memory: Box::new(memory),
+            cycle: crate::memory::of_issue(issue),
+        }),
+        (None, None) => Box::new(relay::Via::from_env(home)),
     }
+}
+
+/// Whether the factory's memory answers this cycle's vipune calls: with
+/// outsource on, in-house and on a contractor alike.
+fn memory_on() -> bool {
+    tehas_core::features::on("outsource")
+}
+
+/// The factory's memory of an in-house cycle, when it is on.
+fn in_house_memory(home: &Path) -> Option<crate::memory::InImage> {
+    (memory_on() && contractor().is_none())
+        .then(|| crate::memory::InImage::of_home(home, &env("PI_ENSEMBLE_IMAGE")))
 }
 
 /// The renewer of the cycle's token while the container reads it. The watch
@@ -646,6 +665,7 @@ fn start_relay(
     via: Box<dyn relay::Run + Send>,
     wait: Duration,
 ) -> Relay {
+    relay::mark_memory(dir, memory_on());
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
     let thread =
@@ -1305,11 +1325,17 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     let email = git_email();
     // The relay masks what it posts with the names the console masks.
     let _ = tehas_core::mask::set_private(&tehas_core::mask::host_names(&models, &email));
+    // An in-house cycle's database starts empty and goes with the cycle.
+    let memory = in_house_memory(home);
+    let cycle = crate::memory::of_issue(n);
+    if let Some(m) = &memory {
+        crate::memory::Vipune::forget(m, &cycle);
+    }
     let relay = start_relay(
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay_via(home),
+        relay_via(home, n),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1333,6 +1359,9 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     };
     let rc = watch::run(home, &given, stop.flag());
     relay.end();
+    if let Some(m) = &memory {
+        crate::memory::Vipune::forget(m, &cycle);
+    }
     reap(renew);
     rc
 }
