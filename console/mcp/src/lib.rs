@@ -2,6 +2,7 @@
 //! the sessions snapshot, the outcomes counts and the logs, the dispatcher's
 //! and refresh's own logs among them.
 
+pub mod conform;
 pub mod decisions;
 pub mod disk;
 pub mod egress;

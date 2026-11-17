@@ -188,6 +188,8 @@ case " $* " in *" --capabilities "*)
   esac
   exit "${CAPS_RC:-0}" ;;
 esac
+# The labels of the image, from the file a case made.
+if [ "$1" = image ]; then cat "$T/image.labels" 2>/dev/null; exit; fi
 # The call of a run, under the name of its container: the call of a review and
 # that of a planning turn cannot be read for one another, and each is the
 # newest of its own kind. A call with no container in it, the probe of an
@@ -594,6 +596,17 @@ t_contains "$t_out" "PI_ENSEMBLE_PROTECTED_PATHS"
 t_contains "$t_out" "PI_ENSEMBLE_POLICY_JUDGE"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+
+t_case "a PI_ENSEMBLE_* a polyfill of the image declares reaches the container"
+reset
+jq -n '{"tehas.rukas.polyfills": "example@0.1.0",
+  "tehas.rukas.polyfill.example.inputs": "PI_ENSEMBLE_EXAMPLE_URL PI_ENSEMBLE_EXAMPLE_SCOPE"}' >"$T/image.labels"
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 PI_ENSEMBLE_EXAMPLE_URL=https://example.test PI_ENSEMBLE_EXAMPLE_SCOPE=r1
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$(after -e)" "PI_ENSEMBLE_EXAMPLE_URL"
+t_contains "$(after -e)" "PI_ENSEMBLE_EXAMPLE_SCOPE"
+rm -f "$T/image.labels"
 
 t_case "a PI_ENSEMBLE_* the image does list as an input a host may set reaches the container"
 reset

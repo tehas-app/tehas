@@ -70,6 +70,9 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_CONTAINER_MEMORY, what one container is given: the probe's own
+    /// container is held to it, as a cycle's is.
+    pub container_memory: String,
     /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
     pub checkout: String,
     pub branch: String,
@@ -81,6 +84,16 @@ pub struct Host {
     pub index_start_cmd: Option<String>,
     /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
     pub fetch_wait: Duration,
+    /// TEHAS_PUSH_PROBE_CMD, a test's stand-in for the container that asks
+    /// whether the sandbox can push; none on a host, which runs the words
+    /// `tehas_core::sandbox::push_check` makes. Run when a push fault has aged
+    /// out, before any start.
+    pub push_probe_cmd: Option<String>,
+    /// TEHAS_PREFLIGHT_WAIT, the bound of a cycle's own push check, which
+    /// bounds the probe too [300].
+    pub push_probe_wait: Duration,
+    /// PI_ENSEMBLE_HOST_ALIASES: the probe's container has the cycle's network.
+    pub aliases: String,
     /// TEHAS_PLAN_CMD, or `bin/tehas plan`: what a turn's unit runs.
     pub plan_cmd: Vec<String>,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
@@ -431,7 +444,125 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option
     Some(lifts.then_some(note))
 }
 
+/// Where the probe copies the checkout for its one check, under the home.
+const PROBE_TREE: &str = "state/push-probe";
+
 impl Writer {
+    /// Ask the sandbox whether it can push, when the fault of
+    /// `state/push-fault.json` has aged out: the dry-run container a cycle's
+    /// start runs (`tehas_core::sandbox::push_check`), with the cycle's own
+    /// token, network and git configuration, in a fresh copy of the checkout
+    /// as the cycle's workspace is (`tehas_core::sandbox::clone`), so no
+    /// container is given the host's checkout. The caller reads the file back
+    /// and the rules decide on it.
+    ///
+    /// A pass takes the file off. A refusal writes it fresh with git's line, so
+    /// the hold starts again. A probe the host could not run records nothing,
+    /// and the poll starts as it did before there was a probe: the start's own
+    /// check decides. `TEHAS_PUSH_PROBE_CMD` stands in for the token and the
+    /// container in a test. A dry run asks nothing and keeps the hold.
+    ///
+    /// The lines it says, and whether the record on file still holds the poll.
+    pub fn push_probe(&mut self, dry: bool) -> (Vec<String>, bool) {
+        if dry {
+            return (Vec::new(), true);
+        }
+        let tree = self.home.join(PROBE_TREE);
+        let said = self.push_probe_in(&tree);
+        let _ = std::fs::remove_dir_all(&tree);
+        said
+    }
+
+    fn push_probe_in(&mut self, tree: &std::path::Path) -> (Vec<String>, bool) {
+        let not_asked = |why: &str| {
+            format!("WARN: the sandbox could not be asked whether it can push: {why}: no fault recorded")
+        };
+        let (words, token) = match self.push_probe_words(tree) {
+            Ok(w) => w,
+            Err(why) => return (vec![not_asked(&why)], false),
+        };
+        // Beside the poll's other check's log, `logs/dispatch-index.log`; not
+        // `<log>.preflight`, which names a session's transcript.
+        let log = self.home.join("logs/dispatch-preflight.log");
+        if std::fs::create_dir_all(self.home.join("logs")).is_err() {
+            return (vec![not_asked("no place to write the check's log")], false);
+        }
+        let wait = self.host.push_probe_wait;
+        let said = tehas_core::sandbox::probe_push(&words, token.as_deref(), wait, &log);
+        let _ = std::fs::remove_file(&log);
+        if !said.ran {
+            return (vec![not_asked(&said.line)], false);
+        }
+        let login = tehas_core::settings::bot_login(&self.home).unwrap_or_default();
+        if said.ok {
+            tehas_core::sandbox::write_push_fault(&self.home, "", 0, &login);
+            return (
+                vec!["push probe: the sandbox can push: the fault is off".into()],
+                true,
+            );
+        }
+        let now = tehas_core::time::now();
+        tehas_core::sandbox::write_push_fault(&self.home, &said.line, now, &login);
+        let line = format!("push probe: the sandbox cannot push: {}", said.line);
+        (vec![line], true)
+    }
+
+    /// The probe's command and the token it is given as GH_TOKEN, or why the
+    /// host cannot ask. Every reason is a fault of the host, not an answer of
+    /// the sandbox. `tree` is where the copy of the checkout is made.
+    fn push_probe_words(
+        &self,
+        tree: &std::path::Path,
+    ) -> Result<(Vec<String>, Option<String>), String> {
+        if let Some(cmd) = &self.host.push_probe_cmd {
+            return Ok((vec![cmd.clone()], None));
+        }
+        if self.host.image.is_empty() {
+            return Err("no sandbox image to ask".into());
+        }
+        let ceiling = tehas_core::slice::bytes(&self.host.container_memory)
+            .map(|b| b / (1024 * 1024))
+            .unwrap_or(8 * 1024);
+        let Some(security) = tehas_core::sandbox::security(ceiling) else {
+            return Err("TEHAS_CONTAINER_MEMORY is under the 10m a container needs".into());
+        };
+        let network = tehas_core::sandbox::network(&self.host.aliases)?;
+        let Some(token) = crate::read::run::read_cycle_token(&self.home, self.bound) else {
+            return Err("no cycle token from the app".into());
+        };
+        let tree_s = tree.to_string_lossy().into_owned();
+        let _ = std::fs::remove_dir_all(tree);
+        let copied = tree
+            .parent()
+            .is_some_and(|p| std::fs::create_dir_all(p).is_ok())
+            && tehas_core::sandbox::clone(&self.host.checkout, &tree_s, &self.host.branch);
+        if !copied {
+            return Err("the checkout could not be copied for the check".into());
+        }
+        let who = tehas_core::sandbox::Identity {
+            tree: &tree_s,
+            name: "",
+            email: "",
+        };
+        let env =
+            tehas_core::sandbox::env_options(tehas_core::sandbox::Kind::Cycle, &who, &[], &[]);
+        let mut words = tehas_core::sandbox::push_check(
+            &security,
+            &tehas_core::sandbox::user(),
+            &env,
+            &network,
+            &tree_s,
+            &tree_s,
+            &self.host.image,
+        );
+        // The poll's own docker in place of the bare name, and the host's own
+        // image: a pull inside the poll would put docker's words where git's
+        // should be.
+        words[0] = self.docker.clone();
+        words.insert(2, "--pull=never".into());
+        Ok((words, Some(token)))
+    }
+
     /// start_cycles: a run of start actions. The poll's exit status when it
     /// ends there, None when every start was done or skipped.
     pub(super) fn starts(

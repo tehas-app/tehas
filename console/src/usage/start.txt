@@ -43,8 +43,8 @@ With --json, {"api": 1, "issue": 12, "approval": {"at": "...", "by": "host",
 took one.
 
 Exit: 0 approved, withdrawn, or nothing to withdraw, so a second --clear is
-safe; 1 GitHub has no open issue of that number or did not answer, or the
-state store refused or is not installed; 64 a bad argument, which writes
+safe; 1 GitHub did not answer, or the state store refused or is not
+installed; 3 GitHub has no open issue of that number; 64 a bad argument, which writes
 nothing; 78 the instance settings are missing or malformed, which writes
 nothing.
 
