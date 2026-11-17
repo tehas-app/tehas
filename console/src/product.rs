@@ -503,6 +503,12 @@ fn in_sandbox(
     run: &mut Run,
 ) -> Result<Option<bool>, u8> {
     let image = setting("PI_ENSEMBLE_IMAGE")?;
+    // The depth a cycle's tree has, so the gates run on the history a cycle
+    // gives them.
+    let depth = tehas_core::depth::from_env().map_err(|line| {
+        complain(&line);
+        78u8
+    })?;
     if gates.gate.is_empty() {
         run.fail("sandbox", "no gate to run in the sandbox".to_string());
         return Ok(None);
@@ -525,7 +531,7 @@ fn in_sandbox(
     let path = format!("{}/clone", dir.0);
     let path = path.as_str();
     let worktree = format!("{}/tree", dir.0);
-    if !(sandbox::clone(repo, path, branch)
+    if !(sandbox::clone(repo, path, branch, depth)
         && ran(git(path).args(["checkout", "-q", "-b", "tehas/check-product"]))
         && ran(git(path).args([
             "-c",

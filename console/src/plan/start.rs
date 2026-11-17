@@ -385,6 +385,7 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
     // Docker would create a missing mount source as a root-owned directory.
     settings::checkout().map_err(refuse)?;
     let branch = settings::branch().map_err(refuse)?;
+    let depth = tehas_core::depth::from_env().map_err(refuse)?;
     // No container starts outside the slice, and none with half its limits.
     let (limits, security) = limits(libexec)?;
 
@@ -504,11 +505,14 @@ fn turn_of(libexec: &str, w: &Words) -> Result<u8, u8> {
         && fs::write(Path::new(&works).join(".tehas-workspaces"), "").is_ok()
         && gone(&tree)
         && gone(&container)
-        && sandbox::clone(&src, &tree, &branch);
+        && sandbox::clone(&src, &tree, &branch, depth);
     if !made {
         return Err(refuse(format!(
             "tehas plan: could not make the workspace {tree}, not starting a turn"
         )));
+    }
+    if brief.is_none() {
+        turn::reach_pin(&src, &tree, &w.keep, &branch, depth);
     }
     status(turn::place(&tree, &w.keep, &branch, brief.is_some()))?;
 

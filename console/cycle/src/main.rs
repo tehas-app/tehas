@@ -199,7 +199,9 @@
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs
 //!                                     with, as one line
 //!   tehas-cycle sandbox clone <src> <tree> <branch>
-//!                                     make <tree>, a clone of <src>
+//!                                     make <tree>, a clone of <src> at
+//!                                     TEHAS_CLONE_DEPTH; 78 for a depth
+//!                                     that is not one
 //!   tehas-cycle sandbox seed <state> <index>
 //!                                     give <state> the host's code index
 //!   tehas-cycle sandbox smoke-run <image>

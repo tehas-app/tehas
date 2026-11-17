@@ -252,6 +252,35 @@ its agents learn; `sessions` holds Pi's session files. Nothing a cycle writes
 there is what a later cycle of another issue reads. It is made fresh for every
 cycle and removed with the workspace.
 
+### The workspace and its history
+
+The workspace is a clone of the product checkout's `origin/<branch>`, at the
+tip the checkout last fetched, with the product's address as `origin`. Nothing
+comes from the network. It holds that one branch and `TEHAS_CLONE_DEPTH`
+commits of its history, 100 by default: the fetch is `git fetch --depth`. No
+other branch of the checkout and no tag is in it. `TEHAS_CLONE_DEPTH=0` gives
+the branch's full history. A value that is not a whole number of 0 or more
+stops the command with 78 before anything is cloned.
+
+A refresh works on a pull request whose branch may have started more than that
+many commits back. Before its conflict check, `tehas work` takes the pull
+request's head from the checkout into the workspace and deepens both the
+branch and the head until each reaches the commit the pull request started
+from, its merge base with the branch, as the checkout has it. The depth is
+worked out from the checkout's own history, so each is fetched once, at a
+depth that holds the merge base, never by trying. So
+`git merge-base` and `git merge-base --is-ancestor` answer in the workspace
+as they would in a full clone, for the head and for every commit of the pull
+request before it, such as a head reviewed earlier. A head the checkout does
+not hold, a pull request with no history in common with the branch, or a
+workspace that still does not reach the merge base after the fetch stops the
+start with 78 and the reason.
+
+`tehas finish` takes a shallow workspace as it is: its own repository takes
+the workspace's shallow history with `git fetch --update-shallow`, and the
+fetch of the remote's default branch brings the commits since the workspace
+was made, which join that history at the commit the cycle started from.
+
 What a cycle caches under its home otherwise, package downloads among them,
 lives in its container's own layer and goes when the container is removed. A
 cycle that installs packages fetches them again: for a product whose gates run
