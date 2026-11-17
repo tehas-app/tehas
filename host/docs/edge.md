@@ -367,8 +367,15 @@ Such a pull request is not built and takes no place from the others.
 - The checks are of how the network was made, not of what a container on it
   can reach. Nothing tries to reach the host from inside.
 - `uat-<pr>.tehas.app` and `tehas.app` are one site to a browser. A preview's
-  script can set a cookie for the domain. Nothing on the dashboard logs in, so
-  this is accepted today.
+  script can set a cookie for the domain, and its requests to the domain are
+  same-site and carry the visitor's cookies. tehas itself signs no one in on
+  the dashboard. A host that fronts the domain and signs visitors in under
+  `/host/` ([the host bridge](/api#the-host-bridge)) is in reach of every
+  preview: a signed-in visitor who opens a preview's link opens a page that
+  can send requests to `/host/` as that visitor. Such a host serves previews
+  under a domain of their own, not a subdomain of the dashboard's, or names
+  its cookies `__Host-` and checks a CSRF token on every request that changes
+  something.
 - The origin certificate is trusted by Cloudflare only. A browser sent
   straight to the proxy's machine for these names is warned.
 - Not checked: the origin certificate covers `tehas.app` too, so Caddy on the
