@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use tehas_core::testdir::TestDir;
 use tehas_cycle::relay::Scope;
 use tehas_proxy::channel::{key_hash, Channel, Factory};
+use tehas_proxy::egress::Egress;
 use tehas_proxy::jobs::Issuer;
 use tehas_proxy::log::{Line, Sink};
 use tehas_proxy::records::NoneAtAll;
@@ -100,11 +101,19 @@ impl Sink for Quiet {
 
 /// The factory's listener on a port of its own, for the life of the test.
 fn listen(factory: TestFactory) -> String {
+    listen_with(factory, None)
+}
+
+fn listen_with(factory: TestFactory, egress: Option<&'static Egress>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let at = listener.local_addr().unwrap().to_string();
     let issuer: &'static Issuer = Box::leak(Box::new(Issuer::new()));
     let factory: &'static TestFactory = Box::leak(Box::new(factory));
-    let chan: &'static Channel<'static> = Box::leak(Box::new(Channel::new(issuer, factory)));
+    let mut chan = Channel::new(issuer, factory);
+    if let Some(egress) = egress {
+        chan = chan.with_egress(egress);
+    }
+    let chan: &'static Channel<'static> = Box::leak(Box::new(chan));
     let serve: &'static Serve<'static> = Box::leak(Box::new(Serve {
         endpoint: tehas_proxy::forward::Upstream::of("http://127.0.0.1:1/v1").unwrap(),
         key: "sk-never-sent".to_string(),
@@ -434,4 +443,121 @@ fn run_refuses_a_home_that_holds_a_factory_and_removes_nothing() {
             f.display()
         );
     }
+}
+
+/// Where the test's GitHub resolves: a port of 127.0.0.1 that keeps the
+/// first bytes it is sent.
+static GITHUB: Mutex<Option<std::net::SocketAddr>> = Mutex::new(None);
+
+fn resolve(host: &str, _: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
+    match (host, *GITHUB.lock().unwrap()) {
+        ("github.com", Some(at)) => Ok(vec![at]),
+        _ => Err(std::io::Error::other("no such name")),
+    }
+}
+
+#[test]
+fn the_clone_s_git_goes_out_only_through_the_factory_s_egress_route() {
+    use std::io::Read;
+    let d = TestDir::new("contractor-egress");
+    let factory_home = d.path().join("factory");
+    fs::create_dir_all(factory_home.join("state")).unwrap();
+    call(
+        &factory_home,
+        &[
+            "init",
+            "--version",
+            "v0.30.0",
+            "--commit",
+            "cb6912a",
+            "--instance",
+            "example",
+            "--repo",
+            "acme/widget",
+            "--outsource",
+        ],
+    );
+    let c = rusqlite::Connection::open(factory_home.join("state/tehas.db")).unwrap();
+    c.execute(
+        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
+        [],
+    )
+    .unwrap();
+    drop(c);
+    let key = "the-key-of-box1";
+    call(
+        &factory_home,
+        &["contractor-add", "--name", "box1", "--key", &key_hash(key)],
+    );
+    call(
+        &factory_home,
+        &["job-offer", "--issue", "7", "--contractor", "box1"],
+    );
+    // GitHub, as far as the test goes: it keeps the first byte of what came.
+    let github = TcpListener::bind("127.0.0.1:0").unwrap();
+    *GITHUB.lock().unwrap() = Some(github.local_addr().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for s in github.incoming().flatten() {
+            let mut s = s;
+            let mut first = [0u8; 1];
+            let _ = s.read_exact(&mut first);
+            let _ = tx.send(first[0]);
+        }
+    });
+    let allowed = tehas_core::egress::Allowed::parse(&tehas_core::egress::listed("")).unwrap();
+    let egress: &'static Egress = Box::leak(Box::new(Egress::with(
+        allowed,
+        Vec::new(),
+        resolve,
+        |_| true,
+        Duration::from_secs(5),
+    )));
+    let at = listen_with(
+        TestFactory {
+            home: factory_home.clone(),
+            kept: Arc::new(Mutex::new(Vec::new())),
+            relayed: Arc::new(Mutex::new(Vec::new())),
+        },
+        Some(egress),
+    );
+    let job = tehas_contractor::http::post(
+        &at,
+        "job",
+        tehas_contractor::http::As::Contractor { name: "box1", key },
+        &json!({}),
+        Duration::from_secs(10),
+    );
+    let tehas_contractor::http::Reply::Ok(job) = job else {
+        panic!("{job:?}");
+    };
+    let model = job["model_token"].as_str().unwrap().to_string();
+    let local = tehas_contractor::egress::Local::start(&at, &model).unwrap();
+    let git = |url: &str| {
+        tehas_contractor::host::git_with("ghs_cycle", &local.url())
+            .args(["ls-remote", url])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap()
+    };
+    // GitHub is listed: git's TLS hello arrives there through the local end
+    // and the factory. The handshake fails, as no TLS answers it.
+    let out = git("https://github.com/acme/widget.git");
+    let first = rx
+        .recv_timeout(Duration::from_secs(20))
+        .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(&out.stderr)));
+    assert_eq!(first, 0x16, "a TLS handshake record");
+    // A host the factory does not list is refused, and git says so.
+    let out = git("https://example.com/acme/widget.git");
+    assert!(!out.status.success());
+    assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
+    // A token of no job opens nothing.
+    let forged = tehas_contractor::egress::Local::start(&at, &"x".repeat(32)).unwrap();
+    let out = tehas_contractor::host::git_with("ghs_cycle", &forged.url())
+        .args(["ls-remote", "https://github.com/acme/widget.git"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
 }

@@ -19,6 +19,10 @@
 //! program refuses a home that holds a factory ([`foreign`]), and removes a
 //! `models.json` only when it wrote it.
 //!
+//! The clone and the salvage push go through the job's local end of the
+//! factory's egress route ([`crate::egress`]): the factory's listener is this
+//! program's one connection for a job.
+//!
 //! No git runs in the workspace: the cycle's container wrote all of it, its
 //! hooks and `.git/config` included. A salvage push fetches the issue's branch
 //! out of it into a repository of the contractor's own and pushes from there,
@@ -33,6 +37,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::egress::Local;
 use crate::http::{self, As, Reply};
 use crate::identity::Identity;
 use crate::job::{Job, Work, World};
@@ -231,10 +236,25 @@ fn git_pinned() -> Command {
     cmd
 }
 
-/// git given a token by its environment, never by its command line.
-fn git_with(token: &str) -> Command {
+/// git given a token by its environment, never by its command line, and
+/// sent through `proxy`, the job's local end of the factory's egress route
+/// ([`crate::egress`]). No proxy variable of this user's and no `NO_PROXY`
+/// takes it around that.
+pub fn git_with(token: &str, proxy: &str) -> Command {
     let mut cmd = git_pinned();
-    cmd.env("GIT_CONFIG_COUNT", "1")
+    for name in [
+        "NO_PROXY",
+        "no_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+    ] {
+        cmd.env_remove(name);
+    }
+    cmd.env("GIT_CONFIG_COUNT", "2")
         .env("GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader")
         .env(
             "GIT_CONFIG_VALUE_0",
@@ -242,8 +262,16 @@ fn git_with(token: &str) -> Command {
                 "AUTHORIZATION: basic {}",
                 base64(format!("x-access-token:{token}").as_bytes())
             ),
-        );
+        )
+        .env("GIT_CONFIG_KEY_1", "http.proxy")
+        .env("GIT_CONFIG_VALUE_1", proxy);
     cmd
+}
+
+/// The job's local end of the egress route, or why there is none.
+fn local_end(factory: &str, job: &Job) -> Result<Local, String> {
+    Local::start(factory, &job.model_token)
+        .map_err(|e| format!("the job's way out could not start: {e}"))
 }
 
 fn ran(cmd: &mut Command) -> bool {
@@ -289,7 +317,8 @@ impl Host {
         let (repo, name) = Host::product(job).ok_or("the job names no TEHAS_REPO")?;
         let token = fetch_token(&self.id.factory, &job.token, &p.token_dir())?;
         let into = p.home.join("repos").join(&name);
-        let cloned = git_with(&token)
+        let local = local_end(&self.id.factory, job)?;
+        let cloned = git_with(&token, &local.url())
             .args(["clone", "--quiet", &format!("{}/{repo}.git", self.git_base)])
             .arg(&into)
             .stdout(Stdio::null())
@@ -545,7 +574,10 @@ impl World for Host {
         let Ok(token) = fs::read_to_string(self.paths.token_dir().join("token")) else {
             return false;
         };
-        ran(git_with(token.trim())
+        let Ok(local) = local_end(&self.id.factory, job) else {
+            return false;
+        };
+        ran(git_with(token.trim(), &local.url())
             .arg("-C")
             .arg(&own)
             .args(["push", "--quiet", "--no-verify"])
@@ -778,6 +810,38 @@ mod tests {
         }));
         assert!(!ran.exists());
         assert_eq!(heads(&origin), "refs/heads/feature/issue-7-a-change\n");
+    }
+
+    #[test]
+    fn git_goes_through_the_local_end_and_no_proxy_variable_of_the_user_s() {
+        let cmd = git_with("ghs_x", "http://127.0.0.1:4711");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let get = |k: &str| envs.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        assert_eq!(get("GIT_CONFIG_COUNT"), Some(Some("2".into())));
+        assert_eq!(get("GIT_CONFIG_KEY_1"), Some(Some("http.proxy".into())));
+        assert_eq!(
+            get("GIT_CONFIG_VALUE_1"),
+            Some(Some("http://127.0.0.1:4711".into()))
+        );
+        for name in [
+            "NO_PROXY",
+            "no_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+        ] {
+            assert_eq!(get(name), Some(None), "{name}");
+        }
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(!args.iter().any(|a| a.to_string_lossy().contains("ghs_x")));
     }
 
     #[test]

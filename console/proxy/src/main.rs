@@ -28,7 +28,9 @@
 //! The same listener answers the job channel (src/channel.rs): a contractor's
 //! join, its hello and its ask for work by its key, and a running job's
 //! check-in, token renewal, relayed issue writes, result and stop by the job's
-//! token, which is issued when the job is taken.
+//! token, which is issued when the job is taken. It also answers the egress
+//! tunnel (src/egress.rs) by the job's model token, to the hosts of
+//! TEHAS_EGRESS_HOSTS and the base list, never to a model endpoint.
 //!
 //! The job tokens are this process's own, held in memory. A contractor is
 //! given its job's two tokens in the answer to the channel's `job` call: the
@@ -188,9 +190,15 @@ fn listen() -> ! {
             .map(str::to_string)
             .collect(),
     }));
-    let channel = Box::leak(Box::new(tehas_proxy::channel::Channel::new(
-        issuer, factory,
+    // The egress tunnel takes the in-house list, less the model endpoints.
+    let egress = Box::leak(Box::new(tehas_proxy::egress::Egress::of_host(
+        &env("TEHAS_EGRESS_HOSTS"),
+        &ModelFile::read(&models::host_path()),
+        Duration::from_secs(idle),
     )));
+    let channel = Box::leak(Box::new(
+        tehas_proxy::channel::Channel::new(issuer, factory).with_egress(egress),
+    ));
     let proxy: &'static Serve<'static> = Box::leak(Box::new(Serve {
         endpoint,
         key,
