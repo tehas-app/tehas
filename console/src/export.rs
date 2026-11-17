@@ -219,7 +219,9 @@ pub fn main(given: &[String]) -> u8 {
     let lines: Vec<String> = listing.runs.iter().map(J::dump).collect();
     let mut printed = String::new();
     let mut ok = make_dir(&to) && make_dir(&run.cycles);
-    if ok && !stamp(&to) {
+    if !ok {
+        eprintln!("tehas export: could not make {}", run.cycles.display());
+    } else if !stamp(&to) {
         eprintln!(
             "tehas export: could not write {}",
             to.join("export.json").display()
@@ -232,8 +234,6 @@ pub fn main(given: &[String]) -> u8 {
         if !asked.json {
             printed = text(&lines, copied, &to, listing.next.as_deref());
         }
-    } else {
-        eprintln!("tehas export: could not make {}", run.cycles.display());
     }
     if asked.json {
         let mut object = listing.object();
@@ -306,9 +306,11 @@ fn make_dir(d: &Path) -> bool {
 
 /// `<dir>/export.json`: the layout's version, readable by anyone.
 fn stamp(to: &Path) -> bool {
-    let file = to.join("export.json");
-    fs::write(&file, format!("{{\"version\":{VERSION}}}\n")).is_ok()
-        && fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).is_ok()
+    put(
+        to,
+        "export.json",
+        format!("{{\"version\":{VERSION}}}\n").as_bytes(),
+    )
 }
 
 fn plain_file(p: &Path) -> bool {
@@ -556,6 +558,24 @@ mod tests {
         let dir = tehas_core::testdir::TestDir::new(&format!("export-{name}"));
         fs::create_dir_all(dir.join("home/logs")).unwrap();
         dir
+    }
+
+    // A link planted at <dir>/export.json is replaced, not written through.
+    #[test]
+    fn the_stamp_replaces_a_link_at_its_name() {
+        let dir = scratch("stamp-link");
+        let to = dir.join("out");
+        fs::create_dir_all(&to).unwrap();
+        let kept = dir.join("home/settings");
+        fs::write(&kept, "mine\n").unwrap();
+        std::os::unix::fs::symlink(&kept, to.join("export.json")).unwrap();
+        assert!(stamp(&to));
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "mine\n");
+        assert!(plain_file(&to.join("export.json")));
+        assert_eq!(
+            fs::read_to_string(to.join("export.json")).unwrap(),
+            format!("{{\"version\":{VERSION}}}\n")
+        );
     }
 
     #[test]
