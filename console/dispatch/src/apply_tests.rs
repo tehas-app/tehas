@@ -3435,6 +3435,41 @@ fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_term
     assert!(the_record(&t).exists());
 }
 
+/// The retry reads the kept outcome against the kept draft, so the mask and
+/// the cut of the write must not make the two differ.
+#[test]
+fn a_masked_or_cut_plan_that_could_not_be_written_is_written_by_the_next_poll() {
+    let long = format!("feat: {}", "x".repeat(300));
+    for (title, spec) in [
+        (
+            PLAN_TITLE.to_string(),
+            format!("{PLAN_BODY}\n\nUse {PLAN_SECRET}."),
+        ),
+        (long, PLAN_BODY.to_string()),
+    ] {
+        let mut t = world();
+        clear_draft(
+            &t,
+            alices_session(),
+            "alice",
+            &json!({"title": title, "spec": spec}),
+        );
+        t.fail("gh", "--title");
+        let a = t.apply(json!([{"plan_collect": 7}]));
+        assert!(a.log.iter().any(|l| l.contains("could not be written")));
+        fs::remove_file(t.dir.join("fail-gh")).unwrap();
+        let a = t.apply(json!([{"plan_post": 7}]));
+        assert!(
+            t.writes().contains(&LABEL_OFF.to_string()),
+            "{title}: {:?}",
+            a.log
+        );
+        let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+        assert!(!all.contains(PLAN_SECRET), "{all}");
+        assert!(the_record(&t).exists());
+    }
+}
+
 #[test]
 fn a_plan_with_open_points_asks() {
     let mut t = world();
