@@ -137,9 +137,9 @@ release carries the console; from a checkout that has not built one, setup
 builds it with cargo first, in the few lines of bash that are left of
 `libexec/setup`.
 
-Exit 0 when done, 1 when a check or a step failed (or the step's own status,
-such as 78 from `install.sh` or 3 from a product check that failed), 64 on an unknown option or app options that do
-not go together, 78 for a setting that is missing, malformed or differs,
+Exit 0 when done, 1 when a check or a step failed (78 when the step stopped
+on its settings, such as 78 from `install.sh`), 64 on an unknown option or app
+options that do not go together, 78 for a setting that is missing, malformed or differs,
 a pasted address without the run's state, or when there is no
 console and no checkout to build one from.
 
