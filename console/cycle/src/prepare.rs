@@ -1036,12 +1036,18 @@ pub fn writable(tree: &str, state_dir: &str, runs: &str) -> Vec<String> {
     ]
 }
 
-/// On a contractor, the container runs as the factory's account, which must
-/// own what it writes: the code index refuses a cache folder it does not own,
-/// even one anyone may write. The contractor program hands them over.
-fn handed(program: &Path, dirs: &[String]) -> bool {
+/// The account the cycle's container runs as, its `--user`.
+fn container_user() -> String {
+    sandbox::user()
+}
+
+/// On a contractor, the container must own what it writes: the code index
+/// refuses a cache folder it does not own, even one anyone may write. The
+/// contractor program hands the folders to the factory's account the job
+/// names, only when it is `user`, the account the container runs as.
+fn handed(program: &Path, user: &str, dirs: &[String]) -> bool {
     Command::new(program)
-        .arg("own")
+        .args(["own", "--as", user])
         .args(dirs)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -1254,7 +1260,11 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
         return 78;
     };
     if let Some(program) = crate::work::contractor() {
-        if !handed(&program, &writable(&tree, &state_dir, &runs)) {
+        if !handed(
+            &program,
+            &container_user(),
+            &writable(&tree, &state_dir, &runs),
+        ) {
             eprintln!("tehas work: the cycle's folders could not be handed to the factory's account, not starting a cycle");
             return 78;
         }
@@ -1583,7 +1593,7 @@ fn run_words(
         name: &r.name,
         limits: &list(state, "limits"),
         security: &list(state, "security"),
-        user: &sandbox::user(),
+        user: &container_user(),
         cid_file: cid,
         tree: &env("TEHAS_WORK_DIR"),
         mounts: &list(state, "mounts"),
