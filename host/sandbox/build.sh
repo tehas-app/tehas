@@ -25,7 +25,9 @@
 #
 # Before the tag moves, each image that would take it is smoke-run by
 # tehas-cycle sandbox smoke-run: one offline work turn started in it, with no
-# token, model or network, and a decision on its output. An image that
+# token, model or network, and a decision on its output; then, as this
+# account's uid on one CPU of a cpuset, a vipune add and search that must write
+# nothing to stderr. An image that
 # prints no step-started line within 20 s, or prints a result that says its
 # runner crashed, is refused: the build ends 1 and the tag stays where it was,
 # as for a layer that does not build (a base that answered --capabilities and
@@ -69,7 +71,7 @@
 # Exit: 0 built, or nothing to do; 3 the commit moved (--check); 1 the commit,
 #       the base or the build could not be had, or the base does not
 #       support what tehas work needs, or a smoke run of the new image started
-#       no step; 64 usage; 78 the instance's settings
+#       no step or found vipune writing to stderr; 64 usage; 78 the instance's settings
 #       do not load, or the uid of this account is not a number
 set -euo pipefail
 
@@ -230,13 +232,14 @@ fi
 reads=$("$cycle" caps reads-images <<<"$caps")
 
 # One offline work turn inside an image that would take the uid tag, and the
-# decision on what it printed (console/cycle/src/sandbox.rs: `sandbox smoke-run`
-# runs it and ends 0 only on a step-started line). The run is no row of
+# decision on what it printed, then vipune under a cpuset
+# (console/cycle/src/sandbox.rs: `sandbox smoke-run` ends 0 only on a
+# step-started line and a vipune that wrote nothing to stderr). The run is no row of
 # `sandbox table`: its image is the one this build has just made.
 smoke_image() { # <image>
   local word
-  if ! word=$("$cycle" sandbox smoke-run "$1"); then
-    echo "sandbox: $1 started no step of an offline work run (${word:-no answer}), so $current is left as it was" >&2
+  if ! word=$("$cycle" sandbox smoke-run "$1" "$uid"); then
+    echo "sandbox: $1 failed its smoke run (${word:-no answer}), so $current is left as it was" >&2
     exit 1
   fi
   echo "smoke-ran $1"
