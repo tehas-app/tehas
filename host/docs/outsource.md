@@ -53,7 +53,7 @@ channel's `job` call and sent to the contractor in that answer:
 | Token | In the answer | Held by | What it may call |
 | --- | --- | --- | --- |
 | model token | `model_token` | the cycle's container, as the `apiKey` of its `models.json` | the model paths below, and the egress tunnel |
-| job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and later the job's downloads |
+| job token | `token` | the contractor program, never the container | the job channel (`check-in`, `token`, `relay`, `result`, `stopped`), and the job's downloads (`index`, `bundle`, `attachments`) |
 
 A token of one scope is refused on the other's paths with 403: the channel
 answers `{"refused": "scope"}`, and a model path answers as the table below
@@ -231,6 +231,8 @@ before. A field the contractor left out, or sent in a shape the store does not
 take, is kept as none. Placement fits a cycle to a contractor only when its
 report names this host's image id, the memory a cycle may use and
 `TEHAS_CYCLE_MIN_FREE` of disk, and is no older than `TEHAS_OUTSOURCE_TIMEOUT`.
+The answer to a `hello` names this host's image id as `image`, so a
+contractor that has another one fetches it (see [The downloads](#the-downloads)).
 
 What each call needs:
 
@@ -313,6 +315,61 @@ does not hold one of the listener's 32 places, so downloads never crowd out
 a check-in. The log has one line when a tunnel opens or is refused, naming
 the job, the contractor and the destination, and one when it closes, with
 its bytes each way. It never has a token or a byte of the tunnel.
+
+## The downloads
+
+What a contractor would otherwise build or fetch itself, it fetches from the
+factory, on the same listener. Each is a GET under `/outsource/v1/`, answered
+with the file:
+
+| Path | Made with | What it is |
+| --- | --- | --- |
+| `image?id=<id>` | the contractor's key, as `hello` | the sandbox image `PI_ENSEMBLE_IMAGE` names, as `docker save` output, only when `<id>` is its id |
+| `index` | the job token | the code index of `state/index`, when `state/index.json` names the image the factory runs now |
+| `bundle` | the job token | a git bundle of `origin/<branch>` of the product checkout (`TEHAS_WORK_REPO`), that one ref and its history |
+| `attachments` | the job token | the issue's images and files with their `manifest.json`, fetched and checked on the factory as an in-house start does |
+
+The image comes before a job, so it is the contractor's, by its key and
+name; a revoked or unlisted contractor gets nothing. The other three take the
+job token of a running job, as `check-in` does, and serve that job alone. The
+model token on them is 403 `scope`.
+
+Each file is made on the first request that needs it and kept for the next:
+an image per image id in `state/images`, created on the first image download,
+and an index per tip and image, a bundle per tip and a job's files per job in
+`state/outsource/downloads`. Concurrent requests make it once. When a new
+image is saved, the one before it stays for a contractor still loading it and
+older ones are removed. A job's files go when the job ends, is handed back, or
+its contractor is revoked. Files are compressed with zstd when `zstd` is on
+the proxy's `PATH`, and served as a plain tar otherwise; the answer says which.
+
+An answer names what it is in fields of its own: `x-tehas-sha256` of the file
+and `x-tehas-pack` (`zstd`, `tar` or `bundle`) on every one, `x-tehas-image`
+and `x-tehas-uid` (the uid the image was built for) on the image,
+`x-tehas-tip` and `x-tehas-image` on the index, `x-tehas-tip` and
+`x-tehas-branch` on the bundle. A `Range: bytes=<from>-` resumes a broken
+download with 206. At most two image downloads run at once; a third waits.
+
+| Status | Word | When |
+| --- | --- | --- |
+| 400 | `a download is a GET` | another method |
+| 400 | `an image download names an image id` | no `id`, or no image id |
+| 404 | `not the factory's image` | the id is not the image the factory runs |
+| 404 | `no index` | no index is built |
+| 404 | `an index of another image` | the index was built by another image |
+| 404 | `no files given` | neither `TEHAS_WORK_IMAGES` nor `TEHAS_WORK_FILES` is `1` |
+| 404 | `no downloads here` | the listener has no downloads |
+| 409 | the fetch's own words | the issue's files could not be fetched or checked: an in-house start would stop on it |
+| 416 | `a range of no bytes` | a range past the end of the file |
+
+The issue's files are made with the dispatcher's latest record of the issue
+and the instance's own settings (`TEHAS_WORK_IMAGES`, `TEHAS_WORK_FILES`,
+`TEHAS_WORK_COMMENTS`), by the same fetch and link rule an in-house start
+uses. An issue with no recorded approval gets none, and the job does not
+start.
+
+The log has one line per download, naming the call, the status, the job or
+contractor and the bytes sent. It never has a token or a key.
 
 ## A cycle on a contractor
 
@@ -455,8 +512,9 @@ tehas-contractor own --as <uid:gid> <folder>...  hand the cycle's folders to the
 At rest it holds its name, its key and the factory's address, in
 `~/.config/tehas/contractor.json` (mode 0600), and nothing else. A job
 leaves the job's two tokens, its settings, the cycle token, a `models.json` whose
-every provider is the factory's proxy, and a clone of the product. All of it
-is wiped when the job ends and when the program starts. The `models.json`
+every provider is the factory's proxy, the product, the factory's code index
+and the issue's files. All of it is wiped when the job ends and when the
+program starts. The `models.json`
 names the factory at the address this host joined with, whatever address the
 proxy binds.
 
@@ -502,8 +560,23 @@ The cycle is never killed outright. It gets its stop signal and
 is it killed and its container stopped. A report the factory does not answer
 is retried for the job's timeout.
 
-The program's own git, the product's clone and the salvage push, goes
-through the egress tunnel: for each job it runs a CONNECT proxy on
+Before a cycle starts, the program fetches what the job needs from the
+factory's downloads, and nothing of it from GitHub:
+
+- The product, from the bundle: `repos/<name>` gets `origin/<branch>` at the
+  factory's tip, and the repository's address as `origin`, so the cycle's
+  pushes go where they do in-house. No bundle, no job: it is handed back.
+- The code index, into `state/index`, where `tehas work` copies it into the
+  cycle's cache. No index, or one of another image, is no error: the log says
+  `this cycle searches without a code index` and the cycle starts.
+- The issue's files, into `work/<name>-<issue>.images`. None given is no
+  error; a refusal of the factory's fetch is, and the job is handed back.
+
+When the factory's `hello` answer names an image this host does not have under
+`PI_ENSEMBLE_IMAGE`, the program fetches it, resuming a broken download, loads
+it with `docker load` and checks its id before it asks for a job.
+
+The program's own git, the salvage push, goes through the egress tunnel: for each job it runs a CONNECT proxy on
 127.0.0.1 that opens every tunnel on the factory's listener with the job's
 model token, and gives it to git as `http.proxy`. No proxy variable of the
 user's and no `NO_PROXY` takes git around it. A host the factory refuses is
@@ -543,5 +616,15 @@ Still owed, each in its own issue:
   contractor's local end for the cycle's container, so its git and
   registries go through the egress tunnel too. Until then only the
   contractor program's own git does.
-- #2354, TLS and signed requests on the channel. Version 1 is plain http with
+- #2365, the container's side of the code index: the workspace mounted at
+  the factory's own path, which the index answers at. Until then the index a
+  contractor is given is copied into the cycle but finds nothing.
+- `tehas work` giving the issue's files to a contractor's container: the
+  program puts them where an in-house cycle has them, and a contractor's
+  `tehas work` does not mount them yet.
+- The image of a job kept while a job names it. A job does not name its
+  image in the store yet, so the factory keeps the image before the current
+  one and no older.
+- #2354, TLS and signed requests on the channel. The image download takes the
+  contractor's key as `hello` does until requests are signed. Version 1 is plain http with
   bearer keys: bind the proxy's address on a network you control.

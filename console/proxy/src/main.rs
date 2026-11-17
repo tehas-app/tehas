@@ -30,7 +30,11 @@
 //! check-in, token renewal, relayed issue writes, result and stop by the job's
 //! token, which is issued when the job is taken. It also answers the egress
 //! tunnel (src/egress.rs) by the job's model token, to the hosts of
-//! TEHAS_EGRESS_HOSTS and the base list, never to a model endpoint.
+//! TEHAS_EGRESS_HOSTS and the base list, never to a model endpoint, and the
+//! downloads (src/download.rs): the sandbox image PI_ENSEMBLE_IMAGE names by
+//! the contractor's key, and by the job token the code index, a git bundle of
+//! TEHAS_WORK_REPO's tip of the branch, and the issue's files when
+//! TEHAS_WORK_IMAGES or TEHAS_WORK_FILES gives a cycle any.
 //!
 //! The job tokens are this process's own, held in memory. A contractor is
 //! given its job's two tokens in the answer to the channel's `job` call: the
@@ -196,8 +200,21 @@ fn listen() -> ! {
         &ModelFile::read(&models::host_path()),
         Duration::from_secs(idle),
     )));
+    let downloads = Box::leak(Box::new(tehas_proxy::download::OfHome {
+        home: home(),
+        checkout: PathBuf::from(env("TEHAS_WORK_REPO")),
+        branch: tehas_core::settings::branch().unwrap_or_default(),
+        image: env("PI_ENSEMBLE_IMAGE"),
+        docker: PathBuf::from("docker"),
+        zstd: on_path("zstd"),
+        gives_files: env("TEHAS_WORK_IMAGES") == "1" || env("TEHAS_WORK_FILES") == "1",
+        fetch: tehas_cycle::gives::for_job,
+        making: Default::default(),
+    }));
     let channel = Box::leak(Box::new(
-        tehas_proxy::channel::Channel::new(issuer, factory).with_egress(egress),
+        tehas_proxy::channel::Channel::new(issuer, factory)
+            .with_egress(egress)
+            .with_downloads(downloads),
     ));
     let proxy: &'static Serve<'static> = Box::leak(Box::new(Serve {
         endpoint,
@@ -231,6 +248,12 @@ fn listen() -> ! {
         stop(&why, 1);
     }
     std::process::exit(0)
+}
+
+/// Whether a program of this name is on PATH.
+fn on_path(name: &str) -> bool {
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .any(|dir| dir.join(name).is_file())
 }
 
 /// Answer the control socket, a few lines at a time, for the life of the

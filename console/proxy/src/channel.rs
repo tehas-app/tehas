@@ -12,9 +12,12 @@
 //! | `result` | a job, by its token | the cycle's result, kept for its report |
 //! | `stopped` | a job, by its token | the job handed back or given up |
 //! | `egress` | a job's container, by its model token | a tunnel to a listed host ([`crate::egress`]) |
+//! | `image` | a contractor, by its key | the factory's sandbox image ([`crate::download`]) |
+//! | `index`, `bundle`, `attachments` | a job, by its token | the job's code index, source and files ([`crate::download`]) |
 //!
 //! Each path is `/outsource/v1/<name>`, POST, a JSON body of at most
-//! [`BODY_MAX`] bytes and a JSON answer. A contractor's key is sent as a bearer
+//! [`BODY_MAX`] bytes and a JSON answer; the downloads are a GET and answer
+//! the file. A contractor's key is sent as a bearer
 //! with its name in `x-tehas-contractor`; the store holds the key's sha256 and
 //! compares it. A job's token is the job-scope token the proxy issued when
 //! the job was taken ([`crate::jobs::Scope::Job`]). The model token issued
@@ -22,9 +25,9 @@
 //! the job token is refused on the model paths.
 //!
 //! Each call takes a scope by [`Call::scope`]. The egress tunnel is the one
-//! route of the model scope here. Routes still to come: the job's downloads
-//! (index, bundle, attachments) take the job scope. The image download comes
-//! before a job and is the contractor's, by its key, so it takes no token.
+//! route of the model scope here. The job's downloads (index, bundle,
+//! attachments) take the job scope. The image download comes before a job and
+//! is the contractor's, by its key, so it takes no token.
 //!
 //! What each call requires is the spec's "The job channel": check-in, token
 //! and relay need a running job of the issue's current attempt on a contractor
@@ -76,6 +79,10 @@ pub enum Call {
     Result,
     Stopped,
     Egress,
+    Image,
+    Index,
+    Bundle,
+    Attachments,
 }
 
 impl Call {
@@ -92,6 +99,10 @@ impl Call {
             "result" => Call::Result,
             "stopped" => Call::Stopped,
             "egress" => Call::Egress,
+            "image" => Call::Image,
+            "index" => Call::Index,
+            "bundle" => Call::Bundle,
+            "attachments" => Call::Attachments,
             _ => return None,
         })
     }
@@ -101,10 +112,15 @@ impl Call {
     /// the model scope here.
     pub fn scope(self) -> Option<jobs::Scope> {
         match self {
-            Call::Join | Call::Hello | Call::Job => None,
-            Call::CheckIn | Call::Token | Call::Relay | Call::Result | Call::Stopped => {
-                Some(jobs::Scope::Job)
-            }
+            Call::Join | Call::Hello | Call::Job | Call::Image => None,
+            Call::CheckIn
+            | Call::Token
+            | Call::Relay
+            | Call::Result
+            | Call::Stopped
+            | Call::Index
+            | Call::Bundle
+            | Call::Attachments => Some(jobs::Scope::Job),
             Call::Egress => Some(jobs::Scope::Model),
         }
     }
@@ -120,7 +136,19 @@ impl Call {
             Call::Result => "result",
             Call::Stopped => "stopped",
             Call::Egress => "egress",
+            Call::Image => "image",
+            Call::Index => "index",
+            Call::Bundle => "bundle",
+            Call::Attachments => "attachments",
         }
+    }
+
+    /// Whether the call is a download, a GET answered with a file.
+    pub fn downloads(self) -> bool {
+        matches!(
+            self,
+            Call::Image | Call::Index | Call::Bundle | Call::Attachments
+        )
     }
 }
 
@@ -207,6 +235,8 @@ pub struct Channel<'a> {
     pub factory: &'a (dyn Factory + Sync),
     /// The egress tunnel route. None answers it 404.
     pub egress: Option<&'a crate::egress::Egress>,
+    /// The downloads. None answers them 404.
+    pub downloads: Option<&'a (dyn crate::download::Downloads + Sync)>,
     scopes: Mutex<HashMap<i64, Scope>>,
 }
 
@@ -224,12 +254,21 @@ impl<'a> Channel<'a> {
             issuer,
             factory,
             egress: None,
+            downloads: None,
             scopes: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn with_egress(mut self, egress: &'a crate::egress::Egress) -> Channel<'a> {
         self.egress = Some(egress);
+        self
+    }
+
+    pub fn with_downloads(
+        mut self,
+        downloads: &'a (dyn crate::download::Downloads + Sync),
+    ) -> Channel<'a> {
+        self.downloads = Some(downloads);
         self
     }
 
@@ -264,12 +303,19 @@ impl<'a> Channel<'a> {
                     args.extend(report_args(&body["report"]));
                     let args: Vec<&str> = args.iter().map(String::as_str).collect();
                     let _ = self.factory.store(&args);
-                    Answer::ok(json!({ "hello": name, "draining": draining }))
+                    let mut said = json!({ "hello": name, "draining": draining });
+                    // The image a contractor must run, which it fetches by
+                    // the image route when it has another.
+                    if let Some(id) = self.downloads.and_then(|d| d.image_id()) {
+                        said["image"] = Value::String(id);
+                    }
+                    Answer::ok(said)
                 }
                 Ok((name, draining)) => self.job(&name, draining),
                 Err(no) => no,
             },
             Call::Egress => Answer::no(400, "the egress route is an Upgrade"),
+            call if call.downloads() => Answer::no(400, "a download is a GET"),
             call => match self.admit(call, asked.bearer) {
                 Ok((live, issue)) => self.of_job(call, &live, issue, &body),
                 Err(no) => no,
@@ -303,7 +349,7 @@ impl<'a> Channel<'a> {
     }
 
     /// The contractor a call made with a key names, and whether it drains.
-    fn contractor(&self, asked: &Asked) -> Result<(String, bool), Answer> {
+    pub fn contractor(&self, asked: &Asked) -> Result<(String, bool), Answer> {
         let (Some(name), Some(key)) = (asked.name, asked.bearer) else {
             return Err(Answer::no(401, "no contractor"));
         };
@@ -516,12 +562,22 @@ impl<'a> Channel<'a> {
                 self.forget(live.job);
                 Answer::ok(json!({ "stopped": live.job }))
             }
-            Call::Join | Call::Hello | Call::Job | Call::Egress => Answer::no(400, "refused"),
+            Call::Join
+            | Call::Hello
+            | Call::Job
+            | Call::Egress
+            | Call::Image
+            | Call::Index
+            | Call::Bundle
+            | Call::Attachments => Answer::no(400, "refused"),
         }
     }
 
     fn forget(&self, job: i64) {
         self.issuer.forget_jobs(&[job]);
+        if let Some(d) = self.downloads {
+            d.forget(job);
+        }
         self.scopes
             .lock()
             .unwrap_or_else(|e| e.into_inner())
