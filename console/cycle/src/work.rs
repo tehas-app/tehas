@@ -381,6 +381,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
@@ -767,7 +768,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &images_refused(&why, f.kinds));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
         // A program of its own, so a stop does not wait on the model.
@@ -840,7 +841,7 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &comments_refused(&why));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     keep_beside(f);
     Ok(mounted(f))
@@ -1124,7 +1125,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         // on the host and on the issue, ends its own record as push-fault, and
         // leaves the issue's labels alone. The park of a cycle that ran is the
         // report's, and this arm never reaches it.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             prepare::push_fault(
                 home,
                 n,

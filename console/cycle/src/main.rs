@@ -473,7 +473,7 @@ fn index_verb(home: &Path, run: impl FnOnce() -> u8) -> ! {
         Ok(Some(f)) => f,
         Ok(None) => {
             eprintln!("tehas index: another index run holds its lock, nothing was indexed; run it again in a moment");
-            std::process::exit(3)
+            std::process::exit(i32::from(tehas_core::exit::NO))
         }
         Err(e) => fail(e),
     };
@@ -577,7 +577,7 @@ fn work_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) -> ! {
             }
             Ok(None) => {
                 eprintln!("tehas work: a cycle for #{n} is running, not starting another");
-                std::process::exit(5)
+                std::process::exit(i32::from(tehas_core::exit::work::BUSY))
             }
             Err(e) => fail(e),
         }
