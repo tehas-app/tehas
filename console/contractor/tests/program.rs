@@ -249,10 +249,15 @@ cp "$HOME/.pi/agent/models.json" "$seen/models.json"
 cat "$TEHAS_HOME/state/github-cycle/token" >"$seen/token.file"
 echo '{{"argv":["issue","comment","7","--body-file=-","--repo=acme/widget"],"input":"done"}}' | "$TEHAS_CONTRACTOR" relay >"$seen/relay.out"
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache"
-"$TEHAS_CONTRACTOR" own "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache" 2>"$seen/own.err"
+me="$(id -u):$(id -g)"
+"$TEHAS_CONTRACTOR" own --as "$me" "$TEHAS_HOME/work/widget-7" "$TEHAS_HOME/work/widget-7.state/cache" 2>"$seen/own.err"
 echo $? >"$seen/own.rc"
-"$TEHAS_CONTRACTOR" own "$TEHAS_HOME" 2>"$seen/own-home.err"
+"$TEHAS_CONTRACTOR" own --as "$me" "$TEHAS_HOME" 2>"$seen/own-home.err"
 echo $? >"$seen/own-home.rc"
+"$TEHAS_CONTRACTOR" own --as "$(( $(id -u) + 1 )):$(id -g)" "$TEHAS_HOME/work/widget-7" 2>"$seen/own-other.err"
+echo $? >"$seen/own-other.rc"
+"$TEHAS_CONTRACTOR" own "$TEHAS_HOME/work/widget-7" 2>/dev/null
+echo $? >"$seen/own-bare.rc"
 echo '{{"status":"merged","issue":7}}' >"$TEHAS_HOME/state/cycles/7.result.json"
 echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
 "$TEHAS_CONTRACTOR" drain
@@ -364,6 +369,13 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
         "{}",
         read("own.err")
     );
+    assert_eq!(read("own-other.rc").trim(), "0");
+    assert!(
+        read("own-other.err").contains("stay as they are"),
+        "{}",
+        read("own-other.err")
+    );
+    assert_eq!(read("own-bare.rc").trim(), "64");
     assert_eq!(read("own-home.rc").trim(), "1");
     assert!(
         read("own-home.err").contains("not a folder of the cycle"),

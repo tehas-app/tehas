@@ -19,13 +19,15 @@
 //! program refuses a home that holds a factory ([`foreign`]), and removes a
 //! `models.json` only when it wrote it.
 //!
-//! The cycle's container runs as the factory's account, which the job names.
-//! Before it starts, `tehas work` asks this program (`own`) to hand the
-//! folders the container writes to that account: the workspace, the code
-//! index cache, the relay folder and the rest of the cycle's writable mounts.
-//! Writable is not enough: the code index refuses a cache folder it does not
-//! own. Only folders under `work/` and the agents' runs folder are handed
-//! over, and a link is never followed.
+//! The job names the factory's account. Before the cycle's container starts,
+//! `tehas work` asks this program (`own`) to hand the folders the container
+//! writes to that account: the workspace, the code index cache, the relay
+//! folder and the rest of the cycle's writable mounts. Writable is not
+//! enough: the code index refuses a cache folder it does not own. They are
+//! handed over only when the container runs as that account, which `tehas
+//! work` names with `--as`; otherwise they stay with the account it runs as.
+//! Only folders under `work/` and the agents' runs folder are handed over,
+//! and a link is never followed.
 //!
 //! No git runs in the workspace: the cycle's container wrote all of it, its
 //! hooks and `.git/config` included. A salvage push fetches the issue's branch
@@ -410,19 +412,38 @@ pub fn hand_over(dir: &Path, owner: Owner) -> Result<(), String> {
     Ok(())
 }
 
+/// What `tehas-contractor own` did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Handed {
+    /// The folders now belong to this account.
+    To(Owner),
+    /// The job names no account: the folders stay as they are.
+    Unnamed,
+    /// The container runs as another account than the job names: the folders
+    /// stay as they are, so the container still owns what it writes.
+    Elsewhere { job: Owner, container: Owner },
+}
+
 /// What `tehas-contractor own` does: the running job's folders `asked` to the
-/// account the job names. Nothing is changed when one of them is refused, or
-/// when the job names no account. Some(owner) when they were handed over.
-pub fn own(paths: &Paths, asked: &[PathBuf]) -> Result<Option<Owner>, String> {
+/// account the job names, when the container runs as that account. A folder
+/// outside the cycle is refused before anything is changed; a file that
+/// cannot be handed over stops it there, and what was done stays done.
+pub fn own(paths: &Paths, container: Owner, asked: &[PathBuf]) -> Result<Handed, String> {
     let owner = owner_of(paths)?;
     let plan = ownership_plan(paths, asked)?;
     let Some(owner) = owner else {
-        return Ok(None);
+        return Ok(Handed::Unnamed);
     };
+    if owner != container {
+        return Ok(Handed::Elsewhere {
+            job: owner,
+            container,
+        });
+    }
     for dir in &plan {
         hand_over(dir, owner)?;
     }
-    Ok(Some(owner))
+    Ok(Handed::To(owner))
 }
 
 struct HostWork {
@@ -974,14 +995,14 @@ mod tests {
         let asked = [ws.clone(), relay.clone()];
 
         // No job running: nothing to hand over to.
-        assert!(own(&p, &asked).is_err_and(|e| e.contains("no job")));
+        assert!(own(&p, mine, &asked).is_err_and(|e| e.contains("no job")));
         // A job that names no account leaves the folders as they are.
         write_private(
             &p.job_file(),
             job_file("f", &job_with(None)).to_string().as_bytes(),
         )
         .unwrap();
-        assert_eq!(own(&p, &asked), Ok(None));
+        assert_eq!(own(&p, mine, &asked), Ok(Handed::Unnamed));
 
         // A group of this user's own other than its first, where it has one,
         // shows the change; otherwise its own account, which must still pass.
@@ -1000,9 +1021,23 @@ mod tests {
             (m.uid(), m.gid())
         };
         // One refused folder and nothing is handed over.
-        assert!(own(&p, &[ws.clone(), d.path().to_path_buf()]).is_err());
+        assert!(own(&p, to, &[ws.clone(), d.path().to_path_buf()]).is_err());
         assert_eq!(owner(&ws), (mine.uid, mine.gid));
-        assert_eq!(own(&p, &asked), Ok(Some(to)));
+        // A container that runs as another account than the job names keeps
+        // the folders: it must own what it writes.
+        let other = Owner {
+            uid: to.uid + 1,
+            gid: to.gid,
+        };
+        assert_eq!(
+            own(&p, other, &asked),
+            Ok(Handed::Elsewhere {
+                job: to,
+                container: other
+            })
+        );
+        assert_eq!(owner(&ws), (mine.uid, mine.gid));
+        assert_eq!(own(&p, to, &asked), Ok(Handed::To(to)));
         for q in [
             ws.clone(),
             ws.join("src"),

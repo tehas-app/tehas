@@ -18,9 +18,10 @@
 //!       The cycle's renewer and relay call these while a job runs: a fresh
 //!       cycle token from the factory, written where the container reads it
 //!       and printed; one issue write, JSON on standard input and output.
-//!   tehas-contractor own <folder>...
-//!       The cycle calls this before its container starts: the folders the
-//!       container writes, handed to the factory's account the job names.
+//!   tehas-contractor own --as <uid:gid> <folder>...
+//!       The cycle calls this before its container starts, naming the account
+//!       the container runs as: the folders the container writes, handed to
+//!       the factory's account the job names when the container runs as it.
 //!       Only folders under $TEHAS_HOME/work and ~/.pi/agent/ensemble-runs.
 //!
 //! The settings: TEHAS_HOME, the contractor's tehas install [~/tehas];
@@ -46,7 +47,7 @@ use tehas_contractor::http::{self, As, Reply};
 use tehas_contractor::{doctor, identity, job};
 
 const USAGE: &str =
-    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay | own <folder>...";
+    "usage: tehas-contractor join <factory> <name> <code> | run | drain | doctor | token | relay | own --as <uid:gid> <folder>...";
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
@@ -91,7 +92,11 @@ fn main() {
         ["doctor"] => check(&p),
         ["token"] => token(&p),
         ["relay"] => relay(&p),
-        ["own", folders @ ..] if !folders.is_empty() => own(&p, folders),
+        ["own", "--as", user, folders @ ..] if !folders.is_empty() => match job::Owner::parse(user)
+        {
+            Some(container) => own(&p, container, folders),
+            None => stop(USAGE, 64),
+        },
         _ => stop(USAGE, 64),
     };
     std::process::exit(code)
@@ -181,18 +186,25 @@ fn token(p: &Paths) -> i32 {
     }
 }
 
-fn own(p: &Paths, folders: &[&str]) -> i32 {
+fn own(p: &Paths, container: job::Owner, folders: &[&str]) -> i32 {
     let asked: Vec<PathBuf> = folders.iter().map(PathBuf::from).collect();
-    match host::own(p, &asked) {
-        Ok(Some(o)) => {
+    match host::own(p, container, &asked) {
+        Ok(host::Handed::To(o)) => {
             say(&format!(
                 "the cycle's folders are handed to {}:{}",
                 o.uid, o.gid
             ));
             0
         }
-        Ok(None) => {
-            say("the job names no account: the cycle's folders stay this program's");
+        Ok(host::Handed::Unnamed) => {
+            say("the job names no account: the cycle's folders stay as they are");
+            0
+        }
+        Ok(host::Handed::Elsewhere { job, container }) => {
+            say(&format!(
+                "the container runs as {}:{}, not the job's {}:{}: the cycle's folders stay as they are",
+                container.uid, container.gid, job.uid, job.gid
+            ));
             0
         }
         Err(why) => stop(&why, 1),

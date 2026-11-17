@@ -65,6 +65,15 @@ impl Owner {
             gid: id("gid")?,
         })
     }
+
+    /// `uid:gid`, as docker's `--user` takes it.
+    pub fn parse(s: &str) -> Option<Owner> {
+        let (uid, gid) = s.split_once(':')?;
+        Some(Owner {
+            uid: uid.parse().ok()?,
+            gid: gid.parse().ok()?,
+        })
+    }
 }
 
 impl Job {

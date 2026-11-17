@@ -393,11 +393,11 @@ Three readers show it, and each only while the file is there:
 logs start with `tehas outsource contractor`.
 
 ```
-tehas-contractor join <factory> <name> <code>   join with the code tehas outsource invite printed
-tehas-contractor run                            take jobs and run them until drained or revoked
-tehas-contractor drain                          take no new job; hand a running one back after the grace
-tehas-contractor doctor                         say what this host holds that it should not
-tehas-contractor own <folder>...                hand the cycle's folders to the factory's account
+tehas-contractor join <factory> <name> <code>    join with the code tehas outsource invite printed
+tehas-contractor run                             take jobs and run them until drained or revoked
+tehas-contractor drain                           take no new job; hand a running one back after the grace
+tehas-contractor doctor                          say what this host holds that it should not
+tehas-contractor own --as <uid:gid> <folder>...  hand the cycle's folders to the factory's account
 ```
 
 At rest it holds its name, its key and the factory's address, in
@@ -411,14 +411,21 @@ proxy binds.
 Before its container starts, the cycle asks the program (`own`) to hand the
 folders the container writes to the account the job names: the workspace,
 the code index cache, the relay folder, and the cycle's memory, sessions and
-agent runs. They are owned by that account, not only writable by it: the
-code index refuses a cache folder it does not own, whatever its mode. Only
-folders under `$TEHAS_HOME/work` and `~/.pi/agent/ensemble-runs` are handed
-over, a link is changed itself and never followed, and when one folder is
-refused none is changed and the cycle does not start. A job that names no
-account leaves them as they are. Handing a folder to another account takes
-root; a contractor that runs as the factory's own uid needs no more. The
-container is given no mount, variable or token more for it.
+agent runs. They must be owned by the account the container runs as, not
+only writable by it: the code index refuses a cache folder it does not own,
+whatever its mode. So the cycle names its container's `--user` to the
+program, and the folders are handed over only when that is the job's
+account. Today the container runs as the account the program runs as, so a
+contractor that runs as another account than the factory's keeps the
+folders with its own account and the cycle runs as before; running the
+container as the factory's account is a later step. Only folders under
+`$TEHAS_HOME/work` and `~/.pi/agent/ensemble-runs` are handed over, a link
+is changed itself and never followed, and a folder outside the cycle is
+refused, and the cycle does not start, before anything is changed. A file
+the program cannot hand over also stops the cycle, and what it handed over
+before that stays handed over. A job that names no account leaves the
+folders as they are. The container is given no mount, variable or token
+more for it.
 
 The wipe removes `repos`, `work` and `state/cycles` under `TEHAS_HOME`, which a
 factory keeps too. So `run` refuses with 78, before it removes anything, a

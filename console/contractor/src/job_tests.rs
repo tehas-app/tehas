@@ -263,6 +263,29 @@ fn a_job_names_the_factory_s_account_with_both_numbers_or_none() {
 }
 
 #[test]
+fn an_account_is_read_as_docker_s_user_takes_it() {
+    assert_eq!(
+        Owner::parse("1001:1002"),
+        Some(Owner {
+            uid: 1001,
+            gid: 1002
+        })
+    );
+    for bad in [
+        "",
+        "1001",
+        "1001:",
+        ":1002",
+        "a:b",
+        "-1:2",
+        "1:2:3",
+        "1001 :1002",
+    ] {
+        assert_eq!(Owner::parse(bad), None, "{bad}");
+    }
+}
+
+#[test]
 fn a_cycle_that_ends_reports_its_result_and_the_workspace_is_wiped() {
     let w = world(ends_at(100));
     assert_eq!(run_job(&w, &job(), 30), End::Finished);
