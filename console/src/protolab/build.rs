@@ -2,7 +2,7 @@
 //! one holds, and the order of the work. Settings come from the environment
 //! `console run` loaded.
 
-use super::{front_page, live_file, number_of, refs, ticket_page};
+use super::{front_page, live_file, number_of, refs, ticket_page, Refs};
 use crate::edge;
 use crate::forge::{gh_program, repo, runnable, CALL_BOUND};
 use crate::jq::{obj, J};
@@ -198,9 +198,10 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
         keep.push(n.to_string());
         let stamp = format!("{generator} {}", raw(&ticket["updatedAt"]));
         let place = lab.site.join(n.to_string());
-        if fs::read_to_string(place.join(".stamp"))
-            .is_ok_and(|had| had.trim_end_matches('\n') == stamp)
-        {
+        let had = fs::read_to_string(place.join(".stamp")).unwrap_or_default();
+        let mut had = had.lines();
+        let (had_stamp, had_key) = (had.next(), had.next());
+        if had_stamp == Some(stamp.as_str()) {
             continue;
         }
         // A title changed since the approval by an account outside the list
@@ -221,7 +222,27 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
             ));
             continue;
         }
-        match build(lab, &mut gh, n, ticket, &stamp, &home_url) {
+        let Some(found) = texts(lab, &mut gh, n).map(|t| refs(&t, &|w| allowed(w, &lab.allowed)))
+        else {
+            say(&format!("#{n}: could not be read, left as it was"));
+            continue;
+        };
+        // A change that brings no new link and no new title does not fetch
+        // the files again: the page only takes the new time.
+        let key = found.key(&format!("{generator} {}", raw(&ticket["title"])));
+        if had_key == Some(key.as_str())
+            && retime(&place, ticket, &stamp, &key, &home_url, &lab.design).is_some()
+        {
+            continue;
+        }
+        match build(
+            lab,
+            n,
+            ticket,
+            &found,
+            &format!("{stamp}\n{key}"),
+            &home_url,
+        ) {
             Some(line) => say(&line),
             None => say(&format!("#{n}: could not be read, left as it was")),
         }
@@ -345,20 +366,12 @@ fn tickets(answer: &str) -> Option<Vec<Value>> {
         .filter(|row| row["pull_request"].is_null())
         .filter_map(|row| {
             let title: String = row["title"].as_str()?.chars().take(180).collect();
-            let body = if row["body"].is_null() {
-                Value::from("")
-            } else {
-                row["body"].clone()
-            };
             Some(serde_json::json!({
                 "number": row["number"].as_u64()?,
                 "title": title,
                 "url": row["html_url"],
                 "author": row["user"]["login"],
-                "association": row["author_association"],
                 "updatedAt": row["updated_at"],
-                "comments": row["comments"],
-                "body": body,
             }))
         })
         .collect();
@@ -434,25 +447,14 @@ impl Held {
 /// for the log, or None when it could not be read; what is there is then kept.
 fn build(
     lab: &Lab,
-    gh: &mut Bounded,
     n: u64,
     ticket: &Value,
+    found: &Refs,
     stamp: &str,
     home_url: &str,
 ) -> Option<String> {
     let dir = lab.work.join(n.to_string());
     fs::create_dir_all(dir.join("files")).ok()?;
-    let replies = if has_replies(&ticket["comments"]) {
-        let path = format!("repos/{}/issues/{n}/comments?per_page=100", lab.repo);
-        let answer = gh.run(&["api", &path]).ok()?;
-        match serde_json::from_str(&answer).ok()? {
-            Value::Array(rows) => rows,
-            _ => return None,
-        }
-    } else {
-        Vec::new()
-    };
-    let found = refs(ticket, &replies);
 
     let mut held = Held::default();
     for link in &found.fetch {
@@ -496,13 +498,75 @@ fn build(
     ))
 }
 
-/// `.comments // 0` is not 0.
-fn has_replies(comments: &Value) -> bool {
-    match comments {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(n) => n.as_f64() != Some(0.0),
-        _ => true,
-    }
+/// An account as the texts read asks for it: its login and its user id, so the
+/// login can be vouched for.
+const WHO: &str = "login ...on User { databaseId } ...on Bot { databaseId }";
+
+/// The issue's body and its first hundred comments, each with its author and
+/// its last editor, the logins vouched. None when GitHub does not answer with
+/// the issue.
+fn texts(lab: &Lab, gh: &mut Bounded, n: u64) -> Option<Value> {
+    let (owner, name) = lab.repo.split_once('/')?;
+    let query = format!(
+        "query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ issue(number: $number) {{ body author {{ {WHO} }} editor {{ {WHO} }} comments(first: 100) {{ nodes {{ body author {{ {WHO} }} editor {{ {WHO} }} }} }} }} }} }}"
+    );
+    let answer = gh
+        .run(&[
+            "api",
+            "graphql",
+            "-F",
+            &format!("owner={owner}"),
+            "-F",
+            &format!("name={name}"),
+            "-F",
+            &format!("number={n}"),
+            "-f",
+            &format!("query={query}"),
+        ])
+        .ok()?;
+    let mut v: Value = serde_json::from_str(&answer).ok()?;
+    tehas_core::accounts::vouch(&mut v);
+    v.pointer("/data/repository/issue")
+        .filter(|i| i.is_object())
+        .cloned()
+}
+
+/// The page of a ticket whose title and links are as they were, given the
+/// ticket's new time in place, with no file fetched. None when the page there
+/// cannot be read or written; the ticket is then built again.
+fn retime(
+    place: &Path,
+    ticket: &Value,
+    stamp: &str,
+    key: &str,
+    home_url: &str,
+    design: &str,
+) -> Option<()> {
+    let mut meta = J::parse(&fs::read_to_string(place.join(".meta.json")).ok()?)?;
+    let J::Obj(fields) = &mut meta else {
+        return None;
+    };
+    let time = J::parse(&ticket["updatedAt"].to_string())?;
+    fields.iter_mut().find(|(k, _)| k == "updatedAt")?.1 = time;
+    let meta = meta.pretty();
+    let row: Value = serde_json::from_str(&meta).ok()?;
+    let outside = row["outside"].as_i64().unwrap_or(0);
+    let page = ticket_page(
+        &row,
+        row["files"].as_array()?,
+        row["skipped"].as_array()?,
+        outside,
+        home_url,
+        design,
+        LIMIT,
+    );
+    edge::put(&place.join(".meta.json"), format!("{meta}\n").as_bytes()).ok()?;
+    edge::put(&place.join("index.html"), page.as_bytes()).ok()?;
+    edge::put(
+        &place.join(".stamp"),
+        format!("{stamp}\n{key}\n").as_bytes(),
+    )
+    .ok()
 }
 
 /// One link of the ticket, fetched into the directory or said to be left out.
@@ -1012,18 +1076,10 @@ mod tests {
         .unwrap();
         let numbers: Vec<i64> = got.iter().map(number_of).collect();
         assert_eq!(numbers, [11, 3]);
-        assert_eq!(got[1]["body"], "");
         assert_eq!(got[1]["author"], "a");
         let long = format!("[{{\"number\":1,\"title\":\"{}\"}}]", "ä".repeat(200));
         let cut = tickets(&long).unwrap();
         assert_eq!(cut[0]["title"].as_str().unwrap().chars().count(), 180);
-    }
-
-    #[test]
-    fn replies_are_read_unless_the_count_is_none() {
-        assert!(has_replies(&Value::from(3)));
-        assert!(!has_replies(&Value::from(0)));
-        assert!(!has_replies(&Value::Null));
     }
 
     #[test]
