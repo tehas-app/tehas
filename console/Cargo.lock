@@ -563,6 +563,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-contractor"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "rustix",
+ "serde_json",
+ "sha2 0.10.9",
+ "store",
+ "tehas-core",
+ "tehas-cycle",
+ "tehas-proxy",
+]
+
+[[package]]
 name = "tehas-core"
 version = "0.1.0"
 dependencies = [
