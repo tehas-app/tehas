@@ -33,7 +33,7 @@
 //!   unset until a command requires it.
 
 use super::renamed;
-use super::rules::{self, Trees, When, ROLES, SWITCH_WORDS, TABLE};
+use super::rules::{self, Trees, When, HOST, ROLES, SWITCH_WORDS, TABLE};
 use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,7 +42,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// and its token to the gh of the commands it runs (#965), the two words a cycle hands down (tehas-cycle@.service, tehasbot cycle to
 /// tehas work), and what the host chooses in ~/.config/tehas/env, which env.sh
 /// reads before a load.
-const KEPT: &[&str] = &[
+pub(super) const KEPT: &[&str] = &[
     "TEHAS_HOME",
     "TEHAS_INSTANCE_DIR",
     "TEHAS_WORK_CMD",
@@ -76,8 +76,13 @@ const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
+    // The contractor program a cycle on a contractor relays through
+    // (cycle/src/work.rs), named by that program and read only with outsource
+    // on.
+    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
+    "TEHAS_PUSH_PROBE_CMD",
     "TEHAS_DISPATCH_CMD",
     "TEHAS_HEALTH_CMD",
     "TEHAS_TIDY_WAIT",
@@ -124,6 +129,11 @@ const RETIRED: [&str; 15] = [
     "TEHAS_REFRESH_EVERY",
     "TEHAS_OVERLAP_HOLD",
 ];
+
+/// Whether `name` is one an earlier version read, refused now (`RETIRED`).
+pub(super) fn retired(name: &str) -> bool {
+    RETIRED.contains(&name)
+}
 
 /// What the shell of the source sets for itself. BASH_ENV is not given to it:
 /// that file would run in the shell that reads the settings.
@@ -596,11 +606,22 @@ fn valid(vars: &Vars, name: &str, file: &str) -> Result<(), String> {
         .map_err(|why| format!("{name} is not valid: {why} (see {file})"))
 }
 
-fn check_values(vars: &Vars, file: &str) -> Result<(), String> {
+/// The settings of `when` given that hold a value before the load's
+/// defaults: what the instance gave, not what the load worked out, such as a
+/// TEHAS_WORK_REPO made from a home that is itself refused later.
+fn given(vars: &Vars) -> BTreeSet<&'static str> {
+    TABLE
+        .iter()
+        .filter(|s| s.when == When::Given && has(vars, s.name))
+        .map(|s| s.name)
+        .collect()
+}
+
+fn check_values(vars: &Vars, given: &BTreeSet<&str>, file: &str) -> Result<(), String> {
     for setting in TABLE {
         let asked = match setting.when {
             When::Always => true,
-            When::Given => has(vars, setting.name),
+            When::Given => given.contains(setting.name),
             When::Named => vars.is_set(setting.name),
             When::Required => false,
         };
@@ -633,27 +654,45 @@ fn switches(vars: &mut Vars) {
     }
 }
 
-/// TEHAS_ENERGY, a switch of the host's file and not of the instance: `off`
-/// takes the energy section away, `on` asks for it, and unset or empty leaves
-/// it to the sampler. tehasbot energy and the first install read `on` and `off`.
-fn energy(vars: &mut Vars) -> Result<(), String> {
-    const NAME: &str = "TEHAS_ENERGY";
-    let value = vars.text(NAME);
-    if value.is_empty() {
-        return Ok(());
-    }
-    match rules::switch(&value) {
-        Some(on) => {
-            let word = if on { "on" } else { "off" };
-            if value != word {
-                vars.set(NAME, word);
-            }
-            Ok(())
+/// The settings of the host (rules::HOST) that hold a value, each against its
+/// rule, named with where the host gives it. A refusal never shows the value:
+/// a token or a key may be one.
+fn host_values(vars: &Vars) -> Result<(), String> {
+    let mut names: Vec<String> = HOST
+        .iter()
+        .filter(|s| !s.name.starts_with(rules::MODEL_KEY))
+        .map(|s| s.name.to_string())
+        .collect();
+    names.extend(vars.prefixed(rules::MODEL_KEY));
+    for name in names.iter().filter(|n| has(vars, n)) {
+        if let Err(why) = rules::check(name, &vars.text(name), &Trees::default()) {
+            let place = match name.as_str() {
+                "TEHAS_HOME" => "the environment".to_string(),
+                "TEHAS_INSTANCE_DIR" => format!(
+                    "the environment or {}/.config/tehas/instance-dir",
+                    vars.text("HOME")
+                ),
+                _ => credential_file(vars),
+            };
+            return Err(format!("{name} is not valid: {why} (see {place})"));
         }
-        None => Err(format!(
-            "{NAME} is not valid: expected on or off (see {})",
-            credential_file(vars)
-        )),
+    }
+    Ok(())
+}
+
+/// The two switches of the host, checked already, in the words their readers
+/// compare with. TEHAS_ENERGY: `off` takes the energy section away, `on` asks
+/// for it, and unset or empty leaves it to the sampler; tehasbot energy and
+/// the first install read `on` and `off`. TEHAS_MCP: the MCP server reads `1`
+/// and `0`.
+fn host_switches(vars: &mut Vars) {
+    for (name, words) in [("TEHAS_ENERGY", ("on", "off")), ("TEHAS_MCP", ("1", "0"))] {
+        if let Some(on) = rules::switch(&vars.text(name)) {
+            let word = if on { words.0 } else { words.1 };
+            if vars.text(name) != word {
+                vars.set(name, word);
+            }
+        }
     }
 }
 
@@ -830,10 +869,12 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     retired_names(vars, &file)?;
     renamed(vars, host, &file)?;
     app_login(vars, host);
+    let gave = given(vars);
     defaults(vars, host, uid);
-    check_values(vars, &file)?;
+    check_values(vars, &gave, &file)?;
+    host_values(vars)?;
     switches(vars);
-    energy(vars)?;
+    host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
         .map_err(|why| format!("{why} (see {file})"))?;
     together(vars, &file)?;
@@ -1059,6 +1100,71 @@ mod tests {
     }
 
     #[test]
+    fn the_checkout_is_checked_as_the_instance_gave_it_and_not_as_derived() {
+        assert_eq!(
+            refused(&["TEHAS_WORK_REPO=repos/app"]),
+            "TEHAS_WORK_REPO is not valid: expected an absolute path (see /i/instance.env)"
+        );
+        // A checkout made from a relative home is not named: the home is, as
+        // the host setting it is.
+        let mut vars = start(&[("TEHAS_HOME", "tehas-home")]);
+        assert_eq!(
+            load(&mut vars, &mut Fake::with(&[]), "1000"),
+            Err("TEHAS_HOME is not valid: expected an absolute path (see the environment)".into())
+        );
+        assert!(vars.text("TEHAS_WORK_REPO").starts_with("tehas-home/"));
+    }
+
+    #[test]
+    fn a_host_setting_is_checked_where_the_host_gives_it() {
+        let key = "abcdefghijklmnopqrstuvwxyz012345";
+        let host_file = "(see /h/.config/tehas/env)";
+        for (name, value, why) in [
+            (
+                "TEHAS_MCP_KEYS",
+                "short",
+                "key 1 is not at least 32 characters of A-Za-z0-9_-",
+            ),
+            ("TEHAS_MCP", "yes", "expected on or off"),
+            (
+                "TEHAS_ENERGY_URL",
+                "gateway.lan/v1",
+                "expected an http or https address such as http://models.example:8080/v1/cluster",
+            ),
+            (
+                "TEHAS_MODEL_KEY_MAIN",
+                "sk-one two",
+                "expected one word of printable characters, with no quote, backslash, $ or backtick",
+            ),
+        ] {
+            let mut vars = start(&[(name, value)]);
+            let got = load(&mut vars, &mut Fake::with(&[]), "1000").unwrap_err();
+            assert_eq!(got, format!("{name} is not valid: {why} {host_file}"));
+            assert!(!got.contains(value), "{got}");
+        }
+        assert_eq!(
+            load(
+                &mut start(&[("TEHAS_INSTANCE_DIR", "i")]),
+                &mut Fake::with(&[]),
+                "1000"
+            ),
+            Err("TEHAS_INSTANCE_DIR is not valid: expected an absolute path (see the environment or /h/.config/tehas/instance-dir)".into())
+        );
+        // Good values load, and the MCP switch reaches its reader as 1 or 0.
+        let mut vars = start(&[
+            ("TEHAS_MCP", "on"),
+            ("TEHAS_MCP_KEYS", key),
+            ("TEHAS_MODEL_KEY_MAIN", "sk-abc+/="),
+            ("TEHAS_ENERGY_URL", "http://gateway.lan:8080/v1/cluster"),
+        ]);
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_MCP"), "1");
+        let mut vars = start(&[("TEHAS_MCP", "off"), ("TEHAS_MODEL_KEY_X", "")]);
+        assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_MCP"), "0");
+    }
+
+    #[test]
     fn a_minimal_instance_loads_with_every_default() {
         let vars = loads(&[]);
         for (name, value) in [
@@ -1130,6 +1236,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "2"),
             ("TEHAS_OUTSOURCE_REST", "1800"),
             ("TEHAS_OUTSOURCE_REPOS", ""),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", ""),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "3600"),
         ] {
             assert_eq!(vars.text(name), value, "{name}");
@@ -1162,6 +1269,21 @@ mod tests {
         for value in ["0", "off", ""] {
             loads(&[&format!("TEHAS_OUTSOURCE={value}")]);
         }
+    }
+
+    #[test]
+    fn the_spec_pipe_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&[]).text("TEHAS_SPEC_PIPE"), "0");
+        assert_eq!(loads(&["TEHAS_SPEC_PIPE=off"]).text("TEHAS_SPEC_PIPE"), "0");
+        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
     }
 
     #[test]
@@ -1288,6 +1410,7 @@ mod tests {
             ("TEHAS_OUTSOURCE_RETRIES", "-1"),
             ("TEHAS_OUTSOURCE_REST", "two"),
             ("TEHAS_OUTSOURCE_REPOS", "acme"),
+            ("TEHAS_OUTSOURCE_CONTRACTORS", "box1  box2"),
             ("TEHAS_OUTSOURCE_JOIN_TTL", "0"),
         ] {
             let why = run(&mut Fake::with(&[&format!("{name}={value}")]))
@@ -2057,12 +2180,9 @@ mod tests {
 
     /// Settings the example instance names whose rule lives with the program
     /// that reads them, not in the table.
-    const RULED_ELSEWHERE: [&str; 6] = [
-        // Defaults of this load: the sandbox image, the product's clone and
-        // the cycle's host names.
+    const RULED_ELSEWHERE: [&str; 4] = [
+        // A default of this load: the sandbox image.
         "PI_ENSEMBLE_IMAGE",
-        "TEHAS_WORK_REPO",
-        "PI_ENSEMBLE_HOST_ALIASES",
         // pi-rukas reads it in the container.
         "PI_ENSEMBLE_REVIEW_THRESHOLD",
         // A pin of versions.env, read by core/src/rukas.rs.

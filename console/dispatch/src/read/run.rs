@@ -567,8 +567,20 @@ const BATCH_BOUND: u64 = tehas_core::file::READ_BOUND;
 /// could not be run or answered nothing, this gives nothing and the poll's gh
 /// calls go on as they did before, each asking for a token of its own.
 pub fn read_gh_token(home: &Path, bound: Duration) -> Option<String> {
+    app_token(home, &[], bound)
+}
+
+/// The App's narrowed token a cycle pushes with, as `tehas work` asks for it:
+/// `tehasbot github-token --cycle`.
+pub fn read_cycle_token(home: &Path, bound: Duration) -> Option<String> {
+    app_token(home, &["--cycle"], bound)
+}
+
+fn app_token(home: &Path, words: &[&str], bound: Duration) -> Option<String> {
     let program = home.join("bin/tehasbot").to_string_lossy().into_owned();
-    let r = run(&program, &["github-token".to_string()], bound);
+    let mut args = vec!["github-token".to_string()];
+    args.extend(words.iter().map(|w| w.to_string()));
+    let r = run(&program, &args, bound);
     let token = r.out.lines().next().unwrap_or("").trim();
     if r.ok() && !token.is_empty() {
         Some(token.to_string())
@@ -858,13 +870,15 @@ impl Calls {
     /// store of its own cannot leave the child to inherit whatever the process
     /// carries.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
-        match self.home.as_deref() {
-            Some(home) => {
-                let extra = [("TEHAS_HOME", home)];
-                call::store(&self.store, args, self.store_bound, GRACE, &extra)
-            }
-            None => call::store(&self.store, args, self.store_bound, GRACE, &[]),
-        }
+        let verb = args.first().copied().unwrap_or("");
+        self.store_answering(args, verb)
+    }
+
+    /// [`Calls::store`] for a verb whose answer names another word.
+    pub fn store_answering(&mut self, args: &[&str], answer: &str) -> Result<Value, Value> {
+        let home = self.home.as_deref();
+        let extra: Vec<(&str, &str)> = home.map(|h| ("TEHAS_HOME", h)).into_iter().collect();
+        call::store_answering(&self.store, args, answer, self.store_bound, GRACE, &extra)
     }
 }
 

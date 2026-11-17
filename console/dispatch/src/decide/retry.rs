@@ -4,12 +4,13 @@
 
 use super::clean::iso;
 use super::{
-    base_stands, fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step,
+    base_stands, fixer_base, has, label_actor, or_unknown, Choice, End, Poll, Room, Start, Step,
     CLASSIC, LEAN,
 };
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::driver::Driver;
 
 fn labels(v: &Value) -> Vec<String> {
     v.get("labels")
@@ -454,11 +455,11 @@ impl Poll<'_> {
             // and not against the record of the refused lean start.
             let lean_refused =
                 q.get("reason").and_then(Value::as_str) == Some(tehas_core::question::LEAN_REFUSED);
-            if lean_refused && self.c.lean_default && !has(&have, CLASSIC) {
+            if lean_refused && (self.c.driver_default == Driver::Lean) && !has(&have, CLASSIC) {
                 self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; apply {CLASSIC} first, and the tick then starts it on classic"));
                 continue;
             }
-            if lean_refused && !self.c.lean_default && has(&have, LEAN) {
+            if lean_refused && !(self.c.driver_default == Driver::Lean) && has(&have, LEAN) {
                 self.log(format!("wait #{n}: a retry was ticked on the park of a lean start this tehas cannot run; take {LEAN} off first, and the tick then starts it on classic"));
                 continue;
             }
@@ -503,10 +504,10 @@ impl Poll<'_> {
                 let ev = self.events(n)?;
                 self.c.allowed(&label_actor(&ev, "tehas:ready").0)
             };
-            let follows = !held && !(lean_refused && self.c.lean_default);
+            let follows = !held && !(lean_refused && (self.c.driver_default == Driver::Lean));
             let driver = match self.driver(n, &have, follows)? {
-                Driver::Wait => continue,
-                Driver::Stranger(s) => {
+                Choice::Wait => continue,
+                Choice::Stranger(s) => {
                     self.lean_deny(n, &s);
                     if !self.dry {
                         let note = format!(
@@ -550,6 +551,7 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
+                    placed: None,
                 },
             );
             self.untick(n, &ans, None);
@@ -630,10 +632,10 @@ impl Poll<'_> {
                 continue;
             }
             let driver = self.driver(n, &have, true)?;
-            if matches!(driver, Driver::Wait) {
+            if matches!(driver, Choice::Wait) {
                 continue;
             }
-            let held = matches!(driver, Driver::Stranger(_))
+            let held = matches!(driver, Choice::Stranger(_))
                 || view.get("state").and_then(Value::as_str) != Some("OPEN")
                 || !has(&have, "needs-human-attention")
                 || has(&have, "tehas:running")
@@ -647,13 +649,13 @@ impl Poll<'_> {
                     "apply tehas:ready",
                 )?;
             if held {
-                if let Driver::Stranger(s) = &driver {
+                if let Choice::Stranger(s) = &driver {
                     self.lean_deny(n, s);
                 }
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
                     self.act(json!({"park_retry": n, "how": "outage"}));
-                    if let Driver::Stranger(s) = &driver {
+                    if let Choice::Stranger(s) = &driver {
                         let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", s.said());
                         self.act(json!({"issue": n, "say": say}));
                     }
@@ -688,6 +690,7 @@ impl Poll<'_> {
                     fixer: None,
                     park_lifted: None,
                     extra,
+                    placed: None,
                 },
             );
             return Err(End(0));
@@ -915,8 +918,8 @@ impl Poll<'_> {
             return Ok(None);
         }
         let driver = match self.driver(n, &have, true)? {
-            Driver::Wait => return Ok(None),
-            Driver::Stranger(s) => {
+            Choice::Wait => return Ok(None),
+            Choice::Stranger(s) => {
                 return self.refresh_say(n, &format!("lean {}", s.who), &s.said());
             }
             d => d,
@@ -962,6 +965,7 @@ impl Poll<'_> {
             fixer: None,
             park_lifted: None,
             extra,
+            placed: None,
         }))
     }
 }

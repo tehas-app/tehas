@@ -11,7 +11,9 @@ One Linux machine and one Unix user. In the example: `tehas-tehas`, user `boss`
 matters is the sandbox: agents only ever run inside it, without the Docker
 socket.
 
-Preparing a fresh machine is on the [bootstrap page](/bootstrap).
+Preparing a fresh machine is on the [bootstrap page](/bootstrap). What of a
+factory is public and stays compatible through 1.x, and what is internal, is
+on [the contract](/contract).
 
 ## Layout
 
@@ -26,7 +28,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. The `.before-retry` goes when the retry it was kept for ends. A kept workspace and what else is left beside it go at once when its issue is closed, and otherwise once no cycle has run on the issue for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default). Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle, of the default branch alone and `TEHAS_CLONE_DEPTH` commits of its history. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. The `.before-retry` goes when the retry it was kept for ends. A kept workspace and what else is left beside it go at once when its issue is closed, and otherwise once no cycle has run on the issue for `TEHAS_WORKSPACE_KEEP_DAYS` days (7 by default). Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=on`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=on` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=on`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=on` or `TEHAS_WORK_FILES=on`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
@@ -324,7 +326,7 @@ moving the checkout. See [tehas update](/tools-update#tehas-update).
 One update runs at a time. `tehas update` and a real run of `install.sh` hold
 `~/tehas/state/update.lock`; a second one started meanwhile waits
 `TEHAS_UPDATE_LOCK_WAIT` seconds for it (10 by default, 0 to refuse at once,
-at most 300), and if it is still held prints `another update is running` and
+at most 300, anything else 78), and if it is still held prints `another update is running` and
 exits 1 before it changes anything. The update hands its lock to the
 `install.sh` it runs. `--check` takes no lock.
 
@@ -655,11 +657,9 @@ and no `~/tehas/current`, so `tehas update` keeps pulling the checkout. To move
 it to releases, once a signed release is published:
 
 1. Install minisign, which checks the signature: `sudo apt-get install minisign`.
-2. Check that `~/tehas/release/minisign.pub` is there. `install.sh` has put it
-   there since the key was added; run `tehas update` once from the checkout if
-   it is missing.
-3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
-4. Run `tehas update --check`, read the Adopter action of each release it
+   The key it checks with is built into tehas.
+2. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
+3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
 The checkout stays where it is and is no longer read. To go back to it, set
@@ -1267,7 +1267,7 @@ hold a slot for ever:
 | The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
 | The product's install before a cycle | 1800 s | `tehas work` exits 78, with `the install did not end within 1800s` in the `.preflight` file |
-| The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
+| The clone of the cycle's workspace, and each fetch that deepens a refresh's | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
 | A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
@@ -1398,7 +1398,8 @@ capability dropped, 128m of memory and 512 processes. It connects only to:
 - `registry.npmjs.org`, `crates.io`, `static.crates.io` and `index.crates.io`
   on 443, for npm and cargo;
 - the host and port of every `baseUrl` and `backupBaseUrl` in models.json;
-- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
+- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`, each word
+  read by the one rule the settings load checks it with.
 
 Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches
@@ -2004,6 +2005,9 @@ A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
 `theme-pixel.css` sets. `test/theme_test.sh` fails when a theme leaves a token
 out, when a page names a colour or a typeface of its own, and when a page names
 a theme other than the instance's design.
+
+How the pages themselves are built, what they may use, how their parts are
+named and how big they may grow is on [The front end](/frontend).
 
 ## Secrets and trust
 

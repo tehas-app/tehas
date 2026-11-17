@@ -380,7 +380,6 @@ fn clock_in(v: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     // The queue reads the lists under the core's names, the names the writer
     // puts them under.
@@ -447,8 +446,7 @@ mod tests {
     fn a_hung_systemctl_is_no_units_section() {
         let d = tehas_core::testdir::TestDir::new("snapshot-hung-systemctl");
         let systemctl = d.join("systemctl");
-        fs::write(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&systemctl, "#!/bin/sh\nexec sleep 30\n").unwrap();
         let began = std::time::Instant::now();
         let got = systemctl_at(&systemctl.to_string_lossy(), &["list-units"], 1);
         assert_eq!(got, None, "a bus that never answers gives no answer");

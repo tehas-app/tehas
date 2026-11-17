@@ -7,7 +7,9 @@
 //! to any container, and not a setting: the Docker socket, SSH keys,
 //! ~/.config/tehas, the product checkout, the rest of the host environment. Of
 //! ~/.config/tehas/env a container is given the bot's token and the model
-//! endpoints' tokens that models.json names, by name, never by value.
+//! endpoints' tokens that models.json names, by name, never by value. A
+//! container that pushes, or asks whether it can, is given a fresh copy of the
+//! checkout ([`clone`]) that carries only the remote.
 //!
 //! Every list here is docker options, one word each.
 
@@ -119,6 +121,187 @@ pub fn give_cycle_token(cmd: &mut Command) -> &mut Command {
     match env::var(CYCLE_TOKEN) {
         Ok(t) if !t.is_empty() => cmd.env("GH_TOKEN", t),
         _ => cmd.env_remove("GH_TOKEN"),
+    }
+}
+
+/// The record of a sandbox that cannot push: `<home>/state/push-fault.json`,
+/// one host fact with no issue in its name. The cycle supervisor writes it when
+/// its push check is refused (Part 1), the poll holds starts while it is young
+/// (Part 2), and the poll's own re-probe and `tehasbot health` read it (Part 3).
+/// Every reader and writer of the file names it here.
+pub const PUSH_FAULT: &str = "state/push-fault.json";
+
+/// A line of git's with the host's secrets replaced. The mask is a feature of
+/// `tehas_core`: a build without it masks nothing.
+#[cfg(feature = "mask")]
+pub fn mask_line(line: &str) -> String {
+    crate::mask::mask(line)
+}
+
+/// The line as it stands where the build holds no mask.
+#[cfg(not(feature = "mask"))]
+pub fn mask_line(line: &str) -> String {
+    line.to_string()
+}
+
+/// The record of a push fault: when it was found, the bot whose token was
+/// tried, and git's line, masked.
+pub fn push_fault_record(line: &str, at: i64, login: &str) -> String {
+    serde_json::json!({
+        "at": crate::time::iso(at),
+        "login": login,
+        "line": mask_line(line),
+    })
+    .to_string()
+}
+
+/// The push fault put on record, or taken off it with an empty line.
+pub fn write_push_fault(home: &std::path::Path, line: &str, at: i64, login: &str) {
+    let path = home.join(PUSH_FAULT);
+    if line.is_empty() {
+        let _ = std::fs::remove_file(&path);
+        return;
+    }
+    let doc = push_fault_record(line, at, login);
+    let dir = path.parent().unwrap_or(home);
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    // The one name, so a leftover of a run killed mid-write cannot block the
+    // next, and a reader never sees half of the record.
+    let _ = crate::file::write_atomic(
+        &path,
+        format!("{doc}\n").as_bytes(),
+        0o600,
+        &crate::file::Temp::Predictable,
+    );
+}
+
+/// What asking the sandbox whether it can push came to.
+///
+/// `ok` is the answer: the check ran and the push was accepted. `line` is git's
+/// own first word of why it was not, masked, empty when the check passed. `ran`
+/// says whether the sandbox was asked at all: a host that could not write the
+/// log, could not start `timeout`, or could not start the container it was
+/// given learned nothing of the sandbox, and Part 1's rule says a check that
+/// never ran records no fault, so the caller does not renew the hold on it.
+#[derive(Debug)]
+pub struct ProbeOutcome {
+    pub ran: bool,
+    pub ok: bool,
+    pub line: String,
+}
+
+/// The one-line answer of a probe the host could not run at all, in the words
+/// of the host rather than git's.
+const COULD_NOT_RUN: &str = "the sandbox could not be asked whether it can push";
+
+/// `timeout`'s own 127: it could not exec what it was given. A docker client
+/// missing from the host's PATH answers with it before a container starts.
+const NOT_EXECUTABLE: i32 = 127;
+
+/// Whether the first words of a probe's log, or its exit code, are the host's
+/// own rather than git's. `docker run` ends 125 when it could not start the
+/// container, `timeout` 126 or 127 when it could not run the client. A missing
+/// client, image or daemon is no push that git refused.
+fn host_words(line: &str, rc: i32) -> bool {
+    matches!(rc, 125 | 126 | NOT_EXECUTABLE)
+        || line.starts_with("timeout:")
+        || line.starts_with("docker:")
+        || line.starts_with("Unable to find image")
+        || line.contains("Cannot connect to the Docker daemon")
+}
+
+/// The first line of a probe's log: git's own words of why a push is refused,
+/// masked. An empty log says nothing.
+fn probe_line(text: &[u8]) -> String {
+    String::from_utf8_lossy(text)
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .map(mask_line)
+        .unwrap_or_default()
+}
+
+/// Ask the sandbox whether it can push, outside a cycle: `words` is the whole
+/// command, [`push_check`]'s on a host, given `token` as its GH_TOKEN and the
+/// bound `timeout -k` gives the cycle's own check. What it prints goes to `log`
+/// and only its first line is kept.
+pub fn probe_push(
+    words: &[String],
+    token: Option<&str>,
+    bound: std::time::Duration,
+    log: &std::path::Path,
+) -> ProbeOutcome {
+    let opened = std::fs::File::create(log).and_then(|f| Ok((f.try_clone()?, f)));
+    let Ok((err, out)) = opened else {
+        return ProbeOutcome {
+            ran: false,
+            ok: false,
+            line: COULD_NOT_RUN.to_string(),
+        };
+    };
+    let mut cmd = Command::new("timeout");
+    // Each word its own argument, so a wait of 0 ("no bound") is timeout's own
+    // no bound and not one long word its parser refuses.
+    cmd.arg("-k");
+    cmd.arg("10");
+    cmd.arg(bound.as_secs().to_string());
+    for w in words {
+        cmd.arg(w);
+    }
+    cmd.stdin(Stdio::null());
+    cmd.stdout(out);
+    cmd.stderr(err);
+    match token {
+        Some(t) => cmd.env("GH_TOKEN", t),
+        None => cmd.env_remove("GH_TOKEN"),
+    };
+    // A child the host could not even start is no answer of the sandbox: it
+    // records no fault, so the status is read here rather than folded into the
+    // exit code of a check that ran.
+    let rc = match cmd.status() {
+        Ok(s) => s.code().unwrap_or(NOT_EXECUTABLE),
+        Err(_) => {
+            return ProbeOutcome {
+                ran: false,
+                ok: false,
+                line: COULD_NOT_RUN.to_string(),
+            }
+        }
+    };
+    if rc == 0 {
+        return ProbeOutcome {
+            ran: true,
+            ok: true,
+            line: String::new(),
+        };
+    }
+    let text = std::fs::read(log).unwrap_or_default();
+    let mut line = probe_line(&text);
+    if host_words(&line, rc) {
+        // The host could not ask: the words are `timeout`'s or docker's, not
+        // git's, and Part 1's rule leaves a check that never ran without a
+        // fault. The caller re-owes the probe instead of holding for another
+        // wait on a fault of its own making.
+        return ProbeOutcome {
+            ran: false,
+            ok: false,
+            line,
+        };
+    }
+    if line.is_empty() {
+        // A check that wrote nothing still refused the push: without a line of
+        // its own it would read as no check having run and clear the hold.
+        line = if rc == 124 || rc == 137 {
+            format!("the push check did not end within {}s", bound.as_secs())
+        } else {
+            format!("the sandbox could not be asked whether it can push (exit {rc})")
+        };
+    }
+    ProbeOutcome {
+        ran: true,
+        ok: false,
+        line,
     }
 }
 
@@ -704,10 +887,12 @@ fn git_says(dir: &str, args: &[&str]) -> Option<String> {
 
 /// Make <tree>: a clone at the tip the product checkout <src> last fetched for
 /// <branch>, with the product's address as origin. Nothing is fetched from the
-/// network. The host runs git in <tree> here and only here: once a container
+/// network. It holds that branch alone and `depth` commits of its history, all
+/// of it for 0 (crate::depth). The host runs git in <tree> here and in
+/// crate::depth::reach only, before a container is given it: once a container
 /// has written a tree, anything in it, hooks and git configuration included,
 /// may be an agent's. The caller decides whether <tree> may be made.
-pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
+pub fn clone(src: &str, tree: &str, branch: &str, depth: u32) -> bool {
     let tip = format!("refs/remotes/origin/{branch}");
     let verify = format!("{tip}^{{commit}}");
     let Some(base) = git_says(src, &["rev-parse", "-q", "--verify", &verify]) else {
@@ -717,13 +902,23 @@ pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
     let Some(url) = git_says(src, &["config", "--get", "remote.origin.url"]) else {
         return false;
     };
-    let all = "+refs/remotes/origin/*:refs/remotes/origin/*";
+    let one = format!("+{tip}:{tip}");
     let upstream = format!("--set-upstream-to=origin/{branch}");
     ran(Command::new("git").args(["init", "-q", "-b", branch, tree]))
         && ran(git(tree).args(["remote", "add", "origin", &url]))
         && ran(Command::new("timeout")
-            .args(["-k", "10", "300", "git", "-C", tree, "fetch"])
-            .args(["-q", "--no-tags", src, all]))
+            .args([
+                "-k",
+                "10",
+                crate::depth::FETCH_WAIT,
+                "git",
+                "-C",
+                tree,
+                "fetch",
+            ])
+            .args(["-q", "--no-tags"])
+            .args(crate::depth::words(depth))
+            .args([src, &one]))
         && ran(git(tree).args(["symbolic-ref", "refs/remotes/origin/HEAD", &tip]))
         && ran(git(tree).args(["checkout", "-q", "-B", branch, &base]))
         && ran(git(tree).args(["branch", "-q", &upstream, branch]))
@@ -770,17 +965,43 @@ pub fn seed(state: &str, index: &str) -> bool {
     copied
 }
 
-/// The --add-host options: the names the sandbox cannot resolve by itself, from
-/// PI_ENSEMBLE_HOST_ALIASES as lib/config.sh checked it.
-pub fn hosts(aliases: &str) -> Vec<String> {
-    aliases
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split(',')
-        .filter(|p| !p.is_empty())
-        .map(|p| format!("--add-host={p}"))
-        .collect()
+/// Why a value is no PI_ENSEMBLE_HOST_ALIASES: the settings load says it too.
+pub const ALIASES_WHY: &str =
+    "expected name:address pairs separated by commas, such as models.example:192.0.2.10";
+
+/// One pair: a host name, `:` or `=`, then an IPv4 or IPv6 address, the
+/// IPv6 one bare or in brackets, or Docker's `host-gateway`. These are the
+/// forms `docker run --add-host` takes; nothing else may reach its line.
+fn alias(pair: &str) -> bool {
+    let Some((name, address)) = pair.split_once([':', '=']) else {
+        return false;
+    };
+    let v6 = |a: &str| a.parse::<std::net::Ipv6Addr>().is_ok();
+    let bracketed = address
+        .strip_prefix('[')
+        .and_then(|a| a.strip_suffix(']'))
+        .is_some_and(v6);
+    let name_ok = !name.is_empty()
+        && !name.starts_with(['-', '.'])
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'));
+    name_ok
+        && (address == "host-gateway"
+            || address.parse::<std::net::Ipv4Addr>().is_ok()
+            || v6(address)
+            || bracketed)
+}
+
+/// The --add-host options: the names the sandbox cannot resolve by itself,
+/// from PI_ENSEMBLE_HOST_ALIASES. The settings load checks the value with this
+/// too, and a value it refuses starts no container.
+pub fn hosts(aliases: &str) -> Result<Vec<String>, String> {
+    let pairs: Vec<&str> = aliases.split(',').filter(|p| !p.is_empty()).collect();
+    if !pairs.iter().all(|p| alias(p)) {
+        return Err(ALIASES_WHY.to_string());
+    }
+    Ok(pairs.iter().map(|p| format!("--add-host={p}")).collect())
 }
 
 /// The network options of an agent's container: the --add-host options, and
@@ -788,7 +1009,8 @@ pub fn hosts(aliases: &str) -> Vec<String> {
 /// which is started here if it is not up. Err is the line that says why the
 /// proxy is not up: the container is not started on an open network instead.
 pub fn network(aliases: &str) -> Result<Vec<String>, String> {
-    let mut w = hosts(aliases);
+    let mut w =
+        hosts(aliases).map_err(|why| format!("PI_ENSEMBLE_HOST_ALIASES is not valid: {why}"))?;
     if crate::egress::on() {
         crate::egress::ensure(aliases)?;
         w.extend(crate::egress::options());
@@ -954,6 +1176,145 @@ fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fault's record: the time as the ISO of the second given, the login as
+    /// given, and git's line with the host's secrets replaced.
+    #[cfg(feature = "mask")]
+    #[test]
+    fn the_push_fault_record_names_its_time_its_login_and_a_masked_line() {
+        let doc = push_fault_record(
+            "remote: Permission denied for ghp_SECRETSECRETSECRET",
+            0,
+            "tehas-bot",
+        );
+        let v: serde_json::Value = serde_json::from_str(&doc).unwrap();
+        assert_eq!(v["at"], "1970-01-01T00:00:00Z");
+        assert_eq!(v["login"], "tehas-bot");
+        assert!(
+            v["line"]
+                .as_str()
+                .unwrap()
+                .starts_with("remote: Permission denied for ghp_***"),
+            "{doc}"
+        );
+    }
+
+    /// A passing probe takes the file off; a refusal writes it fresh, and the
+    /// probe's own word fills a log that git wrote nothing into.
+    #[test]
+    fn a_passing_probe_takes_the_fault_off_and_a_refusal_writes_it() {
+        let d = crate::testdir::TestDir::new("push-fault-probe");
+        let home = d.path();
+        let log = d.join("log");
+
+        // A stand-in that ends 0: the sandbox can push.
+        let ok = d.join("ok");
+        crate::testing::write_exe(&ok, "#!/bin/sh\nexit 0\n").unwrap();
+        write_push_fault(home, "remote: denied", 1, "tehas-bot");
+        assert!(home.join(PUSH_FAULT).is_file(), "the fault of the start");
+        let r = probe_push(
+            &[ok.to_string_lossy().into_owned()],
+            None,
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && r.ok, "{:?}", r);
+        write_push_fault(home, "", 0, "tehas-bot");
+        assert!(
+            !home.join(PUSH_FAULT).exists(),
+            "a check that passed leaves no fault"
+        );
+
+        // A stand-in that refuses and says why in git's words.
+        let bad = d.join("bad");
+        crate::testing::write_exe(
+            &bad,
+            "#!/bin/sh\nprintf '%s\\n' 'remote: Permission to acme/widget denied to tehas-bot' >&2\nexit 1\n",
+        )
+        .unwrap();
+        let r = probe_push(
+            &[bad.to_string_lossy().into_owned()],
+            None,
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && !r.ok, "{:?}", r);
+        assert_eq!(
+            r.line,
+            "remote: Permission to acme/widget denied to tehas-bot"
+        );
+        write_push_fault(home, &r.line, 1, "tehas-bot");
+        let v: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.join(PUSH_FAULT)).unwrap()).unwrap();
+        assert_eq!(v["login"], "tehas-bot");
+        assert_eq!(v["line"], r.line);
+
+        // A check that wrote nothing is still a refusal: without a line of its
+        // own it would read as no check having run.
+        let mute = d.join("mute");
+        crate::testing::write_exe(&mute, "#!/bin/sh\nexit 128\n").unwrap();
+        let r = probe_push(
+            &[mute.to_string_lossy().into_owned()],
+            None,
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(r.ran && !r.ok && !r.line.is_empty(), "{:?}", r);
+
+        // A probe the host could not run at all. `timeout` says so on the log and
+        // ends 127; the words are the host's, not git's, and Part 1's rule leaves
+        // such a check without a fault of the sandbox.
+        let missing = d.join("missing");
+        crate::testing::write_exe(
+            &missing,
+            "#!/bin/sh\nprintf '%s\\n' 'timeout: failed to run command: No such file or directory' >&2\nexit 127\n",
+        )
+        .unwrap();
+        let r = probe_push(
+            &[missing.to_string_lossy().into_owned()],
+            None,
+            std::time::Duration::from_secs(5),
+            &log,
+        );
+        assert!(!r.ran && !r.ok, "{:?}", r);
+        assert!(r.line.contains("No such file or directory"), "{:?}", r);
+
+        // A container that could not start: the docker client's own words, or
+        // `timeout` ending 127 because the client is not on the host at all.
+        // Neither is a push git refused.
+        for (name, body) in [
+            (
+                "no-image",
+                "#!/bin/sh\nprintf '%s\\n' 'docker: Error response from daemon: No such image:' >&2\nexit 125\n",
+            ),
+            (
+                "no-daemon",
+                "#!/bin/sh\nprintf '%s\\n' 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' >&2\nexit 1\n",
+            ),
+            (
+                "no-client",
+                "#!/bin/sh\nprintf '%s\\n' 'timeout: failed to run command 'docker': No such file or directory' >&2\nexit 127\n",
+            ),
+            (
+                "not-executable",
+                "#!/bin/sh\nprintf '%s\\n' 'timeout: command found but cannot be executed' >&2\nexit 126\n",
+            ),
+            (
+                "silent-client",
+                "#!/bin/sh\nexit 127\n",
+            ),
+        ] {
+            let exe = d.join(name);
+            crate::testing::write_exe(&exe, body).unwrap();
+            let r = probe_push(
+                &[exe.to_string_lossy().into_owned()],
+                None,
+                std::time::Duration::from_secs(5),
+                &log,
+            );
+            assert!(!r.ran && !r.ok, "{name}: {:?}", r);
+        }
+    }
 
     #[test]
     fn the_products_settings_are_read_only_as_a_plain_file_of_a_bounded_size() {
@@ -1393,10 +1754,48 @@ mod tests {
     #[test]
     fn host_aliases_are_one_option_each() {
         assert_eq!(
-            hosts("models:192.0.2.9,,b:192.0.2.10"),
-            ["--add-host=models:192.0.2.9", "--add-host=b:192.0.2.10"]
+            hosts("models:192.0.2.9,,b:192.0.2.10,v6:2001:db8::1,gw:host-gateway").unwrap(),
+            [
+                "--add-host=models:192.0.2.9",
+                "--add-host=b:192.0.2.10",
+                "--add-host=v6:2001:db8::1",
+                "--add-host=gw:host-gateway"
+            ]
         );
-        assert!(hosts("").is_empty());
+        // The two other forms Docker takes: `name=address`, and an IPv6
+        // address in brackets.
+        assert_eq!(
+            hosts("a=192.0.2.9,b:[2001:db8::1],c=[2001:db8::2]").unwrap(),
+            [
+                "--add-host=a=192.0.2.9",
+                "--add-host=b:[2001:db8::1]",
+                "--add-host=c=[2001:db8::2]"
+            ]
+        );
+        assert!(hosts("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_host_alias_that_is_no_name_and_address_is_refused() {
+        for bad in [
+            "models:192.0.2.8 extra",
+            "models:192.0.2.8 --cap-add=SYS_ADMIN",
+            "models",
+            ":192.0.2.8",
+            "models:",
+            "models:999.0.2.8",
+            "-models:192.0.2.8",
+            "mod els:192.0.2.8",
+            "models:192.0.2.8\nb:192.0.2.9",
+            "models:example.org",
+            "models:[192.0.2.8]",
+            "models:[2001:db8::1",
+            "models=",
+            "=192.0.2.8",
+        ] {
+            assert_eq!(hosts(bad), Err(ALIASES_WHY.to_string()), "{bad}");
+            assert!(network(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

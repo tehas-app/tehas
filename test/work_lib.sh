@@ -167,7 +167,7 @@ case " $* " in *" --capabilities "*)
   exit "${CAPS_RC:-0}" ;;
 esac
 if [ "$1" = image ]; then
-  case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
+  case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *"{{json .Config.Labels}}"*) cat "$T/image.labels" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
   exit
 fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"

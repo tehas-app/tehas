@@ -9,7 +9,8 @@ shows is as old as those files, and every section that has an age prints it.
 The snapshot and the frame are drawn apart from each other: the console builds
 one JSON object, and the frame comes from that object and nothing else.
 `--json` prints the snapshot, so a section added to it appears there without
-anything else changing.
+anything else changing. It is not a public object: it is the dashboard's, and
+its shape may change in any release.
 
 A view that redraws hands the host reading of one frame to the next, so a
 redraw measures the seconds since the frame before it instead of waiting a

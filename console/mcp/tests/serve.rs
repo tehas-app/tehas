@@ -1376,3 +1376,74 @@ fn served_decisions_mask_the_private_names_given() {
         "{v}"
     );
 }
+
+// factory_contractors is served only by a server started with --outsource,
+// which `tehasbot mcp serve` passes while outsource is on: then to a full key
+// and to a dashboard key alike, and without it to neither.
+#[test]
+fn the_contractors_tool_is_served_only_with_outsource_on() {
+    let root = TestDir::new("mcp-serve-contractors");
+    let live = root.join("live");
+    std::fs::create_dir_all(&live).unwrap();
+    for e in std::fs::read_dir(fixture("live")).unwrap() {
+        let e = e.unwrap();
+        std::fs::copy(e.path(), live.join(e.file_name())).unwrap();
+    }
+    std::fs::write(
+        live.join("contractors.json"),
+        format!(
+            r#"{{"api":1,"time":"{}","counts":{{"idle":0,"working":1,"stopping":0,"silent":0,"resting":0,"draining":0,"revoked":0,"outsourced":1}},"contractors":[{{"name":"box1","status":"working","issue":12,"jobsDone":2,"jobsLost":0}}]}}"#,
+            iso(tehas_core::time::now())
+        ),
+    )
+    .unwrap();
+    let d = "qwertyuiopasdfghjklzxcvbnm012345";
+    let legacy = [("MCP-Protocol-Version", "2025-11-25")];
+    let list = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+    let call = br#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"factory_contractors","arguments":{}}}"#;
+    let body = |out: &str| -> Value {
+        serde_json::from_str(out.split_once("\r\n\r\n").map_or("", |(_, b)| b)).unwrap()
+    };
+    let names = |v: &Value| -> Vec<String> {
+        v["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let path = live.display().to_string();
+    for (extra, on) in [(&["--outsource"][..], true), (&[][..], false)] {
+        let s = Server::start_env(
+            &path,
+            &fixture("sessions"),
+            &fixture("logs"),
+            extra,
+            K1,
+            Some(d),
+        );
+        for key in [K1, d] {
+            let auth = format!("Bearer {key}");
+            let (status, out) = s.post_with(Some(&auth), &legacy, list);
+            assert_eq!(status, 200, "{out}");
+            let listed = names(&body(&out));
+            assert_eq!(
+                listed.iter().any(|n| n == "factory_contractors"),
+                on,
+                "{listed:?}"
+            );
+            let (status, out) = s.post_with(Some(&auth), &legacy, call);
+            assert_eq!(status, 200, "{out}");
+            let v = body(&out);
+            if on {
+                let got = &v["result"]["structuredContent"];
+                assert_eq!(got["contractors"][0]["name"], "box1", "{v}");
+                assert_eq!(got["counts"]["outsourced"], 1, "{v}");
+                assert_eq!(got["stale"], false, "{v}");
+            } else {
+                assert!(v["error"].is_object(), "{v}");
+            }
+        }
+        s.stop();
+    }
+}

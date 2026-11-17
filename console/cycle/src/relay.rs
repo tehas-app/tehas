@@ -47,6 +47,12 @@
 //! created when gh's answer to `issue create` names its URL under TEHAS_REPO.
 //! A cycle has at most 50 writes run.
 //!
+//! On a contractor the same requests are read and planned the same way, and
+//! each planned write goes to the factory through the contractor program
+//! ([`Channel`]). The factory runs [`answer_request`] on it again, with its own
+//! token and a scope of the job's, so a contractor holds no token that writes
+//! issues and a write refused here is refused there.
+//!
 //! The token is asked of `tehasbot github-token` for every request, bounded
 //! to 60 seconds: the one the start had runs out after an hour, and that
 //! command keeps a token with at least ten minutes left. gh is given it as
@@ -303,6 +309,57 @@ impl Via {
     }
 }
 
+/// Where a planned write runs: gh on this host with the app's token, or the
+/// factory over a contractor's job channel.
+pub trait Run {
+    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32);
+}
+
+impl Run for Via {
+    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32) {
+        run(self, argv, input)
+    }
+}
+
+/// A contractor's relay: each planned write goes to the factory through
+/// `<program> relay`, which reads `{"argv": [...], "input": ...}` on its
+/// standard input and prints `{"out": ..., "err": ..., "rc": ...}`. The
+/// factory plans and scopes the write again and runs it with its own token,
+/// so the contractor holds none that writes issues.
+pub struct Channel {
+    pub program: PathBuf,
+}
+
+impl Run for Channel {
+    fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32) {
+        let ask = serde_json::json!({ "argv": argv, "input": input }).to_string();
+        let child = bounded(GH_WAIT + TOKEN_WAIT, &self.program, &["relay".to_string()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn();
+        let Ok(mut child) = child else {
+            return (String::new(), no("could not reach the factory"), 1);
+        };
+        if let Some(mut i) = child.stdin.take() {
+            let _ = i.write_all(ask.as_bytes());
+        }
+        let said = child
+            .wait_with_output()
+            .ok()
+            .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok());
+        let Some(said) = said else {
+            return (String::new(), no("got no answer from the factory"), 1);
+        };
+        let text = |k: &str| said[k].as_str().unwrap_or_default().to_string();
+        let rc = said["rc"]
+            .as_i64()
+            .and_then(|n| i32::try_from(n).ok())
+            .unwrap_or(1);
+        (text("out"), text("err"), rc)
+    }
+}
+
 /// Serves the relay directory `dir` of the cycle of issue `issue` for `repo`
 /// until `stop` is set, then answers what is left with 1.
 pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
@@ -310,7 +367,7 @@ pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
     serve_via(dir, repo, issue, stop, &Via::from_env(&home));
 }
 
-pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &Via) {
+pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &dyn Run) {
     let mut scope = Scope::new(issue);
     loop {
         if stop.load(Ordering::SeqCst) {
@@ -346,7 +403,7 @@ fn requests(dir: &Path) -> Vec<String> {
 }
 
 /// One reading of the directory: every complete request, answered.
-fn pass(dir: &Path, repo: &str, via: &Via, scope: &mut Scope) {
+fn pass(dir: &Path, repo: &str, via: &dyn Run, scope: &mut Scope) {
     let Some(top) = open_dir(dir) else {
         return;
     };
@@ -413,26 +470,35 @@ fn take(dir: &Path, top: &OwnedFd, pid: &str) -> Option<Taken> {
     Some((args, body))
 }
 
-fn handle(dir: &Path, top: &OwnedFd, pid: &str, repo: &str, via: &Via, scope: &mut Scope) {
+fn handle(dir: &Path, top: &OwnedFd, pid: &str, repo: &str, via: &dyn Run, scope: &mut Scope) {
     let Some((args, body)) = take(dir, top, pid) else {
         return;
     };
-    let planned = args.and_then(|a| {
-        let body = body?;
-        let (argv, input) = plan(&a, body.as_deref(), repo)?;
-        scope.permits(&argv)?;
-        Ok((argv, input))
-    });
-    let (argv, input) = match planned {
-        Ok(r) => r,
+    let ran = args.and_then(|a| answer_request(&a, body?.as_deref(), repo, via, scope));
+    match ran {
+        Ok((out, err, rc)) => answer(dir, top, pid, &out, &err, rc),
         Err(why) => {
             eprintln!("tehas relay: refused request {pid}: {}", why.escape_debug());
             answer(dir, top, pid, "", &why, 1);
-            return;
         }
-    };
+    }
+}
+
+/// One request of a cycle, planned, held to its scope and run: gh's output,
+/// its error stream and its status, or why it is refused. The local
+/// relay answers each request of its directory with it, and the factory each
+/// request a contractor relays for its job, so both refuse the same writes.
+pub fn answer_request(
+    args: &[String],
+    body: Option<&str>,
+    repo: &str,
+    via: &dyn Run,
+    scope: &mut Scope,
+) -> Result<(String, String, i32), String> {
+    let (argv, input) = plan(args, body, repo)?;
+    scope.permits(&argv)?;
     scope.run += 1;
-    let (out, err, rc) = run(via, &argv, input.as_deref());
+    let (out, err, rc) = via.run(&argv, input.as_deref());
     if rc == 0 && argv[1] == "create" {
         if let Some(n) = created_number(&out, repo) {
             scope.created.insert(n);
@@ -446,7 +512,7 @@ fn handle(dir: &Path, top: &OwnedFd, pid: &str, repo: &str, via: &Via, scope: &m
             .filter(|a| !a.starts_with('-'))
             .map_or("", |a| a)
     );
-    answer(dir, top, pid, &out, &err, rc);
+    Ok((out, err, rc))
 }
 
 /// The regular file `name` in `dir`, at most `max` bytes. None when there is
@@ -1339,5 +1405,88 @@ mod tests {
         assert_eq!(read(relay.join("res.5/rc")), "1\n");
         assert!(relay.join("res.5/done").exists());
         assert!(!d.join("gh.log").exists());
+    }
+
+    #[test]
+    fn a_contractor_s_relay_hands_the_planned_write_to_the_channel_program() {
+        let d = TestDir::new("relay-channel");
+        let relay = d.join("relay");
+        fs::create_dir(&relay).unwrap();
+        let program = d.join("contractor");
+        let asked = d.join("asked");
+        tehas_core::testing::write_exe(
+            &program,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = relay ] || exit 9\ncat >{}\nprintf '%s' '{{\"out\":\"https://github.com/{REPO}/issues/3#c\\\\n\",\"err\":\"\",\"rc\":0}}'\n",
+                asked.display()
+            ),
+        )
+        .unwrap();
+        let via = Channel { program };
+        let stop = Arc::new(AtomicBool::new(false));
+        let (r, st) = (relay.clone(), stop.clone());
+        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &st, &via));
+        request(
+            &relay,
+            "7",
+            &["issue", "comment", "3", "--body", "hi @someone"],
+            None,
+        );
+        assert!(wait_done(&relay, "7"));
+        // A refused write never reaches the factory.
+        request(
+            &relay,
+            "8",
+            &["issue", "edit", "3", "--add-label", "x"],
+            None,
+        );
+        assert!(wait_done(&relay, "8"));
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert_eq!(read(relay.join("res.7/rc")).trim(), "0");
+        assert!(read(relay.join("res.7/out")).contains("/issues/3"));
+        assert_eq!(read(relay.join("res.8/rc")).trim(), "1");
+        let sent: serde_json::Value = serde_json::from_str(&read(asked)).unwrap();
+        assert_eq!(
+            sent["argv"],
+            serde_json::json!([
+                "issue",
+                "comment",
+                "3",
+                "--body-file=-",
+                format!("--repo={REPO}")
+            ])
+        );
+        assert_eq!(sent["input"], "hi @\u{200b}someone");
+    }
+
+    #[test]
+    fn a_channel_that_answers_nothing_is_a_failed_write() {
+        let d = TestDir::new("relay-channel-dead");
+        let program = d.join("contractor");
+        tehas_core::testing::write_exe(&program, "#!/bin/sh\nexit 1\n").unwrap();
+        let (out, err, rc) = Channel { program }.run(&["issue".into(), "comment".into()], None);
+        assert_eq!((out.as_str(), rc), ("", 1));
+        assert!(err.contains("no answer from the factory"), "{err}");
+    }
+
+    #[test]
+    fn answer_request_refuses_what_the_scope_does_not_permit_and_runs_nothing() {
+        struct Never;
+        impl Run for Never {
+            fn run(&self, _: &[String], _: Option<&str>) -> (String, String, i32) {
+                panic!("ran a refused write")
+            }
+        }
+        let mut scope = Scope::new(3);
+        let args: Vec<String> = ["issue", "comment", "4", "--body", "x"]
+            .map(String::from)
+            .to_vec();
+        let why = answer_request(&args, None, REPO, &Never, &mut scope).unwrap_err();
+        assert!(
+            why.contains("comments only on this cycle's issue #3"),
+            "{why}"
+        );
+        assert_eq!(scope.run, 0);
     }
 }

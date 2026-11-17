@@ -2,6 +2,10 @@
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
 //!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
+//!             [--outsource]
+//!
+//! --outsource serves the tool of outsource, `factory_contractors`, to both
+//! kinds of key. `tehasbot mcp serve` passes it while the feature is on.
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret. The host's secret values come as salted
@@ -43,7 +47,7 @@ fn of(setting: Setting) -> (&'static Setting, &'static str) {
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]..."
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]... [--outsource]"
     );
     std::process::exit(78);
 }
@@ -103,6 +107,10 @@ fn main() {
     let mut io_timeout: Option<String> = None;
     let mut private = Vec::new();
     while let Some(a) = args.next() {
+        if a == "--outsource" {
+            mcp::tools::serve_outsource();
+            continue;
+        }
         if a == "--private" {
             private.push(
                 args.next()

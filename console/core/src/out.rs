@@ -10,7 +10,7 @@ use std::fmt;
 use std::io::{self, ErrorKind, Write};
 
 /// The exit status when stdout's reader has gone: 128 + SIGPIPE.
-pub const CLOSED: i32 = 141;
+pub const CLOSED: i32 = crate::exit::CLOSED as i32;
 
 #[doc(hidden)]
 pub fn write(args: fmt::Arguments) {
