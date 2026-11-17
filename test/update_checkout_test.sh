@@ -248,7 +248,8 @@ t_eq "$(t_calls install)" "install --check"
 
 t_case "--check names what an update does not fix apart from something to update, exit 1"
 for finding in "Dependencies: NOT OK" "Slice:        MISSING (sudo ./bootstrap.sh slice)" \
-  "Login:        NOT CURRENT" "Tests:        FAILED"; do
+  "Login:        NOT CURRENT" "Tests:        FAILED" \
+  "Cycle token:  CANNOT PUSH (acme-factory[bot] was refused a dry-run push to origin)"; do
   instance
   platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "'"$finding"'"

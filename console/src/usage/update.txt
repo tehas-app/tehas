@@ -65,6 +65,13 @@ bootstrap.sh user runs, so a run that left the image on a commit the clone is
 not on prints the follow-up: one later: line naming that command, whether or
 not versions.env changed, and with no change to the exit status.
 
+Then a run that went well proves the GitHub App's cycle token can push: a
+dry-run push from the product checkout (TEHAS_WORK_REPO) to its origin, with the
+token `tehasbot github-token --cycle` makes, given to git by its environment.
+A refusal prints "Cycle token:  CANNOT PUSH" with the app's login and git's
+words, and the run exits 1 with what it installed left installed; a drained
+factory stays drained. install.sh --check makes the same proof.
+
 A step line recorded as "protolab <flag>" by an earlier version is the edge
 step.
 
