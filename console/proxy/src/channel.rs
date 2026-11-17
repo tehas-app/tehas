@@ -583,6 +583,24 @@ impl<'a> Channel<'a> {
             .unwrap_or_else(|e| e.into_inner())
             .remove(&job);
     }
+
+    /// The kept files of every job but `but` whose record no longer says
+    /// running go: a job lost to a silence never calls back to be
+    /// forgotten. Only a running job is given its files, so none still
+    /// needs them. A store that gives no answer removes nothing.
+    pub fn tidy_files(&self, but: i64) {
+        let Some(d) = self.downloads else {
+            return;
+        };
+        for job in d.kept_jobs().into_iter().filter(|j| *j != but) {
+            let Some(record) = self.factory.store(&["job-show", "--job", &job.to_string()]) else {
+                continue;
+            };
+            if record["verb"] != "job" || record["state"] != "running" {
+                d.forget(job);
+            }
+        }
+    }
 }
 
 /// The flags of `store contractor-seen` for the report a hello carried:

@@ -233,6 +233,9 @@ report names this host's image id, the memory a cycle may use and
 `TEHAS_CYCLE_MIN_FREE` of disk, and is no older than `TEHAS_OUTSOURCE_TIMEOUT`.
 The answer to a `hello` names this host's image id as `image`, so a
 contractor that has another one fetches it (see [The downloads](#the-downloads)).
+It keeps a broken download in `state/outsource/images` and resumes it on the
+next `hello`. A kept file the factory answers with 416, one fetched whole but
+never loaded, is removed and fetched again from the start.
 
 What each call needs:
 
@@ -337,10 +340,13 @@ model token on them is 403 `scope`.
 Each file is made on the first request that needs it and kept for the next:
 an image per image id in `state/images`, created on the first image download,
 and an index per tip and image, a bundle per tip and a job's files per job in
-`state/outsource/downloads`. Concurrent requests make it once. When a new
-image is saved, the one before it stays for a contractor still loading it and
-older ones are removed. A job's files go when the job ends, is handed back, or
-its contractor is revoked. Files are compressed with zstd when `zstd` is on
+`state/outsource/downloads`. Concurrent requests make it once. A job's files
+are made under a lock of that job's own, so a slow fetch for one job holds up
+no other. When a new image is saved, the one before it stays for a contractor
+still loading it and older ones are removed. A job's files go when the job
+ends, is handed back, or its contractor is revoked. Those of a job that is no
+longer running for another reason, such as one lost to a silence, go when
+the next job's files are made. Files are compressed with zstd when `zstd` is on
 the proxy's `PATH`, and served as a plain tar otherwise; the answer says which.
 
 An answer names what it is in fields of its own: `x-tehas-sha256` of the file

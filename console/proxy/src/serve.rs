@@ -338,7 +338,10 @@ fn download_of(
     let pack = match call {
         channel::Call::Index => downloads.index(),
         channel::Call::Bundle => downloads.bundle(),
-        _ => downloads.attachments(live.job, issue),
+        _ => {
+            chan.tidy_files(live.job);
+            downloads.attachments(live.job, issue)
+        }
     };
     match pack {
         Ok(pack) => Ok((pack, None, Some(live))),
