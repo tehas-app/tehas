@@ -389,6 +389,7 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
     always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
     given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
+    always("TEHAS_PROTOTYPE_FILE", SWITCH, "0"),
     given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
@@ -978,6 +979,7 @@ mod tests {
             "TEHAS_OUTSOURCE",
             "TEHAS_SPEC_PIPE",
             "TEHAS_PROTOLAB_ZIP_URL",
+            "TEHAS_PROTOTYPE_FILE",
         ] {
             assert!(switches.contains(&name), "{name}");
         }

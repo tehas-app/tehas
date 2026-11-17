@@ -217,6 +217,7 @@ mod platform;
 mod preview;
 mod product;
 mod protolab;
+mod prototype;
 mod publish;
 mod queue;
 mod render;

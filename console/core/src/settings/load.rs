@@ -1307,6 +1307,20 @@ mod tests {
     }
 
     #[test]
+    fn the_prototype_file_switch_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_PROTOTYPE_FILE=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_PROTOTYPE_FILE is on and prototype-file is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&[]).text("TEHAS_PROTOTYPE_FILE"), "0");
+        let mut vars = start(&[(crate::features::TEST_VAR, "prototype-file")]);
+        let mut host = Fake::with(&["TEHAS_PROTOTYPE_FILE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_PROTOTYPE_FILE"), "1");
+    }
+
+    #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
         let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
         assert_eq!(

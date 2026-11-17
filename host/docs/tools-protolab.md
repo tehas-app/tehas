@@ -128,3 +128,42 @@ own, never a path under the dashboard's, and set `TEHAS_PROTOLAB_URL`.
 
 Without the timer and the container there is no Protolab, and the panel on the
 factory floor says so.
+
+### tehas prototype file
+
+```
+tehas prototype file --title TEXT [--body-file FILE|-] [--zip ADDRESS --zip-sha256 HEX] [--spec LINK --spec-sha256 HEX]
+```
+
+Still being built: a release refuses `TEHAS_PROTOTYPE_FILE=on` with exit 78,
+lists `prototype-file` in `flags` as `false`, and the command exits 78 and
+files nothing.
+
+When it ships, it is the one way to file a prototype from the host. It opens
+an issue in `TEHAS_REPO` with the title and the text given, then the line
+`Zip: <address> sha256:<hex>` when `--zip` is given and the line
+`Spec: <link> sha256:<hex>` when `--spec` is given, each on a line of its own
+after the text, and puts `tehas:prototype` on it. With `TEHAS_ISSUE_TYPES`
+mapping `prototype` to a type, the issue is opened with that type and gets no
+label. It prints `filed #<n> as <login> with <mark>: <address of the issue>`.
+
+Every call is the caller's own gh, signed in with `gh auth login`: the gh in
+`~/tehas/bin`, or the first on `PATH` that is not the factory's shim, with no
+token of the factory in its environment. The Protolab takes the label, the
+links and the zip line only from an account in `TEHAS_ALLOWED_LABELERS`, so
+the command asks GitHub who is signed in first and stops with exit 3, before
+anything is written, when that is the bot or another app, a login off the
+list, or a listed login whose user id is not the recorded one.
+
+The zip is a file attached on GitHub, or, with `protolab-zip-url` on, an https
+address on a host of `TEHAS_PROTOLAB_ZIP_HOSTS` ([a zip by address](#a-zip-by-address)).
+An address outside GitHub with that feature off is exit 78, and one on
+another host exit 64. The spec is a file attached on GitHub. A sha256 is 64
+lower-case hex digits. A text that has a `Zip:` or `Spec:` line of its own for
+one it is given, or leaves a code fence open before the lines, is exit 64.
+
+Exit: 0 filed and marked; 1 gh could not say who is signed in, or a call of
+GitHub failed (an issue opened but not marked is named, to mark by hand); 3
+the login may not file one, and nothing is filed; 64 a bad argument; 78 the
+feature is off, a zip outside GitHub with `protolab-zip-url` off, or the
+settings are missing or malformed.
