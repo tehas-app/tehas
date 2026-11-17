@@ -213,8 +213,10 @@ container: the same mounts and the same variables, pinned by the same test
 factory instead, because a contractor holds no token that writes issues and no
 GitHub App key:
 
-- The cycle's token is renewed by asking the factory for a fresh one over the
-  job channel. The contractor writes it where the container reads it.
+- The cycle's token comes from the factory over the job channel, and is
+  renewed the same way. The contractor writes it where the container reads it.
+  It is also the token the host side of `tehas work` acts with: a contractor
+  never holds the App's own token.
 - Each issue write the cycle's agents make is read and checked as the local
   relay checks it, then sent to the factory, which checks it again with the
   same rules and the job's own scope and makes the write with its own token.
