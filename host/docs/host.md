@@ -1959,8 +1959,9 @@ The live console of a running cycle shows what its agents did, the commands
 they ran and the start of each result. It is masked, but it is still the
 factory's logs, and the docs server has no sign-in. So by default the server
 does not serve it: `/live/console-<n>.txt` and `/live/console-<n>.txt.now`
-answer 404, and the console panel of the dashboard says the console is
-unavailable. Everything else under `/live/` is served as before.
+answer 404, and the console panels of the dashboard, the business page and
+the factory floor stay empty; the dashboard and the floor still mark the
+cycle live or ended. Everything else under `/live/` is served as before.
 `TEHAS_SITE_CONSOLE=on` in `instance.env` serves the console to anyone who can
 reach the site, for an instance whose site is also its demo. A full key of
 [the MCP server](/mcp-server) reads the console either way, with
