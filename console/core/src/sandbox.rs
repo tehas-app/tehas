@@ -1161,6 +1161,9 @@ pub fn take(r: &impl Probe, load: &Load, who: &str, what: &str) -> Result<Taken,
 }
 
 fn taken(slice: Usable, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
+    if let Some(line) = slice.capped() {
+        eprintln!("{who}: {line}");
+    }
     let limits = slice::limits(&slice, load)
         .ok_or_else(|| format!("{who}: the container limits could not be made, not starting"))?;
     let security = security(slice.ceiling_mb).ok_or_else(|| {
