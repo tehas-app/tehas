@@ -34,6 +34,7 @@
 
 use super::renamed;
 use super::rules::{self, Trees, When, HOST, ROLES, SWITCH_WORDS, TABLE};
+use crate::driver::Driver;
 use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -877,6 +878,11 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
         .map_err(|why| format!("{why} (see {file})"))?;
+    if vars.text("TEHAS_DRIVER") == Driver::Lean.word() {
+        features::needs("lean", "TEHAS_DRIVER=lean", &|name| vars.text(name)).map_err(|why| {
+            format!("{why}; set TEHAS_DRIVER to classic or take the line out (see {file})")
+        })?;
+    }
     together(vars, &file)?;
     last(vars);
     Ok(())
@@ -1321,6 +1327,33 @@ mod tests {
     }
 
     #[test]
+    fn the_lean_switch_set_on_stops_the_load_and_so_does_a_lean_default() {
+        let got = refused(&["TEHAS_LEAN=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_DRIVER=lean"]),
+            format!("TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release; set TEHAS_DRIVER to classic or take the line out (see {FILE})")
+        );
+        let vars = loads(&["TEHAS_DRIVER=classic"]);
+        assert_eq!(vars.text("TEHAS_LEAN"), "0");
+        assert_eq!(vars.text("TEHAS_DRIVER"), "classic");
+        let lean = || start(&[(crate::features::TEST_VAR, "lean")]);
+        let mut host = Fake::with(&["TEHAS_DRIVER=lean"]);
+        assert_eq!(
+            load(&mut lean(), &mut host, "1000"),
+            Err(format!("TEHAS_DRIVER=lean needs the feature lean: set TEHAS_LEAN=on; set TEHAS_DRIVER to classic or take the line out (see {FILE})"))
+        );
+        let mut vars = lean();
+        let mut host = Fake::with(&["TEHAS_LEAN=on", "TEHAS_DRIVER=lean"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_LEAN"), "1");
+        assert_eq!(vars.text("TEHAS_DRIVER"), "lean");
+    }
+
+    #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
         let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
         assert_eq!(
@@ -1450,7 +1483,6 @@ mod tests {
     fn the_driver_is_classic_unless_the_instance_says_lean() {
         assert_eq!(loads(&[]).text("TEHAS_DRIVER"), "classic");
         assert_eq!(loads(&["TEHAS_DRIVER="]).text("TEHAS_DRIVER"), "classic");
-        assert_eq!(loads(&["TEHAS_DRIVER=lean"]).text("TEHAS_DRIVER"), "lean");
         assert_eq!(
             loads(&["TEHAS_DRIVER=classic"]).text("TEHAS_DRIVER"),
             "classic"

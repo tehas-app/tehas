@@ -746,11 +746,29 @@ t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the default driver is classic unless the instance says lean"
-for pair in "|classic" "TEHAS_DRIVER=|classic" "TEHAS_DRIVER=classic|classic" "TEHAS_DRIVER=lean|lean"; do
+for pair in "|classic" "TEHAS_DRIVER=|classic" "TEHAS_DRIVER=classic|classic"; do
   t_instance "${T_MINIMAL[@]}" "${pair%%|*}"
   t_run "$load; echo rc=\$? \"[\$TEHAS_DRIVER]\""
   t_eq "$t_out" "rc=0 [${pair#*|}]"
 done
+# lean is still being built: a test build turns it on.
+t_instance "${T_MINIMAL[@]}" TEHAS_DRIVER=lean TEHAS_LEAN=on
+saved_env=(${T_ENV[@]+"${T_ENV[@]}"})
+T_ENV=(${T_ENV[@]+"${T_ENV[@]}"} TEHAS_TEST_FEATURES=lean)
+t_run "$load; echo rc=\$? \"[\$TEHAS_DRIVER]\""
+t_eq "$t_out" "rc=0 [lean]"
+T_ENV=(${saved_env[@]+"${saved_env[@]}"})
+t_instance "${T_MINIMAL[@]}"
+
+t_case "lean is still being built: its switch and a lean default stop every command"
+t_instance "${T_MINIMAL[@]}" TEHAS_LEAN=on
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}" TEHAS_DRIVER=lean
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "tehas: TEHAS_DRIVER=lean needs the feature lean, and lean is still being built in this release; set TEHAS_DRIVER to classic or take the line out"
+t_contains "$t_out" "rc=78"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a driver this version does not know stops every command"
@@ -1792,7 +1810,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "1a8aa4f8f4c97381eb03ba1c6c300ddd0239286e125de2cde82a62f74e38a8ae"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "cfff7ebbc88c46fbb26381478e4b49f9dc36036c1dd3c147505d2abe8d268995"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
