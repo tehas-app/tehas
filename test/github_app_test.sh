@@ -194,7 +194,7 @@ t_lacks "$t_out" "ghs_"
 
 t_case "--check of an installation that does not reach the repository is exit 1"
 reset
-t_instance TEHAS_REPO=acme/other TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+t_instance TEHAS_REPO=acme/other TEHAS_GITHUB_APP_ID=5452597
 t_run "$token_cmd --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "does not reach acme/other"

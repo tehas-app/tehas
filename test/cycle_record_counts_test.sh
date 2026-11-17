@@ -10,7 +10,7 @@ t_case "the refused starts are read as digits, said in the comment and the log, 
 reset
 echo 'echo 41 >"$TEHAS_HOME/state/cycles/7.forks"' >"$fx/work.sh"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "Its container reached its limit of processes (\`--pids-limit\`, which follows \`TEHAS_TICKET_CONCURRENCY\` and \`TEHAS_SLICE_CONTAINERS\`) and 41 starts of a process were refused: what the cycle ran after that may not have run."
+t_contains "$(t_calls gh)" "Its container reached its limit of processes (\`--pids-limit\`, which follows \`TEHAS_MAX_CYCLES\` and \`TEHAS_SLICE_CONTAINERS\`) and 41 starts of a process were refused: what the cycle ran after that may not have run."
 t_contains "$t_out" "forks_refused=41"
 t_eq "$(find "$state/7.forks" 2>/dev/null | wc -l)" 0
 

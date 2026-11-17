@@ -570,46 +570,9 @@ fn in_flight(p: &J) -> bool {
     matches!(p.get("state"), J::Null) || p.get("state").as_str() == Some("running")
 }
 
-/// The slots of the last poll: the counts a factory whose settings say
-/// `auto` derived from the host on that poll, and the one word for what gave
-/// them. Empty for the numbers an instance wrote, which need no telling.
-fn slots_line(s: &J) -> String {
-    let a = s.get("cycle");
-    if s.is_null() || s.get("cyclesHow").as_str() != Some("auto") {
-        return String::new();
-    }
-    let cpus = match a.get("cpus") {
-        J::Null => "?".to_string(),
-        v => v.text(),
-    };
-    format!(
-        "slots     cycles auto: {}, {}-bound{} ({} CPUs over TEHAS_CYCLE_CPUS={}, {} containers of tehas.slice over TEHAS_CONTAINER_MEMORY={}, ceiling {})\n",
-        s.get("cycles").text(),
-        a.get("bound").or(&J::Str("host".to_string())).text(),
-        floor_words(a.get("bound").as_str().unwrap_or("host"), a.get("floored").is_true()),
-        cpus,
-        a.get("cycleCpus").or(&J::Str("?".to_string())).text(),
-        s.get("containers").text(),
-        a.get("containerMemory").or(&J::Str("?".to_string())).text(),
-        a.get("ceiling").or(&J::Str("?".to_string())).text(),
-    )
-}
-
-/// What a count at its floor adds to the slots line, as the dispatcher's own
-/// words say it: `no reading` when nothing answered, `at the floor` when a
-/// reading answered less than the floor.
-fn floor_words(bound: &str, floored: bool) -> &'static str {
-    match (floored, bound) {
-        (false, _) => "",
-        (true, "host") => ", no reading",
-        (true, _) => ", at the floor",
-    }
-}
-
 /// The slice check of the dispatcher's last poll.
 fn slice_line(h: &J, now: i64) -> String {
     let s = h.at(&["checks", "slice"]);
-    let slots = slots_line(s.get("slots"));
     let gib = |v: &J| J::num((v.as_f64().unwrap_or(0.0) / 1_073_741_824.0 * 10.0).round() / 10.0);
     let resources = match s.get("why") {
         J::Null | J::Bool(false) => true,
@@ -619,13 +582,13 @@ fn slice_line(h: &J, now: i64) -> String {
         "slice     unknown: no poll has reported in 10 min".to_string()
     } else if !resources {
         format!(
-            "{slots}slice     {} ({})",
+            "slice     {} ({})",
             s.get("hold").or(&J::Str("holding".to_string())).text(),
             age(s.get("time"), now)
         )
     } else {
         format!(
-            "{slots}slice     room for {} cycles ({} GiB of {} GiB promised, reserve {}{}, {})",
+            "slice     room for {} cycles ({} GiB of {} GiB promised, reserve {}{}, {})",
             s.get("room").or(&J::num(0.0)).text(),
             gib(s.get("committed")).text(),
             gib(s.get("max")).text(),
@@ -907,12 +870,6 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
         .into_iter()
         .map(|(name, key)| (name, s.get(key).clone()))
         .filter(|(_, v)| !v.is_null())
-        // With `auto` the count in force is the poll's, not the setting's,
-        // so the object carries it and the word for what bounded it. The
-        // numbers a factory wrote add nothing and are absent, as `limit`
-        // is without a limit.
-        .chain(std::iter::once(("slots", s.get("slots").clone())))
-        .filter(|(_, v)| !v.is_null())
         .collect())
     };
     let mut fields = vec![
@@ -1187,65 +1144,6 @@ mod tests {
             slice_line(&h("{}"), NOW),
             "slice     unknown: no poll has reported in 10 min"
         );
-    }
-
-    #[test]
-    fn a_slice_of_auto_slots_says_the_count_and_what_gave_it() {
-        let auto = h(
-            r#"{"checks":{"slice":{"why":"","room":3,"committed":0,"max":21474836480,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false},
-                          "container":{"bound":"memory","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}}}}"#,
-        );
-        assert_eq!(
-            slice_line(&auto, NOW),
-            "slots     cycles auto: 6, cpu-bound (24 CPUs over TEHAS_CYCLE_CPUS=4, 6 containers of tehas.slice over TEHAS_CONTAINER_MEMORY=8g, ceiling 16)\nslice     room for 3 cycles (0 GiB of 20 GiB promised, reserve 2g, 20 s ago)"
-        );
-        // A poll that derived nothing writes no slots object, and the line is
-        // the one of every factory that sets numbers.
-        let numbers = h(
-            r#"{"checks":{"slice":{"why":"","room":2,"committed":4294967296,"max":21474836480,"reserve":"2g","time":"2026-10-17T14:00:00Z"}}}"#,
-        );
-        assert!(!slice_line(&numbers, NOW).starts_with("slots"));
-        // A host whose readings said nothing is said as it is.
-        let held = h(
-            r#"{"checks":{"slice":{"why":"","room":0,"committed":0,"max":0,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":1,"containers":2,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"host","slots":0,"cpus":null,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
-        );
-        assert!(
-            slice_line(&held, NOW)
-                .starts_with("slots     cycles auto: 1, host-bound, no reading (? CPUs"),
-            "{}",
-            slice_line(&held, NOW)
-        );
-        // A host that answered too few CPUs for one cycle is held at the
-        // floor by its own reading, which is not "no reading".
-        let few = h(
-            r#"{"checks":{"slice":{"why":"","room":0,"committed":0,"max":0,"reserve":"2g","time":"2026-10-17T14:00:00Z",
-                 "slots":{"cycles":1,"containers":2,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":0,"cpus":4,"cycleCpus":"7","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
-        );
-        assert!(
-            slice_line(&few, NOW).starts_with(
-                "slots     cycles auto: 1, cpu-bound, at the floor (4 CPUs over TEHAS_CYCLE_CPUS=7"
-            ),
-            "{}",
-            slice_line(&few, NOW)
-        );
-    }
-
-    #[test]
-    fn the_floor_words_are_the_dispatchers() {
-        for bound in ["cpu", "memory", "ceiling", "host"] {
-            for floored in [false, true] {
-                assert_eq!(
-                    floor_words(bound, floored),
-                    tehas_dispatch::slots::floor_words(bound, floored),
-                    "{bound} {floored}"
-                );
-            }
-        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ t_lacks "$(t_calls gh)" "--add-assignee"
 
 t_case "with an owner the claim assigns the issue to the owner in the same call"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ASSIGNEE=carol
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --add-assignee carol"
@@ -28,7 +28,7 @@ t_eq "$(t_calls fake-start)" "7"
 
 t_case "an assign GitHub refuses still marks the issue running and starts it, and the log says so"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_OWNER=carol
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_ASSIGNEE=carol
 echo "--add-assignee carol" >"$fx/edit-fails-on"
 t_run "$dispatch"
 t_eq "$t_rc" 0

@@ -7,320 +7,60 @@
   ],
   "cases": [
     {"case": "two slots: two issues are started in order",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8],
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8],
      "expect": {"exit": 0, "picked": [7, 8], "actions": [
        {"start": 7, "remove": ["tehas:ready"]}, {"start": 8, "remove": ["tehas:ready"]}]}},
     {"case": "a ceiling of one: the second issue waits",
      "ready_n": [7, 8], "expect": {"picked": [7]}},
     {"case": "the ceiling defaults to the stubbed host's CPUs minus one: seven",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 7}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
+     "settings": {"TEHAS_MAX_CYCLES": 7}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
      "hold": [20, 21, 22, 23, 24, 25, 26],
      "expect": {"picked": [], "log": ["holding: 7 cycles are running (limit 7)"]}},
     {"case": "below the ceiling, no more cycles start than the containers' ceilings fit in the slice",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 7}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
+     "settings": {"TEHAS_MAX_CYCLES": 7}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
      "expect": {"picked": [7, 8, 9, 10]}},
     {"case": "below the ceiling, no more cycles start than the containers' ceilings fit in the slice: four are there",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 7},
+     "settings": {"TEHAS_MAX_CYCLES": 7},
      "children": [["a", 1073741824, 0, 0], ["b", 1073741824, 0, 0], ["c", 1073741824, 0, 0], ["d", 1073741824, 0, 0]],
      "expect": {"picked": [], "log": ["holding: tehas.slice holds as many containers as their ceilings fit (4 of 5120m)"],
                 "report": {"why": "full", "room": 0}}},
     {"case": "with TEHAS_SLICE_CONTAINERS=6 six cycles start in the same slice, each ceiling a sixth",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 7, "TEHAS_SLICE_CONTAINERS": 6}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
+     "settings": {"TEHAS_MAX_CYCLES": 7, "TEHAS_SLICE_CONTAINERS": 6}, "ready_n": [7, 8, 9, 10, 11, 12, 13, 14],
      "expect": {"picked": [7, 8, 9, 10, 11, 12]}},
     {"case": "with TEHAS_SLICE_CONTAINERS=6 six containers fill the slice",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 7, "TEHAS_SLICE_CONTAINERS": 6},
+     "settings": {"TEHAS_MAX_CYCLES": 7, "TEHAS_SLICE_CONTAINERS": 6},
      "children": [["a", 1073741824, 0, 0], ["b", 1073741824, 0, 0], ["c", 1073741824, 0, 0], ["d", 1073741824, 0, 0], ["e", 1073741824, 0, 0], ["f", 1073741824, 0, 0]],
      "expect": {"picked": [], "log": ["holding: tehas.slice holds as many containers as their ceilings fit (6 of 3413m)"],
                 "report": {"why": "full", "room": 0}}},
-    {"case": "a dry run reports the order a real poll would take", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [3, 8], "snapshot": {"order": {"state": "ok", "issues": [8], "only": false}}, "dry": true, "expect": {"exit": 0, "picked": [8, 3], "nothing": true, "log": ["would run a cycle for #8 (labelled by alice)\nwould run a cycle for #3 (labelled by alice)"]}},
-    {"case": "the start order survives an issue number that arrives as text", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "dry": true, "snapshot": {"ready": [{"number": 3, "labels": [{"name": "tehas:ready"}]}, {"number": "8", "labels": [{"name": "tehas:ready"}]}], "order": {"state": "ok", "issues": [8], "only": false}}, "expect": {"exit": 0, "picked": [8, 3]}},
+    {"case": "a dry run reports the order a real poll would take", "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [3, 8], "snapshot": {"order": {"state": "ok", "issues": [8], "only": false}}, "dry": true, "expect": {"exit": 0, "picked": [8, 3], "nothing": true, "log": ["would run a cycle for #8 (labelled by alice)\nwould run a cycle for #3 (labelled by alice)"]}},
+    {"case": "the start order survives an issue number that arrives as text", "settings": {"TEHAS_MAX_CYCLES": 2}, "dry": true, "snapshot": {"ready": [{"number": 3, "labels": [{"name": "tehas:ready"}]}, {"number": "8", "labels": [{"name": "tehas:ready"}]}], "order": {"state": "ok", "issues": [8], "only": false}}, "expect": {"exit": 0, "picked": [8, 3]}},
     {"case": "a running cycle takes a slot",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8], "hold": [9], "expect": {"picked": [7]}},
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8], "hold": [9], "expect": {"picked": [7]}},
     {"case": "with every slot taken nothing is started, and no ready issue is looked at",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8], "hold": [9, 10],
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8], "hold": [9, 10],
      "snapshot": {"awaiting": {"failed": true}},
      "expect": {"exit": 0, "picked": [], "log": ["holding: 2 cycles are running (limit 2)"]}},
     {"case": "with every slot taken nothing is started: the dry run",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8], "hold": [9, 10], "dry": true,
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8], "hold": [9, 10], "dry": true,
      "expect": {"exit": 0, "picked": [], "log": ["holding: 2 cycles are running (limit 2)"]}},
     {"case": "the index is not refreshed under a running cycle",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7], "hold": [9], "expect": {"picked": [7]}},
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7], "hold": [9], "expect": {"picked": [7]}},
     {"case": "running cycles count towards the cap on unreviewed work",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 3, "TEHAS_MAX_AWAITING": 3}, "ready_n": [7, 8], "hold": [9],
+     "settings": {"TEHAS_MAX_CYCLES": 3, "TEHAS_MAX_AWAITING": 3}, "ready_n": [7, 8], "hold": [9],
      "snapshot": {"awaiting": [{"number": 5}]}, "expect": {"picked": [7]}},
     {"case": "at the cap nothing is started, whatever slots are free",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 3, "TEHAS_MAX_AWAITING": 2}, "ready_n": [7, 8], "hold": [9],
+     "settings": {"TEHAS_MAX_CYCLES": 3, "TEHAS_MAX_AWAITING": 2}, "ready_n": [7, 8], "hold": [9],
      "snapshot": {"awaiting": [{"number": 5}]}, "dry": true,
      "expect": {"picked": [], "log": ["holding: 1 issues await merge and 1 cycles are running (limit 2)"]}},
     {"case": "an issue that is not approved does not use a slot",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9],
+     "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8, 9],
      "after": {"issues": {"7": {"events": [{"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "mallory"}}]}}},
      "expect": {"picked": [8, 9], "actions": [{"issue": 7, "remove": ["tehas:ready"]}],
                 "no_actions": [{"start": 7}]}},
     {"case": "a dry run names every issue it would start and how much room there is",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 3}, "ready_n": [7, 8], "hold": [9], "dry": true,
+     "settings": {"TEHAS_MAX_CYCLES": 3}, "ready_n": [7, 8], "hold": [9], "dry": true,
      "expect": {"nothing": true, "log": ["1 cycles running, room for 2 more",
        "would run a cycle for #7 (labelled by alice)", "would run a cycle for #8 (labelled by alice)"]}}
-    ,
-    
-     {
-      "case": "auto: the CPUs bound the cycles and the slice's memory the containers",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "auto",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "8g",
-       "TEHAS_CYCLE_CPUS": "4"
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "16",
-        "show": {
-         "MemoryMax": "68719476736"
-        }
-       }
-      },
-      "ready_n": [
-       7,
-       8,
-       9,
-       10,
-       11,
-       12,
-       13,
-       14,
-       15,
-       16,
-       17
-      ],
-      "expect": {
-       "picked": [
-        7,
-        8,
-        9,
-        10
-       ],
-       "report": {
-        "slots": {
-         "cycles": 4,
-         "containers": 8,
-         "cyclesHow": "auto",
-         "containersHow": "auto",
-         "cycle": {
-          "bound": "cpu",
-          "slots": 4
-         },
-         "container": {
-          "bound": "memory",
-          "slots": 8
-         }
-        }
-       }
-      }
-     },
-     {
-      "case": "auto: no more cycles start than the containers' ceilings fit in the slice",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "auto",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "8g",
-       "TEHAS_CYCLE_CPUS": "4"
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "64",
-        "show": {
-         "MemoryMax": "34359738368"
-        }
-       }
-      },
-      "ready_n": [
-       7,
-       8,
-       9,
-       10,
-       11,
-       12,
-       13,
-       14,
-       15,
-       16,
-       17
-      ],
-      "expect": {
-       "picked": [
-        7,
-        8,
-        9,
-        10
-       ]
-      }
-     },
-     {
-      "case": "auto: the ceiling bounds both counts and names itself in the hold",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "auto",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "8g",
-       "TEHAS_CYCLE_CPUS": "4",
-       "TEHAS_CYCLE_CEILING": "3"
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "64",
-        "show": {
-         "MemoryMax": "137438953472"
-        }
-       }
-      },
-      "hold": [
-       20,
-       21,
-       22
-      ],
-      "ready_n": [
-       7
-      ],
-      "expect": {
-       "picked": [],
-       "log": [
-        "holding: 3 cycles are running (auto: 3, ceiling-bound)"
-       ],
-       "report": {
-        "why": "count",
-        "slots": {
-         "cycles": 3,
-         "containers": 3,
-         "cycle": {
-          "bound": "ceiling"
-         }
-        }
-       }
-      }
-     },
-     {
-      "case": "auto after the host shrank: the running cycles are kept and nothing new starts",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "auto",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "8g",
-       "TEHAS_CYCLE_CPUS": "4"
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "8",
-        "show": {
-         "MemoryMax": "17179869184"
-        }
-       }
-      },
-      "hold": [
-       20,
-       21
-      ],
-      "ready_n": [
-       7,
-       8
-      ],
-      "expect": {
-       "picked": [],
-       "report": {
-        "count": 2,
-        "free": 0,
-        "why": "count",
-        "slots": {
-         "cycles": 2,
-         "containers": 2
-        }
-       }
-      }
-     },
-     {
-      "case": "auto with readings that are no numbers takes the floors: one cycle, two containers",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "auto",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "lots",
-       "TEHAS_CYCLE_CPUS": "many"
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "16",
-        "show": {
-         "MemoryMax": "34359738368"
-        }
-       }
-      },
-      "ready_n": [
-       7,
-       8
-      ],
-      "expect": {
-       "picked": [
-        7
-       ],
-       "report": {
-        "slots": {
-         "cycles": 1,
-         "containers": 2,
-         "cycle": {
-          "bound": "host",
-          "floored": true,
-          "slots": 0
-         },
-         "container": {
-          "bound": "host",
-          "floored": true,
-          "slots": 0
-         }
-        }
-       }
-      }
-     },
-     {
-      "case": "auto for one setting leaves the other the number the instance wrote",
-      "settings": {
-       "TEHAS_TICKET_CONCURRENCY": "5",
-       "TEHAS_SLICE_CONTAINERS": "auto",
-       "TEHAS_CONTAINER_MEMORY": "8g",
-       "TEHAS_MAX_AWAITING": 9
-      },
-      "snapshot": {
-       "slice": {
-        "cpus": "64",
-        "show": {
-         "MemoryMax": "51539607552"
-        }
-       }
-      },
-      "ready_n": [
-       7,
-       8,
-       9,
-       10,
-       11,
-       12,
-       13,
-       14,
-       15
-      ],
-      "expect": {
-       "picked": [
-        7,
-        8,
-        9,
-        10,
-        11
-       ],
-       "report": {
-        "slots": {
-         "cycles": 5,
-         "containers": 6,
-         "cyclesHow": "number",
-         "containersHow": "auto"
-        }
-       }
-      }
-     }
     
   ]
 }

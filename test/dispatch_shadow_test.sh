@@ -167,7 +167,7 @@ rm -f "$fx/backup.json"
 
 t_case "an issue that links an image, a model that does not declare image input: both hold it"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 TEHAS_WORK_IMAGES=1
 mesh '{"data":[{"id":"test-model"}]}'
 jq -n '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1", models: [{id: "test-model", input: ["text"]}]}}}' >"$T/home/.pi/agent/models.json"
 jq -nc '{number: 7, state: "open", body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-7.json"

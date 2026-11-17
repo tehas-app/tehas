@@ -22,7 +22,11 @@
 //!    Dockerfile's bytes are built into the image every cycle runs, so a file
 //!    another account can write is refused before it is sourced.
 //! 2. The settings load (tehas_load), and every setting an instance has to set
-//!    itself is set and valid (tehas_require_instance_settings).
+//!    itself is set and valid (tehas_require_instance_settings). A load that
+//!    stops on a setting tehas 1.0 renamed or removed names one line; here
+//!    every such line of instance.env and ~/.config/tehas/env is listed, each
+//!    with its new key or why it went, so a 0.30 instance is put right in one
+//!    edit before anything is installed.
 //! 3. The instance's models.json is there and holds JSON. It lists every model
 //!    the agents use (`console models used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
@@ -36,6 +40,7 @@ use std::path::Path;
 use serde_json::Value;
 use tehas_core::models;
 use tehas_core::settings::load::Vars;
+use tehas_core::settings::renamed;
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 use super::{say, tell};
@@ -105,12 +110,26 @@ pub(crate) fn findings(
         }
     }
     if let Err(line) = load(&mut vars) {
-        return vec![line];
+        let mut found = renamed_lines(&dir, &config);
+        if !found.contains(&line) {
+            found.insert(0, line);
+        }
+        return found;
     }
     if let Some(line) = settings::refusal(&INSTANCE_SETTINGS, &vars) {
         return vec![line];
     }
     model_findings(&dir, &vars)
+}
+
+/// Every row of api/renames-1.0.tsv the instance and the credential file still
+/// set, as the load words each.
+fn renamed_lines(dir: &str, config: &str) -> Vec<String> {
+    [format!("{dir}/instance.env"), format!("{config}/env")]
+        .iter()
+        .flat_map(|file| renamed::found_in(&fs::read(file).unwrap_or_default(), file))
+        .map(|line| format!("tehas: {line}"))
+        .collect()
 }
 
 /// Why another account could write `file`, or None. A file that is not there
@@ -362,6 +381,59 @@ mod tests {
         let (_d, vars) = instance(&[("models.json", "not json")]);
         let said = findings(vars, &me(), |_| Err("tehas: no instance.env in /x".into()));
         assert_eq!(said, ["tehas: no instance.env in /x"]);
+    }
+
+    #[test]
+    fn every_renamed_setting_of_a_0_30_instance_is_listed_at_once() {
+        // A 0.30 instance with three lines tehas 1.0 renamed or removed, one
+        // that loads quietly, and one in the host's credential file: the load
+        // names the first, and the findings list all four that do not.
+        let (d, vars) = instance(&[
+            (
+                "instance.env",
+                "TEHAS_REPO=acme/widget\nTEHAS_TICKET_CONCURRENCY=3\nTEHAS_EASY_MERGE=0\nexport TEHAS_OWNER=alice\nTEHAS_CYCLE_CPUS=4\n",
+            ),
+            ("models.json", MODELS),
+        ]);
+        let config = d.0.join(".config/tehas");
+        fs::create_dir_all(&config).unwrap();
+        fs::write(config.join("env"), "TEHAS_INDUSTRY_VERSION=v0.9.0\n").unwrap();
+        let file = format!("{}/instance.env", inst(&d));
+        let first = renamed::rows()
+            .into_iter()
+            .find(|r| r.old == "TEHAS_TICKET_CONCURRENCY")
+            .unwrap();
+        let line = format!("{} (see {file})", first.why());
+        let said = findings(vars, &me(), |_| Err(format!("tehas: {line}")));
+        let names: Vec<&str> = said
+            .iter()
+            .map(|l| l.trim_start_matches("tehas: ").split(' ').next().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "TEHAS_CYCLE_CPUS",
+                "TEHAS_TICKET_CONCURRENCY",
+                "TEHAS_OWNER",
+            ],
+            "{said:?}"
+        );
+        assert!(said.contains(&format!("tehas: {line}")), "{said:?}");
+        assert!(said[0].contains("auto sizing is removed"), "{said:?}");
+        assert!(said[1].contains("renamed it TEHAS_MAX_CYCLES"), "{said:?}");
+        assert!(
+            !said.iter().any(|l| l.contains("TEHAS_INDUSTRY_VERSION")),
+            "{said:?}"
+        );
+        // A load refused for another reason is said first, then the rows.
+        let (_d, vars) = instance(&[
+            ("instance.env", "TEHAS_BOT_LOGIN=acme[bot]\n"),
+            ("models.json", MODELS),
+        ]);
+        let said = findings(vars, &me(), |_| Err("tehas: other".into()));
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(said[0], "tehas: other");
+        assert!(said[1].starts_with("tehas: TEHAS_BOT_LOGIN is no longer read: "));
     }
 
     #[test]

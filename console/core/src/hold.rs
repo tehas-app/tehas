@@ -39,9 +39,6 @@ pub const KEY_REFRESH_ROOM: &str = "refreshRoom";
 /// `endpoint`: which model endpoint the subagent provider is on. The energy
 /// sampler asks only that endpoint for the factory's draw.
 pub const KEY_ENDPOINT: &str = "endpoint";
-/// `slots`: the two counts and how each came about, when a setting asked for
-/// `auto`. A reader finds them here, never at the top level.
-pub const KEY_SLOTS: &str = "slots";
 /// `time`: the poll's own stamp, added when the file is written.
 pub const KEY_TIME: &str = "time";
 /// `held`: the ready issues the poll held one by one, left out when none.
@@ -52,59 +49,6 @@ pub const KEY_HELD: &str = "held";
 pub const HELD_PARKED: &str = "parked";
 /// The most characters `held[].text` keeps: it quotes a park's reason.
 pub const HELD_TEXT_MAX: usize = 200;
-
-/// The keys and words of the [`KEY_SLOTS`] object. The dispatcher's
-/// `Slots::report` writes it from these, the health page checks it against
-/// them, and a test holds api/status.schema.json to them, so a key or a word
-/// is added here once.
-pub mod slots {
-    pub const CYCLES: &str = "cycles";
-    pub const CONTAINERS: &str = "containers";
-    pub const CYCLES_HOW: &str = "cyclesHow";
-    pub const CONTAINERS_HOW: &str = "containersHow";
-    /// The derivation of the cycles, written only for a setting that said `auto`.
-    pub const CYCLE: &str = "cycle";
-    /// The derivation of the containers, the same way.
-    pub const CONTAINER: &str = "container";
-    /// The four keys every slots object has.
-    pub const REQUIRED: [&str; 4] = [CYCLES, CONTAINERS, CYCLES_HOW, CONTAINERS_HOW];
-    /// The two derivations, each one there or not.
-    pub const DERIVED: [&str; 2] = [CYCLE, CONTAINER];
-
-    pub const BOUND: &str = "bound";
-    pub const SLOTS: &str = "slots";
-    pub const CPUS: &str = "cpus";
-    pub const CONTAINER_MEMORY: &str = "containerMemory";
-    pub const CYCLE_CPUS: &str = "cycleCpus";
-    pub const CEILING: &str = "ceiling";
-    pub const FLOORED: &str = "floored";
-    /// The seven keys of one derivation.
-    pub const AUTO_KEYS: [&str; 7] = [
-        BOUND,
-        SLOTS,
-        CPUS,
-        CONTAINER_MEMORY,
-        CYCLE_CPUS,
-        CEILING,
-        FLOORED,
-    ];
-
-    pub const HOW_AUTO: &str = "auto";
-    pub const HOW_NUMBER: &str = "number";
-    /// A setting that asked for neither.
-    pub const HOW_FIXED: &str = "fixed";
-    /// The words a setting may ask for.
-    pub const HOW_WORDS: [&str; 3] = [HOW_AUTO, HOW_NUMBER, HOW_FIXED];
-
-    pub const BOUND_CPU: &str = "cpu";
-    pub const BOUND_MEMORY: &str = "memory";
-    /// The endpoint's ceiling stopped the count short of the reading.
-    pub const BOUND_CEILING: &str = "ceiling";
-    /// No reading answered at all.
-    pub const BOUND_HOST: &str = "host";
-    /// The words for what gave a derived count its bound.
-    pub const BOUND_WORDS: [&str; 4] = [BOUND_CPU, BOUND_MEMORY, BOUND_CEILING, BOUND_HOST];
-}
 
 /// One ready issue the poll held on its own, whatever room there was.
 #[derive(Clone, Debug, PartialEq)]
@@ -245,9 +189,6 @@ pub struct Report {
     pub refresh_room: Option<i64>,
     /// The endpoint the subagent provider is on; left out when none answered.
     pub endpoint: Option<String>,
-    /// The derived counts, as `slots::Slots::report` writes them; left out
-    /// when neither setting asked for `auto`.
-    pub slots: Option<serde_json::Value>,
     /// The ready issues held one by one; left out of the file when none.
     pub held: Vec<Held>,
 }
@@ -288,9 +229,6 @@ impl Report {
         }
         if let Some(e) = &self.endpoint {
             m.insert(KEY_ENDPOINT.into(), serde_json::Value::from(e.as_str()));
-        }
-        if let Some(s) = &self.slots {
-            m.insert(KEY_SLOTS.into(), s.clone());
         }
         if !self.held.is_empty() {
             m.insert(
@@ -353,7 +291,6 @@ mod tests {
         assert_eq!(Why::Resources.as_str(), "resources");
         assert_eq!(KEY_ENDPOINT, "endpoint");
         assert_eq!(KEY_WHY, "why");
-        assert_eq!(KEY_SLOTS, "slots");
         assert_eq!(KEY_TIME, "time");
     }
 
@@ -368,7 +305,6 @@ mod tests {
             KEY_LIMIT_ROOM,
             KEY_REFRESH_ROOM,
             KEY_ENDPOINT,
-            KEY_SLOTS,
             KEY_TIME,
             KEY_HELD,
         ] {
@@ -377,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_report_writes_every_key_with_the_slots_nested() {
+    fn a_full_report_writes_every_key() {
         let r = Report {
             why: Some(Why::Count),
             hold: "holding: 2 cycles are running (limit 2)".into(),
@@ -391,7 +327,6 @@ mod tests {
             limit_room: Some(0),
             refresh_room: Some(1),
             endpoint: Some("backup".into()),
-            slots: Some(json!({"cycles": 2, "cyclesHow": "auto"})),
             held: vec![Held {
                 issue: 7,
                 why: HELD_PARKED,
@@ -411,7 +346,6 @@ mod tests {
         assert_eq!(v[KEY_LIMIT_ROOM], json!(0));
         assert_eq!(v[KEY_REFRESH_ROOM], json!(1));
         assert_eq!(v[KEY_ENDPOINT], json!("backup"));
-        assert_eq!(v[KEY_SLOTS]["cyclesHow"], json!("auto"));
         assert_eq!(
             v[KEY_HELD],
             json!([{"issue": 7, "why": "parked",
@@ -426,8 +360,5 @@ mod tests {
         ] {
             assert_eq!(Held::parse(&bad), None, "{bad}");
         }
-        // The slots are the report's own key: never merged at the top level.
-        assert!(v.get("cycles").is_none());
-        assert!(v.get("cyclesHow").is_none());
     }
 }

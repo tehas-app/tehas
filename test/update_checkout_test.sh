@@ -513,7 +513,7 @@ instance
 platform 0 'echo "installed: nothing"'
 t_run "$update --accept-id mallory"
 t_eq "$t_rc" 64
-t_contains "$t_out" "--accept-id mallory names no login of TEHAS_ALLOWED_LABELERS or TEHAS_MILLWRIGHT_LOGIN"
+t_contains "$t_out" "--accept-id mallory names no login of TEHAS_ALLOWED_LABELERS or the millwright"
 t_eq "$(t_calls install)" ""
 
 t_case "a login that no longer resolves stops the update with 78 and is named"

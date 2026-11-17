@@ -5,7 +5,6 @@
 use crate::read::host;
 use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
-use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -270,9 +269,6 @@ struct Poll<'a> {
     stopped: Vec<u64>,
     /// The bot's login, once the poll has read it.
     bot: String,
-    /// The cycles and the containers this poll's readings give, `auto` or as
-    /// written: settled once, and asked of no reading a number does not need.
-    slots: Slots,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
     /// The hold of a host whose sandbox cannot push, empty when it can. Said
@@ -301,14 +297,6 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         image_hold: None,
         stopped: Vec::new(),
         bot: String::new(),
-        slots: Slots {
-            cycles: 0,
-            containers: 0,
-            cycle_how: "fixed",
-            container_how: "fixed",
-            cycle: None,
-            container: None,
-        },
         refresh_said: false,
         push_hold: String::new(),
         park_ticked: Vec::new(),
@@ -923,27 +911,7 @@ impl<'a> Poll<'a> {
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
-        // The ceiling the poll decides by. `auto` is derived from the two
-        // readings the snapshot took this poll, so a host that grew or
-        // shrank is answered at the next poll and a running cycle is never
-        // stopped: only the room to start another moves.
-        self.slots = slots::derive(
-            &Probe::read(
-                s.slice
-                    .show
-                    .as_ref()
-                    .and_then(|m| m.get("MemoryMax"))
-                    .and_then(Value::as_str)
-                    .and_then(slice::bytes),
-                s.slice.cpus.as_deref().and_then(|c| c.parse().ok()),
-                &c.container_memory,
-                &c.cycle_cpus,
-                &c.cycle_ceiling,
-            ),
-            &c.slice_containers,
-            &c.concurrency_written,
-        );
-        let concurrency = self.slots.cycles;
+        let concurrency = c.concurrency;
         let free = concurrency - cycles;
         let limit_state = s
             .limit
@@ -991,10 +959,7 @@ impl<'a> Poll<'a> {
         // answers with it later: the slice's text decides it, and only the
         // arms of `slice::room` name it.
         let mut slice_word = None;
-        // The containers in force, so `auto` divides the slice by the number
-        // the poll derived rather than by the word in the setting.
-        let containers = self.slots.containers.to_string();
-        match slice::usable(&s.slice, &c.reserve, &containers) {
+        match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
                 let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
@@ -1126,13 +1091,7 @@ impl<'a> Poll<'a> {
             hold = word.1;
         } else if free <= 0 {
             why = Some(Why::Count);
-            hold = match slots::words(&self.slots).as_str() {
-                // A number as always: the count alone.
-                "" => format!("holding: {cycles} cycles are running (limit {concurrency})"),
-                // `auto` names its count and the reading that gave it, so the
-                // line says what a resize of the host did.
-                why => format!("holding: {cycles} cycles are running ({why})"),
-            };
+            hold = format!("holding: {cycles} cycles are running (limit {concurrency})");
             if let Some(lane) = lane {
                 hold = format!(
                     "{hold}; the refresh lane has {lane} of {} free",
@@ -1275,7 +1234,6 @@ impl<'a> Poll<'a> {
                 limit_room,
                 refresh_room: lane,
                 endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
-                slots: self.slots.report(),
                 held: Vec::new(),
             });
             self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));

@@ -321,9 +321,9 @@ longer the `image` the health read: an update built it after the last status
 run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
-`checks.industry` is `{version}` of the industry that runs this factory,
-from `TEHAS_INDUSTRY_VERSION` in `~/.config/tehas/env`, which that industry writes.
-A factory that runs on its own has no `checks.industry`, and its status is
+`checks.manager` is `{version}` of the program that manages this factory,
+from `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env`, which that program
+writes. A factory that runs on its own has no `checks.manager`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
 
@@ -411,14 +411,7 @@ it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 The keys and the words of `why` are declared once, in `tehas-core`'s
 `hold` module: the dispatcher builds the file from that type and the page
 reads it by the same names, so a reader never keeps a copy of a key of its
-own. With either count set to `auto` it carries `slots` too, nested under that
-key: the two counts in force, `cyclesHow` and `containersHow` for how each was
-arrived at, and `cycle` and `container` with the readings behind them (`bound`
-for the one that gave the count, `slots` for what the host's own readings
-give, `cpus`, the three settings as written, and `floored` when a reading
-answered nothing).
-It is absent for a factory that sets numbers for both, which has nothing to
-explain.
+own.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
 `disk`, `resources`, `limit`, `red`, `unknown-gate`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file

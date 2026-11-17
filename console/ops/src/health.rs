@@ -54,7 +54,6 @@ use std::time::{Duration, Instant};
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
-use tehas_core::hold::slots as key;
 use tehas_core::queue_lists;
 use tehas_core::time;
 
@@ -98,8 +97,8 @@ struct Given {
     /// The whole answer of `store poll-idle`: what the idle polls measured.
     poll_idle: Option<String>,
     mcp: Option<String>,
-    /// TEHAS_INDUSTRY_VERSION: the industry that runs this factory.
-    industry: Option<String>,
+    /// TEHAS_MANAGER_VERSION: the program that manages this factory.
+    manager: Option<String>,
 }
 
 /// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
@@ -362,7 +361,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_budget,
         poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
-        industry: env::var("TEHAS_INDUSTRY_VERSION").ok(),
+        manager: env::var("TEHAS_MANAGER_VERSION").ok(),
     })
 }
 
@@ -919,7 +918,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--industry <version>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--manager <version>]"
         );
         2
     };
@@ -941,7 +940,7 @@ pub fn main(given: &[String]) -> u8 {
             "--poll-budget" => g.poll_budget = Some(v),
             "--poll-idle" => g.poll_idle = Some(v),
             "--mcp" => g.mcp = Some(v),
-            "--industry" => g.industry = Some(v),
+            "--manager" => g.manager = Some(v),
             _ => return usage(),
         }
     }
@@ -953,14 +952,12 @@ fn read(path: &Path) -> Option<J> {
     J::parse(&fs::read_to_string(path).ok()?)
 }
 
-/// A file that is there, not empty and no bigger than a poll may write, with
-/// the text it holds, as one JSON value. A file over the bound is said of and
-/// left out rather than parsed: the cost of one is quadratic in its fields.
-/// The text comes back with the value because a reader that needs to know what
-/// the file wrote - a key written twice, say - cannot learn it from the value.
-fn poll_file(path: &Path) -> (J, String) {
+/// A file that is there, not empty and no bigger than a poll may write, as
+/// one JSON value. A file over the bound is said of and left out rather than
+/// parsed: the cost of one is quadratic in its fields.
+fn poll_file(path: &Path) -> J {
     match fs::metadata(path) {
-        Ok(m) if m.len() == 0 => (J::Null, String::new()),
+        Ok(m) if m.len() == 0 => J::Null,
         Ok(m) if m.len() > POLL_FILE_BOUND => {
             eprintln!(
                 "WARN: the poll file {} is {} bytes, over the {} a poll may write: it is not read",
@@ -968,18 +965,18 @@ fn poll_file(path: &Path) -> (J, String) {
                 m.len(),
                 POLL_FILE_BOUND
             );
-            (J::Null, String::new())
+            J::Null
         }
-        _ => match fs::read_to_string(path) {
-            Ok(text) => (J::parse(&text).unwrap_or(J::Null), text),
-            Err(_) => (J::Null, String::new()),
-        },
+        _ => fs::read_to_string(path)
+            .ok()
+            .and_then(|text| J::parse(&text))
+            .unwrap_or(J::Null),
     }
 }
 
 /// A file that is there and not empty, as one JSON value, or null.
 fn snapshot(path: &Path) -> J {
-    poll_file(path).0
+    poll_file(path)
 }
 
 fn age_of(t: &J, now: i64) -> Option<i64> {
@@ -1079,10 +1076,10 @@ fn rukas(live: &Path) -> J {
     }
 }
 
-/// `{version}` of the industry that runs this factory. None for a
-/// factory with none, and for a value that is no version: either way health
-/// and the footer say nothing of an industry.
-fn industry(given: Option<&str>) -> Option<J> {
+/// `{version}` of the program that manages this factory. None for a factory
+/// with none, and for a value that is no version: either way health and the
+/// footer say nothing of a manager.
+fn manager(given: Option<&str>) -> Option<J> {
     let v = given?;
     let rest = v.strip_prefix('v')?;
     let (core, pre) = rest.split_once('-').unwrap_or((rest, ""));
@@ -1158,7 +1155,7 @@ fn host_message_line(list: &[host_message::Message]) -> Option<String> {
 /// keys are tehas-core's: the dispatcher writes the file through `hold::Report`,
 /// so a key named here is a key that type declares.
 fn slice(live: &Path, now: i64) -> J {
-    let (d, text) = poll_file(&live.join("dispatch.json"));
+    let d = poll_file(&live.join("dispatch.json"));
     let young = age_of(d.get(hold::KEY_TIME), now).is_some_and(|a| a < POLL_MAX_AGE);
     if !matches!(d, J::Obj(_)) || d.get(hold::KEY_WHY).as_str().is_none() || !young {
         return J::Null;
@@ -1184,21 +1181,6 @@ fn slice(live: &Path, now: i64) -> J {
     ] {
         if !d.get(k).is_null() {
             f.push((k.to_string(), d.get(k).clone()));
-        }
-    }
-    // The counts a poll derived, when it derived any. `status --json` copies
-    // this object straight into `room.slots`, and api/status.schema.json closes
-    // that object, so a value of another shape - a hand-written file, or one
-    // an older release left - would be answered as a schema violation. Such a
-    // value is left out, as a poll that wrote none is, and said of.
-    let slots = d.get(hold::KEY_SLOTS);
-    if !slots.is_null() {
-        if slots_shape(slots, Some(&text)) {
-            f.push((hold::KEY_SLOTS.to_string(), slots.clone()));
-        } else {
-            eprintln!(
-                "WARN: the poll's slots object is not the shape the api schema closes: the slots line is left out"
-            );
         }
     }
     let held = held_of(d.get(hold::KEY_HELD));
@@ -1263,49 +1245,6 @@ fn all_held(slice: &J, queue: &J) -> Option<String> {
         "Every ready issue is held: {}. tehas status says why.",
         nums.join(", ")
     ))
-}
-
-/// Whether <v> is the slots object api/status.schema.json promises: the four
-/// keys, their counts and their words, `cycle` and `container` when the poll
-/// derived them, and nothing else. The schema is the contract this enforces;
-/// the manual's note that a derivation goes with an `auto` is the producer's
-/// own rule (`Slots::report`), not one the schema states or this gate checks.
-fn slots_shape(v: &J, text: Option<&str>) -> bool {
-    // The whole file is asked once whether it wrote any key twice: a value the
-    // parser resolved is no witness, and a file whose writer repeated a key is
-    // not the file the dispatcher wrote.
-    if text.is_some_and(written_once) {
-        return false;
-    }
-
-    /// The derivation of one side: the seven keys the schema names, and each
-    /// of them its own type. A side that the setting gave no reading for is
-    /// not there at all, which the caller allows.
-    fn derivation(v: &J) -> bool {
-        only(v, &key::AUTO_KEYS)
-            && in_list(v.get(key::BOUND), &key::BOUND_WORDS)
-            && count_of_slots(v.get(key::SLOTS))
-            && (v.get(key::CPUS).is_null() || count_of_slots(v.get(key::CPUS)))
-            && v.get(key::CYCLE_CPUS).as_str().is_some()
-            && v.get(key::CONTAINER_MEMORY).as_str().is_some()
-            && v.get(key::CEILING).as_str().is_some()
-            && matches!(v.get(key::FLOORED), J::Bool(_))
-    }
-
-    // The four keys the schema requires, plus each side the poll derived.
-    let mut want: Vec<&str> = key::REQUIRED.to_vec();
-    for k in key::DERIVED {
-        if !v.get(k).is_null() {
-            want.push(k);
-        }
-    }
-    only(v, &want)
-        && count_of_slots(v.get(key::CYCLES))
-        && count_of_slots(v.get(key::CONTAINERS))
-        && in_list(v.get(key::CYCLES_HOW), &key::HOW_WORDS)
-        && in_list(v.get(key::CONTAINERS_HOW), &key::HOW_WORDS)
-        && (v.get(key::CYCLE).is_null() || derivation(v.get(key::CYCLE)))
-        && (v.get(key::CONTAINER).is_null() || derivation(v.get(key::CONTAINER)))
 }
 
 /// The demand as the last poll left it, when that poll is young enough.
@@ -1450,99 +1389,6 @@ fn units(text: &str) -> J {
 
 fn in_list(v: &J, words: &[&str]) -> bool {
     v.as_str().is_some_and(|s| words.contains(&s))
-}
-
-/// The shape of a count in the poll's slots object: the whole numbers a poll
-/// can write, and nothing else. The producer bounds every count it writes at
-/// `MAX` = 16 (`console/dispatch/src/slots.rs`), so a count far above what a
-/// host can hold is a hand-written or corrupt file: text parsed as `u64` is
-/// what the schema's `integer` means, and it also refuses the spellings a
-/// float would round (`1e16`, `9007199254740993`, `-0`, `6.0`).
-fn count_of_slots(v: &J) -> bool {
-    match v {
-        J::Num(text) => text.parse::<u64>().is_ok(),
-        _ => false,
-    }
-}
-
-/// The whole fields of <v>, in the order they were read. `None` for a value
-/// that is not an object, so a text or a number is never mistaken for an
-/// object with no keys.
-fn fields(v: &J) -> Option<Vec<&str>> {
-    match v {
-        J::Obj(o) => Some(o.iter().map(|(k, _)| k.as_str()).collect()),
-        _ => None,
-    }
-}
-
-/// The keys of <v> are exactly the words of <want>: a key that is not named is
-/// refused and one that is named and missing is refused too, as
-/// api/status.schema.json closes the object. A key written twice is refused by
-/// the caller, which asks `written_once` of the file's bytes: the parser would
-/// have resolved it to its last value and left no trace of it in <v>.
-fn only(v: &J, want: &[&str]) -> bool {
-    let mut want = want.to_vec();
-    want.sort_unstable();
-    match fields(v) {
-        Some(mut have) => {
-            have.sort_unstable();
-            have == want
-        }
-        None => false,
-    }
-}
-
-/// Whether the poll's file wrote the same key twice, in the object the bytes
-/// start with or in any object nested in it. `J::parse` is jq's reader: a key
-/// written twice keeps its place and its last value, so the value cannot say a
-/// key was written twice and the closed-object check would pass a file that
-/// held the same key twice with two values. The bytes are the only witness, and
-/// the parse kept them. They are walked in the same shape: a string written
-/// before a `:` names a key of the object then open, and any other string is a
-/// value and names nothing. A name repeated in two different objects is no
-/// repeat - `slots` is a key of the poll's object and of a derivation - so each
-/// object's own names are compared on their own.
-fn written_once(text: &str) -> bool {
-    let b = text.as_bytes();
-    let mut open: Vec<Vec<&[u8]>> = Vec::new();
-    let mut i = 0usize;
-    while i < b.len() {
-        match b[i] {
-            b'{' | b'[' => open.push(Vec::new()),
-            b'}' | b']' => {
-                open.pop();
-            }
-            b'"' => {
-                let from = i;
-                let mut j = i + 1;
-                let mut escaped = false;
-                while j < b.len() && (b[j] != b'"' || escaped) {
-                    escaped = !escaped && b[j] == b'\\';
-                    j += 1;
-                }
-                if j >= b.len() {
-                    return true; // no JSON: refused, as the caller refused it
-                }
-                let mut k = j + 1;
-                while k < b.len() && b[k].is_ascii_whitespace() {
-                    k += 1;
-                }
-                if k < b.len() && b[k] == b':' {
-                    if let Some(keys) = open.last_mut() {
-                        let key = &b[from..=j];
-                        if keys.contains(&key) {
-                            return true;
-                        }
-                        keys.push(key);
-                    }
-                }
-                i = j;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    false
 }
 
 /// Whether an ending's status is an end that went well: its work shipped, it
@@ -1732,7 +1578,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
     let order = order(home);
-    let industry_check = industry(g.industry.as_deref());
+    let manager_check = manager(g.manager.as_deref());
     let (host_messages_check, host_messages) = host_messages(home);
     let message_line = host_messages.as_deref().and_then(host_message_line);
     let messages_unreadable = host_messages.is_none();
@@ -2151,8 +1997,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("github", github_check),
         ("hostMessages", host_messages_check),
     ];
-    if let Some(i) = industry_check {
-        checks.push(("industry", i));
+    if let Some(i) = manager_check {
+        checks.push(("manager", i));
     }
     // TEHAS_READ_ONLY (#608): said only when on, so a health file of any
     // other instance is as it was.
@@ -2567,343 +2413,6 @@ mod tests {
     }
 
     #[test]
-    fn the_slots_a_poll_derived_are_kept_and_a_number_writes_none() {
-        let h = home("slots");
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}}"#,
-        );
-        assert_eq!(
-            h.report(&Given::default())
-                .at(&["checks", "slice", "slots", "cycle", "bound"])
-                .as_str(),
-            Some("cpu")
-        );
-        // A poll that sets numbers writes no slots object, and the check keeps
-        // the fields it always had: no key at all, not one that is null.
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":1,"free":1}"#,
-        );
-        let r = h.report(&Given::default());
-        assert!(r.at(&["checks", "slice"]).get("slots").is_null());
-        assert_eq!(
-            r.at(&["checks", "slice"]).dump(),
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":1,"committed":null,"max":null,"reserve":null,"free":1}"#
-        );
-    }
-
-    /// The poll's slots object with one key of `cycle` added, so a case says
-    /// which shape it refused.
-    fn cycle_with(home: &Home, key: &str, value: &str) {
-        home.write(
-            "live/dispatch.json",
-            &format!(
-                r#"{{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                     "slots":{{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                              "cycle":{{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false,"{key}":{value}}}}}}}"#,
-            ),
-        );
-    }
-
-    /// The poll's slots object with one of its own keys replaced by <value>.
-    fn slots_with(home: &Home, key: &str, value: &str) {
-        home.write(
-            "live/dispatch.json",
-            &format!(
-                r#"{{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                     "slots":{{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto","{key}":{value}}}}}"#,
-            ),
-        );
-    }
-
-    #[test]
-    fn a_slots_value_of_another_shape_is_left_out() {
-        let h = home("slots-shape");
-        // The shape the schema promises is copied; a value that is not it is
-        // left out as a poll that wrote none is, and said of with a WARN line.
-        // The whole check is compared, so a refusal cannot leave one key of
-        // the refused object behind.
-        let check = |h: &Home| h.report(&Given::default()).at(&["checks", "slice"]).dump();
-        // A file whose slots are the shape, and the same file with none: the
-        // two dumps the cases below are told from.
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto"}}"#,
-        );
-        let kept = r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":3,"committed":null,"max":null,"reserve":null,"free":2,"slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto"}}"#;
-        let without = r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":3,"committed":null,"max":null,"reserve":null,"free":2}"#;
-        assert_eq!(check(&h), kept);
-        // A hold text with one quote in it is a value, not the end of one.
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":"he said: \"no","room":3,"free":2,
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto"}}"#,
-        );
-        assert_eq!(
-            h.report(&Given::default())
-                .at(&["checks", "slice", "slots", "cycles"])
-                .dump(),
-            "6",
-            "a hold with a quote lost its slots"
-        );
-
-        // The four keys are each required, at their own type, and a key of a
-        // derivation at the wrong type or one of them too many is refused too.
-        for (key, value) in [
-            // a text instead of a count
-            ("cycles", "\"6\""),
-            ("containers", "\"6\""),
-            // a count below 0, one with a fraction, one with a sign, and one
-            // past what the parser holds exactly: the producer bounds every
-            // count at 16, so none of these is a poll's own bytes
-            ("cycles", "-1"),
-            ("containers", "1.5"),
-            ("cycles", "1e16"),
-            ("containers", "-0"),
-            // a word the schema does not know
-            ("cyclesHow", "\"maybe\""),
-            ("containersHow", "null"),
-            // a key the schema does not allow
-            ("why", "\"cpu\""),
-        ] {
-            slots_with(&h, key, value);
-            assert_eq!(check(&h), without, "slots with {key}: {value} was copied");
-        }
-
-        // A key written twice is refused: the parser would resolve it to its
-        // last value and publish that as though the file had written one.
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto","cycles":7}}"#,
-        );
-        assert_eq!(check(&h), without, "a repeated key was copied");
-        // Of a derivation too, where the outer object has no key to spare.
-        h.write(
-            "live/dispatch.json",
-            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
-                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false,"floored":true}}}"#,
-        );
-        assert_eq!(
-            check(&h),
-            without,
-            "a repeated key of a derivation was copied"
-        );
-
-        // A derivation of its own, and the keys it holds are not asked for
-        // until it is there: the shape of the rest of the object is kept.
-        for (key, value) in [
-            ("bound", "\"disk\""),
-            ("slots", "\"six\""),
-            ("cpus", "\"24\""),
-            ("floored", "\"false\""),
-            ("why", "\"cpu\""),
-            ("cycle", "1"),
-        ] {
-            cycle_with(&h, key, value);
-            assert_eq!(check(&h), without, "cycle with {key}: {value} was copied");
-        }
-    }
-
-    #[test]
-    fn an_escaped_quote_does_not_end_a_string() {
-        // One `\"` in a value: a scan that ends the string there reads the
-        // rest of the file as an unterminated string.
-        assert!(!written_once(
-            r#"{"hold":"he said: \"no","slots":{"cycles":1}}"#
-        ));
-        assert!(!written_once(r#"{"a":"\\","b":1}"#));
-        assert!(written_once(r#"{"a":"x\"","a":1}"#));
-    }
-
-    #[test]
-    fn the_slots_shape_refuses_a_value_that_is_not_the_schema() {
-        // The shape the dispatcher's own writer emits is accepted: both sides,
-        // neither side, and a null count for a host that gave no reading.
-        for text in [
-            r#"{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false},
-                "container":{"bound":"memory","slots":2,"cpus":null,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":true}}"#,
-            r#"{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
-                "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}"#,
-            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed"}"#,
-        ] {
-            assert!(slots_shape(&J::parse(text).unwrap(), Some(text)), "{text}");
-        }
-        // A text, a count, nothing, an object with a key the schema does not
-        // name, one that is missing a key it requires, a count written in a
-        // spelling the schema's `integer` does not hold exactly, and a key
-        // written twice - at the top and inside a derivation, where the file
-        // would otherwise be published with whichever value came last.
-        for text in [
-            r#""auto""#,
-            r#"6"#,
-            r#"null"#,
-            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed","extra":1}"#,
-            r#"{"cycles":1,"containers":2,"cyclesHow":"number"}"#,
-            r#"{"cycles":1e16,"containers":2,"cyclesHow":"number","containersHow":"fixed"}"#,
-            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed","cycles":2}"#,
-            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed",
-                "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false,"floored":true}}"#,
-        ] {
-            assert!(!slots_shape(&J::parse(text).unwrap(), Some(text)), "{text}");
-        }
-    }
-
-    #[test]
-    fn the_slots_words_of_core_are_the_ones_the_schema_closes() {
-        // api/status.schema.json is the public contract; the gate and the
-        // dispatcher read the same lists from tehas_core::hold::slots. A word
-        // or a key added to one and not the other fails here.
-        let schema: Value =
-            serde_json::from_str(include_str!("../../../api/status.schema.json")).unwrap();
-        let o = &schema["properties"]["room"]["properties"]["slots"];
-        let set = |v: &Value| {
-            let mut w: Vec<String> = match v {
-                Value::Array(a) => a.iter().map(|s| s.as_str().unwrap().to_string()).collect(),
-                Value::Object(m) => m.keys().cloned().collect(),
-                _ => panic!("{v}"),
-            };
-            w.sort();
-            w
-        };
-        let of = |a: &[&str]| {
-            let mut w: Vec<String> = a.iter().map(|s| s.to_string()).collect();
-            w.sort();
-            w
-        };
-        let mut all = key::REQUIRED.to_vec();
-        all.extend(key::DERIVED);
-        assert_eq!(set(&o["required"]), of(&key::REQUIRED));
-        assert_eq!(set(&o["properties"]), of(&all));
-        assert_eq!(o["additionalProperties"], Value::Bool(false));
-        for how in [key::CYCLES_HOW, key::CONTAINERS_HOW] {
-            assert_eq!(set(&o["properties"][how]["enum"]), of(&key::HOW_WORDS));
-        }
-        for side in key::DERIVED {
-            let d = &o["properties"][side];
-            assert_eq!(set(&d["required"]), of(&key::AUTO_KEYS));
-            assert_eq!(set(&d["properties"]), of(&key::AUTO_KEYS));
-            assert_eq!(d["additionalProperties"], Value::Bool(false));
-            assert_eq!(
-                set(&d["properties"][key::BOUND]["enum"]),
-                of(&key::BOUND_WORDS)
-            );
-        }
-    }
-
-    #[test]
-    fn the_gate_takes_every_bound_the_dispatcher_writes() {
-        // Each bound the producer can reach: memory and cpu, the ceiling, and
-        // no reading at all. A word the producer gains and the gate does not
-        // know would drop the whole slots line from the status.
-        use tehas_dispatch::slots::{derive, Probe};
-        const G: u64 = 1_073_741_824;
-        let mut seen = Vec::new();
-        for p in [
-            Probe::read(Some(48 * G), Some(24), "8g", "4", ""),
-            Probe::read(Some(512 * G), Some(256), "8g", "4", "3"),
-            Probe::read(None, None, "8g", "4", ""),
-        ] {
-            for (c, k) in [("auto", "auto"), ("auto", "5"), ("x", "auto")] {
-                let Some(r) = derive(&p, c, k).report() else {
-                    continue;
-                };
-                let text = r.to_string();
-                assert!(
-                    slots_shape(&J::parse(&text).unwrap(), Some(&text)),
-                    "{text}"
-                );
-                for side in key::DERIVED {
-                    if let Some(b) = r[side][key::BOUND].as_str() {
-                        seen.push(b.to_string());
-                    }
-                }
-            }
-        }
-        seen.sort();
-        seen.dedup();
-        let mut want: Vec<String> = key::BOUND_WORDS.iter().map(|s| s.to_string()).collect();
-        want.sort();
-        assert_eq!(seen, want);
-    }
-
-    #[test]
-    fn the_shape_of_the_polls_own_slots_is_the_one_the_gate_takes() {
-        // The gate's contract is the object the dispatcher writes, so the
-        // producer is the witness. `slots_of` is this file's own copy of the
-        // seven keys of one derivation and the four plus the two of the
-        // object; the bytes beside it are what `Slots::report` lays down for
-        // the same two sides (console/dispatch/src/slots.rs, and the case
-        // `the_slots_line_of_a_poll_that_derived_names_both_sides` of status.rs
-        // prints them). When the two spellings come apart, this fails here
-        // rather than on a host whose `slots` line has gone quiet.
-        let bytes = |both: bool| {
-            let mut m = serde_json::Map::new();
-            m.insert("cycles".into(), serde_json::json!(6));
-            m.insert("containers".into(), serde_json::json!(6));
-            m.insert("cyclesHow".into(), serde_json::json!("auto"));
-            m.insert("containersHow".into(), serde_json::json!("auto"));
-            let side = |bound: &str, cpus: serde_json::Value, floored: bool| {
-                serde_json::json!({
-                    "bound": bound, "slots": 6, "cpus": cpus, "cycleCpus": "4",
-                    "containerMemory": "8g", "ceiling": "16", "floored": floored
-                })
-            };
-            m.insert("cycle".into(), side("cpu", serde_json::json!(24), false));
-            if both {
-                m.insert(
-                    "container".into(),
-                    side("memory", serde_json::Value::Null, true),
-                );
-            }
-            serde_json::Value::Object(m).to_string()
-        };
-        let written = |both: bool| {
-            let d =
-                "\"cycles\":6,\"containers\":6,\"cyclesHow\":\"auto\",\"containersHow\":\"auto\"";
-            let one = |k: &str, bound: &str, cpus: &str, floored: &str| {
-                format!(
-                    ",\"{k}\":{{\"bound\":\"{bound}\",\"slots\":6,\"cpus\":{cpus},\"cycleCpus\":\"4\",\"containerMemory\":\"8g\",\"ceiling\":\"16\",\"floored\":{floored}}}"
-                )
-            };
-            let mut f = one("cycle", "cpu", "24", "false");
-            if both {
-                f.push_str(&one("container", "memory", "null", "true"));
-            }
-            format!("{{{d}{f}}}")
-        };
-        for both in [true, false] {
-            let (producer, own) = (bytes(both), written(both));
-            // serde_json sorts the keys of a map and `J` keeps what it was
-            // given, so the two are read as values and compared by their own
-            // structure; the field order of a writer is its own business.
-            let value = |t: &str| serde_json::from_str::<serde_json::Value>(t).unwrap();
-            assert_eq!(
-                value(&producer),
-                value(&own),
-                "the writer's bytes and this file's copy of them"
-            );
-            for text in [producer, own] {
-                assert!(
-                    slots_shape(&J::parse(&text).unwrap(), Some(&text)),
-                    "the writer's own bytes: {text}"
-                );
-            }
-        }
-        // A key the writer does not lay down, under another name, is refused:
-        // the page keeps the rest of the check and prints no slots line.
-        let hand = r#"{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto","cpu":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}"#
-            .to_string();
-        assert!(!slots_shape(&J::parse(&hand).unwrap(), Some(&hand)));
-    }
-
-    #[test]
     fn a_poll_file_over_the_bound_is_said_of_and_read_as_nothing() {
         // The store bounds the same files at 1 MiB when it publishes them; this
         // is the parser's other door, and the read that would otherwise spend
@@ -3042,8 +2551,7 @@ mod tests {
     fn the_slice_reads_the_report_the_dispatcher_writes() {
         // The one contract between the two programs: a Report the dispatcher
         // builds, taken through to_value, and read back by the page. Every
-        // field of the check is there, and the derived counts are found under
-        // `slots`, where the report writes them and not at the top level.
+        // field of the check is there.
         let h = home("written");
         let r = hold::Report {
             why: Some(hold::Why::Slice),
@@ -3058,12 +2566,6 @@ mod tests {
             limit_room: Some(0),
             refresh_room: Some(1),
             endpoint: Some("backup".into()),
-            slots: Some(serde_json::json!({
-                "cycles": 6, "containers": 6, "cyclesHow": "auto",
-                "containersHow": "auto",
-                "cycle": {"bound": "cpu", "slots": 6, "cpus": 24, "cycleCpus": "4",
-                          "containerMemory": "8g", "ceiling": "16", "floored": false}
-            })),
             held: Vec::new(),
         };
         poll_report(&h, "2026-10-17T14:00:00Z", &r);
@@ -3077,7 +2579,6 @@ mod tests {
                 "holding: tehas.slice has no room for another cycle",
             ),
             (vec![hold::KEY_RESERVE], "2g"),
-            (vec![hold::KEY_SLOTS, "cycle", "bound"], "cpu"),
         ] {
             assert_eq!(slice.at(&path).as_str(), Some(want), "{path:?}");
         }
@@ -3093,10 +2594,6 @@ mod tests {
         ] {
             assert_eq!(slice.get(key).as_f64(), Some(want), "{key}");
         }
-        assert_eq!(
-            slice.at(&[hold::KEY_SLOTS, "containersHow"]).as_str(),
-            Some("auto")
-        );
         // A reason that holds every start warns with the poll's own line.
         assert_eq!(
             said(&got),
@@ -3290,20 +2787,20 @@ mod tests {
     }
 
     #[test]
-    fn an_industry_version_is_reported_and_none_or_a_bad_one_is_left_out() {
-        let h = home("industry");
+    fn a_manager_version_is_reported_and_none_or_a_bad_one_is_left_out() {
+        let h = home("manager");
         let with = |v: Option<&str>| {
             h.report(&Given {
-                industry: v.map(str::to_string),
+                manager: v.map(str::to_string),
                 ..Given::default()
             })
         };
         let r = with(Some("v0.9.0"));
-        assert_eq!(r.at(&["checks", "industry", "version"]).text(), "v0.9.0");
+        assert_eq!(r.at(&["checks", "manager", "version"]).text(), "v0.9.0");
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
         assert_eq!(
             with(Some("v1.2.3-rc.1"))
-                .at(&["checks", "industry", "version"])
+                .at(&["checks", "manager", "version"])
                 .text(),
             "v1.2.3-rc.1"
         );
@@ -3321,7 +2818,7 @@ mod tests {
             let J::Obj(checks) = r.get("checks") else {
                 panic!("no checks")
             };
-            assert!(!checks.iter().any(|(k, _)| k == "industry"), "{none:?}");
+            assert!(!checks.iter().any(|(k, _)| k == "manager"), "{none:?}");
             assert_eq!(
                 said(&r),
                 ("pass".into(), "Idle, taking work.".into()),

@@ -60,9 +60,10 @@ const LOGIN_OWNER: &str = "expected the GitHub login of one person: GitHub assig
 #[derive(Clone, Copy)]
 pub enum Rule {
     Repo,
-    /// The counts refuse `auto` by name until cycles can use it.
     Count,
-    CountOrAuto,
+    /// A count that names why `auto`, which an earlier version wrote, is
+    /// refused.
+    Cycles,
     SliceContainers,
     /// Exactly one space between logins and none around them: the dispatcher
     /// matches " login " inside " list ", and a stray space would make an
@@ -136,7 +137,7 @@ impl Rule {
         match self {
             Rule::Repo => "repo",
             Rule::Count => "count",
-            Rule::CountOrAuto => "count-or-auto",
+            Rule::Cycles => "cycles",
             Rule::SliceContainers => "slice-containers",
             Rule::Logins => "logins",
             Rule::Person(_) => "person",
@@ -176,7 +177,7 @@ impl Rule {
         match self {
             Rule::Repo => "widget",
             Rule::Count => "0",
-            Rule::CountOrAuto => "auto",
+            Rule::Cycles => "0",
             Rule::SliceContainers => "1",
             Rule::Logins => "alice  bob",
             Rule::Person(_) => "acme-app[bot]",
@@ -260,14 +261,14 @@ const fn required(name: &'static str, rule: Rule) -> Setting {
 /// told about first. An optional setting left out is checked only when it is
 /// there, as TEHAS_BUILD_TIMEOUT is: its default belongs to install.sh.
 pub const TABLE: &[Setting] = &[
-    always("TEHAS_INDEXING", SWITCH, "0"),
+    always("TEHAS_SITE_INDEXING", SWITCH, "0"),
     always("TEHAS_WORK_IMAGES", SWITCH, "0"),
     always("TEHAS_WORK_DESCRIBE", SWITCH, "0"),
     always("TEHAS_WORK_FILES", SWITCH, "0"),
     always("TEHAS_WORK_COMMENTS", SWITCH, "0"),
     always("TEHAS_WORK_ZIPS", SWITCH, "0"),
     always("TEHAS_ANALYTICS", SWITCH, "on"),
-    always("TEHAS_ANALYTICS_COOKIE", SWITCH, "0"),
+    always("TEHAS_SITE_ANALYTICS_COOKIE", SWITCH, "0"),
     always(
         "TEHAS_DESIGN",
         Rule::OneOf(&["beesknees26", "pixel"], "expected beesknees26 or pixel"),
@@ -296,13 +297,8 @@ pub const TABLE: &[Setting] = &[
     ),
     always("TEHAS_OUTSOURCE_PROXY_IDLE", Rule::Count, "900"),
     always("TEHAS_REVIEW", SWITCH, "0"),
-    always("TEHAS_CONCURRENCY", Rule::Count, "1"),
-    row(
-        "TEHAS_TICKET_CONCURRENCY",
-        Rule::CountOrAuto,
-        When::Always,
-        None,
-    ),
+    always("TEHAS_WORKSTREAMS", Rule::Count, "1"),
+    row("TEHAS_MAX_CYCLES", Rule::Cycles, When::Always, None),
     always("TEHAS_HOST_ADDR", Rule::HostAddress, "127.0.0.1"),
     row("TEHAS_MAX_AWAITING", Rule::Count, When::Always, None),
     always("TEHAS_WORK_TIMEOUT", Rule::Count, "21600"),
@@ -316,7 +312,7 @@ pub const TABLE: &[Setting] = &[
     always("TEHAS_MILLWRIGHT_FEED", SWITCH, "0"),
     always("TEHAS_MILLWRIGHT_MAX_FEEDS", Rule::Count, "2"),
     always("TEHAS_MILLWRIGHT_EPICS", SWITCH, "0"),
-    always("TEHAS_REFRESH_MAX", Rule::Count, "2"),
+    always("TEHAS_REFRESH_MAX_PER_PR", Rule::Count, "2"),
     always("TEHAS_REFRESH_SLOTS", Rule::RefreshSlots, "1"),
     always("TEHAS_PREVIEWS", SWITCH, "0"),
     always("TEHAS_EGRESS", SWITCH, "0"),
@@ -351,12 +347,12 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_RELEASE_REPO", Rule::Repo),
     given_or("TEHAS_SIZE_MAX_FILES", Rule::Count, ""),
     given("TEHAS_SCRATCH_DIR", Rule::ScratchDir),
-    given_or("TEHAS_ANALYTICS_SRC", Rule::ScriptAddress, ""),
-    given_or("TEHAS_ANALYTICS_SITE", Rule::SiteName, ""),
+    given_or("TEHAS_SITE_ANALYTICS_SRC", Rule::ScriptAddress, ""),
+    given_or("TEHAS_SITE_ANALYTICS_NAME", Rule::SiteName, ""),
     given_or("TEHAS_GITHUB_APP_ID", Rule::AppId, ""),
     given("TEHAS_GITHUB_RENEW_EVERY", Rule::Count),
     given("TEHAS_MILLWRIGHT_APP", Rule::AppLogin),
-    given_or("TEHAS_OWNER", Rule::Person(LOGIN_OWNER), ""),
+    given_or("TEHAS_ASSIGNEE", Rule::Person(LOGIN_OWNER), ""),
     given_or("TEHAS_RUKAS_WORKAROUNDS", Rule::Workarounds, ""),
     given_or("TEHAS_BRANCH_CHECK", Rule::BranchCheck, ""),
     given(crate::kinds::SETTING, Rule::IssueTypes),
@@ -366,7 +362,6 @@ pub const TABLE: &[Setting] = &[
     required("TEHAS_ALLOWED_LABELERS", Rule::Logins),
     required("PI_ENSEMBLE_SUBAGENT_MODEL", Rule::OneWord),
     required("PI_ENSEMBLE_SUBAGENT_PROVIDER", Rule::OneWord),
-    required("TEHAS_CONTAINER_MEMORY", Rule::ContainerSize),
     row("TEHAS_REVIEW_REPO", Rule::Repo, When::Required, Some("")),
 ];
 
@@ -406,12 +401,12 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
     match rule {
         Rule::Repo => refuse(is_repo(v), "expected owner/name"),
         Rule::Count => count(v),
-        Rule::CountOrAuto => {
-            refuse(v != "auto", AUTO)?;
+        Rule::Cycles => {
+            refuse(v != "auto", AUTO_GONE)?;
             count(v)
         }
         Rule::SliceContainers => {
-            refuse(v != "auto", AUTO)?;
+            refuse(v != "auto", SLICE_AUTO_GONE)?;
             let n = if leading(v, 2) { v.parse().ok() } else { None };
             refuse(
                 matches!(n, Some(2..=16)),
@@ -527,7 +522,8 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
     }
 }
 
-const AUTO: &str = "expected a whole number (auto is not usable yet)";
+const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
+const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
 const POSITIVE: &str = "expected a positive whole number";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
@@ -767,18 +763,18 @@ mod tests {
     }
 
     #[test]
-    fn auto_is_named_only_where_the_poll_reads_it() {
-        takes("TEHAS_TICKET_CONCURRENCY", "3");
-        refuses("TEHAS_TICKET_CONCURRENCY", "auto", AUTO);
-        refuses("TEHAS_TICKET_CONCURRENCY", "AUTO", POSITIVE);
-        refuses("TEHAS_CONCURRENCY", "auto", POSITIVE);
+    fn auto_is_named_as_removed_where_an_earlier_version_took_it() {
+        takes("TEHAS_MAX_CYCLES", "3");
+        refuses("TEHAS_MAX_CYCLES", "auto", AUTO_GONE);
+        refuses("TEHAS_MAX_CYCLES", "AUTO", POSITIVE);
+        refuses("TEHAS_WORKSTREAMS", "auto", POSITIVE);
     }
 
     #[test]
     fn the_slice_holds_two_to_sixteen() {
         takes("TEHAS_SLICE_CONTAINERS", "2");
         takes("TEHAS_SLICE_CONTAINERS", "16");
-        refuses("TEHAS_SLICE_CONTAINERS", "auto", AUTO);
+        refuses("TEHAS_SLICE_CONTAINERS", "auto", SLICE_AUTO_GONE);
         for bad in ["1", "17", "06", "1.5", "99999999999999999999"] {
             refuses(
                 "TEHAS_SLICE_CONTAINERS",
@@ -799,9 +795,9 @@ mod tests {
 
     #[test]
     fn the_owner_is_one_person_and_never_a_bot() {
-        takes("TEHAS_OWNER", "janit");
+        takes("TEHAS_ASSIGNEE", "janit");
         for bad in ["acme-app[bot]", "a b", "-a", "alice bob", "a;b"] {
-            refuses("TEHAS_OWNER", bad, LOGIN_OWNER);
+            refuses("TEHAS_ASSIGNEE", bad, LOGIN_OWNER);
         }
     }
 
@@ -847,7 +843,7 @@ mod tests {
             .map(|s| s.name)
             .collect();
         for name in [
-            "TEHAS_INDEXING",
+            "TEHAS_SITE_INDEXING",
             "TEHAS_PREVIEWS",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
@@ -880,8 +876,8 @@ mod tests {
 
     #[test]
     fn a_script_address_is_https_with_a_path() {
-        takes("TEHAS_ANALYTICS_SRC", "https://a.example:8443/x/ea.js");
-        takes("TEHAS_ANALYTICS_SRC", "https://a.example/");
+        takes("TEHAS_SITE_ANALYTICS_SRC", "https://a.example:8443/x/ea.js");
+        takes("TEHAS_SITE_ANALYTICS_SRC", "https://a.example/");
         let why = "expected the https address of a script";
         for bad in [
             "http://a.example/x.js",
@@ -890,7 +886,7 @@ mod tests {
             "https://a.example:/x.js",
             "https:///x.js",
         ] {
-            refuses("TEHAS_ANALYTICS_SRC", bad, why);
+            refuses("TEHAS_SITE_ANALYTICS_SRC", bad, why);
         }
     }
 
@@ -932,9 +928,9 @@ mod tests {
 
     #[test]
     fn a_site_is_one_word() {
-        takes("TEHAS_ANALYTICS_SITE", "a.b_c-d");
+        takes("TEHAS_SITE_ANALYTICS_NAME", "a.b_c-d");
         refuses(
-            "TEHAS_ANALYTICS_SITE",
+            "TEHAS_SITE_ANALYTICS_NAME",
             "two words",
             "expected one word of letters, digits, dots and dashes",
         );
@@ -943,7 +939,7 @@ mod tests {
     #[test]
     fn a_container_size_is_at_least_6m_with_no_leading_zero() {
         takes("TEHAS_CYCLE_RESERVE", "6m");
-        takes("TEHAS_CONTAINER_MEMORY", "6291456");
+        takes("TEHAS_CYCLE_RESERVE", "6291456");
         let why = "expected a size of at least 6m, such as 512m or 2g";
         for bad in [
             "lots",
@@ -1323,7 +1319,7 @@ mod tests {
 
     #[test]
     fn a_name_with_no_rule_takes_anything() {
-        takes("TEHAS_CYCLE_CPUS", "any thing");
+        takes("TEHAS_NO_SUCH_SETTING", "any thing");
         takes("PI_ENSEMBLE_HOST_ALIASES", "");
     }
 

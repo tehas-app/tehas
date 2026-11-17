@@ -352,7 +352,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
-| `tehas:running`         | A cycle owns it; with `TEHAS_OWNER` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
+| `tehas:running`         | A cycle owns it; with `TEHAS_ASSIGNEE` set, the issue is assigned to that account too | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it, or GitHub's own list of pull requests closing it holds a merged one   | Nothing; the poll's tidy and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
@@ -370,7 +370,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 | `tehas:finish`          | Asks the factory to open the draft pull request of a stopped cycle. See [Finishing a stopped cycle](#finishing-a-stopped-cycle) | Wait: the next poll takes it off and comments with the URL or why not |
 
-With `TEHAS_OWNER` set on the instance, the call that marks an issue
+With `TEHAS_ASSIGNEE` set on the instance, the call that marks an issue
 `tehas:running` for a cycle also assigns it to that account, so GitHub shows
 the issue as taken and nobody starts on it by accident. GitHub assigns no
 app's bot, which is why the owner is a person. The owner is never unassigned:
@@ -1569,16 +1569,11 @@ recording, and both commands then say so and exit 69.
 
 - A limit set with `tehas limit`, when there is one: see
   [Limit and drain](#limit-and-drain).
-- At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
+- At most `TEHAS_MAX_CYCLES` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room. With
   refreshes on, refreshes have a lane of their own (see
-  [refreshes](#refreshes)) and do not count here. `auto` is refused by the
-  settings check today, so the setting is a number; the ceiling the dispatcher
-  would answer is taken from the host on every poll: the host's CPUs
-  over `TEHAS_CYCLE_CPUS`, between 1 and `TEHAS_CYCLE_CEILING`, read afresh
-  each poll so a VM that gained CPUs is used and one that lost them holds new
-  starts. It never stops a running cycle; the poll's line would say `auto: 6,
-  cpu-bound` and `tehas status` would say what the two counts came from.
+  [refreshes](#refreshes)) and do not count here. The setting is a whole
+  number.
 - No new cycle while the host runs short of disk: less than
   `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
   or on the one Docker keeps its images on, whichever has less. The poll reads
@@ -1608,16 +1603,12 @@ recording, and both commands then say so and exit 69.
   steps and may each grow to their ceiling later; then the whole slice
   reclaims and the kernel kills in the biggest container. So at most
   `TEHAS_SLICE_CONTAINERS` cycles run at once, whatever
-  `TEHAS_TICKET_CONCURRENCY` says, and a dev session or a planning turn takes
+  `TEHAS_MAX_CYCLES` says, and a dev session or a planning turn takes
   one of them. The number is a setting of its own, not
-  `TEHAS_TICKET_CONCURRENCY`: containers that are not cycles would still
+  `TEHAS_MAX_CYCLES`: containers that are not cycles would still
   oversubscribe the slice, and on a host with many CPUs the ceiling would
   fall below the reserve. To run more cycles side by side, raise it and the
   host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
-  For `auto`, refused by the settings check today, the number would be the
-  slice's `MemoryMax` over `TEHAS_CONTAINER_MEMORY` (8g by default), read on
-  every poll between 2 and 16, so a host given more memory would hold more
-  containers on its own.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
@@ -1686,7 +1677,7 @@ recording, and both commands then say so and exit 69.
   (`checks.units`, which is `null` when that read did not answer rather than
   empty), and the next `install.sh` resets it and starts it again.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
-  cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
+  cycle, so a bad one can fail up to `TEHAS_MAX_CYCLES` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle
   does, and the time limits bound the cost.
 - When a poll starts fewer cycles than there are free slots and issues
@@ -1694,10 +1685,10 @@ recording, and both commands then say so and exit 69.
   same line: `holding: <n> of <free> free slots start: ...` when the
   awaiting-merge limit or the slice's room cut it, else the hold that stopped
   all of them.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
+- Inside a cycle, `TEHAS_WORKSTREAMS` workstreams side by side: 1 by default,
   and more only with one cycle at a time. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
-  or are being worked on. The default is `TEHAS_TICKET_CONCURRENCY` plus 2, so
+  or are being worked on. The default is `TEHAS_MAX_CYCLES` plus 2, so
   every slot can be used while two pull requests wait. Unreviewed pull
   requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
@@ -1729,12 +1720,12 @@ on the combined tree included (pi-rukas's `PI_ENSEMBLE_VERIFY_SUITE_TIMEOUT_MS`,
 which tehas sets from it). How long a run takes depends on how many cycles
 share the host. Each container's quota
 is the host's CPUs less one, but busy gates share those CPUs about equally:
-with `TEHAS_TICKET_CONCURRENCY` cycles running their gates at once, each gets
+with `TEHAS_MAX_CYCLES` cycles running their gates at once, each gets
 about the host's CPUs less one over that count. Three numbers have to agree:
 
 - the gate's wall time on this host, measured with that many cycles running;
 - `TEHAS_VERIFY_TIMEOUT`, at or above that time with a margin;
-- `TEHAS_TICKET_CONCURRENCY`, no higher than keeps the gate inside the bound.
+- `TEHAS_MAX_CYCLES`, no higher than keeps the gate inside the bound.
 
 A bound below the gate's time under load parks cycles with
 `verify-timeout:<step>` for code that was never judged. On 26 Oct 2026 three
@@ -1757,7 +1748,7 @@ measurement beside it:
 - Raise `TEHAS_VERIFY_TIMEOUT` to the longest run plus a margin. Keep
   `TEHAS_WORK_STALL` above it, which the settings check enforces, and leave
   `TEHAS_WORK_TIMEOUT` room for the gate runs of every step.
-- Or lower `TEHAS_TICKET_CONCURRENCY` until the gate fits the bound. Fewer
+- Or lower `TEHAS_MAX_CYCLES` until the gate fits the bound. Fewer
   cycles run, and each gate gets a bigger share.
 
 What this repository's own gate takes is measured on [The host](/host#the-gate-under-load).
@@ -2050,8 +2041,9 @@ api`](/api#tehas-api) lists only the new names: `millwright-grant` and
   from the bot counts only within the grant below, and never as a person's
   approval. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the settings
   stops with 78. Before the app's login is known there is no millwright, and
-  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` in
-  `instance.env` prints a warning and is ignored. The approval record names
+  the account's labels count as any outsider's. `TEHAS_MILLWRIGHT_LOGIN` is
+  not a setting: a line in `instance.env` stops every command with 78. The
+  approval record names
   the millwright without `[bot]`.
 - **Or a second app.** `TEHAS_MILLWRIGHT_APP=<slug>[bot]` in `instance.env`
   makes that app the millwright in place of the factory's own. The factory
@@ -2233,7 +2225,7 @@ approval it rests on after the millwright):
 - the pull request is still the bot's, the one open pull request that closes
   the issue, at the head the request named, and GitHub still says
   `CONFLICTING`. A person who pushed to it since is handling it;
-- fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
+- fewer than `TEHAS_REFRESH_MAX_PER_PR` refreshes of it since that approval (2 unless
   the instance says otherwise), and none that parked. A start that failed
   counts as none: where the mark of a refresh could not be put on the pull
   request, or the cycle never ran, the dispatcher writes the record back as it
@@ -2250,10 +2242,10 @@ request that carries `tehas:refreshing` waits.
 **The refresh lane.** Refreshes run in a lane of their own, so a conflicting
 pull request is refreshed while every cycle slot is busy. At most
 `TEHAS_REFRESH_SLOTS` refreshes run at once (1 unless the instance says
-otherwise), and they do not count against `TEHAS_TICKET_CONCURRENCY`. The slice
+otherwise), and they do not count against `TEHAS_MAX_CYCLES`. The slice
 holds `TEHAS_SLICE_CONTAINERS` containers whatever the slots say, so new cycles leave room in it
 for the lane: while the lane has a slot free, a cycle does not take the last
-room of the slice. On a host with `TEHAS_TICKET_CONCURRENCY=4` and one lane
+room of the slice. On a host with `TEHAS_MAX_CYCLES=4` and one lane
 slot that is three cycles and one refresh. The poll says
 `holding: tehas.slice has room for 1 more and the refresh lane keeps 1`, or
 `holding: 3 of 4 free slots start: ... the refresh lane keeps 1`. With every

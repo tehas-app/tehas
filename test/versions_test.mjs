@@ -12,16 +12,16 @@ const { line, messages, draw } = globalThis.TEHAS_VERSIONS;
 const a = "a".repeat(40);
 const health = (checks) => ({ status: "pass", checks });
 
-test("a release host run by an industry names all three", () => {
+test("a release host run by a manager names all three", () => {
   const h = health({
     platform: { release: "v0.24.6", newest: "v0.24.6", behind: 0 },
     rukas: { image: a, imageVersion: "v0.14.54", target: a, behind: false },
-    industry: { version: "v0.9.0" },
+    manager: { version: "v0.9.0" },
   });
-  assert.equal(line(h), "tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0");
+  assert.equal(line(h), "tehas v0.24.6 · pi-rukas v0.14.54 · manager v0.9.0");
 });
 
-test("a standalone factory leaves the industry out", () => {
+test("a standalone factory leaves the manager out", () => {
   const h = health({ platform: { release: "v0.24.6" }, rukas: { imageVersion: "v0.14.54" } });
   assert.equal(line(h), "tehas v0.24.6 · pi-rukas v0.14.54");
 });
@@ -40,7 +40,7 @@ test("values of another shape are left out, and no version at all is null", () =
   const h = health({
     platform: { release: "<b>v1</b>" },
     rukas: { imageVersion: "v0.14.54 x", image: "javascript:1" },
-    industry: { version: 9 },
+    manager: { version: 9 },
   });
   assert.equal(line(h), null);
   for (const f of [null, undefined, 3, [], {}, { checks: null }]) assert.equal(line(f), null);

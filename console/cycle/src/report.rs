@@ -976,7 +976,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     }
     if forks != "0" {
         killed += &format!(
-            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
+            " Its container reached its {} (`--pids-limit`, which follows `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`) and {forks} starts of a process were refused: what the cycle ran after that may not have run.",
             limit_of(&pids)
         );
     }
@@ -1078,7 +1078,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         };
         reason = runner::cut_reason(
             &format!(
-                "its container reached its {} (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
+                "its container reached its {} (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused {forks} starts of a process{in_flight}{tail}",
                 limit_of(&pids)
             ),
         );
@@ -2515,7 +2515,7 @@ mod tests {
             r.after
                 .ended
                 .reason
-                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
+                .contains("its container reached its limit of processes (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused 6 starts of a process, step commit in flight"),
             "{}",
             r.after.ended.reason
         );
@@ -2553,14 +2553,14 @@ mod tests {
         assert!(r.done.contains("forks_refused=21"), "{}", r.done);
         assert!(
             r.after.ended.reason.contains(
-                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_TICKET_CONCURRENCY and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
+                "its container reached its limit of 2048 processes (--pids-limit, which follows TEHAS_MAX_CYCLES and TEHAS_SLICE_CONTAINERS) and refused 21 starts"
             ),
             "{}",
             r.after.ended.reason
         );
         let said = comments(&r).join("\n");
         assert!(
-            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_TICKET_CONCURRENCY` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
+            said.contains("Its container reached its limit of 2048 processes (`--pids-limit`, which follows `TEHAS_MAX_CYCLES` and `TEHAS_SLICE_CONTAINERS`) and 21 starts of a process were refused"),
             "{said}"
         );
         for bad in [
