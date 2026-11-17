@@ -410,7 +410,7 @@ the container already has at `/run/tehas/relay`. With that file there, the
 stand-in leaves each call in the directory as a relay request of kind
 `vipune`: its arguments, and `VIPUNE_RECENCY_WEIGHT` and `VIPUNE_PROJECT`
 when they are set. It prints the answer's stdout and stderr and exits with
-its status. No answer in 20 seconds exits 1 with
+its status. No answer in 28 seconds exits 1 with
 `vipune: the factory's memory did not answer`. Without the file, or without
 the directory, the real vipune runs, as before.
 
@@ -433,9 +433,19 @@ the pinned vipune 0.20.3, with nothing on stdout and the reason on stderr.
 pi-rukas reads it as it reads vipune's own errors, and treats a failed call as
 no memory. vipune calls do not count against a cycle's 50 issue writes.
 
+The cycle's relay answers vipune calls on three threads of their own, so a
+call never waits behind a slow issue write. An answer no one read, because
+the stand-in gave up, is removed after five minutes.
+
 The factory runs the vipune of the sandbox image (`PI_ENSEMBLE_IMAGE`) in a
 container of its own for each call: no network, no capabilities, and only
-`state/memory/cycles` mounted. Which database a call uses comes from where it
+`state/memory/cycles` mounted. It runs as the factory's user with
+`HOME=/home/vscode`, as every container of the image does: that user owns the
+directory, and the image keeps vipune's embedding model in that home. It has
+2 GB of memory with no swap, 256 processes and 2 CPUs, and a call may take
+15 seconds. A cycle's database may grow to 64 MiB with its write-ahead log;
+an `add` to a full one fails with status 1 and
+`vipune: the factory's memory of this cycle is full (64 MiB)`. Which database a call uses comes from where it
 arrived, never from the request: `issue-<n>.db` for an in-house cycle and
 `job-<id>.db` for a contractor's job. A job's calls run one at a time, and
 only while the job is running, its attempt is current and its contractor is

@@ -592,7 +592,7 @@ fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
 /// factory through the contractor program. With outsource on, an in-house
 /// cycle's vipune calls are answered here too, from the factory's memory
 /// (src/memory.rs).
-fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send> {
+fn relay_via(home: &Path, issue: u64) -> Box<dyn relay::Run + Send + Sync> {
     match (contractor(), in_house_memory(home)) {
         (Some(program), _) => Box::new(relay::Channel { program }),
         (None, Some(memory)) => Box::new(relay::InHouse {
@@ -662,7 +662,7 @@ fn start_relay(
     dir: &Path,
     repo: &str,
     issue: u64,
-    via: Box<dyn relay::Run + Send>,
+    via: Box<dyn relay::Run + Send + Sync>,
     wait: Duration,
 ) -> Relay {
     relay::mark_memory(dir, memory_on());

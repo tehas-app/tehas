@@ -67,6 +67,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 use tehas_core::text::has_marker;
 
@@ -88,6 +89,14 @@ const GH_WAIT: u64 = 100;
 
 /// How long the token command may take.
 pub const TOKEN_WAIT: u64 = 60;
+
+/// How many vipune calls run at once. They have threads of their own, so a
+/// call never waits behind a slow issue write.
+const MEMORY_WORKERS: usize = 3;
+
+/// How old an answer is when no one will read it: longer than any waiter
+/// waits (gh-shim 120 s, vipune-shim 28 s). It is removed then.
+const STALE: Duration = Duration::from_secs(300);
 
 fn no(why: &str) -> String {
     format!("gh-shim: the relay {why}")
@@ -316,11 +325,16 @@ impl Via {
 pub trait Run {
     fn run(&self, argv: &[String], input: Option<&str>) -> (String, String, i32);
 
+    /// Whether the factory's memory answers vipune calls here. When it does
+    /// not, the stand-in is told to run the image's own vipune.
+    fn has_memory(&self) -> bool {
+        false
+    }
+
     /// One planned vipune call of the cycle ([`crate::memory`]): vipune's
-    /// answer, or None when the factory's memory is off here, which tells the
-    /// stand-in to run the image's own vipune.
-    fn memory(&self, _planned: &Planned, _repo: &str) -> Option<(String, String, i32)> {
-        None
+    /// answer. Asked only when [`Run::has_memory`].
+    fn memory(&self, _planned: &Planned, _repo: &str) -> (String, String, i32) {
+        (String::new(), no("is off"), 1)
     }
 }
 
@@ -338,8 +352,12 @@ impl Run for InHouse {
         self.via.run(argv, input)
     }
 
-    fn memory(&self, planned: &Planned, repo: &str) -> Option<(String, String, i32)> {
-        Some(self.memory.call(&self.cycle, planned, repo))
+    fn has_memory(&self) -> bool {
+        true
+    }
+
+    fn memory(&self, planned: &Planned, repo: &str) -> (String, String, i32) {
+        self.memory.call(&self.cycle, planned, repo)
     }
 }
 
@@ -397,7 +415,11 @@ impl Run for Channel {
     /// `vipune`; the factory plans it again and runs it for the job's own
     /// database. Not answered, it fails as vipune fails, so the cycle goes on
     /// without memory.
-    fn memory(&self, planned: &Planned, _repo: &str) -> Option<(String, String, i32)> {
+    fn has_memory(&self) -> bool {
+        true
+    }
+
+    fn memory(&self, planned: &Planned, _repo: &str) -> (String, String, i32) {
         let env: serde_json::Map<String, serde_json::Value> = planned
             .vars
             .iter()
@@ -412,7 +434,7 @@ impl Run for Channel {
             Some(why) => format!("vipune: the factory's memory {why}\n"),
             None => err,
         };
-        Some((out, err, rc))
+        (out, err, rc)
     }
 }
 
@@ -423,18 +445,70 @@ pub fn serve(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool) {
     serve_via(dir, repo, issue, stop, &Via::from_env(&home));
 }
 
-pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &dyn Run) {
-    let mut scope = Scope::new(issue);
+pub fn serve_via(dir: &Path, repo: &str, issue: u64, stop: &AtomicBool, via: &(dyn Run + Sync)) {
+    let (writes, writes_rx) = mpsc::channel();
+    let (memory, memory_rx) = mpsc::channel();
+    let (writes_rx, memory_rx) = (Mutex::new(writes_rx), Mutex::new(memory_rx));
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut scope = Scope::new(issue);
+            work(dir, &writes_rx, stop, |top, pid, taken| {
+                write_request(dir, top, pid, taken, repo, via, &mut scope)
+            })
+        });
+        for _ in 0..MEMORY_WORKERS {
+            s.spawn(|| {
+                work(dir, &memory_rx, stop, |top, pid, taken| {
+                    let (out, err, rc) = vipune_request(taken.args, taken.env, repo, via);
+                    match rc {
+                        None => answer_local(dir, top, pid),
+                        Some(rc) => answer(dir, top, pid, &out, &err, rc),
+                    }
+                })
+            });
+        }
+        while !stop.load(Ordering::SeqCst) {
+            pass(dir, &writes, &memory);
+            let until = Instant::now() + POLL;
+            while Instant::now() < until && !stop.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        drop((writes, memory));
+    });
+    answer_left(dir);
+}
+
+/// A request taken from the directory, with its process id.
+type Queue = mpsc::Sender<(String, Taken)>;
+
+/// Answers with `each` the requests [`pass`] queued, until the queue closes.
+/// One still queued at the stop is answered as one left at the end.
+fn work(
+    dir: &Path,
+    rx: &Mutex<mpsc::Receiver<(String, Taken)>>,
+    stop: &AtomicBool,
+    mut each: impl FnMut(&OwnedFd, &str, Taken),
+) {
     loop {
-        if stop.load(Ordering::SeqCst) {
-            answer_left(dir);
+        let Some((pid, taken)) = rx.lock().ok().and_then(|r| r.recv().ok()) else {
             return;
+        };
+        let Some(top) = open_dir(dir) else {
+            continue;
+        };
+        if stop.load(Ordering::SeqCst) {
+            answer(
+                dir,
+                &top,
+                &pid,
+                "",
+                &no("did not run this: the cycle ended"),
+                1,
+            );
+            continue;
         }
-        pass(dir, repo, via, &mut scope);
-        let until = Instant::now() + POLL;
-        while Instant::now() < until && !stop.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        each(&top, &pid, taken);
     }
 }
 
@@ -474,13 +548,73 @@ fn requests(dir: &Path) -> Vec<String> {
     pids
 }
 
-/// One reading of the directory: every complete request, answered.
-fn pass(dir: &Path, repo: &str, via: &dyn Run, scope: &mut Scope) {
+/// One reading of the directory: every complete request taken and queued,
+/// an issue write on `writes` and a vipune call on `memory`, so neither waits
+/// behind the other; and answers no one read removed.
+fn pass(dir: &Path, writes: &Queue, memory: &Queue) {
     let Some(top) = open_dir(dir) else {
         return;
     };
     for pid in requests(dir) {
-        handle(dir, &top, &pid, repo, via, scope);
+        let Some(taken) = take(dir, &top, &pid) else {
+            continue;
+        };
+        let queue = match taken.kind.as_ref().map(Option::as_deref) {
+            Ok(None) => writes,
+            Ok(Some(memory::MARK)) => memory,
+            Ok(Some(_)) | Err(_) => {
+                let why = no("takes requests of the kinds gh and vipune only");
+                eprintln!("tehas relay: refused request {pid}: {why}");
+                answer(dir, &top, &pid, "", &why, 1);
+                continue;
+            }
+        };
+        if let Err(mpsc::SendError((pid, _))) = queue.send((pid, taken)) {
+            answer(
+                dir,
+                &top,
+                &pid,
+                "",
+                &no("did not run this: the cycle ended"),
+                1,
+            );
+        }
+    }
+    remove_stale(dir, &top, STALE);
+}
+
+/// The answers in `dir` older than `age`: whoever asked has given up.
+fn remove_stale(dir: &Path, top: &OwnedFd, age: Duration) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let Ok(name) = e.file_name().into_string() else {
+            continue;
+        };
+        if !name.starts_with("res.") {
+            continue;
+        }
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| t.elapsed().is_ok_and(|a| a > age));
+        if old {
+            remove_at(dir, top, &name);
+        }
+    }
+}
+
+/// `name` in `dir` removed: a directory with what is in it, anything else
+/// unlinked, a link never followed.
+fn remove_at(dir: &Path, top: &OwnedFd, name: &str) -> bool {
+    match rustix::fs::statat(top, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Err(_) => true,
+        // std's remove_dir_all removes a link it meets, never what it names.
+        Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::Directory => {
+            std::fs::remove_dir_all(dir.join(name)).is_ok()
+        }
+        Ok(_) => rustix::fs::unlinkat(top, name, AtFlags::empty()).is_ok(),
     }
 }
 
@@ -566,33 +700,17 @@ fn take(dir: &Path, top: &OwnedFd, pid: &str) -> Option<Taken> {
     })
 }
 
-fn handle(dir: &Path, top: &OwnedFd, pid: &str, repo: &str, via: &dyn Run, scope: &mut Scope) {
-    let Some(Taken {
-        args,
-        body,
-        kind,
-        env,
-    }) = take(dir, top, pid)
-    else {
-        return;
-    };
-    match kind.as_ref().map(Option::as_deref) {
-        Ok(None) => {}
-        Ok(Some(memory::MARK)) => {
-            let (out, err, rc) = vipune_request(args, env, repo, via);
-            match rc {
-                None => answer_local(dir, top, pid),
-                Some(rc) => answer(dir, top, pid, &out, &err, rc),
-            }
-            return;
-        }
-        Ok(Some(_)) | Err(_) => {
-            let why = no("takes requests of the kinds gh and vipune only");
-            eprintln!("tehas relay: refused request {pid}: {why}");
-            answer(dir, top, pid, "", &why, 1);
-            return;
-        }
-    }
+/// An issue write: planned, held to the cycle's scope, run and answered.
+fn write_request(
+    dir: &Path,
+    top: &OwnedFd,
+    pid: &str,
+    taken: Taken,
+    repo: &str,
+    via: &dyn Run,
+    scope: &mut Scope,
+) {
+    let Taken { args, body, .. } = taken;
     let ran = args.and_then(|a| answer_request(&a, body?.as_deref(), repo, via, scope));
     match ran {
         Ok((out, err, rc)) => answer(dir, top, pid, &out, &err, rc),
@@ -604,14 +722,17 @@ fn handle(dir: &Path, top: &OwnedFd, pid: &str, repo: &str, via: &dyn Run, scope
 }
 
 /// A request of kind `vipune`: vipune's answer, or a refusal answered as its
-/// usage error. A None status: the factory's memory is off here. It does not
-/// count against the cycle's issue writes.
+/// usage error. A None status: the factory's memory is off here, whatever the
+/// request holds. It does not count against the cycle's issue writes.
 fn vipune_request(
     args: Result<Vec<String>, String>,
     env: Result<Vec<(String, String)>, String>,
     repo: &str,
     via: &dyn Run,
 ) -> (String, String, Option<i32>) {
+    if !via.has_memory() {
+        return (String::new(), String::new(), None);
+    }
     let (args, vars) = match args.and_then(|a| Ok((a, env?))) {
         Ok(read) => read,
         Err(why) => {
@@ -619,14 +740,8 @@ fn vipune_request(
             return (String::new(), format!("{why}\n"), Some(memory::USAGE_EXIT));
         }
     };
-    let off = std::cell::Cell::new(false);
-    let (out, err, rc) = memory::answer(&args, &vars, repo, &|planned| {
-        via.memory(planned, repo).unwrap_or_else(|| {
-            off.set(true);
-            (String::new(), String::new(), 0)
-        })
-    });
-    (out, err, (!off.get()).then_some(rc))
+    let (out, err, rc) = memory::answer(&args, &vars, repo, &|planned| via.memory(planned, repo));
+    (out, err, Some(rc))
 }
 
 /// One request of a cycle, planned, held to its scope and run: gh's output,
@@ -760,15 +875,9 @@ fn answer_local(dir: &Path, top: &OwnedFd, pid: &str) {
 
 fn answer_files(dir: &Path, top: &OwnedFd, pid: &str, files: &[(&str, &str)]) {
     let name = format!("res.{pid}");
-    let gone = match rustix::fs::statat(top, &name, AtFlags::SYMLINK_NOFOLLOW) {
-        Err(_) => true,
-        // std's remove_dir_all removes a link it meets, never what it names.
-        Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::Directory => {
-            std::fs::remove_dir_all(dir.join(&name)).is_ok()
-        }
-        Ok(_) => rustix::fs::unlinkat(top, &name, AtFlags::empty()).is_ok(),
-    };
-    if !gone || rustix::fs::mkdirat(top, &name, Mode::from_raw_mode(0o700)).is_err() {
+    if !remove_at(dir, top, &name)
+        || rustix::fs::mkdirat(top, &name, Mode::from_raw_mode(0o700)).is_err()
+    {
         eprintln!("tehas relay: could not answer request {pid}");
         return;
     }
@@ -1796,6 +1905,99 @@ mod tests {
     }
 
     #[test]
+    fn with_the_memory_off_even_a_malformed_vipune_call_runs_locally() {
+        let d = TestDir::new("relay-vipune-off-bad");
+        let (relay, stop, t) = served(&d);
+        vipune_request(&relay, "6", &["list"], "no equals\0");
+        let args = relay.join("req.6").join("args");
+        fs::write(&args, b"list").unwrap();
+        assert!(wait_done(&relay, "6"));
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert!(relay.join("res.6/local").exists());
+        assert!(!relay.join("res.6/rc").exists());
+    }
+
+    #[test]
+    fn a_vipune_call_does_not_wait_behind_a_slow_issue_write() {
+        let d = TestDir::new("relay-vipune-beside-gh");
+        let kept = Arc::new(Kept::default());
+        let relay = d.join("relay");
+        fs::create_dir(&relay).unwrap();
+        let gh = d.join("gh");
+        tehas_core::testing::write_exe(&gh, "#!/bin/sh\ncat >/dev/null\nsleep 6\necho posted\n")
+            .unwrap();
+        let via = InHouse {
+            via: Via {
+                gh,
+                token: stub_token(&d, "ghs_full"),
+                token_args: vec![],
+                token_wait: 10,
+            },
+            memory: Box::new(kept.clone()),
+            cycle: memory::of_issue(3),
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let (r, s) = (relay.clone(), stop.clone());
+        let t = std::thread::spawn(move || serve_via(&r, REPO, 3, &s, &via));
+        request(
+            &relay,
+            "1",
+            &["issue", "comment", "3", "--body", "hi"],
+            None,
+        );
+        std::thread::sleep(Duration::from_millis(1200));
+        let asked = Instant::now();
+        vipune_request(&relay, "2", &["list"], "");
+        vipune_request(&relay, "3", &["list"], "");
+        assert!(wait_done(&relay, "2"));
+        assert!(wait_done(&relay, "3"));
+        assert!(
+            asked.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert!(!relay.join("res.1/done").exists());
+        assert!(wait_done(&relay, "1"));
+        stop.store(true, Ordering::SeqCst);
+        t.join().unwrap();
+        assert_eq!(read(relay.join("res.1/rc")), "0\n");
+        assert_eq!(read(relay.join("res.2/rc")), "3\n");
+    }
+
+    #[test]
+    fn an_answer_no_one_read_is_removed_once_stale() {
+        let d = TestDir::new("relay-stale");
+        let relay = d.join("relay");
+        fs::create_dir(&relay).unwrap();
+        let outside = d.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep"), "x").unwrap();
+        for name in ["res.1", "res.2"] {
+            fs::create_dir(relay.join(name)).unwrap();
+            fs::write(relay.join(name).join("done"), "").unwrap();
+        }
+        std::os::unix::fs::symlink(&outside, relay.join("res.3")).unwrap();
+        fs::create_dir(relay.join("req.4")).unwrap();
+        let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for name in ["res.1", "req.4"] {
+            fs::File::open(relay.join(name))
+                .unwrap()
+                .set_modified(hour_ago)
+                .unwrap();
+        }
+        let top = open_dir(&relay).unwrap();
+        remove_stale(&relay, &top, Duration::from_secs(60));
+        assert!(!relay.join("res.1").exists());
+        assert!(relay.join("res.2/done").exists());
+        assert!(relay.join("req.4").exists());
+        // The link is fresh by its own time; at age zero it goes, never followed.
+        remove_stale(&relay, &top, Duration::ZERO);
+        assert!(fs::symlink_metadata(relay.join("res.3")).is_err());
+        assert!(outside.join("keep").exists());
+    }
+
+    #[test]
     fn the_mark_is_left_only_while_the_memory_is_on() {
         let d = TestDir::new("relay-vipune-mark");
         let relay = d.join("relay");
@@ -1857,7 +2059,7 @@ mod tests {
         let program = d.join("contractor");
         tehas_core::testing::write_exe(&program, "#!/bin/sh\nexit 1\n").unwrap();
         let planned = memory::plan(&args(&["list"]), &[], REPO).unwrap();
-        let (out, err, rc) = Channel { program }.memory(&planned, REPO).unwrap();
+        let (out, err, rc) = Channel { program }.memory(&planned, REPO);
         assert_eq!((out.as_str(), rc), ("", 1));
         assert!(err.starts_with("vipune: the factory's memory"), "{err}");
     }

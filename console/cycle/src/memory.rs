@@ -22,6 +22,10 @@
 //! `job-<id>` for a contractor's, as `<name>.db` under `state/memory/cycles`.
 //! A cycle's database starts empty and goes when the cycle ends, as the
 //! container's own store did; keeping what a cycle learnt is #2366 and #2367.
+//! It holds at most [`MAX_DB`] bytes: an `add` beyond that fails with 1.
+//!
+//! The container of a call runs as the factory's user with vscode's home, as
+//! every container of the image does, within [`LIMITS`].
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -49,8 +53,22 @@ pub const MARK: &str = "vipune";
 /// Where the real vipune is in the image: the stand-in takes its old path.
 pub const REAL: &str = "/usr/local/lib/tehas/vipune";
 
-/// How long one vipune call may take. The stand-in waits 20 s.
+/// How long one vipune call may take, before the 5 s docker is given to
+/// stop. The stand-in waits 28 s.
 pub const WAIT: u64 = 15;
+
+/// The most bytes a cycle's database may hold, with its write-ahead log: an
+/// `add` beyond it is refused. A job's database lives on the factory, and a
+/// contractor's cycle could otherwise fill its disk one call at a time.
+pub const MAX_DB: u64 = 64 << 20;
+
+/// The limits of the container one call runs in.
+pub const LIMITS: &[&str] = &[
+    "--memory=2g",
+    "--memory-swap=2g",
+    "--pids-limit=256",
+    "--cpus=2",
+];
 
 fn no(why: &str) -> String {
     format!("vipune: the factory's memory {why}\n")
@@ -180,6 +198,8 @@ pub trait Vipune {
 pub struct InImage {
     pub docker: PathBuf,
     pub image: String,
+    /// `<uid>:<gid>`, as every container of the image runs.
+    pub user: String,
     /// `state/memory/cycles`.
     pub dir: PathBuf,
 }
@@ -190,6 +210,7 @@ impl InImage {
         InImage {
             docker: PathBuf::from("docker"),
             image: image.to_string(),
+            user: tehas_core::sandbox::user(),
             dir: home.join("state/memory/cycles"),
         }
     }
@@ -204,8 +225,13 @@ impl InImage {
             "--security-opt=no-new-privileges",
         ]
         .iter()
+        .chain(LIMITS)
         .map(|s| s.to_string())
         .collect();
+        // The image ends as root, which without capabilities cannot write the
+        // directory, and the embedding model is in vscode's home.
+        argv.push(format!("--user={}", self.user));
+        argv.push("--env=HOME=/home/vscode".to_string());
         argv.push(format!("--volume={}:/memory", self.dir.display()));
         argv.push("--env=ORT_INTRA_OP_NUM_THREADS=1".to_string());
         argv.push("--env=HF_HUB_OFFLINE=1".to_string());
@@ -229,6 +255,13 @@ impl Vipune for InImage {
         if std::fs::create_dir_all(&self.dir).is_err() {
             return (String::new(), no("has no directory for its databases"), 1);
         }
+        if full(&self.dir, cycle, planned) {
+            return (
+                String::new(),
+                no(&format!("of this cycle is full ({} MiB)", MAX_DB >> 20)),
+                1,
+            );
+        }
         let out = Command::new("timeout")
             .args(["-k", "5", &WAIT.to_string()])
             .arg(&self.docker)
@@ -249,6 +282,23 @@ impl Vipune for InImage {
     fn forget(&self, cycle: &str) {
         forget_in(&self.dir, cycle);
     }
+}
+
+/// Whether `planned` is an `add` and the database of `cycle` in `dir` holds
+/// [`MAX_DB`] bytes or more.
+pub fn full(dir: &Path, cycle: &str, planned: &Planned) -> bool {
+    let adds = planned
+        .args
+        .iter()
+        .take_while(|a| *a != "--")
+        .find(|a| !a.starts_with('-'))
+        .is_some_and(|v| v == "add");
+    let size: u64 = ["", "-wal"]
+        .iter()
+        .filter_map(|end| std::fs::symlink_metadata(dir.join(format!("{cycle}.db{end}"))).ok())
+        .map(|m| m.len())
+        .sum();
+    adds && size >= MAX_DB
 }
 
 /// The database of `cycle` in `dir` gone, with the files SQLite keeps beside it.
@@ -435,6 +485,7 @@ mod tests {
         let i = InImage {
             docker: "docker".into(),
             image: "tehas/pi-rukas:uid1000".into(),
+            user: "1000:1000".into(),
             dir: "/h/state/memory/cycles".into(),
         };
         let p = plan(
@@ -451,6 +502,12 @@ mod tests {
                 "--network=none",
                 "--cap-drop=ALL",
                 "--security-opt=no-new-privileges",
+                "--memory=2g",
+                "--memory-swap=2g",
+                "--pids-limit=256",
+                "--cpus=2",
+                "--user=1000:1000",
+                "--env=HOME=/home/vscode",
                 "--volume=/h/state/memory/cycles:/memory",
                 "--env=ORT_INTRA_OP_NUM_THREADS=1",
                 "--env=HF_HUB_OFFLINE=1",
@@ -464,6 +521,30 @@ mod tests {
                 "q",
             ])
         );
+    }
+
+    #[test]
+    fn an_add_to_a_full_database_is_refused_and_a_search_is_not() {
+        let d = tehas_core::testdir::TestDir::new("memory-full");
+        let dir = d.join("");
+        let add = plan(&args(&["--json", "add", "x"]), &[], REPO).unwrap();
+        let search = plan(&args(&["search", "add"]), &[], REPO).unwrap();
+        assert!(!full(&dir, "job-7", &add));
+        std::fs::write(d.join("job-7.db"), vec![0u8; (MAX_DB / 2) as usize]).unwrap();
+        assert!(!full(&dir, "job-7", &add));
+        std::fs::write(d.join("job-7.db-wal"), vec![0u8; (MAX_DB / 2) as usize]).unwrap();
+        assert!(full(&dir, "job-7", &add));
+        assert!(!full(&dir, "job-7", &search));
+        assert!(!full(&dir, "job-8", &add));
+        let i = InImage {
+            docker: "/nonexistent/docker".into(),
+            image: "img".into(),
+            user: "1000:1000".into(),
+            dir,
+        };
+        let (out, err, rc) = i.call("job-7", &add, REPO);
+        assert_eq!((out.as_str(), rc), ("", 1));
+        assert!(err.contains("full"), "{err}");
     }
 
     #[test]
