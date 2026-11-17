@@ -7,6 +7,9 @@
 // side by side, so the tests of nine files now run at once. Each takes its own
 // directory under the temporary directory, named after itself, and binds no
 // port: the server's tests ask for port 0 and read the port back.
+// `common` holds what the suites share: the check of an answer against its
+// tool's outputSchema.
+mod common;
 mod decisions;
 mod events;
 mod logs;
