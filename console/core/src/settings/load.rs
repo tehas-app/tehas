@@ -90,7 +90,7 @@ const KEPT: &[&str] = &[
     "TEHAS_ENERGY",
     "TEHAS_ENERGY_URL",
     "TEHAS_ENERGY_SOURCE_URL",
-    "TEHAS_INDUSTRY_VERSION",
+    "TEHAS_MANAGER_VERSION",
     "TEHAS_MCP",
     "TEHAS_MCP_KEYS",
     "TEHAS_MCP_DASHBOARD_KEYS",
@@ -529,13 +529,13 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
             or_default(vars, setting.name, default.to_string());
         }
     }
-    let ceiling = if has(vars, "TEHAS_TICKET_CONCURRENCY") {
+    let ceiling = if has(vars, "TEHAS_MAX_CYCLES") {
         String::new()
     } else {
         host.cpus().saturating_sub(1).max(1).to_string()
     };
-    or_default(vars, "TEHAS_TICKET_CONCURRENCY", ceiling);
-    let tickets = vars.text("TEHAS_TICKET_CONCURRENCY");
+    or_default(vars, "TEHAS_MAX_CYCLES", ceiling);
+    let tickets = vars.text("TEHAS_MAX_CYCLES");
     let awaiting = if rules::is_count(&tickets) {
         tickets.parse::<u64>().unwrap_or(0) + 2
     } else {
@@ -560,7 +560,7 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     or_default(vars, "PI_ENSEMBLE_HOST_ALIASES", String::new());
     // pi-rukas reads this name, and its own default is more than one, so it is
     // always told.
-    let concurrency = vars.text("TEHAS_CONCURRENCY");
+    let concurrency = vars.text("TEHAS_WORKSTREAMS");
     vars.set("PI_ENSEMBLE_MAX_WORKSTREAMS", concurrency);
     // pi-rukas reads the bound of a gate in ms under three names: a
     // workstream's gate, the gate on the combined tree, and the suite tier
@@ -686,9 +686,9 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_GITHUB_APP_ID is not set: run tehas setup --new-app, or give --app-id and --app-key-file (see {file})"
         ));
     }
-    if some("TEHAS_ANALYTICS_SRC") && !some("TEHAS_ANALYTICS_SITE") {
+    if some("TEHAS_SITE_ANALYTICS_SRC") && !some("TEHAS_SITE_ANALYTICS_NAME") {
         return Err(format!(
-            "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see {file})"
+            "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is (see {file})"
         ));
     }
     // A model's findings go to a repository of their own, where a person
@@ -720,12 +720,12 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
     // of several. Both would multiply the agents and the gates on the same
     // CPUs.
     let (streams, tickets) = (
-        number(vars, "TEHAS_CONCURRENCY"),
-        number(vars, "TEHAS_TICKET_CONCURRENCY"),
+        number(vars, "TEHAS_WORKSTREAMS"),
+        number(vars, "TEHAS_MAX_CYCLES"),
     );
     if streams > 1 && tickets > 1 {
         return Err(format!(
-            "TEHAS_CONCURRENCY ({streams}) and TEHAS_TICKET_CONCURRENCY ({tickets}) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see {file})"
+            "TEHAS_WORKSTREAMS ({streams}) and TEHAS_MAX_CYCLES ({tickets}) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_MAX_CYCLES=1 (see {file})"
         ));
     }
     // The cycle's time bounds in the order they must sit in: the gate under
@@ -1065,8 +1065,8 @@ mod tests {
             ("TEHAS_HOME", "/h/tehas"),
             ("TEHAS_WORK_REPO", "/h/tehas/repos/widget"),
             ("TEHAS_WORK_DIR", "/h/tehas/work/widget"),
-            ("TEHAS_CONCURRENCY", "1"),
-            ("TEHAS_TICKET_CONCURRENCY", "7"),
+            ("TEHAS_WORKSTREAMS", "1"),
+            ("TEHAS_MAX_CYCLES", "7"),
             ("TEHAS_MAX_AWAITING", "9"),
             ("TEHAS_PLAN_TIMEOUT", "7200"),
             ("TEHAS_CHILD_TIMEOUT", "7200"),
@@ -1094,11 +1094,11 @@ mod tests {
         let vars = loads(&[
             "TEHAS_PLAN_TIMEOUT=",
             "TEHAS_CHILD_TIMEOUT=",
-            "TEHAS_INDEXING=",
+            "TEHAS_SITE_INDEXING=",
         ]);
         assert_eq!(vars.text("TEHAS_PLAN_TIMEOUT"), "7200");
         assert_eq!(vars.text("TEHAS_CHILD_TIMEOUT"), "7200");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
     }
 
     #[test]
@@ -1194,12 +1194,12 @@ mod tests {
     #[test]
     fn a_switch_is_exported_in_the_form_its_readers_know() {
         let vars = loads(&[
-            "TEHAS_INDEXING=on",
+            "TEHAS_SITE_INDEXING=on",
             "TEHAS_PREVIEWS=off",
             "TEHAS_TOP=1",
             "TEHAS_ANALYTICS=0",
         ]);
-        assert_eq!(vars.text("TEHAS_INDEXING"), "1");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "1");
         assert_eq!(vars.text("TEHAS_PREVIEWS"), "0");
         assert_eq!(vars.text("TEHAS_TOP"), "1");
         assert_eq!(vars.text("TEHAS_ANALYTICS"), "off");
@@ -1323,7 +1323,7 @@ mod tests {
 
     #[test]
     fn a_ceiling_the_instance_names_asks_no_host() {
-        let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=4"]);
+        let mut host = Fake::with(&["TEHAS_MAX_CYCLES=4"]);
         let (vars, got) = run(&mut host);
         assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_MAX_AWAITING"), "6");
@@ -1336,17 +1336,17 @@ mod tests {
             let mut host = Fake::with(&[]);
             host.cpus = cpus;
             let (vars, _) = run(&mut host);
-            assert_eq!(vars.text("TEHAS_TICKET_CONCURRENCY"), "1");
+            assert_eq!(vars.text("TEHAS_MAX_CYCLES"), "1");
         }
     }
 
     #[test]
     fn a_concurrency_that_is_no_number_leaves_the_floor_of_three() {
-        let mut host = Fake::with(&["TEHAS_TICKET_CONCURRENCY=two"]);
+        let mut host = Fake::with(&["TEHAS_MAX_CYCLES=two"]);
         let (vars, got) = run(&mut host);
         assert!(got
             .unwrap_err()
-            .starts_with("TEHAS_TICKET_CONCURRENCY is not valid"));
+            .starts_with("TEHAS_MAX_CYCLES is not valid"));
         assert_eq!(vars.text("TEHAS_MAX_AWAITING"), "3");
     }
 
@@ -1354,22 +1354,22 @@ mod tests {
     fn the_environment_gives_only_the_kept_names() {
         let mut vars = start(&[
             ("TEHAS_REPO", "other/thing"),
-            ("TEHAS_INDEXING", "1"),
+            ("TEHAS_SITE_INDEXING", "1"),
             ("PI_ENSEMBLE_DEBUG", "1"),
             ("TEHAS_WORK_CMD", "fake-work"),
             ("TEHAS_MODEL_KEY_FLEET", "t0"),
             ("PI_RUKAS_FOLLOW", "release"),
-            ("TEHAS_INDUSTRY_VERSION", "v0.9.0"),
+            ("TEHAS_MANAGER_VERSION", "v0.9.0"),
         ]);
         let before = vars.clone();
         assert_eq!(load(&mut vars, &mut Fake::with(&[]), "1"), Ok(()));
         assert_eq!(vars.text("TEHAS_REPO"), "acme/widget");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
         assert!(!vars.is_set("PI_ENSEMBLE_DEBUG"));
         assert_eq!(vars.text("TEHAS_WORK_CMD"), "fake-work");
         assert_eq!(vars.text("TEHAS_MODEL_KEY_FLEET"), "t0");
         assert_eq!(vars.text("PI_RUKAS_FOLLOW"), "release");
-        assert_eq!(vars.text("TEHAS_INDUSTRY_VERSION"), "v0.9.0");
+        assert_eq!(vars.text("TEHAS_MANAGER_VERSION"), "v0.9.0");
         let text = String::from_utf8(script(&before, &vars)).unwrap();
         assert!(text.contains("unset -v PI_ENSEMBLE_DEBUG\n"), "{text}");
         assert!(!text.contains("TEHAS_WORK_CMD"), "{text}");
@@ -1472,7 +1472,7 @@ mod tests {
             "/i/instance.env could not be read as shell"
         );
         assert_eq!(vars.text("TEHAS_REPO"), "acme/widget");
-        assert!(!vars.is_set("TEHAS_INDEXING"));
+        assert!(!vars.is_set("TEHAS_SITE_INDEXING"));
     }
 
     #[test]
@@ -1631,7 +1631,9 @@ mod tests {
 
     #[test]
     fn the_first_setting_of_the_table_is_the_one_told() {
-        assert!(refused(&["TEHAS_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_INDEXING"));
+        assert!(
+            refused(&["TEHAS_SITE_INDEXING=2", "TEHAS_TOP=9"]).starts_with("TEHAS_SITE_INDEXING")
+        );
         assert!(refused(&["TEHAS_TOP=9", "TEHAS_BRANCH=a b"]).starts_with("TEHAS_TOP"));
     }
 
@@ -1674,8 +1676,8 @@ mod tests {
                 "TEHAS_RUKAS_WORKAROUNDS names TEHAS_RUKAS_WORKAROUNDS, which is not set",
             ),
             (
-                &["TEHAS_ANALYTICS_SRC=https://a.example/x.js"][..],
-                "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is",
+                &["TEHAS_SITE_ANALYTICS_SRC=https://a.example/x.js"][..],
+                "TEHAS_SITE_ANALYTICS_NAME is not set and TEHAS_SITE_ANALYTICS_SRC is",
             ),
             (
                 &["TEHAS_REVIEW_REPO=Acme/Widget"][..],
@@ -1694,8 +1696,8 @@ mod tests {
                 "TEHAS_WORK_ZIPS is on and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is",
             ),
             (
-                &["TEHAS_CONCURRENCY=2", "TEHAS_TICKET_CONCURRENCY=3"][..],
-                "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (3) are both above 1",
+                &["TEHAS_WORKSTREAMS=2", "TEHAS_MAX_CYCLES=3"][..],
+                "TEHAS_WORKSTREAMS (2) and TEHAS_MAX_CYCLES (3) are both above 1",
             ),
             (
                 &["TEHAS_WORK_STALL=1800"][..],
@@ -1941,7 +1943,7 @@ mod tests {
         ]));
         assert!(got.is_err());
         assert_eq!(vars.text("TEHAS_GITHUB_APP_ID"), "7");
-        assert_eq!(vars.text("TEHAS_INDEXING"), "0");
+        assert_eq!(vars.text("TEHAS_SITE_INDEXING"), "0");
         assert!(!vars.is_set("TEHAS_CYCLE_MIN_FREE_MB"));
     }
 

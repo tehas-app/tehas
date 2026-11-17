@@ -55,8 +55,8 @@ kept_names() {
 # word is taken only while it stands at the front of the row and looks like a
 # name: letters, digits and an underscore, and at the end a `<ROLE>` of the two
 # rows of the PI_ENSEMBLE_ family. The words of the one row of two settings,
-# `TEHAS_ANALYTICS_SRC`, `_SITE`, are both such words, and the second is written
-# with `TEHAS_ANALYTICS_` taken off, so that one word is named here for its
+# `TEHAS_SITE_ANALYTICS_SRC`, `_NAME`, are both such words, and the second is written
+# with `TEHAS_SITE_ANALYTICS` taken off, so that one word is named here for its
 # whole name. The comma between them stands outside both pairs of backticks, so
 # it is the field between them and reaches this parse as nothing; a comma inside
 # one pair, as the one of `tehas:ready`, `tehas:plan` in the meaning of another
@@ -68,7 +68,7 @@ manual_names() {
     on && /^## / { exit }
     on && /^\| / { for (i = 2; i <= NF && ($i ~ /^[A-Za-z_]+,?$/ || $i ~ /^[A-Za-z_]+<[^>]*>$/); i += 2) printf "%s\n", $i }
   ' "$tools" | sed 's/,$//' |
-    sed -n -e '/^_SITE$/s//TEHAS_ANALYTICS_SITE/p' \
+    sed -n -e '/^_NAME$/s//TEHAS_SITE_ANALYTICS_NAME/p' \
       -e '/^TEHAS_[A-Z0-9_]*$/p' -e '/^PI_ENSEMBLE_[A-Z0-9_]*\(<[^>]*>\)?$/p' -e '/^PI_ENSEMBLE_[A-Z_]*$/p' | sort -u
 }
 
@@ -98,12 +98,12 @@ done
 t_contains "$loader" TEHAS_REPO
 t_contains "$loader" TEHAS_REVIEW_REPO
 t_contains "$loader" TEHAS_UPDATE_FROM
-t_contains "$loader" TEHAS_TICKET_CONCURRENCY
+t_contains "$loader" TEHAS_MAX_CYCLES
 
 t_case "the manual's table is read, and the short name of the analytics row counts"
 t_contains "$manual" TEHAS_REPO
-t_contains "$manual" TEHAS_ANALYTICS_SRC
-t_contains "$manual" TEHAS_ANALYTICS_SITE
+t_contains "$manual" TEHAS_SITE_ANALYTICS_SRC
+t_contains "$manual" TEHAS_SITE_ANALYTICS_NAME
 t_contains "$manual" PI_ENSEMBLE_SUBAGENT_MODEL
 
 t_case "every setting of the loader's table has a row in the manual"
@@ -141,8 +141,8 @@ for name in $manual; do
 done
 [ -z "$extra" ] || t_bad "no setting behind the rows:$extra"
 
-# TEHAS_ANALYTICS_SITE is in the loader's table, so the row that names it by the
-# short `_SITE` is checked the other way round: with the name taken out of the
+# TEHAS_SITE_ANALYTICS_NAME is in the loader's table, so the row that names it by the
+# short `_NAME` is checked the other way round: with the name taken out of the
 # manual's list the case above finds it missing from the manual.
 for name in $loader; do
   has "$name" "$manual" || not_set="$not_set $name"

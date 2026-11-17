@@ -1221,10 +1221,10 @@ fn missing_setting(vars: &Vars) -> Option<String> {
     })
 }
 
-/// TEHAS_OWNER, when set, is a login GitHub assigns on the repository:
+/// TEHAS_ASSIGNEE, when set, is a login GitHub assigns on the repository:
 /// GET repos/{repo}/assignees/{login} answers 204 for one, 404 for others.
 fn unassignable_owner(vars: &Vars) -> Option<String> {
-    let owner = vars.text("TEHAS_OWNER");
+    let owner = vars.text("TEHAS_ASSIGNEE");
     if owner.is_empty() {
         return None;
     }
@@ -1241,7 +1241,7 @@ fn unassignable_owner(vars: &Vars) -> Option<String> {
     let dir = vars.text("TEHAS_INSTANCE_DIR");
     (status_of(asked) != 0).then(|| {
         format!(
-            "TEHAS_OWNER is not valid: GitHub does not say {owner} can be assigned issues in {repo} (see {dir}/instance.env)"
+            "TEHAS_ASSIGNEE is not valid: GitHub does not say {owner} can be assigned issues in {repo} (see {dir}/instance.env)"
         )
     })
 }

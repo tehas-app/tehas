@@ -124,6 +124,28 @@ t_contains "$t_out" "INVALID"
 t_contains "$t_out" "TEHAS_BOT_LOGIN is no longer read"
 t_contains "$t_out" "TEHAS_GITHUB_APP_INSTALLATION is no longer read"
 
+t_case "a 0.30 instance: every line tehas 1.0 renamed or removed is listed, and nothing is installed"
+fresh
+instance TEHAS_TICKET_CONCURRENCY=3 TEHAS_OWNER=alice TEHAS_EASY_MERGE=0 TEHAS_INDEXING=on
+mkdir -p "$home/.config/tehas" && printf 'TEHAS_INDUSTRY_VERSION=v0.9.0\n' >"$home/.config/tehas/env"
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "INVALID"
+t_contains "$t_out" "TEHAS_INDEXING is no longer read: tehas 1.0 renamed it TEHAS_SITE_INDEXING"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is no longer read: tehas 1.0 renamed it TEHAS_MAX_CYCLES"
+t_contains "$t_out" "TEHAS_OWNER is no longer read: tehas 1.0 renamed it TEHAS_ASSIGNEE"
+t_contains "$t_out" "TEHAS_INDUSTRY_VERSION is no longer read: tehas 1.0 renamed it TEHAS_MANAGER_VERSION"
+t_lacks "$t_out" "TEHAS_EASY_MERGE"
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "renamed it TEHAS_MAX_CYCLES"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(find "$home" -type f ! -path '*/.config/tehas/env' | wc -l)" 0
+rm -f "$home/.config/tehas/env"
+instance TEHAS_MAX_CYCLES=3 TEHAS_ASSIGNEE=alice TEHAS_SITE_INDEXING=on
+t_run "$install --check"
+t_lacks "$t_out" "INVALID"
+
 t_case "a refused token next to the old app settings is named first and installs nothing"
 fresh
 instance TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=old-bot[bot]"

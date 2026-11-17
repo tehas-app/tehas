@@ -40,7 +40,7 @@
   {
    "case": "a cold start is limited by the reserve: with room for two, two of four start",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "ready_n": [
     7,
@@ -65,7 +65,7 @@
   {
    "case": "a cold start is limited by the reserve: the dry run",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "ready_n": [
     7,
@@ -84,7 +84,7 @@
   {
    "case": "running cycles with no container yet count one reserve each",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 4
+    "TEHAS_MAX_CYCLES": 4
    },
    "ready_n": [
     7,
@@ -108,7 +108,7 @@
   {
    "case": "a running cycle's container counts at its floor or its use, whichever is more",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 6
+    "TEHAS_MAX_CYCLES": 6
    },
    "ready_n": [
     7,
@@ -145,7 +145,7 @@
   {
    "case": "another container's memory lowers the room while cycles are young",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 6
+    "TEHAS_MAX_CYCLES": 6
    },
    "ready_n": [
     7,
@@ -174,7 +174,7 @@
   {
    "case": "reclaimable slab and file cache do not lower the room",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 6
+    "TEHAS_MAX_CYCLES": 6
    },
    "ready_n": [
     7,
@@ -270,7 +270,7 @@
   {
    "case": "a memory.stat with no slab_reclaimable line counts its kernel whole",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -351,7 +351,7 @@
   {
    "case": "a missing cgroup directory under running cycles holds while the slice is active",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     9
@@ -371,7 +371,7 @@
   {
    "case": "a cycle between containers in a slice that is not active is one reserve",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "hold": [
     9
@@ -457,7 +457,7 @@
   {
    "case": "a full disk: nothing starts, no label is edited",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -478,7 +478,7 @@
   {
    "case": "a full disk: the dry run says the figure",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -501,7 +501,7 @@
   {
    "case": "at the minimum a ready issue starts, and the figure is not said",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -527,7 +527,7 @@
   {
    "case": "one kilobyte under the minimum holds",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,
@@ -546,7 +546,7 @@
   {
    "case": "the instance's minimum is the one that is asked of",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_CYCLE_MIN_FREE": "40g"
    },
    "snapshot": {
@@ -562,7 +562,7 @@
   {
    "case": "a disk whose free space cannot be read holds",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "disk_kb": null
@@ -582,7 +582,7 @@
   {
    "case": "a disk whose free space cannot be read holds: the dry run",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "disk_kb": null
@@ -648,7 +648,7 @@
   {
    "case": "the slice is told of before a full disk",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "no_slice": true,
    "snapshot": {
@@ -666,7 +666,7 @@
   {
    "case": "an unreadable slice is told of before a full disk",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "disk_kb": 1048576,
@@ -683,7 +683,7 @@
   {
    "case": "the model endpoint is told of before a full disk",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "snapshot": {
     "disk_kb": 1048576,
@@ -706,7 +706,7 @@
   {
    "case": "a full disk leaves a running cycle alone",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "ready_n": [
     7,

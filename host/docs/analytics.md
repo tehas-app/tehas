@@ -13,7 +13,7 @@ fetch a copy and do deeper analysis elsewhere.
 
 This is about how the factory works, not about the product: nothing in it says
 what changed in which file. It is not the visitor analytics of
-`TEHAS_ANALYTICS_SRC`, which counts visits to the pages.
+`TEHAS_SITE_ANALYTICS_SRC`, which counts visits to the pages.
 
 ## What is recorded, and when
 

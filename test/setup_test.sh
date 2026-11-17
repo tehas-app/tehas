@@ -183,15 +183,15 @@ t_eq "$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git conf
 t_case "an owner GitHub assigns is taken; one it does not is 78 before the clone"
 stub_all
 cp "$cfg/instance.env" "$T/instance.env.kept"
-echo TEHAS_OWNER=alice >>"$cfg/instance.env"
+echo TEHAS_ASSIGNEE=alice >>"$cfg/instance.env"
 run_setup --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 0
 t_contains "$(t_calls shim)" "api repos/acme/widget/assignees/alice --silent"
 stub_all
-sed -i 's/^TEHAS_OWNER=alice$/TEHAS_OWNER=dave/' "$cfg/instance.env"
+sed -i 's/^TEHAS_ASSIGNEE=alice$/TEHAS_ASSIGNEE=dave/' "$cfg/instance.env"
 run_setup --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_OWNER is not valid: GitHub does not say dave can be assigned issues in acme/widget"
+t_contains "$t_out" "TEHAS_ASSIGNEE is not valid: GitHub does not say dave can be assigned issues in acme/widget"
 t_lacks "$(t_calls steps)" "install.sh"
 mv "$T/instance.env.kept" "$cfg/instance.env"
 

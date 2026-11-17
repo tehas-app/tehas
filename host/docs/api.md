@@ -229,7 +229,7 @@ tehas status --json
 | `held.why` | One word for the reason: `parked` when its last cycle parked and its body has not changed since. Treat it as an open list |
 | `held.text` | The reason for a person. Do not parse it |
 | `held.clear` | What a person does to release it, such as editing the body or ticking Retry on the park comment |
-| `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY`. Below 0 when more cycles run than it allows, as after it was lowered |
+| `room.cycles` | Free slots under `TEHAS_MAX_CYCLES`. Below 0 when more cycles run than it allows, as after it was lowered |
 | `room.refreshes` | Free slots of the refresh lane, `TEHAS_REFRESH_SLOTS`; left out when no lane is kept: `TEHAS_REFRESH_SLOTS=0`, or no refresh request waiting and no refresh running |
 | `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
 | `room.slice` | Cycles `tehas.slice` has room for |
@@ -295,7 +295,7 @@ and `state`.
 | Field | Meaning |
 | --- | --- |
 | `state` | `none`, `ok`, `expired` or `unreadable` |
-| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
+| `cycles` | The most cycles running at once, a whole number from 0 to 9999: `tehas limit set` refuses anything above it with 64 (console/ops/src/flags.rs). Room for a new cycle is the smaller of `cycles` and `TEHAS_MAX_CYCLES`, less the cycles running, then the slice and `TEHAS_MAX_AWAITING` as always |
 | `plan` | `false`: no new planning session. An answer to a planning question still runs: someone is waiting on it |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`: 20 characters, the month 01 to 12, the day 01 to 31, the hour to 23, the minute and second to 59, or 60 for the second. Left out when it lasts until cleared. An `until` of another shape makes the limit `unreadable` |
 | `reason` | Shown as the hold's reason. One line of at most 200 characters, counted as characters; control characters become spaces. Left out when empty |
@@ -1347,7 +1347,7 @@ console settings rules --json
   "required": ["TEHAS_REPO", "TEHAS_CONTROL_ISSUE", "TEHAS_ALLOWED_LABELERS", "PI_ENSEMBLE_SUBAGENT_MODEL", "PI_ENSEMBLE_SUBAGENT_PROVIDER"],
   "roles": ["DEVELOPER", "OPS", "EXPLORE", "ADVERSARIAL_DEVELOPER", "CODE_REVIEW_SPECIALIST"],
   "settings": [
-    {"name": "TEHAS_INDEXING", "rule": "one-of", "when": "always", "default": "0", "words": ["on", "off", "1", "0"], "reason": "expected on or off"},
+    {"name": "TEHAS_SITE_INDEXING", "rule": "one-of", "when": "always", "default": "0", "words": ["on", "off", "1", "0"], "reason": "expected on or off"},
     {"name": "TEHAS_REPO", "rule": "repo", "when": "required", "default": null, "reason": "expected owner/name"}
   ]
 }

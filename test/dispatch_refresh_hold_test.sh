@@ -91,9 +91,9 @@ jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-17T10:00:00Z", pr: 50, he
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c 'issue comment 7 .*does not refresh')" 1
 
-t_case "TEHAS_REFRESH_MAX sets the cap"
+t_case "TEHAS_REFRESH_MAX_PER_PR sets the cap"
 refresh_setup
-slots 2 TEHAS_REFRESH_MAX=3
+slots 2 TEHAS_REFRESH_MAX_PER_PR=3
 refresh_record 2
 t_run "$dispatch"
 t_eq "$(started)" "7 "
@@ -220,7 +220,7 @@ t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: the refresh lane is full (1 of 1)"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "a running refresh does not count against TEHAS_TICKET_CONCURRENCY"
+t_case "a running refresh does not count against TEHAS_MAX_CYCLES"
 refresh_setup
 slots 1
 rm "$refresh_dir/7.json"

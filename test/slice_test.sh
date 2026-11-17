@@ -204,7 +204,7 @@ t_contains "$t_out" "rc=78"
 
 t_case "limits without a concurrency says it could not make them"
 good
-t_run "$pre"'TEHAS_TICKET_CONCURRENCY=; '"${limits#"$pre"}"
+t_run "$pre"'TEHAS_MAX_CYCLES=; '"${limits#"$pre"}"
 t_contains "$t_out" "tehas t: the container limits could not be made, not starting"
 t_contains "$t_out" "rc=78"
 

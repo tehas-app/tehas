@@ -97,8 +97,8 @@ struct Given {
     /// The whole answer of `store poll-idle`: what the idle polls measured.
     poll_idle: Option<String>,
     mcp: Option<String>,
-    /// TEHAS_INDUSTRY_VERSION: the industry that runs this factory.
-    industry: Option<String>,
+    /// TEHAS_MANAGER_VERSION: the program that manages this factory.
+    manager: Option<String>,
 }
 
 /// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
@@ -361,7 +361,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_budget,
         poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
-        industry: env::var("TEHAS_INDUSTRY_VERSION").ok(),
+        manager: env::var("TEHAS_MANAGER_VERSION").ok(),
     })
 }
 
@@ -918,7 +918,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let usage = || {
         eprintln!(
-            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--industry <version>]"
+            "console health: usage: run <home> | report <home> [--sessions <json>] [--units <text>] [--backup <json>] [--poll-over <json> --poll-budget <spec> [--poll-idle <json>]] [--mcp <json>] [--manager <version>]"
         );
         2
     };
@@ -940,7 +940,7 @@ pub fn main(given: &[String]) -> u8 {
             "--poll-budget" => g.poll_budget = Some(v),
             "--poll-idle" => g.poll_idle = Some(v),
             "--mcp" => g.mcp = Some(v),
-            "--industry" => g.industry = Some(v),
+            "--manager" => g.manager = Some(v),
             _ => return usage(),
         }
     }
@@ -1076,10 +1076,10 @@ fn rukas(live: &Path) -> J {
     }
 }
 
-/// `{version}` of the industry that runs this factory. None for a
-/// factory with none, and for a value that is no version: either way health
-/// and the footer say nothing of an industry.
-fn industry(given: Option<&str>) -> Option<J> {
+/// `{version}` of the program that manages this factory. None for a factory
+/// with none, and for a value that is no version: either way health and the
+/// footer say nothing of a manager.
+fn manager(given: Option<&str>) -> Option<J> {
     let v = given?;
     let rest = v.strip_prefix('v')?;
     let (core, pre) = rest.split_once('-').unwrap_or((rest, ""));
@@ -1578,7 +1578,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let plans = plans(home, &sessions);
     let limit = limit(home, now);
     let order = order(home);
-    let industry_check = industry(g.industry.as_deref());
+    let manager_check = manager(g.manager.as_deref());
     let (host_messages_check, host_messages) = host_messages(home);
     let message_line = host_messages.as_deref().and_then(host_message_line);
     let messages_unreadable = host_messages.is_none();
@@ -1997,8 +1997,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("github", github_check),
         ("hostMessages", host_messages_check),
     ];
-    if let Some(i) = industry_check {
-        checks.push(("industry", i));
+    if let Some(i) = manager_check {
+        checks.push(("manager", i));
     }
     // TEHAS_READ_ONLY (#608): said only when on, so a health file of any
     // other instance is as it was.
@@ -2787,20 +2787,20 @@ mod tests {
     }
 
     #[test]
-    fn an_industry_version_is_reported_and_none_or_a_bad_one_is_left_out() {
-        let h = home("industry");
+    fn a_manager_version_is_reported_and_none_or_a_bad_one_is_left_out() {
+        let h = home("manager");
         let with = |v: Option<&str>| {
             h.report(&Given {
-                industry: v.map(str::to_string),
+                manager: v.map(str::to_string),
                 ..Given::default()
             })
         };
         let r = with(Some("v0.9.0"));
-        assert_eq!(r.at(&["checks", "industry", "version"]).text(), "v0.9.0");
+        assert_eq!(r.at(&["checks", "manager", "version"]).text(), "v0.9.0");
         assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
         assert_eq!(
             with(Some("v1.2.3-rc.1"))
-                .at(&["checks", "industry", "version"])
+                .at(&["checks", "manager", "version"])
                 .text(),
             "v1.2.3-rc.1"
         );
@@ -2818,7 +2818,7 @@ mod tests {
             let J::Obj(checks) = r.get("checks") else {
                 panic!("no checks")
             };
-            assert!(!checks.iter().any(|(k, _)| k == "industry"), "{none:?}");
+            assert!(!checks.iter().any(|(k, _)| k == "manager"), "{none:?}");
             assert_eq!(
                 said(&r),
                 ("pass".into(), "Idle, taking work.".into()),

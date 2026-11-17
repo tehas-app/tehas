@@ -42,10 +42,10 @@ Rules, in order:
      whose work is done or that nobody has heard from is stopped and a mark
      with no cycle behind it is cleared. The poll ends after that, before
      rule 4.
-  2. At most TEHAS_TICKET_CONCURRENCY cycles run at once. With
+  2. At most TEHAS_MAX_CYCLES cycles run at once. With
      TEHAS_REFRESH_SLOTS above 0, while a refresh request waits or a refresh
      runs, refreshes run in a lane of their own: at most TEHAS_REFRESH_SLOTS
-     of them, not counted against TEHAS_TICKET_CONCURRENCY, and new cycles
+     of them, not counted against TEHAS_MAX_CYCLES, and new cycles
      leave as many containers of the slice's room as the lane has free. A running cycle is
      a refresh when the state store says it started as one.
      An open issue marked tehas:running whose cycle holds no lock on this
@@ -112,7 +112,7 @@ Rules, in order:
      person approved, renamed or edited by nobody else since; the pull
      request is still the one open pull request that closes it, the bot's,
      at the head the request names, and GitHub says it is CONFLICTING.
-     Fewer than TEHAS_REFRESH_MAX refreshes of it since that approval, and
+     Fewer than TEHAS_REFRESH_MAX_PER_PR refreshes of it since that approval, and
      none that parked. A request that fails a check goes, and the log says
      why; one held by its cap or a park says so on the issue once. A pull
      request that carries tehas:refreshing waits. The start puts
@@ -231,8 +231,8 @@ Instance settings (lib/config.sh; defaults in brackets):
   TEHAS_CONTROL_ISSUE       issue that carries tehas:pause, required
   TEHAS_ALLOWED_LABELERS    space-separated logins, required
   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
-                            cycles allowed [TEHAS_TICKET_CONCURRENCY + 2]
-  TEHAS_TICKET_CONCURRENCY  the most cycles side by side [the host's CPUs
+                            cycles allowed [TEHAS_MAX_CYCLES + 2]
+  TEHAS_MAX_CYCLES  the most cycles side by side [the host's CPUs
                             minus one]
   TEHAS_CYCLE_RESERVE       memory one container is promised, the unit the
                             slice's room is counted in [2g]
@@ -250,7 +250,7 @@ Instance settings (lib/config.sh; defaults in brackets):
                             the millwright's answers in one planning session [3]
   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
                             commit holds new cycles back, none when unset
-  TEHAS_REFRESH_MAX         refreshes of one pull request since the
+  TEHAS_REFRESH_MAX_PER_PR         refreshes of one pull request since the
                             person's approval [2]
   TEHAS_REFRESH_SLOTS       refreshes side by side in their own lane, 0 to
                             share the cycles' slots [1]

@@ -129,7 +129,7 @@ t_case "the sitemap dates every page by its file and the front page by version.t
 sitemap=$(cat "$T_ROOT/host/docs/sitemap.xml")
 t_contains "$sitemap" '<url><loc>{{ $base }}/</loc>{{ if fileExists "/version.txt" }}<lastmod>{{ (fileStat "/version.txt").ModTime.UTC.Format "2006-01-02" }}</lastmod>{{ end }}</url>'
 t_contains "$sitemap" '<url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc><lastmod>{{ (fileStat .).ModTime.UTC.Format "2006-01-02" }}</lastmod></url>'
-t_contains "$sitemap" '{{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}'
+t_contains "$sitemap" '{{- if ne (env "TEHAS_SITE_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}'
 # The date is the file's only while install leaves a page with the same bytes
 # alone (same_content in console/ops/src/update/files.rs).
 t_contains "$(cat "$T_ROOT/console/ops/src/update/files.rs")" 'if same_content(from, &e.to) {'

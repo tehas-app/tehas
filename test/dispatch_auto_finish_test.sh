@@ -24,7 +24,7 @@ record=$T/home/tehas/state/cycles/7.end-failed.json
 stopped() { # <step> <github> <why> [host]
   reset
   T_ENV+=(TEHAS_FINISH_CMD=fake-finish)
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1
   rm -f "$fx/finish-says" "$fx/finish-said"
   echo '[]' >"$fx/ready.json"
   echo '{"number":7,"state":"open","labels":[{"name":"needs-human-attention"}]}' >"$fx/work-7.json"

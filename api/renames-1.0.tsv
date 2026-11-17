@@ -24,3 +24,13 @@ setting	TEHAS_MILLWRIGHT_LOGIN		the millwright is the GitHub App's login, or the
 setting	TEHAS_BOT_LOGIN		the bot is the GitHub App's login, kept in state/github/login
 setting	TEHAS_GITHUB_APP_INSTALLATION		the installation is looked up from TEHAS_GITHUB_APP_ID
 field	status.room.slots		auto sizing is removed and the object was filled only for the auto count
+setting	TEHAS_INDEXING	TEHAS_SITE_INDEXING	search engines may index the site; same values
+setting	TEHAS_ANALYTICS_SRC	TEHAS_SITE_ANALYTICS_SRC	the site's visitor tracker; TEHAS_ANALYTICS is unchanged
+setting	TEHAS_ANALYTICS_SITE	TEHAS_SITE_ANALYTICS_NAME	the site's visitor tracker; same values
+setting	TEHAS_ANALYTICS_COOKIE	TEHAS_SITE_ANALYTICS_COOKIE	the site's visitor tracker; same values
+setting	TEHAS_CONCURRENCY	TEHAS_WORKSTREAMS	workstreams inside one cycle; same values
+setting	TEHAS_TICKET_CONCURRENCY	TEHAS_MAX_CYCLES	the most cycles side by side; same values
+setting	TEHAS_REFRESH_MAX	TEHAS_REFRESH_MAX_PER_PR	refreshes of one pull request since its approval; same values
+setting	TEHAS_OWNER	TEHAS_ASSIGNEE	the login a claimed issue is assigned to; same values
+setting	TEHAS_INDUSTRY_VERSION	TEHAS_MANAGER_VERSION	in ~/.config/tehas/env, written by the program that manages the factory; same values
+field	factory_status.industry	factory_status.manager	the program that manages the factory, as health's checks.manager has it

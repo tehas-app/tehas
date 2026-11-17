@@ -8,7 +8,7 @@
   {
    "case": "red: a failed check on the head starts nothing and says so",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -48,7 +48,7 @@
   {
    "case": "red: a timed-out check is red too",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -72,7 +72,7 @@
   {
    "case": "red: a startup failure is red too",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -96,7 +96,7 @@
   {
    "case": "red: said on every poll while issues wait",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -123,7 +123,7 @@
   {
    "case": "red: passed, the cycles start as before",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -154,7 +154,7 @@
   {
    "case": "red: in progress, the cycles start as before",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -185,7 +185,7 @@
   {
    "case": "red: queued, the cycles start as before",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -216,7 +216,7 @@
   {
    "case": "red: a cancelled run is not read as green: nothing starts and the log says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -262,7 +262,7 @@
   {
    "case": "red: a completed run that names no conclusion is not read as green",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -299,7 +299,7 @@
   {
    "case": "red: a run whose conclusion is no conclusion GitHub answers is not read as green",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "build / verify (linux)"
    },
    "ready_n": [
@@ -333,7 +333,7 @@
   {
    "case": "red: a run that did not finish with the unknown one is pending, not green",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -370,7 +370,7 @@
   {
    "case": "red: skipped, the cycles start as before",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -401,7 +401,7 @@
   {
    "case": "red: neutral, the cycles start as before",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "ready_n": [
@@ -432,7 +432,7 @@
   {
    "case": "red: said on every poll while a run's conclusion says nothing",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -464,7 +464,7 @@
   {
    "case": "red: a pending check is said once, with why the poll could not tell",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -492,7 +492,7 @@
   {
    "case": "red: a pending check is said once: the next poll",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -521,7 +521,7 @@
   {
    "case": "red: no such check on the head, the cycles start and the log says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -542,7 +542,7 @@
   {
    "case": "red: a call that fails starts cycles and says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -563,7 +563,7 @@
   {
    "case": "red: a call that answers nonsense starts cycles and says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -582,7 +582,7 @@
   {
    "case": "red: a call whose head is no commit starts cycles and says why",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -609,7 +609,7 @@
   {
    "case": "red: no check named, the cycles start",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2
+    "TEHAS_MAX_CYCLES": 2
    },
    "expect": {
     "picked": [
@@ -620,7 +620,7 @@
   {
    "case": "red: a running cycle goes on",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "hold": [
@@ -654,7 +654,7 @@
   {
    "case": "red: green again, the hold is released",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -681,7 +681,7 @@
   {
    "case": "red: a dry run says it and starts nothing",
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "dry": true,
@@ -715,7 +715,7 @@
     "alice"
    ],
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
@@ -784,7 +784,7 @@
     }
    },
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "expect": {
@@ -853,7 +853,7 @@
     ]
    },
    "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_MAX_CYCLES": 2,
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "expect": {

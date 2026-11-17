@@ -538,8 +538,8 @@ footer of every manual page shows it. `--check` does not look at it. The
 footers of the two front pages read their versions from the factory's health
 instead (`/live/health.json`, by `fun/versions.js`): tehas from
 `checks.platform`, the pi-rukas the sandbox image runs from `checks.rukas`, and
-the industry that runs the factory from `checks.industry` when there is
-one, as `tehas v0.24.6 · pi-rukas v0.14.54 · industry v0.9.0`. The same
+the program that manages the factory from `checks.manager` when there is
+one, as `tehas v0.24.6 · pi-rukas v0.14.54 · manager v0.9.0`. The same
 module shows a banner at the top of both pages while a host message is set
 (`checks.hostMessages`, from [`tehas host-message`](/api#tehas-host-message)):
 each message's level as a word (Alert, Warning or Notice), its text, when it
@@ -1030,10 +1030,10 @@ seven limits, fourteen words on the `docker run` line:
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
 | `--cpus` | the host's CPUs less one, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
-| `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_TICKET_CONCURRENCY`, counted at most `TEHAS_SLICE_CONTAINERS` | The most processes and threads in the container |
+| `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_MAX_CYCLES`, counted at most `TEHAS_SLICE_CONTAINERS` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
-On a host with 16 CPUs and `TEHAS_TICKET_CONCURRENCY=4` a container gets
+On a host with 16 CPUs and `TEHAS_MAX_CYCLES=4` a container gets
 `--cpus 15.00 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
 `--cpus 7.00 --pids-limit 2048`.
 
@@ -1221,7 +1221,7 @@ on record with the cap `process-limit:<step>` (`process-limit` when no step
 is known) and a reason that carries the count, so `tehas history`, the park
 comment and the analytics row name it. A cap the run named stays. The comment
 and the reason also say the limit the container had, from its `pids.max`, and
-name the settings it follows, `TEHAS_TICKET_CONCURRENCY` and
+name the settings it follows, `TEHAS_MAX_CYCLES` and
 `TEHAS_SLICE_CONTAINERS`; both are among the settings on the cycle's record.
 
 A container that ends with 137 while the cycle was still running is reported
@@ -1292,7 +1292,7 @@ hold no poll and not its lock. A poll that finds the dispatcher's lock held
 for longer than half an hour says so once in the log, as
 [troubleshooting](/troubleshooting) shows.
 
-`TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
+`TEHAS_MAX_CYCLES` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
 CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
 is a ceiling: the dispatcher starts fewer while the slice has no room. A
@@ -1306,7 +1306,7 @@ it from the host. `auto` is refused with 78 and one line that says
 `auto sizing is removed`; set a number, which is also what an instance needs
 when it wants workstreams (see the axis below).
 
-`TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
+`TEHAS_WORKSTREAMS` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 1, and pi-rukas is always told it as
 `PI_ENSEMBLE_MAX_WORKSTREAMS`.
 
@@ -1322,12 +1322,12 @@ The factory has one axis of parallelism: issues side by side, one workstream
 each. The two settings would otherwise multiply, and with them the agents
 calling the model backends and the gates on the same CPUs: 4 issues of 4
 workstreams are 16 developer agents and up to 16 full gates at once, in four
-containers' quotas. So an instance may set `TEHAS_CONCURRENCY` above 1 only
-with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. With both above 1
+containers' quotas. So an instance may set `TEHAS_WORKSTREAMS` above 1 only
+with `TEHAS_MAX_CYCLES=1`, one issue at a time. With both above 1
 every command stops with exit 78 and one line that names both:
 
 ```
-tehas: TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1: choose one, ...
+tehas: TEHAS_WORKSTREAMS (4) and TEHAS_MAX_CYCLES (7) are both above 1: choose one, ...
 ```
 
 The default ceiling is the host's CPUs minus one, so on most hosts an instance
@@ -1335,8 +1335,8 @@ that wants several workstreams also sets the ticket ceiling:
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
-TEHAS_TICKET_CONCURRENCY=1
-TEHAS_CONCURRENCY=4
+TEHAS_MAX_CYCLES=1
+TEHAS_WORKSTREAMS=4
 ```
 
 It is read when a cycle starts; a running cycle keeps the value it began with.
@@ -1344,7 +1344,7 @@ Two things it does not change:
 
 - the six review passes on the finished pull request still run together
   (pi-rukas's `PI_ENSEMBLE_SPAWN_CAP`, default 64, is the ceiling there),
-- how many issues are worked on at once. That is `TEHAS_TICKET_CONCURRENCY`.
+- how many issues are worked on at once. That is `TEHAS_MAX_CYCLES`.
 
 Cycles that run side by side know nothing of each other:
 
@@ -1926,7 +1926,7 @@ machine, `libvirt-guests` is what brings the host itself back with its cycles
 still running: [Resize or restart the host](/resize).
 
 Search engines are told to stay out: every page carries `noindex` and
-`/robots.txt` disallows everything. `TEHAS_INDEXING=on` in `instance.env` turns
+`/robots.txt` disallows everything. `TEHAS_SITE_INDEXING=on` in `instance.env` turns
 that off for an instance that is published and meant to be found, and adds
 `/sitemap.xml` with the front page and the manual, each page dated by when its
 file last changed on this host (an update leaves a page with the same bytes as
@@ -1937,15 +1937,15 @@ container is created, so run the `docker compose ... up -d` line again after
 changing it.
 
 Every page carries structured data (JSON-LD) for search and answer engines,
-whatever `TEHAS_INDEXING` says: the front page describes tehas as software,
+whatever `TEHAS_SITE_INDEXING` says: the front page describes tehas as software,
 with its licence, author and source repository; each manual page is an article
 under the front page; and a page whose front matter names a section in `faq:`
 has the `###` questions of that section as an FAQ, read from the text.
 
-Visitor analytics are optional and off by default. With `TEHAS_ANALYTICS_SRC`
-(the https address of a script) and `TEHAS_ANALYTICS_SITE` (the name it reports
+Visitor analytics are optional and off by default. With `TEHAS_SITE_ANALYTICS_SRC`
+(the https address of a script) and `TEHAS_SITE_ANALYTICS_NAME` (the name it reports
 under) in `instance.env`, every page of the dashboard and the manual loads that
-script, asynchronously. `TEHAS_ANALYTICS_COOKIE=on` adds `data-cookie="true"`
+script, asynchronously. `TEHAS_SITE_ANALYTICS_COOKIE=on` adds `data-cookie="true"`
 to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.

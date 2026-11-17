@@ -12,7 +12,14 @@ t_stub nproc 'echo 12'
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
-  export TEHAS_INSTANCE_DIR=$T_ROOT/instances/$name
+  # A copy with the renames of api/renames-1.0.tsv applied, as the operator of
+  # a running factory applies them: its own directory is not edited here.
+  rm -rf "$T/shipped" && cp -R "$T_ROOT/instances/$name" "$T/shipped"
+  while IFS=$'\t' read -r kind old new _; do
+    [ "$kind" = setting ] && [ -n "$new" ] || continue
+    sed -i "s/^$old=/$new=/" "$T/shipped/instance.env"
+  done <"$T_ROOT/api/renames-1.0.tsv"
+  export TEHAS_INSTANCE_DIR=$T/shipped
   # The tokens are the host's, not the instance's: stand-ins for each it names.
   keep=("${T_ENV[@]}")
   while read -r k; do
@@ -21,7 +28,7 @@ for name in example tehas-tehas; do
     | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$TEHAS_INSTANCE_DIR/models.json")
   t_run "$install --check"
   t_lacks "$t_out" "INVALID"
-  t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
+  t_contains "$t_out" "Instance:     $T/shipped OK"
   T_ENV=("${keep[@]}")
 done
 rm -f "$T/bin/nproc"
