@@ -133,18 +133,12 @@ pub fn features(root: &Path) -> Vec<String> {
 
 /// `owner/repo#n`, each of owner and repo one or more of `[A-Za-z0-9_.-]`.
 fn is_ref(s: &str) -> bool {
-    let part = |p: &str| {
-        !p.is_empty()
-            && p.chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
-    };
-    let Some((owner, rest)) = s.split_once('/') else {
+    let Some((repo, n)) = s.split_once('#') else {
         return false;
     };
-    let Some((repo, n)) = rest.split_once('#') else {
-        return false;
-    };
-    part(owner) && part(repo) && !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())
+    tehas_core::settings::rules::is_repo(repo)
+        && !n.is_empty()
+        && n.chars().all(|c| c.is_ascii_digit())
 }
 
 /// The upstream `issue` or `PR` a polyfill's header names, the first line
