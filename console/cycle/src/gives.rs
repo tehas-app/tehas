@@ -597,6 +597,47 @@ pub fn reads_images() -> String {
     }
 }
 
+/// Whether the dispatcher's record of a start was given by an allowed account,
+/// or by the millwright on a person's approval: the images and files it links
+/// are then taken whoever opened the issue.
+pub fn record_approves(record: &str) -> bool {
+    let by = record_value(Path::new(record))
+        .and_then(|r| r.get("by").and_then(|b| b.as_str().map(String::from)))
+        .unwrap_or_default();
+    allowed(&by) || (millwright_is(&by) && millwright_base(record).is_some())
+}
+
+/// The issue's images and files for a contractor's job, made in <dir> on the
+/// factory as an in-house start makes them: the dispatcher's latest record of
+/// the issue, its approval, the issue read once, and [`issue_images`] with the
+/// instance's own settings. Err is why the job may not start; an issue with no
+/// recorded approval is one.
+pub fn for_job(home: &Path, issue: u64, dir: &Path) -> Result<(), String> {
+    let recorded = crate::start::record(home, issue, "", None)
+        .map_err(|_| "the approval of this issue could not be read".to_string())?;
+    let Some(file) = recorded.file else {
+        return Err("no approval is recorded for this issue".to_string());
+    };
+    let record = file.to_string_lossy().into_owned();
+    let word = if record_approves(&record) {
+        "approved"
+    } else {
+        ""
+    };
+    let args = [
+        "api".to_string(),
+        format!("repos/{}/issues/{issue}", env("TEHAS_REPO")),
+    ];
+    let read = call::run("gh", &args, call::GH_BOUND);
+    let made = if read.ok() {
+        issue_images(home, issue, dir, word, &record, &read.out)
+    } else {
+        Err("the issue could not be read for its images".to_string())
+    };
+    let _ = fs::remove_file(&file);
+    made
+}
+
 /// Whether <login> is one of TEHAS_ALLOWED_LABELERS.
 pub fn allowed(login: &str) -> bool {
     events::allowed_in(&env("TEHAS_ALLOWED_LABELERS"), login)
@@ -730,6 +771,24 @@ mod tests {
         }
         assert!(!same_account("", ""));
         assert!(!same_account("", "alice"));
+    }
+
+    #[test]
+    fn a_job_s_files_are_refused_for_an_issue_with_no_approval_and_nothing_is_made() {
+        let d = TestDir::new("gives-for-job");
+        let store = d.path().join("libexec/store");
+        fs::create_dir_all(store.parent().unwrap()).unwrap();
+        tehas_core::testing::write_exe(&store, "#!/bin/sh\necho '{\"view\":null}'\n").unwrap();
+        let dir = d.path().join("files");
+        assert_eq!(
+            for_job(d.path(), 7, &dir),
+            Err("no approval is recorded for this issue".to_string())
+        );
+        assert!(!dir.exists());
+        // A store that does not answer is no approval either.
+        tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 3\n").unwrap();
+        assert!(for_job(d.path(), 7, &dir).is_err());
+        assert!(!dir.exists());
     }
 
     fn person(by: &str) -> Value {

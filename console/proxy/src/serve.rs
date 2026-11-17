@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::channel::{self, Asked, Channel};
 use crate::count::{self, Row};
+use crate::download;
 use crate::egress;
 use crate::forward::{self, Answer, Upstream};
 
@@ -131,6 +132,9 @@ pub fn one_held(client: &mut TcpStream, serve: &Serve, hand: &mut Option<Ticket>
     if let (Some(call), Some(chan)) = (channel::Call::of(path), serve.channel) {
         if call == channel::Call::Egress {
             return egress_one(client, chan, method, path, &head, serve, hand);
+        }
+        if call.downloads() {
+            return download_one(client, chan, call, method, path, &head, serve);
         }
         return channel_one(client, chan, call, method, &head, length, serve);
     }
@@ -278,6 +282,172 @@ fn channel_one(
     let complete = write_json(client, &answer);
     Outcome {
         status: answer.status,
+        live,
+        usage: None,
+        complete,
+    }
+}
+
+/// The image downloads running now: [`download::IMAGES_AT_ONCE`], and a
+/// request over it waits for one to end.
+static IMAGES: download::Gate = download::Gate::new(download::IMAGES_AT_ONCE);
+
+/// What a download is admitted to: the file, the place it holds among the
+/// image downloads, and the job it was asked for.
+type Admitted = (
+    download::Pack,
+    Option<download::Held<'static>>,
+    Option<Live>,
+);
+
+/// The file a download asks for, or the refusal and whose it was.
+fn download_of(
+    chan: &Channel,
+    call: channel::Call,
+    method: &str,
+    path: &str,
+    bearer: Option<&str>,
+    name: Option<&str>,
+) -> Result<Admitted, (channel::Answer, Option<Live>)> {
+    let no = |status, word: &str| (channel::Answer::no(status, word), None);
+    if method != "GET" {
+        return Err(no(400, "a download is a GET"));
+    }
+    let Some(downloads) = chan.downloads else {
+        return Err(no(404, "no downloads here"));
+    };
+    if call == channel::Call::Image {
+        let asked = Asked {
+            call,
+            bearer,
+            name,
+            body: b"",
+        };
+        chan.contractor(&asked).map_err(|a| (a, None))?;
+        let id = path
+            .split_once('?')
+            .and_then(|(_, q)| q.split('&').find_map(|kv| kv.strip_prefix("id=")))
+            .unwrap_or_default();
+        let held = IMAGES.take();
+        return downloads
+            .image(id)
+            .map(|pack| (pack, Some(held), None))
+            .map_err(|m| no(m.status, &m.word));
+    }
+    let (live, issue) = chan.admit(call, bearer).map_err(|a| (a, None))?;
+    let pack = match call {
+        channel::Call::Index => downloads.index(),
+        channel::Call::Bundle => downloads.bundle(),
+        _ => {
+            chan.tidy_files(live.job);
+            downloads.attachments(live.job, issue)
+        }
+    };
+    match pack {
+        Ok(pack) => Ok((pack, None, Some(live))),
+        Err(m) => Err((channel::Answer::no(m.status, &m.word), Some(live))),
+    }
+}
+
+/// One download ([`crate::download`]): the caller admitted as its call
+/// requires, then the file, whole or the span its `Range` asks. A refusal is
+/// one JSON answer. The log names the call, the status, whose it was and the
+/// bytes sent, never a token.
+fn download_one(
+    client: &mut TcpStream,
+    chan: &Channel,
+    call: channel::Call,
+    method: &str,
+    path: &str,
+    head: &[u8],
+    serve: &Serve,
+) -> Outcome {
+    let began = Instant::now();
+    let end = forward::head_end(head).unwrap_or(head.len());
+    let fields = String::from_utf8_lossy(&head[..end]).into_owned();
+    let bearer = request::bearer(&fields);
+    let name = header(&fields, channel::NAME_HEADER);
+    let who = |live: &Option<Live>| match (live, &name) {
+        (Some(l), _) => format!("job {} contractor {}", l.job, l.contractor),
+        (None, Some(n)) => format!("contractor {}", log::shown(n)),
+        _ => "no job".to_string(),
+    };
+    let say = |status: u16, live: &Option<Live>, what: String| {
+        serve.sink.line(&Line(format!(
+            "{method} {}{} {status} {} ms {}{what}",
+            channel::PREFIX,
+            call.word(),
+            began.elapsed().as_millis(),
+            who(live)
+        )));
+    };
+    let refuse_with = |client: &mut TcpStream, answer: channel::Answer, live: Option<Live>| {
+        say(
+            answer.status,
+            &live,
+            answer
+                .refused()
+                .map_or_else(String::new, |w| format!(": refused {w}")),
+        );
+        let complete = write_json(client, &answer);
+        Outcome {
+            status: answer.status,
+            live,
+            usage: None,
+            complete,
+        }
+    };
+    let (pack, _held, live) =
+        match download_of(chan, call, method, path, bearer.as_deref(), name.as_deref()) {
+            Ok(admitted) => admitted,
+            Err((answer, live)) => return refuse_with(client, answer, live),
+        };
+    let Ok(size) = std::fs::metadata(&pack.path).map(|m| m.len()) else {
+        return refuse_with(
+            client,
+            channel::Answer::no(503, "the file could not be read"),
+            live,
+        );
+    };
+    let (status, from, to) = match download::range(header(&fields, "range").as_deref(), size) {
+        download::Span::Whole => (200, 0, size.saturating_sub(1)),
+        download::Span::Part(from, to) => (206, from, to),
+        download::Span::Unserved => {
+            return refuse_with(
+                client,
+                channel::Answer::no(416, "a range of no bytes"),
+                live,
+            )
+        }
+    };
+    let len = if size == 0 { 0 } else { to - from + 1 };
+    let mut text = format!(
+        "HTTP/1.1 {status} {}\r\ncontent-type: application/octet-stream\r\ncontent-length: {len}\r\naccept-ranges: bytes\r\n",
+        reason(status)
+    );
+    if status == 206 {
+        text.push_str(&format!("content-range: bytes {from}-{to}/{size}\r\n"));
+    }
+    for (k, v) in &pack.fields {
+        text.push_str(&format!("{k}: {v}\r\n"));
+    }
+    text.push_str("connection: close\r\n\r\n");
+    use std::io::Write;
+    let sent = client
+        .write_all(text.as_bytes())
+        .and_then(|()| download::send(&pack.path, from, len, client));
+    let complete = matches!(sent, Ok(n) if n == len) && client.flush().is_ok();
+    let bytes = sent.unwrap_or(0);
+    say(
+        status,
+        &live,
+        format!(
+            ": {bytes} of {len} bytes{}",
+            if complete { "" } else { ", cut" }
+        ),
+    );
+    Outcome {
+        status,
         live,
         usage: None,
         complete,
@@ -538,10 +708,12 @@ fn reason(status: u16) -> &'static str {
         403 => "Forbidden",
         404 => "Not Found",
         409 => "Conflict",
+        416 => "Range Not Satisfiable",
         429 => "Too Many Requests",
         502 => "Bad Gateway",
         503 => "Service Unavailable",
         200 => "OK",
+        206 => "Partial Content",
         _ => "Error",
     }
 }
