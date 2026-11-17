@@ -2,7 +2,7 @@
   "api": 1,
   "verb": "check",
   "ok": true,
-  "schema": 17,
+  "schema": 18,
   "integrity": "ok",
   "rows": {
     "actions": 0,
