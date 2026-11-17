@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
-# what the object holds. The samples beside it, api/status.busy.json and
-# api/status.quiet.json, are what console status json (console/src/status.rs) makes of
+# what the object holds. The samples beside it, api/status.busy.json,
+# api/status.quiet.json and api/status.readonly.json, are what console status json (console/src/status.rs) makes of
 # the health files in test/fixtures/status-json/, with the Protolab's list beside
 # one of them, at a fixed time. A program
 # that reads the object copies the samples into its own tests, so a change
@@ -20,7 +20,7 @@ schema=$api/status.schema.json
 fixtures=$T_ROOT/test/fixtures/status-json
 # 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 now=1792245620
-samples=(busy quiet)
+samples=(busy quiet readonly)
 
 sample() { # <name>: the sample as the console makes it, as committed
   "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .
@@ -106,6 +106,17 @@ t_contains "$out" '.state: "later" is not one of'
 t_contains "$out" ".demand.waiting: -1 is under 0"
 t_contains "$out" '.running[0].since: "yesterday" is not a date-time'
 t_contains "$out" ".api: 2, not 1"
+
+t_case "where a running cycle's step is goes only under progress, and readOnly is only true"
+jq '.running[0].step = "review" | .running[0].progress.zz = 1 | .readOnly = false' "$api/status.busy.json" >"$T/bad.json"
+out=$(check "$T/bad.json")
+t_contains "$out" ".running[0].step: not in the schema"
+t_contains "$out" ".running[0].progress.zz: not in the schema"
+
+t_case "a progress with nothing in it is left out, never printed empty"
+jq '.running[0].progress = {}' "$api/status.busy.json" >"$T/bad.json"
+t_contains "$(check "$T/bad.json")" ".running[0].progress: fewer than 1 properties"
+t_contains "$out" ".readOnly: false, not true"
 
 t_case "a null where the schema allows none is refused, and allowed where it does"
 jq '.limit = null | .hold = null' "$api/status.busy.json" >"$T/bad.json"

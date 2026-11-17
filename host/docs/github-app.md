@@ -139,7 +139,7 @@ make or give the app as above, and run any command again.
 `TEHAS_MILLWRIGHT_LOGIN` are not settings: the installation is looked up and
 both logins are the one in `~/tehas/state/github/login`. Since tehas 1.0 a
 line that sets one stops every command with exit 78; take them out too.
-`tehas setup --token-file` is refused, and `--app-installation` is ignored.
+`tehas setup --token-file` and `--app-installation` are unknown options (exit 64).
 
 ## What tehas does with it
 

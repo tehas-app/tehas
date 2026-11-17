@@ -109,7 +109,7 @@ fresh() {
   stub_all
 }
 
-args=(--repo acme/widget --labellers "alice bob" --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1)
+args=(--repo acme/widget --labelers "alice bob" --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1)
 # Every run of setup reads the host's git config as the host has it: t_run
 # starts from an empty environment and carries over only what T_ENV names, so
 # git's environment-level config - the scope that outranks every file - is not
@@ -197,53 +197,53 @@ mv "$T/instance.env.kept" "$cfg/instance.env"
 
 t_case "a different setting is refused with 78 and nothing changes, until --force"
 stub_all
-run_setup --repo acme/widget --labellers "carol" --endpoint http://gb1:8086/v1
+run_setup --repo acme/widget --labelers "carol" --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ALLOWED_LABELERS"
 t_contains "$t_out" "--force"
 t_eq "$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)" "$before"
 t_eq "$(t_calls gh)$(t_calls curl)" ""
-run_setup --repo acme/widget --labellers "carol" --endpoint http://gb1:8086/v1 --force --no-build
+run_setup --repo acme/widget --labelers "carol" --endpoint http://gb1:8086/v1 --force --no-build
 t_eq "$t_rc" 0
 t_eq "$(grep '^TEHAS_ALLOWED_LABELERS=' "$cfg/instance.env")" 'TEHAS_ALLOWED_LABELERS="carol"'
 t_eq "$(grep -c '^TEHAS_ALLOWED_LABELERS=' "$cfg/instance.env")" 1
 
-t_case "--token-file is refused with 78 in the settings' words, before any call"
-stub_all
-run_setup "${args[@]}" --token-file "$T/token"
-t_eq "$t_rc" 78
-t_contains "$t_out" "--token-file is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file."
-t_eq "$(t_calls gh)$(t_calls curl)" ""
-t_lacks "$(cat "$cfg/instance.env" "$cfg"/env 2>/dev/null)" "ghp_secret_token"
-
-t_case "--app-installation is warned of and ignored"
+t_case "options setup no longer takes are unknown, 64, named, before any call"
 fresh
+run_setup "${args[@]}" --token-file "$T/token"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--token-file is no longer used: the factory acts as a GitHub App. Run tehas setup --new-app or give --app-id and --app-key-file."
 run_setup "${args[@]}" --app-installation 88 --no-build
-t_eq "$t_rc" 0
+t_eq "$t_rc" 64
 t_contains "$t_out" "--app-installation is no longer used"
-t_lacks "$(cat "$cfg/instance.env")" "TEHAS_GITHUB_APP_INSTALLATION"
+run_setup --repo acme/widget --labellers alice --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1
+t_eq "$t_rc" 64
+t_contains "$t_out" "--labellers is now --labelers, spelled as TEHAS_ALLOWED_LABELERS"
+t_contains "$t_out" "usage: tehas setup"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$([ -e "$cfg/instance.env" ] && echo written)" ""
 
 t_case "a missing setting with nothing to ask on is 78, before any call"
 fresh
 run_setup --repo acme/widget --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 78
-t_contains "$t_out" "--labellers"
+t_contains "$t_out" "--labelers"
 t_eq "$([ -e "$cfg/instance.env" ] && echo written)" ""
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 
 t_case "a malformed repository or endpoint is 78, before any call"
 fresh
-run_setup --repo "acme widget" --labellers alice --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1
+run_setup --repo "acme widget" --labelers alice --app-id 77 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 78
 t_contains "$t_out" "owner/name"
-run_setup --repo acme/widget --labellers alice --app-id 77 --app-key-file "$T/app.pem" --endpoint gb1:8086
+run_setup --repo acme/widget --labelers alice --app-id 77 --app-key-file "$T/app.pem" --endpoint gb1:8086
 t_eq "$t_rc" 78
 t_contains "$t_out" "http"
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 
 t_case "no app at all is 78 naming both ways, before any call"
 fresh
-run_setup --repo acme/widget --labellers alice --endpoint http://gb1:8086/v1
+run_setup --repo acme/widget --labelers alice --endpoint http://gb1:8086/v1
 t_eq "$t_rc" 78
 t_contains "$t_out" "give --new-app to make one, or --app-id <id> --app-key-file <key>"
 t_eq "$(t_calls gh)$(t_calls curl)" ""
@@ -489,13 +489,13 @@ t_case "half of the app options, or a made app and a given one, is 64 before any
 fresh
 for part in "--app-id 77" "--app-key-file $T/app.pem" "--new-app --app-id 77 --app-key-file $T/app.pem" "--app-name x" "--app-owner acme"; do
   # shellcheck disable=SC2086  # the options are split on purpose
-  run_setup --repo acme/widget --labellers alice --endpoint http://gb1:8086/v1 $part
+  run_setup --repo acme/widget --labelers alice --endpoint http://gb1:8086/v1 $part
   t_eq "$t_rc" 64
 done
 t_eq "$(t_calls gh)$(t_calls curl)" ""
 t_eq "$([ -e "$cfg" ] && echo written)" ""
 
-new_args=(--repo acme/widget --labellers "alice bob" --new-app --endpoint http://gb1:8086/v1 --no-build)
+new_args=(--repo acme/widget --labelers "alice bob" --new-app --endpoint http://gb1:8086/v1 --no-build)
 manifest_app='{"slug":"widget-factory"}'
 
 t_case "--new-app makes the app from the pasted code and writes its key and ID together"

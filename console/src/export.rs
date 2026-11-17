@@ -24,6 +24,10 @@ const USAGE: &str = "usage: tehas export [--json] --after CURSOR <dir>";
 
 const BIGGEST: u64 = 32 * 1024 * 1024;
 
+/// The layout of an export directory. `<dir>/export.json` and `--json` say
+/// it, so a reader can tell a later layout from this one.
+const VERSION: u32 = 1;
+
 /// What the arguments ask.
 #[derive(Debug, PartialEq)]
 pub struct Asked {
@@ -212,21 +216,29 @@ pub fn main(given: &[String]) -> u8 {
         runs: user.join(".pi/agent/ensemble-runs"),
         cycles: to.join("cycles"),
     };
-    let lines: Vec<String> = listing.cycles.iter().map(J::dump).collect();
+    let lines: Vec<String> = listing.runs.iter().map(J::dump).collect();
     let mut printed = String::new();
     let mut ok = make_dir(&to) && make_dir(&run.cycles);
+    if !ok {
+        eprintln!("tehas export: could not make {}", run.cycles.display());
+    } else if !stamp(&to) {
+        eprintln!(
+            "tehas export: could not write {}",
+            to.join("export.json").display()
+        );
+        ok = false;
+    }
     if ok {
         let (copied, every) = run.all(&lines);
         ok = every;
         if !asked.json {
             printed = text(&lines, copied, &to, listing.next.as_deref());
         }
-    } else {
-        eprintln!("tehas export: could not make {}", run.cycles.display());
     }
     if asked.json {
         let mut object = listing.object();
         if let J::Obj(fields) = &mut object {
+            fields.insert(1, ("version".to_string(), J::Num(VERSION.to_string())));
             fields.push(("to".to_string(), J::str(to.to_string_lossy())));
         }
         printed = object.dump() + "\n";
@@ -290,6 +302,15 @@ fn make_dir(d: &Path) -> bool {
     }
     (fs::create_dir(d).is_ok() || d.is_dir())
         && fs::set_permissions(d, fs::Permissions::from_mode(0o755)).is_ok()
+}
+
+/// `<dir>/export.json`: the layout's version, readable by anyone.
+fn stamp(to: &Path) -> bool {
+    put(
+        to,
+        "export.json",
+        format!("{{\"version\":{VERSION}}}\n").as_bytes(),
+    )
 }
 
 fn plain_file(p: &Path) -> bool {
@@ -537,6 +558,24 @@ mod tests {
         let dir = tehas_core::testdir::TestDir::new(&format!("export-{name}"));
         fs::create_dir_all(dir.join("home/logs")).unwrap();
         dir
+    }
+
+    // A link planted at <dir>/export.json is replaced, not written through.
+    #[test]
+    fn the_stamp_replaces_a_link_at_its_name() {
+        let dir = scratch("stamp-link");
+        let to = dir.join("out");
+        fs::create_dir_all(&to).unwrap();
+        let kept = dir.join("home/settings");
+        fs::write(&kept, "mine\n").unwrap();
+        std::os::unix::fs::symlink(&kept, to.join("export.json")).unwrap();
+        assert!(stamp(&to));
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "mine\n");
+        assert!(plain_file(&to.join("export.json")));
+        assert_eq!(
+            fs::read_to_string(to.join("export.json")).unwrap(),
+            format!("{{\"version\":{VERSION}}}\n")
+        );
     }
 
     #[test]

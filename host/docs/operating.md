@@ -1401,7 +1401,7 @@ lines in `tehas history` carry `auto`.
 
 Two switches stop the factory. Either one is enough.
 
-**`tehas pause [reason]`** sets the switch on this host: a flag,
+**`tehas pause [--reason TEXT]`** sets the switch on this host: a flag,
 `~/tehas/state/pause.json`, holding who set it, when and why, in a file only the
 account that ran the command can read. It asks GitHub nothing, so a host can be
 paused when GitHub cannot be reached. `tehas pause` again succeeds and keeps the
@@ -1557,7 +1557,7 @@ it ran, and keeps 365 days of them. Two commands read them:
 
 ```
 tehas analytics report                    # the ten-day report in the terminal
-tehas analytics export copy.db --json     # a copy of the database, to fetch
+tehas analytics copy --to copy.db --json  # a copy of the database, to fetch
 ```
 
 The report is the one on the plain dashboard. The copy is for deeper analysis

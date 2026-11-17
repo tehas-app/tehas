@@ -1709,7 +1709,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     execute(&home, &Cmd::Run(7, given(&home, 7)), now).unwrap();
     execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
-    execute(&home, &Cmd::Export(out.clone(), false), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), false), now).unwrap();
     assert_eq!(
         fs::metadata(&out).unwrap().permissions().mode() & 0o777,
         0o600
@@ -1754,7 +1754,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     assert!(seen > 10);
     // An export never replaces a file.
     assert_eq!(
-        execute(&home, &Cmd::Export(out.clone(), true), now)
+        execute(&home, &Cmd::Copy(out.clone(), true), now)
             .unwrap_err()
             .0,
         73
@@ -1959,13 +1959,16 @@ fn the_arguments_are_checked() {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
     assert_eq!(
-        parse(&args("export /tmp/x.db")),
-        Some(Cmd::Export("/tmp/x.db".into(), false))
+        parse(&args("copy --to /tmp/x.db")),
+        Some(Cmd::Copy("/tmp/x.db".into(), false))
     );
-    assert_eq!(
-        parse(&args("export /tmp/x.db --json")),
-        Some(Cmd::Export("/tmp/x.db".into(), true))
-    );
+    for json in ["copy --to /tmp/x.db --json", "copy --json --to /tmp/x.db"] {
+        assert_eq!(
+            parse(&args(json)),
+            Some(Cmd::Copy("/tmp/x.db".into(), true)),
+            "{json}"
+        );
+    }
     assert_eq!(parse(&args("report --json")), Some(Cmd::Report));
     assert_eq!(parse(&args("report")), Some(Cmd::ReportText));
     for bad in [
@@ -1979,12 +1982,16 @@ fn the_arguments_are_checked() {
         "sample now",
         "report --text",
         "report --json now",
-        "export",
-        "export --json",
-        "export -x.db",
-        "export x.db --yaml",
-        "export x.db --json --json",
-        "export x.db --json now",
+        "export /tmp/x.db",
+        "export /tmp/x.db --json",
+        "copy",
+        "copy x.db",
+        "copy --to",
+        "copy --json",
+        "copy --to -x.db",
+        "copy --to x.db --yaml",
+        "copy --to x.db --json --json",
+        "copy --to x.db --json now",
     ] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
@@ -4531,7 +4538,7 @@ fn an_export_of_no_runs_leaves_out_from_and_to() {
     let home = scratch("export-empty");
     let now = 1_792_022_400;
     let out = home.join("copy.db");
-    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), true), now).unwrap();
     assert_eq!(
         db::copy_summary(&out).unwrap(),
         format!(r#"{{"api":1,"schema":{},"runs":0}}"#, db::SCHEMA_VERSION)
@@ -4551,7 +4558,7 @@ fn an_export_of_no_runs_leaves_out_from_and_to() {
         .unwrap();
     }
     let out = home.join("copy2.db");
-    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    execute(&home, &Cmd::Copy(out.clone(), true), now).unwrap();
     assert_eq!(
         db::copy_summary(&out).unwrap(),
         format!(
@@ -4624,7 +4631,7 @@ fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
     use std::os::unix::ffi::OsStrExt;
     let home = scratch("export-utf8");
     let out = home.join(std::ffi::OsStr::from_bytes(b"copy-\xff.db"));
-    let err = execute(&home, &Cmd::Export(out.clone(), false), 1_792_022_400).unwrap_err();
+    let err = execute(&home, &Cmd::Copy(out.clone(), false), 1_792_022_400).unwrap_err();
     assert_eq!(err.0, 73, "{err:?}");
     assert!(!out.exists());
 }
