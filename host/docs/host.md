@@ -1398,7 +1398,8 @@ capability dropped, 128m of memory and 512 processes. It connects only to:
 - `registry.npmjs.org`, `crates.io`, `static.crates.io` and `index.crates.io`
   on 443, for npm and cargo;
 - the host and port of every `baseUrl` and `backupBaseUrl` in models.json;
-- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`.
+- the hosts of `TEHAS_EGRESS_HOSTS`, a name on 443 or `name:port`, each word
+  read by the one rule the settings load checks it with.
 
 Anything else is answered `403` and the proxy logs one line naming it:
 `docker logs tehas-egress`. A tool that ignores the proxy variables reaches

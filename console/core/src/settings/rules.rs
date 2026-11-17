@@ -515,7 +515,7 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             "expected one word",
         ),
         Rule::EgressHosts => refuse(
-            v.split(' ').all(is_egress_host),
+            v.split(' ').all(|w| crate::egress::host_pair(w).is_some()),
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
@@ -571,15 +571,9 @@ fn is_host(s: &str) -> bool {
     };
     all(name, class(".-")) && port.is_none_or(digits)
 }
-fn is_egress_host(s: &str) -> bool {
-    let (name, port) = match s.split_once(':') {
-        Some((name, port)) => (name, Some(port)),
-        None => (s, None),
-    };
-    is_domain(&name.to_ascii_lowercase())
-        && port.is_none_or(|p| leading(p, 5) && p.parse::<u16>().is_ok())
-}
-fn is_domain(s: &str) -> bool {
+/// A domain name in lower case: labels of letters, digits and `-`, at least
+/// two of them.
+pub(crate) fn is_domain(s: &str) -> bool {
     let label = |l: &str| {
         all(l, |c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
