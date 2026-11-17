@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/analytics-copy.schema.json",
+  "title": "tehas analytics copy --json",
+  "description": "What tehas analytics copy --to <file> --json prints, version 1, when it has written the copy: read from the copy, not from the factory's database. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/analytics/tests/command.rs checks what the program prints against it and the samples beside this file, and test/json_contract_test.sh checks the samples against it.",
+  "type": "object",
+  "required": ["api", "schema", "runs"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "schema": {"type": "integer", "minimum": 1},
+    "from": {"description": "The oldest start of a run in the copy, Unix seconds. Left out when it has no run.", "type": "integer", "minimum": 0},
+    "to": {"description": "The newest end of a run in the copy, or its start for a run with no end, Unix seconds. Left out when it has no run.", "type": "integer", "minimum": 0},
+    "runs": {"type": "integer", "minimum": 0}
+  }
+}
