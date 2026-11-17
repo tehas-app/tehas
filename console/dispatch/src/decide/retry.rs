@@ -25,7 +25,7 @@ fn labels(v: &Value) -> Vec<String> {
 
 pub(crate) fn hex40(v: Option<&Value>) -> bool {
     v.and_then(Value::as_str)
-        .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        .is_some_and(tehas_core::grammar::commit_id)
 }
 
 /// Why the labels `have` of an issue keep its refresh from starting, None
