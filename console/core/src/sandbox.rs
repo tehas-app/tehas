@@ -704,10 +704,12 @@ fn git_says(dir: &str, args: &[&str]) -> Option<String> {
 
 /// Make <tree>: a clone at the tip the product checkout <src> last fetched for
 /// <branch>, with the product's address as origin. Nothing is fetched from the
-/// network. The host runs git in <tree> here and only here: once a container
+/// network. It holds that branch alone and `depth` commits of its history, all
+/// of it for 0 (crate::depth). The host runs git in <tree> here and in
+/// crate::depth::reach only, before a container is given it: once a container
 /// has written a tree, anything in it, hooks and git configuration included,
 /// may be an agent's. The caller decides whether <tree> may be made.
-pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
+pub fn clone(src: &str, tree: &str, branch: &str, depth: u32) -> bool {
     let tip = format!("refs/remotes/origin/{branch}");
     let verify = format!("{tip}^{{commit}}");
     let Some(base) = git_says(src, &["rev-parse", "-q", "--verify", &verify]) else {
@@ -717,13 +719,23 @@ pub fn clone(src: &str, tree: &str, branch: &str) -> bool {
     let Some(url) = git_says(src, &["config", "--get", "remote.origin.url"]) else {
         return false;
     };
-    let all = "+refs/remotes/origin/*:refs/remotes/origin/*";
+    let one = format!("+{tip}:{tip}");
     let upstream = format!("--set-upstream-to=origin/{branch}");
     ran(Command::new("git").args(["init", "-q", "-b", branch, tree]))
         && ran(git(tree).args(["remote", "add", "origin", &url]))
         && ran(Command::new("timeout")
-            .args(["-k", "10", "300", "git", "-C", tree, "fetch"])
-            .args(["-q", "--no-tags", src, all]))
+            .args([
+                "-k",
+                "10",
+                crate::depth::FETCH_WAIT,
+                "git",
+                "-C",
+                tree,
+                "fetch",
+            ])
+            .args(["-q", "--no-tags"])
+            .args(crate::depth::words(depth))
+            .args([src, &one]))
         && ran(git(tree).args(["symbolic-ref", "refs/remotes/origin/HEAD", &tip]))
         && ran(git(tree).args(["checkout", "-q", "-B", branch, &base]))
         && ran(git(tree).args(["branch", "-q", &upstream, branch]))

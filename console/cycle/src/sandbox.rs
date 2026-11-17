@@ -282,7 +282,13 @@ pub fn main(args: &[String]) -> Option<i32> {
             tehas_core::outln!("{}", sandbox::retry_line(host));
             0
         }
-        ["clone", src, tree, branch] => i32::from(!sandbox::clone(src, tree, branch)),
+        ["clone", src, tree, branch] => match tehas_core::depth::from_env() {
+            Ok(depth) => i32::from(!sandbox::clone(src, tree, branch, depth)),
+            Err(line) => {
+                eprintln!("{line}");
+                78
+            }
+        },
         ["seed", state, index] => i32::from(!sandbox::seed(state, index)),
         ["smoke-run", image] => smoke_run_verb(image),
         _ => return None,

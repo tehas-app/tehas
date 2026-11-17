@@ -376,6 +376,14 @@ pub fn check(c: &Check) -> i32 {
         .filter(|_| judge)
         .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
         .unwrap_or(Value::Null);
+    // Every refresh works on its pull request's branch, which may have started
+    // beyond the workspace's depth: the tree step deepens it to hold that start.
+    let continues = rec
+        .as_ref()
+        .filter(|_| refresh)
+        .and_then(|r| r.get("refresh_of"))
+        .map(|of| json!({"pr": of.get("pr"), "head": of.get("head_sha")}))
+        .unwrap_or(Value::Null);
     // A lean refresh is refused below unless the image lists --continue-pr for
     // work-lean. A lean restart passes no flag (run_flags).
     let flags = run_flags(limit, c.restart, refresh, c.driver);
@@ -439,7 +447,8 @@ pub fn check(c: &Check) -> i32 {
     }
     let state = json!({"limits": limits, "security": security, "env": vars,
         "hosts": hosts, "flags": flags, "verb": verb,
-        "comments": {"native": native, "unguard": unguard}, "refresh": refresh_of});
+        "comments": {"native": native, "unguard": unguard}, "refresh": refresh_of,
+        "continues": continues});
     if !write_state(&c.file, &state) {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
@@ -601,7 +610,7 @@ fn put_back(tree: &str) -> bool {
 /// The workspace of this cycle, at the tip the product checkout last fetched for
 /// the branch. pi-rukas writes the three names into it, and a product needs no
 /// .gitignore lines for them.
-fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool {
+fn make_tree(tree: &str, state_dir: &str, branch: &str, depth: u32, set: &mut Aside) -> bool {
     let works = Path::new(tree).parent().unwrap_or(Path::new(""));
     let marked = fs::create_dir_all(works).is_ok()
         && fs::File::create(works.join(".tehas-workspaces")).is_ok();
@@ -619,7 +628,7 @@ fn make_tree(tree: &str, state_dir: &str, branch: &str, set: &mut Aside) -> bool
             .is_ok()
     };
     ran(Command::new("rm").args(["-rf", state_dir]))
-        && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch)
+        && sandbox::clone(&env("TEHAS_WORK_REPO"), tree, branch, depth)
         && exclude(tree)
 }
 
@@ -1028,6 +1037,31 @@ fn refresh_conflict(home: &Path, t: &Tree, state: &Value, tree: &str) -> Option<
     Some(78)
 }
 
+/// A refresh's workspace deepened to hold its pull request's head and the
+/// commit its branch started from, the merge base with the branch, as the
+/// product checkout has them (tehas_core::depth::reach). Some(78) when it
+/// cannot, with the reason: a shallow tree without that start would answer
+/// `merge-base --is-ancestor` with a wrong no. None for any other start.
+fn continued(state: &Value, tree: &str, branch: &str, depth: u32) -> Option<i32> {
+    let of = state.get("continues").filter(|v| v.is_object())?;
+    let pr = of.get("pr").and_then(Value::as_u64).unwrap_or(0);
+    let head = of.get("head").and_then(Value::as_str).unwrap_or("");
+    let src = env("TEHAS_WORK_REPO");
+    let tip = format!("refs/remotes/origin/{branch}");
+    let held = if is_commit(head) {
+        tehas_core::depth::merge_base(&src, &tip, head)
+            .ok_or_else(|| format!("{src} holds no merge base of origin/{branch} and {head}"))
+            .and_then(|base| tehas_core::depth::reach(&src, tree, &[&tip, head], &base, depth))
+    } else {
+        Err("the head of the request is no commit".to_string())
+    };
+    let why = held.err()?;
+    eprintln!(
+        "tehas work: the workspace of the refresh of pull request #{pr} cannot hold the commit its branch started from: {why}, not starting a cycle"
+    );
+    Some(78)
+}
+
 /// The second step. Its exit status. What it moves aside is in `set`.
 pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     let Some(mut state) = read_state(&t.file) else {
@@ -1039,7 +1073,14 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
     if t.stop.came() {
         return STOPPED;
     }
-    if !make_tree(&tree, &state_dir, &t.branch, set) {
+    let depth = match tehas_core::depth::from_env() {
+        Ok(depth) => depth,
+        Err(line) => {
+            eprintln!("{line}, not starting a cycle");
+            return 78;
+        }
+    };
+    if !make_tree(&tree, &state_dir, &t.branch, depth, set) {
         eprintln!("tehas work: could not make the workspace {tree}, not starting a cycle");
         return 78;
     }
@@ -1053,6 +1094,9 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             "tehas work: {tree} holds what the last cycle left, or this start's clone when it left none, and {tree}.before-retry what the cycle before it left, if any"
         );
         return 78;
+    }
+    if let Some(rc) = continued(&state, &tree, &t.branch, depth) {
+        return rc;
     }
     if let Some(rc) = refresh_conflict(home, t, &state, &tree) {
         return rc;

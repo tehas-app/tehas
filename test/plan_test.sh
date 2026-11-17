@@ -875,6 +875,20 @@ t_eq "$(cat "$T/calls/sessions.given")" "./abc-123/session.json"
 t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
 
+t_case "a later turn is at the session's commit after the branch moved on past the depth"
+first_turn_ran
+pinned=$(cat "$T/keep/commit")
+for n in 1 2 3; do
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "moved $n"
+done
+git -C "$checkout" fetch -q
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONE_DEPTH=1
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/head.seen")" "$pinned"
+t_lacks "$t_out" "the turn starts at the tip"
+t_instance "${T_MINIMAL[@]}"
+
 # #251: the start of a turn removes $tree.state, the turn's own state beside the
 # workspace, and the workspace itself. pi-rukas keeps the session in the
 # clone's git directory, which the turn carries out to the keep directory the

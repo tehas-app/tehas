@@ -235,6 +235,10 @@ case " $* " in
   printf "%s" "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" >"$T/calls/runner.rc"
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
+  # Whether the workspace reaches the commit it reads from: git answers 0, 1
+  # for a commit cut off by a shallow clone, or 128 for one it does not hold.
+  git -C "$ws" merge-base --is-ancestor "$(cat "$T/calls/since.seen")" HEAD 2>/dev/null
+  printf "%s" "$?" >"$T/calls/since.reach"
   # The document of the run: the console makes the file named by --doc and
   # writes into it what the container prints, so the stub makes it too, from the
   # fixture it answers with - the two cannot then disagree. A case that means a
@@ -647,6 +651,25 @@ jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$reco
 t_run "$review"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner lens-review --since $c2 --json "
+
+t_case "a workspace of less history than the range is deepened to the commit it reads from"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_CLONE_DEPTH=1
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$c1" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
+t_run "$review"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner lens-review --since $c1 --json "
+t_eq "$(cat "$T/calls/since.reach")" 0
+t_eq "$(cat "$T/calls/head.seen")" "$head"
+
+t_case "a depth that is no whole number starts no review: 78, named, before any clone"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_CLONE_DEPTH=x
+t_run "$review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CLONE_DEPTH is not valid"
+t_eq "$(find "$T/calls" -name 'docker.args.review' | wc -l)" 0
 
 t_case "a record that is unreadable or names no commit reads from 7 days back"
 for keep in 'not json' '{"commit":null}' '{"commit":"zzzz"}' '{"exit":10}' \
