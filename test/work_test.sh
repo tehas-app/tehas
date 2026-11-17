@@ -292,7 +292,7 @@ t_case "the remote path: on a contractor the container gets exactly the same mou
 # its token and relays its issue writes through the contractor program, and
 # gives its container nothing more and nothing else (AGENTS.md rule 4).
 local_mounts=$(after -v | LC_ALL=C sort)
-t_stub contractor 'case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; esac'
+t_stub contractor 'case $1 in token) echo ghs_from_factory ;; relay) printf %s "{\"out\":\"\",\"err\":\"\",\"rc\":0}" ;; own) printf %s "$3" >"$T/calls/contractor.own.as"; shift 3; printf "%s\n" "$@" >"$T/calls/contractor.own" ;; esac'
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_OUTSOURCE=on
 saved_env=("${T_ENV[@]}")
 T_ENV+=(TEHAS_TEST_FEATURES=outsource "TEHAS_CONTRACTOR=$T/bin/contractor")
@@ -307,6 +307,13 @@ t_contains "$(tail -n 1 "$T/renew.calls")" "renew --cmd $T/bin/contractor --arg 
 t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_from_factory"
 t_lacks "$(cat "$T"/calls/docker.args.* 2>/dev/null)" "ghs_from_factory"
 t_lacks "$(cat "$T"/calls/docker.token 2>/dev/null)" "ghs_app"
+# Before the container starts, the program is asked to hand the factory's
+# account every folder the container writes: the sources of its read-write
+# mounts, no more.
+t_eq "$(LC_ALL=C sort "$T/calls/contractor.own" 2>/dev/null)" \
+  "$(after -v | grep -v ':ro$' | sed 's/:.*//' | LC_ALL=C sort)"
+# They go only to the account the container runs as: the one named is its --user.
+t_eq "$(cat "$T/calls/contractor.own.as" 2>/dev/null)" "$(after --user)"
 T_ENV=("${saved_env[@]}")
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 

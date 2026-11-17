@@ -167,8 +167,10 @@
 //! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
 //! program) the renewer asks that program for the cycle's token and the relay
 //! hands each planned write to it: both go to the factory over the job
-//! channel. The container's mounts and variables are the same, pinned by the
-//! same test.
+//! channel. Before the container starts, the program is asked to hand the
+//! sources of its read-write mounts to the factory's account (`own`,
+//! src/prepare.rs). The container's mounts and variables are the same, pinned
+//! by the same test.
 //!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
@@ -576,7 +578,7 @@ fn github_token(console: &str) -> i32 {
 /// go to the factory through it instead of to a token command and gh of this
 /// host, which a contractor does not have. What the container is given is the
 /// same either way.
-fn contractor() -> Option<PathBuf> {
+pub(crate) fn contractor() -> Option<PathBuf> {
     contractor_in(&env)
 }
 
