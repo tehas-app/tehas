@@ -1287,6 +1287,26 @@ mod tests {
     }
 
     #[test]
+    fn the_protolab_zip_url_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_PROTOLAB_ZIP_URL=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_PROTOLAB_ZIP_URL is on and protolab-zip-url is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        let vars = loads(&[]);
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "0");
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "");
+        let mut vars = start(&[(crate::features::TEST_VAR, "protolab-zip-url")]);
+        let mut host = Fake::with(&[
+            "TEHAS_PROTOLAB_ZIP_URL=on",
+            "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+        ]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_URL"), "1");
+        assert_eq!(vars.text("TEHAS_PROTOLAB_ZIP_HOSTS"), "files.example.org");
+    }
+
+    #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
         let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
         assert_eq!(

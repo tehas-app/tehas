@@ -95,8 +95,9 @@ default, or an example where there is none.
 
 A switch takes `on` or `off`. `1` and `0` mean the same and keep working;
 any other value stops every command with 78. A switch of an optional feature
-that is still being built, `TEHAS_OUTSOURCE` and `TEHAS_SPEC_PIPE` in this
-release, stops every command with 78 when it is `on`.
+that is still being built, `TEHAS_OUTSOURCE`, `TEHAS_SPEC_PIPE` and
+`TEHAS_PROTOLAB_ZIP_URL` in this release, stops every command with 78 when it
+is `on`.
 
 | Setting                         | Default                                  | Meaning                                                         |
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
@@ -116,6 +117,8 @@ release, stops every command with 78 when it is `on`.
 | `TEHAS_DESIGN`                  | `beesknees26`                            | The look of the whole site and its front page: `beesknees26` (the business page at `/`) or `pixel` (the factory floor at `/`). Any other value is exit 78. See [Designs](/host#designs) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
+| `TEHAS_PROTOLAB_ZIP_URL`        | `off`                                    | `on` lets a ticket at the prototype stage name a zip by address and sha256, `Zip: <address> sha256:<hex>`, from a host of `TEHAS_PROTOLAB_ZIP_HOSTS` ([a zip by address](/tools-protolab#a-zip-by-address)). Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `protolab-zip-url` |
+| `TEHAS_PROTOLAB_ZIP_HOSTS`      | empty                                    | Optional. The hosts such a zip may come from, lower-case domains separated by single spaces, as `files.example.org`. A host must match exactly: no subdomain, no port. Empty: no host. Anything else stops every command with 78 |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `off`                                    | `on` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_EGRESS`                  | `off`                                    | `on` puts every cycle, planning turn, review and `tehas dev` session on an internal network whose one way out is a proxy that connects only to listed hosts. See [Where a container may connect](/host#where-a-container-may-connect) |

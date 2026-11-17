@@ -130,6 +130,9 @@ pub enum Rule {
     /// Host names, each with `:<port>` if not 443, one space apart: the
     /// egress proxy's own list takes nothing else.
     EgressHosts,
+    /// Domains as [`Rule::Domain`] reads them, one space apart, none around
+    /// them. The empty value is no domain at all.
+    Domains,
     /// `address:<port>`, the address as [`Rule::HostAddress`] reads it. The
     /// outsource model proxy listens on exactly this: no port means a proxy
     /// with no port to listen on, which is no proxy.
@@ -192,6 +195,7 @@ impl Rule {
             Rule::Contractors => "contractors",
             Rule::OneWord => "one-word",
             Rule::EgressHosts => "egress-hosts",
+            Rule::Domains => "domains",
             Rule::ListenAddress => "listen-address",
             Rule::IssueTypes => "issue-types",
             Rule::Path => "path",
@@ -241,6 +245,7 @@ impl Rule {
             Rule::Contractors => "box1  box2",
             Rule::OneWord => "two words",
             Rule::EgressHosts => "localhost",
+            Rule::Domains => "localhost",
             Rule::ListenAddress => "127.0.0.1:0",
             Rule::IssueTypes => "improvement",
             Rule::Path => "repos/app",
@@ -382,6 +387,8 @@ pub const TABLE: &[Setting] = &[
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
+    always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
+    given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
     given("TEHAS_ENERGY_SOURCE_URL", Rule::SiteAddress),
     given(
         "TEHAS_UPDATE_FROM",
@@ -593,6 +600,10 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
             v.split(' ').all(|w| crate::egress::host_pair(w).is_some()),
             "expected host names such as pypi.org or host:port, separated by single spaces",
         ),
+        Rule::Domains => refuse(
+            v.is_empty() || v.split(' ').all(is_named_domain),
+            "expected domains such as files.example.org, in lower case, separated by single spaces",
+        ),
         Rule::IssueTypes => crate::kinds::parse(v).map(|_| ()),
         Rule::HostAliases => crate::sandbox::hosts(v).map(|_| ()),
         Rule::Token => refuse(
@@ -696,6 +707,13 @@ pub(crate) fn is_domain(s: &str) -> bool {
             && !l.ends_with('-')
     };
     s.contains('.') && s.split('.').all(label)
+}
+/// A domain whose last label is not all digits, so no IPv4 address passes.
+fn is_named_domain(s: &str) -> bool {
+    is_domain(s)
+        && s.rsplit('.')
+            .next()
+            .is_some_and(|l| !l.bytes().all(|b| b.is_ascii_digit()))
 }
 fn is_workaround(entry: &str) -> bool {
     let Some((name, version)) = entry.split_once('@') else {
@@ -959,10 +977,11 @@ mod tests {
             "TEHAS_ANALYTICS",
             "TEHAS_OUTSOURCE",
             "TEHAS_SPEC_PIPE",
+            "TEHAS_PROTOLAB_ZIP_URL",
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 17);
+        assert_eq!(switches.len(), 18);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);
@@ -1117,6 +1136,35 @@ mod tests {
             "expected an address such as https://lab.example, with no path and no slash at the end";
         refuses("TEHAS_PROTOLAB_URL", "https://lab.example/", why);
         refuses("TEHAS_PROTOLAB_URL", "lab.example", why);
+    }
+
+    #[test]
+    fn the_zip_hosts_are_domains_in_lower_case_or_none() {
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "");
+        takes("TEHAS_PROTOLAB_ZIP_HOSTS", "files.example.org");
+        takes(
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "files.example.org cdn.example.net",
+        );
+        let why =
+            "expected domains such as files.example.org, in lower case, separated by single spaces";
+        for bad in [
+            "localhost",
+            "Files.example.org",
+            "files.example.org  cdn.example.net",
+            " files.example.org",
+            "files.example.org ",
+            "files.example.org:443",
+            "https://files.example.org",
+            "*.example.org",
+            "files..example.org",
+            "files.example.org.",
+            "127.0.0.1",
+            "192.0.2.10",
+            "files.example.org 198.51.100.7",
+        ] {
+            refuses("TEHAS_PROTOLAB_ZIP_HOSTS", bad, why);
+        }
     }
 
     #[test]
