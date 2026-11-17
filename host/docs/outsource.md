@@ -1,9 +1,9 @@
 ---
-title: Outsource, the model proxy
-description: "The factory's model proxy: what a contractor's cycle may ask it for, how it is switched on, and what it never does."
+title: Outsource
+description: "Cycles run on contractors: the model proxy, the job channel, the contractor program and the commands that manage contractors."
 ---
 
-# Outsource, the model proxy
+# Outsource
 
 A contractor is a machine that is not this host and does not hold the
 factory's model key. Its cycle reaches the factory's model through one door:
@@ -21,10 +21,9 @@ that `outsource` is still being built, and `tehas api --json` lists it in
 `flags` as `false`. This page says what the proxy does once the feature
 ships.
 
-The rest of [outsource](#what-is-not-here-yet) is not built yet: the
-contractor's program and the job channel. The state store holds the
-contractors and the jobs. This page is the factory's half, the proxy, and what
-it will not do.
+This page covers the model proxy, the job channel on the same listener, the
+contractor program and the `tehas outsource` commands. What is still owed is
+[at the end](#what-is-not-here-yet).
 
 ## What it is for
 
@@ -199,7 +198,9 @@ replacement can continue it.
 
 A job carries its issue, its attempt, the timeout, its token, the
 `models.json` with every provider behind the proxy, and a short list of
-settings that shape a cycle: `TEHAS_REPO`, `TEHAS_BRANCH`, `TEHAS_DRIVER`,
+settings that shape a cycle: `TEHAS_REPO`, the three every load requires
+(`TEHAS_CONTROL_ISSUE`, `TEHAS_ALLOWED_LABELERS`, `TEHAS_GITHUB_APP_ID`, the
+App's public id and never its key), `TEHAS_BRANCH`, `TEHAS_DRIVER`,
 `TEHAS_READ_ONLY`, the work, verify and build timeouts, `TEHAS_WORKSTREAMS`,
 `TEHAS_RUKAS_WORKAROUNDS`, `TEHAS_OUTSOURCE`, and the models and providers of
 the agents' roles. The list is part of the release, not a setting. No address,
@@ -224,17 +225,59 @@ GitHub App key:
 This happens only with outsource on and the contractor program naming
 itself to the cycle. Otherwise a cycle is as it was.
 
+## The contractor program
+
+`tehas-contractor` runs on the contractor's host. Its help and every line it
+logs start with `tehas outsource contractor`.
+
+```
+tehas-contractor join <factory> <name> <code>   join with the code tehas outsource invite printed
+tehas-contractor run                            take jobs and run them until drained or revoked
+tehas-contractor drain                          take no new job; hand a running one back after the grace
+tehas-contractor doctor                         say what this host holds that it should not
+```
+
+At rest it holds its name, its key and the factory's address, in
+`~/.config/tehas/contractor.json` (mode 0600), and nothing else. A job
+leaves the job's token, its settings, the cycle token, a `models.json` whose
+every provider is the factory's proxy, and a clone of the product. All of it
+is wiped when the job ends and when the program starts.
+
+A running job checks in on its own timer, a quarter of the job's timeout, so a
+long quiet model turn does not lose it. It ends one of five ways:
+
+| End | When | Cycle stopped | Branch pushed | Reported |
+| --- | --- | --- | --- | --- |
+| finished | the cycle ended | no | by the cycle | the result |
+| offline | no check-in answered for the timeout | yes | yes | stopped, or the result if one was written |
+| lost | the factory refused a check-in for the job's state | yes | yes | the same |
+| revoked | the factory said `revoked` | yes | no | nothing |
+| drained | `tehas-contractor drain`, and the grace passed | yes | yes | stopped: a release that costs nothing |
+
+The cycle is never killed outright. It gets its stop signal and
+`TEHAS_WORK_GRACE` seconds to finish its step and write its notes; only then
+is it killed and its container stopped. A report the factory does not answer
+is retried for the job's timeout.
+
+`doctor` exits 3 when it finds something: a model endpoint or key in the
+environment, a `models.json`, a cycle token or a checkout left with no job
+running, or no encrypted disk. Full disk encryption is the host owner's to set
+up, with its key off the box (TPM sealing or network unlock).
+
+The contractor has no setting of its own. `TEHAS_OUTSOURCE` must be on, as for
+every command of the feature, and while the feature is being built every verb
+exits 78.
+
 ## What is not here yet
 
-The proxy is the first part of [outsource](/features). Still owed, each in its
-own issue:
+Still owed, each in its own issue:
 
-- #2274, the contractor's program, the join handshake and TLS, and giving the
-  contractor's container the `models.json` whose `baseUrl` is the proxy. Until
-  that lands, no container is given the file and no contractor calls the proxy.
-- #2275 and #2276, placement in the dispatcher and the stamp on a result.
+- #2275, placement: the dispatcher offering a job to a contractor and the
+  supervisor waiting on it. Until then no job is offered, so a contractor that
+  asks gets none.
+- #2276, the stamp on a result.
 - #2277, the counts in `tehas status`, the dashboard and the MCP server.
-- #2278, the install and the join installer.
-
-Until #2274 issues tokens for real jobs, no contractor holds one, so the proxy
-answers every request with a refusal and forwards nothing to the endpoint.
+- #2278, the install of the proxy and the contractor program, their units,
+  and the join installer.
+- TLS and signed requests on the channel. Version 1 is plain http with bearer
+  keys: bind the proxy's address on a network you control.

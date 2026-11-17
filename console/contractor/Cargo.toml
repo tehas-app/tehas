@@ -1,0 +1,32 @@
+# The contractor program of outsource (#2274): a host that runs cycles for one
+# factory. Installed as ~/tehas/libexec/tehas-contractor by install.sh, which
+# #2278 owns. A member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-contractor"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_contractor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tehas-contractor"
+path = "src/main.rs"
+
+[dependencies]
+# Signals to the cycle it runs: TERM first, KILL after the grace. No unsafe.
+rustix = { version = "1", default-features = false, features = ["process", "std"] }
+serde_json = "1"
+sha2 = "0.10"
+tehas-core = { path = "../core" }
+
+[dev-dependencies]
+# The factory's side of the job channel and its store, which the tests run
+# the program against over a real socket.
+store = { path = "../store" }
+tehas-cycle = { path = "../cycle" }
+tehas-proxy = { path = "../proxy" }
+rusqlite = "0.38"
