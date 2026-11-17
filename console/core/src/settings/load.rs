@@ -854,6 +854,10 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     renamed(vars, host, &file)?;
     app_login(vars, host);
     let gave = given(vars);
+    // Asked before the defaults fill the feature's settings in; said after the
+    // values are checked, so a malformed one is named as such first.
+    let building =
+        features::refuse_building_settings(&|name| has(vars, name), &|name| vars.text(name));
     defaults(vars, host, uid);
     check_values(vars, &gave, &file)?;
     host_values(vars)?;
@@ -861,6 +865,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
     host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
         .map_err(|why| format!("{why} (see {file})"))?;
+    building.map_err(|why| format!("{why} (see {file})"))?;
     if vars.text("TEHAS_DRIVER") == Driver::Lean.word() {
         features::needs("lean", "TEHAS_DRIVER=lean", &|name| vars.text(name)).map_err(|why| {
             format!("{why}; set TEHAS_DRIVER to classic or take the line out (see {file})")
@@ -1211,8 +1216,31 @@ mod tests {
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_ADDR"), "192.0.2.7:8091");
         assert_eq!(vars.text("TEHAS_OUTSOURCE_PROXY_IDLE"), "7200");
         // With outsource off nothing listens, and the bound is not checked.
-        let vars = loads(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        let (vars, got) = tested(&["TEHAS_OUTSOURCE_TIMEOUT=1800"]);
+        assert_eq!(got, Ok(()));
         assert_eq!(vars.text("TEHAS_OUTSOURCE_TIMEOUT"), "1800");
+    }
+
+    #[test]
+    fn a_building_features_own_setting_stops_the_load() {
+        for (line, feature) in [
+            ("TEHAS_OUTSOURCE_TIMEOUT=1800", "outsource"),
+            ("TEHAS_OUTSOURCE_REPOS=acme/widget", "outsource"),
+            (
+                "TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org",
+                "protolab-zip-url",
+            ),
+        ] {
+            let name = line.split('=').next().unwrap();
+            assert_eq!(
+                refused(&[line]),
+                format!("{name} is set and {feature} is still being built in this release: take the line out (see {FILE})")
+            );
+        }
+        // An empty line sets nothing, and a malformed value is named as such.
+        loads(&["TEHAS_OUTSOURCE_REPOS=", "TEHAS_PROTOLAB_ZIP_HOSTS="]);
+        assert!(refused(&["TEHAS_OUTSOURCE_TIMEOUT=soon"])
+            .starts_with("TEHAS_OUTSOURCE_TIMEOUT is not valid"));
     }
 
     #[test]

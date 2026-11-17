@@ -1558,9 +1558,21 @@ t_eq "$t_out" "ok"
 T_ENV=()
 
 t_case "with outsource off the idle bound is not checked"
+T_ENV=(TEHAS_TEST_FEATURES=outsource)
 t_instance "${T_MINIMAL[@]}" TEHAS_OUTSOURCE_TIMEOUT=1800
 t_run "$load && echo ok"
 t_eq "$t_out" "ok"
+T_ENV=()
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a building feature's own setting stops a command with 78 before it calls GitHub"
+for line in TEHAS_OUTSOURCE_TIMEOUT=1800 TEHAS_OUTSOURCE_REPOS=acme/widget TEHAS_PROTOLAB_ZIP_HOSTS=files.example.org; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${line%%=*} is set and"
+  t_contains "$t_out" "is still being built in this release: take the line out"
+done
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the example instance documents the proxy's settings as the table has them"

@@ -17,7 +17,8 @@ line in `tehas status`.
 
 In this release outsource is a feature still being built. It cannot be
 switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
-that `outsource` is still being built, and `tehas api --json` lists it in
+that `outsource` is still being built, and so does a line that gives a value
+to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
 `flags` as `false`. This page says what the proxy does once the feature
 ships.
 
