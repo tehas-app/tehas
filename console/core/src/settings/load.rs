@@ -76,6 +76,10 @@ const KEPT: &[&str] = &[
     "TEHAS_CYCLE_STOP_GH_WAIT",
     "TEHAS_CYCLE_FROM",
     "TEHAS_CYCLE_ATTEMPT",
+    // The contractor program a cycle on a contractor relays through
+    // (cycle/src/work.rs), named by that program and read only with outsource
+    // on.
+    "TEHAS_CONTRACTOR",
     "TEHAS_TIDY_CMD",
     "TEHAS_FINISH_CMD",
     "TEHAS_DISPATCH_CMD",

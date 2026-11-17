@@ -162,6 +162,12 @@
 //! container runs. A request still there when the container ends is answered
 //! with 1.
 //!
+//! On a contractor (outsource on, TEHAS_CONTRACTOR naming the contractor
+//! program) the renewer asks that program for the cycle's token and the relay
+//! hands each planned write to it: both go to the factory over the job
+//! channel. The container's mounts and variables are the same, pinned by the
+//! same test.
+//!
 //! With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 //! read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
 //! The images are fetched here, before anything starts:
@@ -527,17 +533,48 @@ fn github_token(console: &str) -> i32 {
     0
 }
 
+/// The contractor program of a cycle run on a contractor: with outsource on,
+/// `TEHAS_CONTRACTOR` names it, and the cycle's token renewal and issue writes
+/// go to the factory through it instead of to a token command and gh of this
+/// host, which a contractor does not have. What the container is given is the
+/// same either way.
+fn contractor() -> Option<PathBuf> {
+    contractor_in(&env)
+}
+
+fn contractor_in(get: &dyn Fn(&str) -> String) -> Option<PathBuf> {
+    let program = get("TEHAS_CONTRACTOR");
+    (!program.is_empty() && tehas_core::features::on_in("outsource", get))
+        .then(|| PathBuf::from(program))
+}
+
+/// Where the relay runs the cycle's issue writes: gh of this host, or the
+/// factory through the contractor program.
+fn relay_via(home: &Path) -> Box<dyn relay::Run + Send> {
+    match contractor() {
+        Some(program) => Box::new(relay::Channel { program }),
+        None => Box::new(relay::Via::from_env(home)),
+    }
+}
+
 /// The renewer of the cycle's token while the container reads it. The watch
 /// ends it with a TERM. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
     let retry = renew::RETRY.to_string();
+    let (cmd, args) = match contractor() {
+        Some(program) => (program, vec!["--arg", "token"]),
+        None => (
+            home.join("bin/tehasbot"),
+            vec!["--arg", "github-token", "--arg", "--cycle"],
+        ),
+    };
     let child = Command::new(home.join("libexec/tehas-cycle"))
         .arg("renew")
         .arg("--cmd")
-        .arg(home.join("bin/tehasbot"))
-        .args(["--arg", "github-token", "--arg", "--cycle"])
+        .arg(cmd)
+        .args(args)
         .args(["--every", &every, "--retry", &retry])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -562,10 +599,17 @@ struct Relay {
 /// How long the end of a cycle waits for its relay.
 const RELAY_END_WAIT: Duration = Duration::from_secs(10);
 
-fn start_relay(dir: &Path, repo: &str, issue: u64, via: relay::Via, wait: Duration) -> Relay {
+fn start_relay(
+    dir: &Path,
+    repo: &str,
+    issue: u64,
+    via: Box<dyn relay::Run + Send>,
+    wait: Duration,
+) -> Relay {
     let stop = Arc::new(AtomicBool::new(false));
     let (d, repo, flag) = (dir.to_path_buf(), repo.to_string(), stop.clone());
-    let thread = std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, &via));
+    let thread =
+        std::thread::spawn(move || relay::serve_via(&d, &repo, issue, &flag, via.as_ref()));
     Relay {
         dir: dir.to_path_buf(),
         stop,
@@ -1186,7 +1230,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         &relay_dir,
         &env("TEHAS_REPO"),
         n,
-        relay::Via::from_env(home),
+        relay_via(home),
         RELAY_END_WAIT,
     );
     let given = watch::Given {
@@ -1377,12 +1421,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            relay::Via {
+            Box::new(relay::Via {
                 gh: gh.clone(),
                 token: bot.clone(),
                 token_args: vec!["github-token".to_string()],
                 token_wait: 10,
-            },
+            }),
             Duration::from_secs(10),
         );
         // Two renewals after the first ask.
@@ -1434,12 +1478,12 @@ mod tests {
             &dir,
             "acme/widget",
             3,
-            relay::Via {
+            Box::new(relay::Via {
                 gh,
                 token,
                 token_args: vec![],
                 token_wait: 30,
-            },
+            }),
             Duration::from_secs(1),
         );
         let ask = |pid: &str| {
@@ -1482,5 +1526,44 @@ mod tests {
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 7);
         std::env::remove_var("TEHAS_TEST_SHORT_WAIT");
         assert_eq!(short_wait("TEHAS_TEST_SHORT_WAIT", 60), 60);
+    }
+
+    #[test]
+    fn a_contractor_named_with_outsource_off_is_not_used() {
+        // The variable alone moves nothing: a cycle's writes and renewal go to
+        // the factory only with the feature on.
+        let of = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map_or_else(String::new, |(_, v)| v.to_string())
+            }
+        };
+        let test = tehas_core::features::TEST_VAR;
+        let off = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "off")]);
+        assert_eq!(contractor_in(&off), None);
+        let building = of(&[("TEHAS_CONTRACTOR", "/opt/c"), ("TEHAS_OUTSOURCE", "on")]);
+        assert_eq!(contractor_in(&building), None);
+        let unnamed: Vec<(&str, &str)> = vec![("TEHAS_OUTSOURCE", "on"), (test, "outsource")];
+        let get = |n: &str| {
+            unnamed
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map_or_else(String::new, |(_, v)| v.to_string())
+        };
+        assert_eq!(contractor_in(&get), None);
+        let named: Vec<(&str, &str)> = vec![
+            ("TEHAS_CONTRACTOR", "/opt/c"),
+            ("TEHAS_OUTSOURCE", "on"),
+            (test, "outsource"),
+        ];
+        let get = |n: &str| {
+            named
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map_or_else(String::new, |(_, v)| v.to_string())
+        };
+        assert_eq!(contractor_in(&get), Some(PathBuf::from("/opt/c")));
     }
 }
