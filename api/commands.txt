@@ -1,0 +1,43 @@
+# The tehas commands and the flags each takes, one line per command in
+# order: the command, its flags, and `building=<feature>` for a command of a
+# feature still being built, which is not public until that feature ships.
+# Within 1.x a command or a flag is only added. The tests of
+# console/src/front.rs hold this list to the commands tehas knows and to the
+# flags each command's text names, so a command or a flag added or taken out
+# without this file fails the gate. `--help` is every command's and is not
+# listed.
+analytics --json --to
+api --json
+check-product --sandbox
+dev --author --issue
+disk --cycles --full --json --publish
+dispatch --dry-run
+drain --json --wait
+export --after --json
+freeze --json --reason
+github
+help
+history --after --issue --json
+host-message --json --level --link --text
+index --before-cycle
+init-product --dry-run
+labels
+limit --cycles --for --json --plan --reason --until
+mcp
+order --for --issues --json --only --reason --until
+outsource building=outsource --json --name
+panel --json --label --url
+pause --reason
+plan --answer --brief --comment --keep --kind --out --session
+prototype building=prototype-file --body-file --spec --spec-sha256 --title --zip --zip-sha256
+refresh --json --pr
+resume
+setup --app-id --app-key-file --app-name --app-owner --control-issue --endpoint --force --labelers --model --model-key-file --new-app --no-build --provider --repo
+start --clear --json
+state --from --json --rehearse --to
+status --json
+stop --keep-workspace
+thaw --json
+top --every --json --once
+update --accept-id --check --pending --to
+work --driver --restart

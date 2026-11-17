@@ -237,6 +237,7 @@ pub fn main(given: &[OsString]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     fn words(w: &[&str]) -> Vec<String> {
         w.iter().map(|w| w.to_string()).collect()
@@ -486,6 +487,162 @@ mod tests {
         let file =
             "#!/usr/bin/env bash\n# tehas work: one cycle.\n#\n#  indented\nset -u\n# not this\n";
         assert_eq!(header(file), "tehas work: one cycle.\n\n indented\n");
+    }
+
+    /// The `--flags` a command's text says it takes: those of its usage block,
+    /// of a line that starts with the command, and of a line that starts with
+    /// the flag and says what it is after two spaces. `--help`, which every
+    /// command takes, is no flag of one.
+    fn usage_flags(command: &str, text: &str) -> BTreeSet<String> {
+        let head = format!("tehas {command}");
+        let mut in_usage = false;
+        let mut flags = BTreeSet::new();
+        for line in text.lines() {
+            let l = line.trim_start();
+            in_usage = (in_usage || l.starts_with("Usage:")) && !l.is_empty();
+            let synopsis = l.trim_start_matches("Usage:").trim_start();
+            let names = synopsis
+                .strip_prefix(&head)
+                .is_some_and(|r| r.is_empty() || r.starts_with([' ', ':']));
+            let option = l.starts_with("--") && l.contains("  ");
+            if !(in_usage || names || option) {
+                continue;
+            }
+            for (i, _) in l.match_indices("--") {
+                let flag: String = l[i + 2..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+                    .collect();
+                if flag.starts_with(|c: char| c.is_ascii_lowercase()) && flag != "help" {
+                    flags.insert(format!("--{flag}"));
+                }
+            }
+        }
+        flags
+    }
+
+    /// api/commands.txt: each command, its flags, and the building feature it
+    /// belongs to, if any.
+    fn pinned() -> Vec<(String, BTreeSet<String>, Option<String>)> {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../api/commands.txt");
+        let text = fs::read_to_string(file).unwrap();
+        let rows = text
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'));
+        rows.map(|l| {
+            let mut w = l.split_whitespace();
+            let command = w.next().unwrap().to_string();
+            let (mut flags, mut building) = (BTreeSet::new(), None);
+            for word in w {
+                match word.strip_prefix("building=") {
+                    Some(f) => building = Some(f.to_string()),
+                    None if word.starts_with("--") => assert!(flags.insert(word.into()), "{l}"),
+                    None => panic!("api/commands.txt: {word} in {l:?} is no flag"),
+                }
+            }
+            (command, flags, building)
+        })
+        .collect()
+    }
+
+    fn row(command: &str, flags: &BTreeSet<String>) -> String {
+        let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+        format!("{command} {}", flags.join(" "))
+            .trim_end()
+            .to_string()
+    }
+
+    #[test]
+    fn the_pinned_command_list_is_every_command_of_tehas() {
+        let pinned = pinned();
+        let listed: Vec<&str> = pinned.iter().map(|(c, ..)| c.as_str()).collect();
+        let mut known: Vec<&str> = VERBS.to_vec();
+        known.extend(["setup", "update", "help"]);
+        known.sort_unstable();
+        let mut sorted = listed.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            listed, sorted,
+            "api/commands.txt: one line per command, in order"
+        );
+        assert_eq!(listed, known, "api/commands.txt against VERBS");
+    }
+
+    #[test]
+    fn the_pinned_flags_are_those_each_command_text_names() {
+        let mut wrong = Vec::new();
+        for (command, flags, _) in pinned().iter().filter(|(c, ..)| c != "help") {
+            let text = commands::text(command).unwrap_or_else(|| panic!("no text: {command}"));
+            let named = usage_flags(command, text);
+            if &named != flags {
+                wrong.push(format!(
+                    "{}  (the line in the file: {})",
+                    row(command, &named),
+                    row(command, flags)
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "api/commands.txt should say:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_usage_names_only_pinned_commands_and_flags() {
+        let pinned = pinned();
+        for line in TEHAS.lines().filter_map(|l| l.strip_prefix("  tehas ")) {
+            let command = line.split_whitespace().next().unwrap();
+            let (_, flags, _) = pinned
+                .iter()
+                .find(|(c, ..)| c == command)
+                .unwrap_or_else(|| panic!("tehas {command} is not in api/commands.txt"));
+            let line = line.split("   ").next().unwrap();
+            for flag in usage_flags(command, &format!("tehas {line}")) {
+                assert!(
+                    flags.contains(&flag),
+                    "tehas {command} {flag} is not in api/commands.txt"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_command_of_a_building_feature_is_marked_and_only_while_it_builds() {
+        use tehas_core::features::{Stage, FEATURES};
+        let marked: Vec<(String, String)> = pinned()
+            .into_iter()
+            .filter_map(|(c, _, f)| Some((c, f?)))
+            .collect();
+        for (command, name) in &marked {
+            let feature = FEATURES.iter().find(|f| f.name == name);
+            let feature = feature.unwrap_or_else(|| panic!("{command}: no feature {name}"));
+            assert_eq!(
+                feature.stage,
+                Stage::Building,
+                "{command}: {name} has shipped"
+            );
+        }
+        let names: Vec<(&str, &str)> = marked
+            .iter()
+            .map(|(c, f)| (c.as_str(), f.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [("outsource", "outsource"), ("prototype", "prototype-file")]
+        );
+    }
+
+    #[test]
+    fn the_flags_of_a_text_are_its_usage_and_option_lines() {
+        let text = "tehas x: what.\n\nUsage: tehas x [--json]\n       tehas x --to F\n\n  --to   a file\n     --only, prose\nprose names --other and -h|--help.\n";
+        let got: Vec<String> = usage_flags("x", text).into_iter().collect();
+        assert_eq!(got, ["--json", "--to"]);
+        let synopsis = usage_flags("disk", "tehas disk [--full]: how full\n");
+        assert_eq!(synopsis.into_iter().collect::<Vec<_>>(), ["--full"]);
+        assert!(usage_flags("dis", "tehas disk [--full]\n").is_empty());
     }
 
     #[test]
