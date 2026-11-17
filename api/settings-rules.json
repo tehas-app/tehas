@@ -29,6 +29,19 @@
       "reason": "expected on or off"
     },
     {
+      "name": "TEHAS_SITE_CONSOLE",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_WORK_IMAGES",
       "rule": "one-of",
       "when": "always",
