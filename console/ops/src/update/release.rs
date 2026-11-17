@@ -14,7 +14,6 @@
 
 use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
-    ANSWERED,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -981,7 +980,8 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
             plan.tree = current.display().to_string();
         } else if !host.checkout().join("install.sh").is_file() {
             // No install.sh to ask.
-            return if plan.found { 1 } else { ANSWERED };
+            plan.over = !plan.found;
+            return plan.found as u8;
         }
         return 0;
     }

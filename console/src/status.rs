@@ -764,17 +764,22 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
                 ("issue", c.get("issue").clone()),
                 ("since", c.get("startedAt").clone()),
             ];
+            // Where the step is, each only when known. Driver-specific, so it
+            // is one object the contract marks "may change".
+            let mut p = Vec::new();
             if !c.get("step").is_null() {
-                f.push(("step", c.get("step").clone()));
+                p.push(("step", c.get("step").clone()));
             }
-            // Where the step is, each only when known (#1579).
             for k in ["stepNumber", "stepTotal", "round", "roundLimit"] {
                 if matches!(c.get(k), J::Num(_)) {
-                    f.push((k, c.get(k).clone()));
+                    p.push((k, c.get(k).clone()));
                 }
             }
             if c.get("stepSince").as_str().and_then(epoch).is_some() {
-                f.push(("stepSince", c.get("stepSince").clone()));
+                p.push(("stepSince", c.get("stepSince").clone()));
+            }
+            if !p.is_empty() {
+                f.push(("progress", obj(p)));
             }
             obj(f)
         })
@@ -1283,10 +1288,11 @@ mod tests {
     fn a_running_cycle_says_where_its_step_is_as_far_as_it_is_known() {
         let health = h(r#"{"status":"pass","checks":{"cycles":[
               {"issue":12,"startedAt":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},
-              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","step":"develop","stepNumber":"7","stepSince":"soon"}]}}"#);
+              {"issue":13,"startedAt":"2026-10-17T13:50:20Z","step":"develop","stepNumber":"7","stepSince":"soon"},
+              {"issue":14,"startedAt":"2026-10-17T13:50:20Z","step":null}]}}"#);
         assert_eq!(
             status_json(&health, NOW, false).get("running").dump(),
-            r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"},{"issue":13,"since":"2026-10-17T13:50:20Z","step":"develop"}]"#
+            r#"[{"issue":12,"since":"2026-10-17T13:50:20Z","progress":{"step":"lens-review","stepNumber":7,"stepTotal":9,"round":2,"roundLimit":3,"stepSince":"2026-10-17T13:58:00Z"}},{"issue":13,"since":"2026-10-17T13:50:20Z","progress":{"step":"develop"}},{"issue":14,"since":"2026-10-17T13:50:20Z"}]"#
         );
     }
 

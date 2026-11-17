@@ -127,7 +127,7 @@ fn put(path: &Path, text: &str) -> std::io::Result<()> {
 /// when it was not. The issue and head are null when GitHub did not say.
 fn said(pr: u64, issue: Option<u64>, head: Option<&str>, why: Option<&str>) -> String {
     format!(
-        "{{\"asked\":{},\"pr\":{pr},\"issue\":{},\"head_sha\":{},\"why\":{}}}",
+        "{{\"api\":1,\"asked\":{},\"pr\":{pr},\"issue\":{},\"headSha\":{},\"why\":{}}}",
         why.is_none(),
         json!(issue),
         json!(head),
@@ -472,11 +472,11 @@ mod tests {
     fn the_json_of_one_ask_says_whether_it_was_asked_and_why_not() {
         assert_eq!(
             said(50, Some(7), Some(HEAD), None),
-            format!(r#"{{"asked":true,"pr":50,"issue":7,"head_sha":"{HEAD}","why":null}}"#)
+            format!(r#"{{"api":1,"asked":true,"pr":50,"issue":7,"headSha":"{HEAD}","why":null}}"#)
         );
         assert_eq!(
             said(50, None, None, Some("it is \"not\" open")),
-            r#"{"asked":false,"pr":50,"issue":null,"head_sha":null,"why":"it is \"not\" open"}"#
+            r#"{"api":1,"asked":false,"pr":50,"issue":null,"headSha":null,"why":"it is \"not\" open"}"#
         );
         let mut p = pull(50, 7);
         assert_eq!(named(&p), (Some(7), Some(HEAD)));

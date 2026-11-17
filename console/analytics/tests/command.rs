@@ -23,7 +23,7 @@ fn schema_version() -> i64 {
     fs::create_dir_all(dir.join("state")).unwrap();
     let copy = dir.join("copy.db");
     let out = Command::new(ANALYTICS)
-        .args(["export", copy.to_str().unwrap(), "--json"])
+        .args(["copy", "--to", copy.to_str().unwrap(), "--json"])
         .env("TEHAS_HOME", &dir)
         .output()
         .unwrap();
@@ -277,11 +277,11 @@ impl Host {
 }
 
 #[test]
-fn an_export_through_tehas_analytics_holds_no_token_host_or_address() {
+fn a_copy_through_tehas_analytics_holds_no_token_host_or_address() {
     let host = Host::new("export");
     let started = host.record_a_run();
     let copy = host.dir.join("copy.db");
-    let (code, out, err) = host.tehas(&["export", copy.to_str().unwrap(), "--json"]);
+    let (code, out, err) = host.tehas(&["copy", "--to", copy.to_str().unwrap(), "--json"]);
     assert_eq!(code, 0, "{err}");
     assert_eq!(err, "");
     assert_eq!(
@@ -377,7 +377,7 @@ fn an_export_through_tehas_analytics_holds_no_token_host_or_address() {
 
     // The same file twice is refused, and the copy stays as it was.
     let before = fs::read(&copy).unwrap();
-    let (code, out, _) = host.tehas(&["export", copy.to_str().unwrap(), "--json"]);
+    let (code, out, _) = host.tehas(&["copy", "--to", copy.to_str().unwrap(), "--json"]);
     assert_eq!((code, out.as_str()), (73, ""));
     assert_eq!(fs::read(&copy).unwrap(), before);
     assert_eq!(host.outside(), "");

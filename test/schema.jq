@@ -9,7 +9,7 @@
 
 def known: ["$schema", "$id", "title", "description", "type", "const", "enum",
   "required", "additionalProperties", "properties", "items", "minimum", "maximum",
-  "minLength", "maxLength", "pattern", "maxItems", "format"];
+  "minLength", "maxLength", "pattern", "maxItems", "minProperties", "format"];
 
 def kind: if type == "number" then (if . == floor then "integer" else "number" end) else type end;
 
@@ -39,6 +39,8 @@ def check($s; $p):
      then ["\(where($p)): \($v | tojson) does not match \($s.pattern | tojson)"] else [] end)
   + (if ($v | type) == "array" and $s.maxItems != null and ($v | length) > $s.maxItems
      then ["\(where($p)): more than \($s.maxItems) items"] else [] end)
+  + (if ($v | type) == "object" and $s.minProperties != null and ($v | length) < $s.minProperties
+     then ["\(where($p)): fewer than \($s.minProperties) properties"] else [] end)
   + (if $s.format == null then []
      elif $s.format != "date-time" then ["\(where($p)): the format \($s.format) is not checked"]
      elif ($v | type) != "string" or ($v | try (fromdateiso8601 | true) catch false) then []

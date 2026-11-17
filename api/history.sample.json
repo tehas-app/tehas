@@ -1,6 +1,6 @@
 {
   "api": 1,
-  "cycles": [
+  "runs": [
     {
       "cursor": "1760700000-12-1",
       "kind": "work",
@@ -9,10 +9,12 @@
       "started": "2025-10-17T11:19:00Z",
       "status": 10,
       "outcome": "failed",
-      "step": "develop",
-      "stepNumber": 7,
-      "stepTotal": 9,
-      "round": 3,
+      "progress": {
+        "step": "develop",
+        "stepNumber": 7,
+        "stepTotal": 9,
+        "round": 3
+      },
       "cap": "step-failed:develop",
       "failureKind": "verify-failed",
       "failureCause": "exit-1",
@@ -30,10 +32,12 @@
       "started": "2025-10-17T11:20:00Z",
       "status": 10,
       "outcome": "failed",
-      "step": "develop",
-      "stepNumber": 7,
-      "stepTotal": 9,
-      "round": 3,
+      "progress": {
+        "step": "develop",
+        "stepNumber": 7,
+        "stepTotal": 9,
+        "round": 3
+      },
       "cap": "step-failed:develop",
       "failureKind": "verify-failed",
       "failureCause": "exit-1",
@@ -50,7 +54,9 @@
       "started": "2025-10-17T11:21:00Z",
       "status": 10,
       "outcome": "failed",
-      "step": "develop",
+      "progress": {
+        "step": "develop"
+      },
       "cap": "step-failed:develop",
       "parkReason": "findings-open",
       "failureKind": "review",

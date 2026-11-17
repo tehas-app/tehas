@@ -1,4 +1,4 @@
-//! The database file: opening it, the schema, events, pruning and the export.
+//! The database file: opening it, the schema, events, pruning and the copy.
 
 use rusqlite::{params, Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::fs::{self, OpenOptions};
@@ -334,7 +334,7 @@ pub fn export(conn: &Connection, to: &Path) -> Result<(), String> {
 }
 
 /// What an export holds, read from the copy itself, as the one line
-/// `analytics export --json` prints: {"api":1,"schema":N,"from":T,"to":T,
+/// `analytics copy --json` prints: {"api":1,"schema":N,"from":T,"to":T,
 /// "runs":N}. from is the oldest start of a run and to the newest end (a
 /// start where a run has none); both are left out when there is no run.
 pub fn copy_summary(copy: &Path) -> Result<String, String> {

@@ -40,7 +40,7 @@ use tehas_core::settings::{
     INSTANCE_SETTINGS,
 };
 
-const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
+const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labelers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
 const CONTROL_BODY: &str = "The control issue of this repository's tehas factory. The label tehas:pause here stops it starting work. Keep this issue open; it is never worked on.";
 
@@ -103,10 +103,8 @@ pub fn main(given: &[String]) -> u8 {
 #[derive(Default)]
 struct Given {
     repo: String,
-    labellers: String,
-    token_file: String,
+    labelers: String,
     app_id: String,
-    app_inst: String,
     app_key_file: String,
     new_app: bool,
     app_owner: String,
@@ -118,6 +116,18 @@ struct Given {
     control: String,
     build: bool,
     force: bool,
+}
+
+/// Why an option setup once took is now an unknown one.
+fn retired(option: &str) -> Option<&'static str> {
+    match option {
+        "--labellers" => Some("is now --labelers, spelled as TEHAS_ALLOWED_LABELERS"),
+        "--token-file" => Some(NO_LONGER_USED),
+        "--app-installation" => {
+            Some("is no longer used: the app's installation on the repository is looked up")
+        }
+        _ => None,
+    }
 }
 
 fn parse(args: &[String]) -> Result<Given, Fail> {
@@ -143,17 +153,20 @@ fn parse(args: &[String]) -> Result<Given, Fail> {
             "--app-owner" => &mut g.app_owner,
             "--app-name" => &mut g.app_name,
             "--repo" => &mut g.repo,
-            "--labellers" => &mut g.labellers,
-            "--token-file" => &mut g.token_file,
+            "--labelers" => &mut g.labelers,
             "--app-id" => &mut g.app_id,
-            "--app-installation" => &mut g.app_inst,
             "--app-key-file" => &mut g.app_key_file,
             "--endpoint" => &mut g.endpoint,
             "--model" => &mut g.model,
             "--model-key-file" => &mut g.key_file,
             "--provider" => &mut g.provider,
             "--control-issue" => &mut g.control,
-            _ => return Err(Fail::Usage),
+            other => {
+                if let Some(why) = retired(other) {
+                    say(&format!("{other} {why}"));
+                }
+                return Err(Fail::Usage);
+            }
         };
         *slot = args.next().ok_or(Fail::Usage)?.clone();
     }
@@ -607,12 +620,6 @@ fn check_app(
 
 fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     let mut g = parse(args)?;
-    if !g.token_file.is_empty() {
-        return Err(Bad(format!("--token-file {NO_LONGER_USED}")));
-    }
-    if !g.app_inst.is_empty() {
-        say("--app-installation is no longer used: the app's installation on the repository is looked up; the value is ignored");
-    }
     let given_app = !(g.app_id.is_empty() && g.app_key_file.is_empty());
     if given_app && (g.app_id.is_empty() || g.app_key_file.is_empty()) {
         say("--app-id and --app-key-file go together");
@@ -644,7 +651,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         }
     };
     fill(&mut g.repo, "TEHAS_REPO");
-    fill(&mut g.labellers, "TEHAS_ALLOWED_LABELERS");
+    fill(&mut g.labelers, "TEHAS_ALLOWED_LABELERS");
     fill(&mut g.control, "TEHAS_CONTROL_ISSUE");
     fill(&mut g.provider, "PI_ENSEMBLE_SUBAGENT_PROVIDER");
     if g.provider.is_empty() {
@@ -668,8 +675,8 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         if g.repo.is_empty() {
             g.repo = ask("Product repository (owner/name)", false);
         }
-        if g.labellers.is_empty() {
-            g.labellers = ask("Logins whose labels count, space separated", false);
+        if g.labelers.is_empty() {
+            g.labelers = ask("Logins whose labels count, space separated", false);
         }
         if g.endpoint.is_empty() {
             g.endpoint = ask("Model endpoint, with its /v1", false);
@@ -690,8 +697,8 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     if g.repo.is_empty() {
         return Err(Bad("no repository: give --repo owner/name".into()));
     }
-    if g.labellers.is_empty() {
-        return Err(Bad("no labellers: give --labellers \"<login> ...\"".into()));
+    if g.labelers.is_empty() {
+        return Err(Bad("no labelers: give --labelers \"<login> ...\"".into()));
     }
     if g.endpoint.is_empty() {
         return Err(Bad("no model endpoint: give --endpoint <url>".into()));
@@ -703,10 +710,10 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
             g.repo
         )));
     }
-    if !is_logins(&g.labellers) {
+    if !is_logins(&g.labelers) {
         return Err(Bad(format!(
-            "the labellers are GitHub logins separated by spaces, not: {}",
-            g.labellers
+            "the labelers are GitHub logins separated by spaces, not: {}",
+            g.labelers
         )));
     }
     if !is_endpoint(&g.endpoint) {
@@ -816,7 +823,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         force: g.force,
     };
     conflicts.differs(&inst, "TEHAS_REPO", &g.repo);
-    conflicts.differs(&inst, "TEHAS_ALLOWED_LABELERS", &g.labellers);
+    conflicts.differs(&inst, "TEHAS_ALLOWED_LABELERS", &g.labelers);
     if !g.control.is_empty() {
         conflicts.differs(&inst, "TEHAS_CONTROL_ISSUE", &g.control);
     }
@@ -974,7 +981,7 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     };
     set(&inst, "TEHAS_REPO", &g.repo, false)?;
     set(&inst, "TEHAS_CONTROL_ISSUE", &g.control, false)?;
-    set(&inst, "TEHAS_ALLOWED_LABELERS", &g.labellers, true)?;
+    set(&inst, "TEHAS_ALLOWED_LABELERS", &g.labelers, true)?;
     set(&inst, "PI_ENSEMBLE_SUBAGENT_PROVIDER", &g.provider, false)?;
     set(&inst, "PI_ENSEMBLE_SUBAGENT_MODEL", &g.model, false)?;
     let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
@@ -1563,6 +1570,15 @@ mod tests {
         assert!(!g.build && g.force);
         assert!(matches!(parse(&a(&["--repo"])), Err(Fail::Usage)));
         assert!(matches!(parse(&a(&["--bogus"])), Err(Fail::Usage)));
+        assert_eq!(
+            parse(&a(&["--labelers", "a b"])).ok().unwrap().labelers,
+            "a b"
+        );
+        for old in ["--labellers", "--token-file", "--app-installation"] {
+            assert!(matches!(parse(&a(&[old, "x"])), Err(Fail::Usage)), "{old}");
+            assert!(retired(old).is_some(), "{old}");
+        }
+        assert!(retired("--labellers").unwrap().contains("--labelers"));
     }
 
     #[test]

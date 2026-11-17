@@ -5,8 +5,8 @@
 //!   console tehas disk [...]
 //!   console tehas state pack|unpack ... | check [--json]
 //!   console tehas limit [--json] | set ... | clear
-//!   console tehas pause [reason]
-//!   console tehas analytics report | export <file> [--json]
+//!   console tehas pause [--reason TEXT]
+//!   console tehas analytics report | copy --to <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
 //!   console tehas api [--json]
 //!   console tehas labels
@@ -75,30 +75,42 @@ fn limit_words(given: &[String]) -> Result<Vec<String>, u8> {
     }
 }
 
-/// `tehas pause` as the words of `console flags`. The reason is one argument;
-/// the flag makes it one line.
+/// `tehas pause` as the words of `console flags`. The flag makes the reason
+/// one line; an empty one is none.
 fn pause_words(given: &[String]) -> Result<Vec<String>, u8> {
-    match given {
-        [] => Ok(strings(&["pause", "set"], &[])),
-        [reason] if reason.is_empty() => Ok(strings(&["pause", "set"], &[])),
-        [_] => Ok(strings(&["pause", "set", "--reason"], given)),
+    let words: Vec<&str> = given.iter().map(String::as_str).collect();
+    match words[..] {
+        [] | ["--reason", ""] => Ok(strings(&["pause", "set"], &[])),
+        ["--reason", _] => Ok(strings(&["pause", "set"], given)),
+        [word] if !word.starts_with('-') => {
+            eprintln!("tehas pause: the reason is given as --reason TEXT");
+            Err(64)
+        }
         _ => {
-            eprintln!("usage: tehas pause [reason]");
+            eprintln!("usage: tehas pause [--reason TEXT]");
             Err(64)
         }
     }
 }
 
 fn analytics_words(given: &[String]) -> Result<(), u8> {
-    let file_ok = |f: &String| !f.is_empty() && !f.starts_with('-');
-    let good = match given {
-        [verb] => verb == "report",
-        [verb, file] => verb == "export" && file_ok(file),
-        [verb, file, flag] => verb == "export" && file_ok(file) && flag == "--json",
+    let words: Vec<&str> = given.iter().map(String::as_str).collect();
+    let file_ok = |f: &str| !f.is_empty() && !f.starts_with('-');
+    let good = match words[..] {
+        ["report"] => true,
+        ["copy", "--to", file]
+        | ["copy", "--to", file, "--json"]
+        | ["copy", "--json", "--to", file] => file_ok(file),
+        ["export", ..] => {
+            eprintln!(
+                "tehas analytics: export is now copy: tehas analytics copy --to <file> [--json]"
+            );
+            return Err(64);
+        }
         _ => false,
     };
     if !good {
-        eprintln!("usage: tehas analytics report | export <file> [--json]");
+        eprintln!("usage: tehas analytics report | copy --to <file> [--json]");
         return Err(64);
     }
     Ok(())
@@ -485,35 +497,52 @@ mod tests {
     }
 
     #[test]
-    fn pause_takes_one_reason_and_an_empty_one_is_none() {
+    fn pause_takes_a_reason_flag_and_an_empty_one_is_none() {
         assert_eq!(pause_words(&[]), Ok(words(&["pause", "set"])));
-        assert_eq!(pause_words(&words(&[""])), Ok(words(&["pause", "set"])));
         assert_eq!(
-            pause_words(&words(&["a b"])),
+            pause_words(&words(&["--reason", ""])),
+            Ok(words(&["pause", "set"]))
+        );
+        assert_eq!(
+            pause_words(&words(&["--reason", "a b"])),
             Ok(words(&["pause", "set", "--reason", "a b"]))
         );
-        assert_eq!(pause_words(&words(&["a", "b"])), Err(64));
-        assert_eq!(pause_words(&words(&["-h", "x"])), Err(64));
+        for bad in [
+            &["a b"][..],
+            &[""],
+            &["a", "b"],
+            &["--reason"],
+            &["--reason", "a", "b"],
+            &["--why", "a"],
+            &["-h", "x"],
+        ] {
+            assert_eq!(pause_words(&words(bad)), Err(64), "{bad:?}");
+        }
     }
 
     #[test]
-    fn analytics_takes_report_or_export() {
+    fn analytics_takes_report_or_copy() {
         for good in [
             &["report"][..],
-            &["export", "a"],
-            &["export", "a", "--json"],
+            &["copy", "--to", "a"],
+            &["copy", "--to", "a", "--json"],
+            &["copy", "--json", "--to", "a"],
         ] {
             assert_eq!(analytics_words(&words(good)), Ok(()), "{good:?}");
         }
         for bad in [
             &[][..],
             &["report", "--json"],
-            &["export"],
-            &["export", ""],
-            &["export", "--json"],
-            &["export", "-o", "x"],
-            &["export", "a", "--yaml"],
-            &["export", "a", "--json", "now"],
+            &["copy"],
+            &["copy", "a"],
+            &["copy", "--to"],
+            &["copy", "--to", ""],
+            &["copy", "--to", "--json"],
+            &["copy", "--to", "-o"],
+            &["copy", "--to", "a", "--yaml"],
+            &["copy", "--to", "a", "--json", "now"],
+            &["export", "a"],
+            &["export", "a", "--json"],
             &["prune"],
             &["run", "7"],
         ] {
@@ -525,6 +554,8 @@ mod tests {
     fn check_judges_a_person_s_command_and_passes_any_other() {
         assert_eq!(check(&words(&["tehas", "limit", "show"])), 64);
         assert_eq!(check(&words(&["tehas", "pause", "a", "b"])), 64);
+        assert_eq!(check(&words(&["tehas", "pause", "a"])), 64);
+        assert_eq!(check(&words(&["tehas", "pause", "--reason", "a"])), 0);
         assert_eq!(check(&words(&["tehas", "analytics"])), 64);
         assert_eq!(check(&words(&["tehas", "api", "--jsn"])), 64);
         assert_eq!(check(&words(&["tehas", "api", "--json"])), 0);
