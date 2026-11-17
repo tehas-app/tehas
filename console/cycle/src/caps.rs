@@ -595,8 +595,8 @@ mod tests {
     #[test]
     fn a_polyfill_is_a_name_and_a_version() {
         assert_eq!(
-            polyfills("issue-comments@0.1.0 project-knowledge@1,x9@2\n"),
-            ["issue-comments", "project-knowledge", "x9"]
+            polyfills("issue-comments@0.1.0 example@1,x9@2\n"),
+            ["issue-comments", "example", "x9"]
         );
         for no in [
             "",
@@ -617,20 +617,20 @@ mod tests {
     fn a_polyfill_the_image_names_declares_its_inputs() {
         let caps = fixture();
         let l = labels(
-            "issue-comments@0.1.0 project-knowledge@0.2.0",
-            "project-knowledge",
-            "PI_ENSEMBLE_KNOWLEDGE_URL, PI_ENSEMBLE_KNOWLEDGE_TOKEN\nPI_ENSEMBLE_KNOWLEDGE_URL",
+            "issue-comments@0.1.0 example@0.1.0",
+            "example",
+            "PI_ENSEMBLE_EXAMPLE_URL, PI_ENSEMBLE_EXAMPLE_TOKEN\nPI_ENSEMBLE_EXAMPLE_URL",
         );
         assert_eq!(
             polyfill_inputs(&caps, &l),
             [
                 (
-                    "PI_ENSEMBLE_KNOWLEDGE_URL".into(),
-                    "project-knowledge".into()
+                    "PI_ENSEMBLE_EXAMPLE_URL".into(),
+                    "example".into()
                 ),
                 (
-                    "PI_ENSEMBLE_KNOWLEDGE_TOKEN".into(),
-                    "project-knowledge".into()
+                    "PI_ENSEMBLE_EXAMPLE_TOKEN".into(),
+                    "example".into()
                 ),
             ]
         );
@@ -640,25 +640,25 @@ mod tests {
     fn inputs_of_a_polyfill_the_image_does_not_name_are_not_declared() {
         let caps = fixture();
         for l in [
-            labels("other@1", "project-knowledge", "PI_ENSEMBLE_KNOWLEDGE_URL"),
+            labels("other@1", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
             labels(
-                "project-knowledge",
-                "project-knowledge",
-                "PI_ENSEMBLE_KNOWLEDGE_URL",
+                "example",
+                "example",
+                "PI_ENSEMBLE_EXAMPLE_URL",
             ),
-            labels("", "project-knowledge", "PI_ENSEMBLE_KNOWLEDGE_URL"),
-            r#"{"tehas.rukas.polyfill.project-knowledge.inputs":"PI_ENSEMBLE_KNOWLEDGE_URL"}"#
+            labels("", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
+            r#"{"tehas.rukas.polyfill.example.inputs":"PI_ENSEMBLE_EXAMPLE_URL"}"#
                 .into(),
-            "project-knowledge@1".into(),
+            "example@1".into(),
             "null".into(),
             "".into(),
         ] {
             assert!(polyfill_inputs(&caps, &l).is_empty(), "{l}");
         }
         let l = labels(
-            "project-knowledge@1",
-            "project-knowledge",
-            "PI_ENSEMBLE_KNOWLEDGE_URL",
+            "example@1",
+            "example",
+            "PI_ENSEMBLE_EXAMPLE_URL",
         );
         assert!(polyfill_inputs("not json", &l).is_empty());
     }
