@@ -6,7 +6,7 @@
 - `tehas start --json`: the approval's sums are `bodySha256` and `titleSha256`, camelCase like every other `--json` object.
 - `tehas refresh --pr N --json` (and its old name under `tehasbot`): the head is `headSha`, and the object gains `"api": 1`, as every other `--json` object has.
 - `tehas disk --json` and `live/disk.json`: `generatedAt` is now `time`, the word `tehas status --json` uses for when an answer was written. The MCP tool `factory_disk` answers `time` too.
-- The MCP tool `factory_disk` serves no path of the host: `dockerRoot` is gone, a file system's `paths` are roles (`home`, `docker`, `tmp`, `scratch`), and a place's `path` is its path under the instance's home, or its name alone outside it. `tehas disk --json` and `live/disk.json` keep the absolute paths for a person on the host.
+- The MCP tool `factory_disk` serves no path of the host: `dockerRoot` is gone, a file system's `paths` are roles (`home`, `docker`, `tmp`, `scratch`), and a place's `path` is its path under the instance's home, or its name alone outside it. A file system's `why` names a path by its role, and a `mount` that is a device path or a network export is left out. `tehas disk --json` and `live/disk.json` keep the absolute paths for a person on the host.
 
 ### Adopter action
 

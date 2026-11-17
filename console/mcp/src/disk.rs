@@ -36,10 +36,10 @@ pub fn tool() -> Value {
                 "description": "One entry per file system, its paths naming every watched path that stands on it.",
                 "items": {"type": "object", "properties": {
                     "paths": {"type": "array", "items": {"type": "string", "enum": ["home", "docker", "tmp", "scratch"]}, "description": "What the watched paths that stand on this file system are: home (the instance's home), docker (Docker's own directory), tmp or scratch (TEHAS_SCRATCH_DIR). The host's own paths are not served."},
-                    "mount": text("What df names the file system's own, such as overlay; left out when it did not say."),
+                    "mount": text("What df names the file system's own, such as overlay; left out when it did not say, or when it named a device path or another host."),
                     "freeBytes": int_("Free bytes. Left out, with why, when the figure could not be read: no figure is never 0 bytes free."),
                     "totalBytes": int_("Total bytes. Left out, with why, when the figure could not be read."),
-                    "why": text("Why no figure is there, when none is: df answered nothing, its word was no number, or the call did not answer."),
+                    "why": text("Why no figure is there, when none is: df answered nothing, its word was no number, or the call did not answer. A path in it is named by its role."),
                 }},
             },
             "full": {
@@ -122,6 +122,33 @@ fn unrooted(out: &mut Map<String, Value>, answer: &Value) {
         .into_iter()
         .flatten()
     {
+        let mut raw: Vec<String> = fs["paths"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.as_str().map(str::to_string))
+            .collect();
+        // Longest first, so a path is never half-replaced by its parent.
+        raw.sort_by_key(|p| std::cmp::Reverse(p.len()));
+        if let Some(why) = fs.get("why").and_then(Value::as_str) {
+            let mut said = why.to_string();
+            for p in raw.iter().filter(|p| !p.is_empty()) {
+                said = said.replace(p.as_str(), role(p));
+            }
+            fs["why"] = json!(said);
+        }
+        // df's first column is a device path, or host:/export on a network
+        // mount. Only a plain name such as overlay is served.
+        let local = |m: &str| !m.starts_with('/') && !m.contains(':');
+        if fs
+            .get("mount")
+            .and_then(Value::as_str)
+            .is_some_and(|m| !local(m))
+        {
+            if let Some(o) = fs.as_object_mut() {
+                o.remove("mount");
+            }
+        }
         if let Some(paths) = fs.get_mut("paths").and_then(Value::as_array_mut) {
             for p in paths.iter_mut() {
                 *p = json!(role(p.as_str().unwrap_or("")));
@@ -275,6 +302,38 @@ mod tests {
         assert_eq!(places, ["dev/alpha.state/target", "sessions", "."]);
         assert!(!out.to_string().contains("/srv"), "{out}");
         assert!(!out.to_string().contains("boss"), "{out}");
+    }
+
+    // df's own words can name the host: the reason names the path df was
+    // asked about, and the first column of a network mount names another
+    // host. The reason names the role instead, and a mount that is a path or
+    // a remote is left out.
+    #[test]
+    fn why_and_mount_name_no_path_and_no_other_host() {
+        let dir = published(
+            r#"{"api":1,"time":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
+              "filesystems":[{"paths":["/home/boss/tehas"],"mount":"fileserver:/export/home","freeBytes":1,"totalBytes":2},
+                             {"paths":["/mnt/scratch"],"why":"/mnt/scratch: df gave no figure"},
+                             {"paths":["/tmp"],"mount":"/dev/sda1","why":"/tmp: df's figure is not a number of bytes"},
+                             {"paths":["/var/lib/docker"],"mount":"overlay","freeBytes":1,"totalBytes":2}],
+              "full":{"places":[]}}"#,
+        );
+        let out = Value::Object(call(&dirs(&dir)).unwrap());
+        assert_eq!(out["filesystems"][1]["why"], "scratch: df gave no figure");
+        assert_eq!(
+            out["filesystems"][2]["why"],
+            "tmp: df's figure is not a number of bytes"
+        );
+        assert!(out["filesystems"][0].get("mount").is_none(), "{out}");
+        assert!(out["filesystems"][2].get("mount").is_none(), "{out}");
+        assert_eq!(out["filesystems"][3]["mount"], "overlay");
+        let said = out.to_string();
+        for forbidden in ["/mnt", "/tmp", "/dev", "fileserver", "/export", "boss"] {
+            assert!(
+                !said.contains(forbidden),
+                "{forbidden} reached the answer: {said}"
+            );
+        }
     }
 
     #[test]
