@@ -628,7 +628,9 @@ fn take(lab: &Lab, dir: &Path, link: &str, held: &mut Held) -> Option<()> {
 
     let part = dir.join(".part");
     let _ = fs::remove_file(&part);
-    let Fetched { code, content_type } = fetch::fetch(link, &part, left, &lab.token);
+    let Fetched {
+        code, content_type, ..
+    } = fetch::fetch(link, &part, left, &lab.token);
     match code {
         0 => {}
         fetch::TOO_BIG => {

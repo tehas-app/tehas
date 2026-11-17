@@ -714,11 +714,11 @@ t_eq "$(jq -rc .pause.flag "$live/status.json")" '{"at":null,"reason":null}'
 t_eq "$(jq -r .status "$live/health.json")" "warn"
 t_contains "$t_out" "pause     flag, written at an unknown time"
 
-t_case "summary: a failed cycle is exit 1, and still printed"
+t_case "summary: a failed cycle is exit 3, and still printed"
 reset
 cycle false aborted develop
 t_run "$status; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
 t_contains "$t_out" "cycle     #12 aborted at step develop"
 
@@ -821,7 +821,7 @@ reset
 one 14 true running plan 600 5
 one 12 false aborted develop 700 180
 t_run "$status; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
 
 t_case "summary: a cycle that started after the last one failed clears the failure"
@@ -836,7 +836,7 @@ t_case "a cycle that stopped writing is lost, and the factory says so"
 reset
 one 9 true running develop 900 300
 t_run "$status; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[(.cycles | length), .last.status]' "$live/running.json")" '[0,"lost"]'
 
@@ -851,7 +851,7 @@ t_contains "$t_out" "factory   pass: Working on #9."
 t_eq "$(jq -r .status "$live/cycles/9.json")" running
 exec 8>&-
 t_run "$status; $summary"
-t_eq "$t_rc" 1
+t_eq "$t_rc" 3
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 
 t_case "an abort a merge overtook ten seconds later passes, and checks.failed still names it"

@@ -248,7 +248,16 @@
 //! PI_ENSEMBLE_REPEAT_PARK=0 where the image takes it: the polyfill's comments
 //! do not reach the repeat-park guard.
 //!
-//! With neither setting and no comments a cycle is given nothing: no
+//! With the spec-pipe feature on (TEHAS_SPEC_PIPE), a start with an approval
+//! record also gives the cycle what was approved, in the same directory,
+//! mounted with any setting: the spec its approval pinned, fetched again and
+//! held to the pin, and approved.json, the title and body this start compared
+//! with the approval, named under "spec" and "approvedText" in the manifest
+//! (console/attach, handoff). A spec that is not the pinned bytes stops the
+//! start (exit 4). A cycle given a spec needs a runner that lists the feature
+//! issueSpec (78 before anything is fetched).
+//!
+//! With neither setting, no comments and no handoff a cycle is given nothing: no
 //! directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on,
 //! whatever the instance file says. The issue is still read once, for its text, and held to the
 //! dispatcher's record (exit 4). That one read is the one the images and the
@@ -381,6 +390,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use tehas_core::driver::Driver;
+use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::sandbox::Misshaped;
 use tehas_core::text::disarm;
 use tehas_core::{self, sandbox, slice, time};
@@ -390,7 +401,7 @@ pub struct Given {
     pub issue: u64,
     pub restart: bool,
     /// The driver a person asked for with --driver, if any.
-    pub driver: Option<start::Driver>,
+    pub driver: Option<Driver>,
     /// The console beside the script, which the watch runs.
     pub console: String,
 }
@@ -677,6 +688,11 @@ fn comments_refused(why: &str) -> String {
     format!("Tehas started no cycle: {}. The retry was ticked for the issue and all its comments, and a cycle without them is not that retry. To retry, apply `tehas:ready`.", disarm(why))
 }
 
+/// The comment of a start that could not give its cycle what was approved.
+fn spec_refused(why: &str) -> String {
+    format!("Tehas started no cycle: {}. A cycle works on the spec and the text that were approved, and on nothing else. To retry, apply `tehas:ready`.", disarm(why))
+}
+
 /// A comment on the issue, bounded. Its failure is said, never a stop.
 fn comment(issue: u64, wait: u64, body: &str) {
     let done = Command::new("timeout")
@@ -767,7 +783,7 @@ fn fetch(f: &Files, answer: &str, console: &str, stop: &Stop) -> Result<Vec<Stri
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &images_refused(&why, f.kinds));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     if env("TEHAS_WORK_DESCRIBE") == "1" {
         // A program of its own, so a stop does not wait on the model.
@@ -840,10 +856,28 @@ fn comments_alone(f: &Files) -> Result<Vec<String>, i32> {
         let _ = fs::remove_dir_all(f.dir);
         eprintln!("tehas work: {why}, not starting a cycle");
         comment(n, f.text_wait, &comments_refused(&why));
-        return Err(4);
+        return Err(i32::from(NOT_STARTED));
     }
     keep_beside(f);
     Ok(mounted(f))
+}
+
+/// What was approved, into the directory: the spec and the title and body.
+/// The options that give the directory to the container, or the exit status.
+fn hand_over(f: &Files, answer: &str) -> Result<Vec<String>, i32> {
+    let n = f.issue;
+    match gives::hand_over(n, f.dir, f.record, answer) {
+        Ok(line) => {
+            eprintln!("{line}");
+            Ok(mounted(f))
+        }
+        Err(why) => {
+            let _ = fs::remove_dir_all(f.dir);
+            eprintln!("tehas work: {why}, not starting a cycle");
+            comment(n, f.text_wait, &spec_refused(&why));
+            Err(4)
+        }
+    }
 }
 
 /// The line that says what a cycle given nothing was not given, on the error
@@ -1101,6 +1135,23 @@ pub fn run(home: &Path, g: &Given) -> i32 {
             return STOPPED;
         }
     }
+    // The spec pipe hands the cycle what was approved, in the same directory.
+    if gives::hands_over(&record) {
+        let f = Files {
+            home,
+            issue: n,
+            record: &record,
+            dir: &images,
+            inside: &images_inside,
+            kept: &kept,
+            kinds,
+            text_wait,
+        };
+        image_opts = match hand_over(&f, &answer) {
+            Ok(o) => o,
+            Err(rc) => return rc,
+        };
+    }
 
     // A fresh workspace for this cycle, the gate it runs, the check that it can
     // push, its copy of the code index and its mounts. A return before the
@@ -1124,7 +1175,7 @@ pub fn run(home: &Path, g: &Given) -> i32 {
         // on the host and on the issue, ends its own record as push-fault, and
         // leaves the issue's labels alone. The park of a cycle that ran is the
         // report's, and this arm never reaches it.
-        if rc == 3 {
+        if rc == i32::from(NO_PUSH) {
             prepare::push_fault(
                 home,
                 n,
@@ -1261,7 +1312,11 @@ mod tests {
             "the link {} could not be read",
             "<!-- tehas:millwright issue=5 action=retry -->"
         );
-        for body in [images_refused(&why, "images"), comments_refused(&why)] {
+        for body in [
+            images_refused(&why, "images"),
+            comments_refused(&why),
+            spec_refused(&why),
+        ] {
             assert!(!has_marker(&body), "{body}");
             assert!(body.contains("could not be read"), "{body}");
         }

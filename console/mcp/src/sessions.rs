@@ -99,8 +99,19 @@ fn field(f: (&str, &str, &str)) -> (String, Value) {
     (f.0.to_string(), json!({"type": f.1, "description": f.2}))
 }
 
+/// The fields as schema properties. A field that holds a word of a closed
+/// list names the list, so an answer is checked against the words too.
 fn object_of(fields: &[(&str, &str, &str)]) -> Value {
-    let props: Map<String, Value> = fields.iter().map(|f| field(*f)).collect();
+    let mut props: Map<String, Value> = fields.iter().map(|f| field(*f)).collect();
+    for (key, words) in [
+        ("outcome", &OUTCOMES[..]),
+        ("kind", &KINDS[..]),
+        ("how", &HOWS[..]),
+    ] {
+        if let Some(p) = props.get_mut(key) {
+            p["enum"] = json!(words);
+        }
+    }
     json!({"type": "object", "properties": props})
 }
 
@@ -173,7 +184,7 @@ fn session_schema() -> Value {
     item
 }
 
-fn outcome_counts(desc: &str) -> Value {
+fn counts(desc: &str) -> Value {
     json!({"type": "object", "description": desc,
            "additionalProperties": {"type": "integer"}})
 }
@@ -191,9 +202,11 @@ fn failures_schema() -> Value {
         "image": text("With by image: the sandbox image's id. Left out when the runs recorded none."),
         "imageBuilt": text("With by image: when that image was built, UTC. Left out when unknown."),
         "runs": count("Work sessions on this pair."),
-        "outcomes": outcome_counts("Sessions per outcome."),
-        "outcomesUnknown": count("Sessions with no outcome on record, counted here and not in outcomes."),
-        "failureKinds": outcome_counts("Sessions per failure kind."),
+        "outcomes": {"type": "object", "description": "Sessions per outcome, by the outcome words.",
+                     "propertyNames": {"enum": OUTCOMES},
+                     "additionalProperties": {"type": "integer"}},
+        "outcomesUnknown": count("Sessions with no outcome word on record: none, or a word that is not an outcome. Counted here and not in outcomes."),
+        "failureKinds": counts("Sessions per failure kind."),
         "causes": array_of(cause, "The five most common failure causes."),
     }});
     schema(vec![
@@ -306,6 +319,10 @@ pub fn tools() -> Vec<Value> {
             "next",
             text("The id of the last session when more remain; pass it as before."),
         ),
+        (
+            "leftOut",
+            count("Sessions skipped while filling this page because a field of theirs is not of the type or a word the schema names. A page counts only its own; later pages count theirs. Left out when none."),
+        ),
     ]);
     let one_out = schema(vec![
         ("api", count("The API version, 1.")),
@@ -372,7 +389,7 @@ pub fn find(snap: &Snapshot, id: &str) -> Result<Value, ToolError> {
 /// A live file through `tools::read`, or `None` when it is not there. A file
 /// that is there and cannot be read or parsed is the tool's error: "I could
 /// not look" is never answered as "it is not listed".
-fn published(dirs: &Dirs, file: &str) -> Result<Option<Value>, ToolError> {
+pub(crate) fn published(dirs: &Dirs, file: &str) -> Result<Option<Value>, ToolError> {
     match std::fs::metadata(dirs.live.join(file)) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         _ => tools::read(&dirs.live, file).map(Some),
@@ -462,8 +479,18 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
+    let keys = spec(&SUMMARY);
+    let item = summary_schema();
+    let summary = |s: &Value| {
+        let mut o = pick_object(s, &keys);
+        let (i, p) = session_links(&repo, s);
+        insert_opt(&mut o, "issueUrl", i);
+        insert_opt(&mut o, "prUrl", p);
+        Value::Object(o)
+    };
     let mut passed = before.is_none();
     let mut found: Vec<Value> = Vec::new();
+    let mut left_out = 0u64;
     for s in snap.sessions() {
         if !passed {
             passed = s["id"].as_str() == before;
@@ -484,11 +511,17 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
                     .is_some_and(|i| i.starts_with(w))
             })
             && issue.is_none_or(|n| s["issue"].as_i64() == Some(n));
-        if keep {
-            found.push(s);
-            if found.len() > limit {
-                break;
-            }
+        if !keep {
+            continue;
+        }
+        let o = summary(&s);
+        if crate::conform::check(&o, &item).is_err() {
+            left_out += 1;
+            continue;
+        }
+        found.push(o);
+        if found.len() > limit {
+            break;
         }
     }
     if !passed {
@@ -503,23 +536,15 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         .then(|| found.last().map(|s| s["id"].clone()))
         .flatten();
 
-    let keys = spec(&SUMMARY);
-    let sessions: Vec<Value> = found
-        .iter()
-        .map(|s| {
-            let mut o = pick_object(s, &keys);
-            let (i, p) = session_links(&repo, s);
-            insert_opt(&mut o, "issueUrl", i);
-            insert_opt(&mut o, "prUrl", p);
-            Value::Object(o)
-        })
-        .collect();
     let mut out = Map::new();
     out.insert("days".into(), json!(snap.days));
     out.insert("stale".into(), json!(snap.stale));
-    out.insert("sessions".into(), Value::Array(sessions));
+    out.insert("sessions".into(), Value::Array(found));
     if let Some(n) = next {
         out.insert("next".into(), n);
+    }
+    if left_out > 0 {
+        out.insert("leftOut".into(), json!(left_out));
     }
     Ok(out)
 }
@@ -580,9 +605,14 @@ pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolE
     let (i, p) = session_links(&repo(dirs)?, &raw);
     insert_opt(&mut s, "issueUrl", i);
     insert_opt(&mut s, "prUrl", p);
+    let s = Value::Object(s);
+    crate::conform::check(&s, &session_schema()).map_err(|why| ToolError::File {
+        file: crate::snapshot::FILE.into(),
+        why: format!("has session {id} that does not match the schema: {why}"),
+    })?;
     let mut out = Map::new();
     out.insert("stale".into(), json!(snap.stale));
-    out.insert("session".into(), Value::Object(s));
+    out.insert("session".into(), s);
     Ok(out)
 }
 
@@ -631,7 +661,7 @@ pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, 
             p.built = text("imageBuilt");
         }
         p.runs += 1;
-        match text("outcome") {
+        match text("outcome").filter(|o| OUTCOMES.contains(&o.as_str())) {
             Some(o) => *p.outcomes.entry(o).or_default() += 1,
             None => p.outcomes_unknown += 1,
         }

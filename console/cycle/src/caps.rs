@@ -7,6 +7,12 @@ use crate::runner::{num, values, RESULT_SCHEMA};
 use regex::Regex;
 use serde_json::Value;
 use std::path::Path;
+use tehas_core::driver::Driver;
+
+/// The feature of a runner that reads the `spec` and `approvedText` entries
+/// of the manifest: a cycle handed a spec starts only on a runner that sets it
+/// to true.
+pub const READS_SPEC: &str = "issueSpec";
 
 const EXIT_CODES: u64 = 1;
 const NDJSON_STABLE: u64 = 1;
@@ -72,12 +78,13 @@ fn family(name: &str, members: Option<&Value>) -> Option<Regex> {
     Regex::new(&format!("^{pattern}\n?$")).ok()
 }
 
-fn inputs(caps: &Value) -> Vec<Regex> {
+/// The inputs a host may set, or with `any` every input of any scope.
+fn inputs_of(caps: &Value, any: bool) -> Vec<Regex> {
     items(caps.get("inputs"))
         .into_iter()
         .filter(|i| i.is_object())
         .filter(|i| {
-            matches!(
+            any || matches!(
                 i.get("scope").and_then(Value::as_str),
                 Some("cycle" | "sandbox")
             )
@@ -89,6 +96,66 @@ fn inputs(caps: &Value) -> Vec<Regex> {
                 .flatten()
         })
         .collect()
+}
+
+fn inputs(caps: &Value) -> Vec<Regex> {
+    inputs_of(caps, false)
+}
+
+/// The image label that names the polyfills an image carries.
+pub const POLYFILLS: &str = "tehas.rukas.polyfills";
+
+/// The polyfills a `tehas.rukas.polyfills` label names: entries
+/// `<name>@<version>` split on spaces, commas and newlines. An entry with no
+/// version, or a name that is not lower-case letters, digits and dashes
+/// starting with a letter, names none.
+pub fn polyfills(label: &str) -> Vec<&str> {
+    label
+        .split([' ', ',', '\n'])
+        .filter_map(|w| w.split_once('@'))
+        .filter(|(n, v)| {
+            !v.is_empty()
+                && n.len() <= 64
+                && n.starts_with(|c: char| c.is_ascii_lowercase())
+                && n.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
+        .map(|(n, _)| n)
+        .collect()
+}
+
+/// The inputs the polyfills of an image declare, each with its polyfill.
+/// `labels` is the image's labels as one JSON object. A polyfill named in
+/// `tehas.rukas.polyfills` declares its inputs in the label
+/// `tehas.rukas.polyfill.<name>.inputs`, names split on spaces and commas.
+/// Only a PI_ENSEMBLE_ name counts, written out in full, and only one the
+/// answer does not list in any scope: a polyfill adds an input the runner
+/// does not know, it does not open one the runner keeps to itself. Nothing
+/// when the answer or the labels cannot be read.
+pub fn polyfill_inputs(text: &str, labels: &str) -> Vec<(String, String)> {
+    let Some(caps) = answer(text) else {
+        return vec![];
+    };
+    let Ok(Value::Object(labels)) = serde_json::from_str::<Value>(labels.trim()) else {
+        return vec![];
+    };
+    let known = inputs_of(&caps, true);
+    let list = labels.get(POLYFILLS).and_then(Value::as_str).unwrap_or("");
+    let mut out = vec![];
+    for p in polyfills(list) {
+        let key = format!("tehas.rukas.polyfill.{p}.inputs");
+        let declared = labels.get(&key).and_then(Value::as_str).unwrap_or("");
+        for n in declared.split([' ', ',', '\n']) {
+            let ok = n.len() > "PI_ENSEMBLE_".len()
+                && n.starts_with("PI_ENSEMBLE_")
+                && name_chars(n, "")
+                && !known.iter().any(|re| re.is_match(n));
+            if ok && !out.iter().any(|(i, _)| i == n) {
+                out.push((n.to_string(), p.to_string()));
+            }
+        }
+    }
+    out
 }
 
 /// The names in `names` that are no input a host may set, families matched as
@@ -159,7 +226,7 @@ pub fn unsupported(
     .flatten()
     .collect();
     let lean_schema = dig(&caps, &["features", "workLeanResultSchema"]);
-    if verb == "work-lean" && !is_num(lean_schema, RESULT_SCHEMA) {
+    if verb == Driver::Lean.verb() && !is_num(lean_schema, RESULT_SCHEMA) {
         lines.push(format!("the feature workLeanResultSchema {RESULT_SCHEMA}"));
     }
     lines.extend(
@@ -519,5 +586,88 @@ mod tests {
         assert!(reads_images(&say(r#","manifestVersion":1"#)));
         assert!(!reads_images(&say(r#","manifestVersion":2"#)));
         assert!(!reads_images(&say("")));
+    }
+
+    fn labels(list: &str, name: &str, inputs: &str) -> String {
+        serde_json::json!({
+            "tehas.rukas": "abc",
+            "tehas.rukas.polyfills": list,
+            format!("tehas.rukas.polyfill.{name}.inputs"): inputs,
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_polyfill_is_a_name_and_a_version() {
+        assert_eq!(
+            polyfills("issue-comments@0.1.0 example@1,x9@2\n"),
+            ["issue-comments", "example", "x9"]
+        );
+        for no in [
+            "",
+            "<no value>",
+            "a",
+            "a@",
+            "@1",
+            "A@1",
+            "a_b@1",
+            "9a@1",
+            "a/b@1",
+        ] {
+            assert!(polyfills(no).is_empty(), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_polyfill_the_image_names_declares_its_inputs() {
+        let caps = fixture();
+        let l = labels(
+            "issue-comments@0.1.0 example@0.1.0",
+            "example",
+            "PI_ENSEMBLE_EXAMPLE_URL, PI_ENSEMBLE_EXAMPLE_TOKEN\nPI_ENSEMBLE_EXAMPLE_URL",
+        );
+        assert_eq!(
+            polyfill_inputs(&caps, &l),
+            [
+                ("PI_ENSEMBLE_EXAMPLE_URL".into(), "example".into()),
+                ("PI_ENSEMBLE_EXAMPLE_TOKEN".into(), "example".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn inputs_of_a_polyfill_the_image_does_not_name_are_not_declared() {
+        let caps = fixture();
+        for l in [
+            labels("other@1", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
+            labels("example", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
+            labels("", "example", "PI_ENSEMBLE_EXAMPLE_URL"),
+            r#"{"tehas.rukas.polyfill.example.inputs":"PI_ENSEMBLE_EXAMPLE_URL"}"#.into(),
+            "example@1".into(),
+            "null".into(),
+            "".into(),
+        ] {
+            assert!(polyfill_inputs(&caps, &l).is_empty(), "{l}");
+        }
+        let l = labels("example@1", "example", "PI_ENSEMBLE_EXAMPLE_URL");
+        assert!(polyfill_inputs("not json", &l).is_empty());
+    }
+
+    #[test]
+    fn a_polyfill_declares_only_plain_names_the_runner_does_not_know() {
+        let a = with(
+            r#""inputs":[{"name":"PI_ENSEMBLE_SUBAGENT_MODE","scope":"internal"},
+            {"name":"PI_ENSEMBLE_MODEL_<ROLE>","scope":"cycle"}]"#,
+        );
+        let l = labels(
+            "pk@1",
+            "pk",
+            "PI_ENSEMBLE_SUBAGENT_MODE PI_ENSEMBLE_MODEL_OPS PI_ENSEMBLE_ PI_ENSEMBLE_K_<X> \
+             PI_ENSEMBLE_K.* GH_TOKEN TEHAS_X pi_ensemble_k PI_ENSEMBLE_KEPT",
+        );
+        assert_eq!(
+            polyfill_inputs(&a, &l),
+            [("PI_ENSEMBLE_KEPT".into(), "pk".into())]
+        );
     }
 }
