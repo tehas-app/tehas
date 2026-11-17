@@ -17,7 +17,9 @@ The first setup of an instance, as the tehas user, after
 yet: run it from the tree it came in, `~/tehas/current/bin/tehas setup` for a
 release or `~/tehas/platform/bin/tehas setup` for a checkout. What it is not
 given it asks for when there is a terminal; without one, a missing setting is
-exit 78.
+exit 78. A setting it takes from an `instance.env` that is already there is
+read, not run: one that holds a `$` or a backtick outside single quotes is
+exit 78, since the shell that sources the file would read it otherwise.
 
 | Option | What it is |
 | --- | --- |
