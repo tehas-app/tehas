@@ -89,7 +89,12 @@ call, its texts. When its title and the links taken are the ones its page was
 built from, as after a comment with no new link, no file is fetched again and
 the page only takes the new time. With `TEHAS_ISSUE_TYPES` a ticket that
 changed costs one more call, its label events, for the renames. When GitHub cannot be
-reached, what is there stays. A pass that finds no console to write the pages
+reached, what is there stays, and the log says `the open tickets could not be
+read` with gh's reason: a status such as `HTTP 401`, a word such as `timed
+out`, or that the answer was not a list. A pass that holds no GitHub
+credential says so in one line, and a file GitHub then refuses is listed on
+the page as asked for without one, not as gone. A line the unpacker prints
+about a zip is masked for tokens before it reaches the log. A pass that finds no console to write the pages
 with says so and exits 78 before it calls GitHub.
 
 ### A zip by address
