@@ -275,6 +275,27 @@ t_contains "$(cat "$T/curl-stdin")" "Authorization: Bearer sk_model_key"
 t_lacks "$(cat "$T"/calls/*)" "sk_model_key"
 t_lacks "$(cat "$cfg/models.json" "$cfg/instance.env")" "sk_model_key"
 
+t_case "a model key in env that a shell would expand is 78, and the line names the key, not the value"
+fresh
+mkdir -p "$cfg"
+# shellcheck disable=SC2016  # the line is written as the operator wrote it
+printf '%s\n' 'TEHAS_MODEL_KEY_MAIN=$(cat /run/secret-key)' >"$cfg/env"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MODEL_KEY_MAIN holds a \$ or a backtick: the file is read, not run as shell"
+t_lacks "$t_out" "secret-key"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
+t_case "a value setup reuses from instance.env that a shell would expand is 78, before any call"
+fresh
+mkdir -p "$cfg"
+# shellcheck disable=SC2016  # the line is written as the operator wrote it
+printf '%s\n' 'PI_ENSEMBLE_SUBAGENT_MODEL="$MODEL"' >"$cfg/instance.env"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_SUBAGENT_MODEL holds a \$ or a backtick: the file is read, not run as shell"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
 t_case "a git identity that is there is kept"
 fresh
 git config -f "$T/home/.gitconfig" user.name "Someone"
@@ -330,6 +351,15 @@ fresh
 run_setup "${args[@]}" --no-build
 t_lacks "$(t_calls steps)" "build"
 t_lacks "$(t_calls steps)" "check-product"
+rm -f "$plat/bin/tehas"
+
+t_case "a product check that failed stops setup with 1, not its own 3"
+fresh
+printf '#!/usr/bin/env bash\necho $* >>"$T/calls/steps"\n[ "$1" != check-product ] || exit 3\n' >"$plat/bin/tehas"
+chmod +x "$plat/bin/tehas"
+run_setup "${args[@]}"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas check-product --sandbox failed (exit 3)"
 rm -f "$plat/bin/tehas"
 
 # A checkout setup finds, as tehas state unpack leaves it: a real clone of a

@@ -522,3 +522,44 @@ fn a_version_the_writer_accepts_is_a_version_the_reader_accepts() {
         assert!(!mcp::tools::WORD.is_match(v), "{v}");
     }
 }
+
+// A week entry with no week, or a week that is no date, is kept whatever the
+// window, since a count cannot be split, and says so: no window bounds it.
+#[test]
+fn a_week_entry_no_window_can_bound_is_marked() {
+    let (_root, dir) = dirs("unwindowed");
+    let mut entries = weeks_entries();
+    entries
+        .push(json!({"runs": 2, "outcomes": {"merged": 2}, "failureKinds": {}, "parkReasons": {}}));
+    entries.push(json!({"week": "not a day", "runs": 1, "outcomes": {"failed": 1}, "failureKinds": {}, "parkReasons": {}}));
+    write(&dir.sessions, "week", now(), &entries);
+    let out = ok(&dir, json!({"since": "2026-10-12", "by": "week"}));
+    let got = out["entries"].as_array().unwrap();
+    assert_eq!(got.len(), 3, "{out}");
+    assert_eq!(got[0]["week"], "2026-10-12");
+    assert!(got[0].get("unwindowed").is_none(), "{out}");
+    assert_eq!(got[1]["unwindowed"], true);
+    assert!(got[1].get("week").is_none());
+    assert_eq!(got[2]["unwindowed"], true);
+    // Without a window nothing is bounded, so nothing is marked.
+    let out = ok(&dir, json!({"by": "week"}));
+    for e in out["entries"].as_array().unwrap() {
+        assert!(e.get("unwindowed").is_none(), "{e}");
+    }
+    // A version entry stands for every day by design and is never marked.
+    let (_root2, dir2) = dirs("unwindowed-version");
+    write(&dir2.sessions, "version", now(), &version_entries());
+    let out = ok(&dir2, json!({"since": "2026-10-12"}));
+    for e in out["entries"].as_array().unwrap() {
+        assert!(e.get("unwindowed").is_none(), "{e}");
+    }
+    let schema = list_scoped(Scope::Full)
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "factory_outcomes")
+        .unwrap()["outputSchema"]
+        .clone();
+    let item = &schema["properties"]["entries"]["items"]["properties"];
+    assert_eq!(item["unwindowed"]["type"], "boolean");
+}

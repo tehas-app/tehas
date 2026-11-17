@@ -158,9 +158,10 @@ done
 # one heading the split adds is `## The pages`, the list the commands page
 # gives of them. A section left in two pages, or dropped with the page it was
 # moved out of, shows here. `## tehas github check` came after the split, when
-# the check of the token got a tehas name of its own.
+# the check of the token got a tehas name of its own, and `## Host settings`
+# when the host's settings got rules beside the instance's.
 t_case "the tools pages hold the 44 sections of the commands, each once"
-t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 45
+t_eq "$(cat "${TOOLS_PAGES[@]}" | grep -c '^## ')" 46
 t_eq "$(cat "${TOOLS_PAGES[@]}" | grep '^## ' | grep -v '^## The pages$' \
    | sort | uniq -d | wc -l | tr -d ' ')" 0
 

@@ -120,6 +120,15 @@ mod tests {
     }
 
     #[test]
+    fn the_contract_page_says_what_each_feature_leaves_visible_while_it_is_off() {
+        let page = include_str!("../../../host/docs/contract.md");
+        for f in FEATURES {
+            let heading = format!("\n### {}\n", f.name);
+            assert!(page.contains(&heading), "contract.md has no {heading:?}");
+        }
+    }
+
+    #[test]
     fn every_feature_has_a_lower_case_word_and_a_tehas_switch() {
         let mut names: Vec<&str> = FEATURES.iter().map(|f| f.name).collect();
         for f in FEATURES {

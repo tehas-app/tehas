@@ -8,6 +8,7 @@ use crate::slice::{self, gib};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::driver::Driver;
 use tehas_core::events::{
     changed_after, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
     sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
@@ -49,22 +50,11 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 }
 
 /// The label that chooses the lean driver for one issue.
-pub(crate) const LEAN: &str = "tehas:lean";
+pub(crate) const LEAN: &str = Driver::Lean.label();
 
 /// The label that chooses the classic driver for one issue, where
 /// `TEHAS_DRIVER=lean` makes lean the default.
-pub(crate) const CLASSIC: &str = "tehas:classic";
-
-/// The label that chooses against the instance's default driver: the one
-/// whose applier `Poll::driver` asks about. The other agrees with the default
-/// and chooses nothing.
-pub(crate) fn opt_out(lean_default: bool) -> &'static str {
-    if lean_default {
-        CLASSIC
-    } else {
-        LEAN
-    }
-}
+pub(crate) const CLASSIC: &str = Driver::Classic.label();
 
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
@@ -80,9 +70,8 @@ pub(crate) const IMPROVEMENT: &str = Kind::Improvement.label();
 pub(crate) const HOST: &str = "host";
 
 /// The driver a start runs, as `Poll::driver` reads it.
-enum Driver {
-    Classic,
-    Lean,
+enum Choice {
+    Run(Driver),
     /// An account outside the list made the choice, or the issue carries both
     /// driver labels: nothing starts, the default driver included.
     Stranger(Stranger),
@@ -90,13 +79,13 @@ enum Driver {
     Wait,
 }
 
-impl Driver {
+impl Choice {
     /// The action of a classic start names no driver. A lean start takes
     /// `needs-human-attention` off with its other labels: classic's
     /// `--restart` clears it in the cycle, and work-lean has no restart.
     fn bind(&self, extra: &mut Map<String, Value>, remove: &mut Vec<String>, labels: &[String]) {
-        if matches!(self, Driver::Lean) {
-            extra.insert("driver".into(), json!("lean"));
+        if matches!(self, Choice::Run(Driver::Lean)) {
+            extra.insert("driver".into(), json!(Driver::Lean.word()));
             let attention = "needs-human-attention";
             if has(labels, attention) && !remove.iter().any(|l| l == attention) {
                 remove.push(attention.into());
@@ -117,7 +106,7 @@ enum Planned {
 }
 
 /// Who made the choice of driver that does not count: applied `label` (the
-/// instance's [`opt_out`]), or with `off` took an allowed account's off. With
+/// instance's [`Driver::opt_out`]), or with `off` took an allowed account's off. With
 /// `both`, the issue carries both driver labels and nobody's choice is read.
 struct Stranger {
     who: String,
@@ -141,9 +130,9 @@ impl Stranger {
     /// in its place.
     fn default_name(&self) -> &'static str {
         if self.label == CLASSIC {
-            "lean"
+            Driver::Lean.word()
         } else {
-            "classic"
+            Driver::Classic.word()
         }
     }
 
@@ -271,9 +260,8 @@ struct Poll<'a> {
     bot: String,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
-    /// The hold of a host whose sandbox cannot push, empty when it can. Said
-    /// as the hold of the poll while the fault is younger than the wait of
-    /// `host::PUSH_FAULT_HOLD`.
+    /// The hold of a host whose sandbox cannot push, empty when it can: the one
+    /// line said as the hold of the poll while the fault stands on record.
     push_hold: String,
     /// Parked issues with a box ticked: rule 5a leaves them.
     park_ticked: Vec<u64>,
@@ -1074,7 +1062,7 @@ impl<'a> Poll<'a> {
             // uses for the host that keeps what it has while nothing new
             // starts: the cycles that run, the planning turns and the
             // refreshes of a pull request that already stands on the remote
-            // are untouched by it. Part 3 gives the fault a word of its own.
+            // are untouched by it.
             why = Some(Why::Lane);
             hold = self.push_hold.clone();
             // Cycles start none; the refreshes keep what they would have been
@@ -1264,23 +1252,23 @@ impl<'a> Poll<'a> {
     /// The hold of the host's own push fault, and whether it holds the poll:
     /// while a sandbox that cannot push is on record the poll starts no cycle,
     /// so every ready issue does not fail the same check in turn. The one line
-    /// of the hold is left on `push_hold`, empty for no fault: a fault older
-    /// than `host::PUSH_FAULT_HOLD` is no fault to the poll, and Part 3
-    /// replaces that wait with a re-probe of the push check.
+    /// of the hold is left on `push_hold`, empty for no fault.
     ///
-    /// The report's word for it is `lane`, not a word of its own: the readers
-    /// outside the dispatcher (`console/ops/src/health.rs`, `console/mcp/`)
-    /// know the thirteen words of `tehas_core::hold::Why`, and `lane` is the
-    /// one of them already used for the host that keeps running while nothing
-    /// new starts. Part 3 gives the fault its own word with the re-probe and
-    /// the health line.
+    /// A fault of any age holds the starts: past `host::PUSH_FAULT_HOLD` the
+    /// poll asked the sandbox before the rules were read (`crate::poll`), and
+    /// left the record that stands, or none.
+    ///
+    /// The report's word for the hold is `lane`, not a word of its own: the
+    /// readers outside the dispatcher (`console/ops/src/health.rs`,
+    /// `console/mcp/`) know the thirteen words of `tehas_core::hold::Why`, and
+    /// `lane` is the one of them already used for the host that keeps running
+    /// while nothing new starts.
     fn push_fault(&mut self) -> bool {
         let Some(fault) = self.s.push_fault.as_ref() else {
             self.push_hold.clear();
             return false;
         };
-        let now = self.s.now.unwrap_or(0) as i64;
-        if !host::push_fault_holds(fault, now) {
+        if !host::push_fault_holds(fault) {
             self.push_hold.clear();
             return false;
         }
@@ -1487,19 +1475,15 @@ impl<'a> Poll<'a> {
     /// that record, so a label added since changes nothing until a person
     /// approves a new start. The label that agrees with the default chooses
     /// nothing, but with both on nothing starts: tehas does not guess.
-    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
+    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Choice> {
         if has(labels, LEAN) && has(labels, CLASSIC) {
-            return Ok(Driver::Stranger(Stranger::both()));
+            return Ok(Choice::Stranger(Stranger::both()));
         }
-        let lean_default = self.c.lean_default;
-        let label = opt_out(lean_default);
-        let (default, chosen) = if lean_default {
-            (Driver::Lean, Driver::Classic)
-        } else {
-            (Driver::Classic, Driver::Lean)
-        };
+        let default = self.c.driver_default;
+        let label = Driver::opt_out(default);
+        let (default, chosen) = (Choice::Run(default), Choice::Run(default.other()));
         let stranger = |who: String, off: bool| {
-            Driver::Stranger(Stranger {
+            Choice::Stranger(Stranger {
                 who,
                 off,
                 label,
@@ -1523,16 +1507,19 @@ impl<'a> Poll<'a> {
         match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
             None => {
                 self.need("approval");
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             Some(Err(())) => {
                 self.log(format!("wait #{n}: its approval could not be read"));
-                Ok(Driver::Wait)
+                Ok(Choice::Wait)
             }
             // No start on record to follow: this one is the first.
             Some(Ok(None)) => Ok(chosen),
-            Some(Ok(Some(r))) if r.get("driver") == Some(&json!("lean")) => Ok(Driver::Lean),
-            Some(Ok(Some(_))) => Ok(Driver::Classic),
+            // Only a record that names lean runs lean; any other runs classic.
+            Some(Ok(Some(r))) if Driver::of_record(&r) == Some(Driver::Lean) => {
+                Ok(Choice::Run(Driver::Lean))
+            }
+            Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
         }
     }
 
@@ -2986,12 +2973,12 @@ impl<'a> Poll<'a> {
                 continue;
             }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
-                Driver::Wait => continue,
-                Driver::Stranger(s) => {
+                Choice::Wait => continue,
+                Choice::Stranger(s) => {
                     self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
-                Driver::Lean if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
+                Choice::Run(Driver::Lean) if !self.spec_ok(n, ask, &labels, fixer.is_some())? => {
                     continue;
                 }
                 d => d,

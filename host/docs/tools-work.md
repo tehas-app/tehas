@@ -59,7 +59,9 @@ exit codes 1, result schema 5 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
-for it, or any name when it lists none, as v0.12.80 does), and the answer's
+for it, or any name when it lists none, as v0.12.80 does) or one a polyfill
+named in the image's `tehas.rukas.polyfills` label declares (see
+[Instance settings](/tools#instance-settings)), and the answer's
 `features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
 has a deadline and for `restartClearsAttention` with `--restart`. On driver
 lean the flags are checked against the `work-lean` verb, the features are
