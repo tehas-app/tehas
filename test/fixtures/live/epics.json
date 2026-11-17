@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-11-17T12:00:00Z",
+  "repo": "acme/widget",
+  "epics": [
+    {
+      "number": 44, "title": "Epic: accounts for teams", "url": "https://github.com/acme/widget/issues/44",
+      "total": 3, "completed": 1, "more": 0,
+      "subIssues": [
+        { "number": 48, "state": "closed", "title": "A team has a name and members", "url": "https://github.com/acme/widget/issues/48" },
+        { "number": 49, "state": "open", "title": "Invite a member by email", "url": "https://github.com/acme/widget/issues/49" },
+        { "number": 50, "state": "open", "title": "A member can leave a team", "url": "https://github.com/acme/widget/issues/50" }
+      ]
+    }
+  ],
+  "unlinked": [44]
+}

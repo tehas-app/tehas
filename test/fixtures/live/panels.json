@@ -1,0 +1,6 @@
+{
+  "api": 1,
+  "panels": [
+    { "id": "support", "label": "Support", "url": "https://support.example.net/" }
+  ]
+}
