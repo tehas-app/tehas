@@ -1359,13 +1359,11 @@ mod tests {
     /// install is there and its file is a plain one, so `store_ready` passes
     /// and the poll reaches the reads that a case of the lock does not make.
     fn poll_home(name: &str) -> tehas_core::testdir::TestDir {
-        use std::os::unix::fs::PermissionsExt;
         let home = home_of(name);
         std::fs::create_dir_all(home.join("libexec")).unwrap();
         std::fs::create_dir_all(home.join("state")).unwrap();
         let store = home.join("libexec/store");
-        std::fs::write(&store, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        tehas_core::testing::write_exe(&store, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::write(home.join("state/tehas.db"), "").unwrap();
         home
     }
