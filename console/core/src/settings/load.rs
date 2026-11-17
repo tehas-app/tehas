@@ -1267,6 +1267,21 @@ mod tests {
     }
 
     #[test]
+    fn the_spec_pipe_set_on_stops_the_load_and_off_is_the_default() {
+        let got = refused(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(
+            got,
+            format!("TEHAS_SPEC_PIPE is on and spec-pipe is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&[]).text("TEHAS_SPEC_PIPE"), "0");
+        assert_eq!(loads(&["TEHAS_SPEC_PIPE=off"]).text("TEHAS_SPEC_PIPE"), "0");
+        let mut vars = start(&[(crate::features::TEST_VAR, "spec-pipe")]);
+        let mut host = Fake::with(&["TEHAS_SPEC_PIPE=on"]);
+        assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
+        assert_eq!(vars.text("TEHAS_SPEC_PIPE"), "1");
+    }
+
+    #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
         let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
         assert_eq!(
