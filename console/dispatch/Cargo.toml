@@ -24,3 +24,8 @@ regex = "1"
 serde_json = "1"
 sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
+
+# Kani proofs sit in #[cfg(kani)] modules; the Kani job of
+# .github/workflows/kani.yml builds them, cargo does not.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
