@@ -596,6 +596,22 @@ means the sandbox image's pi-rukas does not read a spec: the start stops with
 pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
 issue again.
 
+A cycle with a pinned spec that hands off with its pull request open parks,
+rather than wait for a merge, when the pull request does not answer to that
+spec. The park reason is `spec-block`, and the comment says `Its pull request
+does not answer to the approved spec:` and then one of:
+
+- `its body has no spec block`;
+- `its spec block names sha256 <got>, not <pinned>, the one approved`;
+- `its spec block cannot be read: <why>`, with the reason of the parser;
+- `the approval of this start could not be read, so its spec block could not
+  be checked`, when the state store did not answer.
+
+Fix the block in the pull request's body so that it is [one tehas
+reads](/contract#the-pull-request-spec-block) and names the approved sha256,
+then retry. Or, when the issue should not be held to a spec, take the `Spec:`
+line out of the issue and approve it again.
+
 The caps this factory has posted are explained one by one in the next
 section.
 

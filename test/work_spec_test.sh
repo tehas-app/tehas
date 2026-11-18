@@ -78,7 +78,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_E
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./approved.json ./manifest.json ./spec.md "
 t_eq "$(printf %b "$spec" | cmp - "$imgs/spec.md" && echo same)" same
-t_eq "$(manifest '.spec')" "{\"file\":\"spec.md\",\"link\":\"$link\",\"name\":\"search.md\",\"bytes\":$(printf %b "$spec" | wc -c),\"sha256\":\"$sum\"}"
+t_eq "$(manifest '.spec')" "{\"file\":\"spec.md\",\"link\":\"$link\",\"name\":\"search.md\",\"bytes\":$(printf %b "$spec" | wc -c),\"sha256\":\"$sum\",\"block\":1}"
 t_eq "$(manifest '[.version, .issue, .approval.by, .images, (keys_unsorted | .[-2:])]')" '[1,7,"alice",[],["spec","approvedText"]]'
 t_eq "$(jq -c '[.number, .title, .body]' "$imgs/approved.json")" "$(jq -c -n --arg t "$title" --arg b "$body" '[7, $t, $b]')"
 t_eq "$(manifest '.approvedText | [.file, .bytes, .sha256]')" \

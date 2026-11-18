@@ -743,6 +743,14 @@ carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
 parks whatever the findings are.
 
+With `TEHAS_SPEC_PIPE=on` and a start whose approval pins a spec, a pull
+request waits only for a merge when its body holds a [spec
+block](/contract#the-pull-request-spec-block) that names the sha256 of that
+pin. Without one, or with a block of another sha256 or one tehas cannot read,
+the issue parks with `needs-human-attention` instead of
+`tehas:awaiting-merge`, and the pull request stays open. See [a pull request
+that does not answer to the spec](/troubleshooting).
+
 A pull request that waits while other work merges may start to conflict with
 the branch. Where the instance turns [refreshes](#refreshes) on, the factory
 merges the branch into it on its own.
