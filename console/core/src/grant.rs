@@ -9,7 +9,8 @@
 //! (`events::label_actor`, `last_application`), whether its newest event is
 //! an application (`events::label_state`, `latest`) and whether that account
 //! is allowed (`events::allowed_in`). `grant` is those steps in one, over a
-//! timeline in order, which is what the proofs below are about. The poll asks
+//! timeline in order. The poll does not call it: the proofs below are about
+//! `grant`, about the steps the poll takes, and that the two agree. The poll asks
 //! that the newest event be an application through its guard of a page
 //! (read::github::dropped_events) and the issue's own labels.
 //!
@@ -399,6 +400,68 @@ mod proofs {
         let w = world();
         let e = event(&w);
         assert!(!(e.change == Change::Applied && !e.pinned && decide(&w, &[e]).is_some()));
+    }
+
+    /// `last_application` is the newest application of the label: who
+    /// `events::label_actor` names, and so who the poll credits.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn the_last_application_is_the_newest() {
+        let w = world();
+        let (tl, n) = timeline(&w);
+        let tl = &tl[..n];
+        let applies = |e: &LabelEvent<Login, u8>| e.label == READY && e.change == Change::Applied;
+        let got = last_application(tl, &READY);
+        kani::cover!(
+            got.is_some_and(|i| tl[..i].iter().any(applies)),
+            "an older application is passed over"
+        );
+        match got {
+            Some(i) => assert!(applies(&tl[i]) && !tl[i + 1..].iter().any(applies)),
+            None => assert!(!tl.iter().any(applies)),
+        }
+    }
+
+    /// `latest` is the newest event of the label: what `events::label_state`
+    /// reads as applied or taken off.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn the_latest_is_the_newest_event() {
+        let w = world();
+        let (tl, n) = timeline(&w);
+        let tl = &tl[..n];
+        let got = latest(tl, &READY);
+        kani::cover!(
+            got.is_some_and(|i| tl[..i].iter().any(|e| e.label == READY)),
+            "an older event is passed over"
+        );
+        match got {
+            Some(i) => {
+                assert!(tl[i].label == READY && tl[i + 1..].iter().all(|e| e.label != READY))
+            }
+            None => assert!(tl.iter().all(|e| e.label != READY)),
+        }
+    }
+
+    /// When the newest event of the label is an application, the poll's
+    /// steps (who applied it last, then whether that account is allowed)
+    /// decide as `grant` does.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn the_polls_steps_agree_with_grant() {
+        let w = world();
+        let (tl, n) = timeline(&w);
+        let tl = &tl[..n];
+        let standing = latest(tl, &READY).is_some_and(|i| tl[i].change == Change::Applied);
+        kani::cover!(
+            standing && n == MAX,
+            "a full timeline ends in an application"
+        );
+        if standing {
+            let steps = last_application(tl, &READY)
+                .filter(|&i| w.allows(account_of(&tl[i], w.listed(tl[i].actor.login))));
+            assert_eq!(steps, decide(&w, tl));
+        }
     }
 
     /// A removal after an application leaves no grant, until the label is
