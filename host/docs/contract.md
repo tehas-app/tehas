@@ -42,9 +42,9 @@ Public:
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
 - [analytics.db at schema 4](#analyticsdb).
 
-[The pull request spec block](#the-pull-request-spec-block) is described
-below but not built yet: it becomes public with the release that writes and
-checks it.
+[The pull request spec block](#the-pull-request-spec-block) is defined
+below as part of `spec-pipe`, a feature still being built: it becomes public
+with the release that ships that feature.
 
 Internal:
 
@@ -198,21 +198,55 @@ takes a consistent copy.
 
 ## The pull request spec block
 
-Not built yet: nothing writes or checks this block today, and it is not part of
-the frozen surface until the release that does. When it lands, a pull request
-built from an approved spec carries this block in its body, version 1:
+Part of `spec-pipe`, a feature still being built, so it is not part of the
+frozen surface until the release that ships it. A pull request built from an
+approved spec answers it with this block in its body, version 1:
 
 ```
 <!-- tehas:spec v1 -->
-Spec: <file name> sha256:<64 hex>
-- R1 met: <where>
-- R2 not met: <why>
+Spec: <link> sha256:<64 lower-case hex>
+- <id> met: <where>
+- <id> not met: <why>
 <!-- /tehas:spec -->
 ```
 
-One line per requirement. A spec with no requirement ids gets one line per top
-heading. tehas will check only that the block is there and that the hash is
-the one approved; the lines are for the person who reviews.
+For example:
+
+```
+<!-- tehas:spec v1 -->
+Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+- R1 met: src/search.rs, search() with tests in tests/search.rs
+- R2 not met: the export needs an API the backend does not have yet
+<!-- /tehas:spec -->
+```
+
+The rules (`spec_block` in `console/core/src/grammar.rs`):
+
+- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
+  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
+  not count, and LF and CRLF line ends are both read.
+- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
+  A block quoted inside a fence is text.
+- The first line inside that is not blank is the `Spec:` line, in the form of
+  the issue's: the link of the spec, not its file name, and the sha256 of the
+  manifest's `spec` entry.
+- One or more requirement lines follow, blank lines allowed between them:
+  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
+  `:`. What comes before must end in ` not met` or ` met`, and what precedes
+  that is the id. The id is not empty and holds no `:` and no backtick. The
+  text is not empty.
+- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
+  with no ids uses the text of each top heading instead, without the `#`s and
+  any `:`.
+
+A body with no block has none. A body tehas cannot read: no close line, a
+second block, an open line of another version (named), a missing or malformed
+`Spec:` line, a line inside of neither form, no requirement line, or an id
+named twice. The manifest's `spec` entry says in `block` which version the
+cycle writes.
+
+The lines are for the person who reviews. This block is not lean's `pi-spec v1`
+block, which goes in an issue body.
 
 ## Features still being built
 

@@ -522,14 +522,17 @@ With `TEHAS_SPEC_PIPE=on`, a feature still being built (a release refuses
 approved, in the same directory. The spec the approval pinned is fetched
 again, at most 1 MiB, and held to the pin: its file is `spec`, or
 `spec.<ext>` for a text file's extension, named in the manifest as `"spec":
-{"file", "link", "name", "bytes", "sha256"}`, the sha256 the approval's. The
+{"file", "link", "name", "bytes", "sha256", "block"}`, the sha256 the
+approval's, and `block` the version of [the pull request spec
+block](/contract#the-pull-request-spec-block) the cycle writes, now 1. The
 title and body the start read and compared with the approval are written to
 `approved.json` (`number`, `title`, `body`, as GitHub gave them), named as
 `"approvedText": {"file", "bytes", "sha256"}`. Both keys come last in the
 manifest, which stays at `version` 1. A spec of other bytes, one that cannot
 be fetched or a file that cannot be written stops the start with 4 and says
 why on the issue. A cycle given a spec starts only on a runner whose
-`--capabilities` sets the feature `issueSpec` to true: any other stops with
+`--capabilities` sets the feature `issueSpec` to true, which says it reads
+the spec and writes the block of the version in `block`: any other stops with
 78 before anything is fetched, naming `the feature issueSpec`, so a spec is
 never dropped without a word. The approved text alone needs no such runner:
 one that does not read it reads the issue from GitHub, as before. With images,
