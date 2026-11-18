@@ -91,20 +91,12 @@ impl Bounds {
     /// is asked of the environment here and nowhere else. The setting is the
     /// one `lib/config.sh` passes through, as the dispatcher's hold reads it.
     fn of_this_run() -> Bounds {
-        let wait = bounded_by("TEHAS_DISK_WAIT", 10);
+        let wait = tehas_core::disk::wait(std::env::var("TEHAS_DISK_WAIT").ok().as_deref());
         Bounds {
             wait,
             walk: (wait * 2).min(99),
         }
     }
-}
-
-fn bounded_by(name: &str, default: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|n| (1..=99).contains(n))
-        .unwrap_or(default)
 }
 
 /// The entries of one directory a walk may look at, the depth it may go to,
@@ -125,24 +117,16 @@ const USAGE: &str = "usage: console disk [<home>] [--full] [--json] [--cycles] [
        [--scratch <dir>] [--wait <s>] [--walk-wait <s>] [--max-entries <n>] [--max-depth <n>]
        console disk free <path> [<seconds>]";
 
-/// The bound of one call of `free`, in whole seconds, 10 for anything else.
-fn free_wait(given: &str) -> u64 {
-    let word = (1..=2).contains(&given.len())
-        && !given.starts_with('0')
-        && given.bytes().all(|b| b.is_ascii_digit());
-    word.then(|| given.parse().ok()).flatten().unwrap_or(10)
-}
-
 fn free(given: &[String]) -> u8 {
     let (path, wait) = match given {
-        [path] => (path, ""),
-        [path, wait] => (path, wait.as_str()),
+        [path] => (path, None),
+        [path, wait] => (path, Some(wait.as_str())),
         _ => return usage(),
     };
     if path.is_empty() {
         return 1;
     }
-    let wait = Duration::from_secs(free_wait(wait));
+    let wait = Duration::from_secs(tehas_core::disk::wait(wait));
     match tehas_core::disk::free_kb(path, |program, args| run(program, args, wait).ok()) {
         Some(kb) => {
             tehas_core::outln!("{kb}");
@@ -155,8 +139,8 @@ fn free(given: &[String]) -> u8 {
 /// The figure of `free` for a command of this program, bounded by
 /// TEHAS_DISK_WAIT.
 pub fn free_kb(path: &str) -> Option<u64> {
-    let wait = std::env::var("TEHAS_DISK_WAIT").unwrap_or_default();
-    let wait = Duration::from_secs(free_wait(&wait));
+    let wait = std::env::var("TEHAS_DISK_WAIT").ok();
+    let wait = Duration::from_secs(tehas_core::disk::wait(wait.as_deref()));
     if path.is_empty() {
         return None;
     }
@@ -336,10 +320,9 @@ impl Instance {
                     PathBuf::from(home).join("tehas")
                 }),
         };
-        let wait = tehas_core::env_file::value(&text, "TEHAS_DISK_WAIT")
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|n| (1..=99).contains(n))
-            .unwrap_or(10);
+        let wait = tehas_core::disk::wait(
+            tehas_core::env_file::value(&text, "TEHAS_DISK_WAIT").as_deref(),
+        );
         Ok(Instance {
             home,
             scratch: setting_path(&text, "TEHAS_SCRATCH_DIR")?,
@@ -1124,11 +1107,11 @@ fn used(free: u64, total: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::free;
     use super::{
         cut_word, du, file_systems, gib, lines, one, places, published, put, read, used, Bounds,
         Host, Options, Place, PUBLISH_BOUND,
     };
-    use super::{free, free_wait};
     use serde_json::{json, Value};
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1165,15 +1148,6 @@ mod tests {
     // The two paths of one file system are one entry that names both: the
     // common case of a host whose home, /tmp and Docker root are all of the
     // same disk, which is why the reading groups by device at all.
-    #[test]
-    fn the_bound_of_free_is_a_number_from_1_to_99_and_10_otherwise() {
-        assert_eq!(free_wait("3"), 3);
-        assert_eq!(free_wait("99"), 99);
-        for word in ["", "0", "07", "100", "+5", "abc", "٣"] {
-            assert_eq!(free_wait(word), 10, "{word}");
-        }
-    }
-
     #[test]
     fn free_of_no_path_is_no_figure_and_of_too_much_a_usage_error() {
         assert_eq!(free(&[String::new()]), 1);
