@@ -472,6 +472,13 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The sandbox image hands `/home/vscode/.npm` to the cycle's user, so npm in a cycle no longer fails on a root-owned cache. The image build stops when that user cannot write to npm's cache (#2407).
 - The sandbox image sets `ORT_INTRA_OP_NUM_THREADS=1`, so vipune no longer writes onnxruntime affinity errors to stderr on every call under a cycle's cpuset. The build's smoke run now also runs vipune on one CPU of a cpuset and refuses an image whose vipune writes to stderr there (#2408).
 - The move of the pinned tools takes a prerelease as the release it writes to, such as `v1.0.0-beta.2`, so the release script moves pins before a beta too.
+- The prototype build refuses an issue type event whose actor or stamp is not text, and keeps the published page, instead of reading it as an account that is gone and taking the page down (#2242).
+- The pause flag `state/pause.json` is read once, under the 1 MiB bound and not through a link. A flag over the bound, or a link, reads as unreadable and keeps the factory paused (#2251).
+- `analytics prune` names an expired kept-aside database it could not delete in a `WARN` line and exits 73, where it used to exit 0 (#2261).
+- `TEHAS_POLL_SECS` sets how often the dispatcher timer polls, from 30 to 3600 seconds, 120 by default. `tehas setup` and `tehas update` apply it as a drop-in for `tehas-dispatch.timer` and restart the timer, and remove the drop-in at the default. `tehas status` names an interval off the default on its poll line.
+- `tehas dispatch --soon` asks for a poll and returns at once: it writes `state/dispatch.again`, and `tehas-dispatch.path` starts the poll, or starts it after the poll that is running. Another program on the host, such as a webhook receiver, can use it to wake the dispatcher.
+- `install.sh` installs outsource's model proxy (`libexec/tehas-proxy`), its unit `tehas-outsource-proxy.service` and the contractor program (`libexec/tehas-contractor`) only while `TEHAS_OUTSOURCE` is on. With it off nothing of the feature is installed. `scripts/pack-release.sh` takes the two programs with `--proxy` and `--contractor`. Outsource is still being built, so a release does neither (#2278).
+- The manual's outsource page says how to switch the feature on, lists all its settings, says where a cycle runs, and has a Known limits section: trusted hosts only (#2278).
 
 ### Held back
 
