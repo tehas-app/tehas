@@ -2403,7 +2403,8 @@ its own copy of the code, so it ends on the version it began on, and the next
 one starts on the new version (see [Updating tehas](/host#updating-tehas)).
 The one exception is the update from 0.30.x to 1.0: see
 [Updating from 0.30.x to 1.0](#updating-from-030x-to-10).
-This release updates a host on v0.30.0 or later. A host on an older release
+This release updates a host on v0.30.0 or later: 0.30.x, 0.31.x or 0.32.x.
+A host on an older release
 updates to a v0.30 release first: the store refuses an older database, and the
 record files a tehas before the state store kept are no longer imported. While
 such a file is still in `state/`, every poll stops with exit 78 and logs
@@ -2420,11 +2421,15 @@ pulling it until it is moved: see
 `--json` objects, changes exit statuses, and migrates the state store. Every
 renamed or removed public name is one row of `api/renames-1.0.tsv` in the
 release. tehas does not edit `instance.env`: it is a checkout of your
-settings. The steps:
+settings. 1.0 updates a host on 0.30.x, 0.31.x or 0.32.x. A host on 0.31.x or
+0.32.x already refuses every setting below, so its instance needs no rename.
+A 0.30.x host can name only a release candidate or the release with `--to`,
+not an alpha or a beta; [From v0.30.x, v0.31.x or v0.32.x](/tools-update#from-v030x-v031x-or-v032x)
+has the rest and a known limit for a factory a program manages. The steps:
 
-1. **Be on 0.30.** 1.0 migrates a store that v0.30.0 or later wrote. A host on
-   an older release runs `tehas update --to v0.30.6` first; 1.0 refuses an
-   older store with exit 78 and installs nothing.
+1. **Be on 0.30 or later.** 1.0 migrates a store that v0.30.0 or later wrote.
+   A host on an older release runs `tehas update --to v0.30.6` first; 1.0
+   refuses an older store with exit 78 and installs nothing.
 2. **Edit the settings.** Change `instance.env` and `~/.config/tehas/env`
    from the tables below, or from the 1.0 Adopter action that
    `tehas update --check` prints. On 0.30.x, `--check` is 0.30's own check: it
