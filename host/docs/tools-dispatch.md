@@ -306,6 +306,11 @@ came after it: it must still be allowed, the issue must still be open and
 parked, and nobody else may have changed its text since that cycle began.
 Otherwise the log says `skip #N: its retry after a provider outage is not
 started; it waits for a person` and the retry is spent on record (`park-retry`).
+A park the poll cannot read is logged, not skipped in silence. One with no
+time its cycle began says `skip #N: its retry after a provider outage is not
+started: its park record has no time its cycle began` and is spent the same
+way. One with no issue number says `WARN: a park owed a retry after a provider
+outage names no issue tehas can read` on every poll, since it cannot be spent.
 Any start of the issue spends it too, once the issue is marked and before its
 unit is started, so a start whose unit never comes up leaves no retry behind.
 A start whose mark fails spends nothing: the next poll still owes the retry.
