@@ -154,6 +154,16 @@ pub fn shipped() -> Vec<&'static str> {
         .collect()
 }
 
+/// Whether the setting is the switch or one of the own settings of a feature
+/// this release is still building: a row api/settings-rules.json marks
+/// `building`, which is not contract.
+pub fn building_setting(name: &str) -> bool {
+    FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building)
+        .any(|f| f.setting == name || f.settings.contains(&name))
+}
+
 /// A building feature's switch set to on, as the load refuses it. Err is the
 /// reason, without the file.
 pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
@@ -255,6 +265,21 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), FEATURES.len());
+    }
+
+    #[test]
+    fn a_building_setting_is_a_building_features_switch_or_own_setting() {
+        for name in [
+            "TEHAS_OUTSOURCE",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "TEHAS_LEAN",
+        ] {
+            assert!(building_setting(name), "{name}");
+        }
+        for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
+            assert!(!building_setting(name), "{name}");
+        }
     }
 
     #[test]

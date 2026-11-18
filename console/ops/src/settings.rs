@@ -357,6 +357,9 @@ fn rule_row(setting: &Setting) -> J {
         fields.push(("words", strings(words)));
     }
     fields.push(("reason", J::str(reason)));
+    if tehas_core::features::building_setting(setting.name) {
+        fields.push(("building", J::bool(true)));
+    }
     jq::obj(fields)
 }
 
@@ -500,6 +503,32 @@ mod tests {
         ] {
             assert!(names.iter().any(|n| n == name), "{name}");
         }
+    }
+
+    #[test]
+    fn a_row_is_marked_building_when_the_registry_builds_its_feature() {
+        use tehas_core::features::{Stage, FEATURES};
+        let object = J::parse(&rules_json()).unwrap();
+        let mut marked: Vec<String> = object
+            .get("settings")
+            .items()
+            .iter()
+            .chain(object.get("host").items().iter())
+            .filter(|row| !row.get("building").is_null())
+            .map(|row| {
+                assert!(row.get("building").is_true());
+                row.get("name").text()
+            })
+            .collect();
+        let mut building: Vec<String> = FEATURES
+            .iter()
+            .filter(|f| f.stage == Stage::Building)
+            .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()))
+            .map(str::to_string)
+            .collect();
+        marked.sort();
+        building.sort();
+        assert_eq!(marked, building);
     }
 
     #[test]

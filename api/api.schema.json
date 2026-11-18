@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/api.schema.json",
   "title": "tehas api --json",
-  "description": "What tehas api --json prints, version 1: what this factory speaks, for a program to ask first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The words of features are api/features.txt, only added within 1.x; flags names every optional feature of the release, a building one as false. test/api_test.sh checks the samples beside this file against it and what the command prints.",
+  "description": "What tehas api --json prints, version 1: what this factory speaks, for a program to ask first. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too. The words of features are api/features.txt, only added within 1.x; flags names every optional feature of the release, a building one as false; only a shipped feature's key is required, and a building one's may change or go until the release that ships it. test/api_test.sh checks the samples beside this file against it and what the command prints.",
   "type": "object",
   "required": ["api", "tehas", "commit", "repo", "features", "flags", "millwright", "poll"],
   "additionalProperties": false,
@@ -14,7 +14,7 @@
     "features": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}},
     "flags": {
       "type": "object",
-      "required": ["outsource", "spec-pipe", "protolab-zip-url", "prototype-file", "lean"],
+      "required": [],
       "additionalProperties": false,
       "properties": {
         "outsource": {"type": "boolean"},

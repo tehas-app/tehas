@@ -22,7 +22,8 @@
           "when": {"enum": ["always", "given", "named", "required"]},
           "default": {"type": ["string", "null"]},
           "words": {"type": "array", "items": {"type": "string", "minLength": 1}},
-          "reason": {"type": "string", "minLength": 1}
+          "reason": {"type": "string", "minLength": 1},
+          "building": {"const": true}
         }
       }
     },
