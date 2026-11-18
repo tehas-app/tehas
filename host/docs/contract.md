@@ -71,7 +71,7 @@ Internal:
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
-| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
+| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
@@ -81,6 +81,13 @@ Internal:
 | `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
 | Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock) |
+
+`api/surface-1.0.txt` lists the names of the frozen surface in one place:
+each public command, subcommand and flag, setting, role, label and `--json`
+field, read from the files in the table above. Lines are only added.
+`console/tests/surface.rs` fails when one of its names goes, and when the
+surface gains a name the list does not have yet. What a building feature
+adds is not in it.
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change. The fields of
