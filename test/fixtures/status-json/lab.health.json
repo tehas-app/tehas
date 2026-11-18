@@ -1,0 +1,20 @@
+{
+  "status": "warn",
+  "time": "2026-10-17T13:59:40Z",
+  "output": "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it.",
+  "checks": {
+    "queue": {"time": "2026-10-17T13:59:30Z", "paused": false, "inLine": 0, "building": 0, "review": 0, "stopped": 0},
+    "cycle": null,
+    "cycles": [],
+    "plans": [],
+    "failed": [],
+    "disk": null,
+    "slice": null,
+    "demand": null,
+    "limit": {"state": "none"},
+    "allHands": null,
+    "pause": {"flag": null, "label": false, "lifted": false},
+    "platform": null,
+    "testFeatures": {"read": true, "features": ["outsource"]}
+  }
+}

@@ -396,13 +396,15 @@ host points at. See [The host](/host).
 cd ~/tehas/platform
 ./install.sh --check     # change nothing; Home, Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
 ./install.sh
+./install.sh --lab-build # a lab host only: programs that read TEHAS_TEST_FEATURES
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid or the home is
-not provably tehas's (nothing was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the home is
+not provably tehas's, or `--lab-build` was run from a release tree (nothing
+was changed).
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
@@ -450,6 +452,72 @@ stops it from starting one issue after another. `install.sh --check`, and so
 something `tehas update` does not fix. A host with no product checkout proves
 nothing and prints no line. See
 [Troubleshooting](/troubleshooting#tehas-update-says-the-cycle-token-cannot-push).
+
+### Proving a building feature on a lab host
+
+A feature still being built ([features still being
+built](/contract#features-still-being-built)) is off in every release: its
+switch set to `on` stops every command with 78. A lab host proves one before
+it ships, by installing a build that reads `TEHAS_TEST_FEATURES` and naming the
+feature there. No release reads the variable, so this is never a setting of a
+production host.
+
+1. Build from a checkout with debug assertions on. A release tree has no
+   source and is refused with 78:
+
+   ```
+   cd ~/tehas/platform
+   TEHAS_TEST_FEATURES=outsource ./install.sh --lab-build
+   ```
+
+   Every program is built with `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true`
+   and gets a lab build's stamp. `TEHAS_TEST_FEATURES` on the command line is
+   for this run only: it lets the install see the feature, so a feature with
+   programs or units of its own, as outsource has, gets them. The run prints
+   `note: a lab build`.
+
+2. Put the variable in the units' environment. The settings load refuses it
+   in `instance.env` and `~/.config/tehas/env`. systemd gives every user unit,
+   the dispatcher, each cycle, the Protolab and the console they run, the
+   variables of `~/.config/environment.d/`:
+
+   ```
+   mkdir -p ~/.config/environment.d
+   echo 'TEHAS_TEST_FEATURES=outsource' > ~/.config/environment.d/tehas-lab.conf
+   systemctl --user daemon-reload
+   systemctl --user restart tehas-mcp.service tehas-top.service   # the long-running units that are active
+   ```
+
+   Names are separated by spaces. A word that is no building feature is
+   ignored.
+
+3. Switch the feature on in `instance.env` (`TEHAS_OUTSOURCE=on`) and prove
+   it. A shell of the tehas user does not read `environment.d`, so a command
+   typed there, such as `tehas api --json`, needs
+   `TEHAS_TEST_FEATURES=outsource` in front of it, or it stops with 78.
+
+While the variable is set, health warns with `A lab build:
+TEHAS_TEST_FEATURES names outsource, still being built. No release reads it.`,
+`checks.testFeatures` says `{"read": true, "features": ["outsource"]}`, and
+`tehas status` prints a `features` line. A build with debug assertions also
+reads the tests' other hooks, such as `TEHAS_TEST_STORE_ANSWERS`; nothing on a
+host sets them.
+
+To go back to a release, switch the feature off, then:
+
+```
+rm ~/.config/environment.d/tehas-lab.conf
+systemctl --user daemon-reload
+tehas update            # or ./install.sh in the checkout
+```
+
+Any run without `--lab-build`, from a checkout or a release, installs every
+program again: a lab build's stamp matches no other. `install.sh --check` and
+`tehas update --check` report a lab build's programs as `differs`. A run that
+finds `~/.config/environment.d/tehas-lab.conf` prints `later: rm ... &&
+systemctl --user daemon-reload`, and leaves the file to you. If the variable
+stays in the units' environment, health warns on every poll that this build
+does not read it.
 
 A real run that ended well on a factory `tehas drain` stopped prints one more
 line last: `the factory is drained: tehas limit clear starts the factory, and

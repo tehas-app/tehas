@@ -221,6 +221,9 @@ tehas status --json
 | `paused.local` | The pause flag `tehas pause` writes on this host is set |
 | `paused.label` | `tehas:pause` holds the factory from the control issue: it is on the issue, or an account that may not lift it took it off |
 | `readOnly` | `true` on a read-only instance (`TEHAS_READ_ONLY=on`), which writes nothing to GitHub (see [read-only](/operating#read-only)). Left out on any other instance, and by a release before the setting |
+| `testFeatures` | There while `TEHAS_TEST_FEATURES` is set where health runs, as on a lab host (see [proving a building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host)). Left out on any other host, and by a release before it |
+| `testFeatures.read` | `true` when this build reads the variable, which only a lab build does; `false` on a release, where it does nothing |
+| `testFeatures.features` | The building features the variable names, in the registry's order |
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `pushFault` | The sandbox cannot push: a start's push check was refused, so no new cycle starts (see [the sandbox cannot push](/troubleshooting#the-sandbox-cannot-push)). Each field is `null` when the record does not say. Left out when the sandbox can push, and by a release before it |
 | `pushFault.at` | When the fault was found, or when the poll last asked and the push was still refused |

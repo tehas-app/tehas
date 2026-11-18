@@ -220,6 +220,32 @@ pub fn needs(name: &str, what: &str, get: &dyn Fn(&str) -> String) -> Result<(),
     }
 }
 
+/// What [`TEST_VAR`] comes to in this environment, for health and `tehas
+/// status`: None while it is unset or blank, else whether this build reads it
+/// and the building features it names, in the registry's order. A release
+/// reads it never; a build with debug assertions, a lab host's, always.
+pub fn test_features() -> Option<(bool, Vec<&'static str>)> {
+    test_features_in(&env, cfg!(debug_assertions))
+}
+
+/// [`test_features`] over the variables `get` gives; `read` is whether this
+/// build reads [`TEST_VAR`].
+pub fn test_features_in(
+    get: &dyn Fn(&str) -> String,
+    read: bool,
+) -> Option<(bool, Vec<&'static str>)> {
+    let value = get(TEST_VAR);
+    if value.trim().is_empty() {
+        return None;
+    }
+    let named = FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building && value.split_whitespace().any(|w| w == f.name))
+        .map(|f| f.name)
+        .collect();
+    Some((read, named))
+}
+
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
@@ -235,6 +261,25 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         move |name: &str| map.get(name).cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn the_test_variable_is_reported_only_when_set_and_names_only_building_features() {
+        assert_eq!(test_features_in(&vars(&[]), true), None);
+        assert_eq!(test_features_in(&vars(&[(TEST_VAR, " ")]), true), None);
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "lean nothing outsource")]), true),
+            Some((true, vec!["outsource", "lean"]))
+        );
+        // A release does not read it, and says what it names all the same.
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "spec-pipe")]), false),
+            Some((false, vec!["spec-pipe"]))
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "nothing")]), true),
+            Some((true, vec![]))
+        );
     }
 
     #[test]

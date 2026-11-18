@@ -633,7 +633,7 @@ if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then
   exit 0
 fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
-echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
+echo "$art $pkg built from ${CONSOLE_BUILD:-source}${CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:+ with debug assertions}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or
   # fails with the store's own word when STORE_RC is set. STORE_BIN names a real

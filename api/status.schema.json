@@ -23,6 +23,15 @@
       }
     },
     "readOnly": {"const": true},
+    "testFeatures": {
+      "type": "object",
+      "required": ["read", "features"],
+      "additionalProperties": false,
+      "properties": {
+        "read": {"type": "boolean"},
+        "features": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "allHands": {"type": "boolean"},
     "pushFault": {
       "type": "object",

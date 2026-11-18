@@ -16,7 +16,7 @@
 //!   console update units <env file>
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
-//!   console update programs <home> release|build <tree> <program>...
+//!   console update programs <home> release|build|lab <tree> <program>...
 //!   console update programs stamp <installed program> release|<source sum>
 //!   console update retired
 //!   console update report <root> <instance> <options>
