@@ -258,6 +258,22 @@ pub fn spec_block(body: &str) -> Result<Option<SpecBlock>, String> {
     Ok(found)
 }
 
+/// Whether a pull request body answers to the spec whose bytes have the
+/// sha256 `pinned`: it holds one spec block tehas can read, and the block names
+/// that sha256. Only the sha256 is compared, not the link. Err finishes the
+/// sentence "Its pull request does not answer to the approved spec: ...".
+pub fn spec_answered(body: Option<&str>, pinned: &str) -> Result<(), String> {
+    match spec_block(body.unwrap_or("")) {
+        Ok(None) => Err("its body has no spec block".to_string()),
+        Ok(Some(b)) if b.spec.sha256 == pinned => Ok(()),
+        Ok(Some(b)) => Err(format!(
+            "its spec block names sha256 {}, not {pinned}, the one approved",
+            b.spec.sha256
+        )),
+        Err(why) => Err(format!("its spec block cannot be read: {why}")),
+    }
+}
+
 fn block_of(lines: &[&str]) -> Result<SpecBlock, String> {
     let mut rest = lines
         .iter()
@@ -623,6 +639,38 @@ mod tests {
         assert_eq!(
             err(&text.replace("- R2 not", "- R1 not")),
             "its spec block names R1 twice"
+        );
+    }
+
+    #[test]
+    fn a_body_answers_to_the_spec_its_block_names_by_sha256() {
+        let b = block();
+        let pinned = b.spec.sha256.clone();
+        let body = format!("Fixes #7\r\n\r\n{}", b.text().replace('\n', "\r\n"));
+        assert_eq!(spec_answered(Some(&body), &pinned), Ok(()));
+        // The link is not compared: the same bytes at a new link are the same spec.
+        let moved = body.replace("files/123/", "files/456/");
+        assert_eq!(spec_answered(Some(&moved), &pinned), Ok(()));
+        let none = Err("its body has no spec block".to_string());
+        assert_eq!(spec_answered(None, &pinned), none);
+        assert_eq!(spec_answered(Some(""), &pinned), none);
+        assert_eq!(
+            spec_answered(Some(&format!("```\n{}```\n", b.text())), &pinned),
+            none
+        );
+        let other = "0".repeat(64);
+        assert_eq!(
+            spec_answered(Some(&body), &other),
+            Err(format!(
+                "its spec block names sha256 {pinned}, not {other}, the one approved"
+            ))
+        );
+        let open = format!("{SPEC_BLOCK_OPEN}\n{}\n", b.spec.line());
+        assert_eq!(
+            spec_answered(Some(&open), &pinned),
+            Err(format!(
+                "its spec block cannot be read: its spec block has no close line `{SPEC_BLOCK_CLOSE}`"
+            ))
         );
     }
 }
