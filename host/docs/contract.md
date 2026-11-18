@@ -240,7 +240,8 @@ The rules (`spec_block` in `console/core/src/grammar.rs`):
   any `:`.
 
 A body with no block has none. A body tehas cannot read: no close line, a
-second block, an open line of another version (named), a missing or malformed
+second block, an open line of another version (named) or one that starts
+`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
 `Spec:` line, a line inside of neither form, no requirement line, or an id
 named twice. The manifest's `spec` entry says in `block` which version the
 cycle writes.

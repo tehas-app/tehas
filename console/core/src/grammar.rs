@@ -237,9 +237,16 @@ pub fn spec_block(body: &str) -> Result<Option<SpecBlock>, String> {
             .strip_prefix(SPEC_BLOCK_PREFIX)
             .and_then(|r| r.strip_suffix("-->"))
         {
+            let v = v.trim();
+            let other = v.bytes().all(|b| b.is_ascii_digit())
+                && v.parse::<u32>().is_ok_and(|n| n != SPEC_BLOCK_VERSION);
+            if !other {
+                return Err(format!(
+                    "its spec block's open line is not exactly `{SPEC_BLOCK_OPEN}`"
+                ));
+            }
             return Err(format!(
-                "its spec block is version {}, and tehas reads version {SPEC_BLOCK_VERSION}",
-                v.trim()
+                "its spec block is version {v}, and tehas reads version {SPEC_BLOCK_VERSION}"
             ));
         }
     }
@@ -558,6 +565,18 @@ mod tests {
             err(&text.replace("v1", "v2")),
             "its spec block is version 2, and tehas reads version 1"
         );
+        let inexact = "its spec block's open line is not exactly `<!-- tehas:spec v1 -->`";
+        for open in [
+            "<!-- tehas:spec v1-->",
+            "<!-- tehas:spec v -->",
+            "<!-- tehas:spec v1 draft -->",
+        ] {
+            assert_eq!(
+                err(&text.replace(SPEC_BLOCK_OPEN, open)),
+                inexact,
+                "{open:?}"
+            );
+        }
         assert_eq!(
             err(&text.replace("Spec: ", "Specs: ")),
             "its spec block does not start with a `Spec:` line"
