@@ -2654,9 +2654,20 @@ mod tests {
     /// A start that handed off at `awaiting-human-merge` with a review that
     /// held nothing and a ready pull request whose body is `body`.
     fn spec_handed(spec_pipe: bool, approval: Value, body: Option<&str>, lean: bool) -> Report {
+        spec_handed_as("label", spec_pipe, approval, body, lean.then_some("ready"))
+    }
+
+    /// spec_handed of a start `how`, whose result names lean's `pr_state`.
+    fn spec_handed_as(
+        how: &str,
+        spec_pipe: bool,
+        approval: Value,
+        body: Option<&str>,
+        pr_state: Option<&str>,
+    ) -> Report {
         let mut entry = json!({"issue": 7, "status": "handoff", "branch": "feature/issue-7", "cap": "awaiting-human-merge"});
-        if lean {
-            entry["prState"] = json!("ready");
+        if let Some(s) = pr_state {
+            entry["prState"] = json!(s);
         }
         let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [entry]});
         let mut pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
@@ -2672,7 +2683,7 @@ mod tests {
             "rc": 10,
             "started": 1000,
             "now": 2620,
-            "start": { "attempt": 1, "how": "label" },
+            "start": { "attempt": 1, "how": how },
             "spec_pipe": spec_pipe,
             "files": {
                 "result.json": result.to_string(),
@@ -2778,6 +2789,32 @@ mod tests {
         let body = spec_block_of(PIN);
         let r = spec_handed(true, approval_of("lean", Some(PIN)), Some(&body), true);
         assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
+    }
+
+    #[test]
+    fn a_start_by_hand_is_not_checked_even_with_no_approval() {
+        let r = spec_handed_as(
+            "hand",
+            true,
+            json!({"error": "busy"}),
+            Some("Fixes #7"),
+            None,
+        );
+        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
+    }
+
+    #[test]
+    fn a_pull_request_held_back_for_another_reason_keeps_that_reason_word() {
+        let approval = approval_of("lean", Some(PIN));
+        let r = spec_handed_as("label", true, approval, Some("Fixes #7"), Some("blocked"));
+        assert_eq!(r.arm, "handoff-parked", "{:?}", r.log);
+        assert_eq!(park_reason(&r).as_deref(), Some("awaiting-human-merge"));
+        let said = comments(&r).join("\n");
+        assert!(said.contains("not `ready`"), "{said}");
+        assert!(
+            said.contains(&unanswered("its body has no spec block")),
+            "{said}"
+        );
     }
 
     fn end_cap(r: &Report) -> Option<&str> {
