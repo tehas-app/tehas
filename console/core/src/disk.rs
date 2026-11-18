@@ -7,6 +7,16 @@
 
 const DOCKER_HOST: &str = "/var/lib/docker";
 
+/// The seconds of `TEHAS_DISK_WAIT`, the bound on each call that reads the
+/// host's space: one or two digits with no leading zero, 10 for anything else.
+pub fn wait(word: Option<&str>) -> u64 {
+    let word = word.unwrap_or("");
+    let plain = (1..=2).contains(&word.len())
+        && !word.starts_with('0')
+        && word.bytes().all(|b| b.is_ascii_digit());
+    plain.then(|| word.parse().ok()).flatten().unwrap_or(10)
+}
+
 /// A figure df prints for a real file system: a whole number that still fits
 /// a 64-bit one, so the caller's arithmetic cannot wrap it into another.
 pub fn figure(word: &str) -> Option<u64> {
@@ -46,6 +56,16 @@ mod tests {
 
     fn df(free: &str) -> String {
         format!("{HEAD}/dev/x 60000000 1 {free} 1% /\n")
+    }
+
+    #[test]
+    fn a_wait_is_one_or_two_digits_and_10_otherwise() {
+        assert_eq!(wait(Some("3")), 3);
+        assert_eq!(wait(Some("99")), 99);
+        assert_eq!(wait(None), 10);
+        for word in ["", "0", "05", "07", "+5", "100", "x", "abc", "٣"] {
+            assert_eq!(wait(Some(word)), 10, "{word}");
+        }
     }
 
     #[test]
