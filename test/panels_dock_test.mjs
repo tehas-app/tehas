@@ -1,7 +1,9 @@
 // Tests the page half of host/fun/panels.js with the host bridge: an item of
 // the bridge's menu is drawn in the front pages' menu and a press opens its
-// page in the dock, framed as a panel is, not in this tab. A stub document
-// stands for the page; see "The host bridge" in host/docs/api.md.
+// page in the dock, framed as a panel is, not in this tab. An item that asks
+// for a page of its own is a plain link to a new tab, with no dock or frame. A
+// stub document stands for the page; see "The host bridge" in
+// host/docs/api.md.
 //
 //   node --test test/panels_dock_test.mjs
 import assert from "node:assert/strict";
@@ -58,8 +60,8 @@ const links = () => nav.querySelectorAll(".panel-link");
 const dock = () => body.querySelector(".panel-dock");
 
 test("the bridge's menu item is a link in the menu that names the dock, with no frame until a press", () => {
-  const [item] = sample.menu;
-  assert.deepEqual(links().map((l) => [l.textContent, l.href]), [[item.label, item.url]]);
+  const [item, page] = sample.menu;
+  assert.deepEqual(links().map((l) => [l.textContent, l.href]), [[item.label, item.url], [page.label, page.url]]);
   assert.equal(links()[0].attrs["aria-controls"], "panel-dock");
   assert.equal(links()[0].attrs["aria-expanded"], "false");
   assert.equal(made.filter((n) => n.tag === "iframe").length, 0);
@@ -88,6 +90,27 @@ test("a press with a modifier or another button is left to the browser, as for a
     assert.equal(press(link, over), false, JSON.stringify(over));
   }
   assert.equal(dock().hidden, true);
+});
+
+test("a page item is a plain link to a new tab: a press is left to the browser and makes no dock or frame", () => {
+  const link = links()[1];
+  assert.equal(link.target, "_blank");
+  assert.equal(link.rel, "noopener noreferrer");
+  assert.equal(link.attrs["aria-controls"], undefined);
+  assert.equal(link.attrs["aria-expanded"], undefined);
+  assert.equal((link.listeners.click || []).length, 0);
+  assert.equal(dock().hidden, true);
+});
+
+test("an item that turns from the dock to a page closes the dock and drops its frame", () => {
+  const [item] = sample.menu;
+  press(links()[0]);
+  assert.equal(dock().hidden, false);
+  changed({ menu: [{ ...item, open: "page" }] });
+  assert.equal(dock().hidden, true);
+  assert.equal(dock().querySelector(".panel-dock-body").kids.length, 0);
+  assert.equal(links()[0].attrs["aria-controls"], undefined);
+  changed({ menu: sample.menu });
 });
 
 test("an item that goes from the answer goes from the menu, and a dock showing it closes", () => {

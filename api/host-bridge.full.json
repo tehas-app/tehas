@@ -9,6 +9,7 @@
     {"issue": 7, "text": "Another note", "link": "https://host.example/ticket/7"}
   ],
   "menu": [
-    {"id": "m-1", "label": "Example page", "url": "https://host.example/page"}
+    {"id": "m-1", "label": "Example page", "url": "https://host.example/page"},
+    {"id": "m-2", "label": "Another page", "url": "https://host.example/room", "open": "page"}
   ]
 }

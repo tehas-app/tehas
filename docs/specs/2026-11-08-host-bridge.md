@@ -112,3 +112,17 @@ The answer had a `notices` field, lines at the top of the front pages. No
 host sent any, and `tehas host-message` is the one way a host shows a
 message on the factory, so the field is gone from the contract. An answer
 that still carries it is read as before and the field is ignored.
+
+## A page of its own
+
+Some hosts serve a program with a page of its own: one that needs a whole
+tab, or that cannot be framed, for instance because its sign-in does not work
+in a sandboxed frame on another site. The dock is the wrong place for it. A
+menu item may now carry `open`: `dock`, the meaning of an item without the
+field, or `page`, a plain link that opens its page in a new tab with
+`rel="noopener noreferrer"`. No frame is made for a page item. Any other
+value is read as `dock`, so a later value cannot break a dashboard of this
+release. The URL rule is unchanged. The contract stays version 1: a
+dashboard that predates the field ignores it and docks the item, so a host
+that sends `page` keeps its page usable in a frame, or shows a link out
+there. Panels written by `tehas panel` are unchanged and always dock.

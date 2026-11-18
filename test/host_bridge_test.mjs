@@ -25,7 +25,10 @@ test("the full sample gives every element", () => {
   assert.deepEqual(notesOf(a, 42), [{ text: "Example note", link: "/host/ticket/42" }, { text: "Second note", link: null }]);
   assert.deepEqual(notesOf(a, 7), [{ text: "Another note", link: "https://host.example/ticket/7" }]);
   assert.deepEqual(notesOf(a, 8), []);
-  assert.deepEqual(a.menu, [{ id: "m-1", label: "Example page", url: "https://host.example/page" }]);
+  assert.deepEqual(a.menu, [
+    { id: "m-1", label: "Example page", url: "https://host.example/page", open: "dock" },
+    { id: "m-2", label: "Another page", url: "https://host.example/room", open: "page" },
+  ]);
 });
 
 test("the bare sample is an answer with nothing to draw", () => {
@@ -70,7 +73,7 @@ test("unknown fields are ignored, at the top and in each element", () => {
   v.ticketNotes[0].later = "x";
   const a = readOf(v);
   assert.equal(notesOf(a, 42).length, 2);
-  assert.equal(a.menu.length, 1);
+  assert.equal(a.menu.length, 2);
   assert.equal(Object.hasOwn(a.menu[0], "later"), false);
 });
 
@@ -156,6 +159,13 @@ test("each breach of a menu item drops that item alone; ids unique and four the 
   assert.equal(a.menu[2].url, "http://j.host.example/p");
   v.menu = "x";
   assert.deepEqual(readOf(v).menu, []);
+});
+
+test("a menu item opens as a page only when it says page; absent or any other value is the dock, and the item is kept", () => {
+  const m = (id, over = {}) => ({ id, label: `Page ${id}`, url: `https://${id}.host.example/p`, ...over });
+  const v = full();
+  v.menu = [m("a"), m("b", { open: "page" }), m("c", { open: "frame" }), m("d", { open: ["page"] })];
+  assert.deepEqual(readOf(v).menu.map((i) => [i.id, i.open]), [["a", "dock"], ["b", "page"], ["c", "dock"], ["d", "dock"]]);
 });
 
 test("an answer that still carries tokens is read whole, and the tokens are ignored", () => {

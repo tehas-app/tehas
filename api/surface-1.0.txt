@@ -552,3 +552,4 @@ field status.versions.rukas.behind
 field status.versions.rukas.latest
 field status.versions.rukas.version
 field settings-rules.settings[].building
+field host-bridge.menu[].open
