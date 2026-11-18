@@ -544,6 +544,13 @@
       "reason": "expected cpu=<s>,wall=<s>,writes=<n>, any part left out"
     },
     {
+      "name": "TEHAS_POLL_SECS",
+      "rule": "poll-secs",
+      "when": "always",
+      "default": "120",
+      "reason": "expected a whole number of seconds from 30 to 3600"
+    },
+    {
       "name": "TEHAS_SIZE_MAX_BYTES",
       "rule": "measure-bound",
       "when": "always",

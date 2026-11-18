@@ -13,8 +13,19 @@ script as `tehasbot dispatch`.
 ```
 tehas dispatch --dry-run       # report the decision, change nothing
 tehas dispatch                 # start the cycles there is room for, then return
+tehas dispatch --soon          # ask for a poll, return at once
 tehas dispatch --help          # print the usage of the command, call nothing
 ```
+
+`--soon` runs no poll in the caller's process. It writes
+`~/tehas/state/dispatch.again` and exits 0, or 1 when it cannot write the file.
+`tehas-dispatch.path` sees the file and starts `tehas-dispatch.service`, which
+removes it before the poll runs. While a poll runs, systemd does not start a
+second one: the file waits, and the next poll starts when the running one ends.
+Asking again before that poll starts asks for the same poll. This is the way
+for another program on the host, such as a webhook receiver or a script, to
+wake the dispatcher between two runs of the timer; it needs no GitHub token and
+calls nothing.
 
 `--help` (or `-h`) prints the header comment of the command and exits 0; it
 works even on a host with no instance settings yet. Any other argument, or more

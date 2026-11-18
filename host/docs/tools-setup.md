@@ -124,7 +124,9 @@ In order, stopping at the first step that fails:
    (`~/tehas/sandbox/build.sh`), and takes that step off the record. It then
    runs the product's gates in it with `tehas check-product --sandbox` where
    that command is installed. Where it is not, it says the gates were not run.
-7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
+7. It writes the timer's drop-in for `TEHAS_POLL_SECS`, or removes it at the
+   default, and enables `tehas-dispatch.timer` and `tehas-dispatch.path`,
+   restarting the timer when the drop-in changed. It starts the docs
    server, runs `tehas github check` (one mint, the login, the reach
    of `TEHAS_REPO`, never the token) and prints the dashboard's address.
 
