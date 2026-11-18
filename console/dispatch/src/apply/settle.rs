@@ -300,7 +300,7 @@ impl Writer {
                 };
                 // The bot's login, when the settings name it: the settling
                 // comes before the poll has read it.
-                let bot = self.host.bot.trim_end_matches("[bot]").to_string();
+                let bot = crate::settings::account(&self.host.bot);
                 let posted = v.as_array().into_iter().flatten().find(|c| {
                     let login = c
                         .pointer("/user/login")
@@ -308,7 +308,7 @@ impl Writer {
                         .unwrap_or("");
                     let body = c.get("body").and_then(Value::as_str).unwrap_or("");
                     let got = sum_of(body);
-                    (bot.is_empty() || login.trim_end_matches("[bot]") == bot)
+                    (bot.is_empty() || crate::settings::account(login) == bot)
                         && c.get("created_at")
                             .and_then(Value::as_str)
                             .is_some_and(|t| t >= posted_since.as_str())
