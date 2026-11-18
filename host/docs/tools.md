@@ -12,7 +12,7 @@ Interactive shells get the environment from `~/tehas/env.sh`; a non-interactive
 There are two commands on `PATH`, both in `~/tehas/bin`:
 
 ```
-tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
+tehas dispatch [--dry-run|--soon]  # one poll of the issue queue by hand, or ask for one soon
 tehas work <issue> [--restart] [--driver lean|classic]   # one cycle for an issue, by hand
 tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
@@ -196,6 +196,7 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 `--budget`, which gives it to `store poll-idle --budget` as it stands, so the
 rule is the store's own: what it would refuse stops the load instead of leaving
 the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
+| `TEHAS_POLL_SECS`               | `120`                                    | Seconds between two polls of `tehas-dispatch.timer`. A whole number from 30 to 3600, else every command stops with 78. `tehas setup` and `tehas update` write any other value than 120 to the drop-in `~/.config/systemd/user/tehas-dispatch.timer.d/poll.conf` and restart the timer, and remove the drop-in when it is back at 120. `tehas status` names an interval off the default on its poll line. A cycle that ends and `tehas dispatch --soon` start a poll whatever this is (see [Operating](/operating)) |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended. A whole number of at least 1, at most 9 digits. The poll reads it again by the same rule and stops with 78 on a value it cannot read |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated, such as `models.example:192.0.2.10`. A name is letters, digits, `.` and `-`; an address is an IPv4 or IPv6 address, the IPv6 one bare or in brackets, or `host-gateway`. Docker's `name=address` form is taken too. Anything else stops every command with 78, and no container is started with it |

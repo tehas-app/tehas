@@ -260,7 +260,7 @@ fn dispatch_words(given: &[String]) -> Result<(), u8> {
     let first = given.first().map(String::as_str);
     let help = matches!(first, Some("-h" | "--help"));
     let unknown = match (first, given.get(1)) {
-        (Some(word), _) if !help && word != "--dry-run" => Some(word),
+        (Some(word), _) if !help && !matches!(word, "--dry-run" | "--soon") => Some(word),
         (_, Some(second)) => Some(second.as_str()),
         _ => None,
     };
@@ -401,7 +401,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
         ],
-        ["tehasbot", "clean" | "dispatch" | "refresh" | "review"] => &INSTANCE_SETTINGS,
+        ["tehasbot", "clean" | "dispatch" | "refresh" | "review" | "outsource-proxy"] => {
+            &INSTANCE_SETTINGS
+        }
         ["tehas", "plan" | "work"] => &[
             "TEHAS_REPO",
             "PI_ENSEMBLE_SUBAGENT_MODEL",
@@ -654,6 +656,7 @@ mod tests {
             &["tehasbot", "clean", "--dry-run"],
             &["tehasbot", "dispatch"],
             &["tehasbot", "dispatch", "--dry-run"],
+            &["tehasbot", "dispatch", "--soon"],
             &["tehasbot", "preview"],
             &["tehasbot", "preview", ""],
             &["tehasbot", "preview", "--sweep"],
@@ -676,6 +679,8 @@ mod tests {
             &["tehasbot", "dispatch", "--dryrun"],
             &["tehasbot", "dispatch", "--dry-run", "--help"],
             &["tehasbot", "dispatch", "--help", "--dry-run"],
+            &["tehasbot", "dispatch", "--soon", "--dry-run"],
+            &["tehasbot", "dispatch", "--dry-run", "--soon"],
             &["tehasbot", "preview", "--help"],
         ] {
             assert_eq!(says(bad), 64, "{bad:?}");
@@ -718,7 +723,7 @@ mod tests {
         ] {
             assert_eq!(required(&words(repo)), ["TEHAS_REPO"], "{repo:?}");
         }
-        for all in ["clean", "dispatch", "refresh", "review"] {
+        for all in ["clean", "dispatch", "refresh", "review", "outsource-proxy"] {
             assert_eq!(
                 required(&words(&["tehasbot", all])),
                 INSTANCE_SETTINGS,

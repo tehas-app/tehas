@@ -108,7 +108,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   paused. An allowed account applies `tehas:pause` and takes it off again, and
   `tehas labels` puts a deleted label back.
 - `WARN: ~/tehas/state/pause.json is not a pause flag: taking it as paused`: the
-  flag file is damaged, and a switch that cannot be read is taken as closed.
+  flag file is damaged, a link, or over 1 MiB, and a switch that cannot be read
+  is taken as closed.
   `tehas resume` removes it; `tehas pause` writes one that can be read.
 - `holding: N cycles are running (limit N)`: the ceiling is reached. Wait for
   a cycle to end, or raise `TEHAS_MAX_CYCLES`.
@@ -466,7 +467,8 @@ touching a running cycle.
 A poll that fails does not stop the polling. `tehas-dispatch.timer` counts two
 minutes from the last end of the poll's unit and from its last start, so a poll
 that exits non-zero - a disk that filled, a GitHub call that failed - is
-followed by the next poll two minutes later. What a failed poll cost is the
+followed by the next poll two minutes later, or `TEHAS_POLL_SECS` seconds
+later where that is set. What a failed poll cost is the
 work it did not do, not the queue. Read `~/tehas/logs/dispatch.log` for the
 error and `systemctl --user status tehas-dispatch.service` for its exit status.
 

@@ -8,8 +8,9 @@ session, when an answer is waiting, as tehas-plan-<issue>.service, and does
 not wait for it either: a later poll posts its outcome. One planning turn
 runs at a time. On a host where no cycle runs, the code index is refreshed
 before cycles start, as tehas-index.service, and the cycles start on the
-poll after it. A systemd timer runs a poll every two minutes, whatever the
-cycles are doing, and a cycle that ends starts one.
+poll after it. A systemd timer runs a poll every two minutes, or every
+TEHAS_POLL_SECS seconds, whatever the cycles are doing, and a cycle that ends
+starts one.
 Every poll that gets past the bot's login ends by running console tidy run,
 which takes tehas's state labels off closed issues, with --dry-run on a dry
 run.
@@ -17,9 +18,16 @@ run.
 Usage:
   tehas dispatch               one poll
   tehas dispatch --dry-run     say what a poll would do, change nothing
+  tehas dispatch --soon        ask for a poll and return at once: it writes
+                               $TEHAS_HOME/state/dispatch.again, and
+                               tehas-dispatch.path starts the poll as its
+                               unit, or after the poll that is running. The
+                               way for another program, such as a webhook
+                               receiver, to wake the dispatcher
   tehas dispatch -h|--help     print this text and exit 0
 
-Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
+Exit: 0 the poll ran, or there was nothing to do, or --soon wrote its file;
+1 --soon could not write it; 64 an argument this command
 does not know, which starts no poll; 78 instance settings are missing or
 malformed (TEHAS_PLAN_TIMEOUT and TEHAS_PLAN_MAX_TURNS are read again by
 the poll, by the same rules, before the lock), tehas-dispatch is not

@@ -44,6 +44,8 @@
 //!     Deletes what is older than 365 days, then runs PRAGMA optimize. run,
 //!     event and sample prune too, after their write. The events of an
 //!     issue that started and never ended are kept at most a day longer.
+//!     An expired database kept aside that cannot be deleted is named in a
+//!     WARN line, and the command exits 73.
 //!   analytics report [--json]
 //!     Prints the ten-day report the dashboard shows, aggregates only
 //!     (report.rs says what is in it): as plain text for a person, or with
@@ -93,7 +95,8 @@
 //!
 //! Exit: 0 done; 64 usage; 65 nothing to record: no facts, facts with no
 //! history line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the copy's file
-//! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
+//! exists or cannot be made, or prune could not delete an expired kept-aside
+//! file; 78 TEHAS_HOME is unset or not a directory.
 
 mod db;
 mod outcomes;
@@ -433,8 +436,19 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         }
         Cmd::Prune => {
             db::prune(&conn, now).map_err(db_err)?;
-            db::prune_aside(&file, now);
-            conn.execute_batch("PRAGMA optimize").map_err(db_err)
+            let stuck = db::prune_aside(&file, now);
+            conn.execute_batch("PRAGMA optimize").map_err(db_err)?;
+            if stuck.is_empty() {
+                return Ok(());
+            }
+            let names: Vec<String> = stuck.iter().map(|p| p.display().to_string()).collect();
+            Err((
+                73,
+                format!(
+                    "WARN expired kept-aside files could not be deleted: {}",
+                    names.join(", ")
+                ),
+            ))
         }
         Cmd::Report | Cmd::ReportText => {
             let report = report::complete(&conn, home, now)?;

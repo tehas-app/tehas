@@ -1687,6 +1687,60 @@ fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
 }
 
 #[test]
+fn prune_aside_returns_the_expired_files_it_could_not_delete() {
+    let home = scratch("aside-stuck");
+    let state = home.join("state");
+    fs::create_dir_all(&state).unwrap();
+    let now = 1_792_000_000;
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs((now - 366 * 86_400) as u64);
+    for name in ["analytics.db.schema-7", "analytics.db.schema-7-wal"] {
+        fs::File::create(state.join(name))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+    let file = db::path(&home);
+    // Held open and read, so the database's -wal and -shm exist while the
+    // directory is read-only.
+    let (held, _) = db::open(&file, now).unwrap();
+    let _: i64 = held
+        .query_row("SELECT count(*) FROM runs", [], |r| r.get(0))
+        .unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o555)).unwrap();
+    // Root writes into a read-only directory: the case cannot be made.
+    let root = fs::File::create(state.join("probe")).is_ok();
+    let mut stuck = db::prune_aside(&file, now);
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    if root {
+        return;
+    }
+    stuck.sort();
+    assert_eq!(
+        stuck,
+        [
+            state.join("analytics.db.schema-7"),
+            state.join("analytics.db.schema-7-wal")
+        ]
+    );
+    assert!(state.join("analytics.db.schema-7").exists());
+    assert!(state.join("analytics.db.schema-7-wal").exists());
+
+    // Through the command: the rest of prune runs, then exit 73 naming them.
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o555)).unwrap();
+    let got = execute(&home, &Cmd::Prune, now);
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    let (code, why) = got.unwrap_err();
+    assert_eq!(code, 73, "{why}");
+    assert!(why.starts_with("WARN "), "{why}");
+    assert!(why.contains("analytics.db.schema-7-wal"), "{why}");
+    assert!(!why.contains('\n'), "{why}");
+
+    assert_eq!(db::prune_aside(&file, now), Vec::<PathBuf>::new());
+    assert!(!state.join("analytics.db.schema-7").exists());
+    assert!(!state.join("analytics.db.schema-7-wal").exists());
+}
+
+#[test]
 fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_private() {
     let home = scratch("export");
     let started = secs("2026-10-18T10:16:39Z");

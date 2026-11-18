@@ -91,7 +91,9 @@ pub fn print(given: &[String]) -> u8 {
     if json {
         return answer(&file, now, None, &[]);
     }
-    let poll = poll_line(&home);
+    let every = tehas_ops::poll_timer::user_units()
+        .and_then(|units| tehas_ops::poll_timer::written(&units));
+    let poll = with_interval(poll_line(&home), every);
     let product = home.join("state/check-product.json");
     let mut ends = host_lines(&home, now);
     ends.extend(end_lines(&tehas_core::end_fault::all(&home), now));
@@ -178,6 +180,16 @@ fn poll_line(home: &Path) -> String {
         .ok()
         .and_then(|v| v["line"].as_str().map(str::to_string))
         .unwrap_or_default()
+}
+
+/// The poll line with the timer's interval when TEHAS_POLL_SECS moved it off
+/// the default, as the drop-in tehas setup and tehas update write says.
+fn with_interval(poll: String, every: Option<u64>) -> String {
+    match every {
+        None => poll,
+        Some(n) if poll.is_empty() => format!("poll      every {n} s"),
+        Some(n) => format!("{poll}; every {n} s"),
+    }
 }
 
 /// Print the health file: the object, or with `lines` (the poll line and the
@@ -1019,6 +1031,21 @@ mod tests {
 
     fn h(text: &str) -> J {
         J::parse(text).unwrap()
+    }
+
+    #[test]
+    fn the_poll_line_says_an_interval_off_the_default() {
+        let last = "poll      last 2.0 s wall, 1.5 s CPU, 0 gh".to_string();
+        assert_eq!(with_interval(last.clone(), None), last);
+        assert_eq!(
+            with_interval(last.clone(), Some(600)),
+            format!("{last}; every 600 s")
+        );
+        assert_eq!(
+            with_interval(String::new(), Some(600)),
+            "poll      every 600 s"
+        );
+        assert_eq!(with_interval(String::new(), None), "");
     }
 
     #[test]
