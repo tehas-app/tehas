@@ -397,16 +397,13 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
     };
     let ceiling = max / n / MIB;
     if reserve_b > ceiling * MIB {
-        // The slice is three quarters of the host and a container 1/n of the
-        // slice, so the reserve needs a host of 4n/3 times its size.
-        let need = reserve_b * 4 * n / 3;
-        let need = if need >= GIB {
-            format!("{} GiB", (need + 536_870_912) / GIB)
-        } else {
-            format!("{} MiB", need / MIB + 1)
+        let need = match need(reserve_b, n) {
+            Some(b) if b >= GIB => format!("about {} GiB of memory", (b + 536_870_912) / GIB),
+            Some(b) => format!("about {} MiB of memory", b / MIB + 1),
+            None => "more memory than any host has".into(),
         };
         return Err(format!(
-            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs about {need} of memory for this reserve"
+            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs {need} for this reserve"
         ));
     }
     let nproc = match r.cpus().as_deref().and_then(num) {
@@ -428,6 +425,16 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
         cpus: counted.map_or(nproc, |n| n.min(nproc)),
         nproc,
     })
+}
+
+/// The bytes of memory a host needs for a reserve of `b` bytes in each of
+/// `n` containers, None past u64. The slice is three quarters of the host and
+/// a container 1/n of the slice, so 4n/3 times the reserve.
+fn need(b: u64, n: u64) -> Option<u64> {
+    // Checked, not left to settings/rules.rs: its 2 to 16 containers do not
+    // bound it, 999999999g overflows from 5 on, and this module holds its own
+    // rule.
+    Some(b.checked_mul(4)?.checked_mul(n)? / 3)
 }
 
 /// The CPUs a container may use: all but one, never below one, one being left
@@ -815,6 +822,42 @@ mod tests {
         let why = usable(&host(), "2g", "auto").unwrap_err();
         assert_eq!(why, "TEHAS_SLICE_CONTAINERS=auto is not a count");
         assert!(usable(&host(), "2g", "4").is_ok());
+    }
+
+    /// The memory a reserve needs is 4n/3 times its size. A reserve the
+    /// settings take, up to 999999999g, overflowed it with 5 containers or
+    /// more, and any reserve did with a count past the 2 to 16 they take.
+    /// Every reserve that did not overflow reads as before.
+    #[test]
+    fn the_memory_a_reserve_needs_does_not_overflow() {
+        let answer = |reserve: &str, n: &str| {
+            let mut r = host();
+            let show = r.show.as_mut().unwrap();
+            show.insert("MemoryMax".into(), Value::from("4194304"));
+            let why = usable(&r, reserve, n).unwrap_err();
+            let (_, need) = why.split_once("the host needs ").unwrap();
+            need.strip_suffix(" for this reserve").unwrap().to_string()
+        };
+        let more = "more memory than any host has";
+        assert_eq!(answer("6m", "999999999999999999"), more);
+        assert_eq!(answer("999999999g", "5"), more);
+        assert_eq!(answer("999999999g", "4"), "about 5333333328 GiB of memory");
+        for n in 2..=16u64 {
+            for reserve in ["6m", "700m", "2g", "3g", "1000000g", "999999999g"] {
+                let before = bytes(reserve)
+                    .unwrap()
+                    .checked_mul(4 * n)
+                    .map(|b| b / 3)
+                    .map_or(more.to_string(), |b| {
+                        if b >= GIB {
+                            format!("about {} GiB of memory", (b + 536_870_912) / GIB)
+                        } else {
+                            format!("about {} MiB of memory", b / MIB + 1)
+                        }
+                    });
+                assert_eq!(answer(reserve, &n.to_string()), before, "{reserve} {n}");
+            }
+        }
     }
 
     /// A Docker daemon started before the host was given more CPUs counts
