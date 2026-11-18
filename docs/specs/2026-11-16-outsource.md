@@ -27,8 +27,9 @@ These come first because everything else depends on them.
 3. **Nothing changes on screen.** Off, there is no Contractors panel, no
    `live/contractors.json`, no `contractors` field in `tehas status --json`, and
    commands print what they print today.
-4. **No new state.** The contractor and job tables are created only when the
-   feature is on. Off, nothing reads or writes them.
+4. **No new state while off.** The contractor and job tables are in every
+   store, laid by init and by the schema step. Off, they stay empty: every
+   verb of the feature is refused and writes nothing.
 5. **Fail closed both ways.** Off, `tehas outsource` says so and exits
    without touching anything. A contractor that calls a factory that has it off
    is refused.
@@ -462,8 +463,10 @@ New logic is Rust (AGENTS.md). Nothing here needs more bash than a thin unit
 and the install step, and the bash ceiling does not rise.
 
 - `console/contractor/`: the contractor program, a new workspace crate.
-- The job, contractor and attempt state in the store crate, with tables created
-  only when the feature is on.
+- The job, contractor and attempt state in the store crate, with tables in
+  every store and rows written only when the feature is on. The store knows
+  the feature is on by the meta row `outsource = 1`, which init and migrate
+  write when given `--outsource` and take away without it.
 - The dispatcher chooses where a cycle starts.
 - The model proxy, a separate task in the console.
 - `host/docs/outsource.md`, and `features.md` marks it as not yet proven.
@@ -474,7 +477,8 @@ and the install step, and the bash ceiling does not rise.
 The gate needs no network and no sandbox image. Stub the outside world with
 `t_stub`.
 
-1. **Off:** the whole suite is unchanged; no new file, field, table or panel.
+1. **Off:** the whole suite is unchanged; no new file, field or panel, and
+   the outsource tables stay empty.
 2. **Settings:** a malformed `TEHAS_OUTSOURCE_*` exits 78 before any write;
    loading has no side effects.
 3. **Placement:** in-house by default; a contractor is picked only when the
