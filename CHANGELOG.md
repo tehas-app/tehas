@@ -494,6 +494,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas dev` no longer refuses to start, with exit 78 and "is not a directory of this account", when the cleaner takes the clone's build output just as the command makes it. The directory is made again once the command holds the clone's lock (#2477).
 - `spec-pipe`, still being built: the manual defines the pull request spec block, version 1, and tehas can read it. The manifest's `spec` entry names the block version a cycle writes in `block`, and a runner that lists `issueSpec` is expected to write it. Nothing writes or checks the block yet (#2480).
 - `spec-pipe`, still being built: with the feature on, a handoff whose approval pins a spec waits for a merge only when its pull request's spec block names that sha256. A pull request with no block, a block of another sha256 or one tehas cannot read parks the issue with `needs-human-attention` and the park reason `spec-block`, and stays open (#2481).
+- The release tarball now carries `tehas-proxy` and `tehas-contractor`, the two programs of outsource. A host installed from a release still installs them only while `TEHAS_OUTSOURCE` is on (#2463).
 
 ### Held back
 
