@@ -31,7 +31,7 @@ use std::path::Path;
 use tehas_core::accounts::{self, Accounts};
 use tehas_core::events::allowed_in;
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
-use tehas_core::grammar::is_hex;
+use tehas_core::grammar::{is_hex, spec_mark, SpecMark, SPEC_MARK};
 use tehas_core::kinds::{self, Kind};
 
 /// The feature of this command.
@@ -43,8 +43,6 @@ const USAGE: &str = "usage: tehas prototype file --title TEXT [--body-file FILE|
 
 /// The line that names a zip by address, as the Protolab reads it.
 const ZIP_MARK: &str = "Zip:";
-/// The line that marks the spec of an issue.
-const SPEC_MARK: &str = "Spec:";
 
 /// GitHub's own bounds of an issue's title and text, in characters.
 const TITLE_MAX: usize = 256;
@@ -65,7 +63,7 @@ pub struct Asked {
     title: String,
     body_file: Option<String>,
     zip: Option<(String, String)>,
-    spec: Option<(String, String)>,
+    spec: Option<SpecMark>,
 }
 
 fn bad(why: &str) -> u8 {
@@ -114,11 +112,12 @@ pub fn words(given: &[String]) -> Result<Asked, u8> {
         return Err(bad("--body-file names a file, or - for standard input"));
     }
     a.zip = pair("--zip", zip, zip_sum)?;
-    a.spec = pair("--spec", spec, spec_sum)?;
-    if let Some((link, _)) = &a.spec {
-        if !is_link(link) {
+    a.spec = pair("--spec", spec, spec_sum)?.map(|(link, sha256)| SpecMark { link, sha256 });
+    if let Some(m) = &a.spec {
+        if !is_link(&m.link) {
             return Err(bad(&format!(
-                "--spec is a file attached on GitHub, not {link}"
+                "--spec is a file attached on GitHub, not {}",
+                m.link
             )));
         }
     }
@@ -175,12 +174,14 @@ fn bare(line: &str) -> &str {
 }
 
 /// The issue's text: the person's, then a line for the zip and one for the
-/// spec. Err says why the text cannot carry them: it has such a line of its
-/// own, or leaves a code fence open, which would hide the lines after it.
+/// spec, the spec's as tehas_core::grammar writes it. Err says why the text
+/// cannot carry them: it has such a line of its own, or leaves a code fence
+/// open, which would hide the lines after it. The dispatcher reads the spec
+/// back with spec_mark, so the text is held to read back as the spec given.
 fn body(
     text: &str,
     zip: Option<&(String, String)>,
-    spec: Option<&(String, String)>,
+    spec: Option<&SpecMark>,
 ) -> Result<String, String> {
     let mut fence: Option<&str> = None;
     for line in text.lines() {
@@ -201,9 +202,10 @@ fn body(
         return Err("the text leaves a code fence open".to_string());
     }
     let mut out = text.trim_end().to_string();
-    let lines: Vec<String> = [(ZIP_MARK, zip), (SPEC_MARK, spec)]
+    let lines: Vec<String> = zip
+        .map(|(link, sum)| format!("{ZIP_MARK} {link} sha256:{sum}"))
         .into_iter()
-        .filter_map(|(mark, p)| p.map(|(link, sum)| format!("{mark} {link} sha256:{sum}")))
+        .chain(spec.map(SpecMark::line))
         .collect();
     if !lines.is_empty() {
         if !out.is_empty() {
@@ -214,6 +216,17 @@ fn body(
     out.push('\n');
     if out.chars().count() > BODY_MAX {
         return Err(format!("the text is over {BODY_MAX} characters"));
+    }
+    if let Some(m) = spec {
+        match spec_mark(&out) {
+            Ok(Some(read)) if &read == m => {}
+            Ok(_) => {
+                return Err(format!(
+                    "the text does not read back as its `{SPEC_MARK}` line"
+                ))
+            }
+            Err(why) => return Err(format!("the text would not be read: {why}")),
+        }
     }
     Ok(out)
 }
@@ -402,6 +415,13 @@ mod tests {
         c.to_string().repeat(64)
     }
 
+    fn mark(link: &str, sha256: String) -> SpecMark {
+        SpecMark {
+            link: link.into(),
+            sha256,
+        }
+    }
+
     const ATTACHED: &str = "https://github.com/user-attachments/files/7/proto.zip";
     const SPEC: &str = "https://github.com/user-attachments/files/8/spec.md";
 
@@ -429,7 +449,7 @@ mod tests {
                 title: "A prototype".into(),
                 body_file: Some("-".into()),
                 zip: Some((ATTACHED.into(), z)),
-                spec: Some((SPEC.into(), s)),
+                spec: Some(mark(SPEC, s)),
             })
         );
         assert_eq!(
@@ -508,7 +528,7 @@ mod tests {
     #[test]
     fn the_text_takes_a_zip_line_and_a_spec_line_after_it() {
         let z = (ATTACHED.to_string(), sum('a'));
-        let s = (SPEC.to_string(), sum('b'));
+        let s = mark(SPEC, sum('b'));
         assert_eq!(
             body("Make it fast.\n\n", Some(&z), Some(&s)),
             Ok(format!(
@@ -528,17 +548,17 @@ mod tests {
 
     #[test]
     fn the_spec_line_is_the_one_grammar_of_a_spec_mark() {
-        let s = (SPEC.to_string(), sum('c'));
+        let s = mark(SPEC, sum('c'));
         let text = body("Words.", None, Some(&s)).unwrap();
-        let line = text.lines().last().unwrap();
-        let words: Vec<&str> = line.split(' ').collect();
-        assert_eq!(words, [SPEC_MARK, SPEC, &format!("sha256:{}", sum('c'))]);
+        assert_eq!(text.lines().last(), Some(s.line().as_str()));
+        assert_eq!(spec_mark(&text), Ok(Some(s.clone())));
+        assert_eq!(tehas_dispatch::text::spec_mark(&text), Ok(Some(s)));
     }
 
     #[test]
     fn a_text_that_would_hide_or_double_a_line_is_refused() {
         let z = (ATTACHED.to_string(), sum('a'));
-        let s = (SPEC.to_string(), sum('b'));
+        let s = mark(SPEC, sum('b'));
         assert!(body("Zip: mine", Some(&z), None).is_err());
         assert!(body("> Zip: quoted", Some(&z), None).is_err());
         assert!(body("  Spec: x", None, Some(&s)).is_err());
@@ -570,6 +590,81 @@ mod tests {
         );
         // No bot login known yet: an app still names itself.
         assert!(refused("acme-app[bot]", "", "acme-app[bot]", None).is_some());
+    }
+
+    /// The dispatcher's poll over one issue, #7, with `labels` put on by
+    /// alice, an allowed account, and `text` its body.
+    fn poll_over(text: &str, labels: &[&str]) -> tehas_dispatch::Decision {
+        use serde_json::json;
+        use tehas_dispatch::{decide, Settings, Snapshot};
+        let settings = json!({
+            "TEHAS_REPO": "acme/widget", "TEHAS_CONTROL_ISSUE": 1,
+            "TEHAS_ALLOWED_LABELERS": "alice", "TEHAS_MAX_CYCLES": 1,
+            "TEHAS_BOT_LOGIN": "tehas-bot",
+            "TEHAS_SPEC_PIPE": "1", "TEHAS_TEST_FEATURES": "spec-pipe",
+        });
+        let gib: u64 = 1 << 30;
+        let events: Vec<Value> = labels
+            .iter()
+            .enumerate()
+            .map(|(k, l)| {
+                json!({"event": "labeled", "label": {"name": l}, "actor": {"login": "alice"},
+                       "created_at": format!("2026-10-01T00:0{k}:00Z")})
+            })
+            .collect();
+        let names: Vec<Value> = labels.iter().map(|l| json!({"name": l})).collect();
+        let pressure = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
+        let snapshot = json!({
+            "repo": "acme/widget",
+            "control": {"labels": [], "events": []},
+            "plan_open": [], "running": [], "blocked": [], "awaiting": [],
+            "ready": [{"number": 7, "labels": names}],
+            "limit": {"state": "none"},
+            "slice": {
+                "show": {"FragmentPath": "/etc/systemd/system/tehas.slice", "ActiveState": "active",
+                         "MemoryMax": (20 * gib).to_string()},
+                "docker": "systemd 2",
+                "controllers": "cpuset cpu io memory hugetlb pids rdma misc",
+                "cpus": "8", "root": "/sys/fs/cgroup", "scopes": {}, "pressure": pressure,
+            },
+            "endpoint": {},
+            "disk_kb": 40u64 * 1_048_576,
+            "issues": {"7": {
+                "events": events,
+                "work": {"number": 7, "state": "open", "labels": names},
+                "edit": {"body": text, "lastEditedAt": null, "editor": null},
+                "prs": [], "comments": {"failed": true}, "park": null, "approval": null,
+                "current": null, "refresh_said": "",
+            }},
+            "now": 1_793_404_800u64,
+            "hostname": "tehas-test",
+            "bot_prs": [], "marked": [], "planning": [], "refresh_history": [],
+            "leftovers": [], "asking": [], "owed": [], "plans": [], "refines": [],
+            "refines_owed": [],
+        });
+        decide(
+            &Snapshot::parse(&snapshot),
+            &Settings::parse(&settings),
+            false,
+        )
+    }
+
+    #[test]
+    fn a_filed_ticket_labelled_ready_starts_its_cycle_with_its_spec() {
+        let z = (ATTACHED.to_string(), sum('a'));
+        let s = mark(SPEC, sum('b'));
+        let text = body("Make it fast.", Some(&z), Some(&s)).unwrap();
+        let d = poll_over(&text, &["tehas:prototype", "tehas:ready"]);
+        assert_eq!(d.picked, [7], "{:?} {:?}", d.log, d.actions);
+        let start = d
+            .actions
+            .iter()
+            .find(|a| a.get("start").and_then(Value::as_u64) == Some(7))
+            .expect("a start of #7");
+        assert_eq!(
+            start["spec"],
+            serde_json::json!({"link": SPEC, "sha256": sum('b'), "off": ["tehas:ready"]})
+        );
     }
 
     #[test]
