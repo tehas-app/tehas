@@ -27,6 +27,7 @@
 #                               [--analytics <path>] [--mcp <path>]
 #                               [--store <path>] [--attach <path>]
 #                               [--dispatch <path>] [--cycle <path>]
+#                               [--proxy <path>] [--contractor <path>]
 #                               [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
@@ -55,6 +56,11 @@
 #                cycle's start, supervision and report; a host installed from
 #                a release packed without it starts no cycle, tehasbot cycle
 #                stops with 78
+#   --proxy      the built tehas-proxy, copied to libexec/tehas-proxy: the
+#                model proxy of outsource. install.sh installs it only while
+#                TEHAS_OUTSOURCE is on
+#   --contractor the built tehas-contractor, copied to libexec/tehas-contractor:
+#                the contractor program of outsource, installed the same way
 #   --commit     the commit of tehas the tree is, 40 hex digits, written to
 #                COMMIT. A tree with no git has no other way to say it, and
 #                install.sh refuses a tree whose commit it cannot read
@@ -79,7 +85,7 @@
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z or a prerelease, --arch names neither
 #       architecture, --console is missing, is not a file or is the tree's own
-#       build, --analytics, --mcp, --store, --attach, --dispatch or --cycle names no program, only one of the
+#       build, --analytics, --mcp, --store, --attach, --dispatch, --cycle, --proxy or --contractor names no program, only one of the
 #       two pins is given, the tree does not answer to TEHAS_PACK_ROOT, or an
 #       out dir cannot be made or already holds that tarball); 1 the tree is
 #       missing something install.sh reads, one of the programs given is no ELF
