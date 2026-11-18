@@ -286,7 +286,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - One rule says which setting names are secret: a name that holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case. The console's mask and `tehas review` use the same rule.
 - `tehas review` takes a setting of a documented family, such as `PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST`, when the image lists the family, instead of stopping with exit 78.
 - The MCP tool `factory_console` masks the console tail it returns, as the log tools do.
-- The pinned ctx7 moves from 0.11.0 to 0.11.1.
+- The pinned ctx7 moves from 0.11.0 to 0.12.2.
 - A cycle's workspace holds only recent history: the default branch alone and
   `TEHAS_CLONE_DEPTH` commits of it, 100 by default, where it held every branch
   of the product checkout with its full history. The clone stays local, so
@@ -472,6 +472,15 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The sandbox image hands `/home/vscode/.npm` to the cycle's user, so npm in a cycle no longer fails on a root-owned cache. The image build stops when that user cannot write to npm's cache (#2407).
 - The sandbox image sets `ORT_INTRA_OP_NUM_THREADS=1`, so vipune no longer writes onnxruntime affinity errors to stderr on every call under a cycle's cpuset. The build's smoke run now also runs vipune on one CPU of a cpuset and refuses an image whose vipune writes to stderr there (#2408).
 - The move of the pinned tools takes a prerelease as the release it writes to, such as `v1.0.0-beta.2`, so the release script moves pins before a beta too.
+- The prototype build refuses an issue type event whose actor or stamp is not text, and keeps the published page, instead of reading it as an account that is gone and taking the page down (#2242).
+- The pause flag `state/pause.json` is read once, under the 1 MiB bound and not through a link. A flag over the bound, or a link, reads as unreadable and keeps the factory paused (#2251).
+- `analytics prune` names an expired kept-aside database it could not delete in a `WARN` line and exits 73, where it used to exit 0 (#2261).
+- `TEHAS_POLL_SECS` sets how often the dispatcher timer polls, from 30 to 3600 seconds, 120 by default. `tehas setup` and `tehas update` apply it as a drop-in for `tehas-dispatch.timer` and restart the timer, and remove the drop-in at the default. `tehas status` names an interval off the default on its poll line.
+- `tehas dispatch --soon` asks for a poll and returns at once: it writes `state/dispatch.again`, and `tehas-dispatch.path` starts the poll, or starts it after the poll that is running. Another program on the host, such as a webhook receiver, can use it to wake the dispatcher.
+- `install.sh` installs outsource's model proxy (`libexec/tehas-proxy`), its unit `tehas-outsource-proxy.service` and the contractor program (`libexec/tehas-contractor`) only while `TEHAS_OUTSOURCE` is on. With it off nothing of the feature is installed. `scripts/pack-release.sh` takes the two programs with `--proxy` and `--contractor`. Outsource is still being built, so a release does neither (#2278).
+- The manual's outsource page says how to switch the feature on, lists all its settings, says where a cycle runs, and has a Known limits section: trusted hosts only (#2278).
+- The pinned gh moves from 2.104.0 to 2.105.0.
+- The pinned Playwright moves from 1.65.0 to 1.65.1.
 
 ### Held back
 
