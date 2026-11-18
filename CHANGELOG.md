@@ -286,7 +286,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - One rule says which setting names are secret: a name that holds TOKEN, SECRET, PASSWORD, PASSWD, KEY or CREDENTIAL, in any case. The console's mask and `tehas review` use the same rule.
 - `tehas review` takes a setting of a documented family, such as `PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST`, when the image lists the family, instead of stopping with exit 78.
 - The MCP tool `factory_console` masks the console tail it returns, as the log tools do.
-- The pinned ctx7 moves from 0.11.0 to 0.11.1.
+- The pinned ctx7 moves from 0.11.0 to 0.12.2.
 - A cycle's workspace holds only recent history: the default branch alone and
   `TEHAS_CLONE_DEPTH` commits of it, 100 by default, where it held every branch
   of the product checkout with its full history. The clone stays local, so
@@ -479,6 +479,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas dispatch --soon` asks for a poll and returns at once: it writes `state/dispatch.again`, and `tehas-dispatch.path` starts the poll, or starts it after the poll that is running. Another program on the host, such as a webhook receiver, can use it to wake the dispatcher.
 - `install.sh` installs outsource's model proxy (`libexec/tehas-proxy`), its unit `tehas-outsource-proxy.service` and the contractor program (`libexec/tehas-contractor`) only while `TEHAS_OUTSOURCE` is on. With it off nothing of the feature is installed. `scripts/pack-release.sh` takes the two programs with `--proxy` and `--contractor`. Outsource is still being built, so a release does neither (#2278).
 - The manual's outsource page says how to switch the feature on, lists all its settings, says where a cycle runs, and has a Known limits section: trusted hosts only (#2278).
+- The pinned gh moves from 2.104.0 to 2.105.0.
+- The pinned Playwright moves from 1.65.0 to 1.65.1.
 
 ### Held back
 
