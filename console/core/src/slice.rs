@@ -1176,3 +1176,179 @@ mod tests {
         assert_eq!(scopes(dir).map(|s| s.len()), None);
     }
 }
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Any text of at most N bytes. Kani's cost grows fast with the length
+    /// of a symbolic string, so the parsers are proved on short ones and the
+    /// arithmetic on the full range of what they give.
+    fn text<const N: usize>(b: &[u8; N]) -> Option<&str> {
+        let len: usize = kani::any_where(|l| *l <= N);
+        std::str::from_utf8(&b[..len]).ok()
+    }
+
+    fn digits(s: &str) -> bool {
+        !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+    }
+
+    fn value(s: &str) -> u64 {
+        s.bytes().fold(0, |v, b| v * 10 + u64::from(b - b'0'))
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn num_is_some_exactly_for_a_number_and_gives_its_value() {
+        let b: [u8; 4] = kani::any();
+        let Some(s) = text(&b) else { return };
+        let ok = s == "0" || (digits(s) && !s.starts_with('0'));
+        let got = num(s);
+        match got {
+            Some(v) => assert!(ok && v == value(s)),
+            None => assert!(!ok),
+        }
+        kani::cover!(s.len() == 4 && got.is_some());
+        kani::cover!(!s.is_ascii());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn bytes_is_some_exactly_for_a_size_and_never_zero() {
+        let b: [u8; 3] = kani::any();
+        let Some(s) = text(&b) else { return };
+        // The unit as a shift: Kani multiplies two symbolic numbers slowly.
+        let (n, shift) = match s.as_bytes().last() {
+            Some(b'k' | b'K') => (&s[..s.len() - 1], 10),
+            Some(b'm' | b'M') => (&s[..s.len() - 1], 20),
+            Some(b'g' | b'G') => (&s[..s.len() - 1], 30),
+            Some(b'b' | b'B') => (&s[..s.len() - 1], 0),
+            _ => (s, 0),
+        };
+        let ok = digits(n) && !n.starts_with('0');
+        let got = bytes(s);
+        match got {
+            Some(v) => assert!(ok && v > 0 && v == value(n) << shift),
+            None => assert!(!ok),
+        }
+        kani::cover!(shift == 30 && got.is_some());
+        kani::cover!(!s.is_ascii());
+    }
+
+    /// Every reserve and count, far past what num and bytes can give, with
+    /// room for the rounding to GiB in usable.
+    #[kani::proof]
+    fn the_memory_a_reserve_needs_never_overflows() {
+        let (b, n) = (kani::any(), kani::any());
+        match need(b, n) {
+            Some(need) => {
+                assert!(need.checked_add(536_870_912).is_some());
+                kani::cover!(need >= GIB);
+                kani::cover!(need < GIB);
+            }
+            None => kani::cover!(n <= 16),
+        }
+    }
+
+    /// systemctl with no answer. The calls after it are never made.
+    struct Stub;
+
+    impl Probe for Stub {
+        fn show(&self) -> Option<Map<String, Value>> {
+            None
+        }
+        fn docker(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn controllers(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn cpus(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn root(&self) -> &str {
+            unreachable!()
+        }
+    }
+
+    /// The one path of usable Kani can afford: past it are systemctl's map
+    /// and the text of the messages.
+    #[kani::proof]
+    fn usable_without_an_answer_of_systemctl_is_refused() {
+        assert!(usable(&Stub, "2g", "4") == Err("systemctl gave no answer".into()));
+    }
+
+    /// The two lines of usable that size a container, for every MemoryMax
+    /// and count of containers.
+    #[kani::proof]
+    fn the_ceiling_never_overflows() {
+        let max: u64 = kani::any();
+        let n = kani::any_where(|n: &u64| *n > 0);
+        let ceiling = max / n / MIB;
+        assert!(ceiling * MIB <= max);
+        kani::cover!(ceiling > 0 && n > 1);
+    }
+
+    /// Cycles, refresh slots and containers: one cycle alone, the most a
+    /// host takes, the largest num gives, and counts that are refused.
+    const LOADS: [(&str, &str, &str); 5] = [
+        ("1", "", "4"),
+        ("4", "1", "16"),
+        (
+            "999999999999999999",
+            "999999999999999999",
+            "999999999999999999",
+        ),
+        ("0", "", "4"),
+        ("1", "", "auto"),
+    ];
+
+    fn load(i: usize) -> Load {
+        let (cycles, slots, containers) = LOADS[i];
+        Load {
+            reserve: "6m".into(),
+            containers: containers.into(),
+            cycles: cycles.into(),
+            slots: slots.into(),
+        }
+    }
+
+    /// Every count of spare CPUs, not only what nproc can give.
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn the_share_is_at_least_one_cpu() {
+        for i in 0..LOADS.len() {
+            if let Some(s) = share(kani::any(), &load(i)) {
+                assert!(s >= 100);
+                kani::cover!(s > 100);
+            }
+        }
+    }
+
+    /// One load a harness: the quota's text of a symbolic count costs Kani
+    /// about half a minute each.
+    fn pids_hold(i: usize) {
+        let host = kani::any();
+        match cpus(host, &load(i)) {
+            Some((_, pids)) => {
+                assert!((2048..=4096).contains(&pids));
+                kani::cover!(pids == 2048);
+                kani::cover!(pids == 3072);
+                kani::cover!(pids == 4096);
+            }
+            None => kani::cover!(host > 0),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(22)]
+    fn the_pids_limit_is_2048_to_4096_for_one_cycle() {
+        pids_hold(0);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(22)]
+    fn the_pids_limit_is_2048_to_4096_for_four_cycles_and_the_lane() {
+        pids_hold(1);
+    }
+}
