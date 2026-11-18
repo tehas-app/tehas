@@ -40,6 +40,8 @@ pub const PROGRAMS: &[(&str, &str)] = &[
     ("--attach", "attach"),
     ("--dispatch", "tehas-dispatch"),
     ("--cycle", "tehas-cycle"),
+    ("--proxy", "tehas-proxy"),
+    ("--contractor", "tehas-contractor"),
 ];
 
 #[derive(Debug, Default, PartialEq)]
@@ -48,7 +50,7 @@ pub struct Args {
     pub out_dir: String,
     pub console: String,
     /// The path of each of PROGRAMS, empty when it was not given.
-    pub programs: [String; 6],
+    pub programs: [String; 8],
     pub arch: String,
     pub commit: String,
     pub rukas_commit: String,

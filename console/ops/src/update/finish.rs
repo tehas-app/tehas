@@ -12,6 +12,7 @@ use super::push;
 use super::release;
 use super::steps::{self, read_record, record_file, sorted, write_record};
 use super::{host_or_refuse, output, say, tell, timed, Host, Mode, Plan};
+use crate::poll_timer;
 use crate::store::merged;
 use std::fs;
 use std::io::{self, Write};
@@ -502,6 +503,34 @@ fn check_status(found: bool, build: Option<i32>) -> u8 {
     }
 }
 
+fn names_unit(line: &str, unit: &str) -> bool {
+    let words = steps::words(line);
+    words.first() == Some(&"units") && words.contains(&unit)
+}
+
+/// The dispatch timer's drop-in brought in line with TEHAS_POLL_SECS, which
+/// the load checked. A drop-in that changed asks for the timer's units step,
+/// so a restart that fails stays owed.
+fn poll_interval() -> Result<Option<String>, String> {
+    let units = poll_timer::user_units().ok_or("HOME is not set")?;
+    let value = std::env::var(poll_timer::SETTING).ok();
+    let change = poll_timer::sync(&units, value.as_deref())?;
+    match change {
+        poll_timer::Change::Same => return Ok(None),
+        poll_timer::Change::Written => say(&format!(
+            "update: {} polls every {} s",
+            poll_timer::TIMER,
+            value.unwrap_or_default()
+        )),
+        poll_timer::Change::Removed => say(&format!(
+            "update: {} polls every {} s again",
+            poll_timer::TIMER,
+            poll_timer::DEFAULT
+        )),
+    }
+    Ok(Some(format!("units {}", poll_timer::TIMER)))
+}
+
 /// The follow-ups of a run: the lines install.sh printed and the ones its record
 /// holds, which are not the same list, since a run that died partway records
 /// what it copied and prints no report.
@@ -522,7 +551,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     };
     record.iter().for_each(|line| add(line));
 
-    let (asked, unknown): (Vec<String>, Vec<String>) =
+    let (mut asked, unknown): (Vec<String>, Vec<String>) =
         given.into_iter().partition(|line| steps::valid(line));
     run.warn_unknown(&unknown);
 
@@ -534,6 +563,20 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
         return check_status(found, build);
     }
 
+    if plan.mode == Mode::Update {
+        match poll_interval() {
+            Ok(Some(line)) if !asked.iter().any(|l| names_unit(l, poll_timer::TIMER)) => {
+                asked.push(line);
+            }
+            Ok(_) => {}
+            Err(why) => {
+                tell(&format!(
+                    "update: {why}; the dispatch timer was left as it was"
+                ));
+                return exit::SETTINGS;
+            }
+        }
+    }
     let mut steps = sorted(&asked);
     if plan.reused {
         steps.retain(|line| steps::step_id(line.split(' ').next().unwrap_or("")) != "sandbox");

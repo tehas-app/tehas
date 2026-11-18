@@ -107,6 +107,9 @@ pub enum Rule {
     /// in this order, any left out; another order would bound the wrong
     /// figure. Each figure as the store's count reads it, no leading 0.
     PollBudget,
+    /// Seconds between two polls of the dispatcher timer: at least
+    /// [`POLL_SECS_MIN`], at most [`POLL_SECS_MAX`].
+    PollSecs,
     /// The two bounds of core/src/size.rs, each holding what the other leaves
     /// unbounded: a body of one huge line, a body of many short ones.
     MeasureBound,
@@ -186,6 +189,7 @@ impl Rule {
             Rule::KeepDays => "keep-days",
             Rule::CloneDepth => "clone-depth",
             Rule::PollBudget => "poll-budget",
+            Rule::PollSecs => "poll-secs",
             Rule::MeasureBound => "measure-bound",
             Rule::ScratchDir => "scratch-dir",
             Rule::CleanDirs => "clean-dirs",
@@ -236,6 +240,7 @@ impl Rule {
             Rule::KeepDays => "0",
             Rule::CloneDepth => "-1",
             Rule::PollBudget => "wall=1,cpu=1",
+            Rule::PollSecs => "10",
             Rule::MeasureBound => "0",
             Rule::ScratchDir => "scratch",
             Rule::CleanDirs => "a/target",
@@ -382,6 +387,7 @@ pub const TABLE: &[Setting] = &[
         Rule::PollBudget,
         "cpu=5,wall=30,writes=0",
     ),
+    always("TEHAS_POLL_SECS", Rule::PollSecs, "120"),
     always("TEHAS_SIZE_MAX_BYTES", Rule::MeasureBound, "131072"),
     always("TEHAS_SIZE_MAX_LINES", Rule::MeasureBound, "1000"),
     given("TEHAS_BUILD_TIMEOUT", Rule::Count),
@@ -576,6 +582,13 @@ fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
         ),
         Rule::CloneDepth => refuse(is_count(v), CLONE_DEPTH_WHY),
         Rule::PollBudget => poll_budget(v),
+        Rule::PollSecs => {
+            let n = if leading(v, 4) { v.parse().ok() } else { None };
+            refuse(
+                n.is_some_and(|n: u64| (POLL_SECS_MIN..=POLL_SECS_MAX).contains(&n)),
+                POLL_SECS_WHY,
+            )
+        }
         Rule::MeasureBound => refuse(leading(v, 8), "expected a whole number of at least 1"),
         Rule::ScratchDir => refuse(is_path(v), "expected an absolute path such as /mnt/scratch"),
         Rule::Path => refuse(is_path(v), "expected an absolute path"),
@@ -643,6 +656,11 @@ const AUTO_GONE: &str = "expected a whole number: auto sizing is removed";
 const SLICE_AUTO_GONE: &str = "expected a whole number from 2 to 16: auto sizing is removed";
 const POSITIVE: &str = "expected a positive whole number";
 const CLONE_DEPTH_WHY: &str = "expected a whole number of 0 or more, 0 for full history";
+/// The timer's bounds: a poll more often than this costs API calls for little,
+/// and one less often than hourly leaves the queue unread too long.
+pub const POLL_SECS_MIN: u64 = 30;
+pub const POLL_SECS_MAX: u64 = 3600;
+const POLL_SECS_WHY: &str = "expected a whole number of seconds from 30 to 3600";
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
     !s.is_empty() && s.chars().all(ok)
@@ -1383,6 +1401,18 @@ mod tests {
             "cpu=5,wall=030",
             "expected cpu=<s>,wall=<s>,writes=<n>, and no leading 0",
         );
+    }
+
+    #[test]
+    fn the_poll_interval_is_whole_seconds_from_30_to_3600() {
+        for good in ["30", "120", "300", "3600"] {
+            takes("TEHAS_POLL_SECS", good);
+        }
+        for bad in [
+            "", "0", "29", "3601", "030", "120s", "2min", "-60", " 60", "é",
+        ] {
+            refuses("TEHAS_POLL_SECS", bad, POLL_SECS_WHY);
+        }
     }
 
     #[test]

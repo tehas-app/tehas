@@ -25,6 +25,10 @@
 //! agent runs here on a timer with no person in front of it: a weekly run says 78
 //! for an instance that could not review rather than exiting 0 on it.
 //!
+//! tehasbot outsource-proxy is `tehas-proxy` beside this program, by exec
+//! under the settings: the model proxy of outsource, which says itself
+//! whether the feature is on.
+//!
 //! tehasbot cycle, tehas work and tehas index are `tehas-cycle` beside this
 //! program, by exec under the settings. It takes the command's lock itself and
 //! hands it down to what it starts (console/cycle/src/lock.rs).
@@ -83,6 +87,9 @@ fn branch() -> Result<String, u8> {
 }
 
 fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
+    if rest.first().is_some_and(|w| w == "--soon") {
+        return Ok(dispatch_soon(Path::new(&var("TEHAS_HOME"))));
+    }
     branch()?;
     let poll = dispatcher(libexec);
     if !a_program(Path::new(&poll)) {
@@ -95,6 +102,23 @@ fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
         .exec();
     eprintln!("tehas: {poll} cannot run (run install.sh): {failed}");
     Ok(78)
+}
+
+/// `tehas dispatch --soon`: the file tehas-dispatch.path starts a poll on, and
+/// nothing else. While a poll runs the file waits, and the next poll starts
+/// when that one ends.
+fn dispatch_soon(home: &Path) -> u8 {
+    let again = home.join("state/dispatch.again");
+    match File::create(&again) {
+        Ok(_) => {
+            tehas_core::outln!("tehas dispatch: a poll is asked for ({})", again.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("tehas dispatch: could not write {}: {e}", again.display());
+            1
+        }
+    }
 }
 
 /// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
@@ -170,9 +194,15 @@ fn preview_run(rest: &[String], settle: OsString) -> u8 {
 /// `tehas-cycle <verb>` beside this program, with the words of the command.
 /// No program there is 78 before anything runs.
 fn cycle_program(libexec: &str, who: &str, words: &[String]) -> u8 {
-    let program = format!("{libexec}/tehas-cycle");
+    beside(libexec, "tehas-cycle", who, words)
+}
+
+/// `<name>` beside this program, by exec with `words`. No program there is 78
+/// before anything runs.
+fn beside(libexec: &str, name: &str, who: &str, words: &[String]) -> u8 {
+    let program = format!("{libexec}/{name}");
     if !a_program(Path::new(&program)) {
-        eprintln!("{who}: no tehas-cycle at {program} (run install.sh)");
+        eprintln!("{who}: no {name} at {program} (run install.sh)");
         return 78;
     }
     let failed = Command::new(&program).args(words).exec();
@@ -284,6 +314,9 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             cycle_program(libexec, "tehas index", &words)
         }
         ["tehasbot", "cycle"] => cycle_run(libexec, rest.first().ok_or(64u8)?),
+        ["tehasbot", "outsource-proxy"] if rest.is_empty() => {
+            beside(libexec, "tehas-proxy", "tehasbot outsource-proxy", &[])
+        }
         ["tehas", _] => commands::tehas(&words[1..]),
         ["tehasbot", "clean"] => clean_run(rest)?,
         ["tehasbot", "dispatch"] => dispatch(bash, libexec, rest)?,

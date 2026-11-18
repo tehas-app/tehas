@@ -237,6 +237,15 @@ the Caddyfile they mount and Caddy reads its config when the process starts:
 `docker compose up -d` alone leaves a running container with an unchanged service
 definition serving the config it loaded at its start.
 
+A real update also brings the dispatch timer's drop-in in line with
+`TEHAS_POLL_SECS`: it writes
+`~/.config/systemd/user/tehas-dispatch.timer.d/poll.conf` for a value other than
+120, removes it at 120, and leaves it alone when it already says what the
+setting says. A drop-in that changed adds the step `units tehas-dispatch.timer`,
+so the timer restarts on its new times where it runs, and a restart that fails
+stays owed. A value out of bounds stops the update with 78 before the drop-in
+is touched.
+
 A service the host does not run is left alone, so an update adds nothing to it.
 Whether one runs is asked of Docker and of systemd, and only their answer counts
 as an answer, never their exit status on its own. The `units` step asks systemd to

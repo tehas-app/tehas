@@ -24,6 +24,7 @@
 
 use crate::forge::runnable;
 use crate::github;
+use crate::poll_timer;
 use crate::settings;
 use crate::update::steps;
 use serde_json::{json, Value};
@@ -1363,6 +1364,7 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
         the_sandbox(vars, libexec, &home)?;
     }
 
+    let poll = poll_interval(vars)?;
     step(
         "systemctl --user daemon-reload",
         program(vars, "systemctl").args(["--user", "daemon-reload"]),
@@ -1373,10 +1375,17 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
             "--user",
             "enable",
             "--now",
-            "tehas-dispatch.timer",
+            poll_timer::TIMER,
             "tehas-dispatch.path",
         ]),
     )?;
+    // enable --now leaves a timer that was already running on its old times.
+    if poll.changed() {
+        step(
+            "restarting the dispatch timer",
+            program(vars, "systemctl").args(["--user", "restart", poll_timer::TIMER]),
+        )?;
+    }
     let docs = format!("{home}/edge/docs.compose.yaml");
     if fs::File::open(&docs).is_ok() {
         step(
@@ -1402,6 +1411,32 @@ fn steps(libexec: &Path, shell: &Shell, vars: &mut Vars, done: &Written) -> Resu
         vars.text("TEHAS_REPO")
     ));
     Ok(())
+}
+
+/// The dispatch timer's drop-in for TEHAS_POLL_SECS, before systemd reloads.
+fn poll_interval(vars: &Vars) -> Result<poll_timer::Change, Fail> {
+    let Some(units) = poll_timer::user_units() else {
+        return Err(Die(
+            "HOME is not set, so the user units cannot be found".into()
+        ));
+    };
+    let value = vars.text(poll_timer::SETTING);
+    let change = poll_timer::sync(&units, Some(&value)).map_err(|why| {
+        eprintln!("tehas: {why}");
+        Stop(exit::SETTINGS)
+    })?;
+    match change {
+        poll_timer::Change::Written => {
+            say(&format!("{} polls every {value} s", poll_timer::TIMER));
+        }
+        poll_timer::Change::Removed => say(&format!(
+            "{} polls every {} s again",
+            poll_timer::TIMER,
+            poll_timer::DEFAULT
+        )),
+        poll_timer::Change::Same => {}
+    }
+    Ok(change)
 }
 
 fn line(k: &str, v: &str, quoted: bool) -> String {
