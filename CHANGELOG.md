@@ -481,6 +481,16 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The manual's outsource page says how to switch the feature on, lists all its settings, says where a cycle runs, and has a Known limits section: trusted hosts only (#2278).
 - The pinned gh moves from 2.104.0 to 2.105.0.
 - The pinned Playwright moves from 1.65.0 to 1.65.1.
+- `TEHAS_DISK_WAIT` is read by one rule: one or two digits with no leading zero, 10 seconds for anything else. `console disk` and the dispatcher's disk read no longer take `+5` or `05` as a wait (#2197).
+- When the dispatcher checks whether a comment it may have posted is on the issue, it now takes one `[bot]` off a login, as the poll does, so a comment by `slug[bot][bot]` no longer counts as the bot's (#2200).
+- A park owed a retry after a provider outage whose record the dispatcher cannot read is now logged. One with no start time is spent once instead of being skipped in silence every poll (#2204).
+- A directory a product's test left closed in a cycle's scratch (mode `000`, owned by the factory's account) no longer stops every later start of the issue: the start opens it up and empties the scratch. When the scratch still cannot be made, the park names the folder instead of only "exit 78" (#2455).
+- `api/settings-rules.json` marks each row of a feature still being built with `"building": true`, and `api/api.schema.json` no longer requires a building feature's key in `flags`. Such rows and keys are not contract and may change until the release that ships the feature. The contract page gains the rules for 1.x: readers ignore fields they do not know, a 1.x release only adds fields, enum values and exit statuses, and the update to 1.0 comes from 0.30.x, 0.31.x or 0.32.x.
+- The features page lists the poll's hold while the sandbox cannot push and the settling of a GitHub write that may have reached GitHub, both covered by the tests and not yet seen on a host. It drops the ticked retry limit fixed in #1776, the bot account's token and the separate Spec pin row, and names two limits: a park the host caused holds its issue until the body changes or Retry is ticked (#1742), and nothing deletes the branches of closed issues (#1791).
+- `api/surface-1.0.txt` lists the public surface of 1.x: every public command, subcommand and flag, setting, role, label and `--json` field. The gate fails when one goes away. `host/docs/contract.md` names it.
+- `tehas update` and `tehas update --check` on a 1.0 host list every setting tehas 1.0 renamed or removed that the instance still sets, as the manual says, instead of only the first.
+- 1.0 updates a host on 0.30.x, 0.31.x or 0.32.x. A 0.30.x host can name only a release candidate or the release with `tehas update --to`, not an alpha or a beta; update to v0.32.0 first to try a beta. The store's tests now migrate the stores v0.31.0 and v0.32.0 made, and a shell test updates a home a v0.32.0 install left.
+- The update manual names a known limit: a program that manages the factory and writes 0.30 names such as `TEHAS_TICKET_CONCURRENCY` into its `instance.env` stops the update with 78 until the manager writes 1.0's names.
 
 ### Held back
 
