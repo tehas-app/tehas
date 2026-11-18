@@ -491,6 +491,9 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas update` and `tehas update --check` on a 1.0 host list every setting tehas 1.0 renamed or removed that the instance still sets, as the manual says, instead of only the first.
 - 1.0 updates a host on 0.30.x, 0.31.x or 0.32.x. A 0.30.x host can name only a release candidate or the release with `tehas update --to`, not an alpha or a beta; update to v0.32.0 first to try a beta. The store's tests now migrate the stores v0.31.0 and v0.32.0 made, and a shell test updates a home a v0.32.0 install left.
 - The update manual names a known limit: a program that manages the factory and writes 0.30 names such as `TEHAS_TICKET_CONCURRENCY` into its `instance.env` stops the update with 78 until the manager writes 1.0's names.
+- `tehas dev` no longer refuses to start, with exit 78 and "is not a directory of this account", when the cleaner takes the clone's build output just as the command makes it. The directory is made again once the command holds the clone's lock (#2477).
+- `spec-pipe`, still being built: the manual defines the pull request spec block, version 1, and tehas can read it. The manifest's `spec` entry names the block version a cycle writes in `block`, and a runner that lists `issueSpec` is expected to write it. Nothing writes or checks the block yet (#2480).
+- `spec-pipe`, still being built: with the feature on, a handoff whose approval pins a spec waits for a merge only when its pull request's spec block names that sha256. A pull request with no block, a block of another sha256 or one tehas cannot read parks the issue with `needs-human-attention` and the park reason `spec-block`, and stays open (#2481).
 
 ### Held back
 
