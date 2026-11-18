@@ -7,7 +7,10 @@
 //! against the bytes before it is used. Nothing here panics on any input.
 
 use flate2::read::DeflateDecoder;
+#[cfg(not(kani))]
 use flate2::Crc;
+#[cfg(kani)]
+use proofs::Crc;
 use std::io::{self, Read, Write};
 
 /// The most entries read of one archive. One more and the rest are not read.
@@ -86,37 +89,12 @@ impl<'a> Archive<'a> {
     /// The central directory of `data`, or why it cannot be read.
     pub fn open(data: &'a [u8]) -> Result<Archive<'a>, &'static str> {
         let eocd = find_eocd(data).ok_or("no end of central directory record")?;
-        let disk = u16_at(data, eocd + 4).ok_or("short")?;
-        let cd_disk = u16_at(data, eocd + 6).ok_or("short")?;
-        let on_disk = u16_at(data, eocd + 8).ok_or("short")?;
-        let total = u16_at(data, eocd + 10).ok_or("short")?;
-        let cd_size = u32_at(data, eocd + 12).ok_or("short")?;
-        let cd_offset = u32_at(data, eocd + 16).ok_or("short")?;
-        if disk != 0 || cd_disk != 0 || on_disk != total {
-            return Err("an archive split over disks");
-        }
-        if total == 0xffff || cd_size == 0xffff_ffff || cd_offset == 0xffff_ffff {
-            return Err("a zip64 archive");
-        }
-        let start = cd_offset as usize;
-        let end = start
-            .checked_add(cd_size as usize)
-            .filter(|e| *e <= eocd)
-            .ok_or("the central directory is outside the archive")?;
-        let dir = &data[start..end];
-        let want = (total as usize).min(MAX_ENTRIES);
-        let mut entries = Vec::with_capacity(want);
-        let mut at = 0usize;
-        for _ in 0..want {
-            let (entry, next) = central_entry(dir, at).ok_or("a damaged central directory")?;
-            entries.push(entry);
-            at = next;
-        }
+        let (mut entries, more) = directory(data, eocd)?;
         mark_overlaps(data, &mut entries);
         Ok(Archive {
             data,
             entries,
-            more: total as usize > MAX_ENTRIES,
+            more,
         })
     }
 
@@ -166,6 +144,38 @@ impl<'a> Archive<'a> {
     }
 }
 
+// The entries of the central directory named by the record at `eocd`, which
+// find_eocd found, and whether there are more than MAX_ENTRIES.
+fn directory(data: &[u8], eocd: usize) -> Result<(Vec<Entry>, bool), &'static str> {
+    let disk = u16_at(data, eocd + 4).ok_or("short")?;
+    let cd_disk = u16_at(data, eocd + 6).ok_or("short")?;
+    let on_disk = u16_at(data, eocd + 8).ok_or("short")?;
+    let total = u16_at(data, eocd + 10).ok_or("short")?;
+    let cd_size = u32_at(data, eocd + 12).ok_or("short")?;
+    let cd_offset = u32_at(data, eocd + 16).ok_or("short")?;
+    if disk != 0 || cd_disk != 0 || on_disk != total {
+        return Err("an archive split over disks");
+    }
+    if total == 0xffff || cd_size == 0xffff_ffff || cd_offset == 0xffff_ffff {
+        return Err("a zip64 archive");
+    }
+    let start = cd_offset as usize;
+    let end = start
+        .checked_add(cd_size as usize)
+        .filter(|e| *e <= eocd)
+        .ok_or("the central directory is outside the archive")?;
+    let dir = &data[start..end];
+    let want = (total as usize).min(MAX_ENTRIES);
+    let mut entries = Vec::with_capacity(want);
+    let mut at = 0usize;
+    for _ in 0..want {
+        let (entry, next) = central_entry(dir, at).ok_or("a damaged central directory")?;
+        entries.push(entry);
+        at = next;
+    }
+    Ok((entries, total as usize > MAX_ENTRIES))
+}
+
 /// Mark every entry whose local record and data share a byte with another's.
 /// One stream named by many entries would otherwise be inflated once each.
 /// An entry whose span cannot be worked out is marked too, and left out of
@@ -182,16 +192,20 @@ fn mark_overlaps(data: &[u8], entries: &mut [Entry]) {
             .checked_add(e.compressed)?;
         Some((at, end))
     };
-    let mut spans: Vec<(u64, u64, usize)> = Vec::with_capacity(entries.len());
-    for (i, e) in entries.iter_mut().enumerate() {
-        match span(e) {
-            Some((a, b)) => spans.push((a, b, i)),
-            None => e.overlaps = true,
-        }
-    }
+    // One slot per entry, None sorted first and passed over: a vector as long
+    // as the entries keeps the sort within reach of the Kani proof.
+    let mut spans: Vec<Option<(u64, u64, usize)>> = entries
+        .iter_mut()
+        .enumerate()
+        .map(|(i, e)| {
+            let s = span(e).map(|(a, b)| (a, b, i));
+            e.overlaps |= s.is_none();
+            s
+        })
+        .collect();
     spans.sort_unstable();
     let mut reach: Option<(u64, usize)> = None;
-    for &(start, end, i) in &spans {
+    for &(start, end, i) in spans.iter().flatten() {
         if let Some((far, j)) = reach {
             if start < far {
                 entries[i].overlaps = true;
@@ -264,7 +278,8 @@ fn copy(
     inflated: &mut u64,
 ) -> Result<u64, ReadError> {
     let mut crc = Crc::new();
-    let mut buf = [0u8; 64 * 1024];
+    // Small under Kani, which cannot solve a buffer this size.
+    let mut buf = [0u8; if cfg!(kani) { 64 } else { 64 * 1024 }];
     let mut total = 0u64;
     loop {
         let n = match from.read(&mut buf) {
@@ -352,5 +367,169 @@ mod tests {
         let mut entries = vec![entry(0, 4), entry(4, 4)];
         mark_overlaps(&data, &mut entries);
         assert!(entries[0].overlaps && entries[1].overlaps);
+    }
+}
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    // Any bytes, up to N of them.
+    fn bytes<const N: usize>(buf: &[u8; N]) -> &[u8] {
+        let len: usize = kani::any();
+        kani::assume(len <= N);
+        &buf[..len]
+    }
+
+    // The checksum asks for CPU features Kani cannot model. Any sum stands in
+    // for it, so a proof holds whether the check passes or fails.
+    pub struct Crc;
+
+    impl Crc {
+        pub fn new() -> Crc {
+            Crc
+        }
+        pub fn update(&mut self, _: &[u8]) {}
+        pub fn sum(&self) -> u32 {
+            kani::any()
+        }
+    }
+
+    fn any_entry() -> Entry {
+        Entry {
+            name: Vec::new(),
+            unix_mode: None,
+            dos_dir: false,
+            encrypted: kani::any(),
+            method: kani::any(),
+            crc: kani::any(),
+            compressed: kani::any(),
+            size: kani::any(),
+            local_offset: kani::any(),
+            overlaps: kani::any(),
+        }
+    }
+
+    fn eocd_found_in(data: &[u8]) {
+        if let Some(at) = find_eocd(data) {
+            assert!(at + EOCD_LEN <= data.len());
+            assert_eq!(u32_at(data, at), Some(EOCD_SIG));
+            kani::cover!(at == 0);
+            kani::cover!(at > 0);
+        }
+    }
+
+    // The scan costs the solver about the square of the length, and more for
+    // a length it picks: every length up to 26, and 64 bytes, which hold a
+    // comment of up to 42.
+    #[kani::proof]
+    #[kani::unwind(28)]
+    fn find_eocd_never_panics_up_to_26() {
+        let buf: [u8; 26] = kani::any();
+        eocd_found_in(bytes(&buf));
+    }
+
+    #[kani::proof]
+    #[kani::unwind(46)]
+    fn find_eocd_never_panics_at_64() {
+        let buf: [u8; 64] = kani::any();
+        eocd_found_in(&buf);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn central_entry_never_panics() {
+        let buf: [u8; 128] = kani::any();
+        let dir = bytes(&buf);
+        let at: usize = kani::any();
+        if let Some((entry, next)) = central_entry(dir, at) {
+            assert!(next >= at + CENTRAL_LEN + entry.name.len());
+            assert!(next <= dir.len());
+            kani::cover!(!entry.name.is_empty());
+        }
+    }
+
+    // open is find_eocd, directory and mark_overlaps, each proven here.
+    // directory reads no byte past the record, so the record ends the bytes,
+    // and the directory lies anywhere in the 106 before it. Its loop calls
+    // central_entry, proven for any offset, so one pass of it is enough and
+    // keeps the solver to under a minute.
+    #[kani::proof]
+    #[kani::unwind(2)]
+    fn directory_never_panics() {
+        let buf: [u8; 128] = kani::any();
+        let data = &buf[..];
+        let eocd = data.len() - EOCD_LEN;
+        kani::assume(u16_at(data, eocd + 10).is_some_and(|n| n <= 1));
+        if let Ok((entries, more)) = directory(data, eocd) {
+            assert!(!more && entries.len() <= 1);
+            kani::cover!(entries.len() == 1);
+        }
+    }
+
+    // Two entries left unmarked span bytes that do not meet. Three take the
+    // solver minutes.
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn mark_overlaps_never_panics_and_leaves_no_overlap() {
+        let buf: [u8; 64] = kani::any();
+        let data = bytes(&buf);
+        let mut entries = [any_entry(), any_entry()];
+        for e in entries.iter_mut() {
+            e.overlaps = false;
+        }
+        mark_overlaps(data, &mut entries);
+        let span = |e: &Entry| {
+            let l = e.local_offset as usize;
+            let head = u16_at(data, l + 26).unwrap() as u64 + u16_at(data, l + 28).unwrap() as u64;
+            (
+                e.local_offset,
+                e.local_offset + LOCAL_LEN as u64 + head + e.compressed,
+            )
+        };
+        for i in 0..entries.len() {
+            for j in 0..entries.len() {
+                if i != j && !entries[i].overlaps && !entries[j].overlaps {
+                    let (a, b) = span(&entries[i]);
+                    let (c, d) = span(&entries[j]);
+                    assert!(b <= c || d <= a);
+                }
+            }
+        }
+        kani::cover!(!entries[0].overlaps && !entries[1].overlaps);
+        kani::cover!(entries[0].overlaps && !entries[1].overlaps);
+    }
+
+    // Inflate is left out: the method is fixed to stored, or the solver walks
+    // into the decoder. What is written is the entry's bytes in the archive.
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn read_of_a_stored_entry_gives_only_archive_bytes() {
+        let buf: [u8; 48] = kani::any();
+        let data = bytes(&buf);
+        let mut entry = any_entry();
+        entry.method = 0;
+        let archive = Archive {
+            data,
+            entries: Vec::new(),
+            more: false,
+        };
+        let limit: u64 = kani::any();
+        let mut out = Vec::new();
+        let mut inflated = 0;
+        if let Ok(n) = archive.read(&entry, limit, &mut out, &mut inflated) {
+            assert!(n <= limit && n == entry.size && n == inflated);
+            assert_eq!(out.len() as u64, n);
+            let l = entry.local_offset as usize;
+            let start = l
+                + LOCAL_LEN
+                + u16_at(data, l + 26).unwrap() as usize
+                + u16_at(data, l + 28).unwrap() as usize;
+            let k: usize = kani::any();
+            if k < out.len() {
+                assert_eq!(out[k], data[start + k]);
+            }
+            kani::cover!(n > 0);
+        }
     }
 }
