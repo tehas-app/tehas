@@ -111,18 +111,20 @@ jobs:
           [[ $version == "cargo $RUST_VERSION "* ]] || { echo "not cargo $RUST_VERSION: $version" >&2; exit 1; }
           # scripts/pack-release.sh builds its task offline.
           "$CARGO_HOME/bin/cargo" fetch --locked --manifest-path console/Cargo.toml
-      - name: build the console, the analytics program, the MCP server, the store, the attachment checker and the two shadows
+      - name: build the programs
         run: |
           . host/versions.env
           cargo --version
           # The MCP server is static, as install.sh builds it.
           rustup target add x86_64-unknown-linux-musl
           target=$RUNNER_TEMP/target
-          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store -p attach -p tehas-dispatch -p tehas-cycle
+          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store -p attach -p tehas-dispatch -p tehas-cycle \
+            -p tehas-proxy -p tehas-contractor
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
             --target x86_64-unknown-linux-musl -p tehas-mcp
           mkdir -p "$RUNNER_TEMP/programs"
           cp "$target/release/console" "$target/release/analytics" "$target/release/store" "$target/release/attach" "$target/release/tehas-dispatch" "$target/release/tehas-cycle" \
+            "$target/release/tehas-proxy" "$target/release/tehas-contractor" \
             "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/"
           # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
           for p in "$RUNNER_TEMP"/programs/*; do
@@ -134,6 +136,7 @@ jobs:
           p=$RUNNER_TEMP/programs
           TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
             --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" --attach "$p/attach" --dispatch "$p/tehas-dispatch" --cycle "$p/tehas-cycle" \
+            --proxy "$p/tehas-proxy" --contractor "$p/tehas-contractor" \
             --commit "$(git rev-parse HEAD)"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi

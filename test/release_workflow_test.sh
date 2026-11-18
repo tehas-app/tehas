@@ -92,7 +92,7 @@ t_case "the signing key comes from the release environment, which waits for a re
 t_eq "$(grep -E '^    environment:' "$workflow")" "    environment: release"
 
 t_case "each tool the job calls is installed by the job, after the check and before the build"
-build=$(pos 'build the console, the analytics program, the MCP server, the store, the attachment checker and the two shadows')
+build=$(pos 'build the programs')
 for step in 'minisign at a pinned version' 'jq at the pinned version' 'rust at the pinned version'; do
   [ -n "$(pos "$step")" ] || t_bad "no step: $step"
   [ "$(pos "$step")" -gt "$(pos "$name")" ] || t_bad "$step runs before the check"
