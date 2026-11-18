@@ -21,6 +21,7 @@ pub mod file;
 pub mod forge;
 pub mod github_fails;
 pub mod grammar;
+pub mod grant;
 pub mod hold;
 pub mod hostnet;
 pub mod install;

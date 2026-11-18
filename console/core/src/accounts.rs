@@ -12,6 +12,7 @@
 //! The key of a pair is the login as GraphQL gives it: REST names a GitHub
 //! App `<slug>[bot]` and GraphQL `<slug>`, one account.
 
+use crate::grant::{self, Actor};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -160,15 +161,20 @@ impl Accounts {
     /// Whether `login` with `id` counts as the listed account it names. A
     /// login of no list is no claim to doubt.
     pub fn doubt(&self, login: &str, id: Option<u64>) -> Option<Doubt> {
+        let a = self.actor(login, id);
+        grant::doubt(self.is_listed(login), a.recorded, a.carried)
+    }
+
+    fn is_listed(&self, login: &str) -> bool {
         let key = account(login);
-        if !self.listed.iter().any(|l| l == key) {
-            return None;
-        }
-        match (self.ids.get(key), id) {
-            (_, None) => Some(Doubt::NoId),
-            (None, _) => Some(Doubt::Unrecorded),
-            (Some(r), Some(i)) if *r == i => None,
-            (Some(r), Some(_)) => Some(Doubt::Other { recorded: *r }),
+        self.listed.iter().any(|l| l == key)
+    }
+
+    fn actor<'a>(&self, login: &'a str, id: Option<u64>) -> Actor<&'a str> {
+        Actor {
+            login,
+            recorded: self.ids.get(account(login)).copied(),
+            carried: id,
         }
     }
 
@@ -190,8 +196,10 @@ impl Accounts {
                         .or_else(|| o.get("id").and_then(Value::as_u64));
                     if let Some(doubt) = self.doubt(&login, id) {
                         warn(&login, id, &doubt);
-                        let mark = id.map(|i| i.to_string()).unwrap_or_default();
-                        o.insert("login".into(), Value::String(format!("{login}#{mark}")));
+                        let name = grant::counted(&self.actor(&login, id), true)
+                            .text()
+                            .into_owned();
+                        o.insert("login".into(), Value::String(name));
                     }
                 }
                 o.values_mut().for_each(|x| self.vouch(x));

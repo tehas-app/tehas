@@ -8,6 +8,7 @@
 //! approval covered). Each direction holds the start, never lets it.
 
 use crate::accounts::account;
+use crate::grant::{self, Actor, Change, LabelEvent};
 use serde_json::Value;
 
 /// The account of an event that names nobody: tehas's word for it, the same
@@ -105,10 +106,28 @@ pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
         .filter(|e| e.event == "labeled" && e.label == label)
         .collect();
     v.sort_by(|a, b| a.at.cmp(&b.at));
-    match v.last() {
+    match grant::last_application(&timeline(&v), &label).map(|i| v[i]) {
         Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
         None => (String::new(), String::new()),
     }
+}
+
+/// Labeled and unlabeled events in their order, as the grant decision reads
+/// them. Their accounts are vouched for and their applications judged by the
+/// pins already, when the snapshot was read.
+fn timeline<'a>(v: &[&'a Event]) -> Vec<LabelEvent<&'a str, &'a str>> {
+    v.iter()
+        .map(|e| LabelEvent {
+            actor: Actor::vouched(e.actor.as_str()),
+            label: e.label.as_str(),
+            pinned: true,
+            change: if e.event == "labeled" {
+                Change::Applied
+            } else {
+                Change::Removed
+            },
+        })
+        .collect()
 }
 
 /// The time of the `tehas:plan` a plan's start is credited to: `by` applied it
@@ -189,7 +208,7 @@ pub fn label_state(events: &[Event], label: &str) -> LabelState {
         .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
         .collect();
     v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
-    let Some(e) = v.last() else {
+    let Some(e) = grant::latest(&timeline(&v), &label).map(|i| v[i]) else {
         return LabelState::Absent;
     };
     let at = e.at.clone().unwrap_or_default();
