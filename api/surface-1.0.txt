@@ -551,3 +551,4 @@ field status.versions.rukas
 field status.versions.rukas.behind
 field status.versions.rukas.latest
 field status.versions.rukas.version
+field settings-rules.settings[].building
