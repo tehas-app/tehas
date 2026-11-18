@@ -2581,8 +2581,11 @@ Two things run there:
   builds the sandbox base image and the sandbox image with
   `host/sandbox/build.sh`, as a host builds them, and runs vipune, jq and
   codebase-memory-mcp in the image offline. A second job checks the names
-  list on a GitHub-hosted runner, so the list never reaches the lane. The
-  run's title is `release-gate <commit>`.
+  list on a GitHub-hosted runner, so the list never reaches the lane. A
+  third, also on a hosted runner, runs the Kani proofs beside the code
+  (`#[cfg(kani)]` modules) with Kani at the version it pins; they run only
+  here, not in `scripts/verify.sh` or on pull requests. The run's title is
+  `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
   into main and every push to main runs where it always has. A pull request

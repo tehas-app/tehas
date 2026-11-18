@@ -173,3 +173,38 @@ jobs:
           rm -f scripts/check-generic.names
           printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
           bash scripts/check-generic.sh --names-only
+  proofs:
+    # The Kani proofs beside the code (#[cfg(kani)] modules) on a hosted
+    # runner: Kani installs from the network and builds with its own pinned
+    # nightly, so scripts/verify.sh does not run them. A failed proof makes
+    # the run red, and tag-release tags only a green run. A crate that gains
+    # a #[cfg(kani)] module joins KANI_CRATES; test/kani_workflow_test.sh
+    # checks it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      COMMIT: ${{ inputs.commit }}
+      KANI_VERSION: 0.68.0
+      KANI_CRATES: tehas-core attach tehas-dispatch
+    steps:
+      - name: the commit is a full commit id
+        run: |
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit id: $COMMIT" >&2; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - name: the checkout is the commit
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - name: Kani at the pinned version
+        run: |
+          cargo install --locked kani-verifier --version "$KANI_VERSION"
+          cargo kani setup
+          cargo kani --version
+      - name: the proofs
+        working-directory: console
+        run: |
+          # cargo kani takes no --locked; the build still reads Cargo.lock.
+          args=()
+          for crate in $KANI_CRATES; do args+=(-p "$crate"); done
+          cargo kani "${args[@]}"

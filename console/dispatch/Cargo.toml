@@ -26,6 +26,6 @@ sha2 = "0.10"
 tehas-core = { path = "../core", features = ["mask"] }
 
 # Kani proofs sit in #[cfg(kani)] modules; the Kani job of
-# .github/workflows/kani.yml builds them, cargo does not.
+# the release gate (.github/workflows/release-gate.yml) runs them.
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
