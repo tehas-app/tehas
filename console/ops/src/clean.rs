@@ -879,14 +879,40 @@ fn bytes_within(p: &Path, max: usize, deadline: Instant) -> Size {
     }
 }
 
-/// `rm -rf`: true when nothing is left at the path.
+/// `rm -rf`: true when nothing is left at the path. A tree the walk cannot
+/// enter or empty, such as a mode-0 directory a product's test left, is opened
+/// up and tried once more.
 fn remove(p: &Path) -> bool {
     let r = match fs::symlink_metadata(p) {
         Err(e) => return e.kind() == io::ErrorKind::NotFound,
-        Ok(m) if m.is_dir() => fs::remove_dir_all(p),
+        Ok(m) if m.is_dir() => fs::remove_dir_all(p).or_else(|_| {
+            open_up(p);
+            fs::remove_dir_all(p)
+        }),
         Ok(_) => fs::remove_file(p),
     };
     r.is_ok() || !p.exists() && !is_link(p)
+}
+
+/// Gives `u+rwx` to every directory of the tree, no link followed. Only the
+/// owner may change a mode, so a directory of another account stays as it is.
+fn open_up(root: &Path) {
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        let Ok(m) = fs::symlink_metadata(&d) else {
+            continue;
+        };
+        if !m.is_dir() {
+            continue;
+        }
+        let mode = m.permissions().mode();
+        if mode & 0o700 != 0o700 {
+            let _ = fs::set_permissions(&d, fs::Permissions::from_mode(mode | 0o700));
+        }
+        if let Ok(entries) = fs::read_dir(&d) {
+            dirs.extend(entries.flatten().map(|e| e.path()));
+        }
+    }
 }
 
 fn starts_dot(p: &Path) -> bool {
@@ -2330,6 +2356,25 @@ mod tests {
         let mode = fs::metadata(&made).unwrap().permissions().mode();
         assert_eq!(mode & 0o7777, 0o1777);
         assert_eq!(scratch_made(&["scratch".to_string(), "w".to_string()]), 78);
+    }
+
+    /// A product's test can leave a directory its account owns but cannot
+    /// enter or empty. It stops no later start.
+    #[test]
+    fn a_closed_directory_of_its_own_does_not_stop_the_scratch() {
+        let tmp = TestDir::new("clean-scratch-closed");
+        let root = tmp.join("disk");
+        let made = root.join("widget-7");
+        fs::create_dir_all(made.join("a/shut/inner")).unwrap();
+        fs::write(made.join("a/shut/inner/f"), "x").unwrap();
+        fs::create_dir_all(made.join("b/readonly/x")).unwrap();
+        fs::set_permissions(made.join("a/shut/inner"), fs::Permissions::from_mode(0o000)).unwrap();
+        fs::set_permissions(made.join("a/shut"), fs::Permissions::from_mode(0o000)).unwrap();
+        fs::set_permissions(made.join("b/readonly"), fs::Permissions::from_mode(0o500)).unwrap();
+        let args = [root.display().to_string(), "widget-7".to_string()];
+        assert_eq!(scratch_made(&args), 0);
+        assert!(!made.join("a").exists());
+        assert!(!made.join("b").exists());
     }
 
     #[test]

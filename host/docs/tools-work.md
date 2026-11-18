@@ -43,8 +43,9 @@ note `state/cycles/<issue>.lean-refused` and the lines below, which end
 container and moves nothing. `tehasbot cycle` reads the note and parks the
 issue as a start that never ran: its approval goes with the report, so nothing
 starts it again on its own. Any other 78 is a stopped cycle. When the image
-gave no capabilities answer, lacks what the cycle is given, or the directory
-of the workspaces was not made by tehas, the note
+gave no capabilities answer, lacks what the cycle is given, the directory
+of the workspaces was not made by tehas, or the cycle's scratch under
+`TEHAS_SCRATCH_DIR` could not be emptied and made, the note
 `state/cycles/<issue>.refused` holds the cause, and the park comment names it,
 so the issue says why the start was refused without the run log. A refresh whose
 pull request conflicts with the branch, on an image whose capabilities do not

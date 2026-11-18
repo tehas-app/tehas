@@ -40,8 +40,9 @@ use crate::runner;
 ///                 counted in `oom`, as for every other end.
 ///   lean-refused  tehas work's 78 was for driver lean, not another 78.
 ///   refused       why tehas work's check refused the start with 78: a first
-///                 line `caps-unreadable <exit>`, `caps-lacking` or
-///                 `tree-not-ours`, then for `caps-lacking` one line for each
+///                 line `caps-unreadable <exit>`, `caps-lacking`,
+///                 `tree-not-ours` or `scratch-unmade <path>`, then for
+///                 `caps-lacking` one line for each
 ///                 thing the image lacks (src/prepare.rs).
 ///   refresh-conflict  tehas work's 78 was for a refresh whose pull request
 ///                 conflicts, on an image that cannot finish one: JSON naming
