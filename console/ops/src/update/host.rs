@@ -432,6 +432,26 @@ mod tests {
     }
 
     #[test]
+    fn an_install_switches_no_building_feature_on_whatever_its_settings_say() {
+        use tehas_core::features::{Stage, FEATURES};
+        for value in ["on", "1"] {
+            let get = |name: &str| {
+                let building = FEATURES.iter().filter(|f| f.stage == Stage::Building);
+                let mut names = building
+                    .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()));
+                if names.any(|n| n == name) {
+                    value.to_string()
+                } else {
+                    String::new()
+                }
+            };
+            assert!(featured(&get).is_empty(), "{value}");
+            let units = first_units(|name| Some(get(name)), None);
+            assert_eq!(units, ["tehas-dispatch.timer", "tehas-dispatch.path"]);
+        }
+    }
+
+    #[test]
     fn energy_comes_from_the_environment_else_the_last_line_of_the_env_file() {
         let base = "tehas-dispatch.timer tehas-dispatch.path";
         let energy = format!("{base} tehas-energy.service");

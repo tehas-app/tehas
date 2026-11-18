@@ -34,11 +34,10 @@ EOF
 t_eq "$(piped_grep_q "$T/sample.sh")" "$T/sample.sh:1
 $T/sample.sh:3"
 
-# The tests of improve go with the improve loop, in a change of their own.
 t_case "no shell test pipes into grep -q"
 files=()
 for f in "$T_ROOT"/test/*.sh; do
-  case $(basename "$f") in improve_* | pipefail_grep_test.sh) continue ;; esac
+  case $(basename "$f") in pipefail_grep_test.sh) continue ;; esac
   files+=("$f")
 done
 found=$(piped_grep_q "${files[@]}")

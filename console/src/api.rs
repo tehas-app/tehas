@@ -295,10 +295,13 @@ mod tests {
 
     #[test]
     fn a_building_feature_is_a_flag_and_no_word_of_features() {
+        use tehas_core::features::{Stage, FEATURES as REGISTRY};
         let words = features();
         let flags = tehas_core::features::flags();
-        assert!(flags.iter().any(|(name, _)| *name == "outsource"));
-        assert!(!words.contains(&"outsource"));
+        for f in REGISTRY.iter().filter(|f| f.stage == Stage::Building) {
+            assert!(flags.iter().any(|(name, _)| *name == f.name), "{}", f.name);
+            assert!(!words.contains(&f.name), "{}", f.name);
+        }
         assert!(words.contains(&"flags"));
         for gone in [
             "store-copy",
