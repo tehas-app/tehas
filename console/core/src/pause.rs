@@ -8,10 +8,11 @@
 //! twice. Unreadable is never none, so a reader holds every start rather than
 //! finding no flag where something is.
 
-use crate::file::{read_regular, ReadError, READ_BOUND};
+use crate::file::{ReadError, READ_BOUND};
 use crate::limit::{object, oneline, quoted};
 use serde_json::{json, Value};
-use std::io::ErrorKind;
+use std::fs::{self, File};
+use std::io::{ErrorKind, Read};
 use std::path::Path;
 
 /// A reading of the flag. The fields are empty unless the state is `ok`; the
@@ -56,15 +57,33 @@ pub fn read(file: &Path) -> Pause {
     }
 }
 
-/// The bytes at <file>, or None when nothing is at the name. A link, a file
-/// over `READ_BOUND` or one that cannot be read is an error, which a reader
-/// takes as unreadable.
+/// The bytes at <file>, or None when nothing is at the name. A link is read
+/// through to the file it points at, as an operator may keep the flag
+/// elsewhere. A dangling link, a file that is not regular, one over
+/// `READ_BOUND` or one that cannot be read is an error, which a reader takes
+/// as unreadable.
 pub fn bytes(file: &Path) -> Result<Option<Vec<u8>>, ReadError> {
-    match read_regular(file, READ_BOUND) {
-        Ok((b, _)) => Ok(Some(b)),
-        Err(ReadError::Io(e)) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+    match fs::symlink_metadata(file) {
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(ReadError::Io(e)),
+        Ok(_) => {}
     }
+    let f = File::open(file).map_err(ReadError::Io)?;
+    let m = f.metadata().map_err(ReadError::Io)?;
+    if !m.is_file() {
+        return Err(ReadError::NotRegular);
+    }
+    if m.len() > READ_BOUND {
+        return Err(ReadError::TooLarge);
+    }
+    let mut b = Vec::new();
+    f.take(READ_BOUND + 1)
+        .read_to_end(&mut b)
+        .map_err(ReadError::Io)?;
+    if b.len() as u64 > READ_BOUND {
+        return Err(ReadError::TooLarge);
+    }
+    Ok(Some(b))
 }
 
 /// The reading of the bytes of a flag.
@@ -105,7 +124,6 @@ pub fn parse(bytes: &[u8]) -> Pause {
 mod tests {
     use super::*;
     use crate::testdir::TestDir;
-    use std::fs;
     use std::os::unix::fs::symlink;
 
     #[test]
@@ -150,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn a_flag_over_the_bound_or_through_a_link_is_unreadable() {
+    fn a_flag_over_the_bound_is_unreadable_and_a_link_is_read_through() {
         let d = TestDir::new("pause-bound");
         let file = d.join("pause.json");
         let pad = " ".repeat(READ_BOUND as usize);
@@ -161,6 +179,8 @@ mod tests {
         assert_eq!(read(&real).state, "ok");
         fs::remove_file(&file).unwrap();
         symlink(&real, &file).unwrap();
+        assert_eq!(read(&file).state, "ok");
+        fs::remove_file(&real).unwrap();
         assert_eq!(read(&file).value(), json!("unreadable"));
     }
 
