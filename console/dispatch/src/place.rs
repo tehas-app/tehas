@@ -192,32 +192,47 @@ pub fn place(rules: &Rules, o: &Outsourcing, need: &Need, taken: &[String]) -> P
     let (Some(all), Some(busy)) = (&o.contractors, &o.busy) else {
         return here("the contractors could not be read".into());
     };
-    let fits = |c: &&Contractor| {
-        let fresh = c
-            .last_seen_at
-            .is_some_and(|at| at <= need.now && need.now - at <= rules.timeout);
-        let free = !c.revoked && !c.draining && !c.resting;
-        let idle = !busy.contains(&c.name) && !taken.contains(&c.name);
-        let room = c.report.as_ref().is_some_and(|r| {
-            let current =
-                r.at.is_none_or(|at| at <= need.now && need.now - at <= rules.timeout);
-            current
-                && !o.digest.is_empty()
-                && r.digest == o.digest
-                && r.mem_mb >= need.mem_mb
-                && r.disk_kb >= need.disk_kb
-        });
-        fresh && free && idle && room
-    };
-    let best = all.iter().filter(fits).max_by(|a, b| {
-        let (ra, rb) = (a.report.as_ref(), b.report.as_ref());
-        let key = |r: Option<&Report>| r.map(|r| (r.mem_mb, r.disk_kb)).unwrap_or_default();
-        key(ra).cmp(&key(rb)).then_with(|| b.name.cmp(&a.name))
-    });
-    match best {
+    let fits = |c: &Contractor| fits(c, &o.digest, busy, taken, need, rules.timeout);
+    match choose(all, fits) {
         Some(c) => Place::Out(c.name.clone()),
         None => here("no contractor fits".into()),
     }
+}
+
+/// Whether `c` fits, by the rule of the module docs.
+fn fits(
+    c: &Contractor,
+    digest: &str,
+    busy: &[String],
+    taken: &[String],
+    need: &Need,
+    timeout: u64,
+) -> bool {
+    let fresh = c
+        .last_seen_at
+        .is_some_and(|at| at <= need.now && need.now - at <= timeout);
+    let free = !c.revoked && !c.draining && !c.resting;
+    let idle = !busy.contains(&c.name) && !taken.contains(&c.name);
+    let room = c.report.as_ref().is_some_and(|r| {
+        let current =
+            r.at.is_none_or(|at| at <= need.now && need.now - at <= timeout);
+        current
+            && !digest.is_empty()
+            && r.digest == digest
+            && r.mem_mb >= need.mem_mb
+            && r.disk_kb >= need.disk_kb
+    });
+    fresh && free && idle && room
+}
+
+/// Of the contractors that fit, the one with the most memory free, then the
+/// most disk, then the first name.
+fn choose(all: &[Contractor], fits: impl Fn(&Contractor) -> bool) -> Option<&Contractor> {
+    all.iter().filter(|c| fits(c)).max_by(|a, b| {
+        let (ra, rb) = (a.report.as_ref(), b.report.as_ref());
+        let key = |r: Option<&Report>| r.map(|r| (r.mem_mb, r.disk_kb)).unwrap_or_default();
+        key(ra).cmp(&key(rb)).then_with(|| b.name.cmp(&a.name))
+    })
 }
 
 #[cfg(test)]
