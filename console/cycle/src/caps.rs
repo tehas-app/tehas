@@ -10,8 +10,10 @@ use std::path::Path;
 use tehas_core::driver::Driver;
 
 /// The feature of a runner that reads the `spec` and `approvedText` entries
-/// of the manifest: a cycle handed a spec starts only on a runner that sets it
-/// to true.
+/// of the manifest and writes the pull request spec block of the version the
+/// `spec` entry names in `block`: a cycle handed a spec starts only on a
+/// runner that sets it to true. One that sets it and writes no block is
+/// parked when its pull request is read.
 pub const READS_SPEC: &str = "issueSpec";
 
 const EXIT_CODES: u64 = 1;

@@ -125,42 +125,187 @@ impl SpecMark {
 /// link rule's to say (console/attach), not this grammar's.
 pub fn spec_mark(body: &str) -> Result<Option<SpecMark>, String> {
     let mut found: Option<SpecMark> = None;
-    let mut fence: Option<&str> = None;
-    for line in body.lines() {
-        let line = line.trim();
-        if let Some(open) = fence {
-            if line.starts_with(open) {
-                fence = None;
-            }
-            continue;
-        }
-        if line.starts_with("```") || line.starts_with("~~~") {
-            fence = Some(&line[..3]);
-            continue;
-        }
+    for line in unfenced(body) {
         let Some(rest) = line.strip_prefix(SPEC_MARK) else {
             continue;
         };
         if found.is_some() {
             return Err(format!("it has more than one `{SPEC_MARK}` line"));
         }
-        let words: Vec<&str> = rest.split_whitespace().collect();
-        let [link, sum] = words[..] else {
-            return Err(format!(
-                "its `{SPEC_MARK}` line is not a link and its sha256"
-            ));
-        };
-        let Some(hex) = sum.strip_prefix("sha256:").filter(|h| is_hex(h, 64, 64)) else {
-            return Err(format!(
-                "its `{SPEC_MARK}` line does not end in sha256: and 64 lower-case hex digits"
-            ));
-        };
-        found = Some(SpecMark {
-            link: link.to_string(),
-            sha256: hex.to_string(),
-        });
+        found = Some(spec_line(rest).map_err(|why| format!("its `{SPEC_MARK}` line {why}"))?);
     }
     Ok(found)
+}
+
+/// The trimmed lines of `body` outside fenced code blocks. A fence opens with
+/// ``` or ~~~ and closes with a line that starts with the same three.
+fn unfenced(body: &str) -> impl Iterator<Item = &str> {
+    let mut fence: Option<&str> = None;
+    body.lines().filter_map(move |line| {
+        let line = line.trim();
+        if let Some(open) = fence {
+            if line.starts_with(open) {
+                fence = None;
+            }
+            return None;
+        }
+        if line.starts_with("```") || line.starts_with("~~~") {
+            fence = Some(&line[..3]);
+            return None;
+        }
+        Some(line)
+    })
+}
+
+/// What follows [`SPEC_MARK`] on a `Spec:` line: a link and `sha256:` with 64
+/// lower-case hex digits. Err finishes the sentence "its `Spec:` line ...".
+fn spec_line(rest: &str) -> Result<SpecMark, String> {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let [link, sum] = words[..] else {
+        return Err("is not a link and its sha256".to_string());
+    };
+    let Some(hex) = sum.strip_prefix("sha256:").filter(|h| is_hex(h, 64, 64)) else {
+        return Err("does not end in sha256: and 64 lower-case hex digits".to_string());
+    };
+    Ok(SpecMark {
+        link: link.to_string(),
+        sha256: hex.to_string(),
+    })
+}
+
+/// The version of the pull request spec block that tehas reads and writes.
+pub const SPEC_BLOCK_VERSION: u32 = 1;
+/// The line that opens a pull request spec block of [`SPEC_BLOCK_VERSION`].
+pub const SPEC_BLOCK_OPEN: &str = "<!-- tehas:spec v1 -->";
+/// The line that closes a pull request spec block.
+pub const SPEC_BLOCK_CLOSE: &str = "<!-- /tehas:spec -->";
+
+/// One requirement of a spec as a pull request answers it: the spec's own id
+/// (or a top heading's text), whether it is met, and where or why not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Requirement {
+    pub id: String,
+    pub met: bool,
+    pub note: String,
+}
+
+/// The spec block of a pull request body: the spec it was built to, as the
+/// issue marks it, and one line per requirement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpecBlock {
+    pub spec: SpecMark,
+    pub requirements: Vec<Requirement>,
+}
+
+impl SpecBlock {
+    /// The block as lines of a body, which [`spec_block`] reads back as it.
+    pub fn text(&self) -> String {
+        let mut out = format!("{SPEC_BLOCK_OPEN}\n{}\n", self.spec.line());
+        for r in &self.requirements {
+            let state = if r.met { "met" } else { "not met" };
+            out.push_str(&format!("- {} {state}: {}\n", r.id, r.note));
+        }
+        out.push_str(SPEC_BLOCK_CLOSE);
+        out.push('\n');
+        out
+    }
+}
+
+const SPEC_BLOCK_PREFIX: &str = "<!-- tehas:spec v";
+
+/// The one spec block of a pull request body, outside fenced code blocks.
+/// None: no block. Err says why a block is not one tehas can read.
+pub fn spec_block(body: &str) -> Result<Option<SpecBlock>, String> {
+    let mut found: Option<SpecBlock> = None;
+    let mut inside: Option<Vec<&str>> = None;
+    for line in unfenced(body) {
+        if let Some(lines) = inside.as_mut() {
+            if line == SPEC_BLOCK_CLOSE {
+                found = Some(block_of(lines)?);
+                inside = None;
+            } else {
+                lines.push(line);
+            }
+            continue;
+        }
+        if line == SPEC_BLOCK_OPEN {
+            if found.is_some() {
+                return Err("it has more than one spec block".to_string());
+            }
+            inside = Some(Vec::new());
+        } else if let Some(v) = line
+            .strip_prefix(SPEC_BLOCK_PREFIX)
+            .and_then(|r| r.strip_suffix("-->"))
+        {
+            let v = v.trim();
+            let other = v.bytes().all(|b| b.is_ascii_digit())
+                && v.parse::<u32>().is_ok_and(|n| n != SPEC_BLOCK_VERSION);
+            if !other {
+                return Err(format!(
+                    "its spec block's open line is not exactly `{SPEC_BLOCK_OPEN}`"
+                ));
+            }
+            return Err(format!(
+                "its spec block is version {v}, and tehas reads version {SPEC_BLOCK_VERSION}"
+            ));
+        }
+    }
+    if inside.is_some() {
+        return Err(format!(
+            "its spec block has no close line `{SPEC_BLOCK_CLOSE}`"
+        ));
+    }
+    Ok(found)
+}
+
+fn block_of(lines: &[&str]) -> Result<SpecBlock, String> {
+    let mut rest = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.is_empty())
+        .map(|(i, l)| (i + 1, *l));
+    let first = rest.next().map(|(_, l)| l).unwrap_or("");
+    let Some(mark) = first.strip_prefix(SPEC_MARK) else {
+        return Err(format!(
+            "its spec block does not start with a `{SPEC_MARK}` line"
+        ));
+    };
+    let spec =
+        spec_line(mark).map_err(|why| format!("the `{SPEC_MARK}` line of its spec block {why}"))?;
+    let mut requirements: Vec<Requirement> = Vec::new();
+    for (n, line) in rest {
+        let r = requirement(line).ok_or_else(|| {
+            format!(
+                "line {n} of its spec block is neither `- <id> met: <where>` nor `- <id> not met: <why>`"
+            )
+        })?;
+        if requirements.iter().any(|o| o.id == r.id) {
+            return Err(format!("its spec block names {} twice", r.id));
+        }
+        requirements.push(r);
+    }
+    if requirements.is_empty() {
+        return Err("its spec block has no requirement line".to_string());
+    }
+    Ok(SpecBlock { spec, requirements })
+}
+
+/// `- <id> met: <text>` or `- <id> not met: <text>`, split at the first `:`.
+fn requirement(line: &str) -> Option<Requirement> {
+    let (head, note) = line.strip_prefix("- ")?.split_once(':')?;
+    let (id, met) = match head.strip_suffix(" not met") {
+        Some(id) => (id, false),
+        None => (head.strip_suffix(" met")?, true),
+    };
+    let (id, note) = (id.trim(), note.trim());
+    if id.is_empty() || id.contains('`') || note.is_empty() {
+        return None;
+    }
+    Some(Requirement {
+        id: id.to_string(),
+        met,
+        note: note.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -313,6 +458,171 @@ mod tests {
         assert_eq!(
             spec_mark(&format!("{line}\n{line}")),
             Err("it has more than one `Spec:` line".to_string())
+        );
+    }
+
+    fn block() -> SpecBlock {
+        SpecBlock {
+            spec: SpecMark {
+                link: "https://github.com/user-attachments/files/123/spec.md".into(),
+                sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
+            },
+            requirements: vec![
+                Requirement {
+                    id: "R1".into(),
+                    met: true,
+                    note: "src/search.rs, search() with tests in tests/search.rs".into(),
+                },
+                Requirement {
+                    id: "R2".into(),
+                    met: false,
+                    note: "the export needs an API the backend does not have yet".into(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn the_text_of_a_block_reads_back_as_it() {
+        let b = block();
+        assert_eq!(SPEC_BLOCK_VERSION, 1);
+        assert_eq!(
+            b.text(),
+            "<!-- tehas:spec v1 -->\n\
+             Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\n\
+             - R1 met: src/search.rs, search() with tests in tests/search.rs\n\
+             - R2 not met: the export needs an API the backend does not have yet\n\
+             <!-- /tehas:spec -->\n"
+        );
+        assert_eq!(spec_block(&b.text()), Ok(Some(b.clone())));
+        let body = format!("Adds search.\n\n{}\nCloses #7.\n", b.text());
+        assert_eq!(spec_block(&body), Ok(Some(b)));
+    }
+
+    #[test]
+    fn a_block_reads_crlf_blank_lines_and_spaces() {
+        let b = block();
+        let crlf = b.text().replace('\n', "\r\n");
+        assert_eq!(spec_block(&crlf), Ok(Some(b.clone())));
+        let spaced = b
+            .text()
+            .replace("\n- R2", "\n\n  - R2")
+            .replace("\nSpec:", "\n\nSpec:");
+        assert_eq!(spec_block(&spaced), Ok(Some(b)));
+    }
+
+    #[test]
+    fn a_body_with_no_block_has_none() {
+        let mark = format!("Spec: a sha256:{}", "b".repeat(64));
+        let fenced = format!("```\n{}```\n", block().text());
+        let tilde = format!("~~~md\n{}~~~\nafter", block().text());
+        for body in ["", "Adds search.", &mark, &fenced, &tilde, SPEC_BLOCK_CLOSE] {
+            assert_eq!(spec_block(body), Ok(None), "{body:?}");
+        }
+        // The issue's pi-spec block is another thing.
+        assert_eq!(
+            spec_block("<!-- pi-spec v1 -->\nx\n<!-- /pi-spec -->"),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn an_id_that_ends_in_met_is_split_at_its_state() {
+        let mut b = block();
+        b.requirements[0].id = "Commitmet".into();
+        b.requirements[1].id = "Rmet".into();
+        let text = b.text();
+        assert!(text.contains("- Commitmet met: "), "{text}");
+        assert!(text.contains("- Rmet not met: "), "{text}");
+        assert_eq!(spec_block(&text), Ok(Some(b)));
+        let note = block().text().replace("search() with", "search(): with");
+        assert_eq!(
+            spec_block(&note).unwrap().unwrap().requirements[0].note,
+            "src/search.rs, search(): with tests in tests/search.rs"
+        );
+    }
+
+    #[test]
+    fn a_heading_id_with_spaces_is_an_id() {
+        let mut b = block();
+        b.requirements[0].id = "Search results".into();
+        assert_eq!(spec_block(&b.text()), Ok(Some(b)));
+    }
+
+    #[test]
+    fn a_block_tehas_cannot_read_is_refused_with_why() {
+        let text = block().text();
+        let err = |body: &str| spec_block(body).unwrap_err();
+        assert_eq!(
+            err(text.strip_suffix("<!-- /tehas:spec -->\n").unwrap()),
+            "its spec block has no close line `<!-- /tehas:spec -->`"
+        );
+        assert_eq!(
+            err(&format!("{text}\n{text}")),
+            "it has more than one spec block"
+        );
+        assert_eq!(
+            err(&text.replace("v1", "v2")),
+            "its spec block is version 2, and tehas reads version 1"
+        );
+        let inexact = "its spec block's open line is not exactly `<!-- tehas:spec v1 -->`";
+        for open in [
+            "<!-- tehas:spec v1-->",
+            "<!-- tehas:spec v -->",
+            "<!-- tehas:spec v1 draft -->",
+        ] {
+            assert_eq!(
+                err(&text.replace(SPEC_BLOCK_OPEN, open)),
+                inexact,
+                "{open:?}"
+            );
+        }
+        assert_eq!(
+            err(&text.replace("Spec: ", "Specs: ")),
+            "its spec block does not start with a `Spec:` line"
+        );
+        assert_eq!(
+            err(&text.replace(".md sha256:", ".md x sha256:")),
+            "the `Spec:` line of its spec block is not a link and its sha256"
+        );
+        assert_eq!(
+            err(&text.replace("sha256:9f", "sha256:9F")),
+            "the `Spec:` line of its spec block does not end in sha256: and 64 lower-case hex digits"
+        );
+        let neither = |n: usize| {
+            format!("line {n} of its spec block is neither `- <id> met: <where>` nor `- <id> not met: <why>`")
+        };
+        let r2 = "- R2 not met: the export needs an API the backend does not have yet";
+        for bad in [
+            "- R2 done: x",
+            "- R2 not met:",
+            "- R2 not met: ",
+            "- met: x",
+            "-  met: x",
+            "- `R2` met: x",
+            "R2 met: x",
+            "* R2 met: x",
+            "- R2 met x",
+            SPEC_BLOCK_OPEN,
+        ] {
+            assert_eq!(err(&text.replace(r2, bad)), neither(3), "{bad:?}");
+        }
+        assert_eq!(
+            err(&text.replace("\n- R2", "\n\n- R2 met x\n- R2")),
+            neither(4)
+        );
+        let none = format!(
+            "{SPEC_BLOCK_OPEN}\n{}\n\n{SPEC_BLOCK_CLOSE}",
+            block().spec.line()
+        );
+        assert_eq!(err(&none), "its spec block has no requirement line");
+        assert_eq!(
+            err(&format!("{SPEC_BLOCK_OPEN}\n{SPEC_BLOCK_CLOSE}")),
+            "its spec block does not start with a `Spec:` line"
+        );
+        assert_eq!(
+            err(&text.replace("- R2 not", "- R1 not")),
+            "its spec block names R1 twice"
         );
     }
 }
