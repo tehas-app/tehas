@@ -111,6 +111,13 @@ pub struct SpecMark {
     pub sha256: String,
 }
 
+impl SpecMark {
+    /// The line that marks this spec, which [`spec_mark`] reads back as it.
+    pub fn line(&self) -> String {
+        format!("{SPEC_MARK} {} sha256:{}", self.link, self.sha256)
+    }
+}
+
 /// The one line `Spec: <link> sha256:<64 hex>` of an issue body. A line is a
 /// mark when it starts with [`SPEC_MARK`], outside a fenced code block. None:
 /// no such line. Err says why a mark is not one tehas can read: a line of
@@ -250,6 +257,17 @@ mod tests {
         assert_eq!(spec_mark(&body), Ok(Some(want.clone())));
         let spaced = format!("  Spec:\t{link}   sha256:{h}  ");
         assert_eq!(spec_mark(&spaced), Ok(Some(want)));
+    }
+
+    #[test]
+    fn the_line_of_a_mark_reads_back_as_it() {
+        let m = SpecMark {
+            link: "https://github.com/user-attachments/files/1/spec.md".into(),
+            sha256: "c".repeat(64),
+        };
+        assert_eq!(m.line(), format!("Spec: {} sha256:{}", m.link, m.sha256));
+        assert_eq!(spec_mark(&m.line()), Ok(Some(m.clone())));
+        assert_eq!(spec_mark(&format!("Words.\n\n{}\n", m.line())), Ok(Some(m)));
     }
 
     #[test]
