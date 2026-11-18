@@ -174,13 +174,16 @@ jobs:
           printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
           bash scripts/check-generic.sh --names-only
   proofs:
-    # The Kani proofs beside the code (#[cfg(kani)] modules) on a hosted
-    # runner: Kani installs from the network and builds with its own pinned
-    # nightly, so scripts/verify.sh does not run them. A failed proof makes
-    # the run red, and tag-release tags only a green run. A crate that gains
-    # a #[cfg(kani)] module joins KANI_CRATES; test/kani_workflow_test.sh
+    # The Kani proofs beside the code (#[cfg(kani)] modules). Kani installs
+    # from the network and builds with its own pinned nightly, so
+    # scripts/verify.sh does not run them. A failed proof makes the run red,
+    # and tag-release tags only a green run. A crate that gains a
+    # #[cfg(kani)] module joins KANI_CRATES; test/kani_workflow_test.sh
     # checks it.
-    runs-on: ubuntu-24.04
+    # [self-hosted, kani]: a runner of its own, since the proofs are long and
+    # heavy on memory and should not hold the speed lane. It keeps Kani
+    # between runs (host/docs/operating.md, Registering a kani runner).
+    runs-on: [self-hosted, kani]
     timeout-minutes: 60
     env:
       COMMIT: ${{ inputs.commit }}
@@ -198,8 +201,11 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$COMMIT"
       - name: Kani at the pinned version
         run: |
-          cargo install --locked kani-verifier --version "$KANI_VERSION"
-          cargo kani setup
+          # Kept on the runner; installed again only when the pin moves.
+          if ! cargo kani --version 2>/dev/null | grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"; then
+            cargo install --locked kani-verifier --version "$KANI_VERSION"
+            cargo kani setup
+          fi
           cargo kani --version
       - name: the proofs
         working-directory: console

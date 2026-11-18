@@ -2582,9 +2582,11 @@ Two things run there:
   `host/sandbox/build.sh`, as a host builds them, and runs vipune, jq and
   codebase-memory-mcp in the image offline. A second job checks the names
   list on a GitHub-hosted runner, so the list never reaches the lane. A
-  third, also on a hosted runner, runs the Kani proofs beside the code
-  (`#[cfg(kani)]` modules) with Kani at the version it pins; they run only
-  here, not in `scripts/verify.sh` or on pull requests. The run's title is
+  third runs the Kani proofs beside the code (`#[cfg(kani)]` modules), with
+  Kani at the version it pins, on a runner of its own,
+  `[self-hosted, kani]`. The proofs run only here, not in
+  `scripts/verify.sh` or on pull requests. With no `kani` runner online the
+  job waits, and the run is not green until it has run. The run's title is
   `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
@@ -2625,6 +2627,21 @@ bash, git, curl) and Docker:
 
 The lane keeps its cargo build in `~/.cache/tehas-target/<runner name>` and
 its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
+
+### Registering a kani runner
+
+The release gate's proofs job asks for `[self-hosted, kani]`. On a machine
+with cargo (rustup, the `RUST_VERSION` of `host/versions.env`), bash, git,
+curl and network access to GitHub and the Rust toolchain servers, and plenty
+of memory, as an account that is not a tehas host's account:
+
+1. Take a registration token as for the speed lane.
+2. Run `./config.sh --url https://github.com/<org> --token <token>
+   --labels kani`. Not `tehas` and not `speedlane`, so no other job takes it.
+3. Run one runner on the machine and start it as a service.
+
+The first run installs Kani at the job's `KANI_VERSION` into the account's
+`~/.cargo/bin` and `~/.kani`; later runs reuse it until the pin moves.
 
 ## Run one issue by hand
 

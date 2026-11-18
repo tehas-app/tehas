@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the proofs job of .github/workflows/release-gate.yml: the Kani
-# proofs run only in the release gate, on the gated commit, with Kani pinned,
+# proofs run only in the release gate, on a runner of their own, on the
+# gated commit, with Kani pinned,
 # and on every crate that holds a #[cfg(kani)] module.
 # shellcheck disable=SC2016  # the assertions name the literal text of the workflow
 # shellcheck source=test/lib.sh
@@ -18,9 +19,14 @@ t_contains "$job" '  proofs:'
 t_contains "$job" 'ref: ${{ inputs.commit }}'
 t_contains "$job" 'test "$(git rev-parse HEAD)" = "$COMMIT"'
 
+t_case "the proofs have a runner of their own"
+t_contains "$job" '    runs-on: [self-hosted, kani]'
+t_lacks "$job" 'speedlane'
+
 t_case "Kani is installed at a pinned version"
 [[ "$(grep 'KANI_VERSION:' <<<"$job")" =~ KANI_VERSION:\ [0-9]+\.[0-9]+\.[0-9]+$ ]] || t_bad "KANI_VERSION is not an exact version"
 t_contains "$job" 'cargo install --locked kani-verifier --version "$KANI_VERSION"'
+t_contains "$job" 'grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"'
 
 t_case "every crate with a #[cfg(kani)] module is proved"
 crates=$(sed -n 's/^ *KANI_CRATES: //p' <<<"$job")
