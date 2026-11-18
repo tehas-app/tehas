@@ -111,7 +111,7 @@ t_contains "$(cat "$fun/theme-beesknees26.css")" '.brand .wordmark { width: auto
 for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
   t_contains "$(cat "$f")" '<img src="/fun/factory.svg" width="100" height="50" alt="">'
   t_contains "$(cat "$f")" '<img src="/fun/favicon.svg" width="50" height="50" alt="">'
-  t_contains "$(cat "$f")" '<img class="wordmark" src="/fun/tehas-logotype.svg" width="82" height="28" alt="TEHAS">'
+  t_contains "$(cat "$f")" '<img class="wordmark" src="/fun/tehas-logotype.svg" width="99" height="28" alt="TEHAS">'
   t_contains "$(cat "$f")" '<small>FACTORY</small>'
 done
 for f in "$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html"; do
