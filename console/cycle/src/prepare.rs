@@ -207,20 +207,23 @@ pub struct Check {
     pub stop: Stop,
 }
 
-fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
+/// The cycle's scratch made empty and mounted at /tmp. Err is the path that
+/// could not be made.
+fn scratch(c: &Check, security: &mut Vec<String>) -> Result<(), String> {
     let dir = env("TEHAS_SCRATCH_DIR");
     if dir.is_empty() {
-        return Some(());
+        return Ok(());
     }
     let name = crate::scratch::name(&env("TEHAS_WORK_DIR"), c.issue);
+    let unmade = || format!("{}/{name}", dir.trim_end_matches('/'));
     let out = Command::new(&c.console)
         .args(["clean", "scratch", &dir, &name])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
-        .ok()?;
+        .map_err(|_| unmade())?;
     if !out.status.success() {
-        return None;
+        return Err(unmade());
     }
     let path = String::from_utf8_lossy(&out.stdout);
     security.truncate(security.len().saturating_sub(2));
@@ -228,7 +231,7 @@ fn scratch(c: &Check, security: &mut Vec<String>) -> Option<()> {
         "-v".to_string(),
         format!("{}:/tmp", path.trim_end_matches('\n')),
     ]);
-    Some(())
+    Ok(())
 }
 
 /// A 78 of the check, with its cause left for the report: standard error goes
@@ -276,6 +279,16 @@ impl Refused {
     }
 }
 
+/// A path as TEHAS_SCRATCH_DIR and a scratch name make it: absolute, of
+/// letters, digits and `/._-`, with no `..`.
+fn scratch_path(p: &str) -> bool {
+    p.starts_with('/')
+        && p.len() <= 300
+        && !p.contains("..")
+        && p.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b))
+}
+
 /// The words a park says of the note [`refuse`] left, or None when the text is
 /// not one. Only words the check wrote are said, each line checked again.
 pub fn refused_said(text: &str) -> Option<Refused> {
@@ -283,6 +296,14 @@ pub fn refused_said(text: &str) -> Option<Refused> {
     let first = lines.next()?;
     if first == "tree-not-ours" {
         return Some(Refused::of("The directory that holds the workspaces exists and was not made by tehas, so tehas work did not touch it.".into(), "the directory of the workspaces is not tehas's"));
+    }
+    if let Some(path) = first.strip_prefix("scratch-unmade ") {
+        return scratch_path(path).then(|| {
+            Refused::of(
+                format!("The cycle's scratch `{path}` could not be emptied and made, so no container was started. Something in it the factory's account cannot remove, such as a directory of another account, stops every start of this issue until it is removed on the host. The run log on the host has the line `tehas clean: {path} could not be made`."),
+                "the cycle's scratch could not be made",
+            )
+        });
     }
     if let Some(rc) = first.strip_prefix("caps-unreadable ") {
         let ok = !rc.is_empty() && rc.len() <= 3 && rc.bytes().all(|b| b.is_ascii_digit());
@@ -441,8 +462,8 @@ pub fn check(c: &Check) -> i32 {
             return 78;
         }
     };
-    if scratch(c, &mut security).is_none() {
-        return 78;
+    if let Err(path) = scratch(c, &mut security) {
+        return refuse(c, &format!("scratch-unmade {path}\n"));
     }
     let Some(verify) = slice::verify(limits, &Load::from_env()) else {
         eprintln!("tehas work: the container limits could not be made, not starting");
@@ -1966,6 +1987,14 @@ mod tests {
             "The sandbox image gave no `--capabilities` answer that tehas could read (exit 127)."
         );
         assert!(said("tree-not-ours\n").contains("was not made by tehas"));
+        let r = refused_said("scratch-unmade /mnt/scratch/widget-7\n").unwrap();
+        assert_eq!(r.short, "the cycle's scratch could not be made");
+        assert!(
+            r.said
+                .contains("`/mnt/scratch/widget-7` could not be emptied"),
+            "{}",
+            r.said
+        );
         assert_eq!(
             said("caps-lacking\nthe flag --restart\nthe feature leanHandoffHost\n"),
             "The sandbox image does not support what this cycle is given: `the flag --restart`, `the feature leanHandoffHost`."
@@ -1984,6 +2013,10 @@ mod tests {
             "caps-unreadable\n",
             "caps-unreadable 12a\n",
             "caps-unreadable 1000\n",
+            "scratch-unmade \n",
+            "scratch-unmade scratch/w-7\n",
+            "scratch-unmade /a/../b\n",
+            "scratch-unmade /a/`b`\n",
             "something else\n",
         ] {
             assert_eq!(refused_said(t), None, "{t:?}");
