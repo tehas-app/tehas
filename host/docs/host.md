@@ -771,7 +771,8 @@ JSON answer:
   two steps leaves the store at the last one with its rows; the next install
   goes on from there.
 - The oldest store it brings forward is the one v0.30.0 wrote, at schema 12.
-  v0.30.1 wrote 13 and v0.30.2 to v0.30.6 wrote 14. The step to 13 keeps on
+  v0.30.1 wrote 13, v0.30.2 to v0.30.6 wrote 14, v0.31.0 wrote 16 and
+  v0.32.0 wrote 17. The step to 13 keeps on
   each approval what its start was, the step to 14 rebuilds `cycles` so its
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
   the step to 15 adds the five outsource tables, empty, the step to 16
