@@ -123,6 +123,7 @@ field, or `page`, a plain link that opens its page in a new tab with
 `rel="noopener noreferrer"`. No frame is made for a page item. Any other
 value is read as `dock`, so a later value cannot break a dashboard of this
 release. The URL rule is unchanged. The contract stays version 1: a
-dashboard that predates the field ignores it and docks the item, so a host
-that sends `page` keeps its page usable in a frame, or shows a link out
-there. Panels written by `tehas panel` are unchanged and always dock.
+dashboard that predates the field ignores it and docks the item. A host
+that sends `page` should keep its page usable in a frame, or show a link to
+open it in a whole tab, for such a dashboard. Panels written by
+`tehas panel` are unchanged and always dock.
