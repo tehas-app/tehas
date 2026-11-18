@@ -49,6 +49,11 @@ the update again. From a release, `--check` reads the release's own console;
 from the checkout, `--check` reads the console an earlier build left, so a
 real run, which builds first, is what names the rows there.
 
+The installed version loads the settings too, before it takes the lock. When
+that load stops on such a row, it also lists every one of them, the rows of
+`instance.env` and of `~/.config/tehas/env` its own `api/renames-1.0.tsv`
+names, and exits 78 before install.sh runs.
+
 ### From v0.30.x
 
 A host on any v0.30.x release moves to 1.0 with `tehas update`. That run is

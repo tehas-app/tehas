@@ -315,6 +315,19 @@ t_contains "$t_out" "TEHAS_ALLOWED_LABELERS is not valid: expected GitHub logins
 t_eq "$(state)" "$before"
 t_eq "$(t_calls install)" ""
 
+t_case "--check lists every setting tehas 1.0 renamed or removed, not only the first"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_OWNER=alice TEHAS_INDEXING=on
+platform 2
+before=$(state)
+t_run "$update --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: TEHAS_INDEXING is no longer read: tehas 1.0 renamed it TEHAS_SITE_INDEXING"
+t_contains "$t_out" "tehas: TEHAS_TICKET_CONCURRENCY is no longer read: tehas 1.0 renamed it TEHAS_MAX_CYCLES"
+t_contains "$t_out" "tehas: TEHAS_OWNER is no longer read: tehas 1.0 renamed it TEHAS_ASSIGNEE"
+t_eq "$(printf '%s\n' "$t_out" | grep -c "TEHAS_OWNER is no longer read")" 1
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+
 t_case "an unknown argument is refused before anything is read"
 instance
 platform 0
