@@ -454,7 +454,8 @@ fn share(spare: u64, load: &Load) -> Option<u64> {
     let cycles = num(&load.cycles).filter(|n| *n > 0)?;
     let cycles = cycles + num(&load.slots).unwrap_or(0);
     let cycles = cycles.min(num(&load.containers).filter(|n| *n > 0)?);
-    Some((spare * 100 / cycles).max(100))
+    // None past u64: a count of CPUs no host has makes no limits.
+    Some((spare.checked_mul(100)? / cycles).max(100))
 }
 
 /// The CPU quota and the pids limit of one container. The quota is a ceiling,
@@ -468,7 +469,8 @@ pub fn cpus(host: u64, load: &Load) -> Option<(String, u64)> {
         return None;
     }
     let spare = spare(host);
-    let pids = share(spare, load)?.div_ceil(100) * 1024;
+    // Capped at 4 CPUs before the multiply, which the clamp would cap anyway.
+    let pids = share(spare, load)?.div_ceil(100).min(4) * 1024;
     Some((format!("{spare}.00"), pids.clamp(2048, 4096)))
 }
 
@@ -1057,6 +1059,22 @@ mod tests {
                 "{host} {cycles} {lane} {n}"
             );
         }
+    }
+
+    /// A count of CPUs past what u64 hundredths hold made no limits instead of
+    /// overflowing, and one past 4 CPUs a cycle gets the most pids, however
+    /// large.
+    #[test]
+    fn a_count_of_cpus_no_host_has_does_not_overflow() {
+        let huge = 100_000_000_000_000_000;
+        assert_eq!(
+            cpus(huge, &load(1)),
+            Some(("99999999999999999.00".to_string(), 4096))
+        );
+        assert_eq!(cpus(999_999_999_999_999_999, &load(1)), None);
+        assert_eq!(cpus(u64::MAX, &load(1)), None);
+        let words = ["--cpus", "999999999999999998.00", "--memory", "1048576m"].map(String::from);
+        assert_eq!(verify(&words, &load(1)), Some(512));
     }
 
     // From test/slice_test.sh: <host CPUs> <TEHAS_MAX_CYCLES> <slice
