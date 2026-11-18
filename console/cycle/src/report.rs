@@ -1507,6 +1507,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         format!(" Its branch has an open pull request: {pr}")
     };
 
+    let spec_why = spec_unanswered(f, &prs, &pr);
     if !merged_pr.is_empty() {
         r.actions.push(running());
         if rc == 0 && status == "merged" {
@@ -1552,6 +1553,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         && waits_only_for_a_merge(&cap)
         && review_held == "false"
         && !(lean && (pr_draft || pr_state != "ready"))
+        && spec_why.is_none()
         && {
             r.asked.push("attention".into());
             match ask.attention() {
@@ -1603,9 +1605,21 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         } else if cap.is_empty() {
             why = " The result names no cap, so it is not taken for a pull request that waits only for a merge.".into();
         }
+        // The block is the reason word only when nothing else held the pull
+        // request back from waiting for a merge.
+        let mut word = "";
+        if let Some(reason) = &spec_why {
+            why = format!("{why} Its pull request does not answer to the approved spec: {reason}, so it does not wait only for a merge.");
+            if waits_only_for_a_merge(&cap)
+                && review_held == "false"
+                && !(lean && (pr_draft || pr_state != "ready"))
+            {
+                word = SPEC_BLOCK_PARK;
+            }
+        }
         r.arm = "handoff-parked";
         parked_now = true;
-        r.actions.push(park(park_args("", &cap, &status, &step, &pr), format!(
+        r.actions.push(park(park_args(word, &cap, &status, &step, &pr), format!(
             "Tehas cycle handed off with its pull request open: {summary} (runner exit {runner_rc}).{why}{held} Read the pull request before you retry: {pr}. {kept_said}; {log_where}.{killed}{foreign}"
         ), String::new()));
     } else if done_why == "closed" {
@@ -2013,6 +2027,41 @@ fn approved_driver(f: &Facts) -> Option<Driver> {
         .filter(|c| c.get("used_by").and_then(Value::as_u64) == Some(f.attempt))
         .and_then(|c| c.get("input"))
         .and_then(Driver::of_record)
+}
+
+/// The park reason of a pull request that does not answer to the approved spec.
+const SPEC_BLOCK_PARK: &str = "spec-block";
+
+/// Why the open pull request `pr` does not answer to the spec this start's
+/// approval pinned, or None when it does or is not checked. It is checked when
+/// the spec pipe is on, the start was not by hand, and the approval row this
+/// attempt used pins a spec. An approval that cannot be read fails closed.
+fn spec_unanswered(f: &Facts, prs: &[Value], pr: &str) -> Option<String> {
+    if !f.spec_pipe || f.start_how == "hand" || pr.is_empty() {
+        return None;
+    }
+    let unread = || {
+        Some(
+            "the approval of this start could not be read, so its spec block could not be checked"
+                .to_string(),
+        )
+    };
+    let Some(used) = approval_used(f) else {
+        return unread();
+    };
+    let pinned = match used.pointer("/input/spec") {
+        None | Some(Value::Null) => return None,
+        Some(spec) => match spec.get("sha256").and_then(Value::as_str) {
+            Some(h) => h,
+            None => return unread(),
+        },
+    };
+    let body = prs
+        .iter()
+        .find(|p| p.get("url").and_then(Value::as_str) == Some(pr))
+        .and_then(|p| p.get("body"))
+        .and_then(Value::as_str);
+    tehas_core::grammar::spec_answered(body, pinned).err()
 }
 
 /// The caps of a handoff whose open pull request waits only for a merge.
@@ -2583,6 +2632,152 @@ mod tests {
             let said = comments(&r).join("\n");
             assert!(said.contains("ran out of rounds"), "{cap}: {said}");
         }
+    }
+
+    const PIN: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+    fn spec_block_of(sha: &str) -> String {
+        format!(
+            "Fixes #7\n\n<!-- tehas:spec v1 -->\nSpec: https://github.com/user-attachments/files/123/spec.md sha256:{sha}\n- R1 met: src/search.rs\n<!-- /tehas:spec -->\n"
+        )
+    }
+
+    /// The approval row attempt 1 used, its driver `driver`, pinning `pin`.
+    fn approval_of(driver: &str, pin: Option<&str>) -> Value {
+        let mut input = json!({"driver": driver});
+        if let Some(h) = pin {
+            input["spec"] = json!({"link": "https://github.com/user-attachments/files/123/spec.md", "sha256": h});
+        }
+        json!({"current": {"used_by": 1, "how": "label", "input": input}})
+    }
+
+    /// A start that handed off at `awaiting-human-merge` with a review that
+    /// held nothing and a ready pull request whose body is `body`.
+    fn spec_handed(spec_pipe: bool, approval: Value, body: Option<&str>, lean: bool) -> Report {
+        let mut entry = json!({"issue": 7, "status": "handoff", "branch": "feature/issue-7", "cap": "awaiting-human-merge"});
+        if lean {
+            entry["prState"] = json!("ready");
+        }
+        let result = json!({"schemaVersion": runner::RESULT_SCHEMA, "issues": [entry]});
+        let mut pr = json!({"url": "https://github.com/acme/widget/pull/9", "state": "OPEN", "isDraft": false,
+                            "title": "x", "headRefName": "feature/issue-7"});
+        if let Some(b) = body {
+            pr["body"] = json!(b);
+        }
+        let facts = json!({
+            "issue": 7,
+            "repo": "acme/widget",
+            "signalled": false,
+            "home": "/home/tehas",
+            "rc": 10,
+            "started": 1000,
+            "now": 2620,
+            "start": { "attempt": 1, "how": "label" },
+            "spec_pipe": spec_pipe,
+            "files": {
+                "result.json": result.to_string(),
+                "runner_exit": "10\n",
+                "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+            },
+            "record": { "cycle": { "attempt": 1 } },
+            "approval": approval,
+            "github": { "prs": [pr], "attention": false },
+        });
+        let f = Facts::from_json(&facts).expect("the facts read");
+        report(&f, &mut Given(facts["github"].clone()))
+    }
+
+    fn park_reason(r: &Report) -> Option<String> {
+        r.actions.iter().find_map(|a| match a {
+            Action::Park(p) => p
+                .args
+                .windows(2)
+                .find(|w| w[0] == "--reason")
+                .map(|w| w[1].clone()),
+            _ => None,
+        })
+    }
+
+    fn unanswered(why: &str) -> String {
+        format!(" Its pull request does not answer to the approved spec: {why}, so it does not wait only for a merge.")
+    }
+
+    #[test]
+    fn a_pull_request_whose_block_names_the_pin_waits_for_a_merge() {
+        let body = spec_block_of(PIN);
+        let r = spec_handed(true, approval_of("classic", Some(PIN)), Some(&body), false);
+        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
+    }
+
+    #[test]
+    fn a_pull_request_that_does_not_answer_to_the_pin_parks() {
+        let other = "0".repeat(64);
+        let open = "Fixes #7\n\n<!-- tehas:spec v1 -->\n";
+        for (case, body, why) in [
+            ("no body", None, "its body has no spec block".to_string()),
+            ("no block", Some("Fixes #7".to_string()), "its body has no spec block".to_string()),
+            (
+                "other sha",
+                Some(spec_block_of(&other)),
+                format!("its spec block names sha256 {other}, not {PIN}, the one approved"),
+            ),
+            (
+                "unreadable",
+                Some(open.to_string()),
+                "its spec block cannot be read: its spec block has no close line `<!-- /tehas:spec -->`".to_string(),
+            ),
+        ] {
+            let r = spec_handed(true, approval_of("classic", Some(PIN)), body.as_deref(), false);
+            assert_eq!(r.arm, "handoff-parked", "{case}: {:?}", r.log);
+            assert_eq!(park_reason(&r).as_deref(), Some("spec-block"), "{case}");
+            let said = comments(&r).join("\n");
+            assert!(said.contains(&unanswered(&why)), "{case}: {said}");
+            // No GitHub read is spent on a pull request that parks anyway.
+            assert!(!r.asked.iter().any(|a| a == "attention"), "{case}: {:?}", r.asked);
+        }
+    }
+
+    #[test]
+    fn a_start_with_no_pin_or_with_the_feature_off_is_not_checked() {
+        let r = spec_handed(true, approval_of("classic", None), Some("Fixes #7"), false);
+        assert_eq!(r.arm, "awaiting-merge", "no pin: {:?}", r.log);
+        let r = spec_handed(
+            false,
+            approval_of("classic", Some(PIN)),
+            Some("Fixes #7"),
+            false,
+        );
+        assert_eq!(r.arm, "awaiting-merge", "feature off: {:?}", r.log);
+    }
+
+    #[test]
+    fn an_approval_that_cannot_be_read_parks_with_the_feature_on() {
+        let why =
+            "the approval of this start could not be read, so its spec block could not be checked";
+        let body = spec_block_of(PIN);
+        for (case, approval) in [
+            ("store error", json!({"error": "busy"})),
+            (
+                "used by another",
+                json!({"current": {"used_by": 2, "input": {"spec": {"sha256": PIN}}}}),
+            ),
+        ] {
+            let r = spec_handed(true, approval, Some(&body), false);
+            assert_eq!(r.arm, "handoff-parked", "{case}: {:?}", r.log);
+            assert_eq!(park_reason(&r).as_deref(), Some("spec-block"), "{case}");
+            let said = comments(&r).join("\n");
+            assert!(said.contains(&unanswered(why)), "{case}: {said}");
+        }
+    }
+
+    #[test]
+    fn a_ready_lean_pull_request_with_no_block_parks() {
+        let r = spec_handed(true, approval_of("lean", Some(PIN)), Some("Fixes #7"), true);
+        assert_eq!(r.arm, "handoff-parked", "{:?}", r.log);
+        assert_eq!(park_reason(&r).as_deref(), Some("spec-block"));
+        let body = spec_block_of(PIN);
+        let r = spec_handed(true, approval_of("lean", Some(PIN)), Some(&body), true);
+        assert_eq!(r.arm, "awaiting-merge", "{:?}", r.log);
     }
 
     fn end_cap(r: &Report) -> Option<&str> {

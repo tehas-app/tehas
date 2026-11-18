@@ -98,6 +98,8 @@ pub struct Facts {
     pub requeued: bool,
     /// TEHAS_DRIVER: the driver of a start no label chose.
     pub driver_default: Driver,
+    /// The spec pipe is on for the host. A missing key reads as off.
+    pub spec_pipe: bool,
     files: HashMap<String, File>,
     pub run_log: Option<RunLog>,
     /// The store's answer to cycle-show, or the word of its failure.
@@ -210,6 +212,7 @@ impl Facts {
                     .and_then(Value::as_str)
                     .unwrap_or(""),
             ),
+            spec_pipe: flag("spec_pipe"),
             files,
             run_log,
             record: answer(v.get("record")),

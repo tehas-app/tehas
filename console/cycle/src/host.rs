@@ -232,6 +232,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
                   "approval_at": s.approval_at.parse::<i64>().ok(), "requeued": s.requeued},
         "files": files,
         "driver_default": env("TEHAS_DRIVER"),
+        "spec_pipe": tehas_core::features::on(crate::gives::SPEC_PIPE),
     });
     if let Some(log) = newest_log(&home.join("logs"), issue) {
         f["run_log"] = run_log(&log);

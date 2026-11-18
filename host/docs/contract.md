@@ -246,6 +246,15 @@ second block, an open line of another version (named) or one that starts
 named twice. The manifest's `spec` entry says in `block` which version the
 cycle writes.
 
+What tehas checks (`spec_answered`, and the cycle's report): with the feature
+on, a start not run by hand whose approval pins a spec, a pull request waits
+only for a merge when its body holds one block tehas can read and the block's
+`Spec:` line names the sha256 of that pin. The link is not compared. A body
+with no block, a block of another sha256 or one tehas cannot read parks the
+issue with `needs-human-attention` and the park reason `spec-block`; so does an
+approval that cannot be read. The pull request stays open and gets no
+comment.
+
 The lines are for the person who reviews. This block is not lean's `pi-spec v1`
 block, which goes in an issue body.
 
@@ -295,6 +304,8 @@ Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
   in the state store has room for one, which is internal.
 - A cycle is given no `spec` and no `approved.json`, and its manifest names
   neither.
+- No pull request is checked for a spec block: a handoff waits for a merge as
+  before.
 - No command, no label, no `--json` field, no MCP tool.
 
 [tehas work](/tools-work) says what the feature gives a cycle once it ships.
