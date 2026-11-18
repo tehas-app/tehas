@@ -973,6 +973,45 @@ fn the_type_is_given_by_the_newest_change_that_set_it() {
 }
 
 #[test]
+fn a_type_event_with_a_wrong_typed_actor_or_stamp_is_refused() {
+    let event = |actor: Value, at: Value| {
+        serde_json::json!({"data": {"repository": {"issue": {
+            "issueType": {"name": "Prototype"},
+            "timelineItems": {"nodes": [{"__typename": "IssueTypeAddedEvent",
+                "createdAt": at, "actor": actor, "issueType": {"name": "Prototype"}}]}}}}})
+        .to_string()
+    };
+    let at = || serde_json::json!("2026-11-06T10:00:00Z");
+    for bad in [
+        event(serde_json::json!(1234), at()),
+        event(serde_json::json!({"login": 1234}), at()),
+        event(serde_json::json!(["alice"]), at()),
+        event(
+            serde_json::json!({"login": "alice"}),
+            serde_json::json!(1234),
+        ),
+    ] {
+        assert!(gh::parse_typed_by(&bad, "Prototype").is_err(), "{bad}");
+    }
+    // An account that is gone is still a fact, not a refusal.
+    for gone in [
+        event(Value::Null, at()),
+        event(serde_json::json!({"login": null}), at()),
+        event(serde_json::json!({}), at()),
+    ] {
+        let got = gh::parse_typed_by(&gone, "Prototype").unwrap().unwrap();
+        assert_eq!(got.actor, "", "{gone}");
+    }
+    let got = gh::parse_typed_by(
+        &event(serde_json::json!({"login": "alice"}), Value::Null),
+        "Prototype",
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!((got.actor.as_str(), got.at.as_str()), ("alice", ""));
+}
+
+#[test]
 fn the_owners_issue_types_are_read_and_an_answer_with_no_repository_is_an_error() {
     let (mut f, _) = forge(vec![
         Ok(r#"{"data":{"repository":{"issueTypes":{"nodes":[{"name":"Task"},{"name":"Prototype"}]}}}}"#.into()),
