@@ -1994,6 +1994,34 @@ mod tests {
         assert!(!serves_in(Scope::Full, name, false));
     }
 
+    /// The tools a feature brings, each with the feature of the registry
+    /// (tehas_core::features) whose option starts the server with it.
+    const FEATURE_TOOLS: [(&str, &str); 1] = [("outsource", contractors::NAME)];
+
+    // A tool outside `CALLED` belongs to a feature, and a building feature's
+    // tool is served by no server started without that feature's option.
+    #[test]
+    fn no_building_feature_adds_a_tool() {
+        use tehas_core::features::{Stage, FEATURES};
+        for name in names_of(&Value::Array(entries().to_vec())) {
+            assert!(
+                CALLED.contains(&name) || FEATURE_TOOLS.iter().any(|(_, t)| *t == name),
+                "{name} is in neither CALLED nor FEATURE_TOOLS"
+            );
+        }
+        for (feature, tool) in FEATURE_TOOLS {
+            let f = FEATURES.iter().find(|f| f.name == feature);
+            let f = f.unwrap_or_else(|| panic!("{feature} is not registered"));
+            if f.stage == Stage::Building {
+                assert!(!CALLED.contains(&tool), "{tool} of {feature}");
+                for scope in [Scope::Full, Scope::Dashboard] {
+                    let served = list_scoped_in(scope, false);
+                    assert!(!names_of(&served).contains(&tool), "{tool} of {feature}");
+                }
+            }
+        }
+    }
+
     // The names of the entries of the catalog, in the order it gives them.
     fn names_of(tools: &Value) -> Vec<&str> {
         tools

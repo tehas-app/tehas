@@ -233,6 +233,15 @@ pub(crate) fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
 /// settings. Call it before any thread. Err is the status, 78, the line said on
 /// standard error. Ok is what was loaded, for [`require`].
 pub fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
+    load_here_saying(uid, bash, |line| vec![format!("tehas: {line}")])
+}
+
+/// [`load_here`], with a refusal said as the lines `say` makes of its line.
+fn load_here_saying(
+    uid: &str,
+    bash: &str,
+    say: impl FnOnce(String) -> Vec<String>,
+) -> Result<Vars, u8> {
     let start = this_environment();
     let mut vars = start.clone();
     let got = load_into(&mut vars, uid, bash);
@@ -246,7 +255,9 @@ pub fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
     match got {
         Ok(()) => Ok(vars),
         Err(line) => {
-            eprintln!("tehas: {line}");
+            for line in say(line) {
+                eprintln!("{line}");
+            }
             Err(REFUSED)
         }
     }
@@ -266,9 +277,15 @@ pub fn require(names: &[&str], vars: &Vars) -> Result<(), u8> {
 /// tehas_load then tehas_require, for a command with no shell before it to say
 /// who it runs as.
 pub fn loaded(names: &[&str]) -> Result<(), u8> {
+    loaded_saying(names, |line| vec![format!("tehas: {line}")])
+}
+
+/// [`loaded`], with a refused load said as the lines `say` makes of its line,
+/// each whole.
+pub fn loaded_saying(names: &[&str], say: impl FnOnce(String) -> Vec<String>) -> Result<(), u8> {
     let uid = sandbox::user();
     let uid = uid.split(':').next().unwrap_or_default();
-    require(names, &load_here(uid, "bash")?)
+    require(names, &load_here_saying(uid, "bash", say)?)
 }
 
 fn why(name: &str, value: &str) -> Option<String> {
@@ -340,6 +357,9 @@ fn rule_row(setting: &Setting) -> J {
         fields.push(("words", strings(words)));
     }
     fields.push(("reason", J::str(reason)));
+    if tehas_core::features::building_setting(setting.name) {
+        fields.push(("building", J::bool(true)));
+    }
     jq::obj(fields)
 }
 
@@ -483,6 +503,32 @@ mod tests {
         ] {
             assert!(names.iter().any(|n| n == name), "{name}");
         }
+    }
+
+    #[test]
+    fn a_row_is_marked_building_when_the_registry_builds_its_feature() {
+        use tehas_core::features::{Stage, FEATURES};
+        let object = J::parse(&rules_json()).unwrap();
+        let mut marked: Vec<String> = object
+            .get("settings")
+            .items()
+            .iter()
+            .chain(object.get("host").items().iter())
+            .filter(|row| !row.get("building").is_null())
+            .map(|row| {
+                assert!(row.get("building").is_true());
+                row.get("name").text()
+            })
+            .collect();
+        let mut building: Vec<String> = FEATURES
+            .iter()
+            .filter(|f| f.stage == Stage::Building)
+            .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()))
+            .map(str::to_string)
+            .collect();
+        marked.sort();
+        building.sort();
+        assert_eq!(marked, building);
     }
 
     #[test]

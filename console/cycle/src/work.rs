@@ -104,8 +104,9 @@
 //!                not on, the image
 //!                does not support what the cycle is given (on driver lean
 //!                state/cycles/<issue>.lean-refused says so), the image gave
-//!                no capabilities answer or the workspaces' directory was not
-//!                made by tehas (these three say why in
+//!                no capabilities answer, the workspaces' directory was not
+//!                made by tehas or the cycle's scratch could not be made
+//!                (these four say why in
 //!                state/cycles/<issue>.refused), the product's install failed
 //!                (said there too), or the product names no gate
 //!                in .pi/verify-cmd and holds neither package.json nor Cargo.toml

@@ -110,16 +110,23 @@ pub(crate) fn findings(
         }
     }
     if let Err(line) = load(&mut vars) {
-        let mut found = renamed_lines(&dir, &config);
-        if !found.contains(&line) {
-            found.insert(0, line);
-        }
-        return found;
+        return refused(line, &dir, &config);
     }
     if let Some(line) = settings::refusal(&INSTANCE_SETTINGS, &vars) {
         return vec![line];
     }
     model_findings(&dir, &vars)
+}
+
+/// A refused load's line, `tehas: ` and all, then every other row of
+/// api/renames-1.0.tsv still set in `<dir>/instance.env` and `<config>/env`:
+/// the load stops at the first such row.
+pub(crate) fn refused(line: String, dir: &str, config: &str) -> Vec<String> {
+    let mut found = renamed_lines(dir, config);
+    if !found.contains(&line) {
+        found.insert(0, line);
+    }
+    found
 }
 
 /// Every row of api/renames-1.0.tsv the instance and the credential file still

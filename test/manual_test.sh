@@ -335,10 +335,20 @@ for gone in 'easy merge' 'improvement loop' 'auto sizing' 'fixer' 'TEHAS_IMPROVE
   [ -z "$hits" ] || t_bad "features.md names $gone: $hits"
 done
 
+t_case "the features page drops what 1.0 changed and names its open limits"
+for gone in 'tehas#1776' "a bot account's token" '| Spec pin ' 'The cycle is not given the file yet'; do
+  hits=$(grep -nF "$gone" "$features" || true)
+  [ -z "$hits" ] || t_bad "features.md still says $gone: $hits"
+done
+for row in '| A sandbox that cannot push |' '| A write that may have reached GitHub |' \
+  '(tehas#1742)' '(tehas#1791)'; do
+  grep -qF -- "$row" "$features" || t_bad "features.md lacks $row"
+done
+
 t_case "each row of a feature still being built says so in its status"
 rows=$(awk -F' \\| ' '/^\| / && tolower($2) ~ /still being built/ {
   status = $3; sub(/ *\|$/, "", status); print status }' "$features")
-[ "$(grep -c . <<<"$rows")" -ge 8 ] || t_bad "fewer than 8 rows of building features: $rows"
+[ "$(grep -c . <<<"$rows")" -ge 7 ] || t_bad "fewer than 7 rows of building features: $rows"
 while IFS= read -r status; do
   case $status in
   'Still being built'*) ;;

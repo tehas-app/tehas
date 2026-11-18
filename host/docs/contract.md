@@ -10,10 +10,14 @@ stays compatible through every 1.x release: within 1.x a public name is only
 added, never renamed, removed or given a new meaning. Everything it does not
 name public is internal and may change in any release.
 
-Until the first beta of 1.0 the public surface may still be renamed or
-reshaped. Each rename is a row of `api/renames-1.0.tsv`, and
+The freeze started at v1.0.0-beta.1. From then on nothing public is renamed,
+reshaped or removed; a beta or a release candidate only fixes, adds tests and
+docs, or promotes a feature to shipped. The renames 1.0 made came in the
+alphas. Each is a row of `api/renames-1.0.tsv`, and
 [tehas update](/tools-update#tehas-update) lists every one an instance still
 uses.
+
+The rules 1.x keeps are in [the rules for 1.x](#the-rules-for-1x).
 
 ## Public and internal
 
@@ -32,8 +36,8 @@ Public:
   `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env` is the version of the
   program that manages the factory, written by that program and shown by
   health;
-- the update from any 0.30.x release by `tehas update`, with the state store
-  and analytics migrated;
+- the update from any 0.30.x, 0.31.x or 0.32.x release by `tehas update`,
+  with the state store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
 - [analytics.db at schema 4](#analyticsdb).
@@ -71,20 +75,61 @@ Internal:
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
-| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
+| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
 | `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
-| `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
-| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
+| `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
+| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `test/work_test.sh` |
 | Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock) |
+
+`api/surface-1.0.txt` lists the names of the frozen surface in one place:
+each public command, subcommand and flag, setting, role, label and `--json`
+field, read from the files in the table above. Lines are only added.
+`console/tests/surface.rs` fails when one of its names goes, and when the
+surface gains a name the list does not have yet. What a building feature
+adds is not in it.
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change. The fields of
-`contractors` may change while outsource is still being built.
+`contractors` may change while outsource is still being built, and so may
+`api/status.outsourced.json`, the sample that shows them.
+
+## The rules for 1.x
+
+Decided for 1.0 on 2026-11-18.
+
+- **Readers.** A program that reads a `--json` object, `tehas api --json`,
+  `api/settings-rules.json` or an MCP answer ignores a field it does not know.
+  A schema in `api/` describes the release that ships it: a later 1.x release
+  may add to it.
+- **What 1.x may add.** Within 1.x a field, an enum value or an exit status
+  may be added. An existing field, value or exit status keeps its meaning and
+  is never removed. A reader treats an enum value it does not know as
+  unknown, not as an error.
+- **Building features.** A feature still being built is outside the contract:
+  its rows in `api/settings-rules.json` (each marked `"building": true`), its
+  key in the `flags` object of `tehas api --json`, its `--json` fields (such
+  as `contractors` in `tehas status --json` and `api/status.outsourced.json`),
+  its commands and its MCP tools may change or go until the release that ships
+  it. Only a shipped feature's key is guaranteed in `flags`, and
+  `api/api.schema.json` requires only those.
+- **MCP protocol revisions.** The revisions [the MCP server](/mcp-server)
+  accepts at 1.0, 2026-07-28 and 2025-11-25, stay accepted through 1.x. Newer
+  ones may be added.
+- **pi-rukas names.** When pi-rukas renames a `PI_ENSEMBLE_*` input, tehas
+  takes both the old and the new name through 1.x.
+- **Driver labels and settings.** The labels `tehas:lean` and `tehas:classic`
+  and `TEHAS_DRIVER=lean` stay accepted through 1.x, whatever lean becomes.
+- **Update sources.** `tehas update` reaches 1.0 from 0.30.x, 0.31.x and
+  0.32.x. A 0.30.x host can name only an rc or the release with `--to`, not
+  an alpha or a beta: that is what v0.30.6 accepts as a tag.
+- **Release repository and key.** From 1.0 the update reads releases from the
+  repository built into tehas and checks them with the key built into tehas,
+  as [tehas update](/tools-update#from-a-release) says.
 
 ## Settings and the knob rule
 
@@ -136,8 +181,9 @@ What a cycle's container is given, as `tehas work` gives it:
 | `<workspace>.state/relay` | `/run/tehas/relay` |
 
 The `PI_ENSEMBLE_*` names, and what each means, follow pi-rukas while pi-rukas
-is 0.x: a name pi-rukas renames is renamed here in the release that follows
-it, and the release notes say so. The rule itself, which names pass and what
+is 0.x: a name pi-rukas renames is taken under the new name in the release
+that follows it, the old name stays accepted through 1.x, and the release
+notes say so. The rule itself, which names pass and what
 is mounted, is frozen. `test/work_test.sh` pins the mounts and the variables,
 and a change to them is a security change.
 
@@ -172,12 +218,14 @@ the one approved; the lines are for the person who reviews.
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
 Only a shipped feature can be on. A building feature leaves nothing in the
-frozen surface: its switch set to `on`, or a line that gives one of its own
+frozen surface ([the rules for 1.x](#the-rules-for-1x)): its switch set to `on`, or a line that gives one of its own
 settings a value, stops every command with exit 78 and names the feature, it
 adds no command, no label, no `--json` field and no MCP
-tool, and its settings, commands and fields are not contract until the release
-that ships it. `tehas api --json` lists every feature in `flags`, `false`
-while it is building, and a shipped feature's word in `features`. Promoting a
+tool, and its settings, its key in `flags`, its commands, fields and MCP tools
+are not contract until the release that ships it. `tehas api --json` lists
+every feature in `flags`, `false` while it is building, and a shipped
+feature's word in `features`. `api/settings-rules.json` marks the rows of a
+building feature `"building": true`. Promoting a
 feature to shipped only adds.
 
 What each registered feature leaves visible while its flag is off:
@@ -258,7 +306,8 @@ names the feature it needs.
 - `tehas work --driver lean` exits 78 and starts no cycle. `--driver classic`
   works as before.
 - The labels `tehas:lean` and `tehas:classic` stay in the label set, so
-  `tehas labels` does not remove them. `tehas:lean` is inert: a start that
+  `tehas labels` does not remove them, and they and `TEHAS_DRIVER=lean` stay
+  accepted through 1.x whatever lean becomes. `tehas:lean` is inert: a start that
   would run lean starts nothing, the label that asked comes off and the issue
   says once that lean is still being built. Classic never runs in its place.
   `tehas:classic` and an issue with no driver label run classic.
