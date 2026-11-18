@@ -300,7 +300,7 @@ pub fn refused_said(text: &str) -> Option<Refused> {
     if let Some(path) = first.strip_prefix("scratch-unmade ") {
         return scratch_path(path).then(|| {
             Refused::of(
-                format!("The cycle's scratch `{path}` could not be emptied and made, so no container was started. Something in it the factory's account cannot remove, such as a directory of another account, stops every start of this issue until it is removed on the host. The run log on the host has the line `tehas clean: {path} could not be made`."),
+                format!("The cycle's scratch `{path}` could not be emptied and made, so no container was started. A `TEHAS_SCRATCH_DIR` that is not there, or something in the folder the factory's account cannot remove, such as a directory of another account, stops every start of this issue until it is put right on the host. The run log on the host has the line `tehas clean: {path} could not be made`."),
                 "the cycle's scratch could not be made",
             )
         });
