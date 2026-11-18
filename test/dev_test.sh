@@ -812,7 +812,9 @@ lock=$T/home/tehas/state/dev/frank.lock
 # lock t_hold has taken, the target the command made, and the target the case
 # removed. A wait that reads the directory before the command got there is the
 # timing this case used to guess at, and on a loaded host it is the reason the
-# run was met with no build output to make again and refused 78.
+# run was met with no build output to make again and refused 78. The removal
+# can also land between the command's create and its own look at the directory,
+# before the wait: that is no refusal either (#2477).
 t_hold "$lock"
 (n=0
   until [ -d "$devs/frank.state/target" ] || [ $((n += 1)) -gt 600 ]; do "$(command -pv sleep)" 0.05; done

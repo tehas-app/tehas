@@ -592,16 +592,11 @@ fn session(given: &Words, taken: &Taken) -> u8 {
         .and_then(|w| w.parse().ok())
         .unwrap_or(300);
     let target = format!("{state}/target");
+    // It makes the build output again under the lock, if the cleaner took it
+    // during the wait: docker would make it root's.
     let Ok(_lock) = clean::open_session(&home, name, wait) else {
         return refuse(format!("tehas dev: not starting a session of {name}"));
     };
-    // The cleaner may have taken it during the wait, and docker would make it
-    // root's.
-    if !Path::new(&target).is_dir() && fs::create_dir(&target).is_err() {
-        return refuse(format!(
-            "tehas dev: cannot make {target}, not starting a session"
-        ));
-    }
 
     if fresh {
         if !make_clone(&devs, name, &tree, &var("TEHAS_WORK_REPO"), &branch) {
