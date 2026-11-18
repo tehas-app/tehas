@@ -226,8 +226,9 @@ target. The first step's jq is the image's. Before it runs anything of the
 tagged tree it checks that the tagged commit is on the default branch `main`
 and that the account that pushed the tag is an admin of the repository, not a
 bot; a tag that fails either check publishes nothing. It builds the console, the
-analytics program, the store and the MCP server (static, musl) with `cargo
-build --release --locked`, resolves the pins, runs
+analytics program, the store, the attachment checker, `tehas-dispatch`,
+`tehas-cycle`, outsource's `tehas-proxy` and `tehas-contractor`, and the MCP
+server (static, musl) with `cargo build --release --locked`, resolves the pins, runs
 the pack command above (which refuses any program whose e_machine is not the
 one its `--arch` promises), signs the tarball and `host/release/install` (when the
 tag has one) with minisign, checks both signatures against
