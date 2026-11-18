@@ -415,11 +415,23 @@ pub fn env_options(
     ensemble: &[String],
     tokens: &[String],
 ) -> Vec<String> {
+    env_options_of(kind, who, ensemble, tokens, crate::read_only::on())
+}
+
+/// [`env_options`] with the host's read-only setting given, not read: the
+/// tests ask for each mode without changing the process's environment, which
+/// a test running beside them would read (#2311).
+fn env_options_of(
+    kind: Kind,
+    who: &Identity,
+    ensemble: &[String],
+    tokens: &[String],
+    read_only: bool,
+) -> Vec<String> {
     let mut vars = Vec::new();
     if kind.token() {
         vars.push("GH_TOKEN".to_string());
     }
-    let read_only = crate::read_only::on();
     vars.extend([
         "PI_ENSEMBLE_SANDBOX_MODE=1".to_string(),
         format!("PI_ENSEMBLE_WORKSPACE_ROOT={}", who.tree),
@@ -1482,8 +1494,8 @@ mod tests {
             4,
             "the four keys a container always has"
         );
-        let env = with_read_only(false, || env_of(Kind::Cycle));
-        let read_only = with_read_only(true, || env_of(Kind::Cycle));
+        let env = env_in(Kind::Cycle, false);
+        let read_only = env_in(Kind::Cycle, true);
         let at = |name: &str| {
             env_word(&read_only, name)
                 .unwrap_or_else(|| panic!("no {name} in a read-only container"))
@@ -1518,7 +1530,7 @@ mod tests {
     #[test]
     fn the_count_is_the_number_of_keys_and_values() {
         for read_only in [false, true] {
-            let env = with_read_only(read_only, || env_of(Kind::Cycle));
+            let env = env_in(Kind::Cycle, read_only);
             // The name of every `-e` option, each of its two words.
             let names: Vec<&str> = env
                 .iter()
@@ -1569,34 +1581,6 @@ mod tests {
         }
     }
 
-    /// What the host's setting says while <what> runs, and is put back after.
-    /// A container's git is the read-only one only when the host's instance is,
-    /// so a case that asks for one mode gets that mode and no other.
-    fn with_read_only<T>(on: bool, what: impl FnOnce() -> T) -> T {
-        // One at a time: the setting is the process's, and a case beside this
-        // one that turns it on would change what this one reads.
-        static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _held = SETTING.lock().unwrap_or_else(|e| e.into_inner());
-        let name = crate::read_only::NAME;
-        let was = std::env::var_os(name);
-        // Safety: the setting is set for the moment of one call and its old
-        // value is put back after it, and no other test of the workspace reads
-        // the environment of the host.
-        unsafe {
-            if on {
-                std::env::set_var(name, "1");
-            } else {
-                std::env::remove_var(name);
-            }
-            let got = what();
-            match &was {
-                Some(v) => std::env::set_var(name, v),
-                None => std::env::remove_var(name),
-            }
-            got
-        }
-    }
-
     const WHO: Identity = Identity {
         tree: "/w/widget",
         name: "A Bot",
@@ -1605,12 +1589,18 @@ mod tests {
 
     // The whole list of a kind, literally: what test/fixtures/argv holds for
     // the same inputs. name holds a space, so it is compared by word.
+    // Of an instance that writes, whatever the environment of the test process.
     fn env_of(kind: Kind) -> Vec<String> {
-        env_options(
+        env_in(kind, false)
+    }
+
+    fn env_in(kind: Kind, read_only: bool) -> Vec<String> {
+        env_options_of(
             kind,
             &WHO,
             &["PI_ENSEMBLE_SUBAGENT_MODEL".to_string()],
             &["TEHAS_MODEL_KEY_MAIN".to_string()],
+            read_only,
         )
     }
 
