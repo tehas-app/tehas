@@ -85,7 +85,9 @@ container is named by that function, not a setting, as the path of the code
 index's copy is.
 
 The command makes the directory before the container starts and refuses to start
-a session when it is not a directory of the user the session runs as. The
+a session when it is not a directory of the user the session runs as. It asks
+again once it holds the clone's lock, and makes the directory again if the
+cleaner took it while the command waited for the lock. The
 cleaner takes it when the disk is under `TEHAS_CLEAN_MIN_FREE` and it has not
 been written to for `TEHAS_CLEAN_AFTER` hours, of a clone that no session holds:
 see [clean](/tools-clean#tehasbot-clean). Nothing else under `<name>.state` is ever
