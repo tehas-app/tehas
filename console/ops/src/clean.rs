@@ -2695,6 +2695,37 @@ mod tests {
         assert!(own_dir(&target, account::uid()));
     }
 
+    #[test]
+    fn a_session_refuses_a_link_left_at_the_build_output_during_its_wait() {
+        let root = TestDir::new("clean-open-session-link");
+        let home = root.join("home");
+        let target = home.join("dev/frank.state/target");
+        let lock = home.join("state/dev/frank.lock");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        let cleaner = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&lock)
+            .unwrap();
+        cleaner.try_lock().unwrap();
+        let shown = home.display().to_string();
+        let session = std::thread::spawn(move || open_session(&shown, "frank", 30).is_ok());
+        let begun = Instant::now();
+        while !target.is_dir() {
+            assert!(begun.elapsed() < Duration::from_secs(30), "no target made");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Most often the session is in its wait by now; a link that lands
+        // before its first look is refused there, the same answer.
+        fs::remove_dir(&target).unwrap();
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+        cleaner.unlock().unwrap();
+        assert!(!session.join().unwrap());
+        assert!(is_link(&target));
+    }
+
     enum LockShape {
         None,
         File,
