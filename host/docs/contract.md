@@ -17,8 +17,7 @@ alphas. Each is a row of `api/renames-1.0.tsv`, and
 [tehas update](/tools-update#tehas-update) lists every one an instance still
 uses.
 
-The rules below are proposed for 1.0 and wait for the owner's review on the
-train: [the rules for 1.x](#the-rules-for-1x).
+The rules 1.x keeps are in [the rules for 1.x](#the-rules-for-1x).
 
 ## Public and internal
 
@@ -101,7 +100,7 @@ describe one driver's steps and the Protolab, and may change. The fields of
 
 ## The rules for 1.x
 
-Proposed for 1.0 on 2026-11-18, for the owner to review.
+Decided for 1.0 on 2026-11-18.
 
 - **Readers.** A program that reads a `--json` object, `tehas api --json`,
   `api/settings-rules.json` or an MCP answer ignores a field it does not know.
