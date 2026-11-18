@@ -211,6 +211,8 @@ jobs:
         working-directory: console
         run: |
           # cargo kani takes no --locked; the build still reads Cargo.lock.
-          args=()
+          # --all-features: modules such as tehas-core's retry build only with
+          # a feature, and a harness not built is a harness not run.
+          args=(--all-features)
           for crate in $KANI_CRATES; do args+=(-p "$crate"); done
           cargo kani "${args[@]}"

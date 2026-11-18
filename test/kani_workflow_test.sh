@@ -28,6 +28,9 @@ t_case "Kani is installed at a pinned version"
 t_contains "$job" 'cargo install --locked kani-verifier --version "$KANI_VERSION"'
 t_contains "$job" 'grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"'
 
+t_case "the proofs build every feature, so no harness is left out"
+t_contains "$job" 'args=(--all-features)'
+
 t_case "every crate with a #[cfg(kani)] module is proved"
 crates=$(sed -n 's/^ *KANI_CRATES: //p' <<<"$job")
 while read -r dir; do
