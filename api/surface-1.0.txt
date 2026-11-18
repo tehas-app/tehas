@@ -1,0 +1,553 @@
+# The public surface of tehas 1.x, one name per line, from 1.0 on: the
+# commands and subcommands of api/commands.txt and their public flags, the
+# settings and roles of api/settings-rules.json, the labels of
+# host/labels.tsv and the fields of the --json objects of api/*.schema.json,
+# an array's items written `[]`. A feature still being built is not here, nor
+# are the flags api/commands.txt marks internal or the fields under those
+# host/docs/contract.md says may change.
+#
+# Lines are only added, at the end, in the release that brings the name.
+# None is taken out or changed within 1.x. console/tests/surface.rs fails
+# when the surface loses a name of this file, and when it has one this file
+# does not list yet.
+
+command analytics
+command analytics copy
+command analytics report
+command api
+command check-product
+command dev
+command disk
+command dispatch
+command drain
+command export
+command freeze
+command github
+command github check
+command github writes
+command help
+command history
+command host-message
+command host-message clear
+command host-message list
+command host-message set
+command index
+command init-product
+command labels
+command limit
+command limit clear
+command limit set
+command mcp
+command mcp key
+command order
+command order clear
+command order set
+command panel
+command panel clear
+command panel set
+command pause
+command plan
+command refresh
+command resume
+command setup
+command start
+command state
+command state check
+command state copy
+command state load
+command state pack
+command state unpack
+command status
+command stop
+command thaw
+command top
+command update
+command work
+flag analytics copy --json
+flag analytics copy --to
+flag api --json
+flag check-product --sandbox
+flag dev --author
+flag dev --issue
+flag disk --cycles
+flag disk --full
+flag disk --json
+flag dispatch --dry-run
+flag dispatch --soon
+flag drain --json
+flag drain --wait
+flag export --after
+flag export --json
+flag freeze --json
+flag freeze --reason
+flag history --after
+flag history --issue
+flag history --json
+flag host-message --json
+flag host-message list --json
+flag host-message set --level
+flag host-message set --link
+flag host-message set --text
+flag init-product --dry-run
+flag limit --json
+flag limit set --cycles
+flag limit set --for
+flag limit set --plan
+flag limit set --reason
+flag limit set --until
+flag order --json
+flag order set --for
+flag order set --issues
+flag order set --only
+flag order set --reason
+flag order set --until
+flag panel --json
+flag panel set --label
+flag panel set --url
+flag pause --reason
+flag refresh --json
+flag refresh --pr
+flag setup --app-id
+flag setup --app-key-file
+flag setup --app-name
+flag setup --app-owner
+flag setup --control-issue
+flag setup --endpoint
+flag setup --force
+flag setup --labelers
+flag setup --model
+flag setup --model-key-file
+flag setup --new-app
+flag setup --no-build
+flag setup --provider
+flag setup --repo
+flag start --clear
+flag start --json
+flag state check --json
+flag state copy --json
+flag state copy --to
+flag state load --from
+flag state load --json
+flag state pack --rehearse
+flag state unpack --rehearse
+flag status --json
+flag stop --keep-workspace
+flag thaw --json
+flag top --every
+flag top --once
+flag update --accept-id
+flag update --check
+flag update --pending
+flag update --to
+flag work --driver
+flag work --restart
+setting PI_ENSEMBLE_HOST_ALIASES
+setting PI_ENSEMBLE_SUBAGENT_MODEL
+setting PI_ENSEMBLE_SUBAGENT_PROVIDER
+setting PI_RUKAS_FOLLOW
+setting TEHAS_ALLOWED_LABELERS
+setting TEHAS_ANALYTICS
+setting TEHAS_ASSIGNEE
+setting TEHAS_BRANCH
+setting TEHAS_BRANCH_CHECK
+setting TEHAS_BUILD_TIMEOUT
+setting TEHAS_CHILD_TIMEOUT
+setting TEHAS_CLEAN_AFTER
+setting TEHAS_CLEAN_DIRS
+setting TEHAS_CLEAN_MIN_FREE
+setting TEHAS_CLONE_DEPTH
+setting TEHAS_CONTROL_ISSUE
+setting TEHAS_CYCLE_MIN_FREE
+setting TEHAS_CYCLE_RESERVE
+setting TEHAS_CYCLE_STOP_FREE
+setting TEHAS_DESIGN
+setting TEHAS_DOMAIN
+setting TEHAS_DRIVER
+setting TEHAS_EGRESS
+setting TEHAS_EGRESS_HOSTS
+setting TEHAS_ENERGY
+setting TEHAS_ENERGY_SOURCE_URL
+setting TEHAS_ENERGY_URL
+setting TEHAS_GITHUB_APP_ID
+setting TEHAS_GITHUB_RENEW_EVERY
+setting TEHAS_HOME
+setting TEHAS_HOST_ADDR
+setting TEHAS_INSTANCE_DIR
+setting TEHAS_ISSUE_TYPES
+setting TEHAS_MAX_AWAITING
+setting TEHAS_MAX_CYCLES
+setting TEHAS_MCP
+setting TEHAS_MCP_DASHBOARD_KEYS
+setting TEHAS_MCP_KEYS
+setting TEHAS_MILLWRIGHT_APP
+setting TEHAS_MILLWRIGHT_EPICS
+setting TEHAS_MILLWRIGHT_FEED
+setting TEHAS_MILLWRIGHT_MAX_FEEDS
+setting TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+setting TEHAS_MILLWRIGHT_MAX_RETRIES
+setting TEHAS_MODEL_KEY_<NAME>
+setting TEHAS_PLAN_MAX_TURNS
+setting TEHAS_PLAN_TIMEOUT
+setting TEHAS_POLL_BUDGET
+setting TEHAS_POLL_SECS
+setting TEHAS_PREVIEWS
+setting TEHAS_PREVIEW_MAX
+setting TEHAS_PREVIEW_MIN_FREE
+setting TEHAS_PROTOLAB_URL
+setting TEHAS_READ_ONLY
+setting TEHAS_REFRESH_MAX_PER_PR
+setting TEHAS_REFRESH_SLOTS
+setting TEHAS_RELEASE_REPO
+setting TEHAS_REPO
+setting TEHAS_REVIEW
+setting TEHAS_REVIEW_REPO
+setting TEHAS_RUKAS_WORKAROUNDS
+setting TEHAS_SCRATCH_DIR
+setting TEHAS_SCRATCH_MAX
+setting TEHAS_SITE_ANALYTICS_COOKIE
+setting TEHAS_SITE_ANALYTICS_NAME
+setting TEHAS_SITE_ANALYTICS_SRC
+setting TEHAS_SITE_CONSOLE
+setting TEHAS_SITE_INDEXING
+setting TEHAS_SIZE_MAX_BYTES
+setting TEHAS_SIZE_MAX_FILES
+setting TEHAS_SIZE_MAX_LINES
+setting TEHAS_SLICE_CONTAINERS
+setting TEHAS_TOP
+setting TEHAS_UPDATE_FROM
+setting TEHAS_UPDATE_LOCK_WAIT
+setting TEHAS_VERIFY_TIMEOUT
+setting TEHAS_WORKSPACE_KEEP_DAYS
+setting TEHAS_WORKSTREAMS
+setting TEHAS_WORK_COMMENTS
+setting TEHAS_WORK_DESCRIBE
+setting TEHAS_WORK_FILES
+setting TEHAS_WORK_IMAGES
+setting TEHAS_WORK_REPO
+setting TEHAS_WORK_STALL
+setting TEHAS_WORK_TIMEOUT
+setting TEHAS_WORK_ZIPS
+role ADVERSARIAL_DEVELOPER
+role CODE_REVIEW_SPECIALIST
+role DEVELOPER
+role EXPLORE
+role OPS
+label epic
+label needs-human-attention
+label tehas:all-hands
+label tehas:awaiting-merge
+label tehas:blocked
+label tehas:classic
+label tehas:finish
+label tehas:improvement
+label tehas:lean
+label tehas:millwright-escalated
+label tehas:pause
+label tehas:plan
+label tehas:planning
+label tehas:prototype
+label tehas:question
+label tehas:ready
+label tehas:refine
+label tehas:refined
+label tehas:refreshing
+label tehas:replaced
+label tehas:running
+label tehas:shipped
+field analytics-copy.api
+field analytics-copy.from
+field analytics-copy.runs
+field analytics-copy.schema
+field analytics-copy.to
+field api.api
+field api.commit
+field api.features
+field api.flags
+field api.millwright
+field api.poll
+field api.poll.hour
+field api.poll.hour.cpuMs
+field api.poll.hour.polls
+field api.poll.hour.writes
+field api.poll.last
+field api.poll.last.ageMin
+field api.poll.last.at
+field api.poll.last.cpuMs
+field api.poll.last.gh
+field api.poll.last.kinds
+field api.poll.last.kinds.comment
+field api.poll.last.kinds.edit
+field api.poll.last.kinds.label
+field api.poll.last.kinds.other
+field api.poll.last.starts
+field api.poll.last.wallMs
+field api.poll.last.writes
+field api.repo
+field api.tehas
+field disk-cycles.api
+field disk-cycles.cycles
+field disk-cycles.cycles.list
+field disk-cycles.cycles.list[].blockWrittenBytes
+field disk-cycles.cycles.list[].container
+field disk-cycles.cycles.list[].issue
+field disk-cycles.cycles.list[].why
+field disk-cycles.cycles.list[].writableBytes
+field disk-cycles.cycles.state
+field disk-cycles.cycles.why
+field disk-cycles.dockerRoot
+field disk-cycles.filesystems
+field disk-cycles.filesystems[].freeBytes
+field disk-cycles.filesystems[].mount
+field disk-cycles.filesystems[].paths
+field disk-cycles.filesystems[].totalBytes
+field disk-cycles.filesystems[].why
+field disk-cycles.full
+field disk-cycles.full.containers
+field disk-cycles.full.containers[].command
+field disk-cycles.full.containers[].id
+field disk-cycles.full.containers[].image
+field disk-cycles.full.docker
+field disk-cycles.full.docker.lines
+field disk-cycles.full.docker.state
+field disk-cycles.full.places
+field disk-cycles.full.places[].bytes
+field disk-cycles.full.places[].cut
+field disk-cycles.full.places[].path
+field disk-cycles.full.stoppedContainers
+field disk-cycles.time
+field disk.api
+field disk.dockerRoot
+field disk.filesystems
+field disk.filesystems[].freeBytes
+field disk.filesystems[].mount
+field disk.filesystems[].paths
+field disk.filesystems[].totalBytes
+field disk.filesystems[].why
+field disk.full
+field disk.full.containers
+field disk.full.containers[].command
+field disk.full.containers[].id
+field disk.full.containers[].image
+field disk.full.docker
+field disk.full.docker.lines
+field disk.full.docker.state
+field disk.full.places
+field disk.full.places[].bytes
+field disk.full.places[].cut
+field disk.full.places[].path
+field disk.full.stoppedContainers
+field disk.time
+field drain.api
+field drain.drained
+field drain.limit
+field drain.limit.cycles
+field drain.limit.plan
+field drain.limit.reason
+field drain.limit.state
+field drain.limit.until
+field drain.running
+field export.api
+field export.next
+field export.runs
+field export.runs[].auto
+field export.runs[].by
+field export.runs[].cap
+field export.runs[].cursor
+field export.runs[].ended
+field export.runs[].failureCause
+field export.runs[].failureKind
+field export.runs[].filed
+field export.runs[].how
+field export.runs[].issue
+field export.runs[].kind
+field export.runs[].label
+field export.runs[].outcome
+field export.runs[].parkReason
+field export.runs[].parked
+field export.runs[].pr
+field export.runs[].progress
+field export.runs[].provider
+field export.runs[].repeat
+field export.runs[].started
+field export.runs[].status
+field export.runs[].turn
+field export.to
+field export.version
+field freeze.api
+field freeze.asked
+field freeze.frozen
+field freeze.issue
+field freeze.running
+field history.api
+field history.next
+field history.runs
+field history.runs[].auto
+field history.runs[].by
+field history.runs[].cap
+field history.runs[].cursor
+field history.runs[].ended
+field history.runs[].failureCause
+field history.runs[].failureKind
+field history.runs[].filed
+field history.runs[].how
+field history.runs[].issue
+field history.runs[].kind
+field history.runs[].label
+field history.runs[].outcome
+field history.runs[].parkReason
+field history.runs[].parked
+field history.runs[].pr
+field history.runs[].progress
+field history.runs[].provider
+field history.runs[].repeat
+field history.runs[].started
+field history.runs[].status
+field history.runs[].turn
+field host-bridge.bridge
+field host-bridge.host
+field host-bridge.menu
+field host-bridge.menu[].id
+field host-bridge.menu[].label
+field host-bridge.menu[].url
+field host-bridge.ticketLink
+field host-bridge.ticketNotes
+field host-bridge.ticketNotes[].issue
+field host-bridge.ticketNotes[].link
+field host-bridge.ticketNotes[].text
+field host-bridge.time
+field host-messages.api
+field host-messages.messages
+field host-messages.messages[].at
+field host-messages.messages[].id
+field host-messages.messages[].level
+field host-messages.messages[].link
+field host-messages.messages[].text
+field limit.api
+field limit.cycles
+field limit.plan
+field limit.reason
+field limit.state
+field limit.until
+field order.api
+field order.issues
+field order.only
+field order.reason
+field order.state
+field order.until
+field panel.api
+field panel.panels
+field panel.panels[].id
+field panel.panels[].label
+field panel.panels[].url
+field refresh.api
+field refresh.asked
+field refresh.headSha
+field refresh.issue
+field refresh.pr
+field refresh.why
+field settings-rules.api
+field settings-rules.host
+field settings-rules.host[].default
+field settings-rules.host[].name
+field settings-rules.host[].reason
+field settings-rules.host[].rule
+field settings-rules.host[].when
+field settings-rules.host[].words
+field settings-rules.required
+field settings-rules.roles
+field settings-rules.settings
+field settings-rules.settings[].default
+field settings-rules.settings[].name
+field settings-rules.settings[].reason
+field settings-rules.settings[].rule
+field settings-rules.settings[].when
+field settings-rules.settings[].words
+field start.api
+field start.approval
+field start.approval.at
+field start.approval.bodySha256
+field start.approval.by
+field start.approval.how
+field start.approval.titleSha256
+field start.cleared
+field start.issue
+field state-check.api
+field state-check.integrity
+field state-check.ok
+field state-check.rows
+field state-check.schema
+field state-check.verb
+field state-copy.api
+field state-copy.ms
+field state-copy.rows
+field state-copy.schema
+field state-copy.target
+field state-load.api
+field state-load.ms
+field state-load.rows
+field state-load.schema
+field state-load.source
+field status.age
+field status.allHands
+field status.api
+field status.demand
+field status.demand.labelAlone
+field status.demand.oldestWait
+field status.demand.refreshHold
+field status.demand.waiting
+field status.held
+field status.held[].clear
+field status.held[].issue
+field status.held[].text
+field status.held[].why
+field status.hold
+field status.hold.text
+field status.hold.why
+field status.limit
+field status.limit.cycles
+field status.limit.plan
+field status.limit.state
+field status.limit.until
+field status.order
+field status.order.issues
+field status.order.only
+field status.order.reason
+field status.order.state
+field status.order.until
+field status.paused
+field status.paused.label
+field status.paused.local
+field status.planning
+field status.planning[].issue
+field status.planning[].since
+field status.planning[].turn
+field status.prototypes
+field status.pushFault
+field status.pushFault.at
+field status.pushFault.line
+field status.pushFault.login
+field status.readOnly
+field status.reasons
+field status.room
+field status.room.cycles
+field status.room.limit
+field status.room.maxAwaiting
+field status.room.refreshes
+field status.room.slice
+field status.running
+field status.running[].issue
+field status.running[].progress
+field status.running[].since
+field status.stale
+field status.state
+field status.time
+field status.versions
+field status.versions.platform
+field status.versions.platform.behind
+field status.versions.platform.commit
+field status.versions.platform.latest
+field status.versions.platform.release
+field status.versions.rukas
+field status.versions.rukas.behind
+field status.versions.rukas.latest
+field status.versions.rukas.version
