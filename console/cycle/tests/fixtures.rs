@@ -443,6 +443,10 @@ fn a_start_the_check_refused_names_its_cause_in_its_park() {
         ),
         ("tree-not-ours\n", "exists and was not made by tehas"),
         (
+            "scratch-unmade /mnt/scratch/widget-7\n",
+            "0 min: the cycle's scratch could not be made. The cycle's scratch `/mnt/scratch/widget-7` could not be emptied and made",
+        ),
+        (
             "install-failed 1\n",
             "0 min: the product's install failed (exit 1). The run log on the host holds its last lines.",
         ),

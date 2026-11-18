@@ -49,17 +49,39 @@ the update again. From a release, `--check` reads the release's own console;
 from the checkout, `--check` reads the console an earlier build left, so a
 real run, which builds first, is what names the rows there.
 
-### From v0.30.x
+The installed version loads the settings too, before it takes the lock. When
+that load stops on such a row, it also lists every one of them, the rows of
+`instance.env` and of `~/.config/tehas/env` its own `api/renames-1.0.tsv`
+names, and exits 78 before install.sh runs.
 
-A host on any v0.30.x release moves to 1.0 with `tehas update`. That run is
-v0.30.x's own: it reads the repository from its `versions.env` and the key
-from `~/tehas/release/minisign.pub`, and both are the ones 1.0 is published
+### From v0.30.x, v0.31.x or v0.32.x
+
+1.0 updates a host on any v0.30.x, v0.31.x or v0.32.x release, with
+`tehas update`. That run is the old release's own: it reads the repository
+and the key the old release reads, and they are the ones 1.0 is published
 and signed with. It asks 1.0's settings check before it switches
 `~/tehas/current`, so an instance that still sets a renamed setting stops with
 78 and nothing switched. From 1.0 on, the repository and the key are the ones
-built into tehas, and those two files are no longer read.
+built into tehas, and `versions.env` and `~/tehas/release/minisign.pub` are
+no longer read for them.
+
+A v0.30.x host can name only a release candidate or the release:
+`tehas update --to v1.0.0-rc.1` or `--to v1.0.0`. Its update does not take an
+alpha or a beta. A v0.31.x or v0.32.x host takes any of them when `--to`
+names it. To try a beta from v0.30.x, update to v0.32.0 first.
+
+v0.31.x and v0.32.x already refuse every setting 1.0 renamed or removed, so
+an instance that loads there needs no rename. A v0.30.x instance does.
 The steps a person takes, drain first, and every name 1.0 renamed or removed
 are in [Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
+
+**Known limit.** A program that manages the factory and writes 0.30 names
+into the factory's `instance.env`, such as `TEHAS_TICKET_CONCURRENCY`, stops
+the update with 78 and switches nothing: v0.31.x and later refuse the old
+name, and the manager writes it again on each upgrade. `TEHAS_INDUSTRY_VERSION`
+in `~/.config/tehas/env` is the one 0.30 name that is ignored, not refused.
+Until the manager writes 1.0's names, such a factory cannot be updated
+through it.
 
 ### From a release
 

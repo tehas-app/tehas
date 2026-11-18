@@ -559,6 +559,23 @@ mod tests {
     }
 
     #[test]
+    fn an_update_restarts_no_unit_of_a_building_feature_set_on() {
+        use tehas_core::features::{Stage, FEATURES};
+        let get = |name: &str| {
+            let mut building = FEATURES.iter().filter(|f| f.stage == Stage::Building);
+            if building.any(|f| f.setting == name) {
+                "on".to_string()
+            } else {
+                String::new()
+            }
+        };
+        let all = format!("units {}", UNITS.join(" "));
+        for source in ["env.sh", "systemd/tehas-top.service"] {
+            assert_eq!(steps_for_in(&lines(&[source]), &get), [all.as_str()]);
+        }
+    }
+
+    #[test]
     fn a_change_that_needs_no_follow_up_asks_for_none() {
         assert!(asked(&["libexec/dispatch", "docs/host.md", "lib/config.sh"]).is_empty());
         assert!(asked(&[

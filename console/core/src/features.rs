@@ -154,6 +154,16 @@ pub fn shipped() -> Vec<&'static str> {
         .collect()
 }
 
+/// Whether the setting is the switch or one of the own settings of a feature
+/// this release is still building: a row api/settings-rules.json marks
+/// `building`, which is not contract.
+pub fn building_setting(name: &str) -> bool {
+    FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building)
+        .any(|f| f.setting == name || f.settings.contains(&name))
+}
+
 /// A building feature's switch set to on, as the load refuses it. Err is the
 /// reason, without the file.
 pub fn refuse_building(get: &dyn Fn(&str) -> String) -> Result<(), String> {
@@ -255,6 +265,21 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), FEATURES.len());
+    }
+
+    #[test]
+    fn a_building_setting_is_a_building_features_switch_or_own_setting() {
+        for name in [
+            "TEHAS_OUTSOURCE",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "TEHAS_LEAN",
+        ] {
+            assert!(building_setting(name), "{name}");
+        }
+        for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
+            assert!(!building_setting(name), "{name}");
+        }
     }
 
     #[test]
@@ -468,5 +493,116 @@ mod tests {
         let names: Vec<&str> = flags().iter().map(|(n, _)| *n).collect();
         let want: Vec<&str> = FEATURES.iter().map(|f| f.name).collect();
         assert_eq!(names, want);
+    }
+
+    fn building() -> impl Iterator<Item = &'static Feature> {
+        FEATURES.iter().filter(|f| f.stage == Stage::Building)
+    }
+
+    /// The switch and the own settings of every building feature.
+    fn building_names() -> Vec<&'static str> {
+        building()
+            .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()))
+            .collect()
+    }
+
+    /// Labels older than the building feature that now reads them. Each is in
+    /// the feature's section of contract.md.
+    const KEPT_LABELS: [(&str, &str); 1] = [("lean", "tehas:lean")];
+
+    #[test]
+    fn no_building_feature_adds_a_label() {
+        let table = include_str!("../../../host/labels.tsv");
+        let mut labels: Vec<&str> = table
+            .lines()
+            .filter_map(|l| l.split('\t').next())
+            .filter(|n| !n.is_empty())
+            .collect();
+        labels.extend(crate::label_pins::PINNED);
+        labels.extend(crate::label_pins::GRANTING);
+        labels.extend([
+            crate::kinds::Kind::Improvement.label(),
+            crate::kinds::Kind::Prototype.label(),
+        ]);
+        let page = include_str!("../../../host/docs/contract.md");
+        for f in building() {
+            let own = |label: &str| {
+                label.strip_prefix("tehas:").is_some_and(|word| {
+                    word == f.name
+                        || word.starts_with(&format!("{}-", f.name))
+                        || word.starts_with(&format!("{}:", f.name))
+                })
+            };
+            for label in labels.iter().filter(|l| own(l)) {
+                assert!(
+                    KEPT_LABELS.contains(&(f.name, label)),
+                    "{label} is a label of {}, which is still being built",
+                    f.name
+                );
+            }
+        }
+        for (name, label) in KEPT_LABELS {
+            assert!(labels.contains(&label), "{label} is no label");
+            let start = page
+                .find(&format!("\n### {name}\n"))
+                .unwrap_or_else(|| panic!("contract.md has no section {name}"));
+            let section = &page[start + 1..];
+            let section = &section[..section.find("\n#").unwrap_or(section.len())];
+            assert!(
+                section.contains(&format!("`{label}`")),
+                "contract.md does not say {name} keeps {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_building_features_switch_defaults_to_off() {
+        for f in building() {
+            let row = crate::settings::rules::TABLE
+                .iter()
+                .find(|s| s.name == f.setting)
+                .unwrap();
+            assert_eq!(row.default.and_then(switch), Some(false), "{}", f.setting);
+        }
+    }
+
+    #[test]
+    fn no_rename_an_update_names_moves_a_value_onto_a_building_feature() {
+        let names = building_names();
+        let table = include_str!("../../../api/renames-1.0.tsv");
+        for line in table.lines().skip(1) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            for field in fields.iter().skip(1).take(2) {
+                let key = field.split('=').next().unwrap_or_default();
+                assert!(!names.contains(&key), "api/renames-1.0.tsv: {line}");
+            }
+        }
+    }
+
+    /// The update and the manual point at these files for an example line.
+    #[test]
+    fn the_example_instance_switches_no_building_feature_on() {
+        let names = building_names();
+        let switches: Vec<&str> = building().map(|f| f.setting).collect();
+        for text in [
+            include_str!("../../../instances/example/instance.env"),
+            include_str!("../../../instances/example/optional.env"),
+        ] {
+            for line in text.lines() {
+                let commented = line.starts_with('#');
+                let rest = line.trim_start_matches('#').trim_start();
+                let rest = rest.strip_prefix("export ").unwrap_or(rest);
+                let Some((key, value)) = rest.split_once('=') else {
+                    continue;
+                };
+                if !names.contains(&key) {
+                    continue;
+                }
+                assert!(commented, "the example sets {key}: {line}");
+                if switches.contains(&key) {
+                    assert_eq!(switch(value), Some(false), "{line}");
+                }
+            }
+        }
     }
 }

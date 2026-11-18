@@ -5719,6 +5719,52 @@ fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
     assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
 }
 
+/// #2200: the settle folds logins as the poll does, one `[bot]` off.
+#[test]
+fn a_comment_by_a_login_with_two_bot_suffixes_is_not_the_bots() {
+    use sha2::{Digest, Sha256};
+    let sum: String = Sha256::digest(b"Tehas cycle started.")
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    let open = json!([{"id": 6, "kind": "comment-post", "issue": 7, "state": "attempted",
+        "intended_at": 1792000000, "attempted_at": 1792000000,
+        "args": {"gh": ["issue", "comment", "7"], "input": {"sha256": sum, "bytes": 20}}}]);
+    let comment = |id: u64, login: &str| {
+        json!({"id": id, "body": "Tehas cycle started.", "user": {"login": login},
+        "created_at": "2026-10-15T00:00:00Z", "updated_at": "2026-10-15T00:00:00Z"})
+    };
+    let mut t = world();
+    t.w.host.bot = "acme-bot[bot]".into();
+    left_open(&t, open.clone());
+    fs::write(
+        t.dir.join("comments"),
+        json!([comment(41, "acme-bot[bot][bot]")]).to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert!(
+        log[0].contains("did not happen (no comment of the bot with its text is there)"),
+        "{log:?}"
+    );
+    let mut t = world();
+    t.w.host.bot = "acme-bot[bot]".into();
+    left_open(&t, open);
+    fs::write(
+        t.dir.join("comments"),
+        json!([comment(41, "acme-bot[bot][bot]"), comment(42, "acme-bot")]).to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 6 (comment-post on #7, 10s old) was done"]
+    );
+    assert!(settled(&t)[0].contains("--result ok"), "{:?}", settled(&t));
+}
+
 /// #1754: the park's tell as a poll sends it, and the row the store would keep
 /// for it once its post was answered with a 5xx: `unknown`, attempted, open.
 fn park_tell() -> Value {

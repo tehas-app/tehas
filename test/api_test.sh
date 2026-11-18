@@ -324,7 +324,10 @@ done
 t_run "$api --json"
 t_eq "$(fits_text "$t_out")" ""
 t_eq "$(jq -c '.required' "$schema")" "$(jq -c 'keys_unsorted' <<<"$t_out")"
-t_eq "$(jq -c '.properties.flags.required' "$schema")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+# The schema names every flag, and requires only a shipped feature's: a
+# building feature's key is outside the contract and may go.
+t_eq "$(jq -c '.properties.flags.properties | keys_unsorted' "$schema")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
+t_eq "$(jq -c '.properties.flags.required' "$schema")" "$(jq -c '.features as $f | [.flags | keys_unsorted[] | select(IN($f[]))]' <<<"$t_out")"
 t_eq "$(jq -c '.flags | keys_unsorted' "$T_ROOT/api/api.sample.json")" "$(jq -c '.flags | keys_unsorted' <<<"$t_out")"
 
 t_case "api.schema.json refuses a field it does not name, a flag that is no boolean and a word of another form"
@@ -333,6 +336,10 @@ t_eq "$(jq '.zz = 1 | .flags.lean = "on" | .features += ["Two words"]' "$T_ROOT/
   "$(printf '%s\n' '.zz: not in the schema' '.features[27]: "Two words" does not match "^[a-z][a-z0-9-]*$"' '.flags.lean: string, not boolean')"
 t_eq "$(jq 'del(.poll.last.ageMin) | .poll.hour.polls = -1' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" \
   "$(printf '%s\n' '.poll.last: ageMin is missing' '.poll.hour.polls: -1 is under 0')"
+
+t_case "api.schema.json: a building feature's key is not required in flags"
+reset
+t_eq "$(jq 'del(.flags.outsource, .flags.lean)' "$T_ROOT/api/api.sample.json" | fits_text "$(cat)")" ""
 
 t_case "api --json: features is api/features.txt, word for word and in its order"
 reset

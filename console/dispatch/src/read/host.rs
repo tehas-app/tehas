@@ -351,7 +351,8 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
 /// The free kilobytes of the disk of $TEHAS_HOME and of Docker's, the smaller;
 /// null when either cannot be read.
 pub fn disk(home: &Path) -> Value {
-    let wait = secs("TEHAS_DISK_WAIT", 10);
+    let wait = tehas_core::disk::wait(std::env::var("TEHAS_DISK_WAIT").ok().as_deref());
+    let wait = Duration::from_secs(wait);
     let kb = tehas_core::disk::free_kb(&home.to_string_lossy(), |program, args| {
         let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
         let r = run(program, &args, wait);

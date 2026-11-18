@@ -178,7 +178,8 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_READ_ONLY",
@@ -204,70 +205,80 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_TIMEOUT",
       "rule": "count",
       "when": "always",
       "default": "600",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_GRACE",
       "rule": "count",
       "when": "always",
       "default": "120",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_RETRIES",
       "rule": "count",
       "when": "always",
       "default": "2",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_REST",
       "rule": "count",
       "when": "always",
       "default": "1800",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_REPOS",
       "rule": "repos",
       "when": "given",
       "default": "",
-      "reason": "expected owner/name repositories separated by single spaces"
+      "reason": "expected owner/name repositories separated by single spaces",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_CONTRACTORS",
       "rule": "contractors",
       "when": "given",
       "default": "",
-      "reason": "expected contractor names separated by single spaces"
+      "reason": "expected contractor names separated by single spaces",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_JOIN_TTL",
       "rule": "count",
       "when": "always",
       "default": "3600",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_PROXY_ADDR",
       "rule": "listen-address",
       "when": "always",
       "default": "127.0.0.1:8090",
-      "reason": "expected an address or host name and a port, as 127.0.0.1:8090"
+      "reason": "expected an address or host name and a port, as 127.0.0.1:8090",
+      "building": true
     },
     {
       "name": "TEHAS_OUTSOURCE_PROXY_IDLE",
       "rule": "count",
       "when": "always",
       "default": "900",
-      "reason": "expected a positive whole number"
+      "reason": "expected a positive whole number",
+      "building": true
     },
     {
       "name": "TEHAS_SPEC_PIPE",
@@ -280,7 +291,8 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_REVIEW",
@@ -610,14 +622,16 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_PROTOLAB_ZIP_HOSTS",
       "rule": "domains",
       "when": "given",
       "default": "",
-      "reason": "expected domains such as files.example.org, in lower case, separated by single spaces"
+      "reason": "expected domains such as files.example.org, in lower case, separated by single spaces",
+      "building": true
     },
     {
       "name": "TEHAS_PROTOTYPE_FILE",
@@ -630,7 +644,8 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_ENERGY_SOURCE_URL",
