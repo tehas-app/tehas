@@ -634,9 +634,9 @@ pub fn unreadable(committed: u64, max: u64, note: String) -> Room {
 
 /// full avg60 from the text of memory.pressure, as the kernel wrote it (0.00).
 /// A figure is at most 18 digits, with at most one dot and at most 18 digits
-/// on both sides of it: "7", "0.00", "3.41". The bound is [`num`]'s, and it is
-/// what lets `room` multiply the figure by 100 without checking. A line that
-/// holds none answers None, which the room says as `<file> has no full avg60`.
+/// on both sides of it: "7", "0.00", "3.41". The bound is [`num`]'s: each side
+/// parses as a u64. A line that holds none answers None, which the room says as
+/// `<file> has no full avg60`.
 pub fn full_avg60(text: &str) -> Option<String> {
     let all = |s: &str| !s.is_empty() && s.len() <= 18 && s.bytes().all(|b| b.is_ascii_digit());
     for line in text.lines() {
@@ -757,10 +757,10 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
     // ceiling is alone.
     if committed * 2 > max {
         // The figure of a full line, in hundredths: the two sides of the dot,
-        // at most two places after it. full_avg60 answers only figures of at
-        // most 18 digits, so the sum of the two cannot overflow; the arm that
-        // cannot is a caller that made the string itself, and it holds. A stall
-        // that cannot be sized is no reading of a slice that never waited.
+        // at most two places after it. Each side of an answer of full_avg60
+        // parses, but a whole part of 18 digits times 100 overflows: that arm
+        // is a stall too big to count, and it holds. A stall that cannot be
+        // sized is no reading of a slice that never waited.
         let hundredths = |v: &str| -> Option<u64> {
             let (i, f) = v.split_once('.').unwrap_or((v, "0"));
             let f: String = f.chars().take(2).collect();
@@ -970,8 +970,12 @@ mod tests {
             promised("x").note,
             "/sys/fs/cgroup/tehas.slice/memory.pressure has no full avg60"
         );
-        // A figure past what the reader may multiply is read as a stall, not
-        // as no stall: the room holds and says why.
+        // A figure the reader can parse but not count in hundredths is a
+        // stall, not no stall: the room holds and says why.
+        let huge = promised("999999999999999999.00");
+        assert_eq!((huge.room, huge.why.as_str()), (0, "pressure"));
+        // A figure longer than full_avg60 takes is no figure: the room holds
+        // as unreadable.
         let absurd = promised("99999999999999999999.00");
         assert_eq!(absurd.room, 0);
         assert_eq!(
@@ -1013,9 +1017,8 @@ mod tests {
         assert_eq!(read("full avg60=x5"), None);
         assert_eq!(read("full avg60=1.00 avg60=x").as_deref(), Some("1.00"));
         assert_eq!(read("some avg60=1.00"), None);
-        // A figure is at most 18 digits on each side of the dot, num()'s bound,
-        // and the room multiplies it by 100: a longer one is no figure rather
-        // than a stall too big to count.
+        // A figure is at most 18 digits on each side of the dot, num()'s bound:
+        // a longer one is no figure.
         assert_eq!(
             read("full avg60=999999999999999999.00").as_deref(),
             Some("999999999999999999.00")

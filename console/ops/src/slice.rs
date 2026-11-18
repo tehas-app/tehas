@@ -34,8 +34,8 @@
 //! room (promised to the full), full (as many containers as their ceilings
 //! fit), pressure (full avg60 above 10 and more than half the max promised) or
 //! unreadable (room is 0, and <note> names the file and what was missing). A
-//! pressure the reader cannot make a figure of is why pressure, not the 0.00 of
-//! a slice that never stalled.
+//! full avg60 that is no figure is unreadable, and one too big to count in
+//! hundredths is why pressure, never the 0.00 of a slice that never stalled.
 //!
 //!   console slice pressure
 //!
