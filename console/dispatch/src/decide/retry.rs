@@ -4,8 +4,8 @@
 
 use super::clean::iso;
 use super::{
-    base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll, Room, Start, Step,
-    CLASSIC, LEAN,
+    base_approver, base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll,
+    Room, Start, Step, CLASSIC, LEAN,
 };
 use crate::questions;
 use crate::text;
@@ -842,10 +842,11 @@ impl Poll<'_> {
         let count = refresh_count(&record, &rests);
         let by = rests["by"].as_str().unwrap_or("").to_string();
         let at = rests["at"].as_str().unwrap_or("").to_string();
+        let approver = base_approver(&rests).to_string();
         if !self.unchanged_since(
             n,
             &at,
-            &by,
+            &approver,
             &format!("{by} approved it"),
             "a person applies tehas:ready",
         )? {

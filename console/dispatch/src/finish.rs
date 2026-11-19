@@ -17,7 +17,7 @@
 //! poll logs is the record: `finish #<n>: ...` in `dispatch.log`, which
 //! `factory_decisions` answers.
 
-use crate::decide::{base_stands, fixer_base, fixer_starts};
+use crate::decide::{base_approver, base_stands, fixer_base, fixer_starts};
 use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
@@ -207,6 +207,7 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
     };
     let by = base["by"].as_str().unwrap_or("");
     let since = base["at"].as_str().unwrap_or("");
+    let approver = base_approver(&base);
     if body_sha256(&a.edit) != base["body_sha256"].as_str().unwrap_or("") {
         return Ok(Some(format!("its text is not the text {by} approved")));
     }
@@ -220,7 +221,7 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
             "the millwright has started {had} cycles on it since {by} approved it, more than TEHAS_MILLWRIGHT_MAX_RETRIES"
         )));
     }
-    if edit_holds(&a.edit, since, by, &|w| c.allowed(w)).is_some() {
+    if edit_holds(&a.edit, since, approver, &|w| c.allowed(w)).is_some() {
         if edit_history_unread(&a.edit, &|w| c.allowed(w)) {
             return Err("its edit history could not be read".into());
         }
@@ -229,7 +230,7 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
         )));
     }
     if let Events::Read(ev) = &a.events {
-        if first_unallowed_rename(ev, since, by, &|w| c.allowed(w)).is_some() {
+        if first_unallowed_rename(ev, since, approver, &|w| c.allowed(w)).is_some() {
             return Ok(Some(format!(
                 "its title or text was changed since {by} approved it"
             )));
