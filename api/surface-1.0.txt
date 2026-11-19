@@ -556,3 +556,7 @@ field status.testFeatures
 field status.testFeatures.features
 field status.testFeatures.read
 field status.testFeatures.lab
+field status.previews
+field status.previews[].number
+field status.previews[].state
+field status.previews[].url

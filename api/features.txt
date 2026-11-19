@@ -29,3 +29,4 @@ host-message
 refresh-pr
 host-start
 flags
+status-previews
