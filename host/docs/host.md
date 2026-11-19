@@ -1636,9 +1636,10 @@ image: one `work` turn started inside it, in a container with no network
 (`--network none`), no token and no model, small memory and pids bounds of its
 own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
-such line, or a result that says its runner crashed, is refused, the build
-exits 1 and the uid tag stays where it was, as for a layer that does not
-build. After a started turn the smoke run adds a memory with vipune and
+such line, or a result that says its runner crashed, is refused and the build
+exits 1. A refused platform image leaves the uid tag where it was. A refused
+instance layer, like a layer that does not build, leaves it on this build's
+platform image, without the layer, and the build's last line says so. After a started turn the smoke run adds a memory with vipune and
 searches it back, in a second container with no network, as the build's uid,
 on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
 on). dockerd checks that CPU against the list it read when it started, so in
