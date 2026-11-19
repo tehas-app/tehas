@@ -77,6 +77,28 @@ echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7"
 
+# The page still lists the label, but the events read since say it came off:
+# the earlier application approves nothing, and the poll changes nothing.
+t_case "an approval taken off after it was given starts nothing while the labels still list it"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"},
+       {"event":"unlabeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:01:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: tehas:ready was taken off by 'alice' since it was applied"
+t_lacks "$t_out" "not an allowed account"
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "an approval applied again after it was taken off starts the cycle"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"},
+       {"event":"unlabeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:01:00Z"},
+       {"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:02:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (labelled by alice)"
+
 t_case "a login that only contains an allowed one is not allowed"
 reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice2"}}]' >"$fx/events-7.json"
@@ -475,5 +497,32 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "refused: the label tehas:ready is not the one pinned in state/labels (pinned LA_ready, now LA_bug)"
 t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_ready')"
+
+# The list may name a GitHub account called unknown. An application the pins
+# refuse is logged as unknown's but is nobody's, and grants nothing.
+t_case "with the account unknown on the list, a refused application grants nothing"
+reset
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'TEHAS_ALLOWED_LABELERS="alice unknown"'
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[{"id":"LA_ready","name":"tehas:ready"}]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_bug"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "refused: an application of tehas:ready on #7 is of another label than the one pinned in state/labels (pinned LA_ready, event LA_bug)"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'unknown', not an allowed account"
+
+t_case "the account unknown on the list grants with the pinned label"
+reset
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'TEHAS_ALLOWED_LABELERS="alice unknown"'
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[{"id":"LA_ready","name":"tehas:ready"}]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_ready"},"actor":{"login":"unknown"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "refused"
 
 t_done

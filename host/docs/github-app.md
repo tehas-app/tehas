@@ -272,6 +272,11 @@ GraphQL carry the id of their label:
   name, the pinned id and the event's id. When the label that now carries a
   granting name is not the pinned one, no application of it counts that poll,
   and the log says `refused: the label <name> is not the one pinned`.
+- The log names such an application's account `unknown`. It is no account:
+  it counts as nobody's even when `TEHAS_ALLOWED_LABELERS` names a GitHub
+  account called `unknown`, whose own application of a pinned label counts
+  as any listed account's does. The same holds for a millwright app called
+  `unknown`.
 - A pinned label the poll's read of the labels did not name (deleted, or
   pushed off the read's page of 100 by other `tehas:` labels), and every
   pinned label when the labels could not be read, grants nothing that poll:

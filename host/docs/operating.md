@@ -244,6 +244,14 @@ compute on the issue.
   permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
+- The application must still stand: the newest event of the label is that
+  application. A label the issue's events say was taken off since approves
+  nothing, even when the poll's list of the issue's labels still has it; the
+  log says `skip #<n>: tehas:ready was taken off by '<who>' since it was
+  applied`, and nothing on the issue changes. Of two events in one second the
+  removal counts as the later. The same holds for `tehas:blocked`,
+  `tehas:plan`, `tehas:refine`, `tehas:finish`, the driver labels and
+  `tehas:prototype`.
 - The label must be the one the factory pinned. A label event names the
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
@@ -1012,6 +1020,8 @@ Who may ask:
   allowed may still be finished.
 - Anyone else is ignored: the label stays, nothing runs, and the log says
   `ignore #<n>: tehas:finish was applied by '<who>', not an allowed account`.
+  So is an ask whose label the events say was taken off since:
+  `ignore #<n>: tehas:finish was taken off by '<who>' since it was applied`.
 
 The poll's finish step takes no slot and starts no agent and no cycle. It runs
 after the poll's own decisions, at most three asks a poll, and not on a poll

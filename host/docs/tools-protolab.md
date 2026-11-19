@@ -50,7 +50,10 @@ A ticket is at the prototype stage only while its most recent `tehas:prototype`
 labelling is by an account in `TEHAS_ALLOWED_LABELERS`, read the same way the
 dispatcher reads `tehas:ready`. A label applied by anyone else, the bot
 included, counts as no label at all: the ticket gets no page, a page it had is
-removed, and the log names the issue and the account. Where a ticket's events
+removed, and the log names the issue and the account. So does a label the
+events say was taken off since it was applied, though the list of tickets still
+has it: `#<n>: tehas:prototype was taken off by '<who>' since it was applied`.
+Where a ticket's events
 cannot be read the pass builds nothing for that ticket and removes nothing: a
 page it had stays as it was. The pass reads its own login before it reads,
 builds or removes anything of a ticket, and stops with exit 78 when

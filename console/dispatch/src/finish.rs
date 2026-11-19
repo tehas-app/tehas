@@ -25,7 +25,8 @@ use crate::Settings;
 use serde_json::Value;
 use tehas_core::call::Ran;
 use tehas_core::events::{
-    edit_history_unread, edit_holds, first_unallowed_rename, label_actor, Event, Events,
+    edit_history_unread, edit_holds, first_unallowed_rename, label_state, standing_actor, Event,
+    Events, LabelState,
 };
 use tehas_core::text::disarm;
 
@@ -66,9 +67,16 @@ pub fn asked(snap: &Value, control: u64) -> Vec<u64> {
 }
 
 /// Who applied the label and how they may ask, or the line that ignores the
-/// ask: the label of an account outside the list that is not the millwright.
+/// ask: the label of an account outside the list that is not the millwright,
+/// or one the events say was taken off since.
 fn asker(c: &Settings, n: u64, ev: &[Event]) -> Result<(String, String, &'static str), String> {
-    let (who, at) = label_actor(ev, LABEL);
+    if let LabelState::Unlabeled { actor, .. } = label_state(ev, LABEL) {
+        let by = if actor.is_empty() { "unknown" } else { &actor };
+        return Err(format!(
+            "ignore #{n}: {LABEL} was taken off by '{by}' since it was applied"
+        ));
+    }
+    let (who, at) = standing_actor(ev, LABEL);
     if c.allowed(&who) {
         Ok((who, at, "label"))
     } else if c.is_millwright(&who) {

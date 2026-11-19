@@ -2,17 +2,24 @@
 //!
 //! One rule for an event with no time, and it has two directions: an event
 //! with no `created_at` is older than any when it must not authorise something
-//! (`label_actor`, `label_state`, `pause_holds`: an unstamped application is
-//! not the latest one), and later than any when it must veto one
+//! (`label_actor`, `label_state`, `standing_actor`, `pause_holds`: an
+//! unstamped application is not the latest one), and later than any when it
+//! must veto one
 //! (`first_unallowed_rename`: an unstamped rename is never the title an
 //! approval covered). Each direction holds the start, never lets it.
 
 use crate::accounts::account;
 use serde_json::Value;
 
-/// The account of an event that names nobody: tehas's word for it, the same
-/// one decide's `or_unknown` answers for an empty login.
+/// The account of an event that names nobody, as a person reads it: the
+/// same word decide's `or_unknown` answers for an empty login. A list may
+/// name a GitHub account of that login, so no rule compares this word with
+/// one: they compare [`NOBODY`].
 pub const UNKNOWN_ACTOR: &str = "unknown";
+
+/// The login of an event that names nobody, such as an application the pins
+/// refuse. `allowed_in` allows no list to hold it.
+pub const NOBODY: &str = "";
 
 /// One label event of an issue, as the REST events list gives it.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,7 +105,8 @@ pub fn allowed_in(list: &str, login: &str) -> bool {
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
 /// sharing a stamp keep their order; one with no stamp is older than any.
-/// Empty strings when no event applied it.
+/// Empty strings when no event applied it. A label taken off since still names
+/// its applier here, so an approval reads `standing_actor` instead.
 pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
     let mut v: Vec<&Event> = events
         .iter()
@@ -206,6 +214,18 @@ pub fn label_state(events: &[Event], label: &str) -> LabelState {
     }
 }
 
+/// Who applied `label` and when, as `label_actor` gives it, when the newest
+/// event of the label in `label_state`'s order is that application: the
+/// account an approval is judged by. Empty strings when the label was taken
+/// off since or never applied, so a removal the issue's labels do not show yet
+/// grants nothing.
+pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
+    match label_state(events, label) {
+        LabelState::Labeled { actor, at } => (actor, at),
+        _ => (String::new(), String::new()),
+    }
+}
+
 /// tehas_pause_holds: the event that holds the host paused, `(event, by)`,
 /// or None. Of two events in one second, the application is read last.
 pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(String, String)> {
@@ -235,7 +255,9 @@ pub fn changed_after(at: &str, who: &str, since: &str, approver: &str) -> bool {
 /// Whether the edits of an issue's body hold back the approval `approver`
 /// gave at `since`: the login of an editor `allowed` refuses whose edit is
 /// after `since` (as `changed_after` reads it), or "unknown" for one that
-/// names no editor or a history that may be cut. `edit` carries GraphQL's
+/// names no editor or a history that may be cut. An edit by no account holds
+/// even when a list names an account "unknown": the rule compares the login,
+/// and only the answer is text. `edit` carries GraphQL's
 /// `lastEditedAt` and `editor.login`, and `userContentEdits` with
 /// `totalCount` and `nodes { editedAt editor { login } }`.
 ///
@@ -260,9 +282,8 @@ pub fn edit_holds(
     if at.is_empty() || !changed_after(at, by, since, approver) {
         return None;
     }
-    let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
-    if !allowed(who) {
-        return Some(who.to_string());
+    if by == NOBODY || !allowed(by) {
+        return Some(shown(by));
     }
     let history = edit.get("userContentEdits");
     let nodes = history
@@ -283,9 +304,19 @@ pub fn edit_holds(
         if !at.is_empty() && !changed_after(at, by, since, approver) {
             return None;
         }
-        let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
-        (!allowed(who)).then(|| who.to_string())
+        (by == NOBODY || !allowed(by)).then(|| shown(by))
     })
+}
+
+/// A login as a person reads it: [`UNKNOWN_ACTOR`] for no account. Only for
+/// text; a rule compares the login itself.
+fn shown(login: &str) -> String {
+    if login == NOBODY {
+        UNKNOWN_ACTOR
+    } else {
+        login
+    }
+    .to_string()
 }
 
 /// Whether `edit_holds` held only because the history it needed was a read
@@ -330,12 +361,10 @@ pub fn first_unallowed_rename(
         {
             return None;
         }
-        let who = if e.actor.is_empty() {
-            UNKNOWN_ACTOR.to_string()
-        } else {
-            e.actor.clone()
-        };
-        (!allowed(&who)).then_some(who)
+        if e.actor == NOBODY {
+            return Some(UNKNOWN_ACTOR.to_string());
+        }
+        (!allowed(&e.actor)).then(|| e.actor.clone())
     })
 }
 
@@ -533,7 +562,7 @@ mod plan_tests {
 
 #[cfg(test)]
 mod edit_tests {
-    use super::{edit_holds, UNKNOWN_ACTOR};
+    use super::{edit_history_unread, edit_holds, UNKNOWN_ACTOR};
     use serde_json::json;
 
     const SINCE: &str = "2026-01-02T10:00:00Z";
@@ -630,6 +659,26 @@ mod edit_tests {
         assert_eq!(held(&r).as_deref(), Some("mallory"));
     }
 
+    /// A list may name a GitHub account "unknown": an edit by no account still
+    /// holds, as the last edit and as a node of the history.
+    #[test]
+    fn an_edit_by_no_account_holds_with_unknown_on_the_list() {
+        let list = |w: &str| w == "alice" || w == UNKNOWN_ACTOR;
+        let held = |e: &serde_json::Value| edit_holds(e, SINCE, "alice", &list);
+        let nobody = json!({"lastEditedAt": AFTER, "editor": null});
+        assert_eq!(held(&nobody).as_deref(), Some(UNKNOWN_ACTOR));
+        let mut r = record("alice", &[(AFTER, "alice")], 1);
+        r["userContentEdits"]["nodes"][0]["editor"] = json!(null);
+        assert_eq!(held(&r).as_deref(), Some(UNKNOWN_ACTOR));
+        let mut r = record("alice", &[(AFTER, "alice")], 1);
+        r["userContentEdits"]["nodes"][0]["editor"] = json!({"login": ""});
+        assert_eq!(held(&r).as_deref(), Some(UNKNOWN_ACTOR));
+        // The account named "unknown" is allowed like any other.
+        let named = record(UNKNOWN_ACTOR, &[(AFTER, UNKNOWN_ACTOR)], 1);
+        assert_eq!(held(&named), None);
+        assert!(!edit_history_unread(&nobody, &list));
+    }
+
     /// A last edit before the approval needs no history: every edit is older.
     #[test]
     fn a_last_edit_before_the_approval_reads_no_history() {
@@ -669,8 +718,100 @@ mod edit_tests {
 }
 
 #[cfg(test)]
+mod standing_tests {
+    use super::{label_actor, standing_actor, Event};
+
+    fn event(event: &str, actor: &str, at: Option<&str>) -> Event {
+        Event {
+            event: event.into(),
+            label: "tehas:ready".into(),
+            actor: actor.into(),
+            at: at.map(str::to_string),
+        }
+    }
+
+    const T: &str = "2026-10-01T00:00:00Z";
+    const L: &str = "2026-10-01T00:01:00Z";
+
+    fn who(events: &[Event]) -> (String, String) {
+        standing_actor(events, "tehas:ready")
+    }
+
+    fn none() -> (String, String) {
+        (String::new(), String::new())
+    }
+
+    /// The issue's labels still list the label and the events say it was
+    /// taken off since: the earlier application grants nothing.
+    #[test]
+    fn an_application_taken_off_since_stands_for_nobody() {
+        let ev = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "alice", Some(L)),
+        ];
+        assert_eq!(label_actor(&ev, "tehas:ready").0, "alice");
+        assert_eq!(who(&ev), none());
+        let by_other = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "mallory", Some(L)),
+        ];
+        assert_eq!(who(&by_other), none());
+    }
+
+    #[test]
+    fn an_application_stands_when_nothing_took_it_off() {
+        let once = [event("labeled", "alice", Some(T))];
+        assert_eq!(who(&once), ("alice".into(), T.into()));
+        let bare = [event("labeled", "alice", None)];
+        assert_eq!(who(&bare), ("alice".into(), String::new()));
+        assert_eq!(who(&[]), none());
+        let again = [
+            event("labeled", "mallory", Some(T)),
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", Some(L)),
+        ];
+        assert_eq!(who(&again), ("alice".into(), L.into()));
+    }
+
+    /// The order is `label_state`'s: of two events in one second the removal
+    /// is last, and an event with no stamp is older than any.
+    #[test]
+    fn ties_and_missing_stamps_are_read_as_label_state_reads_them() {
+        let same = [
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", Some(T)),
+        ];
+        assert_eq!(who(&same), none());
+        let unstamped_removal = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "mallory", None),
+        ];
+        assert_eq!(who(&unstamped_removal), ("alice".into(), T.into()));
+        let unstamped_application = [
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", None),
+        ];
+        assert_eq!(who(&unstamped_application), none());
+        let two = [
+            event("labeled", "alice", Some(T)),
+            event("labeled", "bob", Some(T)),
+        ];
+        assert_eq!(who(&two), label_actor(&two, "tehas:ready"));
+        assert_eq!(who(&two).0, "bob");
+    }
+
+    #[test]
+    fn another_label_does_not_take_this_one_off() {
+        let mut other = event("unlabeled", "mallory", Some(L));
+        other.label = "tehas:blocked".into();
+        let ev = [event("labeled", "alice", Some(T)), other];
+        assert_eq!(who(&ev), ("alice".into(), T.into()));
+    }
+}
+
+#[cfg(test)]
 mod renamed_tests {
-    use super::{changed_after, first_unallowed_rename, Event, UNKNOWN_ACTOR};
+    use super::{allowed_in, changed_after, first_unallowed_rename, Event, UNKNOWN_ACTOR};
 
     const SINCE: &str = "2026-01-02T10:00:00Z";
 
@@ -714,6 +855,23 @@ mod renamed_tests {
         assert_eq!(vetoed(&nobody, SINCE).as_deref(), Some(UNKNOWN_ACTOR));
         let mine = [event("renamed", "alice", Some(SINCE))];
         assert_eq!(vetoed(&mine, SINCE), None);
+    }
+
+    /// A list may name a GitHub account called unknown: a rename by no
+    /// account is still nobody's, and the account's own is allowed.
+    #[test]
+    fn a_rename_by_no_account_is_not_the_account_unknown() {
+        let listed = |w: &str| allowed_in("alice unknown", w);
+        for at in [None, Some(SINCE), Some("2026-01-02T10:01:00Z")] {
+            let nobody = [event("renamed", "", at)];
+            let got = first_unallowed_rename(&nobody, SINCE, "alice", &listed);
+            assert_eq!(got.as_deref(), Some(UNKNOWN_ACTOR), "{at:?}");
+            let theirs = [event("renamed", "unknown", at)];
+            assert_eq!(
+                first_unallowed_rename(&theirs, SINCE, "alice", &listed),
+                None
+            );
+        }
     }
 
     /// The approver's own rename in that second is the title it approved,
