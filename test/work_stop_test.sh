@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: a cycle stopped at its time limit, as stalled or
+# Tests for tehas work: a cycle stopped at its time limit, as stalled or
 # by TERM, and the bounds on the docker stop, the console and the push check.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh

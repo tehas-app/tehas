@@ -31,7 +31,7 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 # One case runs tehas work, which parks a cycle of a product whose commit names
-# no gate and holds no stack it can guess a gate from (libexec/work). The gate
+# no gate and holds no stack it can guess a gate from. The gate
 # is read at the commit the clone is made at, so it is in a commit here, unlike
 # the fixture of the work files, which reads the checkout too. The work files
 # hold the same gate their way.
