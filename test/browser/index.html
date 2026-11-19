@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kit check</title>
+<link rel="stylesheet" href="/fun/kit/kit.css">
+<link rel="stylesheet" href="/demo/demo.css">
+<script type="module" src="/demo/check.js"></script>
+<script type="module" src="/demo/kit-demo-queue.js"></script>
+<script type="module" src="/demo/kit-demo-picked.js"></script>
+</head>
+<body>
+<main>
+  <kit-demo-queue id="queue" data-tehas-island src="/live/status.json">
+    <p class="server">Server HTML of the queue</p>
+  </kit-demo-queue>
+  <kit-demo-picked id="picked" data-tehas-island src="/live/status.json" hydrate="idle">
+    <p class="server">Server HTML of the picked</p>
+  </kit-demo-picked>
+  <kit-demo-queue id="missing" data-tehas-island src="/live/missing.json"></kit-demo-queue>
+</main>
+<pre id="result"></pre>
+</body>
+</html>
