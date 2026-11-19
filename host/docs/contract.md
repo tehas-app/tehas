@@ -296,7 +296,7 @@ already and keep their meaning in 1.0.
 
 | Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
 | --- | --- | --- | --- | --- | --- |
-| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>` | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
+| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
 | spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
 | protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
 | prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
@@ -322,6 +322,10 @@ Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every comm
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
 - The state store has its tables for contractors and jobs, which are internal.
+- `analytics.db` has the column `contractor_id` of `runs`, the name of the
+  contractor that ran the cycle, NULL on every run while outsource is off. It
+  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
+  meaning.
 
 [Outsource](/outsource) says what the feature does once it ships.
 
