@@ -1422,7 +1422,7 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
     // A run decides from what a program printed: the name of a branch, a count of
     // commits, the URL of a pull request. A host that handed back the exit status
     // alone would answer every rule with nothing, and the first rule that reads a
-    // name — the branch of the issue — would refuse a workspace that holds one.
+    // name, the branch of the issue, would refuse a workspace that holds one.
     // The words are asked of the streams of the real command, so a call whose
     // streams were not taken from the child prints nothing and this refuses.
     let dir = root("streams");

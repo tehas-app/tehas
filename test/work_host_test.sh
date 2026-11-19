@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: what a cycle does on the host. The workspace of an
+# Tests for tehas work: what a cycle does on the host. The workspace of an
 # earlier cycle, the issue's lock, the live view, what is kept on record
 # and the container's counts of kills and refused starts.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs

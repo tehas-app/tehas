@@ -829,7 +829,7 @@ for rc in 0 10 20; do
 done
 
 # The document and the process have to agree before either is believed, as
-# libexec/work reads its result and libexec/plan reads its answer before it
+# tehas work reads its result and tehas plan reads its answer before it
 # decides. A container that exits 0 while its own document says the review was
 # incomplete has not read the range, and the record does not move on.
 t_case "a document that contradicts the container's exit records nothing and says which two disagreed"
@@ -1114,7 +1114,7 @@ t_eq "$([ -e "$tree" ] && echo left)" ""
 
 # A docker that does not answer must not be the last thing a run does. The two
 # stops of the timeout path and the sweep of a name left behind are all
-# bounded, as libexec/work bounds its own: a wedged dockerd is then reported
+# bounded, as tehas work bounds its own: a wedged dockerd is then reported
 # and the run ends, which is what "it ran out of time" has to mean.
 t_case "a docker stop that never ends is bounded, and the run still ends with 2"
 reset

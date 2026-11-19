@@ -13,11 +13,14 @@
 
 docs="$T_ROOT/host/docs"
 pages=("$docs"/*.md "$T_ROOT/README.md")
+# What a person or an agent reads beside the manual: the rules of this
+# checkout and each command's help.
+prose=("${pages[@]}" "$T_ROOT/AGENTS.md" "$T_ROOT"/console/src/usage/*.txt)
 
 # The greps below read the pages by name, each of them a file this file checks.
 # An empty expansion would leave a pattern read from standard input, and a case
 # with no page in front of it would pass by finding nothing.
-for page in "${pages[@]}"; do
+for page in "${prose[@]}"; do
   [ -f "$page" ] || t_bad "not a page: $page"
 done
 
@@ -41,12 +44,17 @@ t_eq "$(t_slug 'scripts/test.sh')" "scriptstestsh"
 t_eq "$(t_slug 'bootstrap.sh')" "bootstrapsh"
 
 t_case "no line that names libexec says all bash"
-hits=$(grep -in 'libexec' "${pages[@]}" | grep -i 'all bash' || true)
+hits=$(grep -in 'libexec' "${prose[@]}" | grep -i 'all bash' || true)
 [ -z "$hits" ] || t_bad "calls libexec all bash: $hits"
 
 t_case "no page names libexec/work"
-hits=$(grep -rn 'libexec/work' "${pages[@]}" 2>/dev/null || true)
+hits=$(grep -rn 'libexec/work' "${prose[@]}" 2>/dev/null || true)
 [ -z "$hits" ] || t_bad "names a command that is not installed: $hits"
+
+# AGENTS.md: plain prose, no em dashes.
+t_case "no page uses an em dash"
+hits=$(grep -n $'\u2014' "${prose[@]}" 2>/dev/null || true)
+[ -z "$hits" ] || t_bad "an em dash: $hits"
 
 t_case "no page links the two dead anchors"
 hits=$(grep -rn '#the-health-file\|#the-sandbox-build' "${pages[@]}" 2>/dev/null || true)

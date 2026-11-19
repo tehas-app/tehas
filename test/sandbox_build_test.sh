@@ -112,8 +112,14 @@ t_stub docker 'case "$1" in
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run)
     # The vipune check of a smoke run is the run with a cpuset. It answers
-    # $fx/vipune when there is one and the quiet line otherwise.
+    # $fx/vipune when there is one and the quiet line otherwise. $fx/vipune.first
+    # answers the first such run alone, as dockerd refuses a CPU, and exits 125.
     if [[ $* == "run --rm --init --network none "*" --cpuset-cpus "*" --entrypoint bash "* ]]; then
+      if [ -e "$T/fx/vipune.first" ]; then
+        cat "$T/fx/vipune.first"
+        rm -f "$T/fx/vipune.first"
+        exit 125
+      fi
       if [ -e "$T/fx/vipune" ]; then cat "$T/fx/vipune"; else echo quiet; fi
       exit 0
     fi
@@ -585,6 +591,35 @@ t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "failed its smoke run (noisy)"
 t_contains "$t_out" "pthread_setaffinity_np failed"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+# The CPUs this test may run on, as the build reads its own: dockerd's answer
+# below names CPUs from this list, so the retry finds one to take on any host.
+cpus=$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/self/status)
+low=${cpus%%[-,]*}
+refused() {
+  printf 'docker: Error response from daemon: Requested CPUs are not available - requested 999, available: %s\n\nRun %s for more information\n' "$1" "'docker run --help'" >"$fx/vipune.first"
+}
+
+t_case "a smoke run whose vipune CPU dockerd refuses runs it again on a CPU dockerd takes"
+reset
+refused "$low"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the vipune check runs on CPU $low"
+t_eq "$(t_calls docker | grep -c -e ' --cpuset-cpus ')" 2
+t_eq "$(t_calls docker | grep -e ' --cpuset-cpus ' | tail -n 1 | sed -n 's/.* --cpuset-cpus \([0-9]*\) .*/\1/p')" "$low"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
+
+t_case "a smoke run whose CPUs dockerd takes none of says to restart docker, leaves the tag and ends 1"
+reset
+# A CPU past any list a host has: dockerd's start saw none of this process's.
+refused 4095
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docker takes none of the CPUs this process may run on; restart docker"
+t_eq "$(t_calls docker | grep -c -e ' --cpuset-cpus ')" 1
 t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
 

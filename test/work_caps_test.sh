@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: what the image says it supports, and what a cycle
+# Tests for tehas work: what the image says it supports, and what a cycle
 # is refused or given because of it; the push check and Pi's settings.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
