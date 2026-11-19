@@ -1063,8 +1063,9 @@ fn platform(live: &Path) -> J {
     }
 }
 
-/// The pi-rukas the sandbox image runs against the one the host follows, as
-/// tehasbot status last read it (src/rukas.rs).
+/// The pi-rukas the sandbox image runs against the one the host follows, and
+/// its instance layer against the instance's sandbox.Dockerfile, as tehasbot
+/// status last read them (src/rukas.rs).
 fn rukas(live: &Path) -> J {
     match read(&live.join("rukas.json")) {
         Some(r @ J::Obj(_)) if matches!(r.get("behind"), J::Bool(_)) => J::Obj(get_fields(
@@ -1077,6 +1078,9 @@ fn rukas(live: &Path) -> J {
                 "imageVersion",
                 "clone",
                 "behind",
+                "layer",
+                "instanceLayer",
+                "layerMoved",
             ],
         )),
         _ => J::Null,
@@ -1774,6 +1778,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .unwrap_or(0)
             > BEHIND_FOR;
     let rukas_behind = rukas.get("behind").is_true();
+    let layer_moved = rukas.get("layerMoved").is_true();
     // The lists are as old as the last read of them: a snapshot that kept
     // them from the file before, as its read of GitHub failed, says when, and
     // one that had none to keep is as old as can be.
@@ -1837,6 +1842,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || disk_low
         || behind
         || rukas_behind
+        || layer_moved
         || old_backup
         || over_budget
         || !unlinked.is_empty()
@@ -1932,6 +1938,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             named("imageVersion", "image"),
             named("targetVersion", "target")
         )
+    } else if layer_moved {
+        "The sandbox image was built from another instance layer than sandbox.Dockerfile is now: run tehas update.".to_string()
     } else if old_backup {
         let why = if upkeep_failed {
             format!(
@@ -2924,6 +2932,26 @@ mod tests {
             r.at(&["checks", "rukas", "imageVersion"]).text(),
             "v0.14.54"
         );
+        // The image on the commit followed, its instance layer not the one
+        // sandbox.Dockerfile is now.
+        h.write(
+            "live/rukas.json",
+            &format!(
+                r#"{{"target":"{b}","image":"{b}","behind":false,"layer":"sha256:1","instanceLayer":"sha256:2","layerMoved":true}}"#
+            ),
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The sandbox image was built from another instance layer than sandbox.Dockerfile is now: run tehas update.".into()
+            )
+        );
+        let c = r.at(&["checks", "rukas"]);
+        assert_eq!(c.get("layer").text(), "sha256:1");
+        assert_eq!(c.get("instanceLayer").text(), "sha256:2");
+        assert!(c.get("layerMoved").is_true());
         // A file of another shape is no check.
         h.write("live/rukas.json", r#"{"behind":"yes"}"#);
         let r = h.report(&Given::default());
