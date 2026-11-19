@@ -172,6 +172,20 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The dispatcher judges every edit of an issue's body after the approval, not only the last. An edit by an account outside `TEHAS_ALLOWED_LABELERS` now holds the issue even when an allowed account saved the body after it, and so does an edit history longer than the 100 edits the poll reads. The poll reads that history only for edited issues it may start. This is a security fix.
 - A GitHub write whose connection broke after it was made (a reset, an EOF, a GOAWAY, a closed connection) is read back before it is sent again, as a timeout or a 5xx already was. Before, a comment could be posted twice.
 - `tehasbot status` reads the list of every issue for the breakroom's words at most once an hour, and keeps the words between reads. Each status run was about ten GitHub requests heavier before.
+- Security fix: when `TEHAS_ALLOWED_LABELERS` names a GitHub account called `unknown`, a label application the pins refuse, an edit and a title change by no account no longer count as that account's. They still show as `unknown` in the log. The account's own labels count as before (#2449).
+- Security fix: when the millwright's app is called `unknown`, a `tehas:ready` or `tehas:plan` the pins refuse, or one by no account, no longer counts as the millwright's. It is taken off as any unallowed label is. The millwright's own labels count as before (#2449).
+- Security fix: a label taken off after it was applied no longer approves anything, even when the poll's list of the issue's labels still has it. The poll logs `skip #<n>: tehas:ready was taken off by '<who>' since it was applied` and changes nothing on the issue. The same holds for `tehas:finish`, the driver labels and `tehas:prototype` (#2449).
+- Security fix: when `TEHAS_ALLOWED_LABELERS` names a GitHub account called `unknown`, an edit in an issue's edit history that names no account holds the start after an approval, as the last edit does (#2449).
+- On a read-only instance (`TEHAS_READ_ONLY=on`), the GitHub token a cycle's
+  container, a planning turn or a manual session is given reads only: Contents,
+  Pull requests and Issues read. Before, it could write, and only the image's
+  `gh` and the container's git configuration kept a cycle from writing. A token
+  kept from before the instance turned read-only is made again. `tehas update`
+  asks a read-only instance's cycle token for no push and says
+  `Cycle token:  OK (read-only: ...)`.
+- A release's page on GitHub no longer holds every change since the last release. A release `vX.Y.Z` is published with its own section of `CHANGELOG.md`, and the release workflow publishes nothing when it has none, where it used to take the whole of `Unreleased`. A prerelease without a section of its own is published with what is new since the tag before it, under a first line `New since <tag>.`. `scripts/release-notes.sh` runs `xtask release-notes`.
+- `scripts/tag-release.sh` names a release's section itself: for a release whose head has no `## vX.Y.Z` section, its changelog pull request (`changelog-<tag>`) renames `## Unreleased` to `## vX.Y.Z (YYYY-MM-DD)` with a new empty `## Unreleased` above it, with or without changelog fragments. A prerelease whose tag before has no `Unreleased` section is not tagged.
+- `CHANGELOG.md` has the sections of v0.31.0 and v0.32.0, which were under `Unreleased`, and `Unreleased` holds only the changes since v0.32.0.
 
 ### Adopter action
 
