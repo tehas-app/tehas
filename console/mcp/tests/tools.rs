@@ -413,6 +413,9 @@ fn status_names_the_pi_rukas_the_image_runs_and_the_manager() {
     let out = call(&live(), "factory_status", &json!({})).unwrap();
     assert_eq!(out["rukas"]["imageVersion"], "v0.14.54");
     assert_eq!(out["rukas"]["behind"], false);
+    assert_eq!(out["rukas"]["layer"], "sha256:1");
+    assert_eq!(out["rukas"]["instanceLayer"], "sha256:2");
+    assert_eq!(out["rukas"]["layerMoved"], true);
     assert_eq!(out["manager"]["version"], "v0.9.0");
     // A factory with neither has neither.
     let dir = copy("no-rukas");
@@ -761,6 +764,9 @@ fn every_key_is_listed() {
                 "rukas.imageVersion",
                 "rukas.clone",
                 "rukas.behind",
+                "rukas.layer",
+                "rukas.instanceLayer",
+                "rukas.layerMoved",
                 "hostMessages",
                 "hostMessages.list",
                 "hostMessages.list[].id",

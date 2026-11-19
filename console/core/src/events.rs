@@ -232,6 +232,36 @@ pub fn changed_after(at: &str, who: &str, since: &str, approver: &str) -> bool {
         || (at == since && (approver.is_empty() || account(who) != account(approver)))
 }
 
+/// Whether the last edit of an issue's title or body holds back the approval
+/// `approver` gave at `since`: the editor's login, or "unknown" for an edit
+/// that names none, when the edit is after `since` (as `changed_after` reads
+/// it) by an account `allowed` refuses. `edit` carries GraphQL's
+/// `lastEditedAt` and `editor.login`. An empty or missing stamp is no edit:
+/// GitHub stamps every edit it saves, so an unstamped record is one nobody
+/// saved. A rename is read the other way (`first_unallowed_rename`): one with
+/// no readable stamp cannot be placed before the approval, so it holds.
+pub fn edit_holds(
+    edit: &Value,
+    since: &str,
+    approver: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let at = edit
+        .get("lastEditedAt")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let by = edit
+        .get("editor")
+        .and_then(|e| e.get("login"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if at.is_empty() || !changed_after(at, by, since, approver) {
+        return None;
+    }
+    let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
+    (!allowed(who)).then(|| who.to_string())
+}
+
 /// The first `renamed` event after `since` (any of them when `since` is
 /// empty) whose account is not allowed, or the veto of nobody: "unknown" for
 /// a rename that names no account. None when no rename holds the title back.
@@ -455,6 +485,72 @@ mod plan_tests {
             event("unlabeled", "tehas:ready", "mallory", None),
         ];
         assert!(!sole_application(&unstamped, "tehas:ready", T, &bot));
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::{edit_holds, UNKNOWN_ACTOR};
+    use serde_json::json;
+
+    const SINCE: &str = "2026-01-02T10:00:00Z";
+    const AFTER: &str = "2026-01-02T10:05:00Z";
+
+    fn held(edit: &serde_json::Value) -> Option<String> {
+        edit_holds(edit, SINCE, "alice", &|w| w == "alice")
+    }
+
+    /// GitHub stamps every saved edit: one with no stamp is no edit.
+    #[test]
+    fn an_unstamped_edit_is_no_edit() {
+        assert_eq!(
+            held(&json!({"lastEditedAt": null, "editor": {"login": "mallory"}})),
+            None
+        );
+        assert_eq!(held(&json!({"editor": {"login": "mallory"}})), None);
+        assert_eq!(
+            held(&json!({"lastEditedAt": "", "editor": {"login": "mallory"}})),
+            None
+        );
+    }
+
+    #[test]
+    fn an_edit_after_the_approval_holds_unless_allowed() {
+        let by = |who: &str| json!({"lastEditedAt": AFTER, "editor": {"login": who}});
+        assert_eq!(held(&by("mallory")).as_deref(), Some("mallory"));
+        assert_eq!(held(&by("alice")), None);
+        let nobody = json!({"lastEditedAt": AFTER, "editor": null});
+        assert_eq!(held(&nobody).as_deref(), Some(UNKNOWN_ACTOR));
+    }
+
+    #[test]
+    fn an_edit_before_the_approval_is_the_text_it_covered() {
+        let before =
+            json!({"lastEditedAt": "2026-01-02T09:59:00Z", "editor": {"login": "mallory"}});
+        assert_eq!(held(&before), None);
+    }
+
+    /// An empty `since` has every edit after it, but still no unstamped one.
+    #[test]
+    fn with_no_approval_time_only_a_stamped_edit_holds() {
+        let allowed = |w: &str| w == "alice";
+        let unstamped = json!({"lastEditedAt": null, "editor": {"login": "mallory"}});
+        assert_eq!(edit_holds(&unstamped, "", "alice", &allowed), None);
+        let stamped = json!({"lastEditedAt": SINCE, "editor": {"login": "mallory"}});
+        assert_eq!(
+            edit_holds(&stamped, "", "alice", &allowed).as_deref(),
+            Some("mallory")
+        );
+    }
+
+    /// GitHub stamps to the second: an edit in the approval's second holds
+    /// unless the approver made it.
+    #[test]
+    fn an_edit_in_the_approval_second_holds_unless_the_approver_made_it() {
+        let by = |who: &str| json!({"lastEditedAt": SINCE, "editor": {"login": who}});
+        assert_eq!(held(&by("mallory")).as_deref(), Some("mallory"));
+        let only_bob = |w: &str| w == "bob";
+        assert_eq!(edit_holds(&by("alice"), SINCE, "alice", &only_bob), None);
     }
 }
 
