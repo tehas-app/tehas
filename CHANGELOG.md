@@ -517,6 +517,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The pinned bun moves from 1.4.4 to 1.4.5.
 - Health now compares the sandbox image's instance layer too, as `build.sh --check` does. `checks.rukas` gains `layer` (the image's `tehas.layer` label), `instanceLayer` (the sum of the instance's `sandbox.Dockerfile` and what it copies) and `layerMoved`, and `/health` says `warn` while the layer moved. The MCP server's `factory_status` passes the three fields on (#2520).
 - The front pages, the manual, `llms.txt` and both share images name tehas "The Lean Software Factory". A new manual page, `/lean-software-factory`, says what makes it lean and links the Pi software factory page, which stays.
+- The sandbox build's vipune check no longer refuses a good image when dockerd turns down the CPU it picked. In a container whose cpuset moved after dockerd started (Incus with `limits.cpu`), `tehas update` to a 1.0 beta failed with "Requested CPUs are not available". The check now runs again on a CPU both the build and dockerd name (#2519).
+- `tehas status --json` has `previews` on a host that runs previews: each open pull request with a preview, by `number`, with the preview's `state` and, while it serves, its `url`. `tehas api` names the feature `status-previews`.
 
 ### Held back
 
