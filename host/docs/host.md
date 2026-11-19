@@ -1173,7 +1173,8 @@ host, and its name is also a name on Docker Hub. When the local image is gone, f
 `docker system prune -a`, `docker run` ends 125 with `No such image` and the
 command stops, instead of pulling an image of that name from the registry and
 giving it the cycle's token and model keys. Build the image again with
-`tehas update` or `host/sandbox/build.sh`.
+`~/tehas/sandbox/build.sh`. `tehas update` does not: it rebuilds the image
+only when its pins or its Dockerfile changed, not when the image is missing.
 
 | Option | Value | What it does |
 | --- | --- | --- |
