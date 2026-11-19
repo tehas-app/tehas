@@ -7,11 +7,11 @@ import { hostModel } from "./tehas-factory-host.model.js";
 // The file is asked for every ten seconds while it is there, and once a
 // minute while it is not: the minute is this island's own period, and a
 // second reader asks for ten seconds while the last answer was good. A host
-// that publishes nothing answers 404 every time.
+// that publishes nothing answers 404 every time. hostFeed is called in a root.
 const SOON = 10000, LATER = 60000;
 
-export const mount = view((props, ctx) => {
-  const live = feed(props.src, { every: LATER });
+export function hostFeed(src) {
+  const live = feed(src, { every: LATER });
   const owner = getOwner();
   let fast = null;
   const stop = () => {
@@ -22,11 +22,16 @@ export const mount = view((props, ctx) => {
   createEffect(() => good(), {
     effect: (ok) => {
       if (!ok) stop();
-      else if (!fast) fast = runWithOwner(owner, () => createRoot((dispose) => (feed(props.src, { every: SOON }), dispose)));
+      else if (!fast) fast = runWithOwner(owner, () => createRoot((dispose) => (feed(src, { every: SOON }), dispose)));
     },
     error: stop,
   });
   onCleanup(stop);
+  return live;
+}
+
+export const mount = view((props, ctx) => {
+  const live = hostFeed(props.src);
   const m = createMemo(() => hostModel(live.data(), now()));
   const row = (r) => html`<li><span>${() => r().name}</span>${SP}<span class="when">${() => r().text}</span></li>`;
   return html`<${Errored} fallback=${(_e) => ctx.first}><${Loading} fallback=${() => ctx.first}><section id="host" hidden=${() => !m().present}>
