@@ -680,8 +680,8 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
-- A write that timed out or that GitHub answered with a 5xx may have reached
-  GitHub, so the report reads it back before it tries again: a comment by its
+- A write that timed out, that GitHub answered with a 5xx, or whose connection
+  broke after it was made (a reset, an EOF) may have reached GitHub, so the report reads it back before it tries again: a comment by its
   text, a label by name. Found, it is done. Not found, it is sent again with
   the tries it has left; a park question that was not found gets the plain
   park comment, as a refused one does. Only when that read fails too does the
@@ -1311,8 +1311,9 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A write that timed out, or that GitHub
-answered with a 5xx, may have reached GitHub: its row is left open as
+or as not done, and never made again. A write that timed out, that GitHub
+answered with a 5xx, or whose connection broke after it was made, may have
+reached GitHub: its row is left open as
 `unknown`, the log says `may have been posted`, and the next poll reads it the
 same way before anything is sent again. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
