@@ -5,14 +5,18 @@
 //! asks the rule here: `accounts::Accounts::vouch` renames an account that
 //! does not come with its recorded id (`doubt`, `counted`), the pins
 //! (tehas_dispatch::pins) give a refused application no account
-//! (`account_of`), and the rules ask who applied the label last
-//! (`events::label_actor`, `last_application`), whether its newest event is
-//! an application (`events::label_state`, `latest`) and whether that account
-//! is allowed (`events::allowed_in`). `grant` is those steps in one, over a
-//! timeline in order. The poll does not call it: the proofs below are about
-//! `grant`, about the steps the poll takes, and that the two agree. The poll asks
-//! that the newest event be an application through its guard of a page
-//! (read::github::dropped_events) and the issue's own labels.
+//! (`account_of`), and the rules ask who made the label's newest event when
+//! that event is an application (`events::standing_actor`, `standing`) and
+//! whether that account is allowed (`events::allowed_in`). `grant` is those
+//! steps in one, over a timeline in order. The poll does not call it: the
+//! proofs below are about `grant`, about the steps the poll takes, and that
+//! the two agree. A label taken off since it was applied grants nothing,
+//! whatever the issue's own labels or the guard of a page
+//! (read::github::dropped_events) say.
+//!
+//! `last_application` (`events::label_actor`) is who applied the label last,
+//! taken off since or not. It answers a question about the past, such as who
+//! asked for a plan whose label the bot took off; it grants nothing alone.
 //!
 //! The types are generic over the login and the label so the proofs can use
 //! small numbers for them; the poll uses text.
@@ -136,6 +140,12 @@ pub fn latest<L, B: PartialEq>(timeline: &[LabelEvent<L, B>], label: &B) -> Opti
     timeline.iter().rposition(|e| e.label == *label)
 }
 
+/// The application of `label` that stands: its newest event, when that is an
+/// application. None when the label was taken off since, or never applied.
+pub fn standing<L, B: PartialEq>(timeline: &[LabelEvent<L, B>], label: &B) -> Option<usize> {
+    latest(timeline, label).filter(|&i| timeline[i].change == Change::Applied)
+}
+
 /// The application of `label` that grants, by its place in the timeline: the
 /// newest event of the label is an application, and the account it counts
 /// for is allowed. `listed` says whether `state/account-ids` vouches for a
@@ -207,6 +217,20 @@ mod tests {
         ] {
             assert_eq!(decide(&tl), None, "{tl:?}");
         }
+    }
+
+    #[test]
+    fn only_an_application_nothing_took_off_stands() {
+        use Change::*;
+        let applied = ev("alice", Some(1001), true, Applied);
+        let removed = ev("alice", Some(1001), true, Removed);
+        let label = &"tehas:ready";
+        assert_eq!(standing(&[applied], label), Some(0));
+        assert_eq!(standing(&[applied, removed], label), None);
+        assert_eq!(last_application(&[applied, removed], label), Some(0));
+        assert_eq!(standing(&[applied, removed, applied], label), Some(2));
+        assert_eq!(standing(&[removed], label), None);
+        assert_eq!(standing::<&str, &str>(&[], label), None);
     }
 
     #[test]
@@ -494,7 +518,7 @@ mod proofs {
     }
 
     /// `last_application` is the newest application of the label: who
-    /// `events::label_actor` names, and so who the poll credits.
+    /// `events::label_actor` names, taken off since or not.
     #[kani::proof]
     #[kani::unwind(8)]
     fn the_last_application_is_the_newest() {
@@ -534,25 +558,59 @@ mod proofs {
         }
     }
 
-    /// When the newest event of the label is an application, the poll's
-    /// steps (who applied it last, then whether that account is allowed)
-    /// decide as `grant` does.
+    /// `standing` is the newest event of the label when that is an
+    /// application, and nothing when the label was taken off since: what
+    /// `events::standing_actor` names, and so who the poll credits.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn the_standing_application_is_the_newest_event() {
+        let w = world();
+        let (tl, n) = timeline(&w);
+        let tl = &tl[..n];
+        let got = standing(tl, &READY);
+        let applied_once = tl
+            .iter()
+            .any(|e| e.label == READY && e.change == Change::Applied);
+        kani::cover!(
+            got.is_none() && applied_once,
+            "an application taken off since stands for nobody"
+        );
+        kani::cover!(
+            got.is_some_and(|i| tl[..i]
+                .iter()
+                .any(|e| e.label == READY && e.change == Change::Removed)),
+            "an application after a removal stands"
+        );
+        match got {
+            Some(i) => {
+                assert!(tl[i].label == READY && tl[i].change == Change::Applied);
+                assert!(tl[i + 1..].iter().all(|e| e.label != READY));
+            }
+            None => assert!(latest(tl, &READY).is_none_or(|i| tl[i].change == Change::Removed)),
+        }
+    }
+
+    /// The poll's steps (the application that stands, then whether its
+    /// account is allowed) decide as `grant` does, on every timeline: a
+    /// removal the issue's labels do not show yet included.
     #[kani::proof]
     #[kani::unwind(8)]
     fn the_polls_steps_agree_with_grant() {
         let w = world();
         let (tl, n) = timeline(&w);
         let tl = &tl[..n];
-        let standing = latest(tl, &READY).is_some_and(|i| tl[i].change == Change::Applied);
+        let ends_applied = latest(tl, &READY).is_some_and(|i| tl[i].change == Change::Applied);
         kani::cover!(
-            standing && n == MAX,
+            ends_applied && n == MAX,
             "a full timeline ends in an application"
         );
-        if standing {
-            let steps = last_application(tl, &READY)
-                .filter(|&i| w.allows(account_of(&tl[i], w.listed(tl[i].actor.login))));
-            assert_eq!(steps, decide(&w, tl));
-        }
+        kani::cover!(
+            !ends_applied && last_application(tl, &READY).is_some(),
+            "a timeline ends in a removal after an application"
+        );
+        let steps = standing(tl, &READY)
+            .filter(|&i| w.allows(account_of(&tl[i], w.listed(tl[i].actor.login))));
+        assert_eq!(steps, decide(&w, tl));
     }
 
     /// A removal after an application leaves no grant, until the label is
@@ -571,6 +629,7 @@ mod proofs {
             });
         kani::cover!(taken_off, "an allowed application was taken off");
         if removed {
+            assert!(standing(tl, &READY).is_none());
             assert!(decide(&w, tl).is_none());
         }
     }

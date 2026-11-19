@@ -553,7 +553,7 @@ impl Poll<'_> {
         match self.epic_part(n)? {
             super::EpicPart::Granted(g) => {
                 let ev = self.events(n)?;
-                let (who, at) = super::label_actor(&ev, label);
+                let (who, at) = super::standing_actor(&ev, label);
                 if !self.unchanged_since(
                     n,
                     &at,
