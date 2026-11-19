@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: the images an issue links, fetched for the cycle,
+# Tests for tehas work: the images an issue links, fetched for the cycle,
 # and their descriptions.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh

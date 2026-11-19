@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: the text files an issue links, and an issue that
+# Tests for tehas work: the text files an issue links, and an issue that
 # links what the cycle is not given.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh

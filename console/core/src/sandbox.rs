@@ -323,7 +323,7 @@ pub struct Identity<'a> {
 /// of each key, and `GIT_CONFIG_COUNT`, which says how many there are. Counting
 /// them in one place is the point: git reads no `GIT_CONFIG_KEY_<i>` at or
 /// above the count it is given, so a guard key added without the count would be
-/// dropped and nothing would say so — the read-only guard of #608 would simply
+/// dropped and nothing would say so: the read-only guard of #608 would simply
 /// not apply, and silently (#2247).
 ///
 /// git takes the pairs as `GIT_CONFIG_KEY_<i>` and `GIT_CONFIG_VALUE_<i>`. A
@@ -1396,7 +1396,7 @@ mod tests {
     /// origin, whose URL is GitHub's, lands in the repository itself, with no
     /// network (a push that left would fail offline), and a push to a URL of
     /// github.com fails. The four keys are this git's own and the two guards are
-    /// the container's, and the count is the number of pairs handed to git —
+    /// the container's, and the count is the number of pairs handed to git,
     /// derived, never typed, so a count too small for the keys is answered for
     /// by the pushes below instead of passed over (#2247).
     #[test]

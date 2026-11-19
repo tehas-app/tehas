@@ -82,7 +82,7 @@ pub fn closes_issue(text: &str, issue: u64) -> bool {
             // The word of closing, and the one mark a writer may leave on its end:
             // the colon that sets the number off, `close: #7`, and the period that
             // ends the body's sentence, `This fixes #7.`. Past the word and that
-            // mark the body goes into nothing else — a letter, `fixesx #7`, would
+            // mark the body goes into nothing else: a letter, `fixesx #7`, would
             // make the word something the writer never wrote.
             WORDS.iter().any(|word| {
                 let tail = &before[head..];
@@ -107,7 +107,7 @@ pub fn closes_issue(text: &str, issue: u64) -> bool {
 /// word with a noun of its own: the word of negation stands two back there, and
 /// the noun of its own stands between. A negation further back names another
 /// clause than the one that closes the issue, and leaves the reference standing
-/// — `nothing here, but it fixes #7` is the issue's pull request.
+/// (`nothing here, but it fixes #7` is the issue's pull request).
 pub fn negated(before: &str) -> bool {
     const NO: [&str; 3] = ["not", "no", "never"];
     before

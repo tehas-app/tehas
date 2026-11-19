@@ -3944,7 +3944,7 @@ fn chosen_draft_asked(t: &World, title: &str, spec: &str, question: &Value) {
     .unwrap();
 }
 
-/// The boxes of a refused draft's question: they ask, and hold no tick —
+/// The boxes of a refused draft's question: they ask, and hold no tick:
 /// writing the drafted plan is the answer this refusal stopped, so the answer
 /// that moves the session on is a reply.
 fn asks_without_the_tick(t: &World) {

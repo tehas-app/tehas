@@ -17,10 +17,18 @@ when a person pulls and runs `install.sh` there.
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
-| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `libexec/` | Three bash scripts: `dev-login`, `setup` and `update`. Installed to `~/tehas/libexec`, beside the console and the other Rust programs `install.sh` builds |
 | `console/` | The cargo workspace; its `Cargo.toml` is the root. The package at the root is the console of a running cycle, installed as `~/tehas/libexec/console` |
+| `console/core/` | Code the workspace's programs share, each rule written once. `sandbox.rs` makes what a container is given |
+| `console/cycle/` | `tehas-cycle`, a cycle's supervisor: `work.rs` starts its container |
+| `console/dispatch/` | `tehas-dispatch`, the dispatcher: `decide` is a pure function of what a poll read |
+| `console/store/` | The state store, `state/tehas.db`, as a library and the `store` program |
+| `console/ops/` | The console's operations, one module per subject, the update among them |
+| `console/attach/` | The link rule, the fetch of an issue's files and their manifest |
 | `console/analytics/` | The analytics program: the factory's runs in `state/analytics.db` |
 | `console/mcp/` | The read-only MCP server for outside agents |
+| `console/proxy/`, `console/contractor/` | The model proxy and the contractor of outsource, a building feature |
+| `console/xtask/` | The development tasks behind `scripts/` |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host; prepare a host's dependencies |
@@ -41,8 +49,10 @@ when a person pulls and runs `install.sh` there.
 3. **Loading settings has no side effects.** `lib/config.sh` runs no git
    command, makes no network call and writes nothing, and `tehas_load` never
    exits, because login shells source it.
-4. **Do not widen what a cycle's container is given.** The mounts and
-   environment variables of `libexec/work` are pinned by `test/work_test.sh`.
+4. **Do not widen what a cycle's container is given.** Its mounts and
+   environment variables are made in `console/core/src/sandbox.rs` and
+   pinned by `test/work_test.sh` and the argument lists in
+   `test/fixtures/argv/` (`test/sandbox_argv_test.sh`).
    No Docker socket, no SSH keys, nothing from `~/.config/tehas`. A change here
    is a security change: say so in the pull request and do not relax the test
    to make it pass.

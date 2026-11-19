@@ -139,7 +139,7 @@ mkdir -p "$upstream"
 git init -q -b main "$upstream"
 # The product names its gate in .pi/verify-cmd, and tehas work parks a cycle of
 # a product whose commit has neither that file nor a stack whose gate pi-rukas
-# can guess (libexec/work), so a fixture of no gate would start no container at
+# can guess, so a fixture of no gate would start no container at
 # all. tehas work reads the gate at the commit the cycle's clone is made at, not
 # in the host's checkout, which is the tree a person works in: so the gate is a
 # tracked file of the product's one commit, and the checkout has it as a file of
@@ -223,7 +223,7 @@ $DOCKER_STUB_BASE"
 # The container of a cycle that named none: it says one line of progress and
 # ends at once, purely to keep the cycle's stream from being the empty one tehas
 # work takes for a container that never came up and writes nothing for
-# (libexec/work, the note of a runner that never started). It is put where a case
+# (the note of a runner that never started). It is put where a case
 # that names no container finds it, and taken away again by fresh. A case that
 # means that end names its own container and says nothing; a case that reads
 # nothing of the cycle names none and should not find one.
