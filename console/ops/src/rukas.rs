@@ -692,11 +692,21 @@ mod tests {
         assert_eq!(got.get("layer").text(), "sha256:x");
         assert!(got.get("instanceLayer").is_null());
         assert_eq!(got.get("layerMoved"), &J::Bool(false));
-        // No image read.
+        // No image read: the sum is not asked.
         let mut g = given("release:0");
         g.layer = Some(d.join("sandbox.Dockerfile"));
+        fs::write(d.join("sandbox.Dockerfile"), "FROM x\n").unwrap();
         f.image = None;
         let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("layer").is_null());
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+        // A sandbox.Dockerfile that cannot be read.
+        f.image = Some(("sha256:1".to_string(), hex('b'), "sha256:x".to_string()));
+        fs::remove_file(d.join("sandbox.Dockerfile")).unwrap();
+        fs::create_dir(d.join("sandbox.Dockerfile")).unwrap();
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("instanceLayer").is_null());
         assert_eq!(got.get("layerMoved"), &J::Bool(false));
     }
 
