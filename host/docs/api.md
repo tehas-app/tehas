@@ -1076,7 +1076,7 @@ field of one entry and under `full` for a field of what fills them.
 | `full.places` | The biggest places first, at most twelve: the entries of `~/tehas` and of `~/.pi/agent`, each clone's `~/tehas/dev/<name>.state/target` in place of the clone's own tree, and the scratch disk's entries when the instance has one |
 | `full.places.path` | The place, as the walk named it |
 | `full.places.bytes` | Its bytes; `null` when the walk has no figure for it, which is what `cut` says the reason for |
-| `full.places.cut` | The bound the walk ran out of: `whole` for a figure that is the whole of the place, or `entries`, `depth`, `time` or `unreadable` |
+| `full.places.cut` | The bound the walk ran out of: `entries`, `depth`, `time` or `unreadable`. Left out when the figure is the whole of the place |
 | `full.docker` | `docker system df` as the daemon printed it |
 | `full.docker.state` | `read` when it answered lines, `none` when it answered none, `unreadable` when the call did not answer |
 | `full.docker.lines` | Its lines, in the daemon's words: at most twelve, each cut to 200 characters |
@@ -1156,7 +1156,8 @@ reason, and so is one too large to count in 64 bits: no reading is `null`,
 never the largest number there is.
 
 The object `tehas disk --cycles --json` prints is `api/disk-cycles.schema.json`
-in the source, and `api/disk-cycles.sample.json` is a sample of it. The
+in the source, `api/disk-cycles.sample.json` is a sample of it and
+`api/disk-cycles.full.json` one with `--full`. The
 feature `cycle-writes` of [`tehas api`](#tehas-api) says the release has the
 figures; a factory that predates it prints no `cycles` at all. The two keys it
 shares with the plain answer, `filesystems` and `full`, are a copy of

@@ -35,12 +35,12 @@
           "maxItems": 12,
           "items": {
             "type": "object",
-            "required": ["path", "cut"],
+            "required": ["path"],
             "additionalProperties": false,
             "properties": {
               "path": {"type": "string", "minLength": 1, "maxLength": 4096},
               "bytes": {"type": ["integer", "null"], "minimum": 0},
-              "cut": {"enum": ["whole", "entries", "depth", "time", "unreadable"]}
+              "cut": {"enum": ["entries", "depth", "time", "unreadable"]}
             }
           }
         },
@@ -64,7 +64,7 @@
             "properties": {
               "id": {"type": "string", "maxLength": 64},
               "image": {"type": "string", "maxLength": 200},
-              "command": {"type": ["string", "null"], "maxLength": 200}
+              "command": {"type": "string", "minLength": 1, "maxLength": 200}
             }
           }
         }

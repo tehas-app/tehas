@@ -51,7 +51,7 @@ pub fn tool() -> Value {
                         "type": "object", "properties": {
                             "path": text("The place: its path under the instance's home, or its name alone when it is outside the home."),
                             "bytes": int_("Its bytes. Left out, with cut, when it could not be measured."),
-                            "cut": text("The bound the walk ran out of: whole, entries, depth, time or unreadable."),
+                            "cut": text("The bound the walk ran out of: entries, depth, time or unreadable. Left out when the figure is the whole of the place."),
                         },
                     }},
                     "docker": {"type": "object", "description": "docker system df, as the daemon printed it.", "properties": {
