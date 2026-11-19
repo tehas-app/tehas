@@ -189,7 +189,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   start order with tehas order set --only, so take the line out`: every
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
-  blank value is ignored.
+  blank value or `0`, the old default, is ignored.
 - `TEHAS_IMPROVE_REPO is no longer read: the improvement loop is removed, so
   take the line out` (the same for
   `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and

@@ -549,14 +549,16 @@ for bad in "TEHAS_EASY_MERGE=1" "TEHAS_EASY_MERGE=yes"; do
   t_contains "$t_out" "tehas: TEHAS_EASY_MERGE is no longer read: the easy merge is removed"
 done
 
-t_case "the overlap hold is gone: its setting is refused unless blank, and says what holds an issue instead"
+t_case "the overlap hold is gone: its setting is refused unless blank or 0, and says what holds an issue instead"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
 t_eq "$t_out" "[unset]"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
-t_eq "$t_out" "[unset]"
-for v in 0 1; do
+for v in '' 0; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$v" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
+  t_eq "$t_out" "[unset]"
+done
+for v in 1 yes; do
   printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
