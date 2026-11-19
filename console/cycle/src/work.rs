@@ -343,7 +343,8 @@
 //! the lock and hands it down (src/lock.rs); under tehasbot cycle the lock
 //! comes down from the cycle already held. Every program this starts, the
 //! docker client among them, inherits it, so a cycle killed outright keeps its
-//! place until they are gone too.
+//! place until they are gone too. The docker client ends with its container,
+//! and the token renewer within a second of this process.
 //!
 //! A TERM, INT or HUP before the container starts ends the start after the
 //! command it is in, with 143 and no container. Once the container runs, the
@@ -619,7 +620,7 @@ fn in_house_memory(home: &Path) -> Option<crate::memory::InImage> {
 }
 
 /// The renewer of the cycle's token while the container reads it. The watch
-/// ends it with a TERM. A renewer that cannot start is the line the cycle is
+/// ends it with a TERM, and it ends on its own when this process is gone. A renewer that cannot start is the line the cycle is
 /// refused with: without it the app's token ages out during a long run.
 fn renewer(home: &Path) -> Result<Child, String> {
     let every = renew::every(&env("TEHAS_GITHUB_RENEW_EVERY")).to_string();
@@ -637,6 +638,7 @@ fn renewer(home: &Path) -> Result<Child, String> {
         .arg(cmd)
         .args(args)
         .args(["--every", &every, "--retry", &retry])
+        .args(["--parent", &std::process::id().to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn();
