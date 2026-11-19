@@ -1314,3 +1314,47 @@ fn a_status_outside_the_vocabulary_is_served_as_unknown() {
     let con = call(&live(), "factory_console", &json!({"issue": 7})).unwrap();
     assert_eq!(con["status"], "running");
 }
+
+// Every tool that takes an issue reads it the same way: 1 to 999999999, the
+// widest the platform publishes, refused past that with one text, and so
+// stated in its input schema.
+#[test]
+fn every_issue_argument_has_one_bound() {
+    let tools = [
+        ("factory_console", json!({})),
+        ("factory_issue", json!({})),
+        ("factory_park", json!({})),
+        ("factory_sessions", json!({})),
+        ("factory_log", json!({"file": "result"})),
+        ("factory_search", json!({"text": "error"})),
+    ];
+    for (name, base) in &tools {
+        for issue in [
+            json!(0),
+            json!(1_000_000_000u64),
+            json!(u64::MAX),
+            json!(-1),
+        ] {
+            let mut a = base.clone();
+            a["issue"] = issue.clone();
+            match call(&live(), name, &a) {
+                Err(ToolError::BadArgs(why)) => {
+                    assert_eq!(why, "issue is an integer from 1 to 999999999", "{name} {a}")
+                }
+                other => panic!("{name} {a}: {other:?}"),
+            }
+        }
+    }
+    let listed = list_scoped(Scope::Full);
+    for (name, _) in &tools {
+        let t = listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == *name)
+            .unwrap();
+        let issue = &t["inputSchema"]["properties"]["issue"];
+        assert_eq!(issue["minimum"], 1, "{name}");
+        assert_eq!(issue["maximum"], 999_999_999, "{name}");
+    }
+}

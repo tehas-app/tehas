@@ -15,7 +15,6 @@ use tehas_core::question::park_sig;
 
 use tehas_core::outcome::{OUTCOMES, STOPS};
 /// The largest issue number: the most digits a session id holds.
-const ISSUE_MAX: u64 = 999_999_999;
 /// A larger result log is not read. A real one is some kilobytes.
 pub const RESULT_MAX: u64 = tehas_core::file::READ_BOUND;
 /// The most failing check lines an answer holds.
@@ -37,7 +36,7 @@ pub fn tool() -> Value {
         "name": "factory_park",
         "description": "Why an issue's last stopped work run of the last 30 days stopped: its outcome, the step, the failure kind, the cap, the park reason and cause, and sig, the signature its park comment's tehas:park marker carries, from the fields the run recorded. From the run's result log: the runner's message, cause and what to do, and the failing check lines, at most 20 of 400 characters each, all masked. An issue with no stopped run in the window is a tool error.",
         "inputSchema": {"type": "object", "properties": {
-            "issue": {"type": "integer", "minimum": 1, "maximum": ISSUE_MAX, "description": "The issue number."},
+            "issue": {"type": "integer", "minimum": 1, "maximum": tools::ISSUE_MAX, "description": "The issue number."},
         }, "required": ["issue"], "additionalProperties": false},
         "outputSchema": {"type": "object", "properties": {
             "api": int("The API version, 1."),
@@ -86,10 +85,7 @@ fn issue_arg(args: &Value) -> Result<u64, ToolError> {
     if let Some(k) = map.keys().find(|k| *k != "issue") {
         return Err(bad(&format!("{k} is not an argument: issue is")));
     }
-    args["issue"]
-        .as_u64()
-        .filter(|n| (1..=ISSUE_MAX).contains(n))
-        .ok_or_else(|| bad(&format!("issue is an integer from 1 to {ISSUE_MAX}")))
+    tools::issue_arg(&args["issue"]).map(u64::from)
 }
 
 /// Masked first, then one line, then cut: a cut never leaves part of a

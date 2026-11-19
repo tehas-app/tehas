@@ -44,7 +44,6 @@ const MATCH_LINE: usize = 400;
 /// tool may ask for fewer; the search of the rest answers with what is left.
 const DEFAULT_LIMIT: u64 = 50;
 /// The largest issue number: the most digits a session id holds.
-const ISSUE_MAX: u64 = 999_999_999;
 /// The most session ids one `factory_search` is given.
 const IDS_MAX: usize = 50;
 /// The bytes one `factory_search` call reads through. The tool always asks
@@ -334,7 +333,7 @@ pub fn tool() -> Value {
         "description": "One log file of a session of the last 30 days, or of a running cycle, masked. Give id, a session id, or issue for the logs of that issue's running cycle. A running cycle's id, work-<issue>-<startedAt>, names it only while it runs; once it ends, find its session in factory_sessions. Plain: text from offset, at most bytes, 1 MiB at most; follow next for the rest. gzip: the whole masked file compressed, as an embedded application/gzip resource. Work sessions have transcript, err, preflight, console, result and dispatch; planning sessions have progress, result and dispatch. dispatch is per issue and holds every run of it. Files over 16 MiB are not served.",
         "inputSchema": {"type": "object", "properties": {
             "id": {"type": "string", "pattern": sessions::ID.as_str(), "description": "The session id from factory_sessions. Give this or issue."},
-            "issue": {"type": "integer", "minimum": 1, "maximum": ISSUE_MAX, "description": "An issue with a running cycle: that cycle's logs. Give this or id."},
+            "issue": {"type": "integer", "minimum": 1, "maximum": tools::ISSUE_MAX, "description": "An issue with a running cycle: that cycle's logs. Give this or id."},
             "file": {"type": "string", "enum": WORDS, "description": "Which log, a word factory_session lists."},
             "gzip": {"type": "boolean", "description": "The whole file gzipped. Not with offset or bytes."},
             "offset": {"type": "integer", "minimum": 0, "description": "Where to start, in bytes of the masked text. 0 without it."},
@@ -372,7 +371,7 @@ pub fn search_tool() -> Value {
         "The lines of the masked logs of the last 30 days that hold a fixed string, of one issue's sessions or of sessions named by id: not a pattern, and not a regular expression. Each match names its session, its log by word, the line cut to 400 characters, and its offset in masked bytes, which is one to give factory_log. When the answer stops early it gives next, the session, the word and the offset of the rest; read on with that session's logs. Files over 16 MiB are not read, and two logs are sent at a time, as for factory_log.",
         json!({"type": "object", "properties": {
             "text": {"type": "string", "minLength": TEXT_MIN, "maxLength": TEXT_MAX, "description": "The fixed string a line must contain, 3 to 200 characters."},
-            "issue": {"type": "integer", "minimum": 1, "description": "The issue whose sessions to search. Give this or ids."},
+            "issue": {"type": "integer", "minimum": 1, "maximum": tools::ISSUE_MAX, "description": "The issue whose sessions to search. Give this or ids."},
             "ids": {"type": "array", "items": {"type": "string", "pattern": sessions::ID.as_str()}, "maxItems": IDS_MAX, "description": "The sessions to search, at most 50 ids from factory_sessions. Give this or issue."},
             "files": {"type": "array", "items": {"type": "string", "enum": WORDS}, "description": "Only these logs, by word. All the logs of each session without it."},
             "limit": {"type": "integer", "minimum": 1, "maximum": MATCHES_MAX, "description": "How many matches to return, from 1 to 200. 50 without it."},
@@ -410,11 +409,7 @@ enum Asked<'a> {
 fn asked(args: &Value) -> Result<Asked<'_>, ToolError> {
     match (&args["id"], &args["issue"]) {
         (Value::Null, Value::Null) => Err(bad("give id or issue")),
-        (Value::Null, v) => v
-            .as_u64()
-            .filter(|n| (1..=ISSUE_MAX).contains(n))
-            .map(Asked::Issue)
-            .ok_or_else(|| bad(&format!("issue is an integer from 1 to {ISSUE_MAX}"))),
+        (Value::Null, v) => tools::issue_arg(v).map(|n| Asked::Issue(u64::from(n))),
         (v, Value::Null) => {
             let id = v
                 .as_str()
@@ -664,12 +659,7 @@ pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard
     let issue = if issue.is_null() {
         None
     } else {
-        Some(
-            issue
-                .as_u64()
-                .filter(|n| *n > 0)
-                .ok_or_else(|| bad("issue is a positive integer"))?,
-        )
+        Some(u64::from(tools::issue_arg(issue)?))
     };
     let ids: Option<Vec<&str>> = match ids {
         Value::Null => None,

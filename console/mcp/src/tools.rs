@@ -949,6 +949,7 @@ fn build_entries() -> Value {
                     "issue": {
                         "type": "integer",
                         "minimum": 1,
+                        "maximum": ISSUE_MAX,
                         "description": "The issue of the running cycle.",
                     },
                     "bytes": {
@@ -978,6 +979,7 @@ fn build_entries() -> Value {
                     "issue": {
                         "type": "integer",
                         "minimum": 1,
+                        "maximum": ISSUE_MAX,
                         "description": "The issue number.",
                     },
                 },
@@ -1680,10 +1682,7 @@ fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
 }
 
 fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = args["issue"]
-        .as_u64()
-        .filter(|n| *n > 0)
-        .ok_or_else(|| ToolError::BadArgs("issue is a positive integer".into()))?;
+    let issue = u64::from(issue_arg(&args["issue"])?);
     let bytes = match &args["bytes"] {
         Value::Null => CONSOLE_MAX,
         v => v
@@ -1791,6 +1790,18 @@ pub(crate) use tehas_core::time::now;
 /// been. The one way the private tools refuse an argument.
 pub(crate) fn bad(why: &str) -> ToolError {
     ToolError::BadArgs(why.to_string())
+}
+
+/// The widest issue number the platform publishes: nine digits.
+pub(crate) const ISSUE_MAX: u32 = 999_999_999;
+
+/// An issue argument, the one reader of every tool that takes one. It fits a
+/// u32, so the caller widens it to u64 or i64 without a cast.
+pub(crate) fn issue_arg(v: &Value) -> Result<u32, ToolError> {
+    v.as_u64()
+        .filter(|n| (1..=u64::from(ISSUE_MAX)).contains(n))
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or_else(|| bad(&format!("issue is an integer from 1 to {ISSUE_MAX}")))
 }
 
 /// The shape a version, a failure kind or a park reason may be: one word of
