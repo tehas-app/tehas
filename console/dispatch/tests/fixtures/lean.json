@@ -2309,6 +2309,127 @@
    }
   },
   {
+   "case": "tehas:lean taken off since, while the labels still list it, is classic",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   }
+  },
+  {
+   "case": "a retry tick over a person's tehas:ready taken off since still follows the record",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       },
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:02:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:03:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": []
+      }
+     }
+    }
+   }
+  },
+  {
    "case": "a retry tick over tehas:lean a stranger took off starts nothing and unticks once",
    "world": "parked",
    "park_q": [

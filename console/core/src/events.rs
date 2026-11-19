@@ -2,8 +2,8 @@
 //!
 //! One rule for an event with no time, and it has two directions: an event
 //! with no `created_at` is older than any when it must not authorise something
-//! (`label_actor`, `label_state`, `pause_holds`: an unstamped application is
-//! not the latest one), and later than any when it must veto one
+//! (`label_actor`, `label_state`, `standing_actor`, `pause_holds`: an
+//! unstamped application is not the latest one), and later than any when it must veto one
 //! (`first_unallowed_rename`: an unstamped rename is never the title an
 //! approval covered). Each direction holds the start, never lets it.
 
@@ -99,7 +99,8 @@ pub fn allowed_in(list: &str, login: &str) -> bool {
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
 /// sharing a stamp keep their order; one with no stamp is older than any.
-/// Empty strings when no event applied it.
+/// Empty strings when no event applied it. A label taken off since still names
+/// its applier here, so an approval reads `standing_actor` instead.
 pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
     let mut v: Vec<&Event> = events
         .iter()
@@ -203,11 +204,7 @@ impl LabelState {
 /// it is what settles the newest event at a one-second boundary and among
 /// unstamped events.
 pub fn label_state(events: &[Event], label: &str) -> LabelState {
-    let mut v: Vec<&Event> = events
-        .iter()
-        .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
-        .collect();
-    v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
+    let v = ordered(events, label);
     let Some(e) = grant::latest(&timeline(&v), &label).map(|i| v[i]) else {
         return LabelState::Absent;
     };
@@ -223,6 +220,30 @@ pub fn label_state(events: &[Event], label: &str) -> LabelState {
             at,
         }
     }
+}
+
+/// Who applied `label` and when, as `label_actor` gives it, when the newest
+/// event of the label in `label_state`'s order is that application: the
+/// account an approval is judged by. Empty strings when the label was taken
+/// off since or never applied, so a removal the issue's labels do not show yet
+/// grants nothing.
+pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
+    let v = ordered(events, label);
+    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
+        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
+        None => (String::new(), String::new()),
+    }
+}
+
+/// The labeled and unlabeled events of `label`, oldest first: of two sharing
+/// a stamp the removal comes last, and one with no stamp is older than any.
+fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<&'a Event> {
+    let mut v: Vec<&Event> = events
+        .iter()
+        .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
+        .collect();
+    v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
+    v
 }
 
 /// tehas_pause_holds: the event that holds the host paused, `(event, by)`,
@@ -474,6 +495,98 @@ mod plan_tests {
             event("unlabeled", "tehas:ready", "mallory", None),
         ];
         assert!(!sole_application(&unstamped, "tehas:ready", T, &bot));
+    }
+}
+
+#[cfg(test)]
+mod standing_tests {
+    use super::{label_actor, standing_actor, Event};
+
+    fn event(event: &str, actor: &str, at: Option<&str>) -> Event {
+        Event {
+            event: event.into(),
+            label: "tehas:ready".into(),
+            actor: actor.into(),
+            at: at.map(str::to_string),
+        }
+    }
+
+    const T: &str = "2026-10-01T00:00:00Z";
+    const L: &str = "2026-10-01T00:01:00Z";
+
+    fn who(events: &[Event]) -> (String, String) {
+        standing_actor(events, "tehas:ready")
+    }
+
+    fn none() -> (String, String) {
+        (String::new(), String::new())
+    }
+
+    /// The issue's labels still list the label and the events say it was
+    /// taken off since: the earlier application grants nothing.
+    #[test]
+    fn an_application_taken_off_since_stands_for_nobody() {
+        let ev = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "alice", Some(L)),
+        ];
+        assert_eq!(label_actor(&ev, "tehas:ready").0, "alice");
+        assert_eq!(who(&ev), none());
+        let by_other = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "mallory", Some(L)),
+        ];
+        assert_eq!(who(&by_other), none());
+    }
+
+    #[test]
+    fn an_application_stands_when_nothing_took_it_off() {
+        let once = [event("labeled", "alice", Some(T))];
+        assert_eq!(who(&once), ("alice".into(), T.into()));
+        let bare = [event("labeled", "alice", None)];
+        assert_eq!(who(&bare), ("alice".into(), String::new()));
+        assert_eq!(who(&[]), none());
+        let again = [
+            event("labeled", "mallory", Some(T)),
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", Some(L)),
+        ];
+        assert_eq!(who(&again), ("alice".into(), L.into()));
+    }
+
+    /// The order is `label_state`'s: of two events in one second the removal
+    /// is last, and an event with no stamp is older than any.
+    #[test]
+    fn ties_and_missing_stamps_are_read_as_label_state_reads_them() {
+        let same = [
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", Some(T)),
+        ];
+        assert_eq!(who(&same), none());
+        let unstamped_removal = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "mallory", None),
+        ];
+        assert_eq!(who(&unstamped_removal), ("alice".into(), T.into()));
+        let unstamped_application = [
+            event("unlabeled", "alice", Some(T)),
+            event("labeled", "alice", None),
+        ];
+        assert_eq!(who(&unstamped_application), none());
+        let two = [
+            event("labeled", "alice", Some(T)),
+            event("labeled", "bob", Some(T)),
+        ];
+        assert_eq!(who(&two), label_actor(&two, "tehas:ready"));
+        assert_eq!(who(&two).0, "bob");
+    }
+
+    #[test]
+    fn another_label_does_not_take_this_one_off() {
+        let mut other = event("unlabeled", "mallory", Some(L));
+        other.label = "tehas:blocked".into();
+        let ev = [event("labeled", "alice", Some(T)), other];
+        assert_eq!(who(&ev), ("alice".into(), T.into()));
     }
 }
 

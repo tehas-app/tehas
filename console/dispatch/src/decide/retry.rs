@@ -4,7 +4,7 @@
 
 use super::clean::iso;
 use super::{
-    base_stands, fixer_base, has, label_actor, or_unknown, Choice, End, Poll, Room, Start, Step,
+    base_stands, fixer_base, has, or_unknown, standing_actor, Choice, End, Poll, Room, Start, Step,
     CLASSIC, LEAN,
 };
 use crate::questions;
@@ -488,7 +488,7 @@ impl Poll<'_> {
             // start: it is the new approval the driver reads the label for.
             let held = has(&have, "tehas:ready") && {
                 let ev = self.events(n)?;
-                self.c.allowed(&label_actor(&ev, "tehas:ready").0)
+                self.c.allowed(&standing_actor(&ev, "tehas:ready").0)
             };
             let follows = !held && !(lean_refused && (self.c.driver_default == Driver::Lean));
             let driver = match self.driver(n, &have, follows)? {

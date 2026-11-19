@@ -335,6 +335,18 @@ t_contains "$t_out" "#24: tehas:prototype was applied by 'unknown', not an allow
 t_contains "$t_out" "#25: tehas:prototype was applied by 'unknown', not an allowed account"
 t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
 
+# The list of tickets still carries the label, the events read after it say
+# it came off: the earlier application approves nothing.
+t_case "a label taken off since the tickets were listed is no approval"
+reset
+issues "$(issue 27 'Taken off' 'no files')"
+echo '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"},
+       {"event":"unlabeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:01:00Z"}]' >"$fx/events-27.json"
+t_protolab
+t_contains "$t_out" "#27: tehas:prototype was taken off by 'alice' since it was applied"
+t_eq "$([ -e "$site/27" ] && echo there)" ""
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[]"
+
 t_case "label events that cannot be read leave the ticket's page as it was"
 reset
 issues "$(issue 26 'Held' 'no files')"
@@ -1045,13 +1057,17 @@ t_contains "$t_out" "#63: tehas:prototype was applied by 'Alice', not an allowed
 t_contains "$t_out" "#64: tehas:prototype was applied by 'ali', not an allowed account"
 t_eq "$(jq -c '.tickets' "$live/protolab.json")" "[]"
 
-t_case "a label taken off is not the labelling that counts: who applied it decides"
+# A removal is not a labelling: the remover is not judged as the one who
+# applied it. But the label is off, though the list of tickets still has it.
+t_case "a label taken off is not the labelling that counts, and the earlier one no longer counts"
 reset
-issues "$(issue 65 'Taken off by a stranger, still on' '')"
+issues "$(issue 65 'Taken off by a stranger, still listed' '')"
 jq -n -c '[{event: "labeled", label: {name: "tehas:prototype"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"},
   {event: "unlabeled", label: {name: "tehas:prototype"}, actor: {login: "mallory"}, created_at: "2026-10-02T00:00:00Z"}]' >"$fx/events-65.json"
 t_protolab
-t_contains "$t_out" "#65: 0 files"
+t_contains "$t_out" "#65: tehas:prototype was taken off by 'mallory' since it was applied"
+t_lacks "$t_out" "applied by 'mallory'"
+t_lacks "$t_out" "#65: 0 files"
 
 t_case "a ticket's meta keeps its keys in the order it always had"
 reset

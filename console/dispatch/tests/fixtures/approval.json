@@ -221,6 +221,105 @@
    }
   },
   {
+   "case": "an approval taken off after it was given starts nothing while the labels still list it",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready was taken off by 'alice' since it was applied"
+    ],
+    "log_lacks": [
+     "not an allowed account"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an approval applied again after it was taken off starts the cycle",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:02:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "would run a cycle for #7 (labelled by alice)"
+    ]
+   }
+  },
+  {
    "case": "a login that only contains an allowed one is not allowed",
    "dry": true,
    "snapshot": {

@@ -372,6 +372,36 @@ fn asks_of_accounts_not_allowed_take_no_turn_of_the_poll() {
     );
 }
 
+#[test]
+fn an_ask_taken_off_since_it_was_given_runs_nothing() {
+    let applied = Event {
+        event: "labeled".into(),
+        label: LABEL.into(),
+        actor: "alice".into(),
+        at: Some(AT.into()),
+    };
+    let removed = Event {
+        event: "unlabeled".into(),
+        at: Some("2026-11-01T10:01:00Z".into()),
+        ..applied.clone()
+    };
+    let mut f = Fake::default();
+    run(
+        Ask {
+            events: Events::Read(vec![applied, removed]),
+            ..ask("alice")
+        },
+        &mut f,
+    );
+    assert!(f.unlabelled.is_empty());
+    assert!(f.finished.is_empty());
+    assert!(f.said.is_empty());
+    assert_eq!(
+        f.lines,
+        ["ignore #7: tehas:finish was taken off by 'alice' since it was applied"]
+    );
+}
+
 fn ran(status: Option<i32>, out: &str, err: &str) -> Ran {
     Ran {
         status,
