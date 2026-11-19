@@ -101,6 +101,13 @@ describe one driver's steps and the Protolab, and may change. The fields of
 `contractors` may change while outsource is still being built, and so may
 `api/status.outsourced.json`, the sample that shows them.
 
+`testFeatures` in `tehas status --json` stays, with `read`, `features` and
+`lab`, through 1.x. It has been on the surface since 1.0.0-beta.7. It reports
+a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a person
+can tell a lab host from a release host. A release prints it only while the
+variable is set. If 1.x replaces the lab mechanism, the field and its
+subfields keep their meaning.
+
 The keys of `rows` in `tehas state check --json` are the store's table names.
 They are internal: a later release may add, rename or drop a table, and with it
 a key. `rows` itself is public.
