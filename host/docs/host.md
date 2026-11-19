@@ -517,7 +517,9 @@ asks about the page each time and reuses what it already has of the files it
 names. `install.sh` gives a changed file a new name, so a new install is seen at
 once and nothing has to be waited out or forced.
 
-Three things keep the name they have and are revalidated. The theme stylesheet,
+Three things keep the name they have and are served `no-cache`, so a browser
+revalidates them on each load and never runs a cached old copy beside a new
+page. The theme stylesheet,
 which a page's template names at the request as
 `/fun/theme-<design>.css`, so no file of the checkout can be hashed for it. Any
 file that is not a script or a stylesheet: a font, a logo, a share card. And a

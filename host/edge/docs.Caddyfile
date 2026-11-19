@@ -132,9 +132,13 @@
             # a name with the first 12 hex digits of its content in it, so a
             # name always holds the same bytes and may be cached for ever. The
             # theme file, which a template names at the request, stays as it is
-            # and is revalidated.
+            # and is revalidated, as is every other file that keeps its name:
+            # the kit's modules, which import each other by name, must not run
+            # a cached old copy beside a new entry file.
             @hashed path_regexp ^/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
             header @hashed Cache-Control "public, max-age=31536000, immutable"
+            @plain not path_regexp ^/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
+            header @plain Cache-Control "no-cache"
             file_server
         }
         # For agents: the entry point. A template, so its links are absolute

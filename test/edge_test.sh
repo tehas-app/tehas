@@ -328,10 +328,16 @@ hashed=$(printf '%s\n' "$fun" | grep '@hashed ')
 t_contains "$hashed" '[0-9a-f]{12}'
 t_contains "$hashed" '\.(js|css)$'
 # A name of the plain form asks for the file, and gets no such header: nothing
-# here may promise a browser that theme-beesknees26.css never changes. The
-# header is the one line of its kind, asked for with the word before it.
-t_eq "$(printf '%s\n' "$fun" | grep -c -E '^[[:space:]]*header ')" 1
+# here may promise a browser that theme-beesknees26.css never changes. It is
+# revalidated instead, so a kit module that keeps its name is never run as a
+# cached old copy. The two headers are the only lines of their kind.
+t_eq "$(printf '%s\n' "$fun" | grep -c -E '^[[:space:]]*header ')" 2
 t_eq "$(printf '%s\n' "$fun" | grep -c '@hashed')" 2
+t_eq "$(printf '%s\n' "$fun" | grep -c -F 'header @plain Cache-Control "no-cache"')" 1
+# @plain is the other side of the same pattern, so no name falls between them.
+plain=$(printf '%s\n' "$fun" | grep '@plain not path_regexp ')
+matcher=$(printf '%s\n' "$fun" | grep '@hashed path_regexp ')
+t_eq "${plain#*path_regexp }" "${matcher#*path_regexp }"
 # The 404 of a backup comes first: install.sh keeps a replaced file beside the
 # one it replaced, and an immutable header on the name of a backup would cache
 # the bytes of the file before it.
