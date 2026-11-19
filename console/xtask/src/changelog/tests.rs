@@ -290,3 +290,29 @@ fn the_task_rewrites_deletes_and_names_or_prints() {
     a.file = Some(d.join("none.md"));
     assert_eq!(run(&a, &log), 1);
 }
+
+#[test]
+fn a_release_names_unreleased_and_a_new_empty_one_goes_above_it() {
+    let text = "# Changelog\n\nIntro.\n\n## Unreleased\n\n### Changes\n\n- a\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n- old\n";
+    let named = name_release(text, "v0.2.0", "2026-11-19").unwrap();
+    assert_eq!(
+        named,
+        "# Changelog\n\nIntro.\n\n## Unreleased\n\n## v0.2.0 (2026-11-19)\n\n### Changes\n\n- a\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n- old\n"
+    );
+    // A heading that only starts with the word is not the section.
+    assert_eq!(
+        name_release("## Unreleasedx\n", "v0.2.0", "2026-11-19"),
+        None
+    );
+    assert_eq!(name_release("## v0.1.0\n", "v0.2.0", "2026-11-19"), None);
+    // The named section is what the release's notes read, and the new
+    // Unreleased has nothing in it.
+    assert_eq!(
+        crate::tag::section(&named, "v0.2.0").as_deref(),
+        Some("### Changes\n\n- a\n\n### Adopter action\n\nNone.")
+    );
+    assert_eq!(
+        crate::tag::section(&named, "Unreleased").as_deref(),
+        Some("")
+    );
+}
