@@ -254,6 +254,72 @@ fn a_fenced_line_that_reads_as_a_changelog_heading_or_an_open_fence_is_refused()
 }
 
 #[test]
+fn a_fragment_whose_action_is_none_adds_no_action() {
+    let steps = lines(&[
+        "## Unreleased",
+        "",
+        "### Adopter action",
+        "",
+        "Edit the settings.",
+    ]);
+    let none = frag(
+        "d/x.md",
+        "### Changes\n\n- x\n\n### Adopter action\n\nNone.\n",
+    );
+    let out = collect(&steps, "Unreleased", std::slice::from_ref(&none)).unwrap();
+    assert_eq!(
+        out,
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "Edit the settings.",
+        ])
+    );
+    let real = frag(
+        "d/y.md",
+        "### Adopter action\n\n  None.  \n\nRun tehas update.\n",
+    );
+    let out = collect(&lines(LOG), "Unreleased", &[none.clone(), real]).unwrap();
+    let mut want = LOG.to_vec();
+    want.splice(
+        6..11,
+        [
+            "- in the file",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "  None.  ",
+            "",
+            "Run tehas update.",
+        ],
+    );
+    assert_eq!(out, lines(&want));
+    let bare = lines(&["## Unreleased", "", "### Changes", "", "- a"]);
+    assert_eq!(
+        collect(&bare, "Unreleased", &[none]).unwrap(),
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- a",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "None.",
+        ])
+    );
+}
+
+#[test]
 fn an_empty_fragment_changes_nothing() {
     assert_eq!(
         collect(&lines(LOG), "Unreleased", &[frag("1.md", "")]).unwrap(),

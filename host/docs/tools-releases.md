@@ -170,7 +170,9 @@ script runs.
 A pull request does not edit `CHANGELOG.md`, so two open ones do not conflict
 there. It adds a fragment, `changelog.d/<issue>.md`, with a `### Changes` and
 an `### Adopter action` section, either of which may be left out; text outside
-them is refused. A pull request with no issue names the file after its branch,
+them is refused. An Adopter action of only "None." is collected only when the
+section and the other fragments have no action, so a page never ends real
+steps with "None.". A pull request with no issue names the file after its branch,
 each `/` a `-`: branch `fix/typo` writes `changelog.d/fix-typo.md`, and
 `scripts/collect-changelog.sh --name <branch>` prints that path. A line inside
 a fenced code block is text, so a `#` comment there is not read as a heading;

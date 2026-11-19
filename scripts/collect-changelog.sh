@@ -15,7 +15,8 @@
 # The lines of each fragment's Changes go at the end of the section's
 # "### Changes", and each fragment's Adopter action is a paragraph of its own
 # at the end of the section's "### Adopter action", in place of a lone "None.".
-# A heading the section lacks is made.
+# A fragment's action of only "None." is left out, unless the section would
+# have no Adopter action without it. A heading the section lacks is made.
 #
 # The work is `xtask collect-changelog` (console/xtask/src/changelog.rs), built
 # with cargo from the workspace beside this script, or the build TEHAS_XTASK
