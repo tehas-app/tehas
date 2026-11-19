@@ -536,6 +536,12 @@ impl<'a> Poll<'a> {
                 rc,
             ));
         }
+        if s.running_unlisted {
+            return Err(self.fail(
+                "ERROR: state/cycles could not be listed, so no cycle can be told to run or not: the poll acts on none",
+                1,
+            ));
+        }
         self.bot = bot.clone();
         if !self.dry {
             let demand = self.demand();

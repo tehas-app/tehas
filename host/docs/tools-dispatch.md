@@ -335,7 +335,12 @@ holds the lock of #N`: its client died, and it would work on with the bot's
 token and hold the name. The container of a planning turn that was cut off,
 `tehas-plan-<issue>`, is removed the same way before the turn is reported. A
 paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
-host no cycle holds a lock.
+host no cycle holds a lock. When `~/tehas/state/cycles` is there but cannot be
+listed, for example after a change of its mode or when a file stands in its
+place, no cycle can be told to run or not, and the poll ends with exit 1 before
+it acts: `ERROR: state/cycles could not be listed, so no cycle can be told to
+run or not: the poll acts on none`. It removes no container, parks no issue
+and starts nothing until the directory can be listed again.
 
 The other way round, a cycle that holds its lock but has not been heard from
 for 20 minutes is stuck, for example a `tehas work` that hangs after its

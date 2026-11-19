@@ -166,6 +166,9 @@ pub struct Snapshot {
     pub refines_owed: Option<Result<Vec<Value>, StoreErr>>,
     /// The issues whose cycle holds its lock, with how each started on record.
     pub running: Vec<(u64, String)>,
+    /// state/cycles is there but could not be listed: `running` is empty and
+    /// any cycle may be running.
+    pub running_unlisted: bool,
     pub ready: Issues,
     pub blocked: Issues,
     pub awaiting: Option<Issues>,
@@ -500,6 +503,7 @@ impl Snapshot {
                     Ok(o.as_array().cloned().unwrap_or_default())
                 }
             }),
+            running_unlisted: v.get("running_unlisted") == Some(&Value::Bool(true)),
             running: v
                 .get("running")
                 .and_then(Value::as_array)
