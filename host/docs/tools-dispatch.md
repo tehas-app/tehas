@@ -41,7 +41,9 @@ stops a cycle nobody has heard from, and
 clears an issue marked `tehas:running` with no cycle behind it. The poll ends
 there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, free disk of at least
-`TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own,
+`TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own
+(read as the settings load reads it, from the `TEHAS_CYCLE_MIN_FREE_MB` it
+derives; a value that is no number stops the poll with 78),
 the free slots
 (`TEHAS_MAX_CYCLES` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'

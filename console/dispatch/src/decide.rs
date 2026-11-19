@@ -1121,8 +1121,8 @@ impl<'a> Poll<'a> {
         } else if !s.endpoint_hold.is_empty() {
             why = Some(Why::Resources);
             hold = s.endpoint_hold.clone();
-        } else if let Some(Some(kb)) =
-            disk_low(self).filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb * 1024))
+        } else if let Some(Some(kb)) = disk_low(self)
+            .filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb.saturating_mul(1024)))
         {
             why = Some(Why::Disk);
             hold = format!(
