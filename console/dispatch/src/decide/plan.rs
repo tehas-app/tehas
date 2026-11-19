@@ -37,7 +37,7 @@ fn fixer_answer_why(c: &Settings, view: &Value) -> String {
     }
     String::new()
 }
-use super::{has, End, Poll, Room, Step};
+use super::{has, or_unknown, End, Poll, Room, Step};
 use crate::settings::Settings;
 use crate::text;
 use serde_json::{json, Value};
@@ -485,7 +485,7 @@ impl Poll<'_> {
             let mut epic = None;
             let who = match self.approval(n, label)? {
                 Ok((who, _)) => who,
-                Err(refused) if !refused.is_empty() && self.c.is_millwright(&refused) => {
+                Err(Some(refused)) if !refused.is_empty() && self.c.is_millwright(&refused) => {
                     match self.epic_plan(n, label, &refused)? {
                         Some((who, said, e)) => {
                             on_epic = said;
@@ -495,12 +495,11 @@ impl Poll<'_> {
                         None => continue,
                     }
                 }
-                Err(refused) => {
-                    if !refused.is_empty() {
-                        self.clear_unauthorised(n, label, &refused);
-                    }
+                Err(Some(refused)) => {
+                    self.clear_unauthorised(n, label, or_unknown(&refused));
                     continue;
                 }
+                Err(None) => continue,
             };
             if !self.work_ok(n)? {
                 continue;

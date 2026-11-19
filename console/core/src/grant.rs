@@ -461,6 +461,38 @@ mod proofs {
         }
     }
 
+    /// The millwright is a grant as the list is: the poll asks it of the
+    /// login it credits, never of the text the log prints for nobody. With
+    /// any millwright, the account `unknown` too, an application the pins
+    /// refused or one naming nobody grants nothing; the millwright's own
+    /// pinned application can.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn the_millwright_takes_no_refused_application() {
+        let w = world();
+        let mill: Login = kani::any();
+        kani::assume(mill < EMPTY);
+        let is_millwright = |n: Name<Login>| match n {
+            Name::Login(l) => l != EMPTY && KEY[l as usize] == KEY[mill as usize],
+            Name::Doubted(..) | Name::Unknown => false,
+        };
+        let e = event(&w);
+        let got = grant(&[e], &READY, &|l| w.listed(l), &|n| {
+            w.allows(n) || is_millwright(n)
+        });
+        kani::cover!(
+            got.is_some() && mill == UNKNOWN_LOGIN && e.actor.login == UNKNOWN_LOGIN,
+            "the millwright unknown grants"
+        );
+        kani::cover!(
+            mill == UNKNOWN_LOGIN && !e.pinned && e.change == Change::Applied,
+            "a refused application, with the millwright unknown"
+        );
+        if e.change == Change::Applied && (!e.pinned || e.actor.login == EMPTY) {
+            assert!(got.is_none());
+        }
+    }
+
     /// `last_application` is the newest application of the label: who
     /// `events::label_actor` names, and so who the poll credits.
     #[kani::proof]
