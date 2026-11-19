@@ -336,7 +336,11 @@ or a comment between `html` and its backtick does not hide a template, and
 checks read the name `html`. `export … from` the library takes only the names
 it exports, as an import does.
 
-A complete island:
+A complete island, alone on its page. For two islands that share a feed and a
+page store, copy the tested demo in `test/browser/`: `index.html` (the page),
+`board.state.js` (the store both import), and `kit-demo-queue.*` and
+`kit-demo-picked.*` (each island's element, model and render module).
+`kit-check.mjs` checks it in a browser ([Tests](#tests)).
 
 ```js
 // fun/tehas-factory-queue.js
