@@ -318,10 +318,12 @@ same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
 or a run of `tehas setup` then rebuilds. The layer is also labelled with the
 sum of the file and of the files its `COPY` and `ADD` lines name, so
 `build.sh --if-moved`, which setup, update and `bootstrap.sh user` run,
-rebuilds when either changed since the image was built. A file that does not build fails the
-build and the tag cycles run is left where it was, on the image the host had; a
-build that is killed partway leaves it on the platform image, without your
-layer, so re-run `~/tehas/sandbox/build.sh` after fixing the file.
+rebuilds when either changed since the image was built. A file that does not
+build, or a layer that fails its smoke run, fails the build and leaves the tag
+cycles run on the platform image this build made, without your layer, and the
+build says so. A build killed partway leaves it there too. Until the layer
+builds, cycles run without what it adds, so fix the file and re-run
+`~/tehas/sandbox/build.sh`.
 
 After a change to the file, rebuild and check the gates again:
 

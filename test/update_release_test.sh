@@ -54,7 +54,9 @@ make_release() { # <tag> [<body>] [<machine>]
   cp -R "$T_ROOT/instances/example" "$src/instances/"
   cp "$T_ROOT/host/release/minisign.pub" "$src/host/release/"
   echo "$tag" >"$src/VERSION"
-  printf '#!/usr/bin/env bash\nprintf "install %s %%s\\n" "${*:-}" >>"$T/calls/install"\n' "$tag" >"$src/install.sh"
+  # INSTALL_RC stands for an install.sh that refuses or fails after the switch,
+  # INSTALL_SAYS for the line it prints then.
+  printf '#!/usr/bin/env bash\nprintf "install %s %%s\\n" "${*:-}" >>"$T/calls/install"\n[ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2\n[ -z "${INSTALL_RC:-}" ] || exit "$INSTALL_RC"\n' "$tag" >"$src/install.sh"
   chmod +x "$src/install.sh"
   tar -czf "$out/$name" -C "$T/src" "tehas-$tag"
   (cd "$out" && sha256sum "$name" >"$name.sha256")
@@ -158,7 +160,14 @@ esac'
 for a in "$@"; do [ "$prev" != -x ] || x=$a; [ "$prev" != -p ] || p=$a; prev=$a; done
 cat "$p" >"$T/calls/minisign-key"
 [ "$(cat "$x")" = signed ]'
-  t_stub docker 'case "$1 $2" in "image inspect") exit "${IMAGE_RC:-1}" ;; esac'
+  # IMAGE_LAYER is the tehas.layer label of an image that is there; the uid tag
+  # names sha256:before.
+  t_stub docker 'case "$1 $2" in "image inspect")
+  [ "${IMAGE_RC:-1}" != 0 ] || case "$*" in
+    *tehas.layer*) printf "%s\n" "${IMAGE_LAYER:-}" ;;
+    *.Id*) echo sha256:before ;;
+  esac
+  exit "${IMAGE_RC:-1}" ;; esac'
   t_stub systemctl
 }
 
@@ -311,6 +320,69 @@ t_eq "$(readlink "$th/current")" versions/v1.0.0
 t_lacks "$(t_calls gh)" "release download"
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:release-v1.0.0 tehas/pi-rukas:uid$(id -u)"
 
+t_case "an install.sh that fails after the switch moves current and the image tag back"
+stubs
+instance
+host_at v1.0.0
+t_run "$update"
+t_eq "$t_rc" 0
+refusal="tehas: this release cannot migrate $th/state/tehas.db; nothing was installed"
+t_run "IMAGE_RC=0 INSTALL_RC=78 INSTALL_SAYS='$refusal' $update --to v1.0.0"
+t_eq "$t_rc" 78
+t_contains "$t_out" "sandbox: the image v1.0.0 ran with is in use again"
+t_contains "$t_out" "install: install.sh exited 78; no follow-up was run"
+t_contains "$t_out" "release: install.sh did not finish v1.0.0, so current is v1.2.0 again"
+t_eq "$(readlink "$th/current")" versions/v1.2.0
+t_eq "$(tail -n 1 "$th/state/release-history")" v1.2.0
+t_contains "$(t_calls docker)" "tag sha256:before tehas/pi-rukas:uid$(id -u)"
+# The version current names again is the one a plain update installs.
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "release: v1.2.0 is the version installed"
+
+t_case "a checkout host whose first install from a release fails runs from its checkout again"
+stubs
+instance
+checkout_host v1.2.0
+t_run "INSTALL_RC=1 INSTALL_SAYS='tehas: a poll is running; nothing was installed' $update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: install.sh did not finish v1.2.0, so current is the platform checkout again"
+t_eq "$(test -L "$th/current" && echo link)" ""
+
+t_case "an install.sh that fails after it began to copy leaves current on the new version"
+stubs
+instance
+host_at v1.0.0
+t_run "$update"
+t_eq "$t_rc" 0
+t_run "IMAGE_RC=0 INSTALL_RC=1 INSTALL_SAYS='tehas: the store could not migrate db; the files are installed, the database was left as it was' $update --to v1.0.0"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: install.sh stopped after it began to install v1.0.0, so current stays on it"
+t_lacks "$t_out" "did not finish"
+t_eq "$(readlink "$th/current")" versions/v1.0.0
+t_lacks "$(t_calls docker)" "tag sha256:before"
+
+t_case "--to does not reuse an image built from another sandbox.Dockerfile"
+stubs
+instance
+host_at v1.0.0
+t_run "$update"
+t_eq "$t_rc" 0
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+t_run "IMAGE_RC=0 IMAGE_LAYER=sha256:old $update --to v1.0.0"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox: the image v1.0.0 ran with was built from another sandbox.Dockerfile, so it is not put back"
+t_lacks "$t_out" "is in use again"
+t_lacks "$(t_calls docker)" "tag tehas/pi-rukas:release-v1.0.0 tehas/pi-rukas:uid"
+# Built from the file as it is, the image is put back.
+sum=$("$T_CONSOLE" sandbox layer "$T/instance/sandbox.Dockerfile")
+t_run "$update --to v1.2.0"
+t_eq "$t_rc" 0
+t_run "IMAGE_RC=0 IMAGE_LAYER=$sum $update --to v1.0.0"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox: the image v1.0.0 ran with is in use again"
+rm -f "$T/instance/sandbox.Dockerfile"
+
 t_case "--to a version that is not published changes nothing"
 stubs
 instance
@@ -423,6 +495,31 @@ t_contains "$t_out" "release: installed none, this host ran from its platform ch
 t_lacks "$t_out" "== v1"
 t_contains "$t_out" "release: would switch to v1.3.0"
 rm -rf "$rel/v1.3.0" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
+
+t_case "a checkout tagged a prerelease newer than the newest release moves to that prerelease, not back"
+stubs
+make_release v1.3.0-beta.1
+instance
+checkout_host v1.3.0-beta.1
+t_run "$update --check"
+t_contains "$t_out" "release: the checkout's v1.3.0-beta.1 is newer than the newest release"
+t_contains "$t_out" "release: would switch to v1.3.0-beta.1"
+t_lacks "$t_out" "going back"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(readlink "$th/current")" versions/v1.3.0-beta.1
+t_eq "$(t_calls install)" "install v1.3.0-beta.1 "
+rm -rf "$rel/v1.3.0-beta.1" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
+
+t_case "a checkout tagged newer than any release, and not published, changes nothing"
+stubs
+instance
+checkout_host v1.5.0
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: the checkout's v1.5.0 is newer than the newest release v1.2.0 and is not published"
+t_lacks "$(t_calls gh)" "release download"
+t_eq "$(test -L "$th/current" && echo link)" ""
 
 t_case "a checkout with no tag is shown every release, as before"
 stubs

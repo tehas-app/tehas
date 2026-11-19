@@ -20,8 +20,10 @@
 # The uid tag names the image cycles run, so it is moved once this run has built
 # something worth running: onto the instance's layer when the host has one that
 # builds and stands on this build's image, and onto the image here otherwise. A
-# layer that does not build, or a build stopped partway, leaves the tag where it
-# was.
+# platform image that does not build or fails its smoke run leaves the tag where
+# it was. A layer that fails after that leaves the tag on this build's platform
+# image, without the layer, and the build says so: cycles run without the
+# layer's toolchain until it builds.
 #
 # Before the tag moves, each image that would take it is smoke-run by
 # tehas-cycle sandbox smoke-run: one offline work turn started in it, with no
@@ -29,8 +31,8 @@
 # account's uid on one CPU of a cpuset, a vipune add and search that must write
 # nothing to stderr. An image that
 # prints no step-started line within 20 s, or prints a result that says its
-# runner crashed, is refused: the build ends 1 and the tag stays where it was,
-# as for a layer that does not build (a base that answered --capabilities and
+# runner crashed, is refused: the build ends 1 and the tag stays where the
+# step before put it (a base that answered --capabilities and
 # died at every work run: pi-rukas v0.14.30 to v0.14.40). What the three
 # answers mean is in console/cycle/src/sandbox.rs, not here.
 #
@@ -245,10 +247,10 @@ reads=$("$cycle" caps reads-images <<<"$caps")
 # (console/cycle/src/sandbox.rs: `sandbox smoke-run` ends 0 only on a
 # step-started line and a vipune that wrote nothing to stderr). The run is no row of
 # `sandbox table`: its image is the one this build has just made.
-smoke_image() { # <image>
+smoke_image() { # <image> <what the uid tag names then>
   local word
   if ! word=$("$cycle" sandbox smoke-run "$1" "$uid"); then
-    echo "sandbox: $1 failed its smoke run (${word:-no answer}), so $current is left as it was" >&2
+    echo "sandbox: $1 failed its smoke run (${word:-no answer}), so $2" >&2
     exit 1
   fi
   echo "smoke-ran $1"
@@ -281,12 +283,12 @@ docker build \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" \
   -f "$uid_recipe" "$here"
-smoke_image "$image:$stamp"
+smoke_image "$image:$stamp" "$current is left as it was"
 docker tag "$image:$stamp" "$current"
-# The uid tag names the image cycles run, so the instance's own layer above
+# The uid tag names the image cycles run, so the instance's own layer below
 # moves it onto itself when there is one, and a layer that does not build or does
-# not stand on this build's image leaves the tag where this line put it: the host
-# keeps the toolchain it had rather than losing it to a file that will not build.
+# not stand on this build's image leaves the tag where this line put it, on an
+# image without the layer. Each of those failures says so.
 echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, also tagged $current"
 
 # The instance's layer, on top of the image above. The base goes in as an
@@ -299,10 +301,10 @@ echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, als
 # The uid tag names the image cycles run, so it is not moved onto this layer
 # until the layer has built and has been shown to stand on this run's image. A
 # layer that does not build, or a build stopped partway, leaves the tag on the
-# image above, so a host whose layer is broken keeps a working image rather
-# than losing its toolchain. The tehas image keeps only its date tag beside
-# that, so a rollback is one docker tag away either way.
+# image above, which runs but lacks what the layer adds. The image the layer
+# made last time keeps its date tag, so a rollback is one docker tag away.
 if [ -f "$instance_file" ]; then
+  unlayered="$current names $image:$stamp, without the layer of $instance_file: cycles run without it until it builds"
   # The argument is written with its value in front of it, its name not spelled
   # out on a line of its own: test/build_test.sh counts the argument lines of the
   # build above against the ARG lines of the two tracked-by-us files it reads,
@@ -311,7 +313,7 @@ if [ -f "$instance_file" ]; then
   if ! docker build -t "$image:$stamp-product" \
     "--build-arg=TEHAS_BASE=$image:$stamp" "--label=tehas.layer=$layer_sum" \
     -f "$instance_file" "$(dirname "$instance_file")"; then
-    echo "sandbox: $instance_file did not build on $image:$stamp; $current is left as it was" >&2
+    echo "sandbox: $instance_file did not build on $image:$stamp; $unlayered" >&2
     exit 1
   fi
   # The layer has to stand on the image this build made. Docker answers FROM from
@@ -321,14 +323,14 @@ if [ -f "$instance_file" ]; then
   # chain of a layer built on that image is its parent's lines with more after
   # them, so the two answers are compared a line at a time. A docker that answers neither
   # is the case of an image that is not there at all. The image is not named until
-  # it passes, so a layer that fails leaves the tag where it was and the host runs
-  # the toolchain it had rather than a half-built one.
+  # it passes, so a layer that fails leaves the tag on the platform image above
+  # rather than on a half-built one.
   parent=$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' \
     "$image:$stamp" 2>/dev/null) || parent=""
   product=$(docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' \
     "$image:$stamp-product" 2>/dev/null) || product=""
   if [ -z "$parent" ] || [ -z "$product" ]; then
-    echo "sandbox: docker gave no layers for $image:$stamp or $image:$stamp-product, so the instance layer cannot be checked against this build" >&2
+    echo "sandbox: docker gave no layers for $image:$stamp or $image:$stamp-product, so the instance layer cannot be checked against this build; $unlayered" >&2
     exit 1
   fi
   # Each line is taken on its own and stripped of what is not part of an id: the
@@ -367,7 +369,7 @@ if [ -f "$instance_file" ]; then
     done
   fi
   if [ "$on_base" = 0 ]; then
-    echo "sandbox: $instance_file was not built on $image:$stamp: docker answers a base of its own, so the layer came from a cached image" >&2
+    echo "sandbox: $instance_file was not built on $image:$stamp: docker answers a base of its own, so the layer came from a cached image; $unlayered" >&2
     exit 1
   fi
   # The tag cycles run names the image cycles run, so it moves once and only onto
@@ -377,7 +379,7 @@ if [ -f "$instance_file" ]; then
   # not a place to leave a host after a build that has just made a new image. The
   # layer that passed the check above takes the tag, and the platform image keeps
   # its own dated tag beside it, so a rollback is one docker tag away either way.
-  smoke_image "$image:$stamp-product"
+  smoke_image "$image:$stamp-product" "$unlayered"
   docker tag "$image:$stamp-product" "$current"
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi
