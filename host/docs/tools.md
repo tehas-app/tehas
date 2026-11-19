@@ -142,7 +142,7 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_MILLWRIGHT_FEED`        | `off`                                    | `on` lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but `on`, `off`, `1` or `0` stops every command with 78 |
 | `TEHAS_MILLWRIGHT_MAX_FEEDS`   | `2`                                      | How many cycles the feed started may run at once. A positive whole number |
 | `TEHAS_MILLWRIGHT_EPICS`       | `off`                                    | `on` lets a person's `tehas:ready` on an epic approve its open sub-issues for the millwright (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but `on`, `off`, `1` or `0` stops every command with 78 |
-| `TEHAS_DRIVER`                 | `classic`                                | The driver an approved start runs when no label chooses one: `classic` (`work`) or `lean` (`work-lean`). With `lean`, `tehas:classic` from an allowed account runs an issue on classic, as `tehas:lean` runs one on lean under `classic`; an issue with both labels starts nothing. A retry keeps the driver its approval record binds. Anything else stops every command with 78, and so does `lean` while `TEHAS_LEAN` is not on: lean is still being built in this release. See [Choosing the driver](/operating#choosing-the-driver) |
+| `TEHAS_DRIVER`                 | `classic`                                | The driver an approved start runs when no label chooses one: `classic` (`work`) or `lean` (`work-lean`). With `lean`, a start with no driver label runs lean when the issue's text holds a `pi-spec v1` block and classic when it does not, and the poll logs which and why; `tehas:classic` and `tehas:lean` from an allowed account choose for one issue. Under `classic`, `tehas:lean` runs an issue on lean. An issue with both labels starts nothing. A retry keeps the driver its approval record binds. Anything else stops every command with 78, and so does `lean` while `TEHAS_LEAN` is not on: lean is still being built in this release. See [Choosing the driver](/operating#choosing-the-driver) |
 | `TEHAS_LEAN`                   | `off`                                    | `on` turns on the lean driver: `tehas:lean`, `TEHAS_DRIVER=lean` and `tehas work --driver lean`. Off, a start that would run lean starts nothing and says why, and classic does not run in its place. Anything but `on`, `off`, `1` or `0` stops every command with 78. Still being built in this release, so `on` stops every command with 78 too, naming `lean` |
 | `TEHAS_READ_ONLY`              | `off`                                    | `on` writes nothing to GitHub: every write of the host and of a cycle's container is refused and said, and the dispatcher keeps its starts on the host (see [read-only](/operating#read-only)). Anything but `on`, `off`, `1` or `0` stops every command with 78 |
 | `TEHAS_OUTSOURCE`              | `off`                                    | `on` lets the factory give whole cycles to contractors: other hosts that joined with a one-time invite code, each with its own public key, and no source, GitHub token or model key of this factory at rest. The factory never calls a contractor; it only answers. A job moves through `offered`, `running`, `stopping`, `finished`, `released` and `lost`, and the store keeps what each issue's outsourced attempts have cost. Off unless the instance says so. The state store holds the five tables of the feature either way; with it off they stay empty and every verb of the feature is refused. Anything but `on`, `off`, `1` or `0` stops every command with 78. Outsource is still being built in this release, so `on` stops every command with 78 too, naming `outsource`; once it ships, this turns the factory's own state on and lets [the model proxy](/outsource), `tehas-proxy`, run |
@@ -176,7 +176,7 @@ settings and `TEHAS_PROTOLAB_ZIP_HOSTS` in this release.
 | `TEHAS_WORKSTREAMS`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_MAX_CYCLES=1` (or with the setting left out): with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)). |
 | `TEHAS_MAX_CYCLES`      | the host's CPUs minus one, at least 1 | The most cycles side by side: a whole number. `auto` is refused with 78: tehas 1.0 removed auto sizing. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave `TEHAS_SLICE_CONTAINERS` containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most `TEHAS_SLICE_CONTAINERS`; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_MAX_CYCLES` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
-| `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, else the command stops with 78 naming both numbers. With the defaults the host needs about 11 GiB of memory; a smaller host sets it lower |
+| `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, else the command stops with 78 naming both numbers. A word that is no size at all is refused the same way with `TEHAS_CYCLE_RESERVE=<word> is not a size`, and a room check handed one says that instead of reporting the slice as unprobed (see [The dispatcher holds on the slice](/troubleshooting#the-dispatcher-holds-on-the-slice)). With the defaults the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_SLICE_CONTAINERS`        | `4`                                      | Containers `tehas.slice` holds at once, from 2 to 16: a whole number. `auto` is refused with 78: tehas 1.0 removed auto sizing. Each container's memory ceiling is the slice's `MemoryMax` over this, and the dispatcher starts no cycle while this many containers are in the slice, so the ceilings never sum to more than the slice. Every container counts: cycles, refreshes, dev sessions, planning turns, the indexer. A higher value runs more cycles side by side, each with a lower ceiling: raise the host's memory with it. With `TEHAS_MAX_CYCLES=5` and one refresh slot, 6 on a 64 GiB host gives each container 8 GiB |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
@@ -382,7 +382,7 @@ store, and a change to the store runs them. The shell tests of a path under
 `console/` are the files that name `console/` or take a program of the
 workspace from the run: one of the helpers of `test/lib.sh` that copy one in
 (`t_store`, `t_attach`, `t_dispatch`, `t_cycle`, `t_console`, `t_verb`), or one
-of the variables the runner hands out (`T_STORE_BIN` and its four siblings).
+of the variables the runner hands out (`T_STORE_BIN` and its five siblings).
 A path in `console/core/`, a manifest, `console/Cargo.lock`, a path in no crate,
 or metadata that cannot be read runs the whole workspace's tests, and every
 shell test with it: every shell test loads the settings through the console
@@ -435,7 +435,14 @@ builds the same crates there: cargo holds the directory's lock only while it
 builds, so one build waits for the other and reuses what it made, and the
 tests of each run side by side. One tree instead of two takes about 170 MB
 off every checkout (#1360); the dev profile keeps line tables and no
-incremental data, so the tree stays under 750 MB. A `console/target/shell`
+incremental data, so the tree stays under 750 MB. The test files do not run
+the programs in the target: `cargo test` builds them with the features of the
+whole workspace and puts its own in their place while the shell tests run, so
+a test could find no program there (#2495). Once its build ends, the runner
+copies them into the run's root under cargo's lock of `target/debug`, and
+`T_STORE_BIN` and its siblings name the copies; `T_XTASK_BIN` names the
+xtask's, which `t_xtask` gives the test files that run scripts of the
+development tasks. A `console/target/shell`
 left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
@@ -455,10 +462,20 @@ for the shell tests when it gets 3 or the change leaves no path to give.
 
 The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
 it builds first, offline, into the same target directory, fetching the locked
-crates once when cargo's cache lacks one; `TEHAS_XTASK` names a build to use
-instead. So the runner needs cargo, as the gate does. Each check of the pool
+crates once when cargo's cache lacks one, and runs a copy of it in the
+target's `runner/`, taken with `flock` under cargo's locks of `target/debug`
+(#2502); `TEHAS_XTASK` names a build to use instead. So the runner needs
+cargo, as the gate does. Each check of the pool
 is an `xtask test-task` process that runs it under the timeout and records its
 status and time when it ends.
+
+A test file never reads the caller's stdin: `test/lib.sh` points it at
+`/dev/null`. A run of a case is `bash -c` under `env -i`, which leaves no
+`SHLVL`, and such a bash reads `~/.bashrc` and `/etc/bash.bashrc` when its
+stdin is a socket, as some agent tools start a command. Every run of a case
+then read the scratch home's `.bashrc`, which after a first install loads
+`env.sh` and drops `GH_TOKEN`: the gate failed by the hundred in the install
+and update tests, the same cases each time (#2495).
 
 Every task runs at the core limit of 0, which the run puts in front of the
 check with `prlimit --core=0`, so a program that crashes during a run leaves no

@@ -169,15 +169,19 @@ t_eq "$(cat "$T/shim.err")" "HTTP 429: Too Many Requests"
 t_eq "$(calls)" 1
 t_lacks "$(cat "$T/shim.err")" "trying once more"
 
+# In a TMPDIR of the case's own: /tmp holds the files of every other shim
+# running on the host, as another gate's run of this file.
 t_case "the shim leaves no temporary file of its own"
 stub_reset
 answer 1 "" "HTTP 429: Too Many Requests" 1
 answer 2 "the issue" "" 0
-T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0)
-t_run "$shim pr view 7 >/dev/null 2>&1
-  ls \${TMPDIR:-/tmp} | grep -c '^gh-shim' || true"
+mkdir -p "$T/shim-tmp"
+T_ENV=(TEHAS_GH_BIN="$T/bin/gh" TEHAS_GH_RETRY_WAIT=0 TMPDIR="$T/shim-tmp")
+t_run "$shim pr view 7 >/dev/null 2>&1; echo rc=\$?"
 T_ENV=()
-t_eq "$t_out" "0"
+t_eq "$t_out" "rc=0"
+t_eq "$(calls)" 2
+t_eq "$(ls -A "$T/shim-tmp")" ""
 
 t_case "gh is called with the token the container holds"
 if [ ! -r "$token" ]; then

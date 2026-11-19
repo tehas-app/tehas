@@ -1,0 +1,43 @@
+{
+  "api": 1,
+  "time": "2026-10-17T13:59:40Z",
+  "age": 40,
+  "stale": false,
+  "state": "warn",
+  "reasons": [
+    "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
+  ],
+  "paused": {
+    "local": false,
+    "label": false
+  },
+  "limit": {
+    "state": "none"
+  },
+  "running": [],
+  "planning": [],
+  "demand": null,
+  "hold": null,
+  "held": [],
+  "room": null,
+  "versions": {
+    "platform": {
+      "release": null,
+      "commit": null,
+      "latest": null,
+      "behind": null
+    },
+    "rukas": {
+      "version": null,
+      "latest": null,
+      "behind": null
+    }
+  },
+  "testFeatures": {
+    "read": true,
+    "features": [
+      "outsource"
+    ],
+    "lab": true
+  }
+}

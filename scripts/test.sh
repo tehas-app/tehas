@@ -12,15 +12,18 @@
 #
 # Before the tests start, the state store (console/store), the attachment
 # checker (console/attach), tehas-dispatch (console/dispatch), tehas-cycle
-# (console/cycle) and the console (console/src) are built
+# (console/cycle), the console (console/src) and the xtask (console/xtask) are built
 # once, offline, into the workspace's own target directory, CARGO_TARGET_DIR or
 # console/target, with its dev profile
 # (when cargo's cache lacks a locked crate, it is fetched once and built again):
 # the gate's cargo test (scripts/verify.sh) builds the same crates there, and
-# cargo lets go of the directory's lock once a build ends. The test files are
-# told where they are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN,
-# T_CYCLE_BIN and T_CONSOLE_BIN, or why there are none in T_STORE_WHY
-# (test/lib.sh, t_store, t_attach, t_dispatch, t_cycle and t_console). A test that needs one fails without it.
+# cargo lets go of the directory's lock once a build ends. The test files get
+# copies of them in the run's root, made under that lock, because the gate's
+# cargo test replaces the target's programs while the tests run (#2495). They
+# are told where the copies are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN,
+# T_CYCLE_BIN, T_CONSOLE_BIN and T_XTASK_BIN, or why there are none in
+# T_STORE_WHY (test/lib.sh, t_store, t_attach, t_dispatch, t_cycle, t_console
+# and t_xtask). A test that needs one fails without it.
 #
 # Where a single quote is the point of a line - an assertion that some text is
 # a literal - SC2016 is wrong about it. The manual states the policy for
@@ -57,7 +60,8 @@
 # The work is `xtask test` (console/xtask/src/run.rs). Unless TEHAS_XTASK
 # names a build, it is built here first, offline, into the same target
 # directory (fetched once when cargo's cache lacks a locked crate), so the run
-# needs cargo. Each task of the pool is an `xtask test-task` process that runs
+# needs cargo, and it runs from a copy in the target's runner/, taken under
+# cargo's locks with flock. Each task of the pool is an `xtask test-task` process that runs
 # the check under timeout and records its status and time when it ends.
 #
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked,
@@ -80,6 +84,17 @@ if [ -z "$xtask" ]; then
     echo "test.sh: the runner (console/xtask) did not build" >&2
     exit 2
   }
-  xtask=$target/debug/xtask
+  # The runner runs from a copy, taken under cargo's locks of target/debug as
+  # the runner takes the test files' programs: the gate's cargo test puts an
+  # xtask of other features in its place while this one starts (#2502).
+  debug=$target/debug
+  xtask=$target/runner/xtask
+  if ! { mkdir -p "${xtask%/*}" &&
+    flock -s "$debug/.cargo-lock" flock -s "$debug/.cargo-artifact-lock" cp "$debug/xtask" "$xtask.$$" &&
+    mv -f "$xtask.$$" "$xtask"; }; then
+    rm -f "$xtask.$$"
+    echo "test.sh: the runner (console/xtask) was built and cannot be copied" >&2
+    exit 2
+  fi
 fi
 exec "$xtask" test --root "$root" "$@"

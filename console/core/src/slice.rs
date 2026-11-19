@@ -633,17 +633,22 @@ pub fn unreadable(committed: u64, max: u64, note: String) -> Room {
 }
 
 /// full avg60 from the text of memory.pressure, as the kernel wrote it (0.00).
+/// A figure is at most 18 digits, with at most one dot and at most 18 digits
+/// on both sides of it: "7", "0.00", "3.41". The bound is [`num`]'s: each side
+/// parses as a u64. A line that holds none answers None, which the room says as
+/// `<file> has no full avg60`.
 pub fn full_avg60(text: &str) -> Option<String> {
+    let all = |s: &str| !s.is_empty() && s.len() <= 18 && s.bytes().all(|b| b.is_ascii_digit());
     for line in text.lines() {
         let Some(rest) = line.strip_prefix("full ") else {
             continue;
         };
         for (at, _) in rest.rmatch_indices("avg60=") {
             let v = rest[at + "avg60=".len()..].split(' ').next().unwrap_or("");
-            let (i, f) = v.split_once('.').unwrap_or((v, ""));
-            let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-            if digits(i) && (f.is_empty() && !v.contains('.') || digits(f)) {
-                return Some(v.to_string());
+            match v.split_once('.') {
+                Some((i, f)) if all(i) && all(f) => return Some(v.to_string()),
+                None if all(v) => return Some(v.to_string()),
+                _ => continue,
             }
         }
     }
@@ -652,10 +657,23 @@ pub fn full_avg60(text: &str) -> Option<String> {
 
 /// How many more containers of one reserve fit, when `count` cycles hold a
 /// lock. Each `r.cids` is the id one of them wrote with `docker run --cidfile`.
+///
+/// A reserve the instance wrote that is no size is said as one thing and not
+/// another: `TEHAS_CYCLE_RESERVE=<v> is not a size`, the line [`usable`] gives
+/// for the same word, and not "the slice was not probed", which is the note of
+/// a slice the poll never asked about. A room of 0 with no note at all is a
+/// slice that is full, and an operator chasing it reads the slice; a bad
+/// setting is nothing in the slice to read.
 pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
-    let reserve = bytes(reserve).unwrap_or(0);
+    let Some(reserve) = bytes(reserve) else {
+        return unreadable(
+            0,
+            s.max,
+            format!("TEHAS_CYCLE_RESERVE={reserve} is not a size"),
+        );
+    };
     let max = s.max;
-    if max == 0 || reserve == 0 || s.ceiling_mb == 0 {
+    if max == 0 || s.ceiling_mb == 0 {
         return unreadable(0, max, "the slice was not probed".into());
     }
     let dir = format!("{}/tehas.slice", r.root);
@@ -738,13 +756,21 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
     // So it holds only once more than half the slice is promised, which no
     // ceiling is alone.
     if committed * 2 > max {
-        let (i, f) = pressure.split_once('.').unwrap_or((&pressure, "0"));
-        let mut f: String = f.chars().take(2).collect();
-        if f.len() < 2 {
-            f.push('0');
-        }
-        let hundredths = i.parse::<u64>().unwrap_or(0) * 100 + f.parse::<u64>().unwrap_or(0);
-        if hundredths > 1000 {
+        // The figure of a full line, in hundredths: the two sides of the dot,
+        // at most two places after it. Each side of an answer of full_avg60
+        // parses, but a whole part of 18 digits times 100 overflows: that arm
+        // is a stall too big to count, and it holds. A stall that cannot be
+        // sized is no reading of a slice that never waited.
+        let hundredths = |v: &str| -> Option<u64> {
+            let (i, f) = v.split_once('.').unwrap_or((v, "0"));
+            let f: String = f.chars().take(2).collect();
+            let f = if f.len() < 2 { format!("{f}0") } else { f };
+            let (Ok(i), Ok(f)) = (i.parse::<u64>(), f.parse::<u64>()) else {
+                return None;
+            };
+            i.checked_mul(100)?.checked_add(f)
+        };
+        if hundredths(&pressure).is_none_or(|h| h > 1000) {
             room = 0;
             why = "pressure";
         }
@@ -869,6 +895,110 @@ mod tests {
         assert_eq!(answer("\nsystemd 2").unwrap_err(), "docker gave no answer");
     }
 
+    /// A reading of a slice the host answered: empty, with the pressure the
+    /// case names and the scopes it gives.
+    fn room_reading(scopes: Vec<Scope>, pressure: &str) -> Reading {
+        Reading {
+            root: "/sys/fs/cgroup".into(),
+            scopes: Some(scopes),
+            pressure: Some(pressure.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_reserve_that_is_no_size_is_named_as_no_size_and_not_as_an_unprobed_slice() {
+        // "the slice was not probed" is the note of a slice nobody asked the
+        // host about; a setting the instance wrote wrong is nothing to go and
+        // read under /sys/fs/cgroup, so the two notes are never interchanged.
+        let r = room_reading(vec![], "full avg60=0.00");
+        let bad = room(&r, &slice(8, 5120), "2gg", 0);
+        assert_eq!(
+            (bad.room, bad.why.as_str(), bad.note.as_str()),
+            (0, "unreadable", "TEHAS_CYCLE_RESERVE=2gg is not a size")
+        );
+        // The note of the load's own check of the same word.
+        assert_eq!(usable(&host(), "2gg", "4").unwrap_err(), bad.note);
+        // A slice no one probed keeps its own note, with the good reserve.
+        let unprobed = room(
+            &r,
+            &Usable {
+                max: 0,
+                active: "active".into(),
+                ceiling_mb: 0,
+                cpus: 8,
+                nproc: 8,
+            },
+            "2g",
+            0,
+        );
+        assert_eq!(
+            (unprobed.room, unprobed.why.as_str(), unprobed.note.as_str()),
+            (0, "unreadable", "the slice was not probed")
+        );
+    }
+
+    #[test]
+    fn the_pressure_of_a_promised_slice_is_read_as_a_figure_of_hundredths() {
+        // More than half the slice promised: the figure of the full line is
+        // read in hundredths and holds above 10, and a whole figure keeps the
+        // tenths it says (11 is 11.00, not 1100 hundredths). Nothing promised
+        // leaves the pressure unread and the room free.
+        let promised = |pressure: &str| {
+            let scope = Scope {
+                name: "docker-a.scope".into(),
+                stat: Some(format!(
+                    "anon {}\nshmem 0\nkernel 0\nslab_reclaimable 0\n",
+                    11 * GIB
+                )),
+                low: Some("0".into()),
+            };
+            room(
+                &room_reading(vec![scope], &format!("full avg60={pressure}")),
+                &slice(8, 5120),
+                "2g",
+                0,
+            )
+        };
+        assert_eq!(promised("10.00").why, "");
+        assert_eq!(promised("10.01").why, "pressure");
+        // A whole figure is the same stall as that figure to the hundredth.
+        assert_eq!(promised("11").why, promised("11.00").why);
+        assert_eq!(promised("0.00").room, 3, "room by what is left");
+        assert_eq!(promised("x").why, "unreadable");
+        assert_eq!(
+            promised("x").note,
+            "/sys/fs/cgroup/tehas.slice/memory.pressure has no full avg60"
+        );
+        // A figure the reader can parse but not count in hundredths is a
+        // stall, not no stall: the room holds and says why.
+        let huge = promised("999999999999999999.00");
+        assert_eq!((huge.room, huge.why.as_str()), (0, "pressure"));
+        // A figure longer than full_avg60 takes is no figure: the room holds
+        // as unreadable.
+        let absurd = promised("99999999999999999999.00");
+        assert_eq!(absurd.room, 0);
+        assert_eq!(
+            absurd.note,
+            "/sys/fs/cgroup/tehas.slice/memory.pressure has no full avg60"
+        );
+        let calm = room(
+            &room_reading(vec![], "full avg10=0.00 avg60=0.00 avg300=0.00 total=0"),
+            &slice(8, 5120),
+            "2g",
+            0,
+        );
+        assert_eq!(
+            (
+                calm.room,
+                calm.why.as_str(),
+                calm.committed,
+                calm.pressure.as_deref()
+            ),
+            (4, "", 0, Some("0.00"))
+        );
+    }
+
     #[test]
     fn the_last_avg60_of_the_first_full_line_that_has_one_is_the_pressure() {
         let read = |t: &str| full_avg60(t);
@@ -879,8 +1009,26 @@ mod tests {
         assert_eq!(read("full avg60=1.00 avg60=2.00").as_deref(), Some("2.00"));
         assert_eq!(read("full avg60=1.00 avg60=x").as_deref(), Some("1.00"));
         assert_eq!(read("full avg60=7").as_deref(), Some("7"));
+        // A figure is digits, with at most one dot and digits on both sides of
+        // it. "7.", "x" and "x5" are none of them; each holds no reading of a
+        // stall at all, so the room says the line had no figure.
         assert_eq!(read("full avg60=7."), None);
+        assert_eq!(read("full avg60=x"), None);
+        assert_eq!(read("full avg60=x5"), None);
+        assert_eq!(read("full avg60=1.00 avg60=x").as_deref(), Some("1.00"));
         assert_eq!(read("some avg60=1.00"), None);
+        // A figure is at most 18 digits on each side of the dot, num()'s bound:
+        // a longer one is no figure.
+        assert_eq!(
+            read("full avg60=999999999999999999.00").as_deref(),
+            Some("999999999999999999.00")
+        );
+        assert_eq!(read("full avg60=9999999999999999999.00"), None);
+        assert_eq!(
+            read("full avg60=0.999999999999999999").as_deref(),
+            Some("0.999999999999999999")
+        );
+        assert_eq!(read("full avg60=0.9999999999999999999"), None);
     }
 
     #[test]

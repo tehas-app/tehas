@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json,
-# api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json and
-# api/status.outsourced.json, are what console status json (console/src/status.rs)
+# api/status.quiet.json, api/status.readonly.json, api/status.pushfault.json,
+# api/status.outsourced.json and api/status.lab.json (TEHAS_TEST_FEATURES set on
+# a lab build), are what console status json (console/src/status.rs)
 # makes of the health files in test/fixtures/status-json/, with the Protolab's
 # list beside one of them and the contractors of outsource beside another, at a
 # fixed time. Only the outsourced sample has `contractors`: with outsource off
@@ -23,7 +24,7 @@ schema=$api/status.schema.json
 fixtures=$T_ROOT/test/fixtures/status-json
 # 2026-10-17T14:00:20Z: forty seconds after the time in the health files.
 now=1792245620
-samples=(busy quiet readonly pushfault outsourced)
+samples=(busy quiet readonly pushfault outsourced lab)
 
 sample() { # <name>: the sample as the console makes it, as committed
   "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .

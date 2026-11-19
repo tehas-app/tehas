@@ -1104,9 +1104,11 @@ else
 fi
 
 # --- The state store, built once for the test files ------------------------------
-# saw_store <name>: a fake test file that prints what it was told of the store.
+# saw_store <name>: a fake test file that prints what it was told of the store:
+# its path under the run's root, which is the file's TMPDIR, and what it holds.
 saw_store() {
-  printf '%s\n' '#!/usr/bin/env bash' 'echo "$0 bin=${T_STORE_BIN:-} why=${T_STORE_WHY:-}"' \
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'echo "$0 bin=${T_STORE_BIN#"$TMPDIR"/} holds=$(cat "${T_STORE_BIN:-/dev/null}") why=${T_STORE_WHY:-}"' \
     "echo '$1: 1 cases, 0 failed'" >"$repo/test/$1"
   chmod +x "$repo/test/$1"
 }
@@ -1117,24 +1119,28 @@ with_console() {
 
 # The stub records its arguments; the environment of its call is what a case
 # about a variable has to echo itself, into the same file t_calls reads.
-t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into the workspace's target with its profile, and named to every test file"
+t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle, the console and the xtask are built once, offline, into the workspace's target with its profile, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
 for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
 printf "debug=%s\\n" "${CARGO_PROFILE_DEV_DEBUG-absent}" >>"$T/calls/cargo"
-mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done'
 saw_store a_test.sh
 saw_store b_test.sh
+printf '%s\n' '#!/usr/bin/env bash' \
+  'echo "$0 xtask=${T_XTASK_BIN#"$TMPDIR"/} holds=$(cat "${T_XTASK_BIN:-/dev/null}")"' \
+  "echo 'c_test.sh: 1 cases, 0 failed'" >"$repo/test/c_test.sh"
 run
 t_eq "$t_rc" 0
+t_contains "$t_out" "c_test.sh xtask=bin/xtask holds=xtask"$'\n'
 # The line of the environment is the last of the call, so the arguments still
 # read as one line. CARGO_TARGET_DIR is the one t_run gives, as CI gives one:
 # the gate's cargo test builds there too, with the same profile (#1360).
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console -p tehas-xtask
 debug=absent"
-t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
-t_contains "$t_out" "b_test.sh bin=$T/target/debug/store why="$'\n'
+t_contains "$t_out" "a_test.sh bin=bin/store holds=store why="$'\n'
+t_contains "$t_out" "b_test.sh bin=bin/store holds=store why="$'\n'
 
 t_case "without CARGO_TARGET_DIR the build is the workspace's console/target, and the second tree of before is removed"
 fresh
@@ -1142,14 +1148,14 @@ with_console
 mkdir -p "$repo/console/target/shell/debug"
 t_stub cargo 'prev=""
 for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
-mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done'
 saw_store a_test.sh
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" CARGO_TARGET_DIR=)
 run
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 t_eq "$t_rc" 0
 t_contains "$(t_calls cargo)" "--target-dir $repo/console/target -p store"
-t_contains "$t_out" "a_test.sh bin=$repo/console/target/debug/store why="$'\n'
+t_contains "$t_out" "a_test.sh bin=bin/store holds=store why="$'\n'
 t_eq "$(ls "$repo/console/target")" "debug"
 
 t_case "a store that does not build is named to the test files, which still run"
@@ -1162,7 +1168,40 @@ T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" T_STORE_BIN=/elsewhere/store)
 run
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 t_eq "$t_rc" 0
-t_contains "$t_out" "a_test.sh bin= why=the store did not build offline: error: could not compile store"
+t_contains "$t_out" "a_test.sh bin= holds= why=the store did not build offline: error: could not compile store"
+
+t_case "the test files run copies in the run's root: a program the build did not leave is why there are none"
+fresh
+with_console
+rm -rf "$T/target"
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+saw_store a_test.sh
+run
+t_eq "$t_rc" 0
+t_contains "$t_out" "a_test.sh bin= holds= why=attach was built and cannot be copied: No such file or directory"
+
+t_case "the runner it builds runs from a copy outside target/debug, where the gate's cargo test replaces it"
+fresh
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && printf "#!/usr/bin/env bash\necho \"runner=\$0\"\n" >"$td/debug/xtask" && chmod +x "$td/debug/xtask"'
+t_run "cd '$repo' && TEHAS_XTASK= bash runner/runner.sh"
+t_eq "$t_rc" 0
+t_eq "$t_out" "runner=$T/target/runner/xtask"
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p tehas-xtask"
+t_eq "$(ls "$T/target/runner")" "xtask"
+rm -rf "$T/target/runner" "$T/target/debug/xtask"
+
+t_case "a runner that was built and cannot be copied stops the run with 2 and leaves no partial copy"
+fresh
+t_stub cargo 'exit 0'
+t_run "cd '$repo' && TEHAS_XTASK= bash runner/runner.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "test.sh: the runner (console/xtask) was built and cannot be copied"
+t_eq "$(ls -A "$T/target/runner")" ""
+rm -rf "$T/target/runner"
 
 t_case "a store missing crates offline is fetched once and built again"
 fresh
@@ -1174,7 +1213,7 @@ for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
 case "$1" in
   fetch) : >"$T/fetched" ;;
   build) [ -e "$T/fetched" ] || { echo "error: no matching package named signal-hook found" >&2; exit 101; }
-    mkdir -p "$td/debug" && echo store >"$td/debug/store" ;;
+    mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done ;;
 esac'
 saw_store a_test.sh
 run
@@ -1182,7 +1221,7 @@ rm -f "$T/fetched"
 t_eq "$t_rc" 0
 t_eq "$(t_calls cargo | awk '{print $1}' | tr '\n' ' ')" "build fetch build "
 t_contains "$(t_calls cargo)" "fetch --locked --quiet --manifest-path $repo/console/Cargo.toml"
-t_contains "$t_out" "a_test.sh bin=$T/target/debug/store why="$'\n'
+t_contains "$t_out" "a_test.sh bin=bin/store holds=store why="$'\n'
 
 t_case "a checkout without the console, or a host without cargo, builds nothing"
 fresh
@@ -1190,12 +1229,12 @@ t_stub cargo
 saw_store a_test.sh
 run
 t_eq "$(t_calls cargo)" ""
-t_contains "$t_out" "a_test.sh bin= why=this checkout has no console/Cargo.toml"
+t_contains "$t_out" "a_test.sh bin= holds= why=this checkout has no console/Cargo.toml"
 fresh
 with_console
 saw_store a_test.sh
 no_shellcheck
-t_contains "$t_out" "a_test.sh bin= why=cargo is not installed"
+t_contains "$t_out" "a_test.sh bin= holds= why=cargo is not installed"
 
 t_case "a checkout with nothing to check is exit 2, not a pass"
 fresh

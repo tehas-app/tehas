@@ -5,9 +5,11 @@
 //! `features`. Promoting one to shipped only adds.
 //!
 //! A test turns a building feature on by naming it in [`TEST_VAR`], in the
-//! environment it starts a program with. Only a build with debug assertions
-//! reads it, as the store reads its tests' answers; a release never does, and
-//! the load refuses the variable in instance.env and in ~/.config/tehas/env.
+//! environment it starts a program with. A build with debug assertions, the
+//! tests', reads it, and so does a lab build, which `install.sh --lab-build`
+//! makes with [`LAB_VAR`] on and debug assertions off: it reads none of the
+//! tests' other hooks. A release never reads it, and the load refuses the
+//! variable in instance.env and in ~/.config/tehas/env.
 
 use crate::settings::rules::switch;
 
@@ -97,12 +99,38 @@ pub const FEATURES: &[Feature] = &[
 /// names, one space apart.
 pub const TEST_VAR: &str = "TEHAS_TEST_FEATURES";
 
+/// The variable `install.sh --lab-build` sets to `on` while cargo builds, and
+/// every other run of it to `off`. Read when this crate is compiled, never
+/// while a program runs; rustc names it in the build's dependencies, so cargo
+/// builds again when it changes.
+pub const LAB_VAR: &str = "TEHAS_LAB_BUILD";
+
+/// Whether `install.sh --lab-build` made this program.
+pub fn lab_build() -> bool {
+    lab_marker(option_env!("TEHAS_LAB_BUILD"))
+}
+
+fn lab_marker(value: Option<&str>) -> bool {
+    value == Some("on")
+}
+
+/// Whether this build reads [`TEST_VAR`]: the tests' builds and a lab build.
+fn reads_test_var() -> bool {
+    reads(cfg!(debug_assertions), option_env!("TEHAS_LAB_BUILD"))
+}
+
+/// `debug` is whether the build has debug assertions, `marker` [`LAB_VAR`] as
+/// it was when it was compiled.
+fn reads(debug: bool, marker: Option<&str>) -> bool {
+    debug || lab_marker(marker)
+}
+
 fn find(name: &str) -> Option<&'static Feature> {
     FEATURES.iter().find(|f| f.name == name)
 }
 
 fn usable(feature: &Feature, get: &dyn Fn(&str) -> String) -> bool {
-    usable_in(feature, get, cfg!(debug_assertions))
+    usable_in(feature, get, reads_test_var())
 }
 
 /// `tested` is whether this build reads [`TEST_VAR`].
@@ -220,6 +248,48 @@ pub fn needs(name: &str, what: &str, get: &dyn Fn(&str) -> String) -> Result<(),
     }
 }
 
+/// What [`TEST_VAR`] comes to, for health and `tehas status`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tested {
+    /// Whether this build reads it.
+    pub read: bool,
+    /// Whether this is a lab build ([`lab_build`]).
+    pub lab: bool,
+    /// Whether it is set and not blank.
+    pub set: bool,
+    /// The building features it names, in the registry's order.
+    pub features: Vec<&'static str>,
+}
+
+/// [`Tested`] in this environment: None while the variable is unset or blank
+/// and this is no lab build, so the tests' own builds say nothing of it. A
+/// release reads it never; a build with debug assertions or a lab build,
+/// always.
+pub fn test_features() -> Option<Tested> {
+    test_features_in(&env, reads_test_var(), lab_build())
+}
+
+/// [`test_features`] over the variables `get` gives; `read` is whether this
+/// build reads [`TEST_VAR`] and `lab` whether it is a lab build.
+pub fn test_features_in(get: &dyn Fn(&str) -> String, read: bool, lab: bool) -> Option<Tested> {
+    let value = get(TEST_VAR);
+    let set = !value.trim().is_empty();
+    if !set && !lab {
+        return None;
+    }
+    let features = FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building && value.split_whitespace().any(|w| w == f.name))
+        .map(|f| f.name)
+        .collect();
+    Some(Tested {
+        read,
+        lab,
+        set,
+        features,
+    })
+}
+
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
@@ -235,6 +305,84 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         move |name: &str| map.get(name).cloned().unwrap_or_default()
+    }
+
+    fn tested(read: bool, lab: bool, set: bool, features: &[&'static str]) -> Option<Tested> {
+        Some(Tested {
+            read,
+            lab,
+            set,
+            features: features.to_vec(),
+        })
+    }
+
+    #[test]
+    fn the_test_variable_is_reported_only_when_set_and_names_only_building_features() {
+        assert_eq!(test_features_in(&vars(&[]), true, false), None);
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, " ")]), true, false),
+            None
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "lean nothing outsource")]), true, false),
+            tested(true, false, true, &["outsource", "lean"])
+        );
+        // A release does not read it, and says what it names all the same.
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "spec-pipe")]), false, false),
+            tested(false, false, true, &["spec-pipe"])
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "nothing")]), true, false),
+            tested(true, false, true, &[])
+        );
+    }
+
+    #[test]
+    fn a_lab_build_is_reported_with_the_test_variable_unset() {
+        assert_eq!(
+            test_features_in(&vars(&[]), true, true),
+            tested(true, true, false, &[])
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "outsource")]), true, true),
+            tested(true, true, true, &["outsource"])
+        );
+    }
+
+    #[test]
+    fn only_the_word_on_marks_a_lab_build() {
+        assert!(lab_marker(Some("on")));
+        for other in [None, Some(""), Some("off"), Some("true"), Some(" on")] {
+            assert!(!lab_marker(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn install_and_the_release_name_the_lab_variable_this_crate_reads() {
+        let this = include_str!("features.rs");
+        assert!(this.contains(&format!("option_env!(\"{LAB_VAR}\")")));
+        // Every run of install.sh says on or off, so the caller's environment
+        // never decides; the release builds with it unset.
+        let install = include_str!("../../../install.sh");
+        assert!(install.contains(&format!("{LAB_VAR}=\"$lab\"")));
+        let release = include_str!("../../../.github/workflows/release.yml");
+        let unset = release.find(&format!("unset {LAB_VAR}"));
+        let build = release.find("cargo build --release");
+        assert!(
+            matches!((unset, build), (Some(u), Some(b)) if u < b),
+            "release.yml unsets {LAB_VAR} before it builds"
+        );
+    }
+
+    #[test]
+    fn a_lab_build_reads_the_test_variable_and_a_release_does_not() {
+        let get = vars(&[(TEST_VAR, "outsource")]);
+        let outsource = find("outsource").unwrap();
+        assert!(usable_in(outsource, &get, reads(false, Some("on"))));
+        assert!(usable_in(outsource, &get, reads(true, None)));
+        assert!(!usable_in(outsource, &get, reads(false, Some("off"))));
+        assert!(!usable_in(outsource, &get, reads(false, None)));
     }
 
     #[test]
