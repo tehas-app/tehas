@@ -2,7 +2,7 @@
 // /live/panels.json (written by tehas panel, see console/ops/src/panel.rs), and
 // the host bridge's menu (host/fun/host-bridge.js), as it comes and goes. Both
 // front pages load it: each is an item in the page's menu, and pressing it
-// opens the page in a dock at the side.
+// opens the page in a dock at the side, or a bridge page item in a new tab.
 //
 // view() is the pure step from the file to the items, and merge() adds the
 // bridge's, both tested without a browser (test/panels_view_test.mjs). The file is read from the network and its text
@@ -59,7 +59,7 @@
         continue;
       }
       if (url.origin === origin) continue;
-      const item = { id: m.id, label: m.label, url: url.href };
+      const item = { id: m.id, label: m.label, url: url.href, open: m.open };
       const at = out.findIndex((i) => i.id === item.id);
       if (at >= 0) out[at] = item;
       else if (out.length < MAX) out.push(item);
@@ -138,16 +138,17 @@
   }
 
   // The menu's items drawn again: the file's, then the bridge's. An item
-  // that went keeps no frame, and a dock showing it closes.
+  // that went, or now opens as a page, keeps no frame, and a dock showing it
+  // closes.
   function draw(items) {
     for (const old of nav.querySelectorAll(".panel-link")) old.remove();
-    const ids = new Set(items.map((i) => i.id));
-    if (shown && (!ids.has(shown.item.id) || items.find((i) => i.id === shown.item.id).url !== shown.item.url)) {
+    const docked = (id) => items.find((i) => i.id === id && i.open !== "page");
+    if (shown && docked(shown.item.id)?.url !== shown.item.url) {
       dock.hidden = true;
       shown = null;
     }
     for (const [id, f] of frames) {
-      const now = items.find((i) => i.id === id);
+      const now = docked(id);
       if (!now || f.src !== now.url) {
         f.remove();
         frames.delete(id);
@@ -158,6 +159,8 @@
       link.href = item.url;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
+      nav.append(link);
+      if (item.open === "page") continue;
       link.setAttribute("aria-controls", "panel-dock");
       link.setAttribute("aria-expanded", "false");
       link.addEventListener("click", (e) => {
@@ -170,7 +173,6 @@
         link.setAttribute("aria-expanded", "true");
         shown.link = link;
       }
-      nav.append(link);
     }
   }
 

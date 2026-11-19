@@ -66,6 +66,10 @@ t_contains "$out" ".ticketNotes[1].issue: 1000000000 is over 999999999"
 t_contains "$out" ".ticketNotes[2].text: longer than 60"
 t_contains "$out" '.ticketNotes[2].link: "javascript:1" does not match'
 
+t_case "the check finds a menu item that opens neither in the dock nor as a page"
+jq '.menu[0].open = "frame"' "$api/host-bridge.full.json" >"$T/bad.json"
+t_contains "$(check "$T/bad.json")" '.menu[0].open: "frame" is not one of ["dock","page"]'
+
 t_case "the check finds more notes than a list holds"
 jq '.ticketNotes = [range(201) | {issue: (. + 1), text: "x"}]' "$api/host-bridge.full.json" >"$T/bad.json"
 out=$(check "$T/bad.json")
