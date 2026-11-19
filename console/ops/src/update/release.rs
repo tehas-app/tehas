@@ -929,6 +929,20 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         ));
         from_note = tag;
     }
+    // A checkout ahead of the newest release, on a prerelease, moves to the
+    // release of its own tag: the newest would take it back.
+    if to.is_none() && installed.is_empty() && !from_note.is_empty() && older(&newest, &from_note) {
+        if !list.iter().any(|r| r.tag == from_note) {
+            tell(&format!(
+                "release: the checkout's {from_note} is newer than the newest release {newest} and is not published; tehas update --to names the release to move to; nothing was changed"
+            ));
+            return 1;
+        }
+        say(&format!(
+            "release: the checkout's {from_note} is newer than the newest release; it moves to the release of its own tag"
+        ));
+        target = from_note.clone();
+    }
     if to.is_none() && !installed.is_empty() && older(&newest, &installed) {
         say(&format!(
             "release: {installed} is newer than the newest release; tehas update --to moves it back"

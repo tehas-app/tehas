@@ -102,6 +102,11 @@ update once `v1.0.0` is out, and stays where it is until then. `tehas status
 --json` names the release a host runs and the commit it was built from in
 `versions.platform`.
 
+A host that runs from its platform checkout, with no `current` yet, moves to
+the newest too, unless the checkout's tag is newer than the newest release, as
+a prerelease can be. Then it moves to the release of that tag, and when that
+tag is not published it changes nothing and exits 1.
+
 `tehas update --check` prints the version installed, the newest, and the notes
 of each release between them: its section of the changelog, with its
 `Adopter action`. Going back with `--to`, it prints the notes of the releases

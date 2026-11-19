@@ -424,6 +424,31 @@ t_lacks "$t_out" "== v1"
 t_contains "$t_out" "release: would switch to v1.3.0"
 rm -rf "$rel/v1.3.0" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
 
+t_case "a checkout tagged a prerelease newer than the newest release moves to that prerelease, not back"
+stubs
+make_release v1.3.0-beta.1
+instance
+checkout_host v1.3.0-beta.1
+t_run "$update --check"
+t_contains "$t_out" "release: the checkout's v1.3.0-beta.1 is newer than the newest release"
+t_contains "$t_out" "release: would switch to v1.3.0-beta.1"
+t_lacks "$t_out" "going back"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(readlink "$th/current")" versions/v1.3.0-beta.1
+t_eq "$(t_calls install)" "install v1.3.0-beta.1 "
+rm -rf "$rel/v1.3.0-beta.1" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
+
+t_case "a checkout tagged newer than any release, and not published, changes nothing"
+stubs
+instance
+checkout_host v1.5.0
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: the checkout's v1.5.0 is newer than the newest release v1.2.0 and is not published"
+t_lacks "$(t_calls gh)" "release download"
+t_eq "$(test -L "$th/current" && echo link)" ""
+
 t_case "a checkout with no tag is shown every release, as before"
 stubs
 instance

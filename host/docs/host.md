@@ -669,6 +669,11 @@ it to releases, once a signed release is published:
 3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
+A checkout whose tag is newer than the newest release, such as a prerelease,
+moves to the release of its own tag rather than back to the newest. When that
+tag is not published, `tehas update` changes nothing and says so; name a
+release with `--to`.
+
 The checkout stays where it is and is no longer read. To go back to it, set
 `TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.
 
