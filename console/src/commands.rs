@@ -315,6 +315,7 @@ pub fn check(given: &[String]) -> u8 {
     let said = match words[..] {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "order"] => order::words(rest).map(|_| ()),
+        ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
