@@ -1093,9 +1093,13 @@ pub fn previews(list: &J) -> Option<J> {
                     ("number", r.get("number").clone()),
                     ("state", r.get("state").clone()),
                 ];
-                if r.get("address")
-                    .as_str()
-                    .is_some_and(|a| a.starts_with("https://"))
+                // An address only while it serves, as the schema says: a
+                // program shows it to a person as the place to try the
+                // change, so one left from another state is not given.
+                if r.get("state").as_str() == Some("serving")
+                    && r.get("address")
+                        .as_str()
+                        .is_some_and(|a| a.starts_with("https://"))
                 {
                     f.push(("url", r.get("address").clone()));
                 }
@@ -1549,17 +1553,18 @@ mod tests {
     }
 
     #[test]
-    fn the_previews_are_the_pull_requests_of_the_list_with_an_address_while_serving() {
+    fn the_previews_are_the_pull_requests_of_the_list_with_an_address_only_while_serving() {
         let list = h(r#"{"generatedAt":"2026-10-17T14:00:00Z","previews":[
               {"number":null,"name":"main","state":"serving","address":"https://uat-main.example.org/"},
               {"number":31,"state":"serving","reason":"","title":"T","url":"u","address":"https://uat-31.example.org/"},
               {"number":30,"state":"no-space","reason":"Low on disk.","address":null},
               {"number":29,"state":"building","address":"uat-29"},
+              {"number":26,"state":"build-failed","address":"https://uat-26.example.org/"},
               {"number":28,"state":""},
               {"number":"27","state":"serving"}]}"#);
         assert_eq!(
             previews(&list).unwrap().dump(),
-            r#"[{"number":31,"state":"serving","url":"https://uat-31.example.org/"},{"number":30,"state":"no-space"},{"number":29,"state":"building"}]"#
+            r#"[{"number":31,"state":"serving","url":"https://uat-31.example.org/"},{"number":30,"state":"no-space"},{"number":29,"state":"building"},{"number":26,"state":"build-failed"}]"#
         );
         assert_eq!(previews(&h(r#"{"previews":[]}"#)).unwrap().dump(), "[]");
         assert!(previews(&h("{}")).is_none());
