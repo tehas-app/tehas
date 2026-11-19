@@ -18,7 +18,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tehas_core::events::{first_unallowed_rename, label_actor};
+use tehas_core::events::{first_unallowed_rename, label_state, standing_actor, LabelState};
 use tehas_core::forge::{Bounded, Forge, GhRunner, GitHub};
 use tehas_core::kinds::Kind;
 
@@ -199,16 +199,26 @@ fn pass(lab: &mut Lab, live: &Path) -> u8 {
     for ticket in tickets.iter().filter(|_| refused.is_none()) {
         let n = ticket["number"].as_u64().unwrap_or_default();
         // The label is checked before the ticket is published: who applied it
-        // most recently. An agent in a cycle holds the bot's token, and the bot
-        // can label. A type is checked the same way: who set it.
+        // most recently, unless it was taken off since the tickets were
+        // listed. An agent in a cycle holds the bot's token, and the bot can
+        // label. A type is checked the same way: who set it.
         let read = match &kind {
             Some(t) => forge
                 .typed_by(n, t)
                 .map(|a| (a.map(|a| (a.actor, a.at)).unwrap_or_default(), None)),
             None => forge
                 .label_events(n)
-                .map(|ev| (label_actor(&ev, LABEL), Some(ev))),
+                .map(|ev| (standing_actor(&ev, LABEL), Some(ev))),
         };
+        if let Ok((_, Some(ev))) = &read {
+            if let LabelState::Unlabeled { actor, .. } = label_state(ev, LABEL) {
+                let by = if actor.is_empty() { "unknown" } else { &actor };
+                say(&format!(
+                    "#{n}: {LABEL} was taken off by '{by}' since it was applied"
+                ));
+                continue;
+            }
+        }
         let ((who, since), events) = match read {
             Ok(read) => read,
             Err(_) => {

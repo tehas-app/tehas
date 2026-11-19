@@ -2309,6 +2309,127 @@
    }
   },
   {
+   "case": "tehas:lean taken off since, while the labels still list it, is classic",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   }
+  },
+  {
+   "case": "a retry tick over a person's tehas:ready taken off since still follows the record",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       },
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:02:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:03:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": []
+      }
+     }
+    }
+   }
+  },
+  {
    "case": "a retry tick over tehas:lean a stranger took off starts nothing and unticks once",
    "world": "parked",
    "park_q": [
@@ -3228,6 +3349,75 @@
      {
       "start": 7,
       "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:classic taken off since, while the labels still list it, is lean",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:classic"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=alice",
+     "-tehas:classic=alice"
+    ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:classic another account took off, while the labels still list it, starts nothing",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:classic"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=alice",
+     "-tehas:classic=mallory"
+    ]
+   },
+   "spec": {
+    "7": "Words.\n\n```pi-spec v1\n{\"intent\":\"faster search\"}\n```"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:classic was taken off by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run the driver its text would choose in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, and takes it off for the driver its text would choose, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
      }
     ]
    }

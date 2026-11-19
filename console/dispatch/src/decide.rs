@@ -12,7 +12,7 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
     edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
+    plan_credit, sole_application, standing_actor, Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -1613,7 +1613,15 @@ impl<'a> Poll<'a> {
                 lean_default,
             })
         };
-        let Some(label) = read.iter().copied().find(|l| has(labels, l)) else {
+        // A label the events say was taken off is off, though the issue's
+        // labels still list it.
+        let ev = if read.iter().any(|l| has(labels, l)) {
+            self.events(n)?
+        } else {
+            Vec::new()
+        };
+        let on = |l: &str| has(labels, l) && label_state(&ev, l).event() != "unlabeled";
+        let Some(label) = read.iter().copied().find(|l| on(l)) else {
             for l in read {
                 if let Some(who) = self.taken_off(n, l) {
                     return Ok(stranger(who, true, l));
@@ -1626,8 +1634,7 @@ impl<'a> Poll<'a> {
         } else {
             Driver::Lean
         });
-        let ev = self.events(n)?;
-        let (who, _) = label_actor(&ev, label);
+        let (who, _) = standing_actor(&ev, label);
         if !self.c.allowed(&who) {
             return Ok(stranger(or_unknown(&who).to_string(), false, label));
         }
@@ -1920,10 +1927,19 @@ impl<'a> Poll<'a> {
 
     /// approval: who applied the label, and whether it approves the issue.
     /// Returns the account and time, or the login refused for not being
-    /// allowed (empty for no account; `None` for every other refusal).
+    /// allowed (empty for no account; `None` for every other refusal). A
+    /// label the events say was taken off since approves nothing, though the
+    /// issue's labels still list it: they may be older than the events.
     fn approval(&mut self, n: u64, label: &str) -> Step<Result<(String, String), Option<String>>> {
         let ev = self.events(n)?;
-        let (who, at) = label_actor(&ev, label);
+        if let LabelState::Unlabeled { actor, .. } = label_state(&ev, label) {
+            self.log(format!(
+                "skip #{n}: {label} was taken off by '{}' since it was applied",
+                or_unknown(&actor)
+            ));
+            return Ok(Err(None));
+        }
+        let (who, at) = standing_actor(&ev, label);
         if !self.c.allowed(&who) {
             // The millwright's labels are answered by its grant.
             let granted = matches!(label, "tehas:ready" | "tehas:plan" | "tehas:refine");
@@ -1969,7 +1985,7 @@ impl<'a> Poll<'a> {
             return Ok(Planned::No);
         }
         let ev = self.events(n)?;
-        let (who, at) = label_actor(&ev, ask);
+        let (who, at) = standing_actor(&ev, ask);
         if !self.planned(n, &who) {
             return Ok(Planned::No);
         }
@@ -3087,7 +3103,7 @@ impl<'a> Poll<'a> {
                                 && self.c.is_millwright(&refused) =>
                         {
                             let ev = self.events(n)?;
-                            let (_, at) = label_actor(&ev, "tehas:ready");
+                            let (_, at) = standing_actor(&ev, "tehas:ready");
                             match self.epic_ready(n, &refused, &at)? {
                                 Some(Some(g)) => {
                                     let by = g.by.clone();
