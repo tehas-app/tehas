@@ -681,7 +681,8 @@ The checkout stays where it is and is no longer read. To go back to it, set
 
 On a host that updates from releases, go back with
 `tehas update --to <version>`. A version still in `~/tehas/versions` is not
-downloaded again, and its sandbox image is put back if it still has its tag. To
+downloaded again, and its sandbox image is put back if it still has its tag and
+was built from the instance's `sandbox.Dockerfile` as it is now. To
 stay there, hold the host, or the next `tehas update` moves it to the newest
 again:
 

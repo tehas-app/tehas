@@ -158,7 +158,12 @@ esac'
 for a in "$@"; do [ "$prev" != -x ] || x=$a; [ "$prev" != -p ] || p=$a; prev=$a; done
 cat "$p" >"$T/calls/minisign-key"
 [ "$(cat "$x")" = signed ]'
-  t_stub docker 'case "$1 $2" in "image inspect") exit "${IMAGE_RC:-1}" ;; esac'
+  # IMAGE_LAYER is the tehas.layer label of an image that is there.
+  t_stub docker 'case "$1 $2" in "image inspect")
+  [ "${IMAGE_RC:-1}" != 0 ] || case "$*" in
+    *tehas.layer*) printf "%s\n" "${IMAGE_LAYER:-}" ;;
+  esac
+  exit "${IMAGE_RC:-1}" ;; esac'
   t_stub systemctl
 }
 
@@ -310,6 +315,27 @@ t_contains "$t_out" "sandbox: the image v1.0.0 ran with is in use again"
 t_eq "$(readlink "$th/current")" versions/v1.0.0
 t_lacks "$(t_calls gh)" "release download"
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:release-v1.0.0 tehas/pi-rukas:uid$(id -u)"
+
+t_case "--to does not reuse an image built from another sandbox.Dockerfile"
+stubs
+instance
+host_at v1.0.0
+t_run "$update"
+t_eq "$t_rc" 0
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+t_run "IMAGE_RC=0 IMAGE_LAYER=sha256:old $update --to v1.0.0"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox: the image v1.0.0 ran with was built from another sandbox.Dockerfile, so it is not put back"
+t_lacks "$t_out" "is in use again"
+t_lacks "$(t_calls docker)" "tag tehas/pi-rukas:release-v1.0.0 tehas/pi-rukas:uid"
+# Built from the file as it is, the image is put back.
+sum=$("$T_CONSOLE" sandbox layer "$T/instance/sandbox.Dockerfile")
+t_run "$update --to v1.2.0"
+t_eq "$t_rc" 0
+t_run "IMAGE_RC=0 IMAGE_LAYER=$sum $update --to v1.0.0"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox: the image v1.0.0 ran with is in use again"
+rm -f "$T/instance/sandbox.Dockerfile"
 
 t_case "--to a version that is not published changes nothing"
 stubs

@@ -143,7 +143,9 @@ version to move to.
 
 The sandbox image a version ran with keeps the tag
 `tehas/pi-rukas:release-<version>`. Going back to a version that still has one
-puts that image back under the uid tag and builds nothing. The version
+puts that image back under the uid tag and builds nothing, unless its
+`tehas.layer` label is not the sum of the instance's `sandbox.Dockerfile` as
+it is now: then it is not put back, and the build `install.sh` owes runs. The version
 `current` names and the two switched to before it stay in `~/tehas/versions`,
 in the order `~/tehas/state/release-history` records; older ones are removed
 with their image tags.

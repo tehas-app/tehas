@@ -808,12 +808,59 @@ pub(crate) fn keep(host: &Host) {
     prune(host);
 }
 
+/// What `reuse_image` did.
+#[derive(Debug, PartialEq)]
+enum Reuse {
+    Done,
+    /// The image is there, built from another instance layer than the one
+    /// the instance has now.
+    OtherLayer,
+    No,
+}
+
+/// What docker answers for one field of an image, or None.
+fn inspect(image: &str, format: &str) -> Option<String> {
+    let (rc, said) = output(
+        timed(DOCKER_LIMIT, "docker")
+            .args(["image", "inspect", "--format", format, image])
+            .stderr(Stdio::null()),
+    );
+    (rc == 0).then_some(said)
+}
+
+/// The sum of the instance's sandbox.Dockerfile, empty without one, None when
+/// it cannot be read.
+fn layer_now() -> Option<String> {
+    let file = PathBuf::from(instance_dir()).join("sandbox.Dockerfile");
+    if !file.exists() {
+        return Some(String::new());
+    }
+    crate::sandbox::layer_sum(&file).ok()
+}
+
+/// Whether an image's tehas.layer label says it was built from the layer the
+/// instance has now. An older docker prints `<no value>` for a missing label.
+fn same_layer(label: &str, now: &str) -> bool {
+    let label = if label == "<no value>" { "" } else { label };
+    label == now
+}
+
 /// A version that ran here before has its sandbox image still tagged, so going
-/// back to it is a tag and not a build.
-fn reuse_image(host: &Host, target: &str) -> bool {
+/// back to it is a tag and not a build, unless the instance's layer changed
+/// since that image was built: then the build install.sh owes runs.
+fn reuse_image(host: &Host, target: &str) -> Reuse {
     let tagged = format!("{IMAGE_TAG}{target}");
-    quiet(timed(DOCKER_LIMIT, "docker").args(["image", "inspect", &tagged]))
-        && quiet(timed(DOCKER_LIMIT, "docker").args(["tag", &tagged, &host.image]))
+    let Some(label) = inspect(&tagged, "{{index .Config.Labels \"tehas.layer\"}}") else {
+        return Reuse::No;
+    };
+    if !layer_now().is_some_and(|now| same_layer(&label, &now)) {
+        return Reuse::OtherLayer;
+    }
+    if quiet(timed(DOCKER_LIMIT, "docker").args(["tag", &tagged, &host.image])) {
+        Reuse::Done
+    } else {
+        Reuse::No
+    }
 }
 
 /// The notes a person reads before moving: each release's own section of the
@@ -1037,11 +1084,17 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     };
     say(&format!("release: current is {target}, was {was}"));
     plan.tree = current.display().to_string();
-    if reuse_image(host, &target) {
-        say(&format!(
-            "sandbox: the image {target} ran with is in use again"
-        ));
-        plan.reused = true;
+    match reuse_image(host, &target) {
+        Reuse::Done => {
+            say(&format!(
+                "sandbox: the image {target} ran with is in use again"
+            ));
+            plan.reused = true;
+        }
+        Reuse::OtherLayer => say(&format!(
+            "sandbox: the image {target} ran with was built from another sandbox.Dockerfile, so it is not put back"
+        )),
+        Reuse::No => {}
     }
     0
 }
@@ -1112,6 +1165,16 @@ mod tests {
             tag: tag.to_string(),
             body: format!("body of {tag}"),
         }
+    }
+
+    #[test]
+    fn an_image_is_reused_only_when_built_from_the_layer_the_instance_has_now() {
+        assert!(same_layer("", ""));
+        assert!(same_layer("<no value>", ""));
+        assert!(same_layer("sha256:a", "sha256:a"));
+        assert!(!same_layer("sha256:a", "sha256:b"));
+        assert!(!same_layer("", "sha256:b"));
+        assert!(!same_layer("sha256:a", ""));
     }
 
     #[test]
