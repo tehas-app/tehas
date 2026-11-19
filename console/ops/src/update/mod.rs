@@ -556,6 +556,9 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
             "tehas update: could not write {}; run tehas update again to finish",
             file.display()
         ));
+        if let Some(undo) = &plan.undo {
+            release::undo(&host, undo);
+        }
         return Err(1);
     }
     Ok(Prepared::Planned(plan.undo.take()))

@@ -54,8 +54,9 @@ make_release() { # <tag> [<body>] [<machine>]
   cp -R "$T_ROOT/instances/example" "$src/instances/"
   cp "$T_ROOT/host/release/minisign.pub" "$src/host/release/"
   echo "$tag" >"$src/VERSION"
-  # INSTALL_RC stands for an install.sh that refuses or fails after the switch.
-  printf '#!/usr/bin/env bash\nprintf "install %s %%s\\n" "${*:-}" >>"$T/calls/install"\n[ -z "${INSTALL_RC:-}" ] || exit "$INSTALL_RC"\n' "$tag" >"$src/install.sh"
+  # INSTALL_RC stands for an install.sh that refuses or fails after the switch,
+  # INSTALL_SAYS for the line it prints then.
+  printf '#!/usr/bin/env bash\nprintf "install %s %%s\\n" "${*:-}" >>"$T/calls/install"\n[ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2\n[ -z "${INSTALL_RC:-}" ] || exit "$INSTALL_RC"\n' "$tag" >"$src/install.sh"
   chmod +x "$src/install.sh"
   tar -czf "$out/$name" -C "$T/src" "tehas-$tag"
   (cd "$out" && sha256sum "$name" >"$name.sha256")
@@ -325,7 +326,8 @@ instance
 host_at v1.0.0
 t_run "$update"
 t_eq "$t_rc" 0
-t_run "IMAGE_RC=0 INSTALL_RC=78 $update --to v1.0.0"
+refusal="tehas: this release cannot migrate $th/state/tehas.db; nothing was installed"
+t_run "IMAGE_RC=0 INSTALL_RC=78 INSTALL_SAYS='$refusal' $update --to v1.0.0"
 t_eq "$t_rc" 78
 t_contains "$t_out" "sandbox: the image v1.0.0 ran with is in use again"
 t_contains "$t_out" "install: install.sh exited 78; no follow-up was run"
@@ -342,10 +344,23 @@ t_case "a checkout host whose first install from a release fails runs from its c
 stubs
 instance
 checkout_host v1.2.0
-t_run "INSTALL_RC=1 $update"
+t_run "INSTALL_RC=1 INSTALL_SAYS='tehas: a poll is running; nothing was installed' $update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "release: install.sh did not finish v1.2.0, so current is the platform checkout again"
 t_eq "$(test -L "$th/current" && echo link)" ""
+
+t_case "an install.sh that fails after it began to copy leaves current on the new version"
+stubs
+instance
+host_at v1.0.0
+t_run "$update"
+t_eq "$t_rc" 0
+t_run "IMAGE_RC=0 INSTALL_RC=1 INSTALL_SAYS='tehas: the store could not migrate db; the files are installed, the database was left as it was' $update --to v1.0.0"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: install.sh stopped after it began to install v1.0.0, so current stays on it"
+t_lacks "$t_out" "did not finish"
+t_eq "$(readlink "$th/current")" versions/v1.0.0
+t_lacks "$(t_calls docker)" "tag sha256:before"
 
 t_case "--to does not reuse an image built from another sandbox.Dockerfile"
 stubs

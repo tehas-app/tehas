@@ -140,11 +140,15 @@ version to move to.
 5. point `~/tehas/current` at the version, and run `install.sh` and its
    follow-ups from there, as an update from the checkout does. The commands and
    units are the copies `install.sh` makes from that tree. When `install.sh`
-   does not finish, for example because the version's store cannot open this
-   host's database, `current` and the uid tag of the sandbox image are put back
-   where they were (`release: install.sh did not finish <version>, so current is
-   <version> again`), so a plain `tehas update` installs the version the host
-   ran. A host that ran from its checkout loses `current` again.
+   stops before it installs anything and says `nothing was installed`, for
+   example because the version's store cannot open this host's database,
+   `current` and the uid tag of the sandbox image are put back where they were
+   (`release: install.sh did not finish <version>, so current is <version>
+   again`), so a plain `tehas update` installs the version the host ran. A
+   host that ran from its checkout loses `current` again. An `install.sh` that
+   fails after it began to copy, or runs out of time, may have installed the
+   version's files and migrated the database, so `current` stays on that
+   version and the next `tehas update` finishes it.
 
 The sandbox image a version ran with keeps the tag
 `tehas/pi-rukas:release-<version>`. Going back to a version that still has one

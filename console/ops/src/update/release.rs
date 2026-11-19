@@ -7,8 +7,9 @@
 //! are built into tehas (tehas_core::release), never read from a file an
 //! earlier release left on the host or from the download. Nothing is unpacked before both checks pass, and current moves
 //! only after the unpack and the target's own settings check, so whatever
-//! fails leaves the host on the version it runs. An install.sh that does not
-//! finish after the switch has current and the image tag put back (`undo`).
+//! fails leaves the host on the version it runs. An install.sh that says it
+//! installed nothing after the switch has current and the image tag put back
+//! (`undo`).
 //!
 //! host/release/install repeats these checks in POSIX sh, because it runs on a
 //! host with nothing installed yet.
