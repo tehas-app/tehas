@@ -723,9 +723,11 @@ t_lacks "$dashjs_text" 'else if (s.paused) { pill.className = "pill pause"; pill
 t_contains "$manual_text" 'paused and, while a cycle is still running, that it is finishing that issue'
 t_contains "$features_text" 'not proven that a cycle finishes while the factory is paused'
 
-t_case "the title and the heading say tehas is open source"
-t_contains "$page_text" '<title>Tehas: an open source software factory powered by the Pi coding agent</title>'
-t_contains "$page_text" '<meta property="og:title" content="Tehas: an open source software factory powered by the Pi coding agent">'
-t_contains "$page_text" '<h1 id="floor-title">TEHAS: AN OPEN SOURCE PI SOFTWARE FACTORY</h1>'
+t_case "the title and the heading name tehas The Lean Software Factory, open source"
+t_contains "$page_text" '<title>Tehas - The Lean Software Factory: open source, powered by Pi</title>'
+t_contains "$page_text" '<meta property="og:title" content="Tehas - The Lean Software Factory: open source, powered by Pi">'
+t_contains "$page_text" '<h1 id="floor-title">TEHAS: THE LEAN SOFTWARE FACTORY</h1>'
+t_contains "$page_text" '<p class="floor-intro">The floor of an open source lean software factory'
+t_contains "$page_text" '<a href="/lean-software-factory">HOW IT WORKS</a>'
 
 t_done
