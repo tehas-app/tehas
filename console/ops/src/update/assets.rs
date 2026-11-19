@@ -394,6 +394,32 @@ mod tests {
     }
 
     #[test]
+    fn the_kit_a_module_imports_by_a_relative_address_keeps_its_names() {
+        let d = host("assets-kit");
+        put(
+            &d,
+            "host/docs/dashboard.frag",
+            "<script type=\"module\" src=\"/fun/queue.js\"></script>\n",
+        );
+        let queue = "import { island } from \"./kit/island.js\";\n";
+        put(&d, "host/fun/queue.js", queue);
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/vendor/solid.js", "export{a as For};\n");
+        assert_eq!(run(&d), 0);
+        // The entry is hashed beside its plain name, so its relative imports
+        // still name the kit where it is.
+        let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
+        let entry = format!("queue.{}.js", hex(queue.as_bytes()));
+        assert!(frag.contains(&format!("/fun/{entry}")), "{frag}");
+        assert_eq!(
+            fs::read_to_string(staged(&d, &format!("fun/{entry}"))).unwrap(),
+            queue
+        );
+        assert_eq!(names(&staged(&d, "fun/kit")), ["island.js", "vendor"]);
+        assert_eq!(names(&staged(&d, "fun/kit/vendor")), ["solid.js"]);
+    }
+
+    #[test]
     fn the_theme_link_the_template_names_is_left_as_it_is() {
         let d = host("assets-theme");
         assert_eq!(run(&d), 0);
