@@ -197,6 +197,14 @@ for name in pause resume; do
 done
 t_eq "$([ -e "$flag" ] && echo there)" ""
 
+t_case "a flag that cannot be written is exit 1, and says why"
+reset
+rm -rf "$T/home/tehas/state"
+: >"$T/home/tehas/state"
+t_run "$pause --reason why"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas pause: could not create"
+
 t_case "without instance settings nothing is written, exit 78"
 reset
 t_no_instance
