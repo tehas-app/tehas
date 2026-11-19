@@ -572,7 +572,8 @@ t_eq "$([ -e "$T/c.db" ] && echo made || echo none)" none
 
 t_case "the samples of api/state-copy fit its schema, and the check finds what does not"
 t_eq "$(fits "$T_ROOT/api/state-copy.sample.json")$(fits "$T_ROOT/api/state-copy.empty.json")" ""
-out=$(jq '.rows = -1 | del(.target) | .later = 1' "$T_ROOT/api/state-copy.sample.json" | fits)
+out=$(jq '.rows = -1 | del(.target) | .later = 1 | .schema = 11' "$T_ROOT/api/state-copy.sample.json" | fits)
+t_contains "$out" ".schema: 11 is under 12"
 t_contains "$out" ".rows: -1 is under 0"
 t_contains "$out" ".: target is missing"
 t_contains "$out" ".later: not in the schema"
@@ -643,7 +644,7 @@ t_run "$state load --from '$T/copies/c.db'"
 t_eq "$t_out" "tehas state: the state store holds history, 1 rows in cycles; a copy loads only into a new or empty store"
 t_eq "$(fingerprint "$dst")" "$before"
 
-t_case "load refuses a copy of a newer schema, naming both, and an unreadable copy"
+t_case "load refuses a copy of a newer schema, naming both, one older than v0.30.0, and an unreadable copy"
 reset
 a_copy
 drain
@@ -654,6 +655,11 @@ printf '\0\0\0\143' | dd of="$T/copies/c.db" bs=1 seek=60 conv=notrunc 2>/dev/nu
 t_run "$state load --from '$T/copies/c.db'"
 t_eq "$t_rc" 1
 t_eq "$t_out" "tehas state: the copy $T/copies/c.db holds schema 99, this release reads schema $mine and older"
+# 11 is one below the oldest schema this release migrates, the one v0.30.0 wrote.
+printf '\0\0\0\013' | dd of="$T/copies/c.db" bs=1 seek=60 conv=notrunc 2>/dev/null
+t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the copy $T/copies/c.db holds schema 11, older than v0.30.0 wrote; load it into a v0.30 release first"
 echo "not a store" >"$T/copies/text.db"
 t_run "$state load --from '$T/copies/text.db'"
 t_eq "$t_rc" 1
@@ -675,7 +681,7 @@ t_eq "$t_rc" 64
 t_case "the samples of api/state-load fit its schema, and the check finds what does not"
 t_eq "$(loaded "$T_ROOT/api/state-load.sample.json")$(loaded "$T_ROOT/api/state-load.empty.json")" ""
 out=$(jq '.schema = 0 | del(.source) | .target = "x"' "$T_ROOT/api/state-load.sample.json" | loaded)
-t_contains "$out" ".schema: 0 is under 1"
+t_contains "$out" ".schema: 0 is under 12"
 t_contains "$out" ".: source is missing"
 t_contains "$out" ".target: not in the schema"
 

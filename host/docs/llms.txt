@@ -15,10 +15,13 @@
 
 - Tehas is the factory around the agent: a dispatcher that reads the queue, a
   check of who authorized the work, a sandbox with limits, a dashboard and a
-  live console. It is shell scripts, one small Rust program (the console) and
-  a few containers on one host.
+  live console. It is several Rust programs (the console, the dispatcher, the
+  cycle supervisor, the state store and others), shell glue and a few
+  containers on one host.
 - Pi (https://pi.dev, source https://github.com/earendil-works/pi) is the
-  coding agent. Tehas starts it as `pi --mode rpc` in a container.
+  coding agent. Tehas runs it in a container through pi-rukas's headless
+  runner: `pi-rukas-headless work` for a cycle, `pi-rukas-headless plan` for
+  a planning turn.
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.

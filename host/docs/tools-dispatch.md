@@ -249,8 +249,8 @@ recorded, written to a private file for the call, and stores one run of kind
 start, its end (when the poll took it up), its number in the session and its
 outcome: `handoff` for a turn that asked its question, `stopped` for a session
 Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
-other. pi's rpc mode reports no token usage, so a planning turn has none. A
-call that fails is a line `WARN analytics plan: exit N` in the log, a copy
+other. The answer tehas keeps from a turn holds no token usage, so a planning
+turn has none. A call that fails is a line `WARN analytics plan: exit N` in the log, a copy
 that cannot be written is `WARN analytics plan: no facts written`, and neither
 changes anything in the turn.
 A planning session is on the state store (`plan-show`): its turns, the
