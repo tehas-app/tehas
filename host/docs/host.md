@@ -210,6 +210,7 @@ What an unattended run refuses to get past, and what each one means:
 | a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 | `tehas: the commit of <tree> is not known…`    | The tree is neither a git checkout with a commit nor a release with a `COMMIT` file. Nothing is installed. See [The state store](#the-state-store) |
+| `tehas: this release cannot migrate …; nothing was installed`, exit 78 | The store's line above it says why: a store older than v0.30, a damaged file, or a backup it cannot write into `state/backup`. Nothing is installed and the database is not changed. See [The state store](#the-state-store) |
 | `tehas: the store could not init…` or `…migrate…`, exit 1 | The store's line above it says why: `corrupt`, `unreadable`, `future` or `busy`. The files are installed and the database is not changed. See [The state store](#the-state-store) |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this
@@ -790,9 +791,14 @@ JSON answer:
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v0.30.0 wrote: update to a v0.30 release first, then to this
   one`. `install.sh` asks the store it installs first, with `store migrate
-  --dry-run`, which reads only, so such a host stops with exit 78 before any
-  file is copied and keeps the release it runs. Install any
-  v0.30 release on the host first, then this one. The records an older tehas
+  --dry-run`, so such a host stops with exit 78 before any file is copied and
+  keeps the release it runs. Install any v0.30 release on the host first, then
+  this one.
+- The same dry run, given `--backup ~/tehas/state/backup`, writes the copies
+  the migration writes and removes them again. A `state/backup` that is a link
+  out of the home, or a disk with no room for the copies, stops the install
+  with exit 78 before any file is copied, and `tehas update` puts `current`
+  back. The records an older tehas
   kept as files under `state/` are no longer imported: v0.30 imported them.
 
 The store is told the version and commit of the tree `install.sh` runs from,
