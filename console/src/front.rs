@@ -756,6 +756,68 @@ mod tests {
         }
     }
 
+    /// Each public `--json` row of api/commands.txt and the schemas in api/ of
+    /// the objects it prints.
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 19] = [
+        ("analytics", Some("copy"), &["analytics-copy"]),
+        ("api", None, &["api"]),
+        ("disk", None, &["disk", "disk-cycles"]),
+        ("drain", None, &["drain"]),
+        ("export", None, &["export"]),
+        ("freeze", None, &["freeze"]),
+        ("history", None, &["history"]),
+        ("host-message", None, &["host-messages"]),
+        ("host-message", Some("list"), &["host-messages"]),
+        ("limit", None, &["limit"]),
+        ("order", None, &["order"]),
+        ("panel", None, &["panel"]),
+        ("refresh", None, &["refresh"]),
+        ("start", None, &["start"]),
+        ("state", Some("check"), &["state-check"]),
+        ("state", Some("copy"), &["state-copy"]),
+        ("state", Some("load"), &["state-load"]),
+        ("status", None, &["status"]),
+        ("thaw", None, &["freeze"]),
+    ];
+
+    #[test]
+    fn every_public_json_row_has_a_schema() {
+        let public: Vec<(String, Option<String>)> = pinned()
+            .into_iter()
+            .filter(|r| {
+                r.flags.contains("--json") && !r.internal.contains("--json") && r.building.is_none()
+            })
+            .map(|r| (r.command, r.sub))
+            .collect();
+        let table: Vec<(String, Option<String>)> = JSON_SCHEMAS
+            .iter()
+            .map(|(c, s, _)| (c.to_string(), s.map(str::to_string)))
+            .collect();
+        assert_eq!(public, table, "api/commands.txt against JSON_SCHEMAS");
+        let api = concat!(env!("CARGO_MANIFEST_DIR"), "/../api");
+        let mut named: BTreeSet<&str> = JSON_SCHEMAS
+            .iter()
+            .flat_map(|(_, _, s)| s.iter().copied())
+            .collect();
+        for name in &named {
+            let file = format!("{api}/{name}.schema.json");
+            assert!(fs::metadata(&file).is_ok(), "no {file}");
+        }
+        // Files the docs server serves or the release carries, no command's
+        // output.
+        named.extend(["host-bridge", "settings-rules"]);
+        let mut found = Vec::new();
+        for e in fs::read_dir(api).unwrap() {
+            let name = e.unwrap().file_name().to_string_lossy().into_owned();
+            if let Some(name) = name.strip_suffix(".schema.json") {
+                found.push(name.to_string());
+            }
+        }
+        found.sort();
+        let named: Vec<String> = named.into_iter().map(str::to_string).collect();
+        assert_eq!(found, named, "the schemas in api/ against JSON_SCHEMAS");
+    }
+
     #[test]
     fn the_internal_flags_are_those_of_the_dispatcher_the_cleaner_and_the_screen() {
         let marked: Vec<String> = pinned()
