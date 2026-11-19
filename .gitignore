@@ -27,3 +27,5 @@
 # before its cleanup ran. Never written by hand, never installed.
 /host/sandbox/sandbox-uid.Dockerfile
 /host/sandbox/sandbox-uid.Dockerfile.??????
+# The vendor tool is its own workspace (tools/vendor-solid/Cargo.toml).
+/tools/vendor-solid/target/
