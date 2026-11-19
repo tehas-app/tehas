@@ -191,7 +191,8 @@
       "after": {
         "issues": {
           "7": {
-            "edit": {"body": "## Plan\n\nBetter.", "lastEditedAt": "2026-10-01T00:30:00Z", "editor": {"login": "alice"}}
+            "edit": {"body": "## Plan\n\nBetter.", "lastEditedAt": "2026-10-01T00:30:00Z", "editor": {"login": "alice"},
+              "userContentEdits": {"totalCount": 1, "nodes": [{"editedAt": "2026-10-01T00:30:00Z", "editor": {"login": "alice"}}]}}
           }
         }
       },

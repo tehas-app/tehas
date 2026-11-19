@@ -273,8 +273,7 @@ fn plan_bound(
     if text.is_empty() {
         return Ok(default);
     }
-    tehas_core::settings::rules::check(name, text, &Default::default())
-        .map_err(|why| invalid(&why))?;
+    tehas_core::settings::rules::check(name, text).map_err(|why| invalid(&why))?;
     let n: u64 = text
         .parse()
         .map_err(|_| invalid("expected a positive whole number"))?;

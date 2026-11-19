@@ -37,8 +37,8 @@ limit set --cycles --for --plan --reason --until
 mcp
 mcp key
 order --json
-order clear
-order set --for --issues --only --reason --until
+order clear --json
+order set --for --issues --json --only --reason --until
 outsource building=outsource
 outsource drain --json building=outsource
 outsource invite --json --name building=outsource

@@ -11,8 +11,8 @@ use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
-    edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
-    sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
+    edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
+    plan_credit, sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -1121,8 +1121,8 @@ impl<'a> Poll<'a> {
         } else if !s.endpoint_hold.is_empty() {
             why = Some(Why::Resources);
             hold = s.endpoint_hold.clone();
-        } else if let Some(Some(kb)) =
-            disk_low(self).filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb * 1024))
+        } else if let Some(Some(kb)) = disk_low(self)
+            .filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb.saturating_mul(1024)))
         {
             why = Some(Why::Disk);
             hold = format!(
@@ -1896,7 +1896,17 @@ impl<'a> Poll<'a> {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
                     return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
-                edit_holds(&Value::Object(edit), since, approver, &|w| c.allowed(w))
+                let edit = Value::Object(edit);
+                let held = edit_holds(&edit, since, approver, &|w| c.allowed(w));
+                // A history the poll asked for and GitHub did not give ends
+                // the poll, as an unread comment does.
+                if held.is_some() && edit_history_unread(&edit, &|w| c.allowed(w)) {
+                    let line = edit
+                        .pointer("/userContentEdits/line")
+                        .and_then(Value::as_str);
+                    return Err(self.unreadable(&format!("edit history of #{n}"), line));
+                }
+                held
             }
         };
         if let Some(stale) = stale {
@@ -2387,6 +2397,14 @@ impl<'a> Poll<'a> {
                 "its text was last changed by {}",
                 or_unknown(&editor)
             ));
+        }
+        // Every edit counts, not only the last.
+        if let Some(who) = edited.then(|| edit_holds(&t, "", "", &ours)).flatten() {
+            if edit_history_unread(&t, &ours) {
+                let line = t.pointer("/userContentEdits/line").and_then(Value::as_str);
+                return Err(self.unreadable(&format!("edit history of #{n}"), line));
+            }
+            return refuse(format!("its text was changed by {who}"));
         }
         if let Some(who) = first_unallowed_rename(&ev, "", "", &ours) {
             return refuse(format!("its title was changed by {who}"));

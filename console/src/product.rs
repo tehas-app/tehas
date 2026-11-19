@@ -7,7 +7,7 @@
 //!   console check-product [--sandbox]
 //!     The checks, one line each, and state/check-product.json. Exit 0 every
 //!     check passed, 1 the sandbox could not be run, 3 a check failed, 64
-//!     usage, 78 a setting is missing.
+//!     usage, 78 a setting is missing, 141 the reader went away.
 //!   console check-product table
 //!     The row of test/sandbox_test.sh's table of runs for the one container
 //!     started here, read off the arguments it is started with.
@@ -25,6 +25,7 @@ use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tehas_core::file::Temp;
 use tehas_core::install::{self, Step};
 use tehas_core::{exit, sandbox, time};
@@ -59,8 +60,25 @@ const CHECK: &str = "# Guessed by tehas init-product from the repository's files
 const NO_GUESS: &str = "# tehas init-product could not guess a gate from the repository's files.
 # Write the command that tests the product on the first line that is not a comment.";
 
+/// Whether a line could not be printed because the reader had gone. The run
+/// goes on, so its scratch directory and result file are seen to, and ends 141.
+static CLOSED: AtomicBool = AtomicBool::new(false);
+
 fn say(line: &str) {
-    let _ = writeln!(io::stdout(), "{line}");
+    if let Err(e) = writeln!(io::stdout(), "{line}") {
+        if e.kind() == io::ErrorKind::BrokenPipe {
+            CLOSED.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// `rc`, or 141 when the reader went away.
+fn or_closed(rc: u8) -> u8 {
+    if CLOSED.load(Ordering::Relaxed) {
+        exit::CLOSED
+    } else {
+        rc
+    }
 }
 
 fn complain(line: &str) {
@@ -163,14 +181,14 @@ pub fn check(given: &[String]) -> u8 {
         [a] if a == "--sandbox" => true,
         [a] if a == "table" => {
             say(&table());
-            return 0;
+            return or_closed(0);
         }
         _ => {
             complain("usage: tehas check-product [--sandbox]");
             return 64;
         }
     };
-    checks(sandbox).unwrap_or_else(|code| code)
+    or_closed(checks(sandbox).unwrap_or_else(|code| code))
 }
 
 // One run's lines and the failures among them.
@@ -632,7 +650,7 @@ pub fn init(given: &[String]) -> u8 {
         complain(&format!("tehas init-product: the default branch is {HEAD}"));
         return 78;
     }
-    propose(branch, dry).unwrap_or_else(|code| code)
+    or_closed(propose(branch, dry).unwrap_or_else(|code| code))
 }
 
 fn propose(branch: &str, dry: bool) -> Result<u8, u8> {

@@ -707,27 +707,28 @@ fn unknown_keys(tree: &Path, env_file: &Path) -> (Vec<String>, Vec<String>) {
 /// A new link renamed over the old one, so current is never missing. The
 /// history is what prune reads: the versions in the order they were switched to.
 fn switch(host: &Host, tag: &str) -> bool {
-    let new = host.home.join("current.new");
-    match fs::remove_file(&new) {
-        Err(e) if e.kind() != ErrorKind::NotFound => return false,
-        _ => {}
-    }
-    if unix_fs::symlink(format!("versions/{tag}"), &new).is_err()
-        || fs::rename(&new, host.current()).is_err()
-    {
-        return false;
-    }
+    // The history goes first, so a failed append leaves `current` where it was.
     let state = host.home.join("state");
     if fs::create_dir_all(&state).is_err() {
         return false;
     }
     use std::io::Write;
-    fs::OpenOptions::new()
+    if fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(state.join("release-history"))
         .and_then(|mut f| writeln!(f, "{tag}"))
-        .is_ok()
+        .is_err()
+    {
+        return false;
+    }
+    let new = host.home.join("current.new");
+    match fs::remove_file(&new) {
+        Err(e) if e.kind() != ErrorKind::NotFound => return false,
+        _ => {}
+    }
+    unix_fs::symlink(format!("versions/{tag}"), &new).is_ok()
+        && fs::rename(&new, host.current()).is_ok()
 }
 
 /// The versions the last three switches named, newest first.
@@ -1661,6 +1662,21 @@ mod tests {
         assert_eq!(
             fs::read_to_string(d.0.join("state/release-history")).unwrap(),
             "v1.1.0\n"
+        );
+    }
+
+    #[test]
+    fn a_history_that_cannot_be_written_leaves_current_where_it_was() {
+        let d = dir("switch-history");
+        let h = host(&d.0);
+        d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
+        d.file("versions/v1.1.0/VERSION", "v1.1.0\n");
+        unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
+        fs::create_dir_all(d.0.join("state/release-history")).unwrap();
+        assert!(!switch(&h, "v1.1.0"));
+        assert_eq!(
+            fs::read_link(d.0.join("current")).unwrap(),
+            Path::new("versions/v1.0.0")
         );
     }
 

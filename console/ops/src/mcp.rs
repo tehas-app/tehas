@@ -419,14 +419,22 @@ fn serve() -> u8 {
     127
 }
 
-pub fn main(given: &[String]) -> u8 {
-    match given.first().map(String::as_str) {
-        Some("serve") => serve(),
-        Some("key") => key(),
+/// `serve` or `key`, alone, or 64 with the usage.
+pub fn words(given: &[String]) -> Result<&str, u8> {
+    match given {
+        [verb] if verb == "serve" || verb == "key" => Ok(verb),
         _ => {
             eprintln!("usage: tehasbot mcp serve | tehas mcp key");
-            64
+            Err(64)
         }
+    }
+}
+
+pub fn main(given: &[String]) -> u8 {
+    match words(given) {
+        Ok("serve") => serve(),
+        Ok(_) => key(),
+        Err(rc) => rc,
     }
 }
 
@@ -435,6 +443,22 @@ mod tests {
     use super::*;
 
     const KEY: &str = "abcdefghijklmnopqrstuvwxyz012345";
+
+    #[test]
+    fn serve_and_key_take_no_other_word() {
+        let w = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(words(&w(&["serve"])), Ok("serve"));
+        assert_eq!(words(&w(&["key"])), Ok("key"));
+        for bad in [
+            &[][..],
+            &["nope"],
+            &["key", "--bogus-flag"],
+            &["serve", "x"],
+            &["key", "key"],
+        ] {
+            assert_eq!(words(&w(bad)), Err(64), "{bad:?}");
+        }
+    }
 
     #[test]
     fn a_key_is_the_url_safe_alphabet_with_no_padding() {

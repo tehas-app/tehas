@@ -364,13 +364,15 @@ ready issues start lowest number first. Every command prints the order as it
 then is.
 
 `api/order.schema.json` in the source says what the object holds, and
-`api/order.sample.json`, `api/order.expired.json` and `api/order.empty.json`
-are samples of it, one for each `state`. A store that cannot be read is no
-answer: the command exits 1.
+`api/order.sample.json`, `api/order.expired.json`, `api/order.empty.json` and
+`api/order.unreadable.json` are samples of it, one for each `state`. A store
+that refuses or does not answer is no answer: the command exits 1, or 78 when
+the store is not installed or cannot be used. An answer of the store that
+holds no order this release can read is `unreadable`, taken as no order.
 
 | Field | Meaning |
 | --- | --- |
-| `state` | `none`, `ok` or `expired` |
+| `state` | `none`, `ok`, `expired` or `unreadable` |
 | `issues` | The issues to start first, in order: distinct numbers from 1, at most 200. A number that is not a ready issue is passed over. Empty with `only`: nothing starts until the order changes |
 | `only` | `true`: a ready issue that is not in `issues` waits. Refreshes of open pull requests are not held |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`. Left out when it lasts until cleared |
@@ -850,7 +852,7 @@ store's own answer to `store check`, whole and in its order:
 | `ok` | `true`. A store that fails its check prints no object |
 | `schema` | The schema version of the store |
 | `integrity` | `ok`: SQLite's integrity check passed. Any other answer is no object: see the exit statuses |
-| `rows` | Each table of the store and its number of rows. A later schema may add tables |
+| `rows` | Each table of the store and its number of rows. The keys are the store's table names, which are internal: a later schema may add, rename or drop a table, and its key with it |
 
 `api/state-check.schema.json` in the source says what the object holds, and
 `api/state-check.sample.json`, a new store's, is a sample of it.
@@ -1076,7 +1078,7 @@ field of one entry and under `full` for a field of what fills them.
 | `full.places` | The biggest places first, at most twelve: the entries of `~/tehas` and of `~/.pi/agent`, each clone's `~/tehas/dev/<name>.state/target` in place of the clone's own tree, and the scratch disk's entries when the instance has one |
 | `full.places.path` | The place, as the walk named it |
 | `full.places.bytes` | Its bytes; `null` when the walk has no figure for it, which is what `cut` says the reason for |
-| `full.places.cut` | The bound the walk ran out of: `whole` for a figure that is the whole of the place, or `entries`, `depth`, `time` or `unreadable` |
+| `full.places.cut` | The bound the walk ran out of: `entries`, `depth`, `time` or `unreadable`. Left out when the figure is the whole of the place |
 | `full.docker` | `docker system df` as the daemon printed it |
 | `full.docker.state` | `read` when it answered lines, `none` when it answered none, `unreadable` when the call did not answer |
 | `full.docker.lines` | Its lines, in the daemon's words: at most twelve, each cut to 200 characters |
@@ -1156,7 +1158,8 @@ reason, and so is one too large to count in 64 bits: no reading is `null`,
 never the largest number there is.
 
 The object `tehas disk --cycles --json` prints is `api/disk-cycles.schema.json`
-in the source, and `api/disk-cycles.sample.json` is a sample of it. The
+in the source, `api/disk-cycles.sample.json` is a sample of it and
+`api/disk-cycles.full.json` one with `--full`. The
 feature `cycle-writes` of [`tehas api`](#tehas-api) says the release has the
 figures; a factory that predates it prints no `cycles` at all. The two keys it
 shares with the plain answer, `filesystems` and `full`, are a copy of
@@ -1457,7 +1460,7 @@ lists the feature `settings-rules`.
 | `roles` | The roles that take a model of their own: the suffixes of `PI_ENSEMBLE_MODEL_<ROLE>` and `PI_ENSEMBLE_PROVIDER_<ROLE>`, each a `one-word` value |
 | `settings` | One object per setting, in the order a load checks them, which picks the setting an operator is told about first |
 | `settings.name` | The setting |
-| `settings.rule` | The shape of its value, a kebab-case name such as `repo`, `count`, `one-of` or `low-gate`. Rows with the same rule take the same values, except `one-of`, whose words are the row's own |
+| `settings.rule` | The shape of its value, a kebab-case name such as `repo`, `count` or `one-of`. Rows with the same rule take the same values, except `one-of`, whose words are the row's own, and the two timeouts below whose ceiling only the load checks |
 | `settings.when` | When a load checks it: `always` (it has a default, so it always holds something), `given` (when the instance gives it a value), `named` (when the instance names it, even with an empty value), `required` (when a command requires it) |
 | `settings.default` | What the load uses when the instance leaves it out or empty, or `null`: it stays unset, or the load works it out |
 | `settings.words` | Only for a `one-of` row: the values it takes |
@@ -1481,7 +1484,8 @@ The file holds a rule's name and one reason, not the check itself: to check a
 value, run `libexec/console settings valid <name> <value>` from the tarball of
 the same release. It exits 0 for a value the setting takes, and 1 with the
 reason on standard output for one it refuses, the same reason the factory
-gives, for any rule. A `low-gate` value is also refused when it is a path under
-the host's own trees, the tehas home, the instance directory and the work
-repository, which only the host knows; the console checks those when
-`TEHAS_HOME`, `TEHAS_INSTANCE_DIR` and `TEHAS_WORK_REPO` are set.
+gives, for any rule. It checks one value against its rule and nothing more.
+The load also checks settings against each other and two ceilings that are
+not in the rule: `TEHAS_WORK_TIMEOUT` at most 25200 and `TEHAS_PLAN_TIMEOUT`
+at most 7200, both rule `count`. `settings valid` exits 0 for a larger count,
+and the load refuses it with 78.

@@ -680,8 +680,8 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
-- A write that timed out or that GitHub answered with a 5xx may have reached
-  GitHub, so the report reads it back before it tries again: a comment by its
+- A write that timed out, that GitHub answered with a 5xx, or whose connection
+  broke after it was made (a reset, an EOF) may have reached GitHub, so the report reads it back before it tries again: a comment by its
   text, a label by name. Found, it is done. Not found, it is sent again with
   the tries it has left; a park question that was not found gets the plain
   park comment, as a refused one does. Only when that read fails too does the
@@ -1311,8 +1311,9 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A write that timed out, or that GitHub
-answered with a 5xx, may have reached GitHub: its row is left open as
+or as not done, and never made again. A write that timed out, that GitHub
+answered with a 5xx, or whose connection broke after it was made, may have
+reached GitHub: its row is left open as
 `unknown`, the log says `may have been posted`, and the next poll reads it the
 same way before anything is sent again. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
@@ -1979,7 +1980,10 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   to take one away.
 - the logs of cycles, planning turns, index runs and reviews in
   `~/tehas/logs` older than 7 days, and the analyst logs an earlier version
-  left. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+  left. The long-lived logs stay: `dispatch.log`, `refresh.log`,
+  `review-timer.log`, `preview.log`, `protolab.log`, `clean.log` and
+  `~/tehas/state/github-writes.log`. Each one past 64 MiB is copied to a single
+  `.1` and emptied.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
   journal, old heartbeats of cycles that have ended, and the cycle and plan
@@ -2455,8 +2459,8 @@ has the rest and a known limit for a factory a program manages. The steps:
    for a drain.
 4. **Update.** Run `tehas update`. It asks 1.0's settings check before it
    switches `~/tehas/current`. While a line is left to fix, it stops with 78,
-   names the first such line and switches nothing: fix it and run it again.
-   From 1.0 on, `tehas update --check` lists every such line at once.
+   names every such line at once and switches nothing: fix them and run it
+   again.
 5. **Labels.** Run `tehas labels`: it makes and pins `tehas:classic` and gives
    `tehas:improvement` its new description.
 6. **Start.** Run `tehas limit clear`.

@@ -168,7 +168,7 @@ call; one that a caller killed during the call leaves is removed by
 | `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 | `tool_calls`, `tool_errors` | The result's `usage.toolCalls` and `usage.toolErrors`: the tool calls the run's children started, a codemode script's nested calls included, and those that ended in an error. NULL where the result has none: a pi-rukas before v0.14.66 (`features.usageTools`), a result that could not count them, a planning turn | 4 |
 | `result_driver` | The result's `driver`: the engine that ran the issue, `classic` or `lean`, beside `driver`, the one the approval bound. NULL where the result names none or another word | 4 |
-| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet | 4, v1.0.0 |
+| `contractor_id` | The name of the contractor that ran the cycle, from the facts the cycle gives. NULL for a cycle run in-house, on every run of an instance with outsource off, on a planning turn and on every run from before the column. Outsource is still being built, so no instance writes one yet. The column is frozen with schema 4 | 4, v1.0.0 |
 
 The outcome of a work run:
 

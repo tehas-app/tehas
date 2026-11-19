@@ -83,6 +83,25 @@ if real_store "a database that is not one stops the install and is left as it wa
   t_eq "$([ -e "$th/bin/tehas" ] || echo none)" "none"
 fi
 
+if real_store "a backup directory the store refuses stops the install before the first copy"; then
+  fresh
+  instance
+  t_store_db "$th"
+  made=$(sha256sum <"$th/state/tehas.db")
+  mkdir -p "$T/away"
+  ln -s "$T/away" "$th/state/backup"
+  t_run "$install"
+  # The dry run writes the copies the migration would: nothing is installed,
+  # so an update puts current back.
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "the backup goes in the state/ or state/backup/ of the store's home"
+  t_contains "$t_out" "tehas: this release cannot migrate $th/state/tehas.db; nothing was installed"
+  t_eq "$(sha256sum <"$th/state/tehas.db")" "$made"
+  t_eq "$(find "$T/away" -type f | wc -l)" 0
+  t_eq "$([ -e "$th/bin/tehas" ] || echo none)" "none"
+  rm -rf "$T/away"
+fi
+
 if real_store "a home reached through a link installs a second time"; then
   fresh
   instance

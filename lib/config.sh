@@ -48,12 +48,3 @@ tehas_load() {
 tehas_require_instance_settings() {
   (export "${!TEHAS_@}" "${!PI_ENSEMBLE_@}" "${!PI_RUKAS_@}"; "$(_tehas_settings_console)" settings require "$EUID" "$BASH" </dev/null) || exit 78
 }
-
-# tehas update from before v0.21.0 sources this file from the checkout it pulled
-# with no console here and one at home with no settings verb. Without tehas_load
-# it leaves the check to install.sh. Drop this when no host runs such an update.
-case ${BASH_EXECUTION_STRING:-} in
-  *'install.sh will check the settings itself'*)
-    [ -x "${BASH_SOURCE[0]%/*}/../libexec/console" ] || [ -n "${TEHAS_SETTINGS_CMD:-}" ] || unset -f tehas_load
-    ;;
-esac

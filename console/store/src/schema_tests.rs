@@ -549,7 +549,7 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         assert_eq!(kept, 0, "{}", backups.display());
         // The dry run, which install.sh asks before it copies anything,
         // refuses it the same way.
-        let (code, line) = execute(&home, &Verb::MigrateDry, NOW).unwrap_err();
+        let (code, line) = execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap_err();
         assert_eq!(code, 78, "{line}");
         assert!(line.contains("update to a v0.30 release first"), "{line}");
         // The verbs say the same.
@@ -574,7 +574,7 @@ fn the_dry_run_of_migrate_judges_a_release_store_and_writes_nothing() {
         }
         let file = db::path(&home);
         let before = fs::read(&file).unwrap();
-        let said = execute(&home, &Verb::MigrateDry, NOW).unwrap();
+        let said = execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap();
         let v: serde_json::Value = serde_json::from_str(&said).unwrap();
         assert_eq!(v["ok"], true, "{said}");
         assert_eq!(v["dry_run"], true, "{said}");
@@ -586,14 +586,92 @@ fn the_dry_run_of_migrate_judges_a_release_store_and_writes_nothing() {
 }
 
 #[test]
-fn the_dry_run_of_migrate_takes_no_other_word() {
+fn the_dry_run_of_migrate_takes_a_backup_directory_and_no_other_word() {
     let p = |a: &[&str]| crate::parse(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    assert_eq!(p(&["migrate", "--dry-run"]), Some(Verb::MigrateDry));
+    let dry = |backup: Option<&str>| {
+        Some(Verb::MigrateDry {
+            backup: backup.map(std::path::PathBuf::from),
+        })
+    };
+    assert_eq!(p(&["migrate", "--dry-run"]), dry(None));
+    assert_eq!(p(&["migrate", "--dry-run", "--json"]), dry(None));
     assert_eq!(
-        p(&["migrate", "--dry-run", "--json"]),
-        Some(Verb::MigrateDry)
+        p(&["migrate", "--dry-run", "--backup", "/x"]),
+        dry(Some("/x"))
     );
-    assert_eq!(p(&["migrate", "--dry-run", "--backup", "/x"]), None);
+    assert_eq!(
+        p(&["migrate", "--backup", "/x", "--dry-run"]),
+        dry(Some("/x"))
+    );
+    assert_eq!(p(&["migrate", "--dry-run", "--backup", "x"]), None);
+    assert_eq!(p(&["migrate", "--dry-run", "--backup"]), None);
+    assert_eq!(
+        p(&["migrate", "--dry-run", "--backup", "/x", "--backup", "/y"]),
+        None
+    );
+    assert_eq!(p(&["migrate", "--dry-run", "--dry-run"]), None);
+    assert_eq!(p(&["migrate", "--dry-run", "--outsource"]), None);
+}
+
+fn rehearse(home: &Path, backup: &Path) -> Result<String, (u8, String)> {
+    execute(
+        home,
+        &Verb::MigrateDry {
+            backup: Some(backup.to_path_buf()),
+        },
+        NOW,
+    )
+}
+
+// install.sh asks it before its first copy, so what stops the real migration
+// before its first step stops the install while nothing is installed.
+#[test]
+fn the_dry_run_with_a_backup_writes_the_copies_and_takes_them_away() {
+    for schema in [17, db::SCHEMA_VERSION] {
+        let home = release(&format!("rehearse-{schema}"), 17);
+        if schema == db::SCHEMA_VERSION {
+            migrate(&home).unwrap();
+            for copy in fs::read_dir(home.join("state/backup")).unwrap() {
+                fs::remove_file(copy.unwrap().path()).unwrap();
+            }
+        }
+        let file = db::path(&home);
+        let before = fs::read(&file).unwrap();
+        let backup = home.join("state").join("backup");
+        let said = rehearse(&home, &backup).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&said).unwrap();
+        assert_eq!(v["dry_run"], true, "{said}");
+        assert_eq!(v["from"], schema, "{said}");
+        assert_eq!(v["to"], db::SCHEMA_VERSION, "{said}");
+        let made = backup.canonicalize().unwrap();
+        assert_eq!(v["backup"], made.to_str().unwrap(), "{said}");
+        assert_eq!(fs::read_dir(&backup).unwrap().count(), 0);
+        assert_eq!(fs::read(&file).unwrap(), before);
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
+    }
+}
+
+#[test]
+fn the_dry_run_with_a_backup_refuses_a_directory_out_of_the_home() {
+    let home = release("rehearse-out", 17);
+    let elsewhere = home.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, home.join("state/backup")).unwrap();
+    let file = db::path(&home);
+    let before = fs::read(&file).unwrap();
+    // The plain dry run cannot see it, which is why install.sh asks with it.
+    execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap();
+    let (code, line) = rehearse(&home, &home.join("state/backup")).unwrap_err();
+    assert_eq!(code, 78, "{line}");
+    assert!(
+        line.contains("the backup goes in the state/ or state/backup/ of the store's home"),
+        "{line}"
+    );
+    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    assert_eq!(fs::read(&file).unwrap(), before);
+    // The real migration is refused the same way.
+    let (code, _) = migrate(&home).unwrap_err();
+    assert_eq!(code, 78);
 }
 
 #[test]

@@ -13,7 +13,7 @@
 
 use super::finish::INSTALL_LIMIT;
 use super::lock::Held;
-use super::{code, findings, gate, output, parse, prepare, release, tell, temp_dir, timed, wait};
+use super::{code, gate, output, parse, prepare, release, tell, temp_dir, timed, wait};
 use super::{host_or_refuse, Mode, Plan, Prepared, Undo, API, NO_LOCK};
 use crate::settings;
 use std::env;
@@ -79,17 +79,6 @@ fn copy(file: &Path, to: &mut dyn Write) {
     }
 }
 
-/// tehas_load and tehas_require. A load refused for a setting tehas 1.0
-/// renamed or removed names every such line, as install.sh's findings do.
-fn load_settings() -> Result<(), u8> {
-    let start = settings::this_environment();
-    let dir = settings::instance_dir(&start);
-    let config = format!("{}/.config/tehas", start.text("HOME"));
-    settings::loaded_saying(&INSTANCE_SETTINGS, |line| {
-        findings::refused(format!("tehas: {line}"), &dir, &config)
-    })
-}
-
 pub(super) fn main(given: &[String]) -> u8 {
     let Some((console, rest)) = given.split_first() else {
         tell("console update run: usage: run <console> <arguments>");
@@ -107,7 +96,7 @@ pub(super) fn main(given: &[String]) -> u8 {
             return 78;
         }
     };
-    if let Err(rc) = load_settings() {
+    if let Err(rc) = settings::loaded(&INSTANCE_SETTINGS) {
         return rc;
     }
     let lock = match gate(&asked) {

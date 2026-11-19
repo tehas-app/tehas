@@ -41,7 +41,7 @@ use crate::{clean, disk, github, plan, preview, product, protolab, review, setti
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -121,8 +121,8 @@ fn dispatch_soon(home: &Path) -> u8 {
     }
 }
 
-/// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
-/// would have ended with when it cannot.
+/// tehas-dispatch's own refresh verb takes over. When it cannot, 78, as for a
+/// missing tehas-cycle.
 fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8 {
     let program = dispatcher(libexec);
     let mut refresh = Command::new(&program);
@@ -131,12 +131,8 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
         refresh.env("TEHAS_REFRESH_LOG", log);
     }
     let failed = refresh.exec();
-    eprintln!("tehas refresh: {program}: {failed}");
-    if failed.kind() == ErrorKind::NotFound {
-        127
-    } else {
-        126
-    }
+    eprintln!("tehas refresh: {program} cannot run (run install.sh): {failed}");
+    78
 }
 
 /// The GitHub App's token goes in this environment for the pass and its children.

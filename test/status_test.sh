@@ -212,6 +212,32 @@ rm "$T/all-down"
 t_run "$status"
 t_eq "$(jq -r '[(.queued | length), has("buzzwords")] | join(" ")' "$live/status.json")" "2 false"
 
+t_case "every issue is read for the words at most once an hour, the words before kept between reads"
+reset
+echo '[{"title": "Dashboard dashboard", "labels": []}]' >"$T/all.json"
+t_run "$status"
+t_eq "$(jq -c '.buzzwords' "$live/status.json")" '[{"word":"dashboard","count":2}]'
+echo '[{"title": "Queue", "labels": []}]' >"$T/all.json"
+rm -f "$T"/calls/*
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -- '--limit 1000')" 0
+t_eq "$(jq -c '.buzzwords' "$live/status.json")" '[{"word":"dashboard","count":2}]'
+# An hour on, the list is read again.
+echo $(($(date +%s) - 3600)) >"$T/home/tehas/state/buzzwords.at"
+t_run "$status"
+t_eq "$(t_calls gh | grep -c -- '--limit 1000')" 1
+t_eq "$(jq -c '.buzzwords' "$live/status.json")" '[{"word":"queue","count":1}]'
+# A read that fails keeps the words before, and the next run asks again.
+echo $(($(date +%s) - 3600)) >"$T/home/tehas/state/buzzwords.at"
+: >"$T/all-down"
+t_run "$status"
+t_eq "$(jq -c '.buzzwords' "$live/status.json")" '[{"word":"queue","count":1}]'
+rm "$T/all-down"
+rm -f "$T"/calls/*
+t_run "$status"
+t_eq "$(t_calls gh | grep -c -- '--limit 1000')" 1
+
 t_case "completed is the closed issues a merged pull request closed, newest first"
 reset
 shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')" \
@@ -488,7 +514,8 @@ t_case "with GitHub down the lists are kept, and health names the failed calls"
 reset
 t_run "$status"
 lists_before=$(lists)
-rm "$live/health.json"
+# And when the word list was read, so this run asks for it too.
+rm "$live/health.json" "$T/home/tehas/state/buzzwords.at"
 : >"$T/gh-down"
 t_run "$status && $summary"
 t_eq "$t_rc" 0

@@ -211,7 +211,7 @@ impl Rule {
         }
     }
 
-    /// A value the rule refuses with empty trees, so api/settings-rules.json
+    /// A value the rule refuses, so api/settings-rules.json
     /// can print the reason. No wildcard arm, as in [`Rule::name`].
     pub fn refused_example(self) -> &'static str {
         match self {
@@ -456,14 +456,6 @@ pub fn words(name: &str) -> Option<&'static [&'static str]> {
     }
 }
 
-/// The trees a merged pull request writes: a gate may not sit under one.
-#[derive(Default)]
-pub struct Trees<'a> {
-    pub home: &'a str,
-    pub instance: &'a str,
-    pub work_repo: &'a str,
-}
-
 fn rule_of(name: &str) -> Option<Rule> {
     if name.starts_with("PI_ENSEMBLE_MODEL_") || name.starts_with("PI_ENSEMBLE_PROVIDER_") {
         return Some(Rule::OneWord);
@@ -479,14 +471,14 @@ fn rule_of(name: &str) -> Option<Rule> {
 }
 
 /// Why `value` is no value of `name`. A name with no rule takes anything.
-pub fn check(name: &str, value: &str, trees: &Trees) -> Result<(), String> {
+pub fn check(name: &str, value: &str) -> Result<(), String> {
     match rule_of(name) {
-        Some(rule) => verdict(rule, value, trees),
+        Some(rule) => verdict(rule, value),
         None => Ok(()),
     }
 }
 
-fn verdict(rule: Rule, v: &str, _trees: &Trees) -> Result<(), String> {
+fn verdict(rule: Rule, v: &str) -> Result<(), String> {
     let refuse = |ok: bool, why: &str| if ok { Ok(()) } else { Err(why.to_string()) };
     match rule {
         Rule::Repo => refuse(is_repo(v), "expected owner/name"),
@@ -908,7 +900,7 @@ mod tests {
     }
 
     fn why(name: &str, v: &str) -> Option<String> {
-        check(name, v, &Trees::default()).err()
+        check(name, v).err()
     }
     fn takes(name: &str, v: &str) {
         assert_eq!(why(name, v), None, "{name}={v}");
@@ -1600,13 +1592,13 @@ mod tests {
     fn every_rule_refuses_its_example() {
         for setting in TABLE.iter().chain(HOST) {
             let example = setting.rule.refused_example();
-            let why = verdict(setting.rule, example, &Trees::default());
+            let why = verdict(setting.rule, example);
             assert!(
                 why.as_ref().is_err_and(|w| !w.is_empty()),
                 "{} takes {example:?}",
                 setting.name
             );
-            assert_eq!(check(setting.name, example, &Trees::default()), why);
+            assert_eq!(check(setting.name, example), why);
         }
     }
 
@@ -1628,7 +1620,7 @@ mod tests {
         for setting in TABLE.iter().chain(HOST) {
             if let Some(default) = setting.default.filter(|d| !d.is_empty()) {
                 assert_eq!(
-                    check(setting.name, default, &Trees::default()),
+                    check(setting.name, default),
                     Ok(()),
                     "{}={default}",
                     setting.name

@@ -200,8 +200,11 @@ They are counted over the titles and labels of every issue of the repository,
 the newest thousand, not only the ones the factory was given: work going on
 beside the factory shows up there. The file holds the hundred most used words
 with their counts, and no title or issue number. On a published dashboard
-those words are public too. If GitHub does not answer that call, the snapshot
-is written without them and the game counts the tickets on the line. A round
+those words are public too. The list is read at most once an hour, the time
+of the last read kept in `state/buzzwords.at`; between reads the words of the
+file before are kept. If GitHub does not answer that call, the words before
+are kept and the next run asks again; with none before, the snapshot is
+written without them and the game counts the tickets on the line. A round
 shows at most twelve of the forty most used words, picked by chance, and writes
 them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
 taller than six, its cells solid from the top down with no holes in them, so it

@@ -356,6 +356,28 @@ t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
 t_eq "$(jq -r '.required | sort | @json' "$T_ROOT/api/disk-cycles.schema.json")" \
   '["api","cycles","filesystems","time"]'
 
+# `--cycles --full` prints the one `full` the plain answer prints: a place the
+# walk measured whole has no `cut`, and a container with no command has no
+# `command`. The copy in this schema is that of api/disk.schema.json.
+t_case "--cycles --full --json and its sample fit the schema, whose full is that of tehas disk"
+reset
+t_disk || t_skip "no console: $t_console_why"
+t_df
+mkdir -p "$th/logs" "$T/fx"
+dd if=/dev/zero of="$th/logs/big.log" bs=1k count=20 status=none
+printf 'ab12\ttehas-sandbox:1\t/bin/sh -c sleep\ncd34\tubuntu:24.04\n' >"$T/fx/containers"
+t_run "$disk --cycles --full --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '[.full.places[] | has("cut")] | any' <<<"$t_out")" false
+t_eq "$(jq -r '.full.containers[1] | has("command")' <<<"$t_out")" false
+jq . <<<"$t_out" >"$T/cycles-full.json"
+t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
+  -f "$T_ROOT/test/schema.jq" "$T/cycles-full.json")" ""
+t_eq "$(jq -r --slurpfile schema "$T_ROOT/api/disk-cycles.schema.json" \
+  -f "$T_ROOT/test/schema.jq" "$T_ROOT/api/disk-cycles.full.json")" ""
+t_eq "$(jq -cS '.properties.full' "$T_ROOT/api/disk-cycles.schema.json")" \
+  "$(jq -cS '.properties.full' "$T_ROOT/api/disk.schema.json")"
+
 # The two keys this schema shares with the plain disk answer, `filesystems` and
 # `full`, are restated here because api/ has no $ref: they are a copy, and a
 # copy is only honest while it still names what the command prints. The

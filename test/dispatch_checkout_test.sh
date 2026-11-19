@@ -157,6 +157,33 @@ echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","edi
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would run a cycle for #7"
 
+t_case "an outside edit after the label is not approved though an allowed account edited after it"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}' >"$fx/edit-7.json"
+echo '{"totalCount":2,"nodes":[{"editedAt":"2026-01-02T10:01:00Z","editor":{"login":"mallory"}},{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}' >"$fx/edits-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'mallory' after alice applied tehas:ready"
+t_contains "$(t_calls gh)" "userContentEdits(last: 100)"
+# A history longer than the poll read holds it too.
+echo '{"totalCount":101,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}' >"$fx/edits-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'unknown' after alice applied tehas:ready"
+# A history GitHub does not give ends the poll.
+rm "$fx/edits-7.json"
+: >"$fx/edits-fail"
+t_run "$dispatch --dry-run"
+rm "$fx/edits-fail"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable edit history of #7"
+
+t_case "an issue never edited asks for no edit history"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7"
+t_lacks "$(t_calls gh)" "userContentEdits(last: 100) { totalCount nodes { editedAt"
+
 t_case "an edit after the label by nobody known is not approved"
 reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"

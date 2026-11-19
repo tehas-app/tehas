@@ -912,8 +912,10 @@ fi
 # A poll that holds it now is waited for up to TEHAS_DISPATCH_LOCK_WAIT seconds
 # (900), then nothing is installed. home_refusal has proved the home by now, so
 # a home without the marker gets it here. Then, before the first copy, the store
-# this run installs judges the database there with a dry run that reads only: a
-# store it would not migrate stops the run with exit 78.
+# this run installs judges the database there with a dry run: it opens it to
+# write and writes the copies the migration in step 5 writes into state/backup,
+# then removes them. A store it would not migrate, a backup directory it
+# refuses or copies it cannot write stop the run with exit 78.
 dispatch_held=0
 dispatch_hold() {
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
@@ -932,7 +934,8 @@ dispatch_hold() {
   fi
   # The store says its refusal itself, exit 78; any other status is a store
   # that could not say.
-  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run >/dev/null && return 0
+  local copies=$TEHAS_HOME/state/backup
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run --backup "$copies" >/dev/null && return 0
   [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
   echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
   exit 78
@@ -1080,17 +1083,6 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
-# A cycle that started before this release renews its token through the old
-# libexec/github-token, so that file stays while one runs. This guard goes in
-# the next release, when no cycle of before this one can still be running.
-a_cycle_runs() { # true while a cycle holds its lock
-  local lock
-  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
-    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
-  done
-  return 1
-}
-
 # The files of an older layout, as the console lists them
 # (console/ops/src/update/retired.list). Found here, removed in step 5 once systemd
 # has the new units.
@@ -1098,10 +1090,6 @@ old=()
 while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
-  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
-    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
-    continue
-  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a

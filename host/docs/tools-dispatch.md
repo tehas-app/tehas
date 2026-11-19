@@ -41,7 +41,9 @@ stops a cycle nobody has heard from, and
 clears an issue marked `tehas:running` with no cycle behind it. The poll ends
 there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, free disk of at least
-`TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own,
+`TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own
+(read as the settings load reads it, from the `TEHAS_CYCLE_MIN_FREE_MB` it
+derives; a value that is no number stops the poll with 78),
 the free slots
 (`TEHAS_MAX_CYCLES` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
@@ -389,7 +391,13 @@ records nothing. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
-number is an open issue. A closed issue and a pull request are never taken,
+number is an open issue. Every edit of the body after the label is judged,
+not only the last: an outside account's edit holds the issue even when an
+allowed account saves the body after it. For an issue its labels would start
+that was edited, the poll reads the body's edit history, the last 100 edits;
+a longer history, or an edit that names no account, holds the issue too
+(`skip #N: its text was changed by 'unknown' ...`), and a history GitHub does
+not give ends the poll with exit 1. A closed issue and a pull request are never taken,
 whatever label they carry. The poll's lists are of open issues, so what this
 catches is a number that changed since the list was read. The poll asks GitHub
 what a number is once a poll, and only for an issue its labels would otherwise
@@ -431,7 +439,8 @@ starts. `needs-human-attention` is left for the cycle, which starts with
 says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
-A label change GitHub did not answer (a timeout or a 5xx) is read back once:
+A label change GitHub did not answer (a timeout, a 5xx or a connection that
+broke after it was made) is read back once:
 when the issue carries `tehas:running` and not the labels the change takes
 off, the change was made and the cycle starts.
 

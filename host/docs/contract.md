@@ -101,6 +101,17 @@ describe one driver's steps and the Protolab, and may change. The fields of
 `contractors` may change while outsource is still being built, and so may
 `api/status.outsourced.json`, the sample that shows them.
 
+`testFeatures` in `tehas status --json` stays, with `read`, `features` and
+`lab`, through 1.x. It has been on the surface since 1.0.0-beta.7. It reports
+a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a person
+can tell a lab host from a release host. A release prints it only while the
+variable is set. If 1.x replaces the lab mechanism, the field and its
+subfields keep their meaning.
+
+The keys of `rows` in `tehas state check --json` are the store's table names.
+They are internal: a later release may add, rename or drop a table, and with it
+a key. `rows` itself is public.
+
 ## The rules for 1.x
 
 Decided for 1.0 on 2026-11-18.
@@ -296,7 +307,7 @@ already and keep their meaning in 1.0.
 
 | Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
 | --- | --- | --- | --- | --- | --- |
-| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>` | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
+| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
 | spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
 | protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
 | prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
@@ -322,6 +333,12 @@ Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every comm
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
 - The state store has its tables for contractors and jobs, which are internal.
+  `tehas state check --json` counts them under `rows`, whose keys are the
+  store's table names and internal.
+- `analytics.db` has the column `contractor_id` of `runs`, the name of the
+  contractor that ran the cycle, NULL on every run while outsource is off. It
+  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
+  meaning.
 
 [Outsource](/outsource) says what the feature does once it ships.
 
@@ -526,9 +543,9 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | Shown, set or cleared |
-| 1 | The file could not be written or removed |
+| 1 | The state store refused the change or did not answer |
 | 64 | A bad argument; nothing is written |
-| 78 | The settings are missing or malformed; nothing is written |
+| 78 | The settings are missing or malformed, or the state store is not installed or cannot be used; nothing is written |
 
 ### tehas start
 
@@ -548,7 +565,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 1 | The read of GitHub failed, took more than 20 seconds or named no pull request; nothing is written |
 | 3 | It is not a pull request the factory refreshes, or it does not conflict; nothing is written |
 | 64 | No `--pr`, or N is not a whole number above 0 |
-| 78 | The settings are missing or malformed |
+| 78 | The settings are missing or malformed, or `tehas-dispatch` is not installed or cannot run |
 
 ### tehas drain
 

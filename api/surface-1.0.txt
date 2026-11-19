@@ -563,3 +563,5 @@ field status.previews[].number
 field status.previews[].state
 field status.previews[].url
 field host-bridge.menu[].open
+flag order clear --json
+flag order set --json

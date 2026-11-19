@@ -88,6 +88,49 @@ for row in "${needs[@]}"; do
   untouched
 done
 
+# The commands that write or call GitHub stop on any of the three settings of
+# the instance, missing or malformed, before the write or the call.
+writers=(
+  "$tehas start 5" "$tehas limit set --cycles 2" "$tehas limit clear" "$tehas order set --issues 5"
+  "$tehas order clear" "$tehas panel set chat --label Chat --url https://chat.example.org"
+  "$tehas host-message set up --level info --text hi" "$tehas freeze 5" "$tehas thaw 5"
+  "$tehas pause" "$tehas drain"
+)
+bad_settings=(
+  "TEHAS_REPO|TEHAS_REPO=bad" "TEHAS_REPO|TEHAS_REPO=" "TEHAS_CONTROL_ISSUE|TEHAS_CONTROL_ISSUE=x"
+  "TEHAS_ALLOWED_LABELERS|TEHAS_ALLOWED_LABELERS='alice  bob'" "TEHAS_ALLOWED_LABELERS|TEHAS_ALLOWED_LABELERS="
+)
+for command in "${writers[@]}"; do
+  for row in "${bad_settings[@]}"; do
+    t_case "${command#"$tree"/bin/} with ${row#*|} is 78, and calls and writes nothing"
+    reset
+    t_instance "${T_MINIMAL[@]}" "${row#*|}"
+    t_run "$command"
+    t_eq "$t_rc" 78
+    t_contains "$t_out" "${row%%|*} is not "
+    untouched
+  done
+done
+
+t_case "a refresh with no tehas-dispatch to run is 78 and says to install"
+for words in "--pr 50" "--pr 50 --json" ""; do
+  reset
+  T_ENV=(TEHAS_DISPATCH_CMD="$T/no-dispatch")
+  t_run "$tehas refresh $words"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "cannot run (run install.sh)"
+  untouched
+done
+
+t_case "an order with no state store is 78 and says to install, as history is"
+reset
+for words in "" "--json" "set --issues 5" "clear"; do
+  t_run "$tehas order $words"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "no state store"
+done
+untouched
+
 t_case "a refresh stops on the settings it needs"
 reset
 t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
@@ -236,12 +279,12 @@ t_eq "$(cat "$T/calls/umask")" "0022
 0022
 0077"
 
-t_case "a reader that left before the text is no fault"
+t_case "a reader that left before the text is 141, as for every command, and says nothing"
 reset
 t_run "(sleep 0.2; $tehas help dispatch; echo \$? >&2) | true"
-t_eq "$t_out" "0"
+t_eq "$t_out" "141"
 t_run "(sleep 0.2; $bot dispatch --help; echo \$? >&2) | true"
-t_eq "$t_out" "0"
+t_eq "$t_out" "141"
 
 t_case "no console is 78, names the command and the fix, and reads nothing"
 reset

@@ -85,7 +85,7 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--json] | check [--json] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts | contractor-auth | job-offered | job-stamp | job-token | job-by-token";
+const USAGE: &str = "usage: store init [--force] [--outsource] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json|--say] | migrate --backup <dir> [--outsource] [--json|--say] | migrate --dry-run [--backup <dir>] [--json] | check [--json] | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin | contractor-add | contractor-list | contractor-seen | contractor-rest | contractor-drain | contractor-revoke | invite-new | invite-list | invite-use | invite-expire | job-offer | job-check-in | job-finish | job-release | job-lose | job-stop | job-show | jobs-sweep | job-attempts | contractor-auth | job-offered | job-stamp | job-token | job-by-token";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -144,8 +144,13 @@ pub enum Verb {
         outsource: bool,
     },
     /// `migrate --dry-run`: whether this store would migrate the database,
-    /// read only. install.sh asks it before it copies anything.
-    MigrateDry,
+    /// read only. install.sh asks it before it copies anything. With
+    /// `--backup <dir>` it also opens the database to write, settles `<dir>`
+    /// and writes the copies `migrate` would write there, then removes them:
+    /// what stops the real migration before its first step stops this too.
+    MigrateDry {
+        backup: Option<PathBuf>,
+    },
     Check,
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
@@ -295,10 +300,30 @@ fn parse(args: &[String]) -> Option<Verb> {
                 gh: PathBuf::from(gh.unwrap_or_else(|| "gh".to_string())),
             }))
         }
-        [verb, rest @ ..] if verb == "migrate" && rest.iter().any(|a| a == "--dry-run") => rest
-            .iter()
-            .all(|a| a == "--dry-run" || a == "--json")
-            .then_some(Verb::MigrateDry),
+        [verb, rest @ ..] if verb == "migrate" && rest.iter().any(|a| a == "--dry-run") => {
+            let mut backup: Option<PathBuf> = None;
+            let mut dry = false;
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--json" => i += 1,
+                    "--dry-run" if !dry => {
+                        dry = true;
+                        i += 1;
+                    }
+                    "--backup" if backup.is_none() => {
+                        let dir = PathBuf::from(rest.get(i + 1)?);
+                        if !dir.is_absolute() {
+                            return None;
+                        }
+                        backup = Some(dir);
+                        i += 2;
+                    }
+                    _ => return None,
+                }
+            }
+            Some(Verb::MigrateDry { backup })
+        }
         [verb, rest @ ..] if verb == "migrate" => {
             let mut backup: Option<String> = None;
             let mut outsource = false;
@@ -558,7 +583,8 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
             settings,
             outsource,
         } => migrate(&file, backup, settings, *outsource, now),
-        Verb::MigrateDry => {
+        Verb::MigrateDry { backup: Some(dir) } => rehearse(&file, dir, now),
+        Verb::MigrateDry { backup: None } => {
             let conn = db::open_read_only(&file).map_err(line)?;
             let from: i64 = conn
                 .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -723,6 +749,68 @@ fn migrate(
     Ok(format!(
         "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"from\":{from},\"to\":{to},\"backup\":{}}}",
         verbs::j(name)
+    ))
+}
+
+/// `migrate --dry-run --backup <dir>`: the steps of `migrate` before its first
+/// change, on the real file and the real directory. The write open with its
+/// quick_check, the version, the backup directory and the copies, each refused
+/// as `migrate` refuses it. The copies are removed again, so the database and
+/// the directory are left as they were. install.sh runs it before it copies a
+/// file, so no room for the copies or a refused directory installs nothing.
+fn rehearse(file: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)> {
+    verbs::not_empty(file)?;
+    let conn = db::lock(file).map_err(line)?;
+    let settled = |e: db::DbError| {
+        let _ = db::settle(&conn);
+        line(e)
+    };
+    let from: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(db::classify)
+        .and_then(|from| db::migrable(file, from).map(|()| from))
+        .map_err(settled)?;
+    let copies = db::backup_dir(&home_of(file), dir).map_err(settled)?;
+    db::settle(&conn).map_err(line)?;
+    let target = db::SCHEMA_VERSION;
+    let mut made = Vec::new();
+    let mut tried = Ok(());
+    // Both names when they differ, as `migrate` writes them.
+    let versions: &[i64] = if from == target {
+        &[target]
+    } else {
+        &[target, from]
+    };
+    for &version in versions {
+        match db::backup(&conn, &copies, version, now) {
+            Ok(copy) => made.push(copy),
+            Err(e) => {
+                tried = Err(e);
+                break;
+            }
+        }
+    }
+    for copy in &made {
+        if let Err(e) = std::fs::remove_file(copy) {
+            return Err(line(db::DbError::Unreadable(format!(
+                "cannot remove the trial backup {}: {e}",
+                copy.display()
+            ))));
+        }
+    }
+    tried.map_err(line)?;
+    let dir = copies.to_str().ok_or_else(|| {
+        (
+            78,
+            format!(
+                "unreadable the backup directory: {} is not UTF-8",
+                copies.display()
+            ),
+        )
+    })?;
+    Ok(format!(
+        "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"dry_run\":true,\"from\":{from},\"to\":{target},\"backup\":{}}}",
+        verbs::j(dir)
     ))
 }
 

@@ -22,7 +22,6 @@
 use crate::{commands, energy, run};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -150,9 +149,9 @@ fn header(text: &str) -> String {
         .collect()
 }
 
-// A reader that took what it wanted and left is no fault.
+/// 141 when the reader has gone, as in every command.
 fn say(text: &str) {
-    let _ = io::stdout().write_all(text.as_bytes());
+    tehas_core::out!("{text}");
 }
 
 fn unknown(which: &str, command: &str, usage: &str) -> u8 {
@@ -758,7 +757,7 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 19] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 21] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
         ("api", None, &["api"]),
         ("disk", None, &["disk", "disk-cycles"]),
@@ -770,6 +769,8 @@ mod tests {
         ("host-message", Some("list"), &["host-messages"]),
         ("limit", None, &["limit"]),
         ("order", None, &["order"]),
+        ("order", Some("clear"), &["order"]),
+        ("order", Some("set"), &["order"]),
         ("panel", None, &["panel"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
