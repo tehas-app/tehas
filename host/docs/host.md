@@ -1660,8 +1660,13 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. Both
-first print which commit the current image is on. The
+image was built on, or when the instance's layer is not the one the image was
+built from, and `build.sh --check` only says whether either moved. Both
+first print which commit the current image is on, and the two sums when the
+layer differs. The layer of an instance's `sandbox.Dockerfile` carries the
+label `tehas.layer`: the SHA-256 of that file and of the files of the instance
+directory its `COPY` and `ADD` lines name. A file changed, added or taken away
+makes the sum differ, and so the next `--if-moved` builds. The
 factory's health reports the same comparison (`checks.rukas`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
