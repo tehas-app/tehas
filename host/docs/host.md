@@ -1641,7 +1641,11 @@ exits 1 and the uid tag stays where it was, as for a layer that does not
 build. After a started turn the smoke run adds a memory with vipune and
 searches it back, in a second container with no network, as the build's uid,
 on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
-on). Anything vipune writes to stderr there refuses the image the same way
+on). dockerd checks that CPU against the list it read when it started, so in
+a container whose cpuset has moved since (Incus with `limits.cpu`) it can
+refuse it; the check then runs once more on the highest CPU both the build
+and dockerd name, and when they share none it says to restart docker.
+Anything vipune writes to stderr there refuses the image the same way
 and is printed in the build's log: it is how a lost onnxruntime thread count
 shows, since only a cpuset refuses onnxruntime's pins (`taskset` does not). A
 build with an instance layer smoke-runs both images. The run and the
