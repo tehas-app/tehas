@@ -36,7 +36,9 @@
 # outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
 # (console/proxy, libexec/tehas-proxy) and the contractor program
 # (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. A real
+# unit, tehas-outsource-proxy.service; off, none of the three. The review
+# loop's units, tehas-review.service and .timer, are installed only while
+# review is on (TEHAS_REVIEW), which no release allows yet. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -672,8 +674,6 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
-  "systemd/tehas-review.service|$units/tehas-review.service|644"
-  "systemd/tehas-review.timer|$units/tehas-review.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   # 600 as Pi keeps its own files: Pi 1.5 lets the global mcp.json hold a
   # server's auth. A container runs as this account, so it still reads it.
@@ -706,7 +706,8 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 # What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program (console/ops/src/update/host.rs). Off,
+# its unit and the contractor program, review's units
+# (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
   { echo "tehas: the console at $loaded_console could not name what the features that are on install; nothing was installed" >&2; exit 1; }

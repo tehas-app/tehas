@@ -54,6 +54,13 @@ that load stops on such a row, it also lists every one of them, the rows of
 `instance.env` and of `~/.config/tehas/env` its own `api/renames-1.0.tsv`
 names, and exits 78 before install.sh runs.
 
+A feature still being built is refused the same way: its switch set to `on`,
+or a line that gives one of its own settings a value, stops every command
+with 78 and names the feature, and both checks list every such line at once.
+A host that turned the review loop on under an earlier release takes
+`TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` out before it updates
+([the review loop](/operating#the-review-loop)).
+
 ### From v0.30.x, v0.31.x or v0.32.x
 
 1.0 updates a host on any v0.30.x, v0.31.x or v0.32.x release, with

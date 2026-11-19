@@ -8,9 +8,10 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
-//!   review exits at once and calls nothing. TEHAS_REVIEW_REPO is never
-//!   TEHAS_REPO: a person triages findings before they are tickets.
+//! - TEHAS_REVIEW is the switch of review, a feature still being built: on
+//!   stops the load, and so does a TEHAS_REVIEW_REPO line (features.rs). Off,
+//!   tehasbot review exits at once and calls nothing. TEHAS_REVIEW_REPO is
+//!   never TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -1085,10 +1086,10 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource in the test variable, as a
-    /// test of a building feature starts a program.
+    /// A load whose environment names outsource and review in the test
+    /// variable, as a test of a building feature starts a program.
     fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
     }
@@ -1362,6 +1363,27 @@ mod tests {
         assert_eq!(load(&mut vars, &mut host, "1000"), Ok(()));
         assert_eq!(vars.text("TEHAS_LEAN"), "1");
         assert_eq!(vars.text("TEHAS_DRIVER"), "lean");
+    }
+
+    #[test]
+    fn the_review_switch_set_on_and_a_review_repo_stop_the_load() {
+        assert_eq!(
+            refused(&["TEHAS_REVIEW=on"]),
+            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_REVIEW=1", "TEHAS_REVIEW_REPO=acme/backlog"]),
+            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_REVIEW_REPO=acme/backlog"]),
+            format!("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&["TEHAS_REVIEW=off"]).text("TEHAS_REVIEW"), "0");
+        let (vars, got) = tested(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_REVIEW"), "1");
+        assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
     }
 
     #[test]
@@ -1845,11 +1867,12 @@ mod tests {
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_REPO=widget",
             "TEHAS_ALLOWED_LABELERS=alice ",
             "TEHAS_REVIEW_REPO=acme",
         ]);
+        assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(

@@ -467,6 +467,8 @@ t_contains "$t_out" "rc=0"
 t_lacks "$t_out" "no longer read"
 
 t_case "the review never files in the product repository, whatever its case"
+# review is still being built: a test turns it on to load its repository.
+T_ENV=(TEHAS_TEST_FEATURES=review)
 for v in TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
   printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -476,6 +478,12 @@ done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REVIEW_REPO]\""
 t_eq "$t_out" "[acme/backlog]"
+T_ENV=()
+
+t_case "a release refuses a review repository while review is being built"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out"
+t_contains "$t_out" "rc=78"
 
 t_case "the millwright may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -580,7 +588,13 @@ printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
 t_eq "$t_out" "[0]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+# review is still being built: a release refuses it on, a test may turn it on.
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out"
+t_contains "$t_out" "rc=78"
+T_ENV=(TEHAS_TEST_FEATURES=review)
 t_run "$load && echo \"[\$TEHAS_REVIEW]\""
+T_ENV=()
 t_eq "$t_out" "[1]"
 
 for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX_PER_PR=0" "TEHAS_REFRESH_MAX_PER_PR=-1" "TEHAS_REFRESH_MAX_PER_PR=many" \
@@ -1828,7 +1842,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e5d059262186bf16acc837cf118f32dd934251b4b07f2d52f26fa8a82c2cf77b"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "cabefd3c56c010839ca26a37bc9597d2f7277794b2875352e30f03f495ed81cb"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"

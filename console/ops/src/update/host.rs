@@ -14,8 +14,9 @@
 //! were), 64 usage.
 //!
 //! `units` prints, on one line, the units a first install enables: the dispatch
-//! timer and path, and each optional unit whose setting is on. It reads the
-//! settings from its environment. A first install runs before any shell has
+//! timer and path, and each optional unit whose setting is on. A service its
+//! timer starts is left to the timer. It reads the settings from its
+//! environment. A first install runs before any shell has
 //! read env.sh, which exports TEHAS_ENERGY from the host's private file, so
 //! without it in the environment the last `TEHAS_ENERGY=` line of `<env file>`
 //! counts. Exit 0, 64 usage.
@@ -205,7 +206,13 @@ fn first_units(get: impl Fn(&str) -> Option<String>, env_file: Option<&str>) -> 
     if energy.is_some_and(|e| switch(&e) == Some(true)) {
         units.push("tehas-energy.service");
     }
-    units.extend(features::installs_in(&|name| get(name).unwrap_or_default()).1);
+    let featured = features::installs_in(&|name| get(name).unwrap_or_default()).1;
+    units.extend(
+        featured
+            .iter()
+            .copied()
+            .filter(|u| !features::timed(u, &featured)),
+    );
     units
 }
 
@@ -449,6 +456,18 @@ mod tests {
             let units = first_units(|name| Some(get(name)), None);
             assert_eq!(units, ["tehas-dispatch.timer", "tehas-dispatch.path"]);
         }
+    }
+
+    #[test]
+    fn a_first_install_enables_the_review_timer_only_while_review_is_on_and_never_its_service() {
+        let base = "tehas-dispatch.timer tehas-dispatch.path";
+        assert_eq!(units(&[("TEHAS_REVIEW", "on")], None), base);
+        let tested = |v| [("TEHAS_REVIEW", v), ("TEHAS_TEST_FEATURES", "review")];
+        assert_eq!(units(&tested("off"), None), base);
+        assert_eq!(
+            units(&tested("on"), None),
+            format!("{base} tehas-review.timer")
+        );
     }
 
     #[test]

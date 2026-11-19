@@ -305,7 +305,8 @@
         "1",
         "0"
       ],
-      "reason": "expected on or off"
+      "reason": "expected on or off",
+      "building": true
     },
     {
       "name": "TEHAS_WORKSTREAMS",
@@ -810,7 +811,8 @@
       "rule": "repo",
       "when": "required",
       "default": "",
-      "reason": "expected owner/name"
+      "reason": "expected owner/name",
+      "building": true
     }
   ],
   "host": [

@@ -26,7 +26,9 @@
 //!    stops on a setting tehas 1.0 renamed or removed names one line; here
 //!    every such line of instance.env and ~/.config/tehas/env is listed, each
 //!    with its new key or why it went, so a 0.30 instance is put right in one
-//!    edit before anything is installed.
+//!    edit before anything is installed. So is every line that switches on,
+//!    or sets a setting of, a feature this release is still building, such
+//!    as TEHAS_REVIEW=on.
 //! 3. The instance's models.json is there and holds JSON. It lists every model
 //!    the agents use (`tehas_core::models::used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
@@ -119,10 +121,15 @@ pub(crate) fn findings(
 }
 
 /// A refused load's line, `tehas: ` and all, then every other row of
-/// api/renames-1.0.tsv still set in `<dir>/instance.env` and `<config>/env`:
-/// the load stops at the first such row.
+/// api/renames-1.0.tsv and every line of a feature still being built set in
+/// `<dir>/instance.env` and `<config>/env`: the load stops at the first.
 pub(crate) fn refused(line: String, dir: &str, config: &str) -> Vec<String> {
     let mut found = renamed_lines(dir, config);
+    for line in building_lines(dir, config) {
+        if !found.contains(&line) {
+            found.push(line);
+        }
+    }
     if !found.contains(&line) {
         found.insert(0, line);
     }
@@ -135,6 +142,16 @@ fn renamed_lines(dir: &str, config: &str) -> Vec<String> {
     [format!("{dir}/instance.env"), format!("{config}/env")]
         .iter()
         .flat_map(|file| renamed::found_in(&fs::read(file).unwrap_or_default(), file))
+        .map(|line| format!("tehas: {line}"))
+        .collect()
+}
+
+/// Every line of a building feature's the instance and the credential file
+/// set, as the load words each (tehas_core::features::found_in).
+fn building_lines(dir: &str, config: &str) -> Vec<String> {
+    [format!("{dir}/instance.env"), format!("{config}/env")]
+        .iter()
+        .flat_map(|file| tehas_core::features::found_in(&fs::read(file).unwrap_or_default(), file))
         .map(|line| format!("tehas: {line}"))
         .collect()
 }
@@ -441,6 +458,29 @@ mod tests {
         assert_eq!(said.len(), 2, "{said:?}");
         assert_eq!(said[0], "tehas: other");
         assert!(said[1].starts_with("tehas: TEHAS_BOT_LOGIN is no longer read: "));
+    }
+
+    #[test]
+    fn every_line_of_a_building_feature_is_listed_at_once() {
+        // A host that had the review loop on before it became building: the
+        // load names the switch, and the findings name its repository too.
+        let (d, vars) = instance(&[
+            (
+                "instance.env",
+                "TEHAS_REPO=acme/widget\nTEHAS_REVIEW=on\nTEHAS_REVIEW_REPO=acme/backlog\n",
+            ),
+            ("models.json", MODELS),
+        ]);
+        let file = format!("{}/instance.env", inst(&d));
+        let line = format!("tehas: TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {file})");
+        let said = findings(vars, &me(), |_| Err(line.clone()));
+        assert_eq!(
+            said,
+            [
+                line.clone(),
+                format!("tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {file})"),
+            ]
+        );
     }
 
     #[test]
