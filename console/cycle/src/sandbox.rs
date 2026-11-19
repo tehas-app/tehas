@@ -83,6 +83,7 @@ fn smoke_run(image: &str) -> Vec<String> {
  | sed '/\"kind\":\"step-started\"/q'";
     [
         "run",
+        sandbox::NEVER_PULL,
         "--rm",
         "--init",
         "--network",
@@ -117,6 +118,7 @@ fn vipune_run(image: &str, uid: &str, cpu: u32) -> Vec<String> {
     let cpu = cpu.to_string();
     [
         "run",
+        sandbox::NEVER_PULL,
         "--rm",
         "--init",
         "--network",
@@ -485,9 +487,10 @@ mod tests {
         let words = smoke_run("tehas/pi-rukas:260101-0000");
         let held: Vec<&str> = words.iter().map(String::as_str).collect();
         assert_eq!(
-            held[..12],
+            held[..13],
             [
                 "run",
+                "--pull=never",
                 "--rm",
                 "--init",
                 "--network",
@@ -501,9 +504,9 @@ mod tests {
                 "tehas/pi-rukas:260101-0000",
             ]
         );
-        assert_eq!(held[12], "-c");
-        assert_eq!(held.len(), 14);
-        let turn = held[13];
+        assert_eq!(held[13], "-c");
+        assert_eq!(held.len(), 15);
+        let turn = held[14];
         assert!(turn.contains("git init"), "{turn}");
         assert!(turn.contains("--allow-empty"), "{turn}");
         assert!(
@@ -525,9 +528,10 @@ mod tests {
         let words = vipune_run("tehas/pi-rukas:260101-0000", "1000", 7);
         let held: Vec<&str> = words.iter().map(String::as_str).collect();
         assert_eq!(
-            held[..19],
+            held[..20],
             [
                 "run",
+                "--pull=never",
                 "--rm",
                 "--init",
                 "--network",
@@ -548,8 +552,8 @@ mod tests {
                 "-c",
             ]
         );
-        assert_eq!(held.len(), 20);
-        let turn = held[19];
+        assert_eq!(held.len(), 21);
+        let turn = held[20];
         assert!(turn.contains("vipune add "), "{turn}");
         assert!(turn.contains("vipune search "), "{turn}");
         assert_eq!(

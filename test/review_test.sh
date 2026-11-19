@@ -64,6 +64,7 @@ sandbox_valued_options="--name --cap-drop --cap-add --security-opt --user -w -v 
 sandbox_unknown_options() { # <image> (reads the arguments on standard input)
   awk -v image="$1" -v valued=" $sandbox_valued_options " '
     NR == 1 { next } # "run"
+    NR == 2 && $0 == "--pull=never" { next } # the image is built on the host
     skip { skip = 0; next }
     $0 == image { exit }
     index(valued, " " $0 " ") { skip = 1; next }
@@ -978,7 +979,7 @@ t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
 t_lacks "$args" "--privileged"
 t_lacks "$args" "$checkout"
-caps_at=$(t_calls docker | grep -n -F -e "run --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
+caps_at=$(t_calls docker | grep -n -F -e "run --pull=never --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e " $runner lens-review " | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$caps_at" ] && [ -n "$run_at" ] && [ "$caps_at" -lt "$run_at" ] && echo before)" before
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-review' | cut -d: -f1 | head -n 1)

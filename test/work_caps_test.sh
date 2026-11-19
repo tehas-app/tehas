@@ -154,7 +154,7 @@ product_commit .pi/verify-cmd 'scripts/verify.sh'
 t_case "the image is asked what it supports, by the runner's path, before the workspace is made"
 caps_fresh
 t_run "$work 7"
-t_eq "$(cat "$T/calls/docker.caps")" "run --rm --init tehas/pi-rukas:uid$(id -u) $runner --capabilities"
+t_eq "$(cat "$T/calls/docker.caps")" "run --pull=never --rm --init tehas/pi-rukas:uid$(id -u) $runner --capabilities"
 caps_at=$(t_calls docker | grep -n -e '--capabilities' | cut -d: -f1 | head -n 1)
 push_at=$(t_calls docker | grep -n -e 'push --dry-run' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$caps_at" ] && [ -n "$push_at" ] && [ "$caps_at" -lt "$push_at" ] && echo before)" before
@@ -759,6 +759,7 @@ t_contains "$(cycle_args)" "pi-rukas-headless"
 # it, and no variable but HOME: no token reaches the product's install.
 t_eq "$(install_args | awk 'prev == "--memory" { print } { prev = $0 }')" "2048m"
 t_eq "$(install_args | security_line)" "$security_opts "
+t_eq "$(install_args | sed -n 2p)" "--pull=never"
 t_eq "$(install_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 t_eq "$(install_args | awk 'prev == "-w" { print } { prev = $0 }')" "$inside"
 t_eq "$(install_args | awk 'prev == "-e" { print } { prev = $0 }')" "HOME=/home/vscode"

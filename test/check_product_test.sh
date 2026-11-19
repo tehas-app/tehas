@@ -197,6 +197,7 @@ t_eq "$(cat "$T/calls/inspect")" "image
 inspect
 tehas/pi-rukas:uid$(id -u)"
 t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g" "$T/calls/argv")" "run
+--pull=never
 --rm
 --cgroup-parent
 tehas.slice

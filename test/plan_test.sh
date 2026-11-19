@@ -345,7 +345,7 @@ t_lacks "$args" "--privileged"
 t_lacks "$args" "test-token"
 t_lacks "$args" "$checkout"
 t_eq "$(grep -l -x -e plan "$T"/calls/docker.args.* | wc -l)" 1
-caps_at=$(t_calls docker | grep -n -F -e "run --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
+caps_at=$(t_calls docker | grep -n -F -e "run --pull=never --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e " $runner plan " | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$caps_at" ] && [ -n "$run_at" ] && [ "$caps_at" -lt "$run_at" ] && echo before)" before
 

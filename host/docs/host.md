@@ -1164,6 +1164,17 @@ root to its own user with `setpriv`, which needs `SETUID` and `SETGID`; started
 as that user it skips the drop. The image is built with the tehas user's uid
 (`tehas/pi-rukas:uid<uid>`), so the uid has a name and a home inside it.
 
+Every container tehas starts from the sandbox image or its base has
+`--pull=never`: a cycle and its capabilities check, push check and install, a
+planning turn, a review, a `tehas dev` session, the indexer, the memory's
+vipune, the product check, the build's smoke runs and the questions the
+dispatcher and `tehasbot status` ask the image. The image is built on the
+host, and its name is also a name on Docker Hub. When the local image is gone, for example after
+`docker system prune -a`, `docker run` ends 125 with `No such image` and the
+command stops, instead of pulling an image of that name from the registry and
+giving it the cycle's token and model keys. Build the image again with
+`tehas update` or `host/sandbox/build.sh`.
+
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cap-drop` | `ALL` | Takes away every capability Docker grants by default: `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`, `MKNOD`, `AUDIT_WRITE`, `NET_RAW` |

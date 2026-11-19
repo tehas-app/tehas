@@ -62,6 +62,11 @@ const CYCLE_LEAVES_OUT: [&str; 7] = [
 /// its own source (pi-rukas v0.12.80).
 pub const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 
+/// The pull policy of every container of the sandbox image, right after `run`.
+/// The image is built on the host, and its name is a Docker Hub name: an image
+/// that is gone is a fault of the host, not a cue to pull a stranger's.
+pub const NEVER_PULL: &str = "--pull=never";
+
 /// The handoff allowance of a cycle, in seconds: the one budget its handoff has,
 /// given to pi-rukas and kept clear of the stop by the deadline.
 pub const HANDOFF_SECONDS: u64 = 480;
@@ -512,7 +517,7 @@ pub fn push_check(
     host: &str,
     image: &str,
 ) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm"]);
+    let mut w = words(&["docker", "run", NEVER_PULL, "--rm"]);
     w.extend_from_slice(security);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(env);
@@ -539,7 +544,7 @@ pub fn install_run(
     image: &str,
     script: &str,
 ) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm"]);
+    let mut w = words(&["docker", "run", NEVER_PULL, "--rm"]);
     w.extend_from_slice(held);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(network);
@@ -573,7 +578,9 @@ pub struct CycleRun<'a> {
 /// its own children, and a process that outlives its parent would count against
 /// the pids limit until the container ends.
 pub fn cycle_run(c: &CycleRun) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm", "--init", "--name", c.name]);
+    let mut w = words(&[
+        "docker", "run", NEVER_PULL, "--rm", "--init", "--name", c.name,
+    ]);
     w.extend_from_slice(c.limits);
     w.extend_from_slice(c.security);
     w.extend(words(&[
@@ -598,6 +605,7 @@ pub fn capabilities(image: &str) -> Vec<String> {
     words(&[
         "docker",
         "run",
+        NEVER_PULL,
         "--rm",
         "--init",
         image,
