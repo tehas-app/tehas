@@ -998,10 +998,10 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n '/the slowest files/{n;p}' | sed 's/.* s
 t_case "TEHAS_TEST_SLOWEST says how many of the slowest files the run names"
 fresh
 # A ladder of sleeps, so no two files tie: a run of four names the three
-# slowest, slowest first, and leaves the fastest out. A tenth of a second is
-# enough to separate two files at the runner's tenth-of-a-second resolution.
+# slowest, slowest first, and leaves the fastest out. The steps are 0.4 s
+# apart, so a loaded machine's start-up jitter does not reorder them.
 for n in 1 2 3 4; do
-  printf '#!/usr/bin/env bash\nsleep 0.%d\necho "t%s_test.sh: 1 cases, 0 failed"\n' "${n}9" "$n" >"$repo/test/t${n}_test.sh"
+  printf '#!/usr/bin/env bash\nsleep %s\necho "t%s_test.sh: 1 cases, 0 failed"\n' "$(((n * 4 - 2) / 10)).$(((n * 4 - 2) % 10))" "$n" >"$repo/test/t${n}_test.sh"
   chmod +x "$repo/test/t${n}_test.sh"
 done
 run_env TEHAS_TEST_SLOWEST=3
