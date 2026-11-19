@@ -11,23 +11,26 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 /// The labels whose application the dispatcher takes as a person's word to
-/// start or plan work.
-pub const GRANTING: [&str; 6] = [
+/// start or plan work. A lone `tehas:blocked` starts an issue once its
+/// blockers close, so it is one of them.
+pub const GRANTING: [&str; 7] = [
     "tehas:ready",
     "tehas:plan",
     "tehas:refine",
     "tehas:finish",
+    "tehas:blocked",
     "tehas:lean",
     "tehas:classic",
 ];
 
 /// The labels `tehas labels` pins: the granting ones, and the label that
 /// puts a ticket in the Protolab.
-pub const PINNED: [&str; 7] = [
+pub const PINNED: [&str; 8] = [
     "tehas:ready",
     "tehas:plan",
     "tehas:refine",
     "tehas:finish",
+    "tehas:blocked",
     "tehas:lean",
     "tehas:classic",
     "tehas:prototype",

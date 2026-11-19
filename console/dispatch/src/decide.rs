@@ -12,7 +12,8 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
     edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, standing_actor, Event, Events, LabelState, UNKNOWN_ACTOR,
+    plan_credit, sole_application, standing_actor, Event, Events, LabelState, NOBODY,
+    UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -1570,10 +1571,15 @@ impl<'a> Poll<'a> {
     }
 
     /// Whether an order label's last event, as `order_label` reads it, lets
-    /// the label stand: an application by an allowed account or the millwright.
+    /// the label stand: an application by an allowed account or the millwright,
+    /// or one of nobody. The pins leave a refused application with nobody's
+    /// account (`crate::pins`): it starts nothing, but a hold that may not be
+    /// a person's still holds, so a refused pin never lets an issue start
+    /// sooner.
     fn order_stands(&self, state: &LabelState) -> bool {
+        let by = state.actor();
         state.event() == "labeled"
-            && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
+            && (by == NOBODY || self.c.allowed(by) || self.c.is_millwright(by))
     }
 
     /// driver: the driver of a start, read of who applied a driver label

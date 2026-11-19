@@ -245,7 +245,7 @@ granting label, as the next section says.
 
 The dispatcher keeps the GitHub node id of each label whose application
 grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-`tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
+`tehas:blocked`, `tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
 one `<name><tab><id>` line each. The first page of each poll reads the
 repository's `tehas:` labels with their ids, and the label events read from
 GraphQL carry the id of their label:
@@ -282,6 +282,10 @@ GraphQL carry the id of their label:
   pinned label when the labels could not be read, grants nothing that poll:
   label events read from REST carry no label id, so they could not be told
   from another label renamed to the name.
+- A refused `tehas:blocked` starts nothing, but it still holds: an issue
+  that carries it waits as it would for an allowed account's, on the marked
+  comment or on the label alone. A refused pin never lets an issue start
+  sooner.
 
 `tehas labels` pins `tehas:prototype` the same way, and the
 [Protolab](/tools-protolab#tehasbot-protolab) publishes no ticket while the
