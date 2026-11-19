@@ -619,11 +619,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 
 /// The open issues a rule may start or finish on an approval, and so whose
 /// body edits after it are judged whole: the candidates and their epics, the
-/// plans, the refines, the finishes and the parks owed a cycle. Only one that
-/// was ever edited, as one with no edit has no history to read.
+/// plans, the refines, the questions a ticked Retry starts, the finishes and
+/// the parks owed a cycle. Only one that was ever edited, as one with no edit
+/// has no history to read.
 fn edit_wanted(s: &Value, q: &github::Queue, candidates: &[u64]) -> Vec<u64> {
     let mut want: BTreeSet<u64> = candidates.iter().copied().collect();
-    for key in ["plans", "refines"] {
+    for key in ["plans", "refines", "asking"] {
         want.extend(numbers(&s[key]));
     }
     for key in ["owed", "refines_owed"] {
@@ -971,7 +972,8 @@ mod tests {
         assert_eq!(joined_lists(vec![json!([a]), failed.clone()]), failed);
     }
 
-    /// The edit history is read only of an edited issue a rule may start.
+    /// The edit history is read only of an edited issue a rule may start,
+    /// a question whose Retry box may be ticked among them.
     #[test]
     fn the_edit_history_is_asked_of_the_edited_issues_that_may_start() {
         let open = |n: u64, label: &str, edited: bool, parent: Option<u64>| github::Open {
@@ -992,6 +994,7 @@ mod tests {
                 open(8, "needs-human-attention", true, None),
                 open(9, "epic", true, None),
                 open(10, "tehas:awaiting-merge", true, None),
+                open(11, "tehas:question", true, None),
             ],
             closed_running: Vec::new(),
             open_pulls: None,
@@ -999,8 +1002,8 @@ mod tests {
             labels: None,
         };
         let s = json!({"plans": [{"number": 6}], "refines": [],
-            "owed": [{"issue": 8}], "refines_owed": []});
-        assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9]);
+            "owed": [{"issue": 8}], "refines_owed": [], "asking": [{"number": 11}]});
+        assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9, 11]);
     }
     use crate::snapshot::Snapshot;
 
