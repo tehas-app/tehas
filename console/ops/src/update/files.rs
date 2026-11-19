@@ -12,7 +12,9 @@
 //! finds the old file or the new one, never a part of one. The old one is kept as
 //! `<path>.prev`. Each `--sync <name>` then copies every file of the directory
 //! `<name>` stands in for into `$TEHAS_HOME/<name>` as 644 and removes what is
-//! there that the directory no longer has. The directory is `<host>/<name>`, or
+//! there that the directory no longer has, its subdirectories in the same way
+//! (the kit in `fun/kit/`), and a subdirectory it no longer has removed whole.
+//! The directory is `<host>/<name>`, or
 //! `<dir>/<name>` with `--from <dir>`, which is how install.sh installs the
 //! dashboard's pages from the stage `console update assets` made (see
 //! src/update/assets.rs): the sweep then takes back a hashed name of older
@@ -238,6 +240,10 @@ impl Copier {
         let sources = names(&from_dir)
             .map_err(|_| format!("{} is missing from this checkout", from_dir.display()))?;
         for file in &sources {
+            if from_dir.join(file).is_dir() {
+                self.sync(&format!("{name}/{file}"))?;
+                continue;
+            }
             self.put_from(
                 &Entry {
                     src: format!("{name}/{file}"),
@@ -254,6 +260,18 @@ impl Copier {
         for file in names(&to_dir).unwrap_or_default() {
             let to = to_dir.join(&file);
             if !to.exists() {
+                continue;
+            }
+            let is_dir = fs::symlink_metadata(&to).is_ok_and(|m| m.is_dir());
+            if is_dir && !from_dir.join(&file).exists() {
+                self.changed(&format!("{name}/{file}"));
+                if self.check {
+                    self.say(format!("stale: {}", to.display()));
+                } else if fs::remove_dir_all(&to).is_ok() {
+                    self.say(format!("removed: {}", to.display()));
+                } else {
+                    fault(&format!("could not remove {}", to.display()));
+                }
                 continue;
             }
             // A file an earlier run left beside the pages and did not rename
@@ -612,6 +630,51 @@ mod tests {
         assert_eq!(fs::read_to_string(&to).unwrap(), "hi\n");
         assert_eq!(mode_of(&to), 0o644);
         assert_eq!(c.lines[0], "changed fun/index.html");
+    }
+
+    #[test]
+    fn a_sync_copies_subdirectories_and_sweeps_them_too() {
+        let d = dir("files-subdirs");
+        d.file("root/host/fun/index.html", "hi\n");
+        d.file("root/host/fun/kit/island.js", "// island\n");
+        d.file("root/host/fun/kit/vendor/solid.js", "// solid\n");
+        let syncs = ["fun".to_string()];
+        let mut c = copier(&d, false);
+        c.run("", &syncs).unwrap();
+        let home = d.0.join("home/fun");
+        assert_eq!(
+            fs::read_to_string(home.join("kit/vendor/solid.js")).unwrap(),
+            "// solid\n"
+        );
+        assert_eq!(mode_of(&home.join("kit/island.js")), 0o644);
+        assert!(c
+            .lines
+            .contains(&"changed fun/kit/vendor/solid.js".to_string()));
+
+        // A second run changes nothing.
+        let mut c = copier(&d, true);
+        c.run("", &syncs).unwrap();
+        assert_eq!(c.lines, Vec::<String>::new());
+
+        // A file and a directory the checkout no longer has are stale.
+        d.file("home/fun/kit/gone.js", "x\n");
+        d.file("home/fun/old/a.js", "x\n");
+        let mut c = copier(&d, true);
+        c.run("", &syncs).unwrap();
+        assert_eq!(
+            c.lines,
+            vec![
+                "changed fun/kit/gone.js".to_string(),
+                format!("stale: {}", home.join("kit/gone.js").display()),
+                "changed fun/old".to_string(),
+                format!("stale: {}", home.join("old").display()),
+            ]
+        );
+        let mut c = copier(&d, false);
+        c.run("", &syncs).unwrap();
+        assert!(!home.join("kit/gone.js").exists());
+        assert!(!home.join("old").exists());
+        assert!(home.join("kit/vendor/solid.js").is_file());
     }
 
     #[test]
