@@ -800,7 +800,7 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
             "work-5-261013-000000.jsonl"
         ]
     );
-    // None of the four long-lived logs was over the cap, so none was cut, and
+    // None of the long-lived logs was over the cap, so none was cut, and
     // the names that only look like them are still there in their own bytes.
     assert_eq!(v["rolled"], serde_json::json!([]));
     assert_eq!(fs::read_to_string(logs.join("dispatch.log")).unwrap(), "x");
@@ -845,7 +845,7 @@ fn log_text(name: &str, lines: usize) -> String {
     format!("{name}\n").repeat(lines)
 }
 
-/// The four logs the units and the shim append to, each of `lines` lines, from
+/// The logs the units and the shim append to, each of `lines` lines, from
 /// a state an earlier test may have left behind.
 fn long_lived(home: &TestDir, lines: usize) {
     for name in LONG_LIVED {
@@ -860,6 +860,15 @@ fn long_lived(home: &TestDir, lines: usize) {
 /// The bytes of one log of `lines` lines.
 fn log_len(name: &str, lines: usize) -> u64 {
     log_text(name, lines).len() as u64
+}
+
+// The logs of the timers that run every few minutes or every hour are cut too,
+// or they grow for as long as the host runs.
+#[test]
+fn the_logs_of_the_previews_the_protolab_and_the_cleaner_are_long_lived() {
+    for name in ["logs/preview.log", "logs/protolab.log", "logs/clean.log"] {
+        assert!(LONG_LIVED.contains(&name), "{name}");
+    }
 }
 
 #[test]
@@ -882,7 +891,7 @@ fn upkeep_rolls_each_long_lived_log_over_the_cap_and_a_dry_run_cuts_nothing() {
         assert!(!home.join(format!("{name}.1")).exists(), "{name}");
     }
     let v = upkeep(&home, cap, &[]);
-    // The four, in the order the verb names them, and nothing else.
+    // Each, in the order the verb names them, and nothing else.
     assert_eq!(v["rolled"], serde_json::json!(LONG_LIVED));
     for name in LONG_LIVED {
         let path = home.join(name);

@@ -521,7 +521,7 @@ the logs rotate. A line not yet ended by a newline waits for the next poll. A
 line the copy cut is joined with its rest, the start of the new log.
 
 Rotate these logs by copy and truncate, such as logrotate's `copytruncate`:
-`store upkeep` does this for the four long-lived logs past 64 MiB. A
+`store upkeep` does this for its long-lived logs past 64 MiB. A
 cycle's unit and the dispatcher's keep `dispatch.log` open while they run, a
 cycle for hours, and go on writing to the renamed file after a rename. The tool
 reads the `.1` copy only until it reads on in the new log, so lines written to
