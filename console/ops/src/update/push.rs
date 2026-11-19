@@ -45,11 +45,16 @@ pub(crate) enum Proof {
     NoToken(Vec<String>),
     /// The account, and what git said when the dry-run push was refused.
     Refused(String, Vec<String>),
+    /// The account, on a read-only instance: its cycle token may not push, so
+    /// no push is asked of it.
+    ReadOnly(String),
 }
 
 impl Proof {
-    pub fn pushes(&self) -> bool {
-        matches!(self, Proof::Pushes(_))
+    /// Whether a factory may start work on it: the token pushes, or the
+    /// instance is read-only and its token is not meant to.
+    pub fn starts(&self) -> bool {
+        matches!(self, Proof::Pushes(_) | Proof::ReadOnly(_))
     }
 }
 
@@ -119,6 +124,13 @@ fn push(tree: &Path, token: &str) -> Command {
 
 /// Make the cycle token and push with it once.
 pub(crate) fn prove(home: &Path, tree: &Path, sh: &mut impl Shell) -> Proof {
+    prove_of(home, tree, sh, tehas_core::read_only::on())
+}
+
+/// [`prove`] with the read-only setting given, not read, so a test asks for
+/// each without changing the process's environment. A read-only instance's
+/// token is still made, and then not pushed with.
+fn prove_of(home: &Path, tree: &Path, sh: &mut impl Shell, read_only: bool) -> Proof {
     let bot = tehasbot(home);
     let (rc, login, _) = sh.run(timed(TOKEN_LIMIT, &bot).args(["github-token", "--login"]));
     let login = login.trim();
@@ -132,6 +144,9 @@ pub(crate) fn prove(home: &Path, tree: &Path, sh: &mut impl Shell) -> Proof {
     if rc != 0 || token.is_empty() {
         let what = format!("tehasbot github-token --cycle (exit {rc})");
         return Proof::NoToken(last(&said, &what));
+    }
+    if read_only {
+        return Proof::ReadOnly(account);
     }
     let (rc, out, err) = sh.run(&mut push(tree, token));
     if rc == 0 {
@@ -164,6 +179,11 @@ pub(crate) fn lines(proof: &Proof, repo: &str) -> Vec<String> {
     let mut lines = match proof {
         Proof::Pushes(account) => {
             return vec![format!("Cycle token:  OK ({account} can push to origin)")]
+        }
+        Proof::ReadOnly(account) => {
+            return vec![format!(
+                "Cycle token:  OK (read-only: {account} may not push, so no push was asked)"
+            )]
         }
         Proof::NoToken(said) => {
             let mut l = vec!["Cycle token:  CANNOT PUSH (the app made no cycle token)".to_string()];
@@ -231,6 +251,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_read_only_instance_makes_its_token_and_asks_no_push() {
+        let mut sh = Fake::answering(&[(0, "acme-factory[bot]\n", ""), (0, "ghs_cycle\n", "")]);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, true);
+        assert_eq!(got, Proof::ReadOnly("acme-factory[bot]".into()));
+        assert!(got.starts());
+        assert_eq!(sh.asked.len(), 2, "{:?}", sh.asked);
+        assert!(sh
+            .asked
+            .iter()
+            .all(|(words, _)| !words.contains(&"push".to_string())));
+        assert_eq!(
+            lines(&got, "acme/widget"),
+            ["Cycle token:  OK (read-only: acme-factory[bot] may not push, so no push was asked)"]
+        );
+    }
+
+    #[test]
+    fn a_read_only_instance_with_no_token_is_still_a_fault() {
+        let mut sh = Fake::answering(&[(0, "acme-factory[bot]\n", ""), (1, "", "tehas: no key\n")]);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, true);
+        assert!(matches!(got, Proof::NoToken(_)), "{got:?}");
+        assert!(!got.starts());
+    }
+
     const PUSH_403: &str = "remote: Write access to repository not granted.\nfatal: unable to access 'https://github.com/acme/widget.git/': The requested URL returned error: 403";
 
     #[test]
@@ -244,9 +289,14 @@ mod tests {
                 "To https://github.com/acme/widget.git\n * [new branch] HEAD -> tehas-preflight",
             ),
         ]);
-        let got = prove(Path::new("/h"), Path::new("/h/repos/widget"), &mut sh);
+        let got = prove_of(
+            Path::new("/h"),
+            Path::new("/h/repos/widget"),
+            &mut sh,
+            false,
+        );
         assert_eq!(got, Proof::Pushes("acme-factory[bot]".into()));
-        assert!(got.pushes());
+        assert!(got.starts());
         let calls: Vec<&[String]> = sh.asked.iter().map(|(w, _)| &w[4..]).collect();
         assert_eq!(calls[0], ["/h/bin/tehasbot", "github-token", "--login"]);
         assert_eq!(calls[1], ["/h/bin/tehasbot", "github-token", "--cycle"]);
@@ -300,14 +350,14 @@ mod tests {
             (0, "ghs_cycle", ""),
             (128, "", PUSH_403),
         ]);
-        let got = prove(Path::new("/h"), Path::new("/t"), &mut sh);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, false);
         let Proof::Refused(account, said) = &got else {
             panic!("{got:?}");
         };
         assert_eq!(account, "acme-factory[bot]");
         assert_eq!(said[0], "remote: Write access to repository not granted.");
         assert!(said[1].ends_with("returned error: 403"));
-        assert!(!got.pushes());
+        assert!(!got.starts());
         let lines = lines(&got, "acme/widget");
         assert_eq!(
             lines[0],
@@ -334,7 +384,8 @@ mod tests {
                 "fatal: https://x-access-token:ghs_abcdefghijklmnopqrstuvwxyz0123456789@github.com/a/b denied",
             ),
         ]);
-        let Proof::Refused(_, said) = prove(Path::new("/h"), Path::new("/t"), &mut sh) else {
+        let Proof::Refused(_, said) = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, false)
+        else {
             panic!("not refused");
         };
         assert!(
@@ -353,7 +404,7 @@ mod tests {
                 "tehas: GitHub's answer for the app's token held no token and expiry\n",
             ),
         ]);
-        let got = prove(Path::new("/h"), Path::new("/t"), &mut sh);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, false);
         assert_eq!(
             got,
             Proof::NoToken(vec![
@@ -370,7 +421,7 @@ mod tests {
         );
         // A token program that exits 0 with nothing is no token either.
         let mut sh = Fake::answering(&[(1, "", ""), (0, "\n", "")]);
-        let got = prove(Path::new("/h"), Path::new("/t"), &mut sh);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, false);
         assert_eq!(
             got,
             Proof::NoToken(vec![
@@ -382,7 +433,7 @@ mod tests {
     #[test]
     fn a_push_that_never_answers_is_refused_with_the_wait_and_an_unread_login_is_said() {
         let mut sh = Fake::answering(&[(1, "", ""), (0, "ghs_cycle", ""), (124, "", "")]);
-        let got = prove(Path::new("/h"), Path::new("/t"), &mut sh);
+        let got = prove_of(Path::new("/h"), Path::new("/t"), &mut sh, false);
         assert_eq!(
             got,
             Proof::Refused(

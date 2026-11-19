@@ -129,7 +129,8 @@ missing, malformed or name no app.
 
 `--cycle` makes the cycle's token instead (#1814): GitHub is asked for a token
 of the same installation for the repository of `TEHAS_REPO` alone, with
-Contents and Pull requests write, Issues read and nothing else. It is kept
+Contents and Pull requests write, Issues read and nothing else; on a
+[read-only](/operating#read-only) instance all three are read. It is kept
 apart, in `~/tehas/state/github-cycle`, and made again the same way. A planning
 turn and a manual session get a token of the same body, made when the command
 starts and kept in `~/tehas/state/github-session` (`--session`). The command
