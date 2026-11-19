@@ -191,6 +191,24 @@ echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","edi
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
 
+# The list may name a GitHub account called unknown: a change by no account is
+# still nobody's.
+t_case "with the account unknown on the list, a change by no account is not approved"
+for change in edit rename; do
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'TEHAS_ALLOWED_LABELERS="alice unknown"'
+  if [ "$change" = edit ]; then
+    echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+    echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":null}}}}' >"$fx/edit-7.json"
+  else
+    echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+           {"event":"renamed","actor":null,"created_at":"2026-01-02T10:01:00Z"}]' >"$fx/events-7.json"
+  fi
+  t_run "$dispatch --dry-run"
+  t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
+  t_lacks "$t_out" "would run a cycle"
+done
+
 t_case "a title changed after the label by another account is not approved"
 reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},

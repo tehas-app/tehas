@@ -3492,6 +3492,154 @@
      }
     }
    }
+  },
+  {
+   "case": "with the millwright app called unknown, a tehas:ready by no account is nobody's: it is taken off and starts nothing",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "unknown[bot]"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:millwright-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": ""
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready was applied by 'unknown', not an allowed account",
+     "clear #7: tehas:ready off, applied by 'unknown' who may not authorise work here"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the millwright app called unknown starts with its own tehas:ready",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "unknown[bot]"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:millwright-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "unknown[bot]"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "unknown[bot]",
+      "given": "millwright",
+      "fixer_starts": 1,
+      "rests_on": {
+       "by": "alice",
+       "at": "2026-10-01T00:00:00Z",
+       "how": "label"
+      }
+     }
+    ]
+   }
   }
  ]
 }

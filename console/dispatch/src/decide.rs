@@ -1919,9 +1919,9 @@ impl<'a> Poll<'a> {
     }
 
     /// approval: who applied the label, and whether it approves the issue.
-    /// Returns the account and time, or the account refused for not being
-    /// allowed (empty for every other refusal).
-    fn approval(&mut self, n: u64, label: &str) -> Step<Result<(String, String), String>> {
+    /// Returns the account and time, or the login refused for not being
+    /// allowed (empty for no account; `None` for every other refusal).
+    fn approval(&mut self, n: u64, label: &str) -> Step<Result<(String, String), Option<String>>> {
         let ev = self.events(n)?;
         let (who, at) = label_actor(&ev, label);
         if !self.c.allowed(&who) {
@@ -1930,7 +1930,7 @@ impl<'a> Poll<'a> {
             if !granted || !self.c.is_millwright(&who) {
                 self.deny("skip", n, label, &who);
             }
-            return Ok(Err(or_unknown(&who).to_string()));
+            return Ok(Err(Some(who)));
         }
         if self.unchanged_since(
             n,
@@ -1941,7 +1941,7 @@ impl<'a> Poll<'a> {
         )? {
             Ok(Ok((who, at)))
         } else {
-            Ok(Err(String::new()))
+            Ok(Err(None))
         }
     }
 
@@ -3081,35 +3081,36 @@ impl<'a> Poll<'a> {
                     }
                     Planned::No => match self.approval(n, ask)? {
                         Ok(a) => a,
-                        Err(refused) => {
+                        Err(Some(refused))
                             if ask == "tehas:ready"
                                 && !refused.is_empty()
-                                && self.c.is_millwright(&refused)
-                            {
-                                let ev = self.events(n)?;
-                                let (_, at) = label_actor(&ev, "tehas:ready");
-                                match self.epic_ready(n, &refused, &at)? {
-                                    Some(Some(g)) => {
-                                        let by = g.by.clone();
-                                        epic = Some(g);
-                                        (by, at)
-                                    }
-                                    Some(None) => continue,
-                                    None => {
-                                        match self.fixer_ok(n, &refused, &at, &labels)? {
-                                            Some(grant) => fixer = Some(grant),
-                                            None => continue,
-                                        }
-                                        (refused, at)
-                                    }
+                                && self.c.is_millwright(&refused) =>
+                        {
+                            let ev = self.events(n)?;
+                            let (_, at) = label_actor(&ev, "tehas:ready");
+                            match self.epic_ready(n, &refused, &at)? {
+                                Some(Some(g)) => {
+                                    let by = g.by.clone();
+                                    epic = Some(g);
+                                    (by, at)
                                 }
-                            } else {
-                                if ask == "tehas:ready" && !refused.is_empty() {
-                                    self.clear_unauthorised(n, "tehas:ready", &refused);
+                                Some(None) => continue,
+                                None => {
+                                    match self.fixer_ok(n, &refused, &at, &labels)? {
+                                        Some(grant) => fixer = Some(grant),
+                                        None => continue,
+                                    }
+                                    (refused, at)
                                 }
-                                continue;
                             }
                         }
+                        Err(Some(refused)) => {
+                            if ask == "tehas:ready" {
+                                self.clear_unauthorised(n, "tehas:ready", or_unknown(&refused));
+                            }
+                            continue;
+                        }
+                        Err(None) => continue,
                     },
                 }
             };

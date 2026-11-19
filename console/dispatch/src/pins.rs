@@ -24,8 +24,9 @@
 //!   when that id is the pinned one. An application of a granting label with
 //!   no pin counts for nothing once the file exists.
 //! - An application that does not count keeps its place in the timeline, so
-//!   the label still reads as applied, with `unknown` as its account: no rule
-//!   takes it as anyone's approval.
+//!   the label still reads as applied, with no account (the empty login, which
+//!   the log names `unknown`): no rule takes it as anyone's approval, even
+//!   where the list names a GitHub account called `unknown`.
 //!
 //! A person who deletes and recreates a `tehas:` label removes its line from
 //! the file and runs `tehas labels`, which pins the label as it now is.
@@ -33,7 +34,7 @@
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
-use tehas_core::events::UNKNOWN_ACTOR;
+use tehas_core::events::NOBODY;
 use tehas_core::label_pins::{granting, save};
 pub use tehas_core::label_pins::{load, pin_made, Pins, FILE, GRANTING};
 
@@ -52,9 +53,9 @@ pub struct Judged {
 
 /// Judges the snapshot `snap` against `pins`: the current labels
 /// (`tehas_labels`) first, then each application in the issues' and the
-/// control issue's events, which a refused one leaves with `unknown` as its
-/// account. Only when the pins are not `kept` yet does it pin, and then only
-/// the current labels: an event pins nothing.
+/// control issue's events, which a refused one leaves with no account. Only
+/// when the pins are not `kept` yet does it pin, and then only the current
+/// labels: an event pins nothing.
 pub fn judge(pins: &mut Pins, kept: bool, snap: &mut Value) -> Judged {
     let mut j = Judged::default();
     let current = snap.get("tehas_labels").and_then(Value::as_array).cloned();
@@ -191,7 +192,7 @@ fn judge_event(
         }
     };
     if refuse {
-        e["actor"] = json!({"login": UNKNOWN_ACTOR});
+        e["actor"] = json!({"login": NOBODY});
     }
 }
 
@@ -260,11 +261,40 @@ mod tests {
             json!([ready("LA_bug", "alice")]),
         );
         let j = judge(&mut pins, true, &mut s);
-        assert_eq!(actor(&s), UNKNOWN_ACTOR);
+        assert_eq!(actor(&s), NOBODY);
         assert_eq!(j.said.len(), 1);
         assert!(j.said[0].contains("tehas:ready") && j.said[0].contains("#7"));
         assert!(j.said[0].contains("pinned LA_real") && j.said[0].contains("event LA_bug"));
         assert_eq!(pins["tehas:ready"], "LA_real");
+    }
+
+    // A list may name a GitHub account called unknown. A refused application
+    // is still nobody's, and that account's own application counts.
+    #[test]
+    fn a_refused_application_is_not_the_account_unknown() {
+        use tehas_core::events::{allowed_in, label_actor, Events};
+        let list = "alice unknown";
+        let who = |s: &Value| match Events::parse(&s["issues"]["7"]["events"]) {
+            Events::Read(ev) => label_actor(&ev, "tehas:ready").0,
+            other => panic!("{other:?}"),
+        };
+        for by in ["alice", "unknown", "mallory", ""] {
+            let mut pins = Pins::from([("tehas:ready".into(), "LA_real".into())]);
+            let mut s = snap(
+                json!([{"name": "tehas:ready", "id": "LA_real"}]),
+                json!([ready("LA_bug", by)]),
+            );
+            judge(&mut pins, true, &mut s);
+            assert!(!allowed_in(list, &who(&s)), "{by}: {s}");
+        }
+        let mut pins = Pins::from([("tehas:ready".into(), "LA_real".into())]);
+        let mut s = snap(
+            json!([{"name": "tehas:ready", "id": "LA_real"}]),
+            json!([ready("LA_real", "unknown")]),
+        );
+        judge(&mut pins, true, &mut s);
+        assert_eq!(who(&s), "unknown");
+        assert!(allowed_in(list, &who(&s)));
     }
 
     // The real one renamed away and the other renamed in: the label now
@@ -280,7 +310,7 @@ mod tests {
             json!([no_id]),
         );
         let j = judge(&mut pins, true, &mut s);
-        assert_eq!(actor(&s), UNKNOWN_ACTOR);
+        assert_eq!(actor(&s), NOBODY);
         assert_eq!(j.refused, BTreeSet::from(["tehas:ready".to_string()]));
         assert!(j.said[0].contains("pinned LA_real, now LA_bug"));
     }
@@ -322,7 +352,7 @@ mod tests {
             json!([plan]),
         );
         let j = judge(&mut pins, true, &mut s);
-        assert_eq!(actor(&s), UNKNOWN_ACTOR);
+        assert_eq!(actor(&s), NOBODY);
         assert!(j.pinned.is_empty());
         assert!(!pins.contains_key("tehas:plan"));
         assert_eq!(j.refused, BTreeSet::from(["tehas:plan".to_string()]));
@@ -339,7 +369,7 @@ mod tests {
                 json!([e]),
             );
             let j = judge(&mut pins, true, &mut s);
-            assert_eq!(actor(&s), UNKNOWN_ACTOR);
+            assert_eq!(actor(&s), NOBODY);
             assert!(j.said[0].contains("of a label with no pin"));
         }
     }
@@ -356,7 +386,7 @@ mod tests {
             let mut pins = pins0.clone();
             let mut s = snap(labels, json!([no_id.clone()]));
             let j = judge(&mut pins, true, &mut s);
-            assert_eq!(actor(&s), UNKNOWN_ACTOR);
+            assert_eq!(actor(&s), NOBODY);
             assert_eq!(j.refused, BTreeSet::from(["tehas:plan".to_string()]));
             assert!(j.said[0].contains("was not among the labels this poll read"));
         }
