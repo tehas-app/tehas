@@ -403,6 +403,7 @@ struct Gates {
 fn container(dir: &str, at: &str, image: &str, user: &str) -> Vec<String> {
     [
         "run",
+        sandbox::NEVER_PULL,
         "--rm",
         "--cgroup-parent",
         "tehas.slice",
@@ -1144,7 +1145,7 @@ mod tests {
         let said = gates_run("/t", "img", "1:2", &gates).join(" ");
         assert_eq!(
             said,
-            "run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
+            "run --pull=never --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
              -e HOME=/home/vscode -v /t:/t -w /t/tree --entrypoint bash img \
              -c sh .pi/worktree-setup && sh -c \"$1\" gates g "
         );
