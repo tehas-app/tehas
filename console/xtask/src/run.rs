@@ -34,14 +34,15 @@ const FIRST: [&str; 8] = [
     "plan_",
 ];
 
-/// The programs the run builds for the test files, with the variable that
-/// names each one to them.
-const BINS: [(&str, &str); 5] = [
-    ("T_STORE_BIN", "store"),
-    ("T_ATTACH_BIN", "attach"),
-    ("T_DISPATCH_BIN", "tehas-dispatch"),
-    ("T_CYCLE_BIN", "tehas-cycle"),
-    ("T_CONSOLE_BIN", "console"),
+/// The programs the run builds for the test files: the variable that names
+/// each one to them, its package and the program.
+const BINS: [(&str, &str, &str); 6] = [
+    ("T_STORE_BIN", "store", "store"),
+    ("T_ATTACH_BIN", "attach", "attach"),
+    ("T_DISPATCH_BIN", "tehas-dispatch", "tehas-dispatch"),
+    ("T_CYCLE_BIN", "tehas-cycle", "tehas-cycle"),
+    ("T_CONSOLE_BIN", "console", "console"),
+    ("T_XTASK_BIN", "tehas-xtask", "xtask"),
 ];
 
 /// `"$root/$a"`: a path under the root as the shell joins it.
@@ -674,8 +675,8 @@ fn build(root: &Path, target: &str, out: &Path) -> Result<(), String> {
         &manifest,
     ];
     build.extend(["--target-dir", target]);
-    for (_, bin) in BINS {
-        build.extend(["-p", bin]);
+    for (_, package, _) in BINS {
+        build.extend(["-p", package]);
     }
     let fetch = ["fetch", "--locked", "--quiet", "--manifest-path", &manifest];
     let built = || cargo(&build, &build_log);
@@ -720,7 +721,7 @@ fn stage(target: &str, out: &Path) -> Result<Vec<PathBuf>, String> {
     let staged = fs::create_dir_all(&dir).map_err(|e| format!("no {}: {e}", dir.display()));
     let copied = staged.and_then(|()| {
         BINS.iter()
-            .map(|(_, bin)| {
+            .map(|(_, _, bin)| {
                 let to = dir.join(bin);
                 fs::copy(debug.join(bin), &to)
                     .map(|_| to)
@@ -902,7 +903,7 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
     // Before any thread: the test files and cargo inherit these.
     std::env::set_var("TMPDIR", &out);
     std::env::remove_var("T_STORE_WHY");
-    for (var, _) in BINS {
+    for (var, _, _) in BINS {
         std::env::remove_var(var);
     }
 
@@ -918,7 +919,7 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
     }
     match build(root, &target, &out).and_then(|()| stage(&target, &out)) {
         Ok(bins) => {
-            for ((var, _), path) in BINS.iter().zip(bins) {
+            for ((var, _, _), path) in BINS.iter().zip(bins) {
                 std::env::set_var(var, path);
             }
         }

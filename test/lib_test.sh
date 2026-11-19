@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Tests for test/lib.sh: the deny stubs (a run of t_run that calls docker, gh,
 # systemctl, curl or ssh with no t_stub for it reaches a stand-in, not the
-# host's program, and the case it ran in fails), and the stdin of a run. Each
-# case runs a small test file of its own that sources the harness, and reads
-# what that file printed.
+# host's program, and the case it ran in fails), the stdin of a run, and
+# t_xtask. Each case runs a small test file of its own that sources the
+# harness, and reads what that file printed.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -73,6 +73,18 @@ os.execvp("bash", ["bash", sys.argv[1]])' "$T/inner_test.sh" 2>&1)
   t_contains "$t_out" "ran"
   t_lacks "$t_out" "read the bashrc"
 fi
+
+t_case "t_xtask takes the xtask the run built from T_XTASK_BIN and builds none"
+mkdir -p "$T/nocargo"
+printf '#!%s\necho "cargo was called" >&2\nexit 1\n' "$T_BASH" >"$T/nocargo/cargo"
+printf '#!%s\necho "the xtask of the run"\n' "$T_BASH" >"$T/given-xtask"
+chmod +x "$T/nocargo/cargo" "$T/given-xtask"
+printf '. %q\nt_case "inner"\nt_xtask || echo "why=$t_xtask_why"\n"$TEHAS_XTASK"\nt_done\n' \
+  "$T_ROOT/test/lib.sh" >"$T/inner_test.sh"
+t_out=$(PATH="$T/nocargo:$PATH" T_XTASK_BIN="$T/given-xtask" bash "$T/inner_test.sh" 2>&1)
+t_contains "$t_out" "the xtask of the run"
+t_lacks "$t_out" "cargo was called"
+t_lacks "$t_out" "why="
 
 t_case "t_lib_link twice leaves no lib/lib in the checkout it links to"
 mkdir -p "$T/fake/lib" "$T/linked"

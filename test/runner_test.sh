@@ -1119,21 +1119,25 @@ with_console() {
 
 # The stub records its arguments; the environment of its call is what a case
 # about a variable has to echo itself, into the same file t_calls reads.
-t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into the workspace's target with its profile, and named to every test file"
+t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle, the console and the xtask are built once, offline, into the workspace's target with its profile, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
 for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
 printf "debug=%s\\n" "${CARGO_PROFILE_DEV_DEBUG-absent}" >>"$T/calls/cargo"
-mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console; do echo "$b" >"$td/debug/$b"; done'
+mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done'
 saw_store a_test.sh
 saw_store b_test.sh
+printf '%s\n' '#!/usr/bin/env bash' \
+  'echo "$0 xtask=${T_XTASK_BIN#"$TMPDIR"/} holds=$(cat "${T_XTASK_BIN:-/dev/null}")"' \
+  "echo 'c_test.sh: 1 cases, 0 failed'" >"$repo/test/c_test.sh"
 run
 t_eq "$t_rc" 0
+t_contains "$t_out" "c_test.sh xtask=bin/xtask holds=xtask"$'\n'
 # The line of the environment is the last of the call, so the arguments still
 # read as one line. CARGO_TARGET_DIR is the one t_run gives, as CI gives one:
 # the gate's cargo test builds there too, with the same profile (#1360).
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p store -p attach -p tehas-dispatch -p tehas-cycle -p console -p tehas-xtask
 debug=absent"
 t_contains "$t_out" "a_test.sh bin=bin/store holds=store why="$'\n'
 t_contains "$t_out" "b_test.sh bin=bin/store holds=store why="$'\n'
@@ -1144,7 +1148,7 @@ with_console
 mkdir -p "$repo/console/target/shell/debug"
 t_stub cargo 'prev=""
 for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
-mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console; do echo "$b" >"$td/debug/$b"; done'
+mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done'
 saw_store a_test.sh
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" CARGO_TARGET_DIR=)
 run
@@ -1178,6 +1182,18 @@ run
 t_eq "$t_rc" 0
 t_contains "$t_out" "a_test.sh bin= holds= why=attach was built and cannot be copied: No such file or directory"
 
+t_case "the runner it builds runs from a copy outside target/debug, where the gate's cargo test replaces it"
+fresh
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && printf "#!/usr/bin/env bash\necho \"runner=\$0\"\n" >"$td/debug/xtask" && chmod +x "$td/debug/xtask"'
+t_run "cd '$repo' && TEHAS_XTASK= bash runner/runner.sh"
+t_eq "$t_rc" 0
+t_eq "$t_out" "runner=$T/target/runner/xtask"
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $T/target -p tehas-xtask"
+t_eq "$(ls "$T/target/runner")" "xtask"
+rm -rf "$T/target/runner" "$T/target/debug/xtask"
+
 t_case "a store missing crates offline is fetched once and built again"
 fresh
 with_console
@@ -1188,7 +1204,7 @@ for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
 case "$1" in
   fetch) : >"$T/fetched" ;;
   build) [ -e "$T/fetched" ] || { echo "error: no matching package named signal-hook found" >&2; exit 101; }
-    mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console; do echo "$b" >"$td/debug/$b"; done ;;
+    mkdir -p "$td/debug" && for b in store attach tehas-dispatch tehas-cycle console xtask; do echo "$b" >"$td/debug/$b"; done ;;
 esac'
 saw_store a_test.sh
 run

@@ -382,7 +382,7 @@ store, and a change to the store runs them. The shell tests of a path under
 `console/` are the files that name `console/` or take a program of the
 workspace from the run: one of the helpers of `test/lib.sh` that copy one in
 (`t_store`, `t_attach`, `t_dispatch`, `t_cycle`, `t_console`, `t_verb`), or one
-of the variables the runner hands out (`T_STORE_BIN` and its four siblings).
+of the variables the runner hands out (`T_STORE_BIN` and its five siblings).
 A path in `console/core/`, a manifest, `console/Cargo.lock`, a path in no crate,
 or metadata that cannot be read runs the whole workspace's tests, and every
 shell test with it: every shell test loads the settings through the console
@@ -440,7 +440,9 @@ the programs in the target: `cargo test` builds them with the features of the
 whole workspace and puts its own in their place while the shell tests run, so
 a test could find no program there (#2495). Once its build ends, the runner
 copies them into the run's root under cargo's lock of `target/debug`, and
-`T_STORE_BIN` and its siblings name the copies. A `console/target/shell`
+`T_STORE_BIN` and its siblings name the copies; `T_XTASK_BIN` names the
+xtask's, which `t_xtask` gives the test files that run scripts of the
+development tasks. A `console/target/shell`
 left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
@@ -460,8 +462,10 @@ for the shell tests when it gets 3 or the change leaves no path to give.
 
 The script is a short exec of `xtask test` (`console/xtask/src/run.rs`), which
 it builds first, offline, into the same target directory, fetching the locked
-crates once when cargo's cache lacks one; `TEHAS_XTASK` names a build to use
-instead. So the runner needs cargo, as the gate does. Each check of the pool
+crates once when cargo's cache lacks one, and runs a copy of it in the
+target's `runner/`, taken with `flock` under cargo's locks of `target/debug`
+(#2502); `TEHAS_XTASK` names a build to use instead. So the runner needs
+cargo, as the gate does. Each check of the pool
 is an `xtask test-task` process that runs it under the timeout and records its
 status and time when it ends.
 
