@@ -519,7 +519,12 @@ Any run without `--lab-build`, from a checkout or a release, installs every
 program again: a lab build's stamp matches no other. A run from a checkout
 without `--lab-build` builds with `TEHAS_LAB_BUILD=off`, and every run with
 `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false`, whatever the environment it
-runs in says. The release workflow builds with neither variable set. `install.sh --check` and
+runs in says. No build takes rustflags or release profile settings from the
+environment (`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`,
+`CARGO_TARGET_<triple>_RUSTFLAGS`, `CARGO_PROFILE_RELEASE_*`), and an empty
+`CARGO_ENCODED_RUSTFLAGS` outweighs the rustflags of cargo's configuration
+files too, so `-C debug-assertions` there does not reach the programs. The
+release workflow builds with neither variable set and the same rustflags. `install.sh --check` and
 `tehas update --check` report a lab build's programs as `differs`. A run that
 finds `~/.config/environment.d/tehas-lab.conf` prints `later: rm ... &&
 systemctl --user daemon-reload`, and leaves the file to you. If the variable

@@ -644,6 +644,9 @@ case $pkg in analytics) art=an ;; *) art=a ;; esac
 with=""
 [ "${CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:-}" != true ] || with=" with debug assertions"
 [ "${TEHAS_LAB_BUILD:-}" != on ] || with="$with as a lab build"
+# Any rustflags or release profile setting install.sh does not set itself.
+flags=$(env | grep -E "^([A-Z0-9_]*RUSTFLAGS|CARGO_PROFILE_RELEASE_[A-Z0-9_]*)=." | grep -vx CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false | LC_ALL=C sort | tr "\n" " ")
+[ -z "$flags" ] || with="$with with ${flags% }"
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}$with" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or
