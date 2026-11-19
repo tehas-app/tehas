@@ -9,12 +9,22 @@ import { resetPage } from "../host/fun/kit/state.js";
 
 let calls;
 let answer;
+// The answers held back while answer.hold is set, each let go by land().
+let held;
+const land = () => held.shift()();
 
 beforeEach(() => {
   calls = [];
   answer = { ok: true, body: '{"n":1}' };
+  held = [];
   globalThis.fetch = async (src, init) => {
     calls.push({ src, init });
+    if (answer.hold) {
+      await new Promise((resolve, reject) => {
+        held.push(resolve);
+        init.signal.addEventListener("abort", () => reject(init.signal.reason));
+      });
+    }
     const { ok, body } = answer;
     if (!ok) return { ok: false, status: 503, statusText: "Service Unavailable" };
     return { ok: true, status: 200, text: async () => body };
@@ -156,16 +166,115 @@ test("the feed stops when the last island that reads it is disposed", async () =
   mock.timers.tick(1000);
   await settle();
   assert.equal(calls.length, 2, "b still polls");
+  answer = { ...answer, hold: true };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(calls.length, 3);
   b.dispose();
   assert.equal(listening(), 0);
-  assert.ok(calls[1].init.signal.aborted);
+  assert.ok(calls[2].init.signal.aborted, "the fetch that is out is aborted");
+  answer = { ok: true, body: '{"n":1}' };
   mock.timers.tick(5000);
   await settle();
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   const c = island("/live/status.json");
   await settle();
   assert.notEqual(c.live, a.live);
+  assert.equal(calls.length, 4);
+});
+
+test("one fetch is out at a time; the next falls due a period after it lands", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  await settle();
+  answer = { ...answer, hold: true };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(calls.length, 2);
+  mock.timers.tick(5000);
+  await settle();
+  assert.equal(calls.length, 2, "no poll while one is out");
+  answer = { ok: true, body: '{"n":2}' };
+  land();
+  await settle();
+  assert.deepEqual(a.seen.at(-1), { n: 2, pending: false, error: null });
+  mock.timers.tick(999);
+  await settle();
+  assert.equal(calls.length, 2);
+  mock.timers.tick(1);
+  await settle();
   assert.equal(calls.length, 3);
+});
+
+test("a refresh while a poll is out polls once more when it lands", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ...answer, hold: true };
+  a.live.refresh();
+  await settle();
+  a.live.refresh();
+  a.live.refresh();
+  await settle();
+  assert.equal(calls.length, 2);
+  answer = { ok: true, body: '{"n":3}' };
+  land();
+  await settle();
+  await settle();
+  assert.equal(calls.length, 3);
+  assert.deepEqual(a.seen.at(-1), { n: 3, pending: false, error: null });
+});
+
+test("a fetch with no answer in 30 s is aborted and counts as a failed poll", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  await settle();
+  answer = { ...answer, hold: true };
+  mock.timers.tick(1000);
+  await settle();
+  mock.timers.tick(30000);
+  await settle();
+  assert.equal(a.seen.at(-1).n, 1);
+  assert.match(a.seen.at(-1).error.message, /status\.json: no answer in 30000 ms/);
+  answer = { ok: true, body: '{"n":1}' };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(calls.length, 3);
+  assert.deepEqual(a.seen.at(-1), { n: 1, pending: false, error: null });
+});
+
+test("the period is at least a second", async () => {
+  island("/live/status.json", { every: 0 });
+  await settle();
+  mock.timers.tick(999);
+  await settle();
+  assert.equal(calls.length, 1);
+  mock.timers.tick(1);
+  await settle();
+  assert.equal(calls.length, 2);
+});
+
+test("the period goes back up when the reader that asked for the short one leaves", async () => {
+  island("/live/status.json", { every: 5000 });
+  const fast = island("/live/status.json", { every: 1000 });
+  await settle();
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(calls.length, 2);
+  fast.dispose();
+  mock.timers.tick(4999);
+  await settle();
+  assert.equal(calls.length, 2);
+  mock.timers.tick(1);
+  await settle();
+  assert.equal(calls.length, 3);
+});
+
+test("isPending is true during any poll, also one that brings the same bytes", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  a.live.refresh();
+  flush();
+  assert.deepEqual(a.seen.at(-1), { n: 1, pending: true, error: null });
+  await settle();
+  assert.deepEqual(a.seen.at(-1), { n: 1, pending: false, error: null });
 });
 
 test("a feed outside an island's root is refused", () => {

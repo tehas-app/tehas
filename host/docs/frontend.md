@@ -200,15 +200,20 @@ Server data comes from `/live/` through `feed(src, { every })` of
 `kit/feed.js`. There is one source per address per page: every island that
 names the address reads the same async memo, and one poller asks for it.
 
-- The shortest `every` any reader asks for is the poll period; none means no
-  poll, only `refresh()`.
+- The shortest `every` any reader asks for is the poll period while that
+  reader lives; none means no poll, only `refresh()`. A period is at least
+  1000 ms.
+- One fetch is out at a time. The next poll falls due a period after the last
+  one lands, and a `refresh()` while one is out polls once more when it lands.
+  A fetch with no answer in 30 s is aborted and counts as a failed poll.
 - No poll while `document.hidden`. A poll that fell due meanwhile runs when the
   page shows again.
 - A failed poll keeps the last good data, and `error()` says why. A first
   answer that fails is an error, which `<Errored>` catches.
 - The same bytes again change nothing downstream.
 - `data()` is read inside `<Loading>` until the first answer;
-  `isPending(() => f.data())` is true while a poll that will change it is out.
+  `isPending(() => f.data())` is true while any poll is out, also one that
+  brings the same bytes. A `<Busy>` bound to it shows during every poll.
 - The feed stops, and its fetch is aborted, when the last root that asked for
   it is disposed.
 
