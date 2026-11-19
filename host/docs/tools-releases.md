@@ -139,18 +139,33 @@ check that does.
 newest first: `## vX.Y.Z (YYYY-MM-DD)`, then `### Changes` and
 `### Adopter action`, the steps an adopter takes after updating: settings added
 or renamed, root steps, anything by hand. "None." is a valid action. Work in
-progress goes under `## Unreleased`, and a person renames it to the version in
-the release's pull request.
+progress goes under `## Unreleased`. Before a release is tagged,
+`scripts/tag-release.sh` renames it to the release's version in a pull request
+and puts a new, empty `## Unreleased` above it.
 
 `scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
 tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
-or else `Unreleased`, has no `### Adopter action` heading with a line under it.
-It edits the file only to collect the fragments and to name the moves of the
-pinned tools, below.
+or else `Unreleased`, has no `### Adopter action` heading with a line under it,
+or no `### Changes` heading with a line under it. It edits the file only to
+collect the fragments, to name the release's section and to name the moves of
+the pinned tools, below.
 
-`scripts/release-notes.sh <tag>` prints a section without its heading, and
-exits 1 when the file has none for that tag. The workflow makes the release's
-page from it, from the `Unreleased` section when the tag has none of its own.
+`scripts/release-notes.sh <tag>` prints the text of a release's page, and the
+workflow publishes the release with it. A tag with a section of its own gets
+that section, without its heading. A release `vX.Y.Z` without one is an error
+(exit 1), and the workflow publishes nothing: it never takes `Unreleased` in
+its place, since that section holds every change since the last release. A
+prerelease without a section of its own gets what is new since the tag before
+it: a first line `New since <tag>.`, then the items of `Unreleased` at the
+prerelease's tag that `Unreleased` at the tag before did not have, under their
+headings, with "None." under an Adopter action that has nothing new. An item
+is a bullet with its continuation lines, or a paragraph under
+`### Adopter action`. The tag before is the highest release or prerelease tag,
+lower than this one, that its commit reaches. Both versions of the file are
+read with git, so the tags must be in the checkout; when the tag before has no
+`Unreleased` section the script fails rather than print the whole section. The
+rules are `xtask release-notes` (`console/xtask/src/notes.rs`), which the
+script runs.
 
 A pull request does not edit `CHANGELOG.md`, so two open ones do not conflict
 there. It adds a fragment, `changelog.d/<issue>.md`, with a `### Changes` and
@@ -169,11 +184,17 @@ release is read from `CHANGELOG.md` alone.
 prints the section with the fragments collected. When the head has fragments,
 the head's own `scripts/collect-changelog.sh` (the version in the commit being
 tagged, not the operator's checkout) moves their lines into the release's
-section and deletes them; then it runs the gate, opens a pull request from
-`changelog-<tag>`, and tags nothing; the tag, and the move of the pinned tools,
-wait for a person to merge it. An open pull request from such a branch holds
-the tag. A head with fragments and no `scripts/collect-changelog.sh` is not
-tagged. `scripts/collect-changelog.sh --print` shows the result without
+section and deletes them. For a release `vX.Y.Z` whose head has no
+`## vX.Y.Z` section, the same pull request renames `## Unreleased`, with the
+fragments in it, to `## vX.Y.Z (YYYY-MM-DD)`, the date of the run in UTC, and
+puts a new, empty `## Unreleased` above it; it is opened even with no
+fragments. A prerelease keeps its fragments under `Unreleased`, which keeps its
+name. Then it runs the gate, opens a pull request from `changelog-<tag>`, and
+tags nothing; the tag, and the move of the pinned tools, wait for a person to
+merge it. An open pull request from such a branch holds the tag. A head with
+fragments and no `scripts/collect-changelog.sh` is not tagged. A prerelease
+whose tag before has no `Unreleased` section is not tagged either: its notes
+could not be made. `scripts/collect-changelog.sh --print` shows the result without
 changing a file. The rules are `xtask collect-changelog`
 (`console/xtask/src/changelog.rs`), which the script runs.
 
@@ -253,7 +274,9 @@ A prerelease is a release of a version before it is final: `vX.Y.Z-alpha.N`,
 then `vX.Y.Z-beta.N`, then `vX.Y.Z-rc.N`, then `vX.Y.Z`. The release workflow
 builds, signs and publishes a prerelease tag from its one commit exactly as it
 does a release, and marks it a prerelease on GitHub, never the latest release.
-Its notes are its own section of `CHANGELOG.md`, or else `Unreleased`.
+Its notes are its own section of `CHANGELOG.md`, or else what is new under
+`Unreleased` since the tag before it
+([Release notes](#release-notes-and-the-adopter-action)).
 
 `scripts/tag-release.sh --pre <alpha|beta|rc>` tags the next prerelease of the
 version `--patch`, `--minor` or `--major` names: from `v0.30.7`,

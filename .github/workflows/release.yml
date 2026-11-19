@@ -3,7 +3,9 @@
 # publish it as the tag's GitHub Release.
 # Written by a person, not a work cycle: CI files are protected. The interface
 # it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
-# gate; this file is not.
+# gate; this file is not. A release vX.Y.Z needs its own section in
+# CHANGELOG.md, which scripts/tag-release.sh names before it tags; a
+# prerelease without one is published with what is new since the tag before.
 #
 # A prerelease tag, vX.Y.Z-alpha.N, -beta.N or -rc.N, is built, signed and
 # published the same way, marked as a GitHub prerelease and never as the
@@ -52,7 +54,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # The whole history, so origin/main is here for the next step.
+          # The whole history and every tag, so origin/main is here for the
+          # next step, and the tag before a prerelease for its notes.
           fetch-depth: 0
       # First, before any step runs code of the tagged tree.
       - name: the tag is a commit on main, pushed by an admin of the repository
@@ -168,8 +171,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          notes=$(scripts/release-notes.sh "$TAG" 2>/dev/null || scripts/release-notes.sh Unreleased) || {
-            echo "CHANGELOG.md of $TAG has no section for it" >&2
+          # The tag's own section, or for a prerelease without one what is
+          # new since the tag before it; never the whole of Unreleased. The
+          # notes are xtask release-notes, built with the job's cargo.
+          notes=$(scripts/release-notes.sh "$TAG") || {
+            echo "no release notes for $TAG, as said above; nothing was published" >&2
             exit 1
           }
           api=https://api.github.com/repos/$REPO
