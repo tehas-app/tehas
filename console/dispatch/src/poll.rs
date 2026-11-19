@@ -1065,7 +1065,8 @@ fn finish_step(
         let marked = labels
             .iter()
             .any(|l| l["name"] == crate::read::github::RUNNING);
-        let comments = crate::read::github::comments(&mut src.calls, &settings.repo, n);
+        // The finish asks judge no comment's edits, so no history is read.
+        let comments = crate::read::github::comments_unjudged(&mut src.calls, &settings.repo, n);
         let nn = n.to_string();
         let approval = match src.calls.store(&["approval-current", &nn]) {
             Ok(v) => match crate::read::store::approval_shape(&v) {

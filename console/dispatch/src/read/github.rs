@@ -797,6 +797,20 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
     out
 }
 
+/// The comments of one issue with no edit history read: for a reader that
+/// judges no comment's edits (the finish asks), which so pays no history
+/// read. `failed_read` when the call failed.
+pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
+    let (owner, name) = split(repo);
+    let num = format!("number={n}");
+    let query = format!("query={COMMENTS}");
+    calls
+        .gh(&[
+            "api", "graphql", "-F", &owner, "-F", &name, "-F", &num, "-f", &query,
+        ])
+        .unwrap_or_else(|f| failed_read(&f))
+}
+
 /// The comments of one issue, as the bash's question and blocker reads have
 /// them; `failed_read` when the call failed.
 pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
