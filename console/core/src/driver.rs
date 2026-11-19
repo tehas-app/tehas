@@ -51,13 +51,6 @@ impl Driver {
         }
     }
 
-    pub const fn other(self) -> Driver {
-        match self {
-            Driver::Classic => Driver::Lean,
-            Driver::Lean => Driver::Classic,
-        }
-    }
-
     /// The instance's default driver, of the value of `TEHAS_DRIVER`: lean
     /// only when it says lean. The load refuses any other word.
     pub fn default_of(setting: &str) -> Driver {
@@ -66,12 +59,6 @@ impl Driver {
         } else {
             Driver::Classic
         }
-    }
-
-    /// The label that chooses against `default`: the one whose applier counts.
-    /// The other agrees with the default and chooses nothing.
-    pub fn opt_out(default: Driver) -> &'static str {
-        default.other().label()
     }
 
     /// The driver a record binds: none is classic. None for one this tehas
@@ -123,12 +110,6 @@ mod tests {
         for other in ["", "classic", "Lean"] {
             assert_eq!(Driver::default_of(other), Driver::Classic, "{other}");
         }
-    }
-
-    #[test]
-    fn the_label_that_chooses_is_the_one_against_the_default() {
-        assert_eq!(Driver::opt_out(Driver::Classic), "tehas:lean");
-        assert_eq!(Driver::opt_out(Driver::Lean), "tehas:classic");
     }
 
     #[test]
