@@ -1453,7 +1453,10 @@ request goes on with the `Host` of its allowed target, never the one the
 client sent.
 
 The first container that needs the proxy makes both networks and starts it,
-under `~/tehas/state/egress.lock`. It is started again when its list, the
+under `~/tehas/state/egress.lock`. Each Docker call of that step ends within
+60 seconds, and a start waits for the lock 15 minutes at most, so a dockerd
+that does not answer stops the start with the reason instead of holding the
+issue's lock. It is started again when its list, the
 binary or the image changed, which cuts the connections of the containers
 running then. The network is held to what the previews' network is held to
 (`console preview network check`): Docker 27.1 or later, which knows

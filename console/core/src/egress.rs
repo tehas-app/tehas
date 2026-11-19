@@ -22,6 +22,7 @@ use crate::sandbox;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// The internal network of the containers, and the proxy's name on it.
 pub const NETWORK: &str = "tehas-egress";
@@ -328,8 +329,23 @@ pub fn ensure_with(
     Ok(())
 }
 
+/// The bound of one Docker call of [`ensure`]. A start runs them under its
+/// issue's lock, so a dockerd that does not answer must not hold it.
+const CALL_WAIT: Duration = Duration::from_secs(60);
+
+/// How long [`ensure`] waits for state/egress.lock: longer than the calls of
+/// a holder, each within [`CALL_WAIT`], take.
+const LOCK_WAIT: Duration = Duration::from_secs(15 * 60);
+
 fn docker(args: &[String]) -> Option<String> {
-    let out = Command::new("docker")
+    bounded("docker", args, CALL_WAIT)
+}
+
+/// <program> with <args> under `timeout -k 5`: stdout when it ended 0 within
+/// <wait>.
+fn bounded(program: &str, args: &[String], wait: Duration) -> Option<String> {
+    let out = Command::new("timeout")
+        .args(["-k", "5", &wait.as_secs().to_string(), program])
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -338,6 +354,26 @@ fn docker(args: &[String]) -> Option<String> {
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Take <file>'s lock within <wait>, or say that it is still held.
+fn lock_within(file: &fs::File, path: &str, wait: Duration) -> Result<(), String> {
+    let began = Instant::now();
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(fs::TryLockError::WouldBlock) if began.elapsed() < wait => {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(format!(
+                    "{path} is still held after {}s: another start is making the proxy",
+                    wait.as_secs()
+                ))
+            }
+            Err(fs::TryLockError::Error(e)) => return Err(format!("could not lock {path}: {e}")),
+        }
+    }
 }
 
 /// The proxy of this host up, or the line that says why not. One caller at a
@@ -368,14 +404,14 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
         ),
         binary,
     };
+    let path = format!("{home}/state/egress.lock");
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(format!("{home}/state/egress.lock"))
-        .map_err(|e| format!("could not open {home}/state/egress.lock: {e}"))?;
-    lock.lock()
-        .map_err(|e| format!("could not lock {home}/state/egress.lock: {e}"))?;
+        .open(&path)
+        .map_err(|e| format!("could not open {path}: {e}"))?;
+    lock_within(&lock, &path, LOCK_WAIT)?;
     ensure_with(&mut docker, &run)
 }
 
@@ -383,6 +419,41 @@ pub fn ensure(aliases: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_docker_call_that_does_not_answer_ends_at_its_bound() {
+        let began = Instant::now();
+        let args = ["30".to_string()];
+        assert_eq!(bounded("sleep", &args, Duration::from_secs(1)), None);
+        assert!(began.elapsed() < Duration::from_secs(10));
+        let args = ["-n".to_string(), " up ".to_string()];
+        assert_eq!(
+            bounded("echo", &args, Duration::from_secs(5)).as_deref(),
+            Some("up")
+        );
+    }
+
+    #[test]
+    fn a_held_lock_is_waited_for_only_so_long() {
+        let d = crate::testdir::TestDir::new("egress-lock");
+        let path = d.join("egress.lock");
+        let open = || {
+            fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&path)
+                .unwrap()
+        };
+        let held = open();
+        held.lock().unwrap();
+        let other = open();
+        let name = path.to_string_lossy();
+        let why = lock_within(&other, &name, Duration::from_millis(500)).unwrap_err();
+        assert!(why.contains("is still held after 0s"), "{why}");
+        drop(held);
+        assert_eq!(lock_within(&other, &name, Duration::from_secs(5)), Ok(()));
+    }
 
     fn run() -> Run {
         Run {
