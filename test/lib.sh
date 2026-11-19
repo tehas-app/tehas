@@ -133,7 +133,9 @@
 # program jails its run (t_unstub, T_PLANT).
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
-# TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
+# TEHAS_HOME point into it, so a test cannot touch the real ones. So does the
+# TMPDIR of a run, $T/tmp: a snippet's temporary files are its own, not in the
+# /tmp that every test file and every gate on the host share. On a factory
 # host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
@@ -163,7 +165,7 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T_TARGET=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny"
+mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny" "$T/tmp"
 # tehas_load asks the console, and a test's tree has none beside lib/config.sh:
 # every load of a test goes to the one of this run, which a test can stub apart
 # from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does,
@@ -1296,9 +1298,11 @@ t_run() {
     done
     jail+=('T_PATH_JAIL=1')
   fi
+  # A file may clear $T or name a TMPDIR of its own in T_ENV, which env lets win.
+  mkdir -p "$T/tmp"
   t_out=$(env -i "${jail[@]}" PATH="$T/bin:$T/deny:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
     T="$T" T_ROOT="$T_ROOT" CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
-    TEHAS_TEST_STORE_ANSWERS="$T/store-answers" "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
+    TEHAS_TEST_STORE_ANSWERS="$T/store-answers" TMPDIR="$T/tmp" "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }
