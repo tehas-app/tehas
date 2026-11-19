@@ -298,7 +298,7 @@ pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result
     let c = changes.join("\n");
     // A fragment's "None." says nothing beside another action, but a section
     // without one still needs it.
-    let a = if actions.is_empty() && none && ad.is_none() {
+    let a = if actions.is_empty() && none && ad.is_none_or(|h| last(h) == h) {
         "None.".to_string()
     } else {
         actions.join("\n\n")

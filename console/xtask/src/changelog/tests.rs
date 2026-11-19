@@ -303,7 +303,7 @@ fn a_fragment_whose_action_is_none_adds_no_action() {
     assert_eq!(out, lines(&want));
     let bare = lines(&["## Unreleased", "", "### Changes", "", "- a"]);
     assert_eq!(
-        collect(&bare, "Unreleased", &[none]).unwrap(),
+        collect(&bare, "Unreleased", std::slice::from_ref(&none)).unwrap(),
         lines(&[
             "## Unreleased",
             "",
@@ -315,6 +315,35 @@ fn a_fragment_whose_action_is_none_adds_no_action() {
             "### Adopter action",
             "",
             "None.",
+        ])
+    );
+    // A heading with nothing under it still needs the "None.".
+    let heading = lines(&[
+        "## Unreleased",
+        "",
+        "### Changes",
+        "",
+        "- a",
+        "",
+        "### Adopter action",
+        "",
+        "## v0.1.0",
+    ]);
+    assert_eq!(
+        collect(&heading, "Unreleased", &[none]).unwrap(),
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- a",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "None.",
+            "",
+            "## v0.1.0",
         ])
     );
 }
