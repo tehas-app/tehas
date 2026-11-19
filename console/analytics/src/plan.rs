@@ -14,7 +14,7 @@
 //! - docs/version.txt, as for a work run.
 //!
 //! The row has kind plan, and turns is the turn's number in its session, not
-//! the model's turns: pi's rpc mode reports no usage, so no usage column is
+//! the model's turns: the turn's answer holds no usage, so no usage column is
 //! set. The turn ended when the poll collected it, which is now.
 
 use crate::run::{iso_ms, read_facts, read_json, tehas_version, Run};
