@@ -1194,6 +1194,15 @@ t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/
 t_eq "$(ls "$T/target/runner")" "xtask"
 rm -rf "$T/target/runner" "$T/target/debug/xtask"
 
+t_case "a runner that was built and cannot be copied stops the run with 2 and leaves no partial copy"
+fresh
+t_stub cargo 'exit 0'
+t_run "cd '$repo' && TEHAS_XTASK= bash runner/runner.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "test.sh: the runner (console/xtask) was built and cannot be copied"
+t_eq "$(ls -A "$T/target/runner")" ""
+rm -rf "$T/target/runner"
+
 t_case "a store missing crates offline is fetched once and built again"
 fresh
 with_console
