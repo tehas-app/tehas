@@ -38,7 +38,8 @@
     "spec-pipe": false,
     "protolab-zip-url": false,
     "prototype-file": false,
-    "lean": false
+    "lean": false,
+    "review": false
   },
   "millwright": null,
   "poll": {

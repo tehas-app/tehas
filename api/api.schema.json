@@ -21,7 +21,8 @@
         "spec-pipe": {"type": "boolean"},
         "protolab-zip-url": {"type": "boolean"},
         "prototype-file": {"type": "boolean"},
-        "lean": {"type": "boolean"}
+        "lean": {"type": "boolean"},
+        "review": {"type": "boolean"}
       }
     },
     "millwright": {"type": ["string", "null"], "minLength": 1},

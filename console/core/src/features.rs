@@ -93,6 +93,17 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &[],
     },
+    // Shipped as a setting before the registry, never seen on a host: its
+    // names stay on api/surface-1.0.txt (console/tests/surface.rs).
+    Feature {
+        name: "review",
+        stage: Stage::Building,
+        setting: "TEHAS_REVIEW",
+        settings: &["TEHAS_REVIEW_REPO"],
+        since: "v1.0.0-rc.1",
+        programs: &[],
+        units: &["tehas-review.service", "tehas-review.timer"],
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -173,6 +184,14 @@ pub fn units() -> impl Iterator<Item = &'static str> {
     FEATURES.iter().flat_map(|f| f.units.iter().copied())
 }
 
+/// Whether `unit` is a service a timer of `units` starts: it is installed with
+/// the timer, but neither enabled nor restarted on its own, which would run
+/// its job off schedule.
+pub fn timed(unit: &str, units: &[&str]) -> bool {
+    unit.strip_suffix(".service")
+        .is_some_and(|stem| units.contains(&format!("{stem}.timer").as_str()))
+}
+
 /// The names of the shipped features: the words they add to `features`.
 pub fn shipped() -> Vec<&'static str> {
     FEATURES
@@ -223,6 +242,34 @@ pub fn refuse_building_settings(
         }
     }
     Ok(())
+}
+
+/// Every line of `text`, a file named `file`, that the load refuses for a
+/// feature still being built: its switch set on, or one of its own settings
+/// given a value. One line each, as the load words it, so an update names them
+/// all at once.
+pub fn found_in(text: &[u8], file: &str) -> Vec<String> {
+    found_in_with(text, file, &env)
+}
+
+fn found_in_with(text: &[u8], file: &str, get: &dyn Fn(&str) -> String) -> Vec<String> {
+    let value = |name: &str| crate::settings::renamed::value_in(text, name).unwrap_or_default();
+    let mut found = Vec::new();
+    for f in FEATURES.iter().filter(|f| !usable(f, get)) {
+        if switch(&value(f.setting)) == Some(true) {
+            found.push(format!(
+                "{} is on and {} is still being built in this release: set it to off or take the line out (see {file})",
+                f.setting, f.name
+            ));
+        }
+        for name in f.settings.iter().filter(|n| !value(n).is_empty()) {
+            found.push(format!(
+                "{name} is set and {} is still being built in this release: take the line out (see {file})",
+                f.name
+            ));
+        }
+    }
+    found
 }
 
 /// Why `what` cannot run while the feature is not on, or Ok when it is. The
@@ -422,6 +469,8 @@ mod tests {
             "TEHAS_OUTSOURCE_REPOS",
             "TEHAS_PROTOLAB_ZIP_HOSTS",
             "TEHAS_LEAN",
+            "TEHAS_REVIEW",
+            "TEHAS_REVIEW_REPO",
         ] {
             assert!(building_setting(name), "{name}");
         }
@@ -489,6 +538,63 @@ mod tests {
             refuse_building(&vars(&[("TEHAS_LEAN", "on")])),
             Err("TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out".to_string())
         );
+    }
+
+    #[test]
+    fn review_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "review";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_REVIEW", "on")])));
+        assert!(flags().contains(&(name, false)));
+        let tested = vars(&[("TEHAS_REVIEW", "1"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_REVIEW", "on")])),
+            Err("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out".to_string())
+        );
+        let set = |n: &str| n == "TEHAS_REVIEW_REPO";
+        assert_eq!(
+            refuse_building_settings(&set, &vars(&[])),
+            Err("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn review_installs_its_timer_and_service_only_while_on() {
+        let none: (Vec<&str>, Vec<&str>) = (vec![], vec![]);
+        assert_eq!(installs_in(&vars(&[("TEHAS_REVIEW", "on")])), none);
+        let on = vars(&[("TEHAS_REVIEW", "on"), (TEST_VAR, "review")]);
+        assert_eq!(
+            installs_in(&on),
+            (vec![], vec!["tehas-review.service", "tehas-review.timer"])
+        );
+    }
+
+    #[test]
+    fn a_service_its_timer_starts_is_timed() {
+        let units = ["tehas-review.service", "tehas-review.timer"];
+        assert!(timed("tehas-review.service", &units));
+        assert!(!timed("tehas-review.timer", &units));
+        assert!(!timed("tehas-review.service", &["tehas-review.service"]));
+        assert!(!timed(
+            "tehas-outsource-proxy.service",
+            &["tehas-outsource-proxy.service"]
+        ));
+    }
+
+    #[test]
+    fn every_line_of_a_building_feature_in_a_file_is_found() {
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_REVIEW=on\nTEHAS_REVIEW_REPO='acme/backlog'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
+        assert_eq!(
+            found_in_with(text, "/i/instance.env", &vars(&[])),
+            [
+                "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see /i/instance.env)",
+                "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see /i/instance.env)",
+            ]
+        );
+        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "review")])).is_empty());
+        assert!(found_in_with(b"TEHAS_REVIEW=0\n", "f", &vars(&[])).is_empty());
     }
 
     #[test]
@@ -624,7 +730,11 @@ mod tests {
         );
         assert_eq!(
             units().collect::<Vec<_>>(),
-            ["tehas-outsource-proxy.service"]
+            [
+                "tehas-outsource-proxy.service",
+                "tehas-review.service",
+                "tehas-review.timer"
+            ]
         );
     }
 
