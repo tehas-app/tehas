@@ -85,6 +85,7 @@ const checks = [
   ["rows bind the sample's text", s.rows?.[0] === "#41 Export the report as CSV", s.rows?.[0]],
   ["a time ago part", typeof s.ago === "string" && / ago$|yesterday/.test(s.ago), s.ago],
   ["the mounted mark", s.mounted === true, s.mounted],
+  ["hydrate=visible mounts an island laid out as its children", s.contentsSeen && s.contentsDisplay === "contents", [s.contentsSeen, s.contentsDisplay]],
   ["the second island reads the same feed", s.count === "3 in line", s.count],
   ["one fetch of the address for two islands", found.fetches["/live/status.json"] === 1, found.fetches],
   ["a pick in one island shows in the other", s.pickedAfterClick === "#42 A search with no match says so", s.pickedAfterClick],

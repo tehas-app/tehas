@@ -28,13 +28,23 @@ function whenTriggered(el, signal, go) {
     return;
   }
   if (how === "visible") {
+    // An element laid out as its children has no box of its own, so it is
+    // never seen: watch its children instead.
+    const watched =
+      getComputedStyle(el).display === "contents"
+        ? [...el.children].filter((c) => c.localName !== "script")
+        : [el];
+    if (watched.length === 0) {
+      queueMicrotask(go);
+      return;
+    }
     const seen = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) {
         seen.disconnect();
         go();
       }
     });
-    seen.observe(el);
+    for (const w of watched) seen.observe(w);
     signal.addEventListener("abort", () => seen.disconnect());
     return;
   }

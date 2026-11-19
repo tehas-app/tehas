@@ -44,6 +44,8 @@ async function run() {
   s.ago = text("#queue li time");
   s.count = text("#picked .count");
   s.mounted = document.getElementById("queue").hasAttribute("data-tehas-mounted");
+  s.contentsSeen = await wait(() => document.getElementById("seen").hasAttribute("data-tehas-mounted"));
+  s.contentsDisplay = getComputedStyle(document.getElementById("seen")).display;
 
   document.querySelector('#queue button[data-number="42"]').click();
   await wait(() => text("#picked .picked") !== "Nothing picked");

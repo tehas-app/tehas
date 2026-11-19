@@ -115,7 +115,9 @@ An island is a custom element in the light DOM, made with the kit's
   the page's controller, a host page, a test. They are not how two islands of
   one page talk to each other.
 - **Hydration** by the attribute `hydrate`: `load` (the default), `visible`,
-  `idle` or `interaction`. Until it fires, the server HTML stands.
+  `idle` or `interaction`. Until it fires, the server HTML stands. An element
+  laid out as its children (`data-tehas-island="contents"`) has no box, so
+  `visible` watches its children.
 - **One root per island.** Each island is a Solid root of its own, disposed
   when the element disconnects. Page stores and feeds live under the page's
   owner, so one island leaving disposes nothing another reads.
