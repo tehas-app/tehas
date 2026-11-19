@@ -520,6 +520,31 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The sandbox build's vipune check no longer refuses a good image when dockerd turns down the CPU it picked. In a container whose cpuset moved after dockerd started (Incus with `limits.cpu`), `tehas update` to a 1.0 beta failed with "Requested CPUs are not available". The check now runs again on a CPU both the build and dockerd name (#2519).
 - `tehas status --json` has `previews` on a host that runs previews: each open pull request with a preview, by `number`, with the preview's `state` and, while it serves, its `url`. `tehas api` names the feature `status-previews`.
 - A host bridge menu item can ask to open as a page of its own: with `"open": "page"` the front pages draw it as a plain link that opens its page in a new tab, with no dock or frame. An item without the field, or with any other value, opens in the dock as before.
+- The review loop is now a feature still being built, as no run of it was
+  seen on a host. A release refuses `TEHAS_REVIEW=on`, and a
+  `TEHAS_REVIEW_REPO` line, with exit 78 and names `review`. `tehas api
+  --json` lists `review` in `flags` as `false`, `install.sh` no longer
+  installs `tehas-review.service` or `tehas-review.timer`, and `tehasbot
+  review` exits 0 at once. `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` stay on the
+  frozen surface with their meaning. `tehas update --check` lists every line
+  of a building feature an instance sets, not only the first. While review is
+  off, an update stops and disables `tehas-review.timer` where an earlier
+  release left it enabled, and keeps its unit files (#2488).
+- A plan written onto its issue whose edit timed out or got a 5xx is no longer taken as written when the plan kept the issue's title, or when the issue's text starts `Replaces #`. The next poll writes it again unless the issue already holds the plan's text. A cycle's note in the body of an issue that a refine filed is no longer taken as written when the edit did not land (#2542).
+- A start from `tehas start N` that gives up before its cycle runs, on a GitHub error or a busy store, keeps the host's approval, so the next poll tries again. Before, the approval was deleted and the issue never started. When the cycle's unit does not come up, the comment now says to run `tehas start N` again, not to apply `tehas:ready` (#2543).
+- When GitHub times out or answers 5xx on the `tehas:running` mark of a start, the poll reads the issue once. A mark that was made starts the cycle. Before, the start was undone and the next poll parked the issue with `needs-human-attention` (#2544).
+- When GitHub fails the read of the control issue's labels, `tehasbot status` takes `tehas:pause` from the issue's events, and when that read fails too it keeps the pause switches of the snapshot before and names `pause` in `stale`. A paused factory is no longer shown as taking work, or as paused by a lift nobody made (#2545).
+- MCP `factory_status` leaves out `hold` and `held` when the poll's report is more than ten minutes older than the health file, as a paused poll does not rewrite it (#2546).
+- A poll that cannot list `~/tehas/state/cycles` now ends with exit 1 before it acts. It used to read that as no cycle running: it removed the containers of live cycles, parked their issues and could start past the limit (#2547).
+- A cycle killed before it reported (a power loss, the OOM killer) no longer reads as running. `tehas status` says `killed before it reported: tehas stop N ends its record` for such a host start, and `tehas state pack` and `load` refuse with that reason in place of `a cycle is running for #N`. The store's `approval-hosts` gives each cycle its lock's state (#2548).
+- When `install.sh` stops before it installs anything after a release update switched `~/tehas/current`, `tehas update` points current and the sandbox uid tag back where they were, so a plain `tehas update` reinstalls the version the host ran (#2551).
+- A host that runs from its platform checkout at a tag newer than the newest release, such as a prerelease, moves to the release of that tag with `tehas update` instead of back to the newest. An unpublished tag changes nothing (#2552).
+- `sandbox/build.sh` now says that the uid tag names the platform image without the instance layer when the layer of `sandbox.Dockerfile` fails to build or fails its smoke run, instead of saying the tag was left as it was (#2553).
+- Going back to a release whose sandbox image is still tagged no longer puts that image back when it was built from another `sandbox.Dockerfile` than the instance has now; the sandbox build the update owes runs as on any other update (#2554).
+- A classic retry of a parked issue now takes `needs-human-attention` off on the host before its runner starts, so a pull request that waits only for a merge gets `tehas:awaiting-merge` instead of being parked again (#2556).
+- A start that `tehas work` refused with exit 4 is no longer parked as an image or file that could not be given. The park lists the possible causes and points to the comment that names the real one, and `tehas status` says the same (#2557).
+- Building the sandbox image survives a flaky apt mirror: each apt step retries its fetches, and when it still fails it runs once more after 30 seconds. CI, the release gate and the release workflow retry a tool download whose transfer fails, and still check it against its pinned sum.
+- 1.0 is the core factory. outsource, spec-pipe, protolab-zip-url, prototype-file, lean and review are planned for 1.1 and stay off in 1.0. The contract lists the settings, commands, fields and labels each adds in 1.1, under the same names.
 
 ### Held back
 
@@ -647,6 +672,11 @@ Rebuild the sandbox image (`install.sh` rebuilds it) for the fixes to reach cycl
 On a host with a `sandbox.Dockerfile`, the first `tehas update` or `tehas setup` after updating rebuilds the image once, because the image there has no `tehas.layer` label yet.
 
 On a host with a `sandbox.Dockerfile` whose image was built before the `tehas.layer` label, health says `warn` until `tehas update` rebuilds the image.
+
+A host that set `TEHAS_REVIEW=on` (or `1`) or `TEHAS_REVIEW_REPO` in
+`instance.env` takes those lines out before it updates. Otherwise the update
+stops with exit 78 and names them. Nothing to do for an enabled
+`tehas-review.timer`: the update disables it.
 
 ## v0.30.6 (2026-11-15)
 
