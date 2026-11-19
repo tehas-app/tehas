@@ -220,7 +220,7 @@ fi
 # new image as a label, which is what the dispatcher, tehas work and tehas
 # plan read; the Dockerfile asks the base it builds on again.
 rc=0
-caps=$(docker run --rm --init "$base" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || rc=$?
+caps=$(docker run --pull=never --rm --init "$base" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || rc=$?
 case "$rc" in
   0) ;;
   125)

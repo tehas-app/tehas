@@ -351,9 +351,17 @@ fn limits(libexec: &str) -> Result<(Vec<String>, Vec<String>), u8> {
 fn docker_line(head: [&str; 4], options: [&Vec<String>; 6], run: &[String]) -> Vec<String> {
     let [name, user, repo, image] = head;
     let [limits, security, rest @ ..] = options;
-    let mut line: Vec<String> = ["docker", "run", "--rm", "--init", "--name", name]
-        .map(String::from)
-        .to_vec();
+    let mut line: Vec<String> = [
+        "docker",
+        "run",
+        sandbox::NEVER_PULL,
+        "--rm",
+        "--init",
+        "--name",
+        name,
+    ]
+    .map(String::from)
+    .to_vec();
     line.extend_from_slice(limits);
     line.extend_from_slice(security);
     line.extend(["--user", user, "-w", repo].map(String::from));

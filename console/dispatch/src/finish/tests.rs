@@ -135,6 +135,63 @@ fn the_millwright_asks_within_its_grant() {
     assert_eq!(f.finished.len(), 1, "{:?}", f.lines);
 }
 
+/// #2571: a host approval names no account. An edit or a rename in its own
+/// second by an outside account called `host` is after it and refuses the
+/// finish; the same change a second earlier does not.
+#[test]
+fn a_change_in_the_second_of_a_host_approval_by_an_account_called_host_refuses() {
+    let since = "2026-10-30T10:00:00Z";
+    let host = || {
+        let mut r = approved();
+        r["by"] = json!("host");
+        r["how"] = json!("host");
+        json!({"at": "2026-10-31T10:00:00Z", "by": "acme-millwright", "how": "fixer",
+            "fixer_starts": 1, "rests_on": r})
+    };
+    let edited = |at: &str| {
+        let mut a = ask("acme-millwright");
+        a.approval = Ok(Some(host()));
+        a.edit = json!({"body": BODY, "title": "T", "lastEditedAt": at,
+            "editor": {"login": "host"}});
+        a
+    };
+    let renamed = |at: &str| {
+        let mut a = ask("acme-millwright");
+        a.approval = Ok(Some(host()));
+        let Events::Read(ev) = &mut a.events else {
+            unreachable!()
+        };
+        ev.insert(
+            0,
+            Event {
+                event: "renamed".into(),
+                label: String::new(),
+                actor: "host".into(),
+                at: Some(at.into()),
+            },
+        );
+        a
+    };
+    for a in [edited(since), renamed(since)] {
+        let mut f = Fake::default();
+        run(a, &mut f);
+        assert!(f.finished.is_empty(), "{:?}", f.lines);
+        assert!(
+            f.said[0].1.contains("changed since host approved it"),
+            "{}",
+            f.said[0].1
+        );
+    }
+    for a in [
+        edited("2026-10-30T09:59:59Z"),
+        renamed("2026-10-30T09:59:59Z"),
+    ] {
+        let mut f = Fake::default();
+        run(a, &mut f);
+        assert_eq!(f.finished.len(), 1, "{:?}", f.lines);
+    }
+}
+
 #[test]
 fn a_refusal_of_the_command_takes_the_label_off_and_gives_its_line() {
     for why in [

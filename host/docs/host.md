@@ -1164,6 +1164,18 @@ root to its own user with `setpriv`, which needs `SETUID` and `SETGID`; started
 as that user it skips the drop. The image is built with the tehas user's uid
 (`tehas/pi-rukas:uid<uid>`), so the uid has a name and a home inside it.
 
+Every container tehas starts from the sandbox image or its base has
+`--pull=never`: a cycle and its capabilities check, push check and install, a
+planning turn, a review, a `tehas dev` session, the indexer, the memory's
+vipune, the product check, the build's smoke runs and the questions the
+dispatcher and `tehasbot status` ask the image. The image is built on the
+host, and its name is also a name on Docker Hub. When the local image is gone, for example after
+`docker system prune -a`, `docker run` ends 125 with `No such image` and the
+command stops, instead of pulling an image of that name from the registry and
+giving it the cycle's token and model keys. Build the image again with
+`~/tehas/sandbox/build.sh`. `tehas update` does not: it rebuilds the image
+only when its pins or its Dockerfile changed, not when the image is missing.
+
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cap-drop` | `ALL` | Takes away every capability Docker grants by default: `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`, `MKNOD`, `AUDIT_WRITE`, `NET_RAW` |
@@ -1317,6 +1329,8 @@ last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
+The 8 hours are wall-clock time from the unit's start, and time a cycle spends
+frozen counts toward them.
 `TEHAS_PLAN_TIMEOUT` may be at most 7200, 2 hours: the unit of a turn runs to
 the limit plus a quarter of an hour, and one turn runs at a time. A planning
 turn and the index run each run as their own unit, not inside a poll, so they
@@ -1442,7 +1456,10 @@ request goes on with the `Host` of its allowed target, never the one the
 client sent.
 
 The first container that needs the proxy makes both networks and starts it,
-under `~/tehas/state/egress.lock`. It is started again when its list, the
+under `~/tehas/state/egress.lock`. Each Docker call of that step ends within
+60 seconds, and a start waits for the lock 15 minutes at most, so a dockerd
+that does not answer stops the start with the reason instead of holding the
+issue's lock. It is started again when its list, the
 binary or the image changed, which cuts the connections of the containers
 running then. The network is held to what the previews' network is held to
 (`console preview network check`): Docker 27.1 or later, which knows
@@ -2108,7 +2125,7 @@ Both are outside the repository and the tehas tree.
 | Question                               | Answer                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Who can start a cycle                  | Only an account in `TEHAS_ALLOWED_LABELERS`. The dispatcher checks who most recently applied `tehas:ready`, not just that it is there   |
-| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again. GitHub's times count whole seconds, so a change by another account in the second the label went on counts as afterwards |
+| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again. GitHub's times count whole seconds, so a change by another account in the second the label went on counts as afterwards. An approval of `tehas start` is by no account, so every change in its second counts as afterwards, even one by an account called `host` |
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, and that the label is the pinned one, as the dispatcher checks `tehas:ready`. A title changed since by anyone else is not published. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |

@@ -22,6 +22,17 @@ pub fn write(args: fmt::Arguments) {
     }
 }
 
+/// Writes `text` and flushes: 0, 141 when the reader has gone, 1 on another
+/// failure. For a command that decides its own status after printing.
+pub fn print(text: &str) -> u8 {
+    let mut out = io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(e) if e.kind() == ErrorKind::BrokenPipe => crate::exit::CLOSED,
+        Err(_) => 1,
+    }
+}
+
 /// `println!` that exits 141 when stdout's reader has gone.
 #[macro_export]
 macro_rules! outln {

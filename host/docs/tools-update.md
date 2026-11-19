@@ -90,7 +90,9 @@ the update with 78 and switches nothing: v0.31.x and later refuse the old
 name, and the manager writes it again on each upgrade. `TEHAS_INDUSTRY_VERSION`
 in `~/.config/tehas/env` is the one 0.30 name that is ignored, not refused.
 Until the manager writes 1.0's names, such a factory cannot be updated
-through it.
+through it. industry writes them from v0.36.1 (tehas-industry#1405): it
+writes `TEHAS_MAX_CYCLES` for a tehas from v0.31.0 on, betas included, so a
+factory it manages takes v0.32.0 and then any 1.0 release.
 
 ### From a release
 
@@ -107,7 +109,11 @@ The newest is the newest release, never a prerelease (`vX.Y.Z-alpha.N`,
 `-beta.N` or `-rc.N`): a plain `tehas update` passes over them, and a host
 installs one only when `--to` names it. They come in the order alpha, beta,
 rc, then the release, so a host on `v1.0.0-beta.1` moves on with a plain
-update once `v1.0.0` is out, and stays where it is until then. `tehas status
+update once `v1.0.0` is out, and stays where it is until then. While it
+is ahead of the newest release, `tehas update --check` says so rather than
+naming the older release as the newest, and names the newest prerelease of
+its own version when there is a newer one, such as `v1.0.0-beta.2`, for
+`--to` to move to. It does not offer to move back. `tehas status
 --json` names the release a host runs and the commit it was built from in
 `versions.platform`.
 
@@ -127,10 +133,10 @@ version to move to.
 
 1. download `tehas-<version>-linux-<arch>.tar.gz`, its `.sha256` and its
    `.minisig`, unless that version is still on the host. `<arch>` is the
-   architecture `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and
-   `arm64` read as those. A machine whose `uname -m` says anything else has no
-   release to download and stops with the words it answered, before anything is
-   fetched;
+   architecture `uname -m` answers. Releases are built for `x86_64` only,
+   with `amd64` read as that. A machine whose `uname -m` says anything else,
+   `aarch64` among them, has no release to download and stops with the words
+   it answered, before anything is fetched;
 2. check the tarball against the `.sha256` and the signature against the key
    built into tehas, `host/release/minisign.pub` when the release was built,
    never `~/tehas/release/minisign.pub` or a key in the download. An instance
@@ -428,9 +434,14 @@ cd ~/tehas/platform
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the home is
-not provably tehas's, or `--lab-build` was run from a release tree (nothing
-was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the
+instance's `sandbox.Dockerfile` cannot be read, the home is not provably
+tehas's, or `--lab-build` was run from a release tree (nothing was changed).
+`--check` reports an unreadable `sandbox.Dockerfile` with an `unreadable:`
+line and exits 1.
+Any other argument, or these in another order, is refused with exit 64 and a
+usage line before anything is built or changed, so a mistyped `--check` never
+installs.
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
@@ -584,11 +595,18 @@ here once the home is proved tehas's.
 **From v0.30 only.** This release migrates a store that v0.30.0 or a later
 release wrote, at schema 12 or newer. Before its first copy, while it holds
 the dispatcher's lock, the run asks the store it installs to judge the
-database there (`store migrate --dry-run`, which reads only). An older store
-stops the run with exit 78, the store's line, `... older than v0.30.0 wrote:
-update to a v0.30 release first, then to this one`, and `this release cannot
-migrate ...; nothing was installed`: no file is copied, the database is left
-as it was and no backup of it is written. The record files a
+database there with a dry run (`store migrate --dry-run --backup
+state/backup`). The dry run opens the database to write, so it takes the
+store's write lock for a moment, writes the copies the migration would put in
+`state/backup` (two when the schema changes, so the disk needs room for two
+copies of the database) and removes them. An older store stops the run with
+exit 78, the store's line, `... older than v0.30.0 wrote: update to a v0.30
+release first, then to this one`, and `this release cannot migrate ...;
+nothing was installed`: no file is copied, the database is left as it was and
+no backup of it is written. A backup directory the store refuses, or a copy it
+cannot write, stops the run the same way, with exit 78, the store's line and
+`this release cannot migrate ...; nothing was installed`: no file is copied
+and the database is left as it was. The record files a
 tehas before the state store kept under `state/` are no longer imported: a
 v0.30 install imported them. A home with no marker `.tehas-home` and other
 files in it is refused, as any home that is not tehas's is: every install since

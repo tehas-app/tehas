@@ -154,21 +154,30 @@
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
 # then) or another update is running, 78 the instance settings are invalid,
-# TEHAS_HOME is not provably tehas's or --lab-build was given a release tree
-# (nothing was changed).
+# the instance's sandbox.Dockerfile cannot be read, TEHAS_HOME is not
+# provably tehas's or --lab-build was given a release tree (nothing was
+# changed), 64 an argument it does not take (nothing was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
 tests=0
-[ "${1:-}" = "--check" ] && check=1
-[ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
 # A plain run says off rather than leave the marker to the environment, so
 # only --lab-build ever builds programs that read TEHAS_TEST_FEATURES. No run
 # builds with debug assertions, which would read the tests' other hooks too.
 build_kind=build lab=off
-[ "${1:-}" = "--lab-build" ] && build_kind=lab lab=on
+# Anything else is refused: a mistyped --check must not install.
+case "$#:${1:-}:${2:-}" in
+  0::) ;;
+  1:--check:) check=1 ;;
+  2:--check:--tests) check=1 tests=1 ;;
+  1:--lab-build:) build_kind=lab lab=on ;;
+  *)
+    echo "usage: ./install.sh [--check [--tests] | --lab-build]" >&2
+    exit 64
+    ;;
+esac
 if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
   echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
   exit 78
@@ -735,6 +744,11 @@ owed=$("$loaded_console" update sandbox "$TEHAS_HOME/versions.env" "$host/versio
   "$instance/sandbox.Dockerfile" "$sandbox_at_file") ||
   { echo "tehas: the console at $loaded_console could not tell whether the sandbox build is owed; nothing was installed" >&2; exit 1; }
 read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
+if [ "$sandbox_unread" = 1 ] && [ "$check" != 1 ]; then
+  echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
+  echo "tehas: nothing was installed" >&2
+  exit 78
+fi
 
 changed=()
 report=()
@@ -986,13 +1000,7 @@ fi
 # the files below, in its own line, and not in changed[], which holds only source
 # paths of the file table.
 if [ "$sandbox_unread" = 1 ]; then
-  if [ "$check" = 1 ]; then
-    note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
-  else
-    echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
-    echo "tehas: nothing was installed" >&2
-    exit 78
-  fi
+  note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
 fi
 if [ "$sandbox_changed" = 1 ]; then
   sandbox_drift=1

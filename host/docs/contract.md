@@ -535,6 +535,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | Shown, set or cleared |
+| 1 | The limit file could not be written or removed; the limit is as it was |
 | 64 | A bad argument; nothing is written |
 | 78 | The settings are missing or malformed; nothing is written |
 
@@ -562,7 +563,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | The request is written |
-| 1 | The read of GitHub failed, took more than 20 seconds or named no pull request; nothing is written |
+| 1 | The read of GitHub failed, took more than 20 seconds or named no pull request, which writes nothing, or the request could not be written |
 | 3 | It is not a pull request the factory refreshes, or it does not conflict; nothing is written |
 | 64 | No `--pr`, or N is not a whole number above 0 |
 | 78 | The settings are missing or malformed, or `tehas-dispatch` is not installed or cannot run |
@@ -572,6 +573,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | No cycle is running |
+| 1 | The limit could not be written; nothing is printed on standard output and nothing is waited for |
 | 3 | Some still are at the end of the wait, or a poll held its lock for the whole of it. The answer is printed |
 | 64 | A bad argument; nothing is written |
 | 78 | The settings are missing or malformed |
@@ -590,6 +592,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | The host is paused |
+| 1 | The flag could not be written; the host is not paused by this command |
 | 64 | A bad argument, a reason without `--reason` among them |
 | 78 | The settings are missing or malformed, or there is no console to run |
 
@@ -624,8 +627,8 @@ error, when its reader goes away, as in `tehas status | head -1`.
 
 | Status | When |
 | --- | --- |
-| 0 | The poll ran, or there was nothing to do |
-| 1 | A call to GitHub failed or could not be read, the state store could not be read, systemd cannot load the cycle unit, or a cycle could not be started |
+| 0 | The poll ran, or there was nothing to do, or `--soon` wrote its file |
+| 1 | A call to GitHub failed or could not be read, the state store could not be read, systemd cannot load the cycle unit, a cycle could not be started, or `--soon` could not write its file |
 | 64 | An argument it does not know; no poll |
 | 78 | The settings are missing or malformed, or the dispatcher or the state store is not installed or cannot be used |
 
