@@ -1470,7 +1470,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         let why = match (&refused, &conflicted) {
             (Some(r), _) => r.short.as_str(),
             (None, Some(_)) => "the pull request it refreshes conflicts",
-            _ if rc == 4 => "an image or file the issue links could not be given to it",
+            // Exit 4 has many causes, and tehas work's comment alone names
+            // which.
+            _ if rc == 4 => "the comment tehas work posted on the issue says why",
             _ if lean_refused => "the sandbox image cannot run lean as this start asks",
             _ => "",
         };
@@ -1748,7 +1750,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             } else {
                 " No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.".to_string()
             };
-            parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
+            parked = format!("Tehas started no cycle: tehas work refused the start before its runner ran (runner exit {runner_rc}). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 && refused.as_ref().is_some_and(|r| r.fault) {
                 // Tehas passed what work-lean never takes: no image and no
                 // label fixes that, so the park asks for neither. Its reason is
