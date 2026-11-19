@@ -560,3 +560,4 @@ field status.previews
 field status.previews[].number
 field status.previews[].state
 field status.previews[].url
+field host-bridge.menu[].open

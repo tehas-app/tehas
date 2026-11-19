@@ -50,9 +50,9 @@
     }
   }
 
-  // A page for the dock: an http: or https: address with no user or
+  // A page for the menu: an http: or https: address with no user or
   // password, at most 512 characters. panels.js drops one on the page's own
-  // origin, as it does a panel's.
+  // origin.
   function page(s) {
     if (typeof s !== "string" || s.length > 512 || SPACE_OR_CONTROL.test(s)) return null;
     try {
@@ -69,7 +69,7 @@
   }
 
   // The answer as the pages use it, or null when it is ignored whole:
-  // { ticketLink, notes: Map(issue -> [{ text, link }]), menu: [{ id, label, url }] }.
+  // { ticketLink, notes: Map(issue -> [{ text, link }]), menu: [{ id, label, url, open }] }.
   // A `tokens` field is ignored.
   // `now` is the time to judge the answer's age by, in ms.
   function read(text, now) {
@@ -114,7 +114,7 @@
       const url = page(e.url);
       if (label === null || url === null) continue;
       menuIds.add(e.id);
-      menu.push({ id: e.id, label, url });
+      menu.push({ id: e.id, label, url, open: e.open === "page" ? "page" : "dock" });
     }
 
     return { ticketLink: ticketLink(v.ticketLink), notes, menu };
