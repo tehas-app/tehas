@@ -111,6 +111,19 @@ for args in "set" "set --cycles" "set --cycles -1" "set --cycles 1.5" "set --cyc
 done
 t_contains "$t_out" "usage: tehas limit"
 
+t_case "a limit file that cannot be written or removed is exit 1, and says why"
+reset
+rm -rf "$T/home/tehas/state"
+: >"$T/home/tehas/state"
+t_run "$limit set --cycles 1"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas limit: could not create"
+reset
+mkdir -p "$file/in-the-way"
+t_run "$limit clear"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas limit: could not remove"
+
 t_case "an expired limit is read as expired, and says nothing starts"
 reset
 mkdir -p "${file%/*}"
