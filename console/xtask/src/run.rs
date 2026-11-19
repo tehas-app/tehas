@@ -689,6 +689,49 @@ fn build(root: &Path, target: &str, out: &Path) -> Result<(), String> {
     ))
 }
 
+/// Cargo's locks of a profile's directory, in the order a cargo takes them. A
+/// building cargo holds `.cargo-artifact-lock` alone and `.cargo-lock` only
+/// shared; a cargo older than the artifact lock holds `.cargo-lock` alone.
+const CARGO_LOCKS: [&str; 2] = [".cargo-lock", ".cargo-artifact-lock"];
+
+/// Copies of the programs `build` made, in the run's root, in the order of
+/// `BINS`. The test files run these and never the target's: a cargo of the same
+/// workspace with other features, as the gate's `cargo test` beside this run,
+/// replaces the target's programs while the tests run, and a test that runs one
+/// in that moment finds no program (#2495). The copy is made holding cargo's
+/// locks shared, so no cargo replaces a program while it is copied.
+fn stage(target: &str, out: &Path) -> Result<Vec<PathBuf>, String> {
+    let debug = Path::new(target).join("debug");
+    let mut locks = Vec::new();
+    for name in CARGO_LOCKS {
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(debug.join(name))
+            .and_then(|f| f.lock_shared().map(|()| f));
+        match held {
+            Ok(f) => locks.push(f),
+            Err(e) => return Err(format!("cargo's {name} is not held: {e}")),
+        }
+    }
+    let dir = out.join("bin");
+    let staged = fs::create_dir_all(&dir).map_err(|e| format!("no {}: {e}", dir.display()));
+    let copied = staged.and_then(|()| {
+        BINS.iter()
+            .map(|(_, bin)| {
+                let to = dir.join(bin);
+                fs::copy(debug.join(bin), &to)
+                    .map(|_| to)
+                    .map_err(|e| format!("{bin} was built and cannot be copied: {e}"))
+            })
+            .collect()
+    });
+    drop(locks);
+    copied
+}
+
 /// The pool: each check a `test-task` process, at most `jobs` at once, and
 /// while the host is busy the next waits for one to end. One always runs.
 struct Pool<'a> {
@@ -873,10 +916,10 @@ pub fn main(root: &Path, args: &[String], recorder: &Path) -> u8 {
     } else {
         let _ = fs::remove_file(&shell);
     }
-    match build(root, &target, &out) {
-        Ok(()) => {
-            for (var, bin) in BINS {
-                std::env::set_var(var, format!("{target}/debug/{bin}"));
+    match build(root, &target, &out).and_then(|()| stage(&target, &out)) {
+        Ok(bins) => {
+            for ((var, _), path) in BINS.iter().zip(bins) {
+                std::env::set_var(var, path);
             }
         }
         Err(why) => std::env::set_var("T_STORE_WHY", why),

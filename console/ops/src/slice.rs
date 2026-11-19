@@ -24,10 +24,18 @@
 //! a lock; each cid file is what `docker run --cidfile` wrote for one of them.
 //! Always exits 0 and prints one line:
 //!   <room> <committed> <max> <reserve> [<why> [<note>]]
-//! The three in the middle are bytes. <why> is absent when there is room, else
+//! The three in the middle are bytes, and <reserve> is the reserve in bytes or,
+//! when TEHAS_CYCLE_RESERVE is no size, a word for it: `nosize` when the name
+//! is not set at all, else that setting's own word with the spaces and quotes
+//! of it as '_'. room is 0 for it either way, and the note says
+//! `TEHAS_CYCLE_RESERVE=<v> is not a size`. The fourth field is never empty, so
+//! the line keeps its five places.
+//! <why> is absent when there is room, else
 //! room (promised to the full), full (as many containers as their ceilings
 //! fit), pressure (full avg60 above 10 and more than half the max promised) or
-//! unreadable (room is 0, and <note> names the file and what was missing).
+//! unreadable (room is 0, and <note> names the file and what was missing). A
+//! full avg60 that is no figure is unreadable, and one too big to count in
+//! hundredths is why pressure, never the 0.00 of a slice that never stalled.
 //!
 //!   console slice pressure
 //!
@@ -69,9 +77,24 @@ fn assignments(u: Option<&Usable>, why: &str) -> String {
         .collect()
 }
 
+/// The fourth field of the room line: the reserve in bytes, or a word for a
+/// reserve that is no size. A `0` there was read as a reserve of nothing, and
+/// the line's own note then said only "the slice was not probed"; a reserve
+/// that is no size is named as one, so the fifth field says so and the fourth
+/// holds what the instance wrote. The word is never empty and holds no space
+/// or quote, so `read -r room committed max reserve why note` keeps its places
+/// whatever the setting said. Nothing else reads the fourth as bytes: `room` is
+/// 0 for it either way.
+fn reserve_said(written: &str) -> String {
+    match slice::bytes(written) {
+        Some(bytes) => bytes.to_string(),
+        None if written.is_empty() => "nosize".into(),
+        None => written.replace([' ', '\'', '"'], "_"),
+    }
+}
+
 fn room(count: &str, cids: &[String]) -> String {
     let reserve = var("TEHAS_CYCLE_RESERVE");
-    let reserve_b = slice::bytes(&reserve).unwrap_or(0);
     let s = Usable {
         max: num(&var("TEHAS_SLICE_MAX")).unwrap_or(0),
         active: var("TEHAS_SLICE_ACTIVE"),
@@ -79,7 +102,7 @@ fn room(count: &str, cids: &[String]) -> String {
         cpus: 0,
         nproc: 0,
     };
-    let probed = s.max != 0 && reserve_b != 0 && s.ceiling_mb != 0;
+    let probed = s.max != 0 && slice::bytes(&reserve).is_some() && s.ceiling_mb != 0;
     let r: Room = match num(count) {
         None if probed => {
             slice::unreadable(0, s.max, "the count of cycles is not a number".to_string())
@@ -89,7 +112,13 @@ fn room(count: &str, cids: &[String]) -> String {
             slice::room(&reading, &s, &reserve, count.unwrap_or(0))
         }
     };
-    let mut line = format!("{} {} {} {reserve_b}", r.room, r.committed, r.max);
+    let mut line = format!(
+        "{} {} {} {}",
+        r.room,
+        r.committed,
+        r.max,
+        reserve_said(&reserve)
+    );
     for word in [&r.why, &r.note] {
         if !word.is_empty() {
             line.push(' ');
@@ -146,6 +175,23 @@ pub fn main(given: &[String]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_reserve_field_says_bytes_or_a_word_for_the_setting_that_is_no_size() {
+        // A reserve of no size was printed as 0, which reads as a container
+        // promised nothing; the word the instance wrote is what the reader has
+        // to see, and the note beside it says what is wrong with it. The field
+        // is one word always, so the five places of the line do not shift.
+        assert_eq!(reserve_said("2g"), "2147483648");
+        assert_eq!(reserve_said("512m"), "536870912");
+        assert_eq!(reserve_said("2gg"), "2gg");
+        assert_eq!(reserve_said(""), "nosize");
+        assert_eq!(reserve_said("2 g"), "2_g");
+        assert_eq!(reserve_said("2g'; echo ran"), "2g_;_echo_ran");
+        let line = format!("0 0 0 {}", reserve_said(""));
+        let fields: Vec<&str> = line.split(' ').collect();
+        assert_eq!(fields.len(), 4, "{line}");
+    }
 
     #[test]
     fn a_value_for_eval_stays_one_word_whatever_it_holds() {

@@ -427,6 +427,19 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             shown(&J::Str(tehas_ops::health::push_fault_line(push)))
         ));
     }
+    if let Some((read, named)) = test_features(checks) {
+        let var = tehas_core::features::TEST_VAR;
+        lines.push(match (read, named.is_empty()) {
+            (false, _) => {
+                format!("features  {var} is set and this build does not read it: take it out")
+            }
+            (true, true) => format!("features  a lab build: {var} names no building feature"),
+            (true, false) => format!(
+                "features  a lab build: {var} names {}, still being built",
+                named.join(", ")
+            ),
+        });
+    }
     let limit = checks.get("limit");
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
         lines.push(limit_line(limit));
@@ -822,6 +835,24 @@ fn versions(checks: &J) -> J {
     ])
 }
 
+/// `checks.testFeatures` of the health file: whether the build reads
+/// TEHAS_TEST_FEATURES and the building features it names. None when the
+/// check is not there or not what health writes.
+fn test_features(checks: &J) -> Option<(bool, Vec<String>)> {
+    let t = checks.get("testFeatures");
+    let J::Bool(read) = t.get("read") else {
+        return None;
+    };
+    let named = t
+        .get("features")
+        .items()
+        .iter()
+        .filter_map(|f| f.as_str().map(|n| shown(&J::str(n))))
+        .filter(|n| !n.is_empty())
+        .collect();
+    Some((*read, named))
+}
+
 /// The object tehas status --json prints.
 pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     let checks = h.get("checks");
@@ -993,6 +1024,16 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     // A read-only instance (#608) says so; any other leaves the key out.
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
+    }
+    // Only where TEHAS_TEST_FEATURES is set, as health says it.
+    if let Some((read, named)) = test_features(checks) {
+        fields.push((
+            "testFeatures",
+            obj(vec![
+                ("read", J::Bool(read)),
+                ("features", J::Arr(named.into_iter().map(J::Str).collect())),
+            ]),
+        ));
     }
     obj(fields)
 }
@@ -1393,6 +1434,40 @@ mod tests {
         );
         let other = h(r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{}}"#);
         assert!(status_json(&other, NOW, false).get("readOnly").is_null());
+    }
+
+    #[test]
+    fn the_test_variable_is_a_line_and_a_field_only_where_health_says_it() {
+        let lab = h(
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["outsource","lean",7]}}}"#,
+        );
+        assert_eq!(
+            status_json(&lab, NOW, false).get("testFeatures").dump(),
+            r#"{"read":true,"features":["outsource","lean"]}"#
+        );
+        assert!(state_lines(&lab, NOW, false, "").contains(
+            &"features  a lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built"
+                .to_string()
+        ));
+        let release = h(
+            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":false,"features":[]}}}"#,
+        );
+        assert!(state_lines(&release, NOW, false, "").contains(
+            &"features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out"
+                .to_string()
+        ));
+        for other in [
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{}}"#,
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":"yes"}}}"#,
+        ] {
+            let other = h(other);
+            assert!(status_json(&other, NOW, false)
+                .get("testFeatures")
+                .is_null());
+            assert!(!state_lines(&other, NOW, false, "")
+                .iter()
+                .any(|l| l.starts_with("features")));
+        }
     }
 
     #[test]

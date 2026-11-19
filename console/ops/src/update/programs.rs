@@ -3,10 +3,14 @@
 //!
 //!   console update programs <home> release <tree> <program>...
 //!   console update programs <home> build <workspace> <program>...
+//!   console update programs <home> lab <workspace> <program>...
 //!   console update programs stamp <installed program> release|<source sum>
 //!
 //! `release` judges the programs a release tree carries in `<tree>/libexec`,
-//! `build` the ones built from the workspace. A program is due when
+//! `build` the ones built from the workspace, and `lab` the ones `install.sh
+//! --lab-build` builds from it with debug assertions on. A lab build's stamp is
+//! a sum of its own, so a plain build of the same source replaces it and a lab
+//! build replaces a plain one. A program is due when
 //! `<home>/libexec/<program>` is not executable or its `.stamp` is not the one
 //! this tree would leave. One line per due program, in the order asked:
 //! `missing <program> <stamp>` when nothing is installed under that name,
@@ -30,7 +34,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
 
-const USAGE: &str = "console update programs: usage: <home> release|build <tree> <program>... | stamp <installed program> release|<source sum>";
+const USAGE: &str = "console update programs: usage: <home> release|build|lab <tree> <program>... | stamp <installed program> release|<source sum>";
 
 fn executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -94,7 +98,10 @@ fn due(home: &Path, kind: &str, tree: &Path, names: &[String]) -> Result<Vec<Str
         _ => {
             let ws = workspace(tree)?;
             for name in names {
-                let sum = source_sum(tree, &ws, name)?;
+                let mut sum = source_sum(tree, &ws, name)?;
+                if kind == "lab" {
+                    sum = lab_sum(&sum);
+                }
                 let to = libexec.join(name);
                 let want = || Ok(format!("{sum} {}", file_sum(&to)?));
                 lines.extend(judge(&to, name, &sum, want)?);
@@ -102,6 +109,11 @@ fn due(home: &Path, kind: &str, tree: &Path, names: &[String]) -> Result<Vec<Str
         }
     }
     Ok(lines)
+}
+
+/// The source sum of a lab build of the source whose sum is `sum`.
+fn lab_sum(sum: &str) -> String {
+    hex(format!("lab {sum}").as_bytes())
 }
 
 fn is_sum(word: &str) -> bool {
@@ -133,7 +145,7 @@ pub fn verb(given: &[String]) -> u8 {
             stamp(Path::new(program), source).map(|()| Vec::new())
         }
         [home, kind, tree, names @ ..]
-            if (kind == "release" || kind == "build") && !names.is_empty() =>
+            if matches!(kind.as_str(), "release" | "build" | "lab") && !names.is_empty() =>
         {
             due(Path::new(home), kind, Path::new(tree), names)
         }
@@ -278,6 +290,39 @@ mod tests {
             build(&d),
             [format!("differs store {}", sum_of(&d, "store"))]
         );
+    }
+
+    #[test]
+    fn a_lab_build_and_a_plain_build_replace_each_other() {
+        let d = dir("programs-lab");
+        workspace_tree(&d);
+        installed(&d);
+        let lab = |d: &Dir| {
+            due(
+                &d.0.join("home"),
+                "lab",
+                &d.0.join("src/console"),
+                &names(&["console", "store"]),
+            )
+            .unwrap()
+        };
+        let (c, s) = (
+            lab_sum(&sum_of(&d, "console")),
+            lab_sum(&sum_of(&d, "store")),
+        );
+        assert!(is_sum(&c) && c != sum_of(&d, "console"));
+        assert_eq!(
+            lab(&d),
+            [format!("differs console {c}"), format!("differs store {s}")]
+        );
+        for (name, sum) in [("console", &c), ("store", &s)] {
+            stamp(&d.0.join(format!("home/libexec/{name}")), sum).unwrap();
+        }
+        assert!(lab(&d).is_empty());
+        assert_eq!(build(&d).len(), 2);
+        // A release replaces a lab build as it replaces any other.
+        exe(&d, "tree/libexec/console", "console built\n");
+        assert_eq!(release(&d, &["console"]), ["differs console release"]);
     }
 
     #[test]

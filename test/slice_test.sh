@@ -535,4 +535,20 @@ good
 t_run "$pre"'TEHAS_CYCLE_RESERVE="'"2g'; echo ran; '"'"; slice_ok; echo "rc=$? [$TEHAS_SLICE_WHY]"'
 t_eq "$t_out" "rc=1 [TEHAS_CYCLE_RESERVE=2g'; echo ran; ' is not a size]"
 
+t_case "a reserve that is no size is named in its own field and keeps the places of the line"
+# The reserve field of a size is bytes. Of a word that is no size it is that
+# word, never 0 and never empty: so why and the note keep their places under
+# read -r, and the word says the setting rather than a size of nothing.
+good
+# The probe good() set up, taken the way the dispatcher takes it, then the
+# room line of a reserve the load never read: room is 0, the fourth field is
+# the word and not 0, and the note names the setting.
+t_run "$pre"'slice_ok; TEHAS_CYCLE_RESERVE=2gg; slice_verb room 0'
+t_eq "$t_out" "0 0 $MAX 2gg unreadable TEHAS_CYCLE_RESERVE=2gg is not a size"
+t_run "$pre"'slice_ok; TEHAS_CYCLE_RESERVE=2gg; read -r room committed max reserve why note < <(slice_verb room 0); echo "[$room] [$reserve] [$why] [$note]"'
+t_eq "$t_out" "[0] [2gg] [unreadable] [TEHAS_CYCLE_RESERVE=2gg is not a size]"
+# A word with a space in it is still one field: the places of the line hold.
+t_run "$pre"'slice_ok; TEHAS_CYCLE_RESERVE="2 g; echo ran"; read -r room committed max reserve why note < <(slice_verb room 0); echo "[$reserve] [$why] [$note]"'
+t_eq "$t_out" "[2_g;_echo_ran] [unreadable] [TEHAS_CYCLE_RESERVE=2 g; echo ran is not a size]"
+
 t_done

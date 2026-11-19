@@ -13,6 +13,14 @@
 #                           the same, and run the shell tests too. They take
 #                           most of a check's time, so tehas update --check,
 #                           which has a time limit, leaves them out
+#   ./install.sh --lab-build
+#                           a real run whose programs are built with debug
+#                           assertions on, so they read TEHAS_TEST_FEATURES:
+#                           for a lab host that proves a building feature
+#                           (host/docs/tools-update.md). A checkout only: a
+#                           release tree has no source to build and is refused
+#                           (78). Each program's stamp is a lab build's, so a
+#                           plain run builds it again, and a release replaces it
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab and the
@@ -141,8 +149,9 @@
 #
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
-# then) or another update is running, 78 the instance settings are invalid or
-# TEHAS_HOME is not provably tehas's (nothing was changed).
+# then) or another update is running, 78 the instance settings are invalid,
+# TEHAS_HOME is not provably tehas's or --lab-build was given a release tree
+# (nothing was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -151,6 +160,14 @@ check=0
 tests=0
 [ "${1:-}" = "--check" ] && check=1
 [ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
+# A plain run says false rather than leave the setting to the environment, so
+# only --lab-build ever builds programs that read TEHAS_TEST_FEATURES.
+build_kind=build assertions=false
+[ "${1:-}" = "--lab-build" ] && build_kind=lab assertions=true
+if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
+  echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
+  exit 78
+fi
 # The tests give a stand-in for the suite: a check inside the tests never runs
 # the real one, which would run these tests again. Read before tehas_load,
 # which drops it from the environment.
@@ -239,7 +256,8 @@ cargo_build() {
   esac
   args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
   build_cmd="cargo ${args[*]}"
-  out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
+  out=$(timeout "$build_timeout" env "${hidden[@]}" CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS="$assertions" \
+    cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
 }
 # cache_miss <cargo's words>: true when one line is cargo's own report that a
 # crate it needs is not in its cache.
@@ -821,7 +839,7 @@ else
   # program's source (console/ops/src/update/sources.rs) and compares the stamps
   # (console/ops/src/update/programs.rs).
   programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
-  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" "${compiled[@]}") ||
+  programs=$("$programs_console" update programs "$TEHAS_HOME" "$build_kind" "$root/console" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
 fi
 due=()
@@ -1289,6 +1307,15 @@ if [ "${#old_units[@]}" -gt 0 ]; then
   done
   [ "$gone" = 0 ] || systemctl --user daemon-reload >/dev/null 2>&1 ||
     echo "later: systemctl --user daemon-reload   (units of a retired feature are removed)"
+fi
+
+# Where the manual puts TEHAS_TEST_FEATURES on a lab host. Only a lab build
+# reads it, so after any other run the file does nothing but mislead.
+lab_env=$HOME/.config/environment.d/tehas-lab.conf
+if [ "$build_kind" = lab ]; then
+  echo "note: a lab build: its programs read TEHAS_TEST_FEATURES, from $lab_env for the units; ./install.sh without --lab-build goes back"
+elif [ -e "$lab_env" ]; then
+  echo "later: rm $lab_env && systemctl --user daemon-reload   (this is no lab build, so TEHAS_TEST_FEATURES does nothing)"
 fi
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then

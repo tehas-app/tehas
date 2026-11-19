@@ -57,6 +57,17 @@ pub(crate) const LEAN: &str = Driver::Lean.label();
 /// `TEHAS_DRIVER=lean` makes lean the default.
 pub(crate) const CLASSIC: &str = Driver::Classic.label();
 
+/// The driver labels `Poll::driver` asks the applier of. Under the classic
+/// default `tehas:classic` agrees with it and chooses nothing; under
+/// `TEHAS_DRIVER=lean` either label is a choice, since with neither the text
+/// decides.
+pub(crate) fn driver_labels(default: Driver) -> &'static [&'static str] {
+    match default {
+        Driver::Lean => &[CLASSIC, LEAN],
+        Driver::Classic => &[LEAN],
+    }
+}
+
 /// The label that holds an issue out of rule 6 until its blockers are closed.
 /// Spelled once so the read that batchs its reads and the rule that waits on
 /// it cannot drift apart.
@@ -106,9 +117,10 @@ enum Planned {
     Go(String, String),
 }
 
-/// Who made the choice of driver that does not count: applied `label` (the
-/// instance's [`Driver::opt_out`]), or with `off` took an allowed account's off. With
+/// Who made the choice of driver that does not count: applied `label` (one of
+/// [`driver_labels`]), or with `off` took an allowed account's off. With
 /// `both`, the issue carries both driver labels and nobody's choice is read.
+/// `lean_default` is `TEHAS_DRIVER=lean`, which says what runs with no label.
 /// With `building`, the start would run lean and the lean feature is not on
 /// in this release: nobody's choice is wrong, but nothing starts and classic
 /// does not run in its place.
@@ -118,6 +130,7 @@ struct Stranger {
     label: &'static str,
     both: bool,
     building: bool,
+    lean_default: bool,
 }
 
 impl Stranger {
@@ -129,6 +142,7 @@ impl Stranger {
             label: LEAN,
             both: true,
             building: false,
+            lean_default: false,
         }
     }
 
@@ -140,14 +154,16 @@ impl Stranger {
             label: LEAN,
             both: false,
             building: true,
+            lean_default: false,
         }
     }
 
     /// The driver that runs when `label` is off, and that tehas does not run
-    /// in its place.
+    /// in its place. Under `TEHAS_DRIVER=lean` that is whichever the issue's
+    /// text gives, for either label.
     fn default_name(&self) -> &'static str {
-        if self.label == CLASSIC {
-            Driver::Lean.word()
+        if self.lean_default {
+            "the driver its text would choose"
         } else {
             Driver::Classic.word()
         }
@@ -1554,15 +1570,15 @@ impl<'a> Poll<'a> {
             && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
     }
 
-    /// driver: the driver of a start, read of who applied the label that
-    /// chooses against the default (`tehas:lean`, or `tehas:classic` under
-    /// `TEHAS_DRIVER=lean`) and never of the label alone. With that label off
-    /// a start runs the default, whatever the last one ran, unless an account
-    /// outside the list took an allowed account's choice off. With it on, a
-    /// start that rests on an earlier approval (`retry`) keeps the driver on
-    /// that record, so a label added since changes nothing until a person
-    /// approves a new start. The label that agrees with the default chooses
-    /// nothing, but with both on nothing starts: tehas does not guess.
+    /// driver: the driver of a start, read of who applied a driver label
+    /// ([`driver_labels`]) and never of the label alone. With no label a
+    /// start runs the default, whatever the last one ran, unless an account
+    /// outside the list took an allowed account's choice off. The default is
+    /// classic, or under `TEHAS_DRIVER=lean` what the issue's text gives
+    /// (`default_driver`). With a label on, a start that rests on an earlier
+    /// approval (`retry`) keeps the driver on that record, so a label added
+    /// since changes nothing until a person approves a new start. With both on
+    /// nothing starts: tehas does not guess.
     ///
     /// A start that would run lean while the lean feature is off starts
     /// nothing, as a stranger's choice does, and says why. A lean default
@@ -1579,28 +1595,35 @@ impl<'a> Poll<'a> {
         if has(labels, LEAN) && has(labels, CLASSIC) {
             return Ok(Choice::Stranger(Stranger::both()));
         }
-        let default = self.c.driver_default;
-        let label = Driver::opt_out(default);
-        let (default, chosen) = (Choice::Run(default), Choice::Run(default.other()));
-        let stranger = |who: String, off: bool| {
+        let read = driver_labels(self.c.driver_default);
+        let lean_default = self.c.driver_default == Driver::Lean;
+        let stranger = |who: String, off: bool, label: &'static str| {
             Choice::Stranger(Stranger {
                 who,
                 off,
                 label,
                 both: false,
                 building: false,
+                lean_default,
             })
         };
-        if !has(labels, label) {
-            return Ok(match self.taken_off(n, label) {
-                Some(who) => stranger(who, true),
-                None => default,
-            });
-        }
+        let Some(label) = read.iter().copied().find(|l| has(labels, l)) else {
+            for l in read {
+                if let Some(who) = self.taken_off(n, l) {
+                    return Ok(stranger(who, true, l));
+                }
+            }
+            return Ok(self.default_driver(n));
+        };
+        let chosen = Choice::Run(if label == CLASSIC {
+            Driver::Classic
+        } else {
+            Driver::Lean
+        });
         let ev = self.events(n)?;
         let (who, _) = label_actor(&ev, label);
         if !self.c.allowed(&who) {
-            return Ok(stranger(or_unknown(&who).to_string(), false));
+            return Ok(stranger(or_unknown(&who).to_string(), false, label));
         }
         if !retry {
             return Ok(chosen);
@@ -1621,6 +1644,37 @@ impl<'a> Poll<'a> {
                 Ok(Choice::Run(Driver::Lean))
             }
             Some(Ok(Some(_))) => Ok(Choice::Run(Driver::Classic)),
+        }
+    }
+
+    /// default_driver: the driver of a start no label chose. Classic, or under
+    /// `TEHAS_DRIVER=lean` lean when the issue's text holds a `pi-spec v1`
+    /// block and classic when it does not: lean declines an issue without
+    /// one. A body that was not read chooses nothing: the start waits rather
+    /// than run a driver nobody chose.
+    fn default_driver(&mut self, n: u64) -> Choice {
+        if self.c.driver_default != Driver::Lean {
+            return Choice::Run(Driver::Classic);
+        }
+        let Some(body) = self.body(n) else {
+            self.log(format!(
+                "wait #{n}: its text could not be read, and TEHAS_DRIVER=lean chooses the driver by its {} block",
+                text::SPEC_INFO
+            ));
+            return Choice::Wait;
+        };
+        if text::has_spec(&body) {
+            self.log(format!(
+                "start #{n} on lean: TEHAS_DRIVER=lean and its text holds a {} block",
+                text::SPEC_INFO
+            ));
+            Choice::Run(Driver::Lean)
+        } else {
+            self.log(format!(
+                "start #{n} on classic: TEHAS_DRIVER=lean and its text holds no {} block lean can read",
+                text::SPEC_INFO
+            ));
+            Choice::Run(Driver::Classic)
         }
     }
 
