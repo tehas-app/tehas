@@ -529,6 +529,29 @@ mod edit_tests {
             json!({"lastEditedAt": "2026-01-02T09:59:00Z", "editor": {"login": "mallory"}});
         assert_eq!(held(&before), None);
     }
+
+    /// An empty `since` has every edit after it, but still no unstamped one.
+    #[test]
+    fn with_no_approval_time_only_a_stamped_edit_holds() {
+        let allowed = |w: &str| w == "alice";
+        let unstamped = json!({"lastEditedAt": null, "editor": {"login": "mallory"}});
+        assert_eq!(edit_holds(&unstamped, "", "alice", &allowed), None);
+        let stamped = json!({"lastEditedAt": SINCE, "editor": {"login": "mallory"}});
+        assert_eq!(
+            edit_holds(&stamped, "", "alice", &allowed).as_deref(),
+            Some("mallory")
+        );
+    }
+
+    /// GitHub stamps to the second: an edit in the approval's second holds
+    /// unless the approver made it.
+    #[test]
+    fn an_edit_in_the_approval_second_holds_unless_the_approver_made_it() {
+        let by = |who: &str| json!({"lastEditedAt": SINCE, "editor": {"login": who}});
+        assert_eq!(held(&by("mallory")).as_deref(), Some("mallory"));
+        let only_bob = |w: &str| w == "bob";
+        assert_eq!(edit_holds(&by("alice"), SINCE, "alice", &only_bob), None);
+    }
 }
 
 #[cfg(test)]
