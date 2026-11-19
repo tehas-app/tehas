@@ -384,12 +384,17 @@ fn the_image_goes_to_a_contractor_s_key_whole_or_by_range_and_is_saved_once() {
         &format!("{}Range: bytes=999-\r\n", by_key(KEY)),
     );
     assert_eq!(past.status, 416);
-    // An id that is not the factory's image, or none at all.
-    let other = get(c.at, &format!("image?id={}", id('b')), &by_key(KEY));
-    assert_eq!(
-        (other.status, other.refused().as_str()),
-        (404, "not the factory's image")
-    );
+    // An id that is not the factory's image, or none at all. Each refusal
+    // gives its place among the image downloads back, so more of them than
+    // there are places leave the next download free to start.
+    for _ in 0..=tehas_proxy::download::IMAGES_AT_ONCE {
+        let other = get(c.at, &format!("image?id={}", id('b')), &by_key(KEY));
+        assert_eq!(
+            (other.status, other.refused().as_str()),
+            (404, "not the factory's image")
+        );
+    }
+    assert_eq!(get(c.at, &path, &by_key(KEY)).status, 200);
     assert_eq!(get(c.at, "image", &by_key(KEY)).status, 400);
     // A download is a GET.
     assert_eq!(ask(c.at, "POST", &path, &by_key(KEY)).status, 400);

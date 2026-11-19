@@ -196,9 +196,11 @@ t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/inspect")" "image
 inspect
 tehas/pi-rukas:uid$(id -u)"
-t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g" "$T/calls/argv")" "run
+t_eq "$(sed -E "s#$T/home/tehas/tmp/widget/check-product\.[A-Za-z0-9]{6}#@DIR#g; s#^tehas-check-product-[A-Za-z0-9]{6}-#@NAME-#" "$T/calls/argv")" "run
 --pull=never
 --rm
+--name
+@NAME-gates
 --cgroup-parent
 tehas.slice
 --memory
@@ -235,6 +237,33 @@ gates
 make test
 
 end"
+
+t_case "--sandbox: gates that outlive TEHAS_VERIFY_TIMEOUT are killed by name and fail the check"
+product "${good[@]}"
+t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=1
+printf '%s\n' '{"providers": {"lab": {"models": [{"id": "big"}]}}}' >"$TEHAS_INSTANCE_DIR/models.json"
+t_stub docker 'case $1 in image) exit 0 ;; run) echo $$ >"$T/calls/run.pid"; exec sleep 30 ;; kill) kill "$(cat "$T/calls/run.pid")" ;; esac'
+SECONDS=0
+t_run "$check --sandbox"
+t_eq "$t_rc" 3
+t_contains "$t_out" "FAIL  sandbox  the gates did not end within 1s (TEHAS_VERIFY_TIMEOUT) in tehas/pi-rukas:uid$(id -u)"
+[ "$SECONDS" -lt 20 ] || t_bad "the run took ${SECONDS}s"
+name=$(grep '^run ' "$T/calls/docker" | sed -E 's/.* --name ([^ ]+) .*/\1/')
+[[ $name =~ ^tehas-check-product-[A-Za-z0-9]{6}-gates$ ]] || t_bad "no container name: $name"
+t_eq "$(grep '^kill ' "$T/calls/docker")" "kill $name"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+t_eq "$(jq .sandbox "$result")" false
+
+t_case "--sandbox: a TEHAS_VERIFY_TIMEOUT that is no number is 78 before any git call"
+product "${good[@]}"
+t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=soon
+t_stub git
+t_stub docker
+t_run "$check --sandbox"
+t_eq "$t_rc" 78
+t_eq "$(t_calls git)" ""
+t_eq "$(t_calls docker)" ""
+rm -f "$T/bin/git"
 
 t_case "--sandbox: nothing to run is a failure of its own, and no gate reaches docker"
 product "AGENTS.md=rules" ".pi/verify-cmd=# nothing yet"
