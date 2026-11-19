@@ -10,7 +10,7 @@ import { test } from "node:test";
 import { consoleModel, duration } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
 import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
-import { MAX, chips, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
+import { MAX, chips, emptyText, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewWhy, previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
 import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
@@ -109,9 +109,13 @@ test("a list shows the first ten rows, its count, the time and a link to the res
   // Completed rows tell the time they were closed.
   assert.equal(issuesModel(status({ completed: [issue(3)] }), { list: "completed" }, NOW).rows[0].when, "2 min ago");
   const empty = issuesModel(status(), { list: "stopped" }, NOW);
-  assert.deepEqual([empty.n, empty.rows, empty.more, empty.empty], ["", [], null, "Nothing is stopped."]);
+  assert.deepEqual([empty.n, empty.rows, empty.more], ["", [], null]);
+  // What an empty list says comes from the list's name alone, as it is drawn
+  // before the file is read.
+  assert.equal(emptyText("stopped"), "Nothing is stopped.");
   // A list the element does not know of is the queue, not a key of the file.
   assert.equal(issuesModel(status(), { list: "__proto__" }, NOW).name, "queued");
+  assert.equal(emptyText("__proto__"), "Nothing is waiting. Label an issue tehas:ready.");
 });
 
 test("a link of the queue file that is not a web address is not drawn as one", () => {

@@ -2,7 +2,7 @@ import { Errored, For, Loading, Show, createMemo, html } from "../kit/vendor/sol
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
 import { links, listen, useBridge } from "./bridge.state.js";
-import { issuesModel } from "./tehas-factory-issues.model.js";
+import { emptyText, issuesModel } from "./tehas-factory-issues.model.js";
 
 // A space between two elements, which a template drops.
 export const SP = " ";
@@ -21,7 +21,7 @@ export const mount = view((props, ctx) => {
   return html`<${Errored} fallback=${(_e) => ctx.first}><${Loading} fallback=${() => ctx.first}><section>
     <h2>${() => m().title}${SP}<span class="n" id=${() => "n-" + m().name}>${() => m().n}</span></h2>
     <ul class="issues" id=${() => m().name}>
-      <${For} each=${() => m().rows} keyed=${(r) => r.number} fallback=${html`<li class="empty">${() => m().empty}</li>`}>${(r) =>
+      <${For} each=${() => m().rows} keyed=${(r) => r.number} fallback=${html`<li class="empty">${() => emptyText(props.list)}</li>`}>${(r) =>
         html`<li><span class="num">#${() => r().number}</span><a href=${() => r().href}>${() => r().title}</a><${Notes} list=${() => r().notes} />${SP}<span class="when">${() => r().when}</span></li>`}<//>
       <${Show} when=${() => m().more}><li class="empty"><a class="more" href=${() => m().more.href}>${() => m().more.text}</a></li><//>
     </ul>
