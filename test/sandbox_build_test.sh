@@ -85,6 +85,11 @@ t_stub docker 'case "$1" in
         # fx/ask-fails is a docker that answers no inspect at all, the shape of
         # an image that is not there.
         [ ! -e "$T/fx/ask-fails" ] || exit 1
+        # The tehas.layer label, the sum of the instance layer the image was
+        # built from, is fx/layer-label.
+        for a in "$@"; do case "$a" in *tehas.layer*)
+          [ ! -e "$T/fx/layer-label" ] || cat "$T/fx/layer-label"
+          exit 0 ;; esac; done
         for a in "$@"; do case "$a" in *tehas.rukas*)
           [ -e "$T/fx/label" ] || exit 1
           cat "$T/fx/label"
@@ -754,4 +759,65 @@ t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(sandbox_builds | grep -c .)" 1
 t_lacks "$(t_calls docker)" "TEHAS_BASE"
+# An image on the commit followed is still behind when the instance's layer is
+# not the one it was built from: its tehas.layer label is the sum console
+# sandbox layer gives of the instance's sandbox.Dockerfile and what it copies.
+t_env_instance
+layer_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
+
+t_case "with --if-moved an image on the commit followed and on the instance's layer is left alone"
+reset
+fx_ids
+echo "$head" >"$fx/label"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$layer_file"
+"$home/libexec/console" sandbox layer "$layer_file" >"$fx/layer-label"
+t_run "$build --if-moved"
+t_eq "$t_rc" 0
+t_contains "$t_out" "is on $head, release v0.12.80"
+t_lacks "$(t_calls docker)" "build"
+
+t_case "with --if-moved a changed sandbox.Dockerfile is rebuilt and the layer labelled with its sum (#2496)"
+reset
+fx_ids
+echo "$head" >"$fx/label"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$layer_file"
+"$home/libexec/console" sandbox layer "$layer_file" >"$fx/layer-label"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\nRUN true\n' >"$layer_file"
+sum=$("$home/libexec/console" sandbox layer "$layer_file")
+t_run "$build --if-moved"
+t_eq "$t_rc" 0
+t_contains "$t_out" "its instance layer is $(cat "$fx/layer-label"), sandbox.Dockerfile is $sum"
+t_contains "$(sandbox_builds | grep -e '^build -t ')" "--label=tehas.layer=$sum"
+t_contains "$(t_calls docker | grep -e '^tag ')" "-product "
+
+t_case "with --if-moved an image with no layer label is rebuilt when the instance has a layer"
+reset
+fx_ids
+echo "$head" >"$fx/label"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$layer_file"
+t_run "$build --if-moved"
+t_eq "$t_rc" 0
+t_contains "$t_out" "its instance layer is none"
+t_eq "$(sandbox_builds | grep -c .)" 2
+
+t_case "with --if-moved an image built with a layer the instance no longer has is rebuilt"
+reset
+echo "$head" >"$fx/label"
+echo "sha256:$(printf '1%.0s' {1..64})" >"$fx/layer-label"
+rm -f "$layer_file"
+t_run "$build --if-moved"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox.Dockerfile is none"
+t_eq "$(sandbox_builds | grep -c .)" 1
+
+t_case "--check says the instance's layer changed and builds nothing"
+reset
+echo "$head" >"$fx/label"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$layer_file"
+t_run "$build --check"
+t_eq "$t_rc" 3
+t_contains "$t_out" "its instance layer is none"
+t_eq "$(sandbox_builds | grep -c .)" 0
+rm -f "$layer_file"
+
 t_done
