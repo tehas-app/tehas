@@ -426,6 +426,9 @@ starts. `needs-human-attention` is left for the cycle, which starts with
 says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
+A label change GitHub did not answer (a timeout or a 5xx) is read back once:
+when the issue carries `tehas:running` and not the labels the change takes
+off, the change was made and the cycle starts.
 
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`

@@ -793,7 +793,7 @@ impl Writer {
                 log.push(format!(
                     "ERROR: #{n}: the store could not say which attempt is on record ({w}), not starting a cycle"
                 ));
-                self.restore(n, recorded, log);
+                self.withdraw(n, a, recorded, log);
                 return Then::Failed;
             }
         };
@@ -803,7 +803,7 @@ impl Writer {
                 log.push(format!(
                     "ERROR: #{n}: the question of its park could not be taken off the record ({w}), not starting a cycle"
                 ));
-                self.restore(n, recorded, log);
+                self.withdraw(n, a, recorded, log);
                 return Then::Failed;
             }
         };
@@ -818,7 +818,8 @@ impl Writer {
         }
         self.analytics(&event, log);
         // A1: the issue is marked as taken before anything starts; a mark
-        // that fails leaves it in its queue for the next poll.
+        // that fails leaves it in its queue for the next poll. A mark GitHub
+        // did not answer is read back: one that was made is not undone.
         let mut args: Vec<String> = vec![
             "issue".into(),
             "edit".into(),
@@ -828,8 +829,9 @@ impl Writer {
             "--add-label".into(),
             "tehas:running".into(),
         ];
-        for l in super::strings(a, "remove") {
-            args.extend(["--remove-label".into(), l]);
+        let removed = super::strings(a, "remove");
+        for l in &removed {
+            args.extend(["--remove-label".into(), l.clone()]);
         }
         // #806: the owner is assigned in the same call, so GitHub shows the
         // issue as taken. A refresh's issue was assigned when it was first
@@ -850,13 +852,19 @@ impl Writer {
             ));
             wrote = self.write(n, "label-add", args, None, None);
         }
+        if matches!(wrote, Wrote::Unknown(_)) && self.marked_now(n, &removed) {
+            log.push(format!(
+                "#{n} is marked tehas:running: the mark GitHub did not answer was made"
+            ));
+            wrote = Wrote::Done(String::new());
+        }
         match wrote {
             Wrote::Done(_) => {}
             other => {
                 if matches!(other, Wrote::Unrecorded) {
                     log.push(Writer::unrecorded(n));
                 }
-                self.restore(n, recorded, log);
+                self.withdraw(n, a, recorded, log);
                 self.park_reask(n, unasked.as_deref(), log);
                 log.push(format!(
                     "ERROR: could not mark #{n} as running, not starting a cycle"
@@ -944,7 +952,13 @@ impl Writer {
         if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
             log.push(format!("WARN: label change on #{n} failed"));
         }
-        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
+        // The restore above took the host's approval too, and no label asked.
+        let retry = if given == crate::decide::HOST {
+            format!("run `tehas start {n}` on `{host}`")
+        } else {
+            "apply `tehas:ready`".to_string()
+        };
+        self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up: {why}. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, {retry}."), log);
         Then::Failed
     }
 
@@ -1556,6 +1570,38 @@ impl Writer {
                 false
             }
         }
+    }
+
+    /// withdraw: the approval of a start that gave up before its cycle ran,
+    /// off the record. A label's is recorded again by the next poll, since
+    /// the label stays. The host's approval is the only record of a start of
+    /// `tehas start`, and this poll recorded onto that row: it stays, so the
+    /// next poll tries the start again.
+    fn withdraw(&mut self, n: u64, a: &Value, recorded: i64, log: &mut Vec<String>) {
+        if text(a, "given") == crate::decide::HOST && epoch(text(a, "at")) == Some(recorded) {
+            log.push(format!(
+                "the host's approval of #{n} stays on record: the next poll tries it again"
+            ));
+            return;
+        }
+        self.restore(n, recorded, log);
+    }
+
+    /// Whether GitHub says issue `n` carries `tehas:running` and none of
+    /// `removed` now. A read that fails says no.
+    fn marked_now(&mut self, n: u64, removed: &[String]) -> bool {
+        let path = format!("repos/{}/issues/{n}", self.repo);
+        let Ok(v) = self.calls.gh(&["api", &path]) else {
+            return false;
+        };
+        let have: Vec<&str> = v
+            .get("labels")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|l| l.get("name").and_then(Value::as_str))
+            .collect();
+        have.contains(&"tehas:running") && !removed.iter().any(|l| have.contains(&l.as_str()))
     }
 
     /// restore_record: the approval this poll recorded, off the record again.
