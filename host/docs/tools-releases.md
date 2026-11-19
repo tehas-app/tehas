@@ -221,7 +221,8 @@ prerelease tag (below), on a clean
 GitHub-hosted runner (`ubuntu-24.04`), not on the organisation's own runners
 that pull requests run on. The job installs what it builds and signs with:
 minisign at a pinned version and hash, jq and rustup at the versions and
-hashes `host/versions.env` pins, and Rust at its `RUST_VERSION` with the musl
+hashes `host/versions.env` pins (each download tried again when its transfer
+fails, and checked against its hash), and Rust at its `RUST_VERSION` with the musl
 target. The first step's jq is the image's. Before it runs anything of the
 tagged tree it checks that the tagged commit is on the default branch `main`
 and that the account that pushed the tag is an admin of the repository, not a

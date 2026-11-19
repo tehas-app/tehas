@@ -213,6 +213,16 @@ done
 # pi-rukas's own recipe is read for the floor of the pi version.
 t_contains "$(cat "$T_ROOT/host/sandbox/base.Dockerfile")" "source=.devcontainer/Dockerfile"
 
+t_case "each apt step of the base retries its fetches, and the whole step once after a pause"
+recipe=$T_ROOT/host/sandbox/base.Dockerfile
+t_eq "$(grep -c 'apt-get update' "$recipe")" 3
+t_eq "$(grep -c 'apt-get update -o Acquire::Retries=5 ' "$recipe")" 3
+t_eq "$(grep -c 'apt-get install' "$recipe")" 3
+t_eq "$(grep -c 'apt-get install -y -o Acquire::Retries=5 --no-install-recommends' "$recipe")" 3
+t_eq "$(grep -c 'RUN for try in 1 2; do' "$recipe")" 3
+t_eq "$(grep -c '&& break; ' "$recipe")" 3
+t_eq "$(grep -c 'rm -rf /var/lib/apt/lists/\*; sleep 30; ' "$recipe")" 3
+
 t_case "the base is built from pinned inputs: images by digest, downloads checked before they run"
 recipe=$T_ROOT/host/sandbox/base.Dockerfile
 froms=$(grep -E '^FROM ' "$recipe")

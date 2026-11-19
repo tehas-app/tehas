@@ -1800,7 +1800,10 @@ and the build stops when a lockfile is not the one whose `_LOCK_SHA256` is
 recorded. pi is `PI_VERSION`, and the build stops when that is older than the
 version pi-rukas's own recipe pins. To move the ubuntu digest, take the index
 digest from `docker buildx imagetools inspect ubuntu:24.04` and change both
-`FROM` lines. The
+`FROM` lines. Each apt step, of the base and of the sandbox layer, has apt
+retry its fetches and, when the step still fails, runs it once more after 30
+seconds: a mirror caught mid-sync answers with a hash mismatch that a quick
+retry does not fix. The
 user `vscode` is made at the tehas user's uid in the first layer, so the remap
 of the sandbox layer finds nothing to copy: it used to store every file twice.
 Playwright brings only its headless shell, since a container has no display.

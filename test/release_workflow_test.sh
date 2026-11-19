@@ -138,6 +138,7 @@ t_stub sha256sum 'cat >"$T/sha.in"'
 rust ''
 t_eq "$t_rc" 0
 t_contains "$(t_calls curl)" 'https://static.rust-lang.org/rustup/archive/9.8.7/x86_64-unknown-linux-gnu/rustup-init'
+t_contains "$(t_calls curl)" '--retry 5 --retry-all-errors --retry-delay 5 -o'
 t_eq "$(cat "$T/sha.in")" "feed  $T/rt/rustup-init"
 t_contains "$(cat "$T/rustup-init.args")" '--default-toolchain 1.100.0'
 t_contains "$(cat "$T/rustup-init.args")" '--target x86_64-unknown-linux-musl'

@@ -671,6 +671,7 @@ for workflow in "$T_ROOT/.github/workflows/verify.yml" "$T_ROOT/.github/workflow
     s && /- name:/{exit}
     s' "$workflow")
   t_contains "$node_step" 'https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz'
+  t_contains "$node_step" 'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/node.tar.xz"'
   t_contains "$node_step" 'echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -'
   t_contains "$node_step" 'echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"'
   t_contains "$node_step" 'test "$("$RUNNER_TEMP/node/bin/node" --version)" = "v$NODE_VERSION"'
