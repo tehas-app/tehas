@@ -39,5 +39,7 @@ and a field without a value is left out.
 The settings are loaded here, and the arguments of set, the
 reading, the writing and the printing are the console's (console/ops/src/holds.rs).
 
-Exit: 0 shown, set or cleared; 64 a bad argument, which writes nothing; 78
-the instance settings are missing or malformed, which writes nothing.
+Exit: 0 shown, set or cleared; 1 the limit file could not be written or
+removed, which leaves the limit as it was; 64 a bad argument, which writes
+nothing; 78 the instance settings are missing or malformed, which writes
+nothing.

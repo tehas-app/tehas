@@ -228,6 +228,17 @@ t_eq "$t_out" "1760700000-12-1  work  #12
 1760700060-7-2  plan  #7
 exported  2 cycles to $out (next: 1760700060-7-2)"
 
+t_case "a reader that goes away is exit 141, with nothing on standard error, and the copy is made"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+for flag in --json ""; do
+  rm -rf "$out"
+  t_run "{ sleep 0.3; $export_cmd $flag --after $((T0 - 1))-12 '$out' 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+  t_eq "$t_rc" 141
+  t_eq "$(cat "$T/err")" ""
+  t_eq "$(jq -c . "$out/export.json")" '{"version":1}'
+done
+
 t_case "an old copy of a cycle is replaced whole"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
