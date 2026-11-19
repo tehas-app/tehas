@@ -148,6 +148,15 @@ t_run "$top --once"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no live directory"
 
+t_case "a reader that goes away is exit 141, with nothing on standard error"
+reset
+files
+for words in "--once" "--json"; do
+  t_run "{ command -p sleep 0.3; $top $words 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+  t_eq "$t_rc" 141
+  t_eq "$(cat "$T/err")" ""
+done
+
 t_case "a run changes nothing under TEHAS_HOME"
 reset
 files

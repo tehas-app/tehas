@@ -22,7 +22,6 @@
 use crate::{commands, energy, run};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -150,9 +149,9 @@ fn header(text: &str) -> String {
         .collect()
 }
 
-// A reader that took what it wanted and left is no fault.
+/// 141 when the reader has gone, as in every command.
 fn say(text: &str) {
-    let _ = io::stdout().write_all(text.as_bytes());
+    tehas_core::out!("{text}");
 }
 
 fn unknown(which: &str, command: &str, usage: &str) -> u8 {

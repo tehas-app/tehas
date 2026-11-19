@@ -543,9 +543,9 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | Shown, set or cleared |
-| 1 | The file could not be written or removed |
+| 1 | The state store refused the change or did not answer |
 | 64 | A bad argument; nothing is written |
-| 78 | The settings are missing or malformed; nothing is written |
+| 78 | The settings are missing or malformed, or the state store is not installed or cannot be used; nothing is written |
 
 ### tehas start
 
@@ -565,7 +565,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 1 | The read of GitHub failed, took more than 20 seconds or named no pull request; nothing is written |
 | 3 | It is not a pull request the factory refreshes, or it does not conflict; nothing is written |
 | 64 | No `--pr`, or N is not a whole number above 0 |
-| 78 | The settings are missing or malformed |
+| 78 | The settings are missing or malformed, or `tehas-dispatch` is not installed or cannot run |
 
 ### tehas drain
 

@@ -38,5 +38,6 @@ tehasbot refresh is the same command under its old name, kept through 1.x.
 Exit: 0 the request was written; 3 N is not a pull request the factory
 refreshes, or it does not conflict: why is on stderr, nothing is written;
 64 no --pr N, or an argument this command does not know; 78 instance
-settings are missing or malformed; 1 the call to GitHub failed or its
+settings are missing or malformed, or tehas-dispatch is not installed or
+cannot run; 1 the call to GitHub failed or its
 answer could not be read, or the request could not be written.

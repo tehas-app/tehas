@@ -35,6 +35,7 @@ With --json, {"api": 1, "state": "ok", "issues": [12, 8], "only": true,
 "until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
 and a field without a value is left out.
 
-Exit: 0 shown, set or cleared; 1 the file could not be written or removed;
-64 a bad argument, which writes nothing; 78 the instance settings are missing
-or malformed, which writes nothing.
+Exit: 0 shown, set or cleared; 1 the state store refused the change or did
+not answer; 64 a bad argument, which writes nothing; 78 the instance settings
+are missing or malformed, or the state store is not installed or cannot be
+used, which writes nothing.

@@ -270,6 +270,16 @@ for name in $names; do
   t_contains "$t_out" "tehas $name"
 done
 
+t_case "a help text whose reader goes away is exit 141, with nothing on standard error"
+reset
+for words in "help" "help order" "order --help" "help update" "-h" "stop 5 --help"; do
+  t_run "{ sleep 0.3; TEHAS_CONSOLE='$T_CONSOLE' '$T_ROOT/bin/tehas' $words 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+  t_eq "$t_rc" 141
+  t_eq "$(cat "$T/err")" ""
+done
+t_run "{ sleep 0.3; TEHAS_CONSOLE='$T_CONSOLE' '$T_ROOT/bin/tehasbot' dispatch --help 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+t_eq "$t_rc" 141
+
 t_case "each command renamed for 1.0 is a tehas command, and an old tehasbot name still runs"
 reset
 rows=0

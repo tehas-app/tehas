@@ -48,7 +48,6 @@ use crate::{
     mcp, order, panel, queue, review, start, state, status, stop, top,
 };
 use std::env;
-use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
@@ -420,9 +419,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
     }
 }
 
-// A reader that took what it wanted and left is no fault, as it was for sed.
+/// 141 when the reader has gone, as in every command.
 fn say(text: &str) {
-    let _ = io::stdout().write_all(text.as_bytes());
+    tehas_core::out!("{text}");
 }
 
 pub fn text(command: &str) -> Option<&'static str> {

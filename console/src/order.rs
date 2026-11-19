@@ -14,8 +14,9 @@
 //! The clock is the host's, or `TEHAS_STORE_TEST_NOW` when that names whole
 //! seconds, the store's own test clock.
 //!
-//! Exit: 0 shown, set or cleared; 1 the store refused or could not be read;
-//! 64 a bad argument, which writes nothing.
+//! Exit: 0 shown, set or cleared; 1 the store refused or did not answer; 64 a
+//! bad argument, which writes nothing; 78 the settings are missing or
+//! malformed, or the store is not installed or cannot be used.
 
 use crate::store;
 use std::env;
@@ -165,7 +166,7 @@ pub fn main(given: &[String]) -> u8 {
             "tehas order: no state store in {}: run install.sh",
             here.display()
         );
-        return 1;
+        return tehas_core::exit::SETTINGS;
     }
     let mut args: Vec<String> = Vec::new();
     let json = match asked {
@@ -205,7 +206,11 @@ pub fn main(given: &[String]) -> u8 {
         }
         Err(refused) => {
             eprintln!("tehas order: the store said: {}", refused.line);
-            1
+            if refused.rc == 1 {
+                1
+            } else {
+                tehas_core::exit::SETTINGS
+            }
         }
     }
 }
