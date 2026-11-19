@@ -145,17 +145,49 @@ fn vipune_quiet(text: &str) -> bool {
     text == "quiet\n"
 }
 
+/// The CPUs of a list such as `0-3,8,10-11`, as the kernel and docker write
+/// them. Anything else is no list.
+fn cpu_list(list: &str) -> Option<Vec<u32>> {
+    let mut cpus = vec![];
+    for part in list.trim().split(',') {
+        let (lo, hi) = part.split_once('-').unwrap_or((part, part));
+        let (lo, hi) = (lo.parse::<u32>().ok()?, hi.parse::<u32>().ok()?);
+        if lo > hi {
+            return None;
+        }
+        cpus.extend(lo..=hi);
+    }
+    Some(cpus)
+}
+
+/// The CPUs of `Cpus_allowed_list` in a `/proc/<pid>/status`.
+fn allowed_cpus(status: &str) -> Option<Vec<u32>> {
+    cpu_list(
+        status
+            .lines()
+            .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))?,
+    )
+}
+
 /// The highest CPU of `Cpus_allowed_list` in a `/proc/<pid>/status`.
 fn highest_cpu(status: &str) -> Option<u32> {
-    let list = status
+    allowed_cpus(status)?.into_iter().max()
+}
+
+/// The CPUs docker says it has, when it refused a `--cpuset-cpus`. dockerd
+/// checks the option against the CPUs it saw when it started, so in a
+/// container whose cpuset moved since (Incus with `limits.cpu`) it refuses a
+/// CPU the build may run on.
+fn docker_cpus(out: &str) -> Option<Vec<u32>> {
+    let line = out
         .lines()
-        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))?
-        .trim();
-    list.split(',')
-        .map(|part| part.rsplit('-').next().unwrap_or(part).parse::<u32>().ok())
-        .collect::<Option<Vec<_>>>()?
-        .into_iter()
-        .max()
+        .find(|l| l.contains("Requested CPUs are not available"))?;
+    cpu_list(line.split_once("available: ")?.1)
+}
+
+/// The highest CPU both this process and docker take, for a second try.
+fn shared_cpu(ours: &[u32], docker: &[u32]) -> Option<u32> {
+    ours.iter().copied().filter(|c| docker.contains(c)).max()
 }
 
 /// What a command printed on both streams, as `2>&1` puts them on one pipe,
@@ -206,10 +238,27 @@ fn smoke_run_verb(image: &str, uid: &str) -> i32 {
             eprintln!("tehas-cycle: no CPU this process may run on is named in /proc/self/status");
             return 1;
         };
-        let out = match bounded(vipune_run(image, uid, cpu)) {
+        let vipune = |cpu: u32| match bounded(vipune_run(image, uid, cpu)) {
             Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(e) => format!("{e}\n"),
         };
+        let mut cpu = cpu;
+        let mut out = vipune(cpu);
+        // dockerd may refuse a CPU the build runs on: its list is from its
+        // start. Any one CPU shows a lost thread count, so try one it takes.
+        if let Some(docker) = docker_cpus(&out) {
+            let ours = allowed_cpus(&status).unwrap_or_default();
+            match shared_cpu(&ours, &docker) {
+                Some(other) => {
+                    eprintln!("tehas-cycle: docker refused CPU {cpu}; the vipune check runs on CPU {other}");
+                    cpu = other;
+                    out = vipune(cpu);
+                }
+                None => eprintln!(
+                    "tehas-cycle: docker takes none of the CPUs this process may run on; restart docker so it reads its cpuset again"
+                ),
+            }
+        }
         if !vipune_quiet(&out) {
             eprintln!("tehas-cycle: vipune in {image} on CPU {cpu} of a cpuset printed:");
             eprint!("{out}");
@@ -542,6 +591,38 @@ mod tests {
             "Cpus_allowed_list:\tx\n",
         ] {
             assert_eq!(highest_cpu(none), None, "{none:?}");
+        }
+    }
+
+    /// An Incus container with `limits.cpu` moves across CPUs; dockerd keeps
+    /// the list it read at its start and refuses a CPU outside it. The lists
+    /// are the ones a factory saw (#2519).
+    #[test]
+    fn a_cpu_docker_refuses_is_tried_again_on_one_both_take() {
+        let out = "docker: Error response from daemon: Requested CPUs are not available - requested 79, available: 12,19-20,29-30,32,35,39,46,49,55,65,69,74,87,95\n\nRun 'docker run --help' for more information\n";
+        let docker = docker_cpus(out).unwrap();
+        assert_eq!(docker.len(), 16);
+        let status = "Cpus_allowed_list:\t4,13,17,37,40,47-48,50-51,53,63,67-69,72,79\n";
+        let ours = allowed_cpus(status).unwrap();
+        assert_eq!(ours.len(), 16);
+        assert_eq!(highest_cpu(status), Some(79));
+        assert_eq!(shared_cpu(&ours, &docker), Some(69));
+        assert_eq!(shared_cpu(&[1, 2], &docker), None);
+        for other in [
+            "quiet\n",
+            "pthread_setaffinity_np failed for thread: 12, index: 3, mask: {4, }, error code: 22\n",
+            "docker: Error response from daemon: Requested CPUs are not available - requested 79, available: x\n",
+        ] {
+            assert_eq!(docker_cpus(other), None, "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_cpu_list_is_ranges_and_single_cpus() {
+        assert_eq!(cpu_list("0-3,8,10-11"), Some(vec![0, 1, 2, 3, 8, 10, 11]));
+        assert_eq!(cpu_list(" 7\n"), Some(vec![7]));
+        for none in ["", "x", "3-1", "1,,2", "1-"] {
+            assert_eq!(cpu_list(none), None, "{none:?}");
         }
     }
 
