@@ -519,6 +519,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - The front pages, the manual, `llms.txt` and both share images name tehas "The Lean Software Factory". A new manual page, `/lean-software-factory`, says what makes it lean and links the Pi software factory page, which stays.
 - The sandbox build's vipune check no longer refuses a good image when dockerd turns down the CPU it picked. In a container whose cpuset moved after dockerd started (Incus with `limits.cpu`), `tehas update` to a 1.0 beta failed with "Requested CPUs are not available". The check now runs again on a CPU both the build and dockerd name (#2519).
 - `tehas status --json` has `previews` on a host that runs previews: each open pull request with a preview, by `number`, with the preview's `state` and, while it serves, its `url`. `tehas api` names the feature `status-previews`.
+- A host bridge menu item can ask to open as a page of its own: with `"open": "page"` the front pages draw it as a plain link that opens its page in a new tab, with no dock or frame. An item without the field, or with any other value, opens in the dock as before.
 
 ### Held back
 
