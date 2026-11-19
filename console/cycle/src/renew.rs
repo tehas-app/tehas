@@ -191,6 +191,26 @@ fn stand_still(seconds: u64, stop: &AtomicBool, now: Now) {
     }
 }
 
+/// How often the renewer looks whether the cycle that started it is still there.
+const PARENT_STEP: Duration = Duration::from_millis(500);
+
+/// Sets `stop` once this process's parent is no longer `parent`, on a thread
+/// of its own. A `tehas work` killed outright leaves its renewer to init, and
+/// the renewer holds the issue's lock it inherited: it ends with its cycle.
+pub fn stop_when_orphaned(parent: u32, stop: std::sync::Arc<AtomicBool>) {
+    std::thread::spawn(move || watch_parent(parent, &stop, PARENT_STEP));
+}
+
+fn watch_parent(parent: u32, stop: &AtomicBool, step: Duration) {
+    while !stop.load(Ordering::Relaxed) {
+        if std::os::unix::process::parent_id() != parent {
+            stop.store(true, Ordering::Relaxed);
+            return;
+        }
+        std::thread::sleep(step);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,5 +780,25 @@ mod tests {
         let a = epoch_seconds();
         assert!(a > 1_700_000_000, "{a}");
         assert!(epoch_seconds() >= a);
+    }
+
+    #[test]
+    fn a_renewer_whose_cycle_is_gone_stops() {
+        let stop = AtomicBool::new(false);
+        let mine = std::os::unix::process::parent_id();
+        // Another parent than this process's: the cycle that started it is
+        // gone, so the watch sets the flag at once and ends.
+        watch_parent(mine.wrapping_add(1), &stop, Duration::from_millis(10));
+        assert!(stop.load(Ordering::Relaxed));
+        // Its own parent: the watch runs on until the flag is set otherwise.
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = std::sync::Arc::clone(&stop);
+        let watch =
+            std::thread::spawn(move || watch_parent(mine, &flag, Duration::from_millis(10)));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!stop.load(Ordering::Relaxed));
+        assert!(!watch.is_finished());
+        stop.store(true, Ordering::Relaxed);
+        watch.join().unwrap();
     }
 }

@@ -185,7 +185,9 @@ line that sets one stops every command with exit 78; take them out too.
   that runs past 60 seconds is stopped, with what it started, and counts as a
   failed one, so a hung call to GitHub neither stops the renewals nor holds
   the end of the cycle. The renewer is
-  `tehas-cycle renew` (`console/cycle/src/renew.rs`).
+  `tehas-cycle renew` (`console/cycle/src/renew.rs`). It ends within a second
+  of a `tehas work` that was killed outright, so it does not keep the issue's
+  lock after its cycle is gone.
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
