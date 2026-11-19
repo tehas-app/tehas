@@ -330,7 +330,11 @@ Templates are constant text. Text from a data file is bound as an expression,
 so it lands as text, and is never pasted into the template. In a file that
 imports the library the test fails on an `html` template joined with `+`, on a
 call of `html(…)`, on an untagged template literal inside an `html` template
-(a nested `html` template is fine) and on a `style=` attribute in one.
+(a nested `html` template is fine) and on a `style=` attribute in one. Space
+or a comment between `html` and its backtick does not hide a template, and
+`html` is imported under its own name: `import { html as h }` fails, since the
+checks read the name `html`. `export … from` the library takes only the names
+it exports, as an import does.
 
 A complete island:
 

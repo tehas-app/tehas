@@ -6,7 +6,8 @@
 //!   for every file of the kit but itself, by name, and nothing else.
 //! - The library is the one file `fun/kit/vendor/solid.js`. Only a `.render.js`
 //!   file and the kit files that draw (`DRAWS`) import it, by a relative
-//!   address, and only by the names it exports.
+//!   address, and only by the names it exports, `export … from` too. `html`
+//!   keeps its name, so the template checks find it.
 //! - No file of `host/fun` names a Solid 1.x API (`OLD`).
 //! - A file that imports the library builds no `html` template by `+`, by a
 //!   call of `html(…)` or with an untagged template literal inside it, and
@@ -138,46 +139,58 @@ pub(super) fn exports(library: &str) -> Vec<String> {
         .collect()
 }
 
-/// The names of `import { a, b as c } from "<spec>"` statements of `text`, with
-/// the address each comes from. A namespace or default import gives `*`.
-pub(super) fn named_imports(text: &str) -> Vec<(String, String)> {
+/// The names that `import { a, b as c } from "<spec>"` and
+/// `export { a } from "<spec>"` statements of `text` take from another module:
+/// each name, the local name it gets and the address. A namespace, default or
+/// `export *` gives `*`.
+pub(super) fn named_imports(text: &str) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
-    let mut at = 0;
-    while let Some(offset) = text[at..].find("import") {
-        let start = at + offset;
-        at = start + "import".len();
-        let before = text[..start].chars().next_back();
-        if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '$') {
-            continue;
-        }
-        let rest = &text[at..];
-        let Some(from) = rest.find(" from ") else {
-            continue;
-        };
-        let clause = rest[..from].trim();
-        if clause.starts_with('(') || clause.contains(';') {
-            continue;
-        }
-        let tail = rest[from + " from ".len()..].trim_start();
-        let Some(quote) = tail.chars().next().filter(|c| *c == '"' || *c == '\'') else {
-            continue;
-        };
-        let Some(end) = tail[1..].find(quote) else {
-            continue;
-        };
-        let spec = tail[1..1 + end].to_string();
-        match (clause.find('{'), clause.find('}')) {
-            (Some(open), Some(close)) if open < close => {
-                for item in clause[open + 1..close].split(',') {
-                    if let Some(name) = item.split_whitespace().next() {
-                        out.push((name.to_string(), spec.clone()));
+    for word in ["import", "export"] {
+        let mut at = 0;
+        while let Some(offset) = text[at..].find(word) {
+            let start = at + offset;
+            at = start + word.len();
+            let before = text[..start].chars().next_back();
+            if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '$') {
+                continue;
+            }
+            let rest = &text[at..];
+            let Some(from) = rest.find(" from ") else {
+                continue;
+            };
+            let clause = rest[..from].trim();
+            if clause.starts_with('(') || clause.contains(';') {
+                continue;
+            }
+            if word == "export" && !(clause.starts_with('{') || clause.starts_with('*')) {
+                continue;
+            }
+            let tail = rest[from + " from ".len()..].trim_start();
+            let Some(quote) = tail.chars().next().filter(|c| *c == '"' || *c == '\'') else {
+                continue;
+            };
+            let Some(end) = tail[1..].find(quote) else {
+                continue;
+            };
+            let spec = tail[1..1 + end].to_string();
+            let whole = || ("*".to_string(), "*".to_string(), spec.clone());
+            match (clause.find('{'), clause.find('}')) {
+                (Some(open), Some(close)) if open < close => {
+                    for item in clause[open + 1..close].split(',') {
+                        let parts: Vec<&str> = item.split_whitespace().collect();
+                        let local = match parts.as_slice() {
+                            [name, "as", local] if word == "import" => local,
+                            [name, ..] => name,
+                            [] => continue,
+                        };
+                        out.push((parts[0].to_string(), local.to_string(), spec.clone()));
+                    }
+                    if clause[..open].trim().trim_end_matches(',').trim() != "" {
+                        out.push(whole());
                     }
                 }
-                if clause[..open].trim().trim_end_matches(',').trim() != "" {
-                    out.push(("*".to_string(), spec.clone()));
-                }
+                _ => out.push(whole()),
             }
-            _ => out.push(("*".to_string(), spec.clone())),
         }
     }
     out
@@ -210,7 +223,7 @@ pub(super) fn templates(text: &str) -> Vec<String> {
         if at > 0 && ident(b[at - 1]) {
             continue;
         }
-        let next = at + 4;
+        let next = past_space(text, at + 4);
         match b.get(next) {
             Some(b'(') => wrong.push("calls html(…): write html`…` with constant text".to_string()),
             Some(b'`') => {
@@ -220,7 +233,7 @@ pub(super) fn templates(text: &str) -> Vec<String> {
                 }
                 match template(text, next) {
                     Ok(end) => {
-                        if text[end..].trim_start().starts_with('+') {
+                        if b.get(past_space(text, end)) == Some(&b'+') {
                             wrong.push("joins an html template to a string with +".to_string());
                         }
                     }
@@ -235,6 +248,48 @@ pub(super) fn templates(text: &str) -> Vec<String> {
     wrong
 }
 
+/// The byte at or after `from` past any white space and comments.
+fn past_space(text: &str, from: usize) -> usize {
+    let b = text.as_bytes();
+    let mut i = from;
+    loop {
+        while b.get(i).is_some_and(u8::is_ascii_whitespace) {
+            i += 1;
+        }
+        let rest = &text[i..];
+        if rest.starts_with("/*") {
+            i += rest.find("*/").map_or(rest.len(), |e| e + 2);
+        } else if rest.starts_with("//") {
+            i += rest.find('\n').unwrap_or(rest.len());
+        } else {
+            return i;
+        }
+    }
+}
+
+/// The text before `at` with white space and comments taken off its end.
+fn before_space(text: &str, at: usize) -> &str {
+    let mut t = text[..at].trim_end();
+    while t.ends_with("*/") {
+        match t.rfind("/*") {
+            Some(open) => t = t[..open].trim_end(),
+            None => break,
+        }
+    }
+    t
+}
+
+/// Whether the constant text of a template writes a `style` attribute, with
+/// or without white space around its `=`.
+fn writes_style(constant: &str) -> bool {
+    constant.match_indices("style").any(|(at, _)| {
+        let after = constant[at + "style".len()..].trim_start();
+        let before = constant[..at].chars().next_back();
+        after.starts_with('=')
+            && !before.is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
 /// Scans the template literal whose backtick is at `open` to the byte past its
 /// closing one. Inside an `html` template a `${…}` may hold a tagged `html`
 /// template, but no untagged one, and the constant text has no `style=`.
@@ -246,7 +301,7 @@ fn template(text: &str, open: usize) -> Result<usize, String> {
         match b[i] {
             b'\\' => i += 2,
             b'`' => {
-                if constant.contains("style=") {
+                if writes_style(&constant) {
                     return Err("writes a style= attribute in an html template; use a class".into());
                 }
                 return Ok(i + 1);
@@ -281,7 +336,13 @@ fn expression(text: &str, from: usize) -> Result<usize, String> {
                 }
             }
             b'`' => {
-                if !text[..i].ends_with("html") {
+                let tag = before_space(text, i);
+                let tagged = tag.ends_with("html")
+                    && !tag[..tag.len() - 4]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '.');
+                if !tagged {
                     return Err(
                         "puts an untagged template literal in an html template; bind the value as an expression"
                             .into(),
@@ -328,11 +389,16 @@ pub(super) fn lint(host: &Path, all: &[PathBuf]) -> Vec<String> {
             }
         }
         let mut uses = false;
-        for (import, spec) in named_imports(&text) {
+        for (import, local, spec) in named_imports(&text) {
             if !is_library(&spec) {
                 continue;
             }
             uses = true;
+            if import == "html" && local != "html" {
+                wrong.push(format!(
+                    "{name}: imports html as {local:?}; keep the name html, which the template checks read"
+                ));
+            }
             if import == "*" {
                 wrong.push(format!(
                     "{name}: imports the library whole; name what it uses"
@@ -413,9 +479,19 @@ mod tests {
                     import * as S from '../kit/vendor/solid.js';\n\
                     import x, { y } from \"./z.js\";\nconst m = import(\"./lazy.js\");";
         let got = named_imports(text);
-        let names: Vec<&str> = got.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = got.iter().map(|(n, _, _)| n.as_str()).collect();
         assert_eq!(names, ["For", "html", "Show", "*", "y", "*"]);
-        assert_eq!(got[3].1, "../kit/vendor/solid.js");
+        assert_eq!(got[1].1, "h");
+        assert_eq!(got[3].2, "../kit/vendor/solid.js");
+    }
+
+    #[test]
+    fn a_reexport_from_another_module_is_read_as_an_import() {
+        let text = "export { For, Show as S } from \"./vendor/solid.js\";\n\
+                    export * from \"./vendor/solid.js\";\nexport const a = 1;\nexport function f() {}";
+        let got = named_imports(text);
+        let names: Vec<&str> = got.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, ["For", "Show", "*"]);
     }
 
     #[test]
@@ -461,6 +537,21 @@ mod tests {
             ["writes a style= attribute in an html template; use a class"]
         );
         assert!(templates("html`<p>${\"}\"}</p>`").is_empty());
+        // Space or a comment between the tag and its template changes nothing.
+        assert_eq!(
+            templates("html /* tag */ `<p style = \"color: red\">${x}</p>`"),
+            ["writes a style= attribute in an html template; use a class"]
+        );
+        assert_eq!(
+            templates("html\n  `<p>` /* c */ + title"),
+            ["joins an html template to a string with +"]
+        );
+        assert_eq!(
+            templates("html (parts)"),
+            ["calls html(…): write html`…` with constant text"]
+        );
+        assert!(templates("html`<p>${ /* c */ html `<b>${x}</b>`}</p>`").is_empty());
+        assert!(templates("html`<p data-style=\"x\" class=\"style\">${x}</p>`").is_empty());
         assert!(templates("const html = 1; xhtml`a` + 1").is_empty());
     }
 
@@ -522,6 +613,27 @@ mod tests {
             [
                 "fun/q.render.js: imports \"Suspense2\", which the kit's Solid does not export",
                 "fun/q.render.js: imports the library whole; name what it uses",
+            ]
+        );
+    }
+
+    #[test]
+    fn html_imported_under_another_name_or_a_reexport_of_another_name_is_refused() {
+        let d = host("kit-alias");
+        d.file(
+            "host/fun/q.render.js",
+            "import { html as h } from \"./kit/vendor/solid.js\";\nexport const v = h`<p style=\"x\"></p>`;",
+        );
+        d.file(
+            "host/fun/kit/parts.js",
+            "export { For, Suspense2 } from \"./vendor/solid.js\";\nexport * from \"./vendor/solid.js\";",
+        );
+        assert_eq!(
+            run(&d),
+            [
+                "fun/kit/parts.js: imports \"Suspense2\", which the kit's Solid does not export",
+                "fun/kit/parts.js: imports the library whole; name what it uses",
+                "fun/q.render.js: imports html as \"h\"; keep the name html, which the template checks read",
             ]
         );
     }
