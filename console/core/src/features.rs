@@ -367,7 +367,12 @@ mod tests {
         let install = include_str!("../../../install.sh");
         assert!(install.contains(&format!("{LAB_VAR}=\"$lab\"")));
         let release = include_str!("../../../.github/workflows/release.yml");
-        assert!(release.contains(&format!("unset {LAB_VAR}")));
+        let unset = release.find(&format!("unset {LAB_VAR}"));
+        let build = release.find("cargo build --release");
+        assert!(
+            matches!((unset, build), (Some(u), Some(b)) if u < b),
+            "release.yml unsets {LAB_VAR} before it builds"
+        );
     }
 
     #[test]
