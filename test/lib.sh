@@ -637,6 +637,7 @@ fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
 with=""
 [ "${CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:-}" != true ] || with=" with debug assertions"
+[ "${TEHAS_LAB_BUILD:-}" != on ] || with="$with as a lab build"
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}$with" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or

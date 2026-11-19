@@ -555,3 +555,4 @@ field settings-rules.settings[].building
 field status.testFeatures
 field status.testFeatures.features
 field status.testFeatures.read
+field status.testFeatures.lab

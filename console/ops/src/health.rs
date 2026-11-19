@@ -51,6 +51,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::features::Tested;
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
@@ -99,9 +100,9 @@ struct Given {
     mcp: Option<String>,
     /// TEHAS_MANAGER_VERSION: the program that manages this factory.
     manager: Option<String>,
-    /// TEHAS_TEST_FEATURES when it is set: whether this build reads it, and
-    /// the building features it names (tehas_core::features::test_features).
-    test_features: Option<(bool, Vec<String>)>,
+    /// TEHAS_TEST_FEATURES when it is set or this is a lab build
+    /// (tehas_core::features::test_features).
+    test_features: Option<Tested>,
 }
 
 /// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
@@ -1097,33 +1098,36 @@ fn manager(given: Option<&str>) -> Option<J> {
 }
 
 /// TEHAS_TEST_FEATURES in this environment, as `Given` holds it.
-fn tested() -> Option<(bool, Vec<String>)> {
+fn tested() -> Option<Tested> {
     tehas_core::features::test_features()
-        .map(|(read, named)| (read, named.into_iter().map(String::from).collect()))
 }
 
 /// Where the manual puts TEHAS_TEST_FEATURES on a lab host.
 const LAB_ENV_FILE: &str = "~/.config/environment.d/tehas-lab.conf";
 
-/// `checks.testFeatures`, `{read, features}`, and the line health says of it.
-fn test_features(given: Option<&(bool, Vec<String>)>) -> Option<(J, String)> {
-    let (read, named) = given?;
+/// `checks.testFeatures`, `{read, features, lab}`, and the line health says of it.
+fn test_features(given: Option<&Tested>) -> Option<(J, String)> {
+    let t = given?;
     let var = tehas_core::features::TEST_VAR;
     let check = obj(vec![
-        ("read", J::Bool(*read)),
+        ("read", J::Bool(t.read)),
         (
             "features",
-            J::Arr(named.iter().map(|n| J::str(n.clone())).collect()),
+            J::Arr(t.features.iter().map(|n| J::str(*n)).collect()),
         ),
+        ("lab", J::Bool(t.lab)),
     ]);
-    let line = match (read, named.is_empty()) {
+    let line = match (t.read, t.features.is_empty()) {
+        _ if !t.set => format!(
+            "A lab build: {var} is unset, so no building feature is on. ./install.sh without --lab-build goes back."
+        ),
         (false, _) => format!(
             "{var} is set and this build does not read it: take it out of the units' environment ({LAB_ENV_FILE})."
         ),
         (true, true) => format!("A lab build: {var} is set and names no building feature."),
         (true, false) => format!(
             "A lab build: {var} names {}, still being built. No release reads it.",
-            named.join(", ")
+            t.features.join(", ")
         ),
     };
     Some((check, line))
@@ -2115,8 +2119,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     if let Some(i) = manager_check {
         checks.push(("manager", i));
     }
-    // Only where TEHAS_TEST_FEATURES is set: a lab host, or one that kept it
-    // after it went back to a release.
+    // Only where TEHAS_TEST_FEATURES is set or the build is a lab build: a
+    // lab host, or one that kept the variable after it went back to a release.
     if let Some(t) = test_check {
         checks.push(("testFeatures", t));
     }
@@ -3021,9 +3025,14 @@ mod tests {
     #[test]
     fn the_test_variable_warns_and_says_whether_this_build_reads_it() {
         let h = home("test-features");
-        let with = |t: Option<(bool, &[&str])>| {
+        let with = |t: Option<(bool, &[&'static str])>| {
             h.report(&Given {
-                test_features: t.map(|(r, n)| (r, n.iter().map(|s| s.to_string()).collect())),
+                test_features: t.map(|(read, n)| Tested {
+                    read,
+                    lab: false,
+                    set: true,
+                    features: n.to_vec(),
+                }),
                 ..Given::default()
             })
         };
@@ -3057,6 +3066,40 @@ mod tests {
                 "warn".into(),
                 "TEHAS_TEST_FEATURES is set and this build does not read it: take it out of the units' environment (~/.config/environment.d/tehas-lab.conf).".into()
             )
+        );
+    }
+
+    #[test]
+    fn a_lab_build_warns_with_the_test_variable_unset() {
+        let h = home("lab-build");
+        let lab = |set: bool, features: &[&'static str]| {
+            h.report(&Given {
+                test_features: Some(Tested {
+                    read: true,
+                    lab: true,
+                    set,
+                    features: features.to_vec(),
+                }),
+                ..Given::default()
+            })
+        };
+        let r = lab(false, &[]);
+        assert_eq!(
+            r.at(&["checks", "testFeatures"]).dump(),
+            r#"{"read":true,"features":[],"lab":true}"#
+        );
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "A lab build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh without --lab-build goes back.".into()
+            )
+        );
+        let r = lab(true, &["outsource"]);
+        assert_eq!(r.at(&["checks", "testFeatures", "lab"]), &J::Bool(true));
+        assert_eq!(
+            said(&r).1,
+            "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
         );
     }
 

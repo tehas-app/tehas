@@ -29,7 +29,8 @@
       "additionalProperties": false,
       "properties": {
         "read": {"type": "boolean"},
-        "features": {"type": "array", "items": {"type": "string"}}
+        "features": {"type": "array", "items": {"type": "string"}},
+        "lab": {"type": "boolean"}
       }
     },
     "allHands": {"type": "boolean"},
