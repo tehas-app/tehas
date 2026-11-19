@@ -364,13 +364,15 @@ ready issues start lowest number first. Every command prints the order as it
 then is.
 
 `api/order.schema.json` in the source says what the object holds, and
-`api/order.sample.json`, `api/order.expired.json` and `api/order.empty.json`
-are samples of it, one for each `state`. A store that cannot be read is no
-answer: the command exits 1.
+`api/order.sample.json`, `api/order.expired.json`, `api/order.empty.json` and
+`api/order.unreadable.json` are samples of it, one for each `state`. A store
+that refuses or does not answer is no answer: the command exits 1, or 78 when
+the store is not installed or cannot be used. An answer of the store that
+holds no order this release can read is `unreadable`, taken as no order.
 
 | Field | Meaning |
 | --- | --- |
-| `state` | `none`, `ok` or `expired` |
+| `state` | `none`, `ok`, `expired` or `unreadable` |
 | `issues` | The issues to start first, in order: distinct numbers from 1, at most 200. A number that is not a ready issue is passed over. Empty with `only`: nothing starts until the order changes |
 | `only` | `true`: a ready issue that is not in `issues` waits. Refreshes of open pull requests are not held |
 | `until` | When it expires, in the form `2026-10-17T15:00:20Z`. Left out when it lasts until cleared |
