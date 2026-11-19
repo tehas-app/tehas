@@ -302,7 +302,8 @@ test("the pages read the answer only through the module, and only when it is the
     const src = readFileSync(new URL(`../host/fun/${f}`, import.meta.url), "utf8");
     assert.ok(!src.includes("/host/bridge.json"), f);
     assert.ok(src.includes("globalThis.TEHAS_HOST_BRIDGE || null"), f);
-  }  // The plain dashboard's islands read it through one page store.
+  }
+  // The plain dashboard's islands read it through one page store.
   const store = readFileSync(new URL("../host/fun/factory/bridge.state.js", import.meta.url), "utf8");
   assert.ok(!store.includes("/host/bridge.json"));
   assert.ok(store.includes("globalThis.TEHAS_HOST_BRIDGE?.onChange("));
