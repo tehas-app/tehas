@@ -270,9 +270,9 @@ An issue that carries `needs-human-attention` when its cycle starts is run with
 `--restart`: the start is a person's answer to the handoff. pi-rukas lets that
 cycle past its check of the label. The cycle takes the label off on the host
 before the runner starts, since the container cannot change a label: left on,
-the end would park a pull request that waits only for a merge. A removal that
-fails after three tries is a `WARN` line in the log, and the cycle runs all
-the same.
+the end would park a pull request that waits only for a merge. A 404 says the
+label is off already. A removal that fails after three tries is a `WARN` line
+in the log, and the cycle runs all the same.
 
 The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the

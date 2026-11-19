@@ -140,6 +140,15 @@ t_eq "$(t_calls gh | grep -c '^api -X DELETE repos/acme/widget/issues/7/labels/n
 t_contains "$t_out" "WARN: #7: needs-human-attention could not be taken off before its restart"
 rm -f "$fx/unmark-fails"
 
+t_case "a restart whose label a person took off already is not tried again"
+rm -f "$T"/calls/*
+: >"$fx/label-missing"
+t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7 --restart"
+t_eq "$(t_calls gh | grep -c '^api -X DELETE repos/acme/widget/issues/7/labels/needs-human-attention$')" 1
+t_lacks "$t_out" "could not be taken off"
+rm -f "$fx/label-missing"
+
 t_case "a start of an issue without needs-human-attention takes no label off"
 rm -f "$T"/calls/* "$fx/issue-7.json"
 t_run "$cycle 7"
@@ -147,7 +156,7 @@ t_eq "$(t_calls fake-work)" "7"
 t_lacks "$(t_calls gh)" "DELETE"
 
 t_case "it says that it holds its lock, and lets go of it at the end"
-t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[5,true]'
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[6,true]'
 t_eq "$(flock -n "$state/7.lock" echo free)" "free"
 
 # A run leaves its lock and the carriers kept to the next start beside it;
