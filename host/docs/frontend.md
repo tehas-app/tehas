@@ -151,7 +151,11 @@ Rules that keep the drawing swappable:
 
 1. The element and the model never import a library. The byte ratchet's test
    fails on a library import, a bare address or one through a `vendor/`
-   directory, in any file but a `.render.js` and the kit files that draw.
+   directory, in any file but a `.render.js` and the kit files that draw. It
+   also fails on an element or model file whose relative imports reach the
+   library or a kit file that draws (`feed.js`, `parts.js`, `state.js`), other
+   than through a `.render.js` file: an element would load the library before
+   its hydrate trigger fires.
 2. The model is plain data. No Solid type crosses into it.
 3. The render module reads server data only through `kit/feed.js` and its
    attributes only through `props`.

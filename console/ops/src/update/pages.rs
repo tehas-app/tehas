@@ -23,7 +23,9 @@
 //! line with nothing to measure. A change that grows a page raises its line in
 //! the same change; a change that shrinks one may lower it. A library import,
 //! a bare address or one through a `vendor/` directory, is allowed only in a
-//! `.render.js` file and the kit files that draw. The kit's manifest and the
+//! `.render.js` file and the kit files that draw, and an element or model file
+//! may not reach one of those by its relative imports, other than through a
+//! `.render.js` file. The kit's manifest and the
 //! lints of the code that draws with Solid are in `kit.rs`.
 
 use super::assets::{address, spans, PAGES as STAGED};
@@ -131,6 +133,37 @@ fn follow(host: &Path, file: PathBuf, seen: &mut BTreeSet<PathBuf>) -> Result<()
         }
     }
     Ok(())
+}
+
+/// The library or kit file that draws which `file` reaches by its relative
+/// imports, not counting the way through a `.render.js` file. Nothing when it
+/// reaches neither.
+fn draws_through(host: &Path, file: &Path) -> Option<PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![file.to_path_buf()];
+    while let Some(at) = todo.pop() {
+        if !seen.insert(at.clone()) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(host.join(&at)) else {
+            continue;
+        };
+        let dir = at.parent().unwrap_or(Path::new(""));
+        for spec in imports(&text).into_iter().filter(|s| relative(s)) {
+            let Some(next) = normal(&dir.join(&spec)) else {
+                continue;
+            };
+            let name = next.to_string_lossy();
+            if name.ends_with(".render.js") {
+                continue;
+            }
+            if name == LIBRARY || DRAWS.contains(&name.as_ref()) {
+                return Some(next);
+            }
+            todo.push(next);
+        }
+    }
+    None
 }
 
 /// The size of the page that `files` of `host` make.
@@ -330,6 +363,20 @@ fn check(host: &Path, max: &str) -> Vec<String> {
                 f.display()
             ));
         }
+        // An element or a model loads nothing that draws: an element would
+        // load the library before its hydrate trigger fires.
+        let element = name
+            .strip_suffix(".js")
+            .is_some_and(|stem| host.join(format!("{stem}.render.js")).is_file());
+        if element || name.ends_with(".model.js") {
+            if let Some(draws) = draws_through(host, f) {
+                wrong.push(format!(
+                    "{}: reaches {} by its imports; an element or model file loads nothing that draws",
+                    f.display(),
+                    draws.display()
+                ));
+            }
+        }
     }
     wrong
 }
@@ -509,6 +556,56 @@ mod tests {
                 "fun/board/log.model.js: imports the library \"lib\"; only a .render.js file or a kit file that draws may",
             ]
         );
+    }
+
+    #[test]
+    fn an_element_or_model_file_reaches_nothing_that_draws() {
+        let d = with_kit("pages-reach");
+        let host = host_of(&d);
+        d.file(
+            "host/fun/view.js",
+            "import { x } from \"./data.js\";\nimport \"./one.js\";",
+        );
+        d.file(
+            "host/fun/board/log.js",
+            "import { island } from \"../kit/island.js\";\nimport { useBoard } from \"../kit/state.js\";\n\
+             island(\"log\", { load: () => import(\"./log.render.js\") });",
+        );
+        d.file(
+            "host/fun/board/log.model.js",
+            "import { f } from \"./help.js\";",
+        );
+        d.file(
+            "host/fun/board/help.js",
+            "export { feed } from \"../kit/parts.js\";",
+        );
+        d.file(
+            "host/fun/board/log.render.js",
+            "import { html } from \"../kit/vendor/solid.js\";\nimport \"../kit/parts.js\";",
+        );
+        // A store module may import the kit's state: it is no element or model.
+        d.file(
+            "host/fun/board/board.state.js",
+            "import \"../kit/state.js\";",
+        );
+        let max = format!(
+            "{}library solid {}\nisland board/log 1000\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        assert_eq!(
+            check(&host, &max),
+            [
+                "fun/board/log.js: reaches fun/kit/state.js by its imports; an element or model file loads nothing that draws",
+                "fun/board/log.model.js: reaches fun/kit/parts.js by its imports; an element or model file loads nothing that draws",
+            ]
+        );
+        d.file(
+            "host/fun/board/log.js",
+            "import { island } from \"../kit/island.js\";\nisland(\"log\", { load: () => import(\"./log.render.js\") });",
+        );
+        d.file("host/fun/board/log.model.js", "export const m = 1;");
+        assert_eq!(check(&host, &max), Vec::<String>::new());
     }
 
     /// `small` with the kit: its library, a kit file that draws with it, a
