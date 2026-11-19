@@ -1317,6 +1317,8 @@ last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
+The 8 hours are wall-clock time from the unit's start, and time a cycle spends
+frozen counts toward them.
 `TEHAS_PLAN_TIMEOUT` may be at most 7200, 2 hours: the unit of a turn runs to
 the limit plus a quarter of an hour, and one turn runs at a time. A planning
 turn and the index run each run as their own unit, not inside a poll, so they

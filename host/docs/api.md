@@ -509,7 +509,9 @@ thaw it turns false on the next look. A frozen cycle still holds its slot, so
 freezing makes no room for another. The runner reads its own deadline,
 `PI_ENSEMBLE_CYCLE_DEADLINE`, on the wall clock, so a long freeze can bring the
 cycle to that deadline sooner: it then parks at a step boundary with a
-handoff. A stop of the cycle or of the factory still works on a frozen cycle,
+handoff. `tehas-cycle@.service` still stops the cycle 8 hours after it
+started, frozen or not, so a freeze of hours late in a cycle can end it while
+it is paused, as a cycle that stopped. A stop of the cycle or of the factory still works on a frozen cycle,
 and a freeze ends with its cycle.
 
 | Field | Meaning |
