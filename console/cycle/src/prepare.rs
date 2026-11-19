@@ -172,7 +172,7 @@ pub fn deadline(now: i64, limit: u64) -> Option<i64> {
 /// --restart to classic only: work-lean takes no such flag and has no attention
 /// gate, and every cycle is a fresh clone, so a lean run never finds a state
 /// file to discard. The dispatcher takes needs-human-attention off a lean start
-/// itself, which is what --restart does for classic.
+/// itself; on classic the cycle takes it off before the runner starts.
 pub fn run_flags(limit: u64, restart: bool, refresh: bool, driver: Driver) -> Vec<String> {
     let mut flags = vec![
         "--timeout".to_string(),

@@ -954,8 +954,8 @@ that the question is not one the factory is waiting on and names the label.
 
 The next cycle starts in a fresh workspace, with `--restart` when the issue
 carries `needs-human-attention`. That flag is the answer the label asks for:
-pi-rukas lets the cycle past its check of the label and takes the label off.
-tehas removes it nowhere. Branches and
+pi-rukas lets the cycle past its check of the label, and the cycle takes the
+label off on the host before its runner starts. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until the retry it

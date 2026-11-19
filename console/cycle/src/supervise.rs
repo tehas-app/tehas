@@ -86,7 +86,8 @@ pub fn number(answer: &str) -> Number {
 }
 
 /// An issue a handoff left with needs-human-attention starts again only on a
-/// person's answer: --restart tells the runner so, and takes the label off.
+/// person's answer: --restart tells the runner so, and the cycle takes the
+/// label off before the runner starts.
 pub fn wants_restart(answer: &str) -> bool {
     let Some(v) = runner::first_value(answer) else {
         return false;
@@ -268,6 +269,20 @@ fn ask_github(repo: &str, n: &str) -> Result<String, String> {
     ask("gh", &args, ASK_BOUND, Duration::from_secs(wait))
 }
 
+fn clear_attention(repo: &str, n: &str) -> Result<String, String> {
+    let wait: u64 = std::env::var("TEHAS_CYCLE_RETRY_WAIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let args = [
+        "api".to_string(),
+        "-X".to_string(),
+        "DELETE".to_string(),
+        format!("repos/{repo}/issues/{n}/labels/needs-human-attention"),
+    ];
+    ask("gh", &args, ASK_BOUND, Duration::from_secs(wait))
+}
+
 /// Three tries of `program`, each under `bound`, `wait` between them.
 fn ask(program: &str, args: &[String], bound: Duration, wait: Duration) -> Result<String, String> {
     let mut why = String::new();
@@ -430,6 +445,16 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     // only what it added over the heads as they are now.
     if g.runner == Runner::Job {
         crate::stamp::note_heads(home, g.issue, &repo);
+    }
+    // The container cannot take the label off: the relay refuses a label
+    // change. Left on, the report would park a pull request that waits only
+    // for a merge.
+    if restart {
+        if let Err(why) = clear_attention(&repo, &n) {
+            log(&format!(
+                "WARN: #{n}: needs-human-attention could not be taken off before its restart (3 tries, the last: {why})"
+            ));
+        }
     }
     let (rc, signalled) = supervise(home, g, &attempt, restart, &stop);
     let start = Start {

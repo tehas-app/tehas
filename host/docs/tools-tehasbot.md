@@ -267,8 +267,11 @@ marker `<!-- pi-rukas:handoff issue=N cap=CAP -->`, made from the cap.
 
 An issue that carries `needs-human-attention` when its cycle starts is run with
 `--restart`: the start is a person's answer to the handoff. pi-rukas lets that
-cycle past its check of the label and takes the label off. Neither the cycle
-nor the dispatcher removes it.
+cycle past its check of the label. The cycle takes the label off on the host
+before the runner starts, since the container cannot change a label: left on,
+the end would park a pull request that waits only for a merge. A removal that
+fails after three tries is a `WARN` line in the log, and the cycle runs all
+the same.
 
 The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
