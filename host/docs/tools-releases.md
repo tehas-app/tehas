@@ -102,6 +102,34 @@ a release follows the pi-rukas line its `versions.env` names, as a checkout
 does, so a new pi-rukas reaches a host at its next `tehas update`. The pins are
 for a person who packs a release that must keep one pi-rukas.
 
+### Branches
+
+`main` is the line that is released: every tag, patch, minor or prerelease,
+is cut from it, and the release workflow publishes only a tag on `main`.
+Between minor releases two branches are open:
+
+- `main` takes the fixes of the current minor line, released as patches
+  (`scripts/tag-release.sh --patch`: v1.0.1, v1.0.2, ...).
+- `release/vX.Y.Z` (`release/v1.1.0`) takes the work of the next minor
+  release. Pull requests for it go into that branch, and the `verify` gate
+  runs on them and on every push to it, as on `main`.
+
+A fix that the next minor needs too lands on `main` first. After each patch
+release, and whenever the next minor needs what `main` has, `main` is merged
+into the release branch: merged, not rebased, and never the other way before
+the release. Fixes then move one way and nothing is cherry-picked. Changelog
+fragments follow: a patch release collects its own on `main`, and the merge
+carries that to the release branch; the next minor's wait there.
+
+The next minor lands with a last merge of `main` into its branch, one pull
+request of the branch into `main`, and `scripts/tag-release.sh --minor`. Its
+prereleases are tagged from `main` too, so the pull request lands before the
+first one. Patches to the old line after that need a branch to tag from that
+is not `main`, which the release workflow does not take today.
+
+A factory works on one branch, `main` unless `TEHAS_BRANCH` names another,
+so a host that builds the next minor sets `TEHAS_BRANCH=release/vX.Y.Z`.
+
 ### Verifying a download
 
 The `.sha256` beside the tarball is in the format `sha256sum -c` reads, and
