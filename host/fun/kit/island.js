@@ -1,7 +1,8 @@
 // The base of an island element (host/docs/frontend.md, "The island
 // contract"). It holds no library: it reads the attributes and the child JSON
 // once, waits for the hydrate trigger, loads the island's render module and
-// mounts it, and calls its unmount when the element leaves the page.
+// mounts it, and calls its unmount when the element leaves the page. Until the
+// mount the server HTML stands; the mount replaces it.
 //
 //   import { island } from "../kit/island.js";
 //   island("tehas-factory-queue", {
@@ -95,7 +96,11 @@ export function island(name, spec) {
       this.#abort = abort;
       if (this.#data === undefined) {
         const json = this.querySelector(":scope > script[type='application/json']");
-        this.#data = json ? JSON.parse(json.textContent) : null;
+        try {
+          this.#data = json ? JSON.parse(json.textContent) : null;
+        } catch {
+          this.#data = null;
+        }
       }
       whenTriggered(this, abort.signal, () => this.#mount(abort));
     }
@@ -105,6 +110,7 @@ export function island(name, spec) {
       this.#abort = null;
       this.#handle?.unmount();
       this.#handle = null;
+      this.removeAttribute("data-tehas-mounted");
     }
 
     attributeChangedCallback(_attr, before, after) {
@@ -112,7 +118,13 @@ export function island(name, spec) {
     }
 
     async #mount(abort) {
-      const view = await spec.load();
+      let view;
+      try {
+        view = await spec.load();
+      } catch (error) {
+        console.error(`${name}: the render module did not load`, error);
+        return;
+      }
       if (abort.signal.aborted || this.#handle) return;
       const first = [...this.childNodes].filter(
         (n) => !(n.nodeName === "SCRIPT" && n.type === "application/json"),
