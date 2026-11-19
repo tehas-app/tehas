@@ -344,7 +344,10 @@ or the workflow itself.
 CI adds two things of its own, as steps of
 `.github/workflows/verify.yml`. It installs shellcheck and jq at the versions
 `host/versions.env` pins, each checked against a published checksum before it
-runs. And it scans the repository's lockfiles against published advisories with
+runs. A download whose transfer fails, such as a TLS read that breaks
+mid-transfer, is tried again up to five times; the checksum is checked as
+before. The release gate and the release workflow download the same way. And it
+scans the repository's lockfiles against published advisories with
 OSV-Scanner, pinned there too: the name and version of every package of
 `console/Cargo.lock` and of the npm trees under `host/npm/` and
 `host/sandbox/npm/` is queried against the OSV database, and nothing else is
