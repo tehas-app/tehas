@@ -534,11 +534,29 @@ pub fn not_empty(file: &Path) -> Result<(), Fail> {
 }
 
 /// One transaction under the write lock: committed when `f` succeeds, rolled
-/// back otherwise.
+/// back otherwise. The open runs no `quick_check`: `write_checked` is for the
+/// verbs that check the file for the writes after them.
 pub fn write<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> Result<T, Fail> {
+    write_with(home, db::lock_unchecked, f)
+}
+
+/// `write`, with the open's `quick_check`: a damaged file is 78 `corrupt`
+/// before anything is written.
+pub fn write_checked<T>(
+    home: &Path,
+    f: impl FnOnce(&Connection) -> Result<T, Fail>,
+) -> Result<T, Fail> {
+    write_with(home, db::lock, f)
+}
+
+fn write_with<T>(
+    home: &Path,
+    lock: fn(&Path) -> Result<Connection, db::DbError>,
+    f: impl FnOnce(&Connection) -> Result<T, Fail>,
+) -> Result<T, Fail> {
     let file = db::path(home);
     not_empty(&file)?;
-    let conn = db::lock(&file).map_err(crate::line)?;
+    let conn = lock(&file).map_err(crate::line)?;
     let done = schema(&conn).and_then(|()| f(&conn));
     match done {
         Ok(v) => {

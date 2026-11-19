@@ -102,6 +102,27 @@ fn backup_show_reads_the_newest_and_its_age() {
     assert_eq!(v["newest"]["age_seconds"], 3 * DAY);
 }
 
+// A heartbeat comes every 10 s per running cycle and each verb is its own
+// open, so the check of the whole file runs once a poll and in upkeep instead.
+#[test]
+fn a_heartbeat_runs_no_quick_check_and_poll_begin_upkeep_and_prune_do() {
+    let home = home("quick-check");
+    let checks = || crate::db::QUICK_CHECKS.with(|n| n.get());
+    let (_lock, _) = start_by(&home, 8, "alice", "label", NOW - 10);
+    let before = checks();
+    ok(
+        &home,
+        &["cycle-heartbeat", "8", "--running", "--status", "running"],
+    );
+    assert_eq!(checks(), before);
+    ok(&home, &["poll-begin"]);
+    assert_eq!(checks(), before + 1);
+    ok(&home, &["prune", "--days", "90"]);
+    assert_eq!(checks(), before + 2);
+    ok(&home, &["upkeep"]);
+    assert!(checks() > before + 2);
+}
+
 #[test]
 fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     let home = home("prune");

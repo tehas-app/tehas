@@ -362,7 +362,7 @@ pub fn history_delete(table: HistoryTable) -> String {
 
 fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)>, Fail> {
     let before = now - days * DAY;
-    verbs::write(home, |c| {
+    verbs::write_checked(home, |c| {
         let endings = c
             .execute("DELETE FROM endings WHERE ended_at < ?1", [before])
             .q()?;
