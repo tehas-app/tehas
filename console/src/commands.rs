@@ -396,7 +396,11 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
     match words[..] {
         ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
-        ["tehas", "resume"] | ["tehasbot", "status"] => &[
+        // What writes or calls GitHub stops on the three before it does.
+        ["tehas", "resume"]
+        | ["tehasbot", "status"]
+        | ["tehas", "start" | "limit" | "order" | "panel" | "host-message" | "freeze" | "thaw" | "pause"
+        | "drain"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -713,7 +717,23 @@ mod tests {
             required(&words(&["tehasbot", "status"])),
             required(&words(&["tehas", "resume"]))
         );
-        assert!(required(&words(&["tehas", "drain"])).is_empty());
+        for writer in [
+            "start",
+            "limit",
+            "order",
+            "panel",
+            "host-message",
+            "freeze",
+            "thaw",
+            "pause",
+            "drain",
+        ] {
+            assert_eq!(
+                required(&words(&["tehas", writer])),
+                required(&words(&["tehas", "resume"])),
+                "{writer}"
+            );
+        }
         assert!(required(&words(&["tehasbot", "health"])).is_empty());
         assert!(required(&words(&["tehasbot", "github-token"])).is_empty());
         for repo in [

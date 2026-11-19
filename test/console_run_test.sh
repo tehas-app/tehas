@@ -88,6 +88,30 @@ for row in "${needs[@]}"; do
   untouched
 done
 
+# The commands that write or call GitHub stop on any of the three settings of
+# the instance, missing or malformed, before the write or the call.
+writers=(
+  "$tehas start 5" "$tehas limit set --cycles 2" "$tehas limit clear" "$tehas order set --issues 5"
+  "$tehas order clear" "$tehas panel set chat --label Chat --url https://chat.example.org"
+  "$tehas host-message set up --level info --text hi" "$tehas freeze 5" "$tehas thaw 5"
+  "$tehas pause" "$tehas drain"
+)
+bad_settings=(
+  "TEHAS_REPO|TEHAS_REPO=bad" "TEHAS_REPO|TEHAS_REPO=" "TEHAS_CONTROL_ISSUE|TEHAS_CONTROL_ISSUE=x"
+  "TEHAS_ALLOWED_LABELERS|TEHAS_ALLOWED_LABELERS='alice  bob'" "TEHAS_ALLOWED_LABELERS|TEHAS_ALLOWED_LABELERS="
+)
+for command in "${writers[@]}"; do
+  for row in "${bad_settings[@]}"; do
+    t_case "${command#"$tree"/bin/} with ${row#*|} is 78, and calls and writes nothing"
+    reset
+    t_instance "${T_MINIMAL[@]}" "${row#*|}"
+    t_run "$command"
+    t_eq "$t_rc" 78
+    t_contains "$t_out" "${row%%|*} is not "
+    untouched
+  done
+done
+
 t_case "a refresh stops on the settings it needs"
 reset
 t_instance TEHAS_GITHUB_APP_ID=1 TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
