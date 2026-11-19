@@ -25,7 +25,6 @@ asset_for() { # [machine]
 arch_of() { # <machine>
   case "$1" in
     x86_64 | amd64) printf 'x86_64\n' ;;
-    aarch64 | arm64) printf 'aarch64\n' ;;
     *) return 1 ;;
   esac
 }
@@ -134,10 +133,10 @@ t_eq "$t_rc" 64
 t_run "sh '$installer' --from '$rel' --version v1.0.0 root"
 t_eq "$t_rc" 64
 
-# The asset of the machine this host is: each of the three cases makes the
-# release of that machine and hands over the directory holding it, so a run that
-# asked for another name would find no file there and say so.
-for machine in x86_64 aarch64 arm64; do
+# The asset of the machine this host is: each case makes the release of that
+# machine and hands over the directory holding it, so a run that asked for
+# another name would find no file there and say so.
+for machine in x86_64 amd64; do
   t_case "on a machine whose uname -m says $machine, the installer takes that asset"
   make_release "$machine"
   stubs "$machine"
@@ -147,14 +146,18 @@ for machine in x86_64 aarch64 arm64; do
   t_eq "$(readlink "$bob/tehas/current")" versions/v1.0.0
 done
 
-t_case "a machine no release is published for stops before the download"
-make_release
-stubs riscv64
-t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
-t_eq "$t_rc" 1
-t_contains "$t_out" "releases are published for x86_64 and aarch64, and uname -m says riscv64"
-t_lacks "$t_out" "matches its .sha256"
-t_eq "$(t_calls bootstrap)" ""
-t_eq "$(ls -A "$bob")" ""
+# Releases are built for x86_64 only, so an arm machine is refused with the
+# reason, not with a download that cannot find its asset.
+for machine in riscv64 aarch64 arm64; do
+  t_case "a machine whose uname -m says $machine has no release and stops before the download"
+  make_release
+  stubs "$machine"
+  t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "releases are published for x86_64 only, and uname -m says $machine"
+  t_lacks "$t_out" "matches its .sha256"
+  t_eq "$(t_calls bootstrap)" ""
+  t_eq "$(ls -A "$bob")" ""
+done
 
 t_done

@@ -193,6 +193,36 @@ pub(crate) fn newest(list: &[Published]) -> Option<&str> {
         .find(|tag| !prerelease(tag))
 }
 
+/// The words for a host that runs a version newer than the newest release, a
+/// prerelease most often: what it is ahead of, and the newest prerelease of its
+/// own version when that is newer. The older release is never offered. None
+/// when the host is not ahead.
+fn ahead(installed: &str, newest: &str, list: &[Published]) -> Option<Vec<String>> {
+    if installed.is_empty() || newest.is_empty() || !older(newest, installed) {
+        return None;
+    }
+    let keeps = "a plain tehas update keeps it until a newer release is out";
+    let Some((base, _, _)) = version::prerelease(installed) else {
+        return Some(vec![
+            format!("release: installed {installed}, ahead of the newest release {newest}"),
+            format!("release: {keeps}"),
+        ]);
+    };
+    let first = format!(
+        "release: installed {installed}, a prerelease ahead of the newest release {newest}"
+    );
+    let next = list.iter().map(|r| r.tag.as_str()).find(|tag| {
+        version::prerelease(tag).is_some_and(|(b, _, _)| b == base) && older(installed, tag)
+    });
+    let second = match next {
+        Some(tag) => format!(
+            "release: the newest prerelease of {base} is {tag}; tehas update --to {tag} moves to it"
+        ),
+        None => format!("release: {installed} is the newest prerelease of {base}; {keeps}"),
+    };
+    Some(vec![first, second])
+}
+
 /// What an update moves to: the version named, when it is published, or else
 /// the newest release. A prerelease only when it is named.
 pub(crate) fn target<'a>(list: &'a [Published], to: Option<&'a str>) -> Option<&'a str> {
@@ -227,12 +257,11 @@ fn indented(body: &str) -> String {
         .collect()
 }
 
-/// The architecture in the name of an asset: releases are published for linux
-/// x86_64 and aarch64 only. arm64 is what some ports answer for aarch64.
+/// The architecture in the name of an asset: the release workflow builds for
+/// linux x86_64 only.
 fn arch_of(machine: &str) -> Option<&'static str> {
     match machine {
         "x86_64" | "amd64" => Some("x86_64"),
-        "aarch64" | "arm64" => Some("aarch64"),
         _ => None,
     }
 }
@@ -250,7 +279,7 @@ fn arch() -> Result<&'static str, String> {
         } else {
             &machine
         };
-        format!("this machine has no tehas release to download: releases are published for x86_64 and aarch64, and uname -m says {said}")
+        format!("this machine has no tehas release to download: releases are published for x86_64 only, and uname -m says {said}")
     })
 }
 
@@ -977,7 +1006,10 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         } else {
             &installed
         };
-        say(&format!("release: installed {was}, newest {newest_said}"));
+        match ahead(&installed, &newest, &list) {
+            Some(lines) if to.is_none() => lines.iter().for_each(|l| say(l)),
+            _ => say(&format!("release: installed {was}, newest {newest_said}")),
+        }
     } else {
         say(&format!(
             "release: installed none, this host ran from its platform checkout at {tag}, newest {newest_said}"
@@ -998,10 +1030,8 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         ));
         target = from_note.clone();
     }
+    // A host ahead of the newest release stays where it is.
     if to.is_none() && !installed.is_empty() && older(&newest, &installed) {
-        say(&format!(
-            "release: {installed} is newer than the newest release; tehas update --to moves it back"
-        ));
         target = installed.clone();
     }
     // The prereleases of a version are read as that version's notes, so only
@@ -1399,6 +1429,48 @@ mod tests {
     }
 
     #[test]
+    fn a_prerelease_ahead_of_the_newest_release_is_not_offered_the_older_one() {
+        assert!(older("v0.32.0", "v1.0.0-rc.2"));
+        assert!(older("v1.0.0-rc.3", "v1.0.0"));
+        let list = [
+            rel("v1.1.0-rc.1"),
+            rel("v1.0.0-rc.3"),
+            rel("v1.0.0-rc.2"),
+            rel("v0.32.0"),
+        ];
+        assert_eq!(
+            ahead("v1.0.0-rc.2", "v0.32.0", &list),
+            Some(vec![
+                "release: installed v1.0.0-rc.2, a prerelease ahead of the newest release v0.32.0"
+                    .to_string(),
+                "release: the newest prerelease of v1.0.0 is v1.0.0-rc.3; tehas update --to v1.0.0-rc.3 moves to it"
+                    .to_string(),
+            ])
+        );
+        assert_eq!(
+            ahead("v1.0.0-rc.3", "v0.32.0", &list),
+            Some(vec![
+                "release: installed v1.0.0-rc.3, a prerelease ahead of the newest release v0.32.0"
+                    .to_string(),
+                "release: v1.0.0-rc.3 is the newest prerelease of v1.0.0; a plain tehas update keeps it until a newer release is out"
+                    .to_string(),
+            ])
+        );
+        assert_eq!(
+            ahead("v1.5.0", "v0.32.0", &list),
+            Some(vec![
+                "release: installed v1.5.0, ahead of the newest release v0.32.0".to_string(),
+                "release: a plain tehas update keeps it until a newer release is out".to_string(),
+            ])
+        );
+        assert_eq!(ahead("v1.0.0-rc.2", "", &list[..3]), None);
+        assert_eq!(ahead("v0.32.0", "v0.32.0", &list), None);
+        assert_eq!(ahead("v0.31.0", "v0.32.0", &list), None);
+        assert_eq!(ahead("v1.0.0-rc.2", "v1.0.0", &list), None);
+        assert_eq!(ahead("", "v0.32.0", &list), None);
+    }
+
+    #[test]
     fn a_candidate_is_listed_but_never_the_newest() {
         let answer = json!([
             {"tag_name": "v0.21.0"},
@@ -1459,13 +1531,13 @@ mod tests {
     fn the_asset_is_named_by_the_machine() {
         assert_eq!(arch_of("x86_64"), Some("x86_64"));
         assert_eq!(arch_of("amd64"), Some("x86_64"));
-        assert_eq!(arch_of("aarch64"), Some("aarch64"));
-        assert_eq!(arch_of("arm64"), Some("aarch64"));
+        assert_eq!(arch_of("aarch64"), None);
+        assert_eq!(arch_of("arm64"), None);
         assert_eq!(arch_of("riscv64"), None);
         assert_eq!(arch_of(""), None);
         assert_eq!(
-            tarball_of("v1.2.0", "aarch64"),
-            "tehas-v1.2.0-linux-aarch64.tar.gz"
+            tarball_of("v1.2.0", "x86_64"),
+            "tehas-v1.2.0-linux-x86_64.tar.gz"
         );
     }
 

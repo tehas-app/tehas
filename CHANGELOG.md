@@ -213,8 +213,6 @@ A host that set `TEHAS_REVIEW=on` (or `1`) or `TEHAS_REVIEW_REPO` in
 stops with exit 78 and names them. Nothing to do for an enabled
 `tehas-review.timer`: the update disables it.
 
-None.
-
 ## v0.32.0 (2026-11-17)
 
 ### Changes

@@ -5,12 +5,14 @@
 //! with no credential and no source.
 
 use std::fs;
+use std::io::Read;
 use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::process::{Command, Output, Stdio};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tehas_core::testdir::TestDir;
@@ -157,6 +159,151 @@ fn listen_with(
 
 fn exe(path: &Path, body: &str) {
     tehas_core::testing::write_exe(path, body).unwrap();
+}
+
+/// The longest a run of a program in these tests may take.
+const BOUND: Duration = Duration::from_secs(60);
+
+/// What a stream of a child printed, read on a thread of its own so a full
+/// pipe does not stop the child.
+fn drain(from: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    if let Some(mut from) = from {
+        std::thread::spawn(move || {
+            let mut all = Vec::new();
+            let _ = from.read_to_end(&mut all);
+            let _ = tx.send(all);
+        });
+    }
+    rx
+}
+
+/// What was read, or nothing when a process the child left still holds the
+/// pipe open at `until`.
+fn drained(rx: &mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
+    rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+        .unwrap_or_default()
+}
+
+/// Run `cmd` to its end, in a process group of its own, for at most `bound`.
+/// When `done` says so, the group is killed and the run counts as ended. A
+/// run that outlives its bound is killed with its group and fails the test,
+/// so a stuck program fails the gate instead of holding it.
+fn bounded(cmd: &mut Command, bound: Duration, mut done: impl FnMut() -> bool) -> Output {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let group = rustix::process::Pid::from_child(&child);
+    let kill = |child: &mut std::process::Child| {
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        child.wait().unwrap()
+    };
+    let out = drain(child.stdout.take());
+    let err = drain(child.stderr.take());
+    let began = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if done() {
+            std::thread::sleep(Duration::from_millis(300));
+            break kill(&mut child);
+        }
+        if began.elapsed() >= bound {
+            kill(&mut child);
+            let err = drained(&err, Instant::now() + Duration::from_secs(5));
+            panic!(
+                "{cmd:?} did not end within {bound:?}: {}",
+                String::from_utf8_lossy(&err)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let until = Instant::now() + Duration::from_secs(5);
+    Output {
+        status,
+        stdout: drained(&out, until),
+        stderr: drained(&err, until),
+    }
+}
+
+/// Whether a process is gone: no such process, or one that is dead and only
+/// waits to be reaped.
+fn gone(pid: &str) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
+        stat.rsplit_once(") ")
+            .is_some_and(|(_, s)| s.starts_with('Z'))
+    })
+}
+
+#[test]
+fn a_run_that_outlives_its_bound_is_killed_with_its_group_and_fails() {
+    let d = TestDir::new("contractor-bounded");
+    let pids = d.path().join("pids");
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg(format!(
+        "sleep 30 & echo $$ $! >{}; echo stuck >&2; wait",
+        pids.display()
+    ));
+    let began = Instant::now();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        bounded(&mut cmd, Duration::from_secs(1), || false)
+    }));
+    let Err(why) = failed else {
+        panic!("a stuck run passed");
+    };
+    let why = why.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(why.contains("did not end within 1s: stuck"), "{why}");
+    assert!(began.elapsed() < Duration::from_secs(10));
+    for pid in fs::read_to_string(&pids).unwrap().split_whitespace() {
+        let since = Instant::now();
+        while !gone(pid) {
+            assert!(since.elapsed() < Duration::from_secs(5), "{pid} lives");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+#[test]
+fn a_run_whose_leftover_holds_its_pipes_still_ends() {
+    let d = TestDir::new("contractor-leftover");
+    let pid = d.path().join("pid");
+    let began = Instant::now();
+    let out = bounded(
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("sleep 30 & echo $! >{}; exit 3", pid.display())),
+        Duration::from_secs(20),
+        || false,
+    );
+    let leftover = fs::read_to_string(&pid).unwrap();
+    let leftover = rustix::process::Pid::from_raw(leftover.trim().parse().unwrap()).unwrap();
+    let _ = rustix::process::kill_process(leftover, rustix::process::Signal::KILL);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(began.elapsed() < Duration::from_secs(15));
+}
+
+#[test]
+fn a_run_its_caller_ends_is_killed_and_returns_what_it_printed() {
+    let began = Instant::now();
+    let mut asked = 0;
+    let out = bounded(
+        Command::new("sh")
+            .arg("-c")
+            .arg("echo started >&2; exec sleep 30"),
+        Duration::from_secs(20),
+        || {
+            asked += 1;
+            asked > 3
+        },
+    );
+    assert_eq!(out.status.code(), None);
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "started\n");
+    assert!(began.elapsed() < Duration::from_secs(10));
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -347,33 +494,37 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
     );
     let program = env!("CARGO_BIN_EXE_tehas-contractor");
     let run = |args: &[&str]| {
-        Command::new(program)
-            .args(args)
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("HOME", &user_home)
-            .env("TEHAS_HOME", &tehas_home)
-            .env("TEHAS_OUTSOURCE", "on")
-            .env("TEHAS_TEST_FEATURES", "outsource")
-            .env("TEHAS_WORK_CMD", &work)
-            .env("TEHAS_WORK_GRACE", "5")
-            .env(
-                "TEHAS_CONTRACTOR_GIT",
-                format!("file://{}", d.path().join("git").display()),
-            )
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .output()
-            .unwrap()
+        bounded(
+            Command::new(program)
+                .args(args)
+                .env_clear()
+                .env("PATH", std::env::var("PATH").unwrap_or_default())
+                .env("HOME", &user_home)
+                .env("TEHAS_HOME", &tehas_home)
+                .env("TEHAS_OUTSOURCE", "on")
+                .env("TEHAS_TEST_FEATURES", "outsource")
+                .env("TEHAS_WORK_CMD", &work)
+                .env("TEHAS_WORK_GRACE", "5")
+                .env(
+                    "TEHAS_CONTRACTOR_GIT",
+                    format!("file://{}", d.path().join("git").display()),
+                )
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1"),
+            BOUND,
+            || false,
+        )
     };
 
     // Off, every verb is refused before it touches anything.
-    let off = Command::new(program)
-        .arg("run")
-        .env_clear()
-        .env("HOME", &user_home)
-        .output()
-        .unwrap();
+    let off = bounded(
+        Command::new(program)
+            .arg("run")
+            .env_clear()
+            .env("HOME", &user_home),
+        BOUND,
+        || false,
+    );
     assert_eq!(off.status.code(), Some(78));
     // Not joined yet: run is refused as a missing identity.
     assert_eq!(run(&["run"]).status.code(), Some(78));
@@ -579,16 +730,18 @@ fn run_refuses_a_home_that_holds_a_factory_and_removes_nothing() {
         },
     )
     .unwrap();
-    let ran = Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
-        .arg("run")
-        .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
-        .env("HOME", &user_home)
-        .env("TEHAS_HOME", &tehas_home)
-        .env("TEHAS_OUTSOURCE", "on")
-        .env("TEHAS_TEST_FEATURES", "outsource")
-        .output()
-        .unwrap();
+    let ran = bounded(
+        Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
+            .arg("run")
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", &user_home)
+            .env("TEHAS_HOME", &tehas_home)
+            .env("TEHAS_OUTSOURCE", "on")
+            .env("TEHAS_TEST_FEATURES", "outsource"),
+        BOUND,
+        || false,
+    );
     let log = String::from_utf8_lossy(&ran.stderr);
     assert_eq!(ran.status.code(), Some(78), "{log}");
     assert!(log.contains("never beside a factory"), "{log}");
@@ -615,7 +768,6 @@ fn resolve(host: &str, _: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
 
 #[test]
 fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
-    use std::io::Read;
     let d = TestDir::new("contractor-egress");
     let factory_home = d.path().join("factory");
     fs::create_dir_all(factory_home.join("state")).unwrap();
@@ -693,11 +845,13 @@ fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
     let model = job["model_token"].as_str().unwrap().to_string();
     let local = tehas_contractor::egress::Local::start(&at, &model).unwrap();
     let git = |url: &str| {
-        tehas_contractor::host::git_with("ghs_cycle", &local.url())
-            .args(["ls-remote", url])
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap()
+        bounded(
+            tehas_contractor::host::git_with("ghs_cycle", &local.url())
+                .args(["ls-remote", url])
+                .env("GIT_CONFIG_GLOBAL", "/dev/null"),
+            BOUND,
+            || false,
+        )
     };
     // GitHub is listed: git's TLS hello arrives there through the local end
     // and the factory. The handshake fails, as no TLS answers it.
@@ -712,11 +866,13 @@ fn the_contractor_s_git_goes_out_only_through_the_factory_s_egress_route() {
     assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
     // A token of no job opens nothing.
     let forged = tehas_contractor::egress::Local::start(&at, &"x".repeat(32)).unwrap();
-    let out = tehas_contractor::host::git_with("ghs_cycle", &forged.url())
-        .args(["ls-remote", "https://github.com/acme/widget.git"])
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .output()
-        .unwrap();
+    let out = bounded(
+        tehas_contractor::host::git_with("ghs_cycle", &forged.url())
+            .args(["ls-remote", "https://github.com/acme/widget.git"])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null"),
+        BOUND,
+        || false,
+    );
     assert!(!out.status.success());
     assert!(rx.recv_timeout(Duration::from_millis(500)).is_err());
 }
@@ -802,40 +958,26 @@ echo 0 >"$TEHAS_HOME/state/cycles/7.runner_exit"
     );
     // A job that does not start never runs the stub, which would drain: the
     // run is ended once the factory has the job back.
-    let mut ran = Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
-        .arg("run")
-        .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
-        .env("HOME", &user_home)
-        .env("TEHAS_HOME", &tehas_home)
-        .env("TEHAS_OUTSOURCE", "on")
-        .env("TEHAS_TEST_FEATURES", "outsource")
-        .env("TEHAS_WORK_CMD", &work)
-        .env("TEHAS_WORK_GRACE", "5")
-        .env(
-            "TEHAS_CONTRACTOR_GIT",
-            format!("file://{}", d.join("git").display()),
-        )
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let started = std::time::Instant::now();
-    while ran.try_wait().unwrap().is_none() {
-        if call(factory, &["job-show", "--job", "1"])["state"] == "released" {
-            std::thread::sleep(Duration::from_millis(300));
-            let _ = ran.kill();
-            break;
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(60),
-            "the run did not end"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let out = ran.wait_with_output().unwrap();
+    let out = bounded(
+        Command::new(env!("CARGO_BIN_EXE_tehas-contractor"))
+            .arg("run")
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", &user_home)
+            .env("TEHAS_HOME", &tehas_home)
+            .env("TEHAS_OUTSOURCE", "on")
+            .env("TEHAS_TEST_FEATURES", "outsource")
+            .env("TEHAS_WORK_CMD", &work)
+            .env("TEHAS_WORK_GRACE", "5")
+            .env(
+                "TEHAS_CONTRACTOR_GIT",
+                format!("file://{}", d.join("git").display()),
+            )
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1"),
+        BOUND,
+        || call(factory, &["job-show", "--job", "1"])["state"] == "released",
+    );
     (
         out.status.code(),
         String::from_utf8_lossy(&out.stderr).into_owned(),

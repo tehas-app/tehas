@@ -118,7 +118,10 @@ pub fn main(given: &[String]) -> u8 {
     match done {
         Ok(()) => 0,
         Err((rc, why)) => {
-            eprintln!("tehas state: {why}");
+            // A reader that went away is 141 and says nothing.
+            if !why.is_empty() {
+                eprintln!("tehas state: {why}");
+            }
             rc
         }
     }
@@ -548,7 +551,10 @@ fn pack(home: &Path, rehearse: bool) -> Result<(), Fail> {
         ));
     }
     let mut made = fs::File::open(&whole).map_err(io_fail("could not read the tar"))?;
-    io::copy(&mut made, &mut io::stdout().lock()).map_err(io_fail("could not write the tar"))?;
+    io::copy(&mut made, &mut io::stdout().lock()).map_err(|e| match e.kind() {
+        io::ErrorKind::BrokenPipe => (tehas_core::exit::CLOSED, String::new()),
+        _ => (1, format!("could not write the tar: {e}")),
+    })?;
     Ok(())
 }
 

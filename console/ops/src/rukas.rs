@@ -97,6 +97,7 @@ impl Outside for Real {
             "docker",
             &[
                 "run",
+                tehas_core::sandbox::NEVER_PULL,
                 "--rm",
                 "--init",
                 "--network",

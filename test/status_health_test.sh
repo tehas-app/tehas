@@ -376,7 +376,7 @@ reset
 a=$(printf 'a%.0s' {1..40}) b=$(printf 'b%.0s' {1..40})
 t_stub docker "case \"\$1 \$2\" in
   'image inspect') echo 'sha256:1 $a' ;;
-  'run --rm') echo '{\"version\":\"0.14.53\"}' ;;
+  'run --pull=never') echo '{\"version\":\"0.14.53\"}' ;;
 esac"
 T_ENV=("PI_RUKAS_FOLLOW=commit:$b")
 t_run "$status"
@@ -387,7 +387,7 @@ t_eq "$(jq -c '{follow, target, image, imageVersion, behind}' "$live/rukas.json"
 t_eq "$(jq -r .checks.rukas.imageVersion "$live/health.json")" v0.14.53
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The sandbox image runs pi-rukas v0.14.53 and the host follows bbbbbbbb: run tehas update."
-t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid$(id -u) /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
+t_contains "$(t_calls docker)" "run --pull=never --rm --init --network none tehas/pi-rukas:uid$(id -u) /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 
 t_case "status compares the image's instance layer with sandbox.Dockerfile, and health warns while it moved"
 reset
@@ -397,7 +397,7 @@ mkdir -p "$TEHAS_INSTANCE_DIR/tools"
 echo 1 >"$TEHAS_INSTANCE_DIR/tools/pin"
 t_stub docker "case \"\$1 \$2\" in
   'image inspect') echo 'sha256:1 $b sha256:old' ;;
-  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+  'run --pull=never') echo '{\"version\":\"0.14.54\"}' ;;
 esac"
 T_ENV=("PI_RUKAS_FOLLOW=commit:$b")
 t_run "$status"
@@ -411,7 +411,7 @@ t_eq "$(jq -r .output "$live/health.json")" "The sandbox image was built from an
 # The image built from that layer is current.
 t_stub docker "case \"\$1 \$2\" in
   'image inspect') echo 'sha256:1 $b $sum' ;;
-  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+  'run --pull=never') echo '{\"version\":\"0.14.54\"}' ;;
 esac"
 t_run "$status"
 t_eq "$(jq -r .checks.rukas.layerMoved "$live/health.json")" false
@@ -437,7 +437,7 @@ t_stub git "case \"\$1\" in
 esac"
 t_stub docker "case \"\$1 \$2\" in
   'image inspect') echo 'sha256:2 $c' ;;
-  'run --rm') echo '{\"version\":\"0.14.55\"}' ;;
+  'run --pull=never') echo '{\"version\":\"0.14.55\"}' ;;
 esac"
 T_ENV=("PI_RUKAS_FOLLOW=release:0" "PI_RUKAS_REPO=https://github.com/up/pi-rukas.git")
 t_run "$status"
@@ -448,7 +448,7 @@ t_eq "$(jq -r .checks.rukas.behind "$live/health.json")" false
 # An image a release older than the target is still behind it.
 t_stub docker "case \"\$1 \$2\" in
   'image inspect') echo 'sha256:1 $b' ;;
-  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+  'run --pull=never') echo '{\"version\":\"0.14.54\"}' ;;
 esac"
 t_run "$status"
 T_ENV=()

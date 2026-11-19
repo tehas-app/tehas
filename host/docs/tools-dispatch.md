@@ -249,8 +249,8 @@ recorded, written to a private file for the call, and stores one run of kind
 start, its end (when the poll took it up), its number in the session and its
 outcome: `handoff` for a turn that asked its question, `stopped` for a session
 Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
-other. pi's rpc mode reports no token usage, so a planning turn has none. A
-call that fails is a line `WARN analytics plan: exit N` in the log, a copy
+other. The answer tehas keeps from a turn holds no token usage, so a planning
+turn has none. A call that fails is a line `WARN analytics plan: exit N` in the log, a copy
 that cannot be written is `WARN analytics plan: no facts written`, and neither
 changes anything in the turn.
 A planning session is on the state store (`plan-show`): its turns, the
@@ -394,7 +394,8 @@ nobody else has changed its title or body since, and only while GitHub says the
 number is an open issue. Every edit of the body after the label is judged,
 not only the last: an outside account's edit holds the issue even when an
 allowed account saves the body after it. For an issue its labels would start
-that was edited, the poll reads the body's edit history, the last 100 edits;
+that was edited, and for an edited issue with a question whose Retry box a
+person may tick, the poll reads the body's edit history, the last 100 edits;
 a longer history, or an edit that names no account, holds the issue too
 (`skip #N: its text was changed by 'unknown' ...`), and a history GitHub does
 not give ends the poll with exit 1. A closed issue and a pull request are never taken,

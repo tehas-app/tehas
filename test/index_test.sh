@@ -94,6 +94,7 @@ after() { run_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"
+    NR == 2 && $0 == "--pull=never" { next } # the image is built on the host
     skip { skip = 0; next }
     $0 == image { exit }
     index(valued, " " $0 " ") { skip = 1; next }
@@ -496,7 +497,7 @@ t_case "a container left by a killed run is removed before the run, under timeou
 reset
 t_run "$index"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --init "
+t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --pull=never --rm "
 t_eq "$(t_calls timeout | grep '^-k .* docker ' | cut -d' ' -f1-5)" "-k 30 1800 docker run"
 t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
 

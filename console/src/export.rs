@@ -15,7 +15,6 @@ use crate::store;
 use serde_json::Value;
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use tehas_core::{mask, models};
@@ -243,9 +242,11 @@ pub fn main(given: &[String]) -> u8 {
         }
         printed = object.dump() + "\n";
     }
-    let mut out = io::stdout();
-    let written = out.write_all(printed.as_bytes()).and_then(|()| out.flush());
-    u8::from(!ok || written.is_err())
+    match tehas_core::out::print(&printed) {
+        0 if ok => 0,
+        tehas_core::exit::CLOSED => tehas_core::exit::CLOSED,
+        _ => 1,
+    }
 }
 
 /// What the command prints without `--json`: a line for each cycle and one for

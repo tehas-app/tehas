@@ -606,7 +606,7 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
         "the host's checkout is given to no container: {seen}"
     );
     // Every word, in order, as a cycle's push check has them, the poll's own
-    // docker and --pull=never aside.
+    // docker aside.
     let tree = t.w.home.join("state/push-probe");
     let tree = tree.to_string_lossy();
     let user = tehas_core::sandbox::user();

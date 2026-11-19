@@ -204,7 +204,11 @@ clone as pi-rukas makes one in a cycle, `.pi/worktree-setup` with `sh` when ther
 the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the first
 command of `.pi/smoke-cmd` when there is one. An install that fails, or a tool
 the image lacks (`no pnpm in the sandbox image`), is a `FAIL install` line and
-no gate runs. The clone and its worktree are removed afterwards; the product's
+no gate runs. The gates' container may run for `TEHAS_VERIFY_TIMEOUT` seconds
+(1800 by default), the bound of one run of the gate in a cycle. One still
+running then is killed by its name and is a `FAIL sandbox` line, `the gates did
+not end within <n>s`, so a gate that hangs fails `tehas setup` instead of
+holding it. The clone and its worktree are removed afterwards; the product's
 checkout gets no worktree and no branch.
 
 It changes nothing in the product. The result goes to

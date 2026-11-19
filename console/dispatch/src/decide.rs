@@ -12,7 +12,8 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
     edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, standing_actor, Event, Events, LabelState, UNKNOWN_ACTOR,
+    plan_credit, sole_application, standing_actor, Event, Events, LabelState, NOBODY,
+    UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -1570,10 +1571,15 @@ impl<'a> Poll<'a> {
     }
 
     /// Whether an order label's last event, as `order_label` reads it, lets
-    /// the label stand: an application by an allowed account or the millwright.
+    /// the label stand: an application by an allowed account or the millwright,
+    /// or one of nobody. The pins leave a refused application with nobody's
+    /// account (`crate::pins`): it starts nothing, but a hold that may not be
+    /// a person's still holds, so a refused pin never lets an issue start
+    /// sooner.
     fn order_stands(&self, state: &LabelState) -> bool {
+        let by = state.actor();
         state.event() == "labeled"
-            && (self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()))
+            && (by == NOBODY || self.c.allowed(by) || self.c.is_millwright(by))
     }
 
     /// driver: the driver of a start, read of who applied a driver label
@@ -2794,10 +2800,11 @@ impl<'a> Poll<'a> {
             Ok((base, count)) => {
                 let by = base["by"].as_str().unwrap_or("").to_string();
                 let since = base["at"].as_str().unwrap_or("").to_string();
+                let approver = base_approver(&base).to_string();
                 if self.unchanged_since(
                     n,
                     &since,
-                    &by,
+                    &approver,
                     &format!("{by} approved it"),
                     "a person applies tehas:ready",
                 )? {
@@ -3423,6 +3430,17 @@ pub(crate) fn base_stands(c: &Settings, base: &Value) -> bool {
     base["how"] == HOST || c.allowed(base["by"].as_str().unwrap_or(""))
 }
 
+/// The account a base of `fixer_base` was given by, as `changed_after` reads
+/// an approver: none for the host's, whose `by` is a word and not an account,
+/// so a change in its second by an account called `host` counts as after it.
+pub(crate) fn base_approver(base: &Value) -> &str {
+    if base["how"] == HOST {
+        ""
+    } else {
+        base["by"].as_str().unwrap_or("")
+    }
+}
+
 /// The fixer starts a record counts, at most six digits.
 pub(crate) fn fixer_starts(record: &Value) -> Option<u64> {
     let whole = |v: &Value, min: f64| v.as_f64().filter(|f| *f >= min && f.fract() == 0.0);
@@ -3558,7 +3576,7 @@ mod spec_tests {
 
 #[cfg(test)]
 mod fixer_tests {
-    use super::{base_stands, fixer_base, fixer_starts};
+    use super::{base_approver, base_stands, fixer_base, fixer_starts};
     use serde_json::{json, Value};
 
     const SUM: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -3610,6 +3628,31 @@ mod fixer_tests {
         assert!(base_stands(&c, &base));
         assert!(base_stands(&c, &fixer_base(&person("alice")).unwrap()));
         assert!(!base_stands(&c, &fixer_base(&person("host")).unwrap()));
+    }
+
+    /// #2571: the host's approval names no account, so a change in its second
+    /// by an account called `host` is after it. A person's own is not.
+    #[test]
+    fn the_hosts_approval_has_no_approver_to_excuse_a_change_in_its_second() {
+        let mut host = person("host");
+        host["how"] = json!("host");
+        let base = fixer_base(&host).unwrap();
+        assert_eq!(base_approver(&base), "");
+        let at = base["at"].as_str().unwrap();
+        assert!(tehas_core::events::changed_after(
+            at,
+            "host",
+            at,
+            base_approver(&base)
+        ));
+        let own = fixer_base(&person("host")).unwrap();
+        assert_eq!(base_approver(&own), "host");
+        assert!(!tehas_core::events::changed_after(
+            at,
+            "host",
+            at,
+            base_approver(&own)
+        ));
     }
 
     #[test]
