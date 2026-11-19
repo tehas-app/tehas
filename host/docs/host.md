@@ -1667,7 +1667,8 @@ layer differs. The layer of an instance's `sandbox.Dockerfile` carries the
 label `tehas.layer`: the SHA-256 of that file and of the files of the instance
 directory its `COPY` and `ADD` lines name. A file changed, added or taken away
 makes the sum differ, and so the next `--if-moved` builds. The
-factory's health reports the same comparison (`checks.rukas`), and the footers
+factory's health reports the same comparison of the commit and the layer
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
@@ -1855,7 +1856,8 @@ What follows from it:
   failed build stops it with the command to run again.
 - The health of the factory (`checks.rukas`) names the commit the image runs,
   the one the host follows and the clone's, and says `warn` while the image is
-  behind. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  behind, or while its instance layer is not the one `sandbox.Dockerfile` sums
+  to now. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
   same from one pi-rukas release to the next, so no `install.sh` owes a build;
   `tehas update` runs `build.sh --if-moved` on every update, and health is what
   says a host that has not run one is behind.

@@ -14,6 +14,12 @@
 //!   behind         image and target both known, not the same commit, and the
 //!                  image not a later release on the line followed: an image
 //!                  ahead of its target is no drift
+//!   layer          the tehas.layer label of that image: the sum of the
+//!                  instance layer it was built from
+//!   instanceLayer  the sum of the instance's sandbox.Dockerfile now, as
+//!                  `console sandbox layer` gives it (src/sandbox.rs)
+//!   layerMoved     the image read and the sum known, and the two not the
+//!                  same, as `build.sh --check` compares them
 //!
 //! Upstream is asked at most once an hour (state/rukas-target keeps the last
 //! answer), and again at once when the image is on another commit than the
@@ -40,7 +46,7 @@
 use crate::store::bounded;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tehas_core::call;
@@ -56,8 +62,9 @@ const LIMIT: Duration = Duration::from_secs(60);
 pub trait Outside {
     /// `git ls-remote` with these arguments.
     fn ls_remote(&mut self, args: &[&str]) -> Option<String>;
-    /// The id of `image` and its tehas.rukas label, empty when it has none.
-    fn image(&mut self, image: &str) -> Option<(String, String)>;
+    /// The id of `image` and its tehas.rukas and tehas.layer labels, each
+    /// empty when it has none.
+    fn image(&mut self, image: &str) -> Option<(String, String, String)>;
     /// The --capabilities answer of the pi-rukas in `image`.
     fn capabilities(&mut self, image: &str) -> Option<String>;
     /// The commit the clone in `dir` is at.
@@ -79,12 +86,10 @@ impl Outside for Real {
         ran("git", &all)
     }
 
-    fn image(&mut self, image: &str) -> Option<(String, String)> {
-        let format = "{{.Id}} {{index .Config.Labels \"tehas.rukas\"}}";
+    fn image(&mut self, image: &str) -> Option<(String, String, String)> {
+        let format = "{{.Id}} {{index .Config.Labels \"tehas.rukas\"}} {{index .Config.Labels \"tehas.layer\"}}";
         let out = ran("docker", &["image", "inspect", "--format", format, image])?;
-        let line = out.lines().next()?.trim();
-        let (id, label) = line.split_once(' ').unwrap_or((line, ""));
-        (!id.is_empty()).then(|| (id.to_string(), label.trim().to_string()))
+        Some(labels(out.lines().next()?)).filter(|(id, _, _)| !id.is_empty())
     }
 
     fn capabilities(&mut self, image: &str) -> Option<String> {
@@ -109,6 +114,14 @@ impl Outside for Real {
     }
 }
 
+/// The id and the two labels of a line `image` asked docker for. One space
+/// apart, so a label that is not there leaves two spaces.
+fn labels(line: &str) -> (String, String, String) {
+    let mut words = line.trim_end().splitn(3, ' ').map(|w| w.trim().to_string());
+    let mut next = || words.next().unwrap_or_default();
+    (next(), next(), next())
+}
+
 /// Write live/rukas.json from this host.
 pub fn write(home: &Path, live: &Path) {
     let versions = fs::read_to_string(home.join("versions.env")).unwrap_or_default();
@@ -122,6 +135,10 @@ pub fn write(home: &Path, live: &Path) {
         follow: setting("PI_RUKAS_FOLLOW"),
         repo: setting("PI_RUKAS_REPO"),
         image: env::var("PI_ENSEMBLE_IMAGE").unwrap_or_default(),
+        layer: env::var("TEHAS_INSTANCE_DIR")
+            .ok()
+            .filter(|d| !d.is_empty())
+            .map(|d| Path::new(&d).join("sandbox.Dockerfile")),
     };
     let file = read(home, &given, &mut Real, time::now());
     let to = live.join("rukas.json");
@@ -137,6 +154,9 @@ pub struct Given {
     pub follow: String,
     pub repo: String,
     pub image: String,
+    /// The instance's sandbox.Dockerfile, None when the instance directory
+    /// is not known.
+    pub layer: Option<PathBuf>,
 }
 
 fn text_or_null(s: Option<String>) -> J {
@@ -146,15 +166,19 @@ fn text_or_null(s: Option<String>) -> J {
 /// The file, or None on a host that follows no pi-rukas and has no image or
 /// clone of it.
 pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J> {
-    let (image, image_version) = if g.image.is_empty() {
-        (None, None)
+    let (image, image_version, layer) = if g.image.is_empty() {
+        (None, None, None)
     } else {
         match out.image(&g.image) {
-            Some((id, label)) => {
+            Some((id, label, layer)) => {
                 let label = tehas_core::grammar::commit_id(&label).then_some(label);
-                (label, image_version(home, &g.image, &id, out, now))
+                (
+                    label,
+                    image_version(home, &g.image, &id, out, now),
+                    Some(layer),
+                )
             }
-            None => (None, None),
+            None => (None, None, None),
         }
     };
     let clone = out
@@ -187,6 +211,10 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
         }
         _ => false,
     };
+    // The sum is asked only of an image that was read: no image, no drift.
+    let instance_layer = layer.as_ref().and(g.layer.as_deref()).and_then(layer_sum);
+    let layer_moved = matches!((&layer, &instance_layer), (Some(h), Some(w)) if h != w);
+    let some = |s: Option<String>| text_or_null(s.filter(|s| !s.is_empty()));
     Some(obj(vec![
         ("generatedAt", J::str(time::iso(now))),
         (
@@ -203,7 +231,19 @@ pub fn read(home: &Path, g: &Given, out: &mut dyn Outside, now: i64) -> Option<J
         ("imageVersion", text_or_null(image_version)),
         ("clone", text_or_null(clone)),
         ("behind", J::Bool(behind)),
+        ("layer", some(layer)),
+        ("instanceLayer", some(instance_layer)),
+        ("layerMoved", J::Bool(layer_moved)),
     ]))
+}
+
+/// The sum of the instance's layer, empty with no sandbox.Dockerfile, and
+/// None when it cannot be read, which decides nothing.
+fn layer_sum(file: &Path) -> Option<String> {
+    if !file.exists() {
+        return Some(String::new());
+    }
+    crate::sandbox::layer_sum(file).ok()
 }
 
 /// Whether the image is a later release than the target, on the line the host
@@ -401,7 +441,7 @@ mod tests {
     #[derive(Default)]
     struct Fake {
         tags: Option<String>,
-        image: Option<(String, String)>,
+        image: Option<(String, String, String)>,
         caps: Option<String>,
         head: Option<String>,
         asked: Vec<String>,
@@ -412,7 +452,7 @@ mod tests {
             self.asked.push(format!("ls-remote {}", args.join(" ")));
             self.tags.clone()
         }
-        fn image(&mut self, _: &str) -> Option<(String, String)> {
+        fn image(&mut self, _: &str) -> Option<(String, String, String)> {
             self.image.clone()
         }
         fn capabilities(&mut self, image: &str) -> Option<String> {
@@ -429,6 +469,7 @@ mod tests {
             follow: follow.to_string(),
             repo: "https://github.com/up/pi-rukas.git".to_string(),
             image: "tehas/pi-rukas:uid1000".to_string(),
+            layer: None,
         }
     }
 
@@ -439,7 +480,7 @@ mod tests {
                 hex('a'),
                 hex('b')
             )),
-            image: Some(("sha256:1".to_string(), image.to_string())),
+            image: Some(("sha256:1".to_string(), image.to_string(), String::new())),
             caps: Some(r#"{"version":"0.14.53"}"#.to_string()),
             head: Some(format!("{}\n", hex('b'))),
             asked: vec![],
@@ -481,7 +522,7 @@ mod tests {
         assert_eq!(f.asked.len(), 3, "{:?}", f.asked);
         assert_eq!(got.get("target").text(), hex('b'));
         // Another image is asked again.
-        f.image = Some(("sha256:2".to_string(), hex('b')));
+        f.image = Some(("sha256:2".to_string(), hex('b'), String::new()));
         f.caps = Some(r#"{"version":"0.14.54"}"#.to_string());
         let got = read(&d, &given("release:0"), &mut f, NOW + FETCH_EVERY).unwrap();
         assert_eq!(got.get("imageVersion").text(), "v0.14.54");
@@ -514,7 +555,7 @@ mod tests {
         read(&d, &given("release:0"), &mut f, NOW).unwrap();
         // v0.14.55 comes out, and a build within the hour builds from it.
         released(&mut f);
-        f.image = Some(("sha256:2".to_string(), hex('c')));
+        f.image = Some(("sha256:2".to_string(), hex('c'), String::new()));
         f.caps = Some(r#"{"version":"0.14.55"}"#.to_string());
         let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
         assert_eq!(asked_upstream(&f), 2, "{:?}", f.asked);
@@ -534,7 +575,7 @@ mod tests {
         read(&d, &given("release:0"), &mut f, NOW).unwrap();
         // Upstream does not answer, so the cached v0.14.54 stands.
         f.tags = None;
-        f.image = Some(("sha256:2".to_string(), hex('c')));
+        f.image = Some(("sha256:2".to_string(), hex('c'), String::new()));
         f.caps = Some(r#"{"version":"0.14.55"}"#.to_string());
         let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
         assert_eq!(got.get("target").text(), hex('b'));
@@ -548,7 +589,7 @@ mod tests {
         f.caps = Some(r#"{"version":"0.14.54"}"#.to_string());
         read(&d, &given("release:0"), &mut f, NOW).unwrap();
         // The image goes back to v0.14.53 with the target at v0.14.54.
-        f.image = Some(("sha256:2".to_string(), hex('a')));
+        f.image = Some(("sha256:2".to_string(), hex('a'), String::new()));
         f.caps = Some(r#"{"version":"0.14.53"}"#.to_string());
         let got = read(&d, &given("release:0"), &mut f, NOW + 60).unwrap();
         assert_eq!(got.get("targetVersion").text(), "v0.14.54");
@@ -597,11 +638,89 @@ mod tests {
         assert!(got.get("image").is_null());
         assert_eq!(got.get("behind"), &J::Bool(false));
         // An image with no label is no commit.
-        f.image = Some(("sha256:1".to_string(), String::new()));
+        f.image = Some(("sha256:1".to_string(), String::new(), String::new()));
         f.tags = fake("").tags;
         let got = read(&d, &given("release:0"), &mut f, NOW + FETCH_EVERY).unwrap();
         assert!(got.get("image").is_null());
         assert_eq!(got.get("behind"), &J::Bool(false));
+    }
+
+    #[test]
+    fn the_image_layer_is_compared_with_the_sum_of_sandbox_dockerfile() {
+        let d = TestDir::new("rukas-layer");
+        let file = d.join("instance/sandbox.Dockerfile");
+        let mut g = given("release:0");
+        g.layer = Some(file.clone());
+        let mut f = fake(&hex('b'));
+        // No sandbox.Dockerfile and no label: no layer, nothing moved.
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("layer").is_null());
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+        // A sandbox.Dockerfile the image was not built from moved.
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "FROM x\n").unwrap();
+        let sum = crate::sandbox::layer_sum(&file).unwrap();
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("layer").is_null());
+        assert_eq!(got.get("instanceLayer").text(), sum);
+        assert_eq!(got.get("layerMoved"), &J::Bool(true));
+        assert_eq!(got.get("behind"), &J::Bool(false));
+        // The image built from it is current.
+        f.image = Some(("sha256:1".to_string(), hex('b'), sum.clone()));
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert_eq!(got.get("layer").text(), sum);
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+        // The file changed since the build.
+        fs::write(&file, "FROM y\n").unwrap();
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert_eq!(got.get("layerMoved"), &J::Bool(true));
+        // The layer taken away: the image has a layer the instance no longer has.
+        fs::remove_file(&file).unwrap();
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(true));
+    }
+
+    #[test]
+    fn a_layer_that_cannot_be_compared_decides_nothing() {
+        let d = TestDir::new("rukas-layer-unknown");
+        let mut f = fake(&hex('b'));
+        f.image = Some(("sha256:1".to_string(), hex('b'), "sha256:x".to_string()));
+        // No instance directory known.
+        let got = read(&d, &given("release:0"), &mut f, NOW).unwrap();
+        assert_eq!(got.get("layer").text(), "sha256:x");
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+        // No image read: the sum is not asked.
+        let mut g = given("release:0");
+        g.layer = Some(d.join("sandbox.Dockerfile"));
+        fs::write(d.join("sandbox.Dockerfile"), "FROM x\n").unwrap();
+        f.image = None;
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("layer").is_null());
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+        // A sandbox.Dockerfile that cannot be read.
+        f.image = Some(("sha256:1".to_string(), hex('b'), "sha256:x".to_string()));
+        fs::remove_file(d.join("sandbox.Dockerfile")).unwrap();
+        fs::create_dir(d.join("sandbox.Dockerfile")).unwrap();
+        let got = read(&d, &g, &mut f, NOW).unwrap();
+        assert!(got.get("instanceLayer").is_null());
+        assert_eq!(got.get("layerMoved"), &J::Bool(false));
+    }
+
+    #[test]
+    fn the_labels_are_one_space_apart() {
+        let l = |a: &str, b: &str, c: &str| (a.to_string(), b.to_string(), c.to_string());
+        assert_eq!(
+            labels("sha256:1 abc sha256:2\n"),
+            l("sha256:1", "abc", "sha256:2")
+        );
+        assert_eq!(labels("sha256:1  sha256:2"), l("sha256:1", "", "sha256:2"));
+        assert_eq!(labels("sha256:1 abc "), l("sha256:1", "abc", ""));
+        assert_eq!(labels("sha256:1 abc"), l("sha256:1", "abc", ""));
+        assert_eq!(labels("sha256:1"), l("sha256:1", "", ""));
     }
 
     #[test]
