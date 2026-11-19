@@ -377,8 +377,13 @@ test("no page or test reaches past the DOM the stub has", () => {
     const path = new URL(f, dir);
     return statSync(path).isDirectory() ? files(new URL(f + "/", dir)) : [path];
   });
+  // The kit's vendored Solid fills <template> elements from the constant text
+  // of html`…` templates (host/docs/frontend.md, "Solid 2 in tehas"); the
+  // ratchet's lints keep data out of that text.
+  const vendored = new URL("host/fun/kit/vendor/", ROOT).pathname;
   for (const [dir, names] of Object.entries(banned)) {
     for (const path of files(new URL(dir + "/", ROOT))) {
+      if (path.pathname.startsWith(vendored)) continue;
       const body = readFileSync(path, "latin1");
       for (const name of names) assert.ok(!body.includes(name), path.pathname + " holds " + name);
     }
