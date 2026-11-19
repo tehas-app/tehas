@@ -545,6 +545,32 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A start that `tehas work` refused with exit 4 is no longer parked as an image or file that could not be given. The park lists the possible causes and points to the comment that names the real one, and `tehas status` says the same (#2557).
 - Building the sandbox image survives a flaky apt mirror: each apt step retries its fetches, and when it still fails it runs once more after 30 seconds. CI, the release gate and the release workflow retry a tool download whose transfer fails, and still check it against its pinned sum.
 - 1.0 is the core factory. outsource, spec-pipe, protolab-zip-url, prototype-file, lean and review are planned for 1.1 and stay off in 1.0. The contract lists the settings, commands, fields and labels each adds in 1.1, under the same names.
+- A settings load refused for a setting tehas 1.0 renamed or removed, or for a line of a feature still being built, now lists every such line of `instance.env` and `~/.config/tehas/env` at once. An update from 0.30.x shows them all in one run instead of one per run.
+- `TEHAS_OVERLAP_HOLD` is a row of `api/renames-1.0.tsv`. `TEHAS_OVERLAP_HOLD=0`, the old default, now loads and is dropped, as a blank value is; any other value still stops every command with 78.
+- A malformed `TEHAS_ENERGY` or `TEHAS_MCP` in `instance.env` now names `instance.env` in its message, not `~/.config/tehas/env`.
+- The poll reads the disk floor as the settings load does. A `TEHAS_CYCLE_MIN_FREE` such as `05g` no longer switches the floor off; a value it cannot read stops the poll with 78.
+- The manual says that the ceilings of `TEHAS_WORK_TIMEOUT` (25200) and `TEHAS_PLAN_TIMEOUT` (7200) are checked by the load only, not by `console settings valid`, and no longer names a `low-gate` rule.
+- `tehas start`, `limit`, `order`, `panel`, `host-message`, `freeze`, `thaw`, `pause` and `drain` stop with 78 before they write anything or call GitHub when `TEHAS_REPO`, `TEHAS_CONTROL_ISSUE` or `TEHAS_ALLOWED_LABELERS` is missing or malformed, as their exit tables say.
+- A command whose reader goes away exits 141 in every case now: `tehas top --once`, `tehas top --json`, `tehas check-product`, `tehas init-product` and the help texts did not.
+- `tehas refresh` exits 78 when `tehas-dispatch` is not installed or cannot run, where it exited 127 or 126.
+- `tehas order` exits 78 when the state store is not installed or cannot be used, as `tehas history` does, where it exited 1. Its exit table names the store, not a file.
+- `api/order.schema.json` lists `unreadable` among the states of `tehas order --json`, with a sample.
+- `tehas order set --json` and `tehas order clear --json` are in the help text and on the public surface.
+- `tehas mcp key` and `tehas mcp serve` refuse any other word with 64. `tehas mcp key --bogus-flag` printed a key.
+- The MCP tool `factory_disk` now serves the lines of `docker system df` under `full.docker.lines`, masked, as its schema and the manual said.
+- `api/disk-cycles.schema.json` now fits what `tehas disk --cycles --full --json` prints: `cut` is left out for a place measured whole, and a container with no command has no `command`, as in `api/disk.schema.json`. `api/disk-cycles.full.json` is a new sample.
+- Every MCP tool that takes an `issue` takes 1 to 999999999 and says so in its input schema; a larger number is refused with one message.
+- The manual says how to read on after a `factory_search` answer with `next`: `factory_log` from `next.offset`.
+- The contract lists `runs.contractor_id` of analytics.db as frozen, says the keys of `rows` in `tehas state check --json` are internal, and says `testFeatures` in `tehas status --json` stays through 1.x.
+- `install.sh` writes the store's backup copies, and removes them again, before it copies the first file. A `state/backup` that is a link out of the home, or a disk with no room for the copies, now stops the install with "nothing was installed", and `tehas update` puts `current` back, instead of leaving a new store that refuses the old database.
+- `tehas update` writes `state/release-history` before it moves `current`, so a history it cannot write leaves `current` where it was and the message saying so is true.
+- A cycle that waits on its issue's lock while `tehas stop` removes the lock file now takes the lock on the new file, where the dispatcher and the cleaner look.
+- The state store checks the whole database once a poll (`poll-begin`) and in `upkeep`, `prune`, `migrate` and `check`, not on every heartbeat and record. On an old factory this saves a full read of the database every 10 seconds per running cycle.
+- `store upkeep` also cuts `logs/preview.log`, `logs/protolab.log` and `logs/clean.log` past 64 MiB, as it does the dispatcher's log.
+- `install.sh` no longer keeps `libexec/github-token` while a cycle runs; no cycle from before v0.30 can still run.
+- The dispatcher judges every edit of an issue's body after the approval, not only the last. An edit by an account outside `TEHAS_ALLOWED_LABELERS` now holds the issue even when an allowed account saved the body after it, and so does an edit history longer than the 100 edits the poll reads. The poll reads that history only for edited issues it may start. This is a security fix.
+- A GitHub write whose connection broke after it was made (a reset, an EOF, a GOAWAY, a closed connection) is read back before it is sent again, as a timeout or a 5xx already was. Before, a comment could be posted twice.
+- `tehasbot status` reads the list of every issue for the breakroom's words at most once an hour, and keeps the words between reads. Each status run was about ten GitHub requests heavier before.
 
 ### Held back
 
