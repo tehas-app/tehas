@@ -445,7 +445,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | 8 KB together | Review |
+| The kit's core modules | None set yet: they hold 16518 bytes at `kit 1`, and a figure is a person's call | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
