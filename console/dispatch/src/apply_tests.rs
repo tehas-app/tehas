@@ -1523,6 +1523,119 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
         .any(|c| c.contains("`tehas-cycle@7.service` did not come up: its start exited 1.")));
 }
 
+/// A start of the host's: the approval of `tehas start`, which no label backs.
+fn host_start_of(n: u64) -> Value {
+    let mut a = start_of(n, "host");
+    a["by"] = json!("host");
+    a["remove"] = json!([]);
+    a
+}
+
+#[test]
+fn a_host_start_that_gives_up_before_its_cycle_keeps_the_hosts_approval() {
+    // The host's approval is the only record that asks for the start: a
+    // failure that may pass leaves it for the next poll.
+    for (program, pattern) in [
+        ("gh", "--add-label tehas:running"),
+        ("store", "cycle-show|busy"),
+    ] {
+        let mut t = world();
+        t.fail(program, pattern);
+        let a = t.apply(json!([host_start_of(7)]));
+        assert_eq!(a.exit, Some(1), "{pattern}");
+        let w = t.writes();
+        assert!(
+            !w.iter().any(|c| c.contains("approval-record 7 --undo")),
+            "{pattern}: {w:?}"
+        );
+        assert!(
+            a.log.contains(
+                &"the host's approval of #7 stays on record: the next poll tries it again"
+                    .to_string()
+            ),
+            "{pattern}: {:?}",
+            a.log
+        );
+        assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+    }
+}
+
+#[test]
+fn a_host_start_whose_unit_does_not_come_up_says_to_run_tehas_start_again() {
+    let mut t = world();
+    t.fail("start", "7");
+    let a = t.apply(json!([host_start_of(7)]));
+    assert_eq!(a.exit, Some(1));
+    let w = t.writes();
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("store approval-record 7 --undo --at 1793008800")));
+    let said = w
+        .iter()
+        .find(|c| c.contains("did not come up"))
+        .expect("the comment");
+    assert!(
+        said.contains("To retry, run `tehas start 7` on `tehas-tehas`."),
+        "{said}"
+    );
+    assert!(!said.contains("apply `tehas:ready`"), "{said}");
+}
+
+#[test]
+fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
+    let mut t = world();
+    t.fail("gh", "--add-label tehas:running|HTTP 502");
+    fs::write(
+        t.dir.join("issue-7"),
+        r#"{"labels":[{"name":"tehas:running"},{"name":"bug"}]}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None, "{:?}", a.log);
+    assert!(
+        a.log.contains(
+            &"#7 is marked tehas:running: the mark GitHub did not answer was made".to_string()
+        ),
+        "{:?}",
+        a.log
+    );
+    let w = t.writes();
+    assert!(
+        !w.iter().any(|c| c.contains("approval-record 7 --undo")),
+        "{w:?}"
+    );
+    assert!(t.calls().iter().any(|c| c == "start 7"));
+}
+
+#[test]
+fn a_mark_answered_unknown_that_did_not_land_starts_nothing() {
+    for issue in [
+        // Its label is still on: the mark was not made whole.
+        Some(r#"{"labels":[{"name":"tehas:running"},{"name":"tehas:ready"}]}"#),
+        Some(r#"{"labels":[{"name":"tehas:ready"}]}"#),
+        // A read that fails cannot say it was made.
+        None,
+    ] {
+        let mut t = world();
+        t.fail("gh", "--add-label tehas:running|HTTP 502");
+        match issue {
+            Some(body) => fs::write(t.dir.join("issue-7"), body).unwrap(),
+            None => t.fail("gh", "api repos/example-owner/example-product/issues/7"),
+        }
+        let a = t.apply(json!([start_of(7, "label")]));
+        assert_eq!(a.exit, Some(1), "{issue:?}");
+        assert_eq!(
+            a.log.last().unwrap(),
+            "ERROR: could not mark #7 as running, not starting a cycle"
+        );
+        assert!(t
+            .writes()
+            .iter()
+            .any(|c| c.starts_with("store approval-record 7 --undo --at 1793008800")));
+        assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+    }
+}
+
 /// A start command that comes up and puts nothing on record, after which the
 /// store answers `cycle-show` with `word`, or with no failure when empty.
 fn start_then_store(t: &mut World, word: &str) {

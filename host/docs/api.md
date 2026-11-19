@@ -410,7 +410,11 @@ a drain, a blocked-by link or `tehas:blocked`, an open pull request that
 closes it, a park on the same text and the start order, which sorts it with
 the ready issues. A title or text changed since the approval starts nothing,
 and the poll log says to run `tehas start` again. Running it again replaces
-the approval that waits; any start of the issue uses it up.
+the approval that waits; any start of the issue uses it up. A start that
+gives up before its cycle runs, on a GitHub error or a busy store, leaves the
+approval on record, and the next poll tries again. When the cycle's unit does
+not come up, the approval is taken off and the issue's comment says to run
+`tehas start N` again.
 
 `--clear` takes back an approval that has not started a cycle, and answers
 it, or `null` with `cleared: false` when none waited.
