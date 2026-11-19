@@ -188,6 +188,9 @@ jobs:
     env:
       COMMIT: ${{ inputs.commit }}
       KANI_VERSION: 0.68.0
+      # The sha256 of kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz, as
+      # the release lists it. Change both together.
+      KANI_BUNDLE_SHA256: 32e2b484d73ede0bbf64a2cf0879c4259422497d8aec4ee67d448de9ae7843d3
       KANI_CRATES: tehas-core attach tehas-dispatch
     steps:
       - name: the commit is a full commit id
@@ -204,7 +207,14 @@ jobs:
           # Kept on the runner; installed again only when the pin moves.
           if ! cargo kani --version 2>/dev/null | grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"; then
             cargo install --locked kani-verifier --version "$KANI_VERSION"
-            cargo kani setup
+            # The bundle is large and a dropped download is common, so it is
+            # fetched with retries and checked before setup takes it.
+            bundle=$RUNNER_TEMP/kani-$KANI_VERSION.tar.gz
+            curl -fsSL --retry 5 --retry-all-errors -o "$bundle" \
+              "https://github.com/model-checking/kani/releases/download/kani-$KANI_VERSION/kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+            echo "$KANI_BUNDLE_SHA256  $bundle" | sha256sum -c -
+            rm -rf "$HOME/.kani"
+            cargo kani setup --use-local-bundle "$bundle"
           fi
           cargo kani --version
       - name: the proofs

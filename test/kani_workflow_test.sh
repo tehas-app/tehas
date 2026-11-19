@@ -28,6 +28,11 @@ t_case "Kani is installed at a pinned version"
 t_contains "$job" 'cargo install --locked kani-verifier --version "$KANI_VERSION"'
 t_contains "$job" 'grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"'
 
+t_case "the Kani bundle is checked against a pinned sha256 before setup"
+[[ "$(grep 'KANI_BUNDLE_SHA256:' <<<"$job")" =~ KANI_BUNDLE_SHA256:\ [0-9a-f]{64}$ ]] || t_bad "KANI_BUNDLE_SHA256 is not a sha256"
+t_contains "$job" 'echo "$KANI_BUNDLE_SHA256  $bundle" | sha256sum -c -'
+t_contains "$job" 'cargo kani setup --use-local-bundle "$bundle"'
+
 t_case "the proofs build every feature, so no harness is left out"
 t_contains "$job" 'args=(--all-features)'
 

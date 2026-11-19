@@ -2630,18 +2630,28 @@ its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
 
 ### Registering a kani runner
 
-The release gate's proofs job asks for `[self-hosted, kani]`. On a machine
-with cargo (rustup, the `RUST_VERSION` of `host/versions.env`), bash, git,
-curl and network access to GitHub and the Rust toolchain servers, and plenty
-of memory, as an account that is not a tehas host's account:
+The release gate's proofs job asks for `[self-hosted, kani]`. Give it a
+machine with plenty of memory and network access to GitHub and the Rust
+toolchain servers, and an account of its own that holds nothing else: no
+tehas settings, no SSH keys, no gh login. The job runs the gated commit's
+code as that account.
 
-1. Take a registration token as for the speed lane.
-2. Run `./config.sh --url https://github.com/<org> --token <token>
-   --labels kani`. Not `tehas` and not `speedlane`, so no other job takes it.
-3. Run one runner on the machine and start it as a service.
+1. Make the account and give it rustup and cargo at the `RUST_VERSION` of
+   `host/versions.env`.
+2. Take a registration token: the organization's or the repository's
+   settings, Actions, Runners, New self-hosted runner, or
+   `gh api -X POST repos/<org>/<repo>/actions/runners/registration-token`.
+3. As the account, unpack the runner and run `./config.sh --url
+   https://github.com/<org>/<repo> --token <token> --labels kani`. It
+   carries `self-hosted` and `kani`, and not `tehas` or `speedlane`, so no
+   other job takes it. Write the account's cargo directory first in the
+   runner's `.path` file, since a service does not read a login shell.
+4. Run one runner on the machine and start it as a service
+   (`sudo ./svc.sh install <account> && sudo ./svc.sh start`).
 
 The first run installs Kani at the job's `KANI_VERSION` into the account's
-`~/.cargo/bin` and `~/.kani`; later runs reuse it until the pin moves.
+`~/.cargo/bin` and `~/.kani`, from a bundle checked against
+`KANI_BUNDLE_SHA256`; later runs reuse it until the pin moves.
 
 ## Run one issue by hand
 
