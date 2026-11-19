@@ -210,7 +210,7 @@ jobs:
             # The bundle is large and a dropped download is common, so it is
             # fetched with retries and checked before setup takes it.
             bundle=$RUNNER_TEMP/kani-$KANI_VERSION.tar.gz
-            curl -fsSL --retry 5 --retry-all-errors -o "$bundle" \
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$bundle" \
               "https://github.com/model-checking/kani/releases/download/kani-$KANI_VERSION/kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz"
             echo "$KANI_BUNDLE_SHA256  $bundle" | sha256sum -c -
             rm -rf "$HOME/.kani"
