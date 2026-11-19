@@ -19,6 +19,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.0.0 (2026-11-19)
+
 ### Changes
 
 - The pinned ctx7 moves from 0.11.1 to 0.12.2.
@@ -186,6 +188,29 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - A release's page on GitHub no longer holds every change since the last release. A release `vX.Y.Z` is published with its own section of `CHANGELOG.md`, and the release workflow publishes nothing when it has none, where it used to take the whole of `Unreleased`. A prerelease without a section of its own is published with what is new since the tag before it, under a first line `New since <tag>.`. `scripts/release-notes.sh` runs `xtask release-notes`.
 - `scripts/tag-release.sh` names a release's section itself: for a release whose head has no `## vX.Y.Z` section, its changelog pull request (`changelog-<tag>`) renames `## Unreleased` to `## vX.Y.Z (YYYY-MM-DD)` with a new empty `## Unreleased` above it, with or without changelog fragments. A prerelease whose tag before has no `Unreleased` section is not tagged.
 - `CHANGELOG.md` has the sections of v0.31.0 and v0.32.0, which were under `Unreleased`, and `Unreleased` holds only the changes since v0.32.0.
+- `tehas check-product --sandbox`, which `tehas setup` runs, stops the product's gates after `TEHAS_VERIFY_TIMEOUT` seconds (1800 by default): the container is killed and the check fails with `the gates did not end within <n>s`, so a gate that hangs no longer holds `tehas setup` or an upgrade forever (#2536).
+- The contractor's own tests end a run of the program that takes more than a minute and fail, instead of waiting on it forever (#2536).
+- Security fix: when the millwright's start, finish or refresh rests on an approval of `tehas start`, an edit or a title change made in the same second by a GitHub account called `host` now holds it, as a change by any outside account does (#2571).
+- A ticked Retry on a question no longer waits with `skip #<n>: its text was changed by 'unknown' after <who> ticked retry` when only allowed accounts edited the issue after the tick. The poll now reads the edit history of the edited issues with a question too.
+- A text file unpacked from a zip the issue links is held to 1 MB, as a linked one is, and is left out with "Over the 1 MB limit of a file." when it is larger.
+- An image unpacked from a zip is left out with "Over the 10 MB limit of an issue." when it is larger than what is left of the issue's 10 MB of images.
+- Security fix: `tehas:blocked` is now a pinned label, like `tehas:ready`. A lone `tehas:blocked` starts an issue once its blockers close, so another label renamed to `tehas:blocked` no longer brings its old applications with it as approvals. `tehas labels` pins it. A `tehas:blocked` the pins refuse starts nothing but still holds the issue it is on.
+- `tehas history`, `tehas export` and `tehas state pack` exit 141 with nothing on standard error when their reader goes away, as every other command does. They exited 1, which `tehas history` documents as a busy state store.
+- The exit tables of `tehas limit`, `tehas pause` and `tehas drain`, and their help texts, list status 1 for a limit or pause flag that cannot be written. The tables of `tehas refresh` and `tehas dispatch --soon` name the request or file that could not be written.
+- `tehas limit set` refuses `--json` with status 64. It took the flag, which was never documented, only when another word followed it. Read the limit back with `tehas limit --json`.
+- Security fix: every container tehas starts from the sandbox image now has `--pull=never`. When the local image is gone, for example after `docker system prune -a`, the start stops with `No such image` instead of pulling an image of that name from Docker Hub and giving it the cycle's token and model keys. Build the image again with `~/tehas/sandbox/build.sh`.
+- A push check that Docker could not start (exit 125, 126 or 127, or a line of Docker's own) no longer records a push fault or tells the issue the sandbox cannot push. The start stops with 78 and says why, as the poll's probe already did.
+- With `TEHAS_EGRESS=on`, each Docker call that sets up the egress proxy ends within 60 seconds, and a start waits at most 15 minutes for `state/egress.lock`. A dockerd that stops answering no longer holds a start and its issue's lock for good.
+- The token renewer of a `tehas work` that was killed outright ends within a second, so it no longer keeps the issue's lock and a later `tehas work` of that issue can start.
+- The installer and `tehas update` on an aarch64 or arm64 machine now stop at once with "this machine has no tehas release", instead of failing to download a tarball that was never built. Releases are built for x86_64 only, and the manual now says so.
+- `tehas state copy` and `tehas state load` examples and samples show the schemas 1.0 prints, and the manual lists the refusal of a copy older than v0.30.0.
+- The manual says that a freeze moves only tehas's own time limit: the runner's deadline and the cycle unit's 8-hour stop still count while a cycle is frozen.
+- llms.txt and the analytics pages no longer describe the Pi RPC path, which is gone.
+- `install.sh` stops with exit 78 before it copies anything when the instance's `sandbox.Dockerfile` cannot be read. It used to copy the new programs first and then say nothing was installed, so `tehas update` put the old version back over half-installed programs.
+- `install.sh` refuses an argument it does not take with exit 64 and a usage line. A mistyped `--check`, such as `--chek` or `--tests --check`, used to run a real install.
+- The manual says what the store's dry run before the first copy does: it takes the write lock for a moment and needs room in `state/backup` for up to two copies of the database.
+- A changelog fragment whose Adopter action is only "None." no longer adds a stray "None." after a release's real Adopter action steps. It still gives "None." to a section that has no Adopter action.
+- On a host that runs a prerelease newer than the newest release, such as `v1.0.0-rc.2` while the newest release is `v0.32.0`, `tehas update --check` no longer names the older release as the newest or says `tehas update --to` moves the host back. It says the host is on a prerelease ahead of the newest release, and names the newest prerelease of the same version, such as `v1.0.0-rc.3`, when there is a newer one for `tehas update --to` to move to.
 
 ### Adopter action
 
@@ -212,6 +237,8 @@ A host that set `TEHAS_REVIEW=on` (or `1`) or `TEHAS_REVIEW_REPO` in
 `instance.env` takes those lines out before it updates. Otherwise the update
 stops with exit 78 and names them. Nothing to do for an enabled
 `tehas-review.timer`: the update disables it.
+
+A host that already has `~/tehas/state/labels` has no pin for `tehas:blocked`. Until it has one, a lone `tehas:blocked` starts nothing, and the poll logs `refused: the label tehas:blocked (<id>) has no pin`. Run `tehas labels`: it names the label's id and exits 1. Check on GitHub that the label called `tehas:blocked` is the one tehas made, then add the line `tehas:blocked<tab><id>` to `~/tehas/state/labels` as the command says. A host with no such file pins it on its own.
 
 ## v0.32.0 (2026-11-17)
 
