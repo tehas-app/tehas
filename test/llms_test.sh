@@ -60,7 +60,7 @@ t_contains "$(cat "$T_ROOT/host/docs/llms.txt")" '[Factory floor]({{ $base }}/fl
 t_case "the pages that name the floor link it at /floor"
 # tools-health.md is the page that took the two sections of tools.md that link
 # the floor: `tehasbot status and the console` and the live view.
-for page in operating.md overview.md pi-software-factory.md tools-health.md; do
+for page in operating.md overview.md lean-software-factory.md pi-software-factory.md tools-health.md; do
   grep -qiE -- '\[factory floor\]\(/floor\)' "$T_ROOT/host/docs/$page" \
     || t_bad "$page has no link to the floor at /floor"
 done

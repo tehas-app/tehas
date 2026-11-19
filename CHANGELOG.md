@@ -512,6 +512,9 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   `TEHAS_ALLOWED_LABELERS` then each choose the driver for one issue (#1099).
 - `install.sh --lab-build` builds with the marker `TEHAS_LAB_BUILD=on` in place of debug assertions, so a lab build reads `TEHAS_TEST_FEATURES` and none of the tests' other hooks (#2500).
 - Health warns on a lab build even with `TEHAS_TEST_FEATURES` unset, and `checks.testFeatures` on `/health` and `testFeatures` of `tehas status --json` carry a new field `lab` (#2501).
+- `build.sh --if-moved`, which `tehas setup`, `tehas update` and `bootstrap.sh user` run, now rebuilds the sandbox image when the instance's `sandbox.Dockerfile`, or a file it copies, changed since the image was built. The instance's layer carries the sum as the label `tehas.layer` (#2496).
+- `install.sh` builds the programs without the caller's rustflags or release profile settings (`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`, `CARGO_TARGET_<triple>_RUSTFLAGS`, `CARGO_PROFILE_RELEASE_*`) and without the rustflags of cargo's configuration files, so `-C debug-assertions` there can no longer turn on the store's test hooks. The release workflow builds the same way (#2512).
+- The pinned bun moves from 1.4.4 to 1.4.5.
 
 ### Held back
 
@@ -635,6 +638,8 @@ An instance whose public site should keep showing the live console sets `TEHAS_S
 If a command logs `its Docker daemon counts <n>`, restart the Docker daemon when no cycle runs (`sudo systemctl restart docker`) so containers get the host's CPUs.
 
 Rebuild the sandbox image (`install.sh` rebuilds it) for the fixes to reach cycles.
+
+On a host with a `sandbox.Dockerfile`, the first `tehas update` or `tehas setup` after updating rebuilds the image once, because the image there has no `tehas.layer` label yet.
 
 ## v0.30.6 (2026-11-15)
 

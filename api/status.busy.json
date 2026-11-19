@@ -105,5 +105,16 @@
     {
       "issue": 20
     }
+  ],
+  "previews": [
+    {
+      "number": 31,
+      "state": "serving",
+      "url": "https://uat-31.example.org/"
+    },
+    {
+      "number": 30,
+      "state": "building"
+    }
   ]
 }

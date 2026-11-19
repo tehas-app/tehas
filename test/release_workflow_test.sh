@@ -197,6 +197,34 @@ t_stub sha256sum 'exit 0'
 jqstep 'JQ_FAKE=1.7.1'
 t_eq "$t_rc" 1
 
+t_case "the build takes no lab marker, rustflags or release profile setting from the runner"
+step 'build the programs' >"$T/build.sh"
+# A cargo that writes down what each build is given, and leaves the programs.
+# shellcheck disable=SC2016  # the stub's own variables
+t_stub cargo '[ "$1" = build ] || exit 0
+{ env | grep -E "^([A-Z0-9_]*RUSTFLAGS|CARGO_PROFILE_[A-Z0-9_]*|TEHAS_LAB_BUILD)=" | LC_ALL=C sort
+  echo "encoded rustflags ${CARGO_ENCODED_RUSTFLAGS+set}"; } >>"$T/build.env"
+dir="" tr="" ps=()
+while [ "$#" -gt 0 ]; do
+  case $1 in --target-dir) dir=$2; shift ;; --target) tr=$2/; shift ;; -p) ps+=("$2"); shift ;; esac
+  shift
+done
+mkdir -p "$dir/${tr}release"
+for p in "${ps[@]}"; do : >"$dir/${tr}release/$p"; done'
+t_stub rustup 'exit 0'
+t_stub od 'echo " 3e 00"'
+rm -rf "$T/rt" "$T/build.env"
+mkdir -p "$T/rt"
+t_run "cd '$T/tree' && RUNNER_TEMP='$T/rt' TEHAS_LAB_BUILD=on RUSTFLAGS='-C debug-assertions' \
+  CARGO_ENCODED_RUSTFLAGS=-Cdebug-assertions CARGO_BUILD_RUSTFLAGS='-C debug-assertions' \
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C debug-assertions' CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true \
+  CARGO_PROFILE_RELEASE_PACKAGE_STORE_DEBUG_ASSERTIONS=true bash -eo pipefail '$T/build.sh'"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/build.env")" "CARGO_ENCODED_RUSTFLAGS=
+encoded rustflags set
+CARGO_ENCODED_RUSTFLAGS=
+encoded rustflags set"
+
 t_case "a prerelease tag starts the release, and is published as a prerelease, never the latest"
 on=$(sed -n '/^on:/,/^permissions:/p' "$workflow")
 for stage in alpha beta rc; do

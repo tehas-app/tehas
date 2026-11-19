@@ -256,7 +256,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or `TEHAS_TEST_FEATURES` is set or this is a lab build (`checks.testFeatures`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the image was built from another instance layer than the instance's `sandbox.Dockerfile` is now (`checks.rukas.layerMoved`; run `tehas update`), or `TEHAS_TEST_FEATURES` is set or this is a lab build (`checks.testFeatures`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot, or the sandbox cannot push (`checks.pushFault`) and the factory is not paused | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the time its lists
@@ -304,7 +304,8 @@ recorded as ended with the status `lost`, which is a failure. While
 checkout of a host that has one. It is `null` on a host with neither.
 
 `checks.rukas` is `live/rukas.json`, which `tehasbot status` writes: the
-pi-rukas the sandbox image runs against the one the host follows. `follow` is
+pi-rukas the sandbox image runs against the one the host follows, and the
+image's instance layer against the instance's `sandbox.Dockerfile`. `follow` is
 `PI_RUKAS_FOLLOW` (the instance's over `versions.env`), `target` the commit it
 names now and `targetVersion` its release (asked upstream at most once an
 hour, and once more as soon as the image is on another commit than the answer
@@ -318,7 +319,16 @@ target is no drift), and makes the health `warn` with `The sandbox image runs pi
 <image> and the host follows <target>: run tehas update.`; `install.sh --check`
 reports it as `Sandbox: BEHIND`, unless the image's `tehas.rukas` label is no
 longer the `image` the health read: an update built it after the last status
-run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
+run, and the check says `Sandbox: NOT READ` and finds nothing. `layer` is the
+`tehas.layer` label of the image, read by the same `docker image inspect`,
+and `instanceLayer` the sum of the instance's `sandbox.Dockerfile` and the
+files its `COPY` and `ADD` lines name, as `console sandbox layer` gives it;
+each is `null` when there is none. `layerMoved` is true when the two are not
+the same, which is what `sandbox/build.sh --check` compares, and makes the
+health `warn` with `The sandbox image was built from another instance layer
+than sandbox.Dockerfile is now: run tehas update.` It is false when no image
+was read or the instance directory is not known. Health itself runs no docker
+and builds nothing: it reads the file. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
 `checks.manager` is `{version}` of the program that manages this factory,

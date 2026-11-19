@@ -64,7 +64,7 @@ t_case "tehas status --json prints what the sample holds, but for the clock"
 mkdir -p "$T/home/tehas/live"
 for name in "${samples[@]}"; do
   cp "$fixtures/$name.health.json" "$T/home/tehas/live/health.json"
-  for beside in protolab contractors; do
+  for beside in protolab previews contractors; do
     rm -f "$T/home/tehas/live/$beside.json"
     [ ! -e "$fixtures/$name.$beside.json" ] ||
       cp "$fixtures/$name.$beside.json" "$T/home/tehas/live/$beside.json"

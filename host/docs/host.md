@@ -1641,7 +1641,11 @@ exits 1 and the uid tag stays where it was, as for a layer that does not
 build. After a started turn the smoke run adds a memory with vipune and
 searches it back, in a second container with no network, as the build's uid,
 on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
-on). Anything vipune writes to stderr there refuses the image the same way
+on). dockerd checks that CPU against the list it read when it started, so in
+a container whose cpuset has moved since (Incus with `limits.cpu`) it can
+refuse it; the check then runs once more on the highest CPU both the build
+and dockerd name, and when they share none it says to restart docker.
+Anything vipune writes to stderr there refuses the image the same way
 and is printed in the build's log: it is how a lost onnxruntime thread count
 shows, since only a cpuset refuses onnxruntime's pins (`taskset` does not). A
 build with an instance layer smoke-runs both images. The run and the
@@ -1660,9 +1664,15 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. Both
-first print which commit the current image is on. The
-factory's health reports the same comparison (`checks.rukas`), and the footers
+image was built on, or when the instance's layer is not the one the image was
+built from, and `build.sh --check` only says whether either moved. Both
+first print which commit the current image is on, and the two sums when the
+layer differs. The layer of an instance's `sandbox.Dockerfile` carries the
+label `tehas.layer`: the SHA-256 of that file and of the files of the instance
+directory its `COPY` and `ADD` lines name. A file changed, added or taken away
+makes the sum differ, and so the next `--if-moved` builds. The
+factory's health reports the same comparison of the commit and the layer
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
@@ -1850,7 +1860,8 @@ What follows from it:
   failed build stops it with the command to run again.
 - The health of the factory (`checks.rukas`) names the commit the image runs,
   the one the host follows and the clone's, and says `warn` while the image is
-  behind. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  behind, or while its instance layer is not the one `sandbox.Dockerfile` sums
+  to now. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
   same from one pi-rukas release to the next, so no `install.sh` owes a build;
   `tehas update` runs `build.sh --if-moved` on every update, and health is what
   says a host that has not run one is behind.

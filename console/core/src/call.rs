@@ -18,6 +18,10 @@ pub const GRACE: Duration = Duration::from_secs(10);
 /// GitHub gives, so a call that hangs ends.
 pub const GH_BOUND: Duration = Duration::from_secs(120);
 
+/// The most calls of one `store batch`. The store refuses a request of more
+/// calls with 64, and the poll asks in runs of this size.
+pub const STORE_BATCH_CALLS: usize = 512;
+
 /// What a call gave: its exit status and what it printed, or None when it
 /// could not be run or ran out of time.
 pub struct Ran {
@@ -553,6 +557,11 @@ mod tests {
 
     fn a(x: &[&str]) -> Vec<String> {
         x.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn one_store_batch_is_at_most_512_calls() {
+        assert_eq!(STORE_BATCH_CALLS, 512);
     }
 
     #[test]

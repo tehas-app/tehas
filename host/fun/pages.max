@@ -5,7 +5,7 @@
 #
 #   page <name> <script bytes> <markup and style bytes>
 #   island <name> <bytes>
-page business 99122 40291
-page floor 144329 68311
-page dashboard 49343 53011
-page manual 0 49681
+page business 99122 40524
+page floor 144329 68492
+page dashboard 49343 53168
+page manual 0 49838

@@ -757,8 +757,9 @@ exits 78.
   TLS or signed requests on the channel (#2354). Bind
   `TEHAS_OUTSOURCE_PROXY_ADDR` on a private network, never a public interface.
 - **Still being built.** A release refuses `TEHAS_OUTSOURCE=on` with 78. The
-  release tarball carries `tehas-proxy` and `tehas-contractor`, but a host
-  installs them only with the feature on, so only a test build gets them.
+  release tarball carries `tehas-proxy` and `tehas-contractor` since
+  v1.0.0-beta.6, but a host installs them only with the feature on, so only a
+  test build gets them.
 - **No installer for a contractor's host.** The contractor program is built
   and installed on a factory host with the feature on; a host of its own,
   and its unit `tehas-outsource-contractor.service`, are set up by hand until

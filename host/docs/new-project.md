@@ -315,7 +315,10 @@ The build runs with the instance directory as its context, so the file can
 `COPY` a script or a config that lives beside it. A `sandbox.Dockerfile` that
 changed since the last install makes `install.sh` owe the `sandbox` step, the
 same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
-or a run of `tehas setup` then rebuilds. A file that does not build fails the
+or a run of `tehas setup` then rebuilds. The layer is also labelled with the
+sum of the file and of the files its `COPY` and `ADD` lines name, so
+`build.sh --if-moved`, which setup, update and `bootstrap.sh user` run,
+rebuilds when either changed since the image was built. A file that does not build fails the
 build and the tag cycles run is left where it was, on the image the host had; a
 build that is killed partway leaves it on the platform image, without your
 layer, so re-run `~/tehas/sandbox/build.sh` after fixing the file.
@@ -333,7 +336,7 @@ tehas check-product --sandbox
 
 ### 6. Prove the gates in the sandbox
 
-`tehas setup` builds the sandbox image when there is none or it is not on the commit `PI_RUKAS_FOLLOW` resolves to, then runs `tehas check-product --sandbox` once. It runs the product's
+`tehas setup` builds the sandbox image when there is none, it is not on the commit `PI_RUKAS_FOLLOW` resolves to or it was not built from the instance's `sandbox.Dockerfile` as it is now, then runs `tehas check-product --sandbox` once. It runs the product's
 install and its own gates inside the image, as the unprivileged user, with
 nothing mounted but a clone made as a cycle's is, with `origin/main` and
 `origin/HEAD`, and checks the contract files first. The install runs at the root

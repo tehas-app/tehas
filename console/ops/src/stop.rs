@@ -26,7 +26,6 @@ use std::io::{self, ErrorKind, Write as _};
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::cycle_notes;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::settings::rules::is_repo;
@@ -107,9 +106,7 @@ fn marker_reads(text: &str) -> bool {
 /// could not replace keeps what it held.
 fn write_marker(marker: &str) -> bool {
     let new = format!("{marker}.new");
-    let at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let at = tehas_core::time::now();
     let wrote = fs::write(&new, format!("{at} {}\n", account::name())).is_ok()
         && fs::rename(&new, marker).is_ok()
         && fs::read_to_string(marker).is_ok_and(|text| marker_reads(&text));

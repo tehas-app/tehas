@@ -505,6 +505,9 @@ costs the timeout and nothing more, and the run still prints its block.
 Each run keeps everything under one root of its own,
 `${TMPDIR:-/tmp}/tehas-tests/run.*`, and gives it to the test files as their
 `TMPDIR`, so each file's scratch directory and the run's records are there.
+Inside a file, each `t_run` gets `TMPDIR=$T/tmp` under that file's scratch
+directory, so what a case's snippet writes to its temporary directory is its
+own file's and no other file's.
 The run removes the root when it ends. It holds a lock in the root, and so does
 every process it starts, which inherits the descriptor: a root whose lock no
 process holds is one a killed run left, and the next run removes it when it

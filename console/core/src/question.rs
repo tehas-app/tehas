@@ -149,11 +149,13 @@ fn s<'a>(v: &'a Value, path: &str) -> &'a str {
 /// marker with anything else on its line. `q_render` prints the marker of a
 /// park by this rule, and a cycle counts a handoff delivered by it too.
 pub fn is_handoff_marker(line: &str, issue: u64) -> bool {
-    Regex::new(&format!(
-        r"^<!-- pi-rukas:handoff issue={issue} cap=[A-Za-z0-9_.:-]{{1,80}} -->$"
-    ))
-    .unwrap()
-    .is_match(line)
+    static MARKER: OnceLock<Regex> = OnceLock::new();
+    let marker = MARKER.get_or_init(|| {
+        Regex::new(r"^<!-- pi-rukas:handoff issue=([0-9]+) cap=[A-Za-z0-9_.:-]{1,80} -->$").unwrap()
+    });
+    marker
+        .captures(line)
+        .is_some_and(|c| c[1] == *issue.to_string())
 }
 
 /// q_render: the body of a question comment. `out` holds the text, the
@@ -557,6 +559,22 @@ mod tests {
         assert!(!is_handoff_marker(
             "<!-- pi-rukas:handoff issue=7 cap=x --> trailing",
             7
+        ));
+    }
+
+    #[test]
+    fn the_handoff_marker_names_the_issue_exactly() {
+        for other in ["07", "17", "70", "7 ", ""] {
+            let line = format!("<!-- pi-rukas:handoff issue={other} cap=x -->");
+            assert!(!is_handoff_marker(&line, 7), "{line}");
+        }
+        assert!(is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=18446744073709551615 cap=x -->",
+            u64::MAX
+        ));
+        assert!(!is_handoff_marker(
+            "<!-- pi-rukas:handoff issue=0 cap=x -->\n",
+            0
         ));
     }
 
