@@ -6249,6 +6249,28 @@ fn a_body_written_whole_settles_as_done_by_its_sum() {
     assert!(log[1].contains("did not happen"), "{log:?}");
 }
 
+/// A cycle's note that did not land on an issue a refine filed: the body
+/// still says what it replaces, but it is not the note.
+#[test]
+fn a_note_that_did_not_land_on_a_filed_issue_did_not_happen() {
+    let mut t = world();
+    let row = json!({"id": 3, "kind": "issue-edit", "issue": 7, "state": "attempted",
+        "intended_at": 990, "attempted_at": 991,
+        "args": {"gh": ["api", "-X", "PATCH", "repos/r/issues/7", "--input", "-"],
+                 "input": {"sha256": "0000", "bytes": 4}}});
+    left_open(&t, json!([row]));
+    fs::write(
+        t.dir.join("issue-7"),
+        json!({"body": "Replaces #3\n\nFix the drain."}).to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (issue-edit on #7, 10s old) did not happen (its body is not the text it wrote); this poll decides it again",
+    ]);
+}
+
 /// The outcome file of issue 7 and its sibling, as `outcome_kept` names them.
 fn outcome_files(t: &World) -> (std::path::PathBuf, std::path::PathBuf) {
     (

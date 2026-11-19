@@ -1318,9 +1318,10 @@ same way before anything is sent again. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
 tell or a hold's note is then on record as said); not found, it is abandoned
 and the poll sends it once; a read that failed leaves the row open and the
-write is not sent that poll. A plan written onto its issue is found done
-only when the issue's body is the plan's text: a title the plan kept, or a
-body that says `Replaces #`, does not count. A read of GitHub that failed on a bad
+write is not sent that poll. An edit of an issue's text, such as a plan
+written onto its issue or a cycle's note, is found done only when the body
+is the text it wrote: a title the plan kept, or a body that says
+`Replaces #`, does not count. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
