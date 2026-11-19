@@ -511,6 +511,29 @@ t_eq "$(readlink "$th/current")" versions/v1.3.0-beta.1
 t_eq "$(t_calls install)" "install v1.3.0-beta.1 "
 rm -rf "$rel/v1.3.0-beta.1" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
 
+t_case "a host on a prerelease ahead of the newest release is not offered the older release"
+stubs
+make_release v1.3.0-beta.1
+instance
+host_at v1.3.0-beta.1
+t_run "$update --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "release: installed v1.3.0-beta.1, a prerelease ahead of the newest release v1.2.0"
+t_contains "$t_out" "release: v1.3.0-beta.1 is the newest prerelease of v1.3.0; a plain tehas update keeps it"
+t_lacks "$t_out" "newest v1.2.0"
+t_lacks "$t_out" "moves it back"
+t_lacks "$t_out" "would switch"
+make_release v1.3.0-beta.2
+t_run "$update --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "release: the newest prerelease of v1.3.0 is v1.3.0-beta.2; tehas update --to v1.3.0-beta.2 moves to it"
+t_lacks "$t_out" "would switch"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(readlink "$th/current")" versions/v1.3.0-beta.1
+t_lacks "$(t_calls gh)" "release download"
+rm -rf "$rel/v1.3.0-beta.1" "$rel/v1.3.0-beta.2" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
+
 t_case "a checkout tagged newer than any release, and not published, changes nothing"
 stubs
 instance
