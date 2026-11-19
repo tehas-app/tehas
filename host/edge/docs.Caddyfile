@@ -19,7 +19,7 @@
     # where the browser speaks it and gzip elsewhere. The files under /live/ and
     # the two health addresses are left alone, because the dashboard's console
     # reads them with Range requests, whose offsets count the file's own bytes,
-    # and an encoded body has none of those (host/fun/dashboard-view.js).
+    # and an encoded body has none of those (host/fun/factory/tehas-factory-tail.js).
     @compress not path /live/* /health /healthz
     encode @compress zstd gzip
     # route keeps this order: the 404 has to see the path before the rewrite.

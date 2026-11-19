@@ -14,9 +14,11 @@ looks the same before and after.
 What is true today: the pages are static HTML and Caddy templates in
 `host/fun/` and `host/docs/`, with plain scripts and ES modules, no build step.
 The Protolab's pages are written by `tehasbot protolab` and hold no script. The
-kit in `host/fun/kit/` holds Solid 2 and the island base, but no page loads it
-yet: the dashboard is the first page to move onto it. The byte ratchet in
-[Budgets](#budgets) holds every page at its size today.
+kit in `host/fun/kit/` holds Solid 2 and the island base. The plain dashboard
+is on it: its sections are the islands of `host/fun/factory/`
+([The plain dashboard](#the-plain-dashboard)). The business page and the
+factory floor still draw with plain scripts and move in 1.2. The byte ratchet
+in [Budgets](#budgets) holds every page at its size today.
 
 ## The split
 
@@ -105,7 +107,8 @@ An island is a custom element in the light DOM, made with the kit's
 - **Data in**, in this order of preference: attributes for scalars
   (`limit="10"`); a child `<script type="application/json">`, read once when
   the element upgrades; `src="/live/<file>.json"` for a feed, read through the
-  kit's feed store (`kit/feed.js`) and never by a `fetch` of its own.
+  kit's feed store (`kit/feed.js`) and never by a `fetch` of its own. A console that grows is read by a plain element
+  instead ([The plain dashboard](#the-plain-dashboard)).
 - **State between islands** only through page stores (`kit/state.js`), see
   [Page state](#page-state). An island never calls another island's methods
   and never reads another island's DOM.
@@ -388,6 +391,43 @@ export const mount = view((props, ctx) => {
 <script type="module" src="/fun/tehas-factory-queue.js"></script>
 ```
 
+## The plain dashboard
+
+`host/docs/dashboard.frag` is the first page on the kit. Each section is an
+island of `host/fun/factory/`, laid out as its children
+(`data-tehas-island="contents"`), so the page's grid and rules are as before.
+The fragment holds the server HTML each one replaces on mount: the state row
+reads "loading", the lists are empty and the optional sections are hidden.
+
+| Element | Reads | Draws |
+| --- | --- | --- |
+| `tehas-factory-state` | `status.json`, `running.json` | The state, the all-hands and read-only marks, how old the queue is, the link to all issues |
+| `tehas-factory-console` | `running.json`, `status.json` | The tabs of the cycles, the shown cycle's title and step, and the console |
+| `tehas-factory-issues` | `status.json` | One list, named by `list`: `queued`, `awaiting`, `stopped` or `completed` |
+| `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
+| `tehas-factory-days` | `analytics.json` | Last 10 days |
+| `tehas-factory-previews` | `previews.json` | The previews |
+| `tehas-factory-host` | `top.json` | The host and its units |
+
+- Seven islands read `status.json` through one feed, polled every ten seconds;
+  `running.json` the same. `analytics.json` is read once a minute. `top.json`
+  is read every ten seconds while the last answer was good and once a minute
+  while there is none: the island reads it at a minute, and a second reader
+  that asks for ten seconds lives only while the file is there.
+- A file that is not there leaves its island's server HTML: a host with no
+  previews, no `top.json` or no report has those sections hidden, as before.
+  The section comes when the file does.
+- The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
+  draw tickets through the page store of `factory/bridge.state.js`.
+- The console is a plain element inside the console island,
+  `<tehas-factory-tail file live>` (`factory/tehas-factory-tail.js`). A
+  console is text that grows and is read by byte range, which `kit/feed.js`
+  does not do, so the element reads it itself, every two seconds, and follows
+  the output while its checkbox is checked. It is the one fetch of the page
+  outside a feed.
+- A bar's length in "Last 10 days" is the custom property
+  `--tehas-factory-share`, which `factory/factory.css` reads.
+
 ## The live files and the pages
 
 The files under `/live/` are for the dashboard, not for a program
@@ -419,7 +459,7 @@ library solid <bytes>
 | --- | --- |
 | `business` | `fun/business.html` |
 | `floor` | `fun/index.html` |
-| `dashboard` | `docs/_layout.html` and `docs/dashboard.frag` |
+| `dashboard` | `docs/_layout.html` and `docs/dashboard.frag`, with the islands its tags load |
 | `manual` | `docs/_layout.html` |
 
 A page's script bytes are the files its `<script src="/fun/…">` tags name and
@@ -467,14 +507,17 @@ The budgets for new work:
   browser: `node test/browser/kit-check.mjs` serves `test/browser/` with the
   kit and `test/fixtures/live/` under a CSP with no inline script or style,
   loads it in headless Chromium and checks two islands that share one feed and
-  one store. It prints `skip` where no Chromium is found. The islands of a
-  page get render tests in tehas-e2e.
+  one store. It prints `skip` where no Chromium is found.
+  `node test/browser/dashboard-check.mjs` does the same for the plain
+  dashboard: it renders the manual's layout around the fragment, serves the
+  samples and a console that grows, and checks each section, the tabs, the
+  console's tail and the polling. `--shot <png>` saves a screenshot.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.
 - `test/live_fixtures_test.mjs` runs the page code against the samples in
-  `test/fixtures/live/`: each sample through the views that read it, and the
-  plain dashboard drawn from all of them. It fails when a page fetches a file
-  that has no sample.
+  `test/fixtures/live/`: each sample through the views and the island models
+  that read it. It fails when a page fetches or names a file that has no
+  sample.
 - The byte ratchet runs with the workspace's tests and needs neither node nor
   the network.
