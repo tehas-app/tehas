@@ -514,6 +514,7 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - Health warns on a lab build even with `TEHAS_TEST_FEATURES` unset, and `checks.testFeatures` on `/health` and `testFeatures` of `tehas status --json` carry a new field `lab` (#2501).
 - `build.sh --if-moved`, which `tehas setup`, `tehas update` and `bootstrap.sh user` run, now rebuilds the sandbox image when the instance's `sandbox.Dockerfile`, or a file it copies, changed since the image was built. The instance's layer carries the sum as the label `tehas.layer` (#2496).
 - `install.sh` builds the programs without the caller's rustflags or release profile settings (`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`, `CARGO_TARGET_<triple>_RUSTFLAGS`, `CARGO_PROFILE_RELEASE_*`) and without the rustflags of cargo's configuration files, so `-C debug-assertions` there can no longer turn on the store's test hooks. The release workflow builds the same way (#2512).
+- The pinned bun moves from 1.4.4 to 1.4.5.
 
 ### Held back
 
