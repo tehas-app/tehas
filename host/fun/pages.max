@@ -5,7 +5,9 @@
 #
 #   page <name> <script bytes> <markup and style bytes>
 #   island <name> <bytes>
+#   library solid <bytes>    the kit's Solid, counted here and in no page
 page business 99122 40524
 page floor 144329 68492
 page dashboard 49343 53168
 page manual 0 49838
+library solid 123689
