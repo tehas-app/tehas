@@ -483,12 +483,12 @@ fn cycle_token_pushes(host: &Host) -> bool {
     };
     let proof = push::prove(&host.home, &tree, &mut push::Real);
     let lines = push::lines(&proof, &push::repo());
-    if proof.pushes() {
+    if proof.starts() {
         lines.iter().for_each(|l| say(l));
     } else {
         lines.iter().for_each(|l| tell(l));
     }
-    proof.pushes()
+    proof.starts()
 }
 
 /// What --check exits with. build.sh --check exits 3 when the commit moved;

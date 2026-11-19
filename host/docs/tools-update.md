@@ -470,6 +470,9 @@ the sandbox's own push check names. The token reaches git through its
 environment, never a command line. It prints `Cycle token:  OK (<login> can push
 to origin)`. A refused push, or no token, prints `Cycle token:  CANNOT PUSH`,
 the app's login, git's last lines and what the app needs, and the run exits 1.
+On a [read-only](/operating#read-only) instance the token is made and not
+pushed with, since it may not push: `Cycle token:  OK (read-only: <login> may
+not push, so no push was asked)`.
 What was installed stays installed. A drained factory ends with `the factory
 stays drained: ...` in place of the line below; a factory that is not drained
 ends with `the factory is not drained: ...`, and the poll's push-fault hold
