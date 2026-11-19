@@ -425,6 +425,9 @@ reads "loading", the lists are empty and the optional sections are hidden.
   The section comes when the file does.
 - The host bridge's answer (`fun/host-bridge.js`) reaches the islands that
   draw tickets through the page store of `factory/bridge.state.js`.
+- What more than one island draws, the space between two elements and the
+  host's notes on a ticket, is in `factory/parts.render.js`. It is a render
+  module with no element, so `pages.max` gives it an island line of its own.
 - The console is a plain element inside the console island,
   `<tehas-factory-tail file live>` (`factory/tehas-factory-tail.js`). A
   console is text that grows and is read by byte range, which `kit/feed.js`

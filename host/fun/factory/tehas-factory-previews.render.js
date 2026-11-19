@@ -1,7 +1,7 @@
 import { Errored, For, Loading, Show, createMemo, html } from "../kit/vendor/solid.js";
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
-import { SP } from "./tehas-factory-issues.render.js";
+import { SP } from "./parts.render.js";
 import { previewsModel } from "./tehas-factory-previews.model.js";
 
 // A host without previews has no file: the section stays as the server wrote it, hidden.

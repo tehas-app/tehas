@@ -1,7 +1,7 @@
 import { Errored, For, Loading, createEffect, createMemo, createRoot, getOwner, html, onCleanup, runWithOwner } from "../kit/vendor/solid.js";
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
-import { SP } from "./tehas-factory-issues.render.js";
+import { SP } from "./parts.render.js";
 import { hostModel } from "./tehas-factory-host.model.js";
 
 // The file is asked for every ten seconds while it is there, and once a

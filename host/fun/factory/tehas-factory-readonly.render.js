@@ -2,7 +2,7 @@ import { Errored, For, Loading, Show, createMemo, html } from "../kit/vendor/sol
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
 import { links, listen, useBridge } from "./bridge.state.js";
-import { Notes, SP } from "./tehas-factory-issues.render.js";
+import { Notes, SP } from "./parts.render.js";
 import { readonlyModel } from "./tehas-factory-readonly.model.js";
 
 export const mount = view((props, ctx) => {

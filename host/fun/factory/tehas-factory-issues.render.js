@@ -2,16 +2,8 @@ import { Errored, For, Loading, Show, createMemo, html } from "../kit/vendor/sol
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
 import { links, listen, useBridge } from "./bridge.state.js";
+import { Notes, SP } from "./parts.render.js";
 import { emptyText, issuesModel } from "./tehas-factory-issues.model.js";
-
-// A space between two elements, which a template drops.
-export const SP = " ";
-
-// A host's notes on a ticket, as chips after a space; nothing when there are none.
-export function Notes(props) {
-  return html`<${Show} when=${() => props.list.length > 0}>${SP}<span class="host-notes"><${For} each=${() => props.list} keyed=${false}>${(c) =>
-    html`<${Show} when=${() => c().href} fallback=${html`<span class="host-note">${() => c().text}</span>`}><a class="host-note" href=${() => c().href} target=${() => (c().away ? "_blank" : null)} rel=${() => (c().away ? "noopener noreferrer" : null)}>${() => c().text}</a><//>`}<//></span><//>`;
-}
 
 export const mount = view((props, ctx) => {
   const live = feed(props.src, { every: 10000 });
