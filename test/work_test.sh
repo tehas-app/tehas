@@ -341,8 +341,17 @@ t_eq "$(cat "$T/calls/contractor.own.as" 2>/dev/null)" "$(after --user)"
 T_ENV=("${saved_env[@]}")
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
-t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
+t_case "read-only: a kept cycle token made before the setting, which may write, reaches no container"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_READ_ONLY=1
+rm -f "$T"/calls/*
+t_run "$work 7"
+[ "$t_rc" != 0 ] || t_bad "a cycle started with a token that may write"
+t_eq "$(preflight_args)" ""
+t_eq "$(cycle_args)" ""
+
+t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
+# The mark of a token made on a read-only instance (console/ops/src/github.rs).
+: >"$T/home/tehas/state/github-cycle/token.read-only"
 rm -f "$T"/calls/*
 t_run "$work 7"
 ro_want="$want
@@ -357,6 +366,7 @@ t_eq "$(after -e | grep -E '^(GIT_CONFIG_COUNT|GIT_CONFIG_KEY_4|GIT_CONFIG_VALUE
 t_eq "$(after -e | grep '^GIT_CONFIG_VALUE_4=')" "GIT_CONFIG_VALUE_4=$(after -e | sed -n 's/^PI_ENSEMBLE_WORKSPACE_ROOT=//p')"
 # The push check is given the same: its dry run asks the workspace.
 t_contains "$(preflight_args | tr '\n' ' ')" "GIT_CONFIG_KEY_4=remote.origin.pushurl"
+rm -f "$T/home/tehas/state/github-cycle/token.read-only"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "the poll's token, which the load keeps, is not passed in"
