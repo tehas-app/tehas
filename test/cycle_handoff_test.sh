@@ -34,7 +34,7 @@ reset
 echo 'exit 4' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle."
+t_contains "$(t_calls gh)" "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle."
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 # Exit 4 has many causes and only tehas work's own comment names which: an

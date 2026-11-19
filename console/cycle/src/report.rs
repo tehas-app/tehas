@@ -1750,7 +1750,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             } else {
                 " No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.".to_string()
             };
-            parked = format!("Tehas started no cycle: tehas work refused the start before its runner ran (runner exit {runner_rc}). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
+            parked = format!("Tehas started no cycle: tehas work refused the start before its runner ran (runner exit {runner_rc}). It refuses one, for example, when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
             if rc != 4 && refused.as_ref().is_some_and(|r| r.fault) {
                 // Tehas passed what work-lean never takes: no image and no
                 // label fixes that, so the park asks for neither. Its reason is
