@@ -433,6 +433,9 @@ instance's `sandbox.Dockerfile` cannot be read, the home is not provably
 tehas's, or `--lab-build` was run from a release tree (nothing was changed).
 `--check` reports an unreadable `sandbox.Dockerfile` with an `unreadable:`
 line and exits 1.
+Any other argument, or these in another order, is refused with exit 64 and a
+usage line before anything is built or changed, so a mistyped `--check` never
+installs.
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
