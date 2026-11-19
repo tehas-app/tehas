@@ -131,10 +131,10 @@ version to move to.
 
 1. download `tehas-<version>-linux-<arch>.tar.gz`, its `.sha256` and its
    `.minisig`, unless that version is still on the host. `<arch>` is the
-   architecture `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and
-   `arm64` read as those. A machine whose `uname -m` says anything else has no
-   release to download and stops with the words it answered, before anything is
-   fetched;
+   architecture `uname -m` answers. Releases are built for `x86_64` only,
+   with `amd64` read as that. A machine whose `uname -m` says anything else,
+   `aarch64` among them, has no release to download and stops with the words
+   it answered, before anything is fetched;
 2. check the tarball against the `.sha256` and the signature against the key
    built into tehas, `host/release/minisign.pub` when the release was built,
    never `~/tehas/release/minisign.pub` or a key in the download. An instance

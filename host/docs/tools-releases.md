@@ -30,7 +30,8 @@ tarball without it installs only on a host that has one.
 `--arch` names the architecture the release is for, `x86_64` (the default) or
 `aarch64`, and nothing else is accepted: it is the middle of the tarball's name
 and it says which e_machine every program given has to have, so a console built
-for the other one is refused before anything is packed.
+for the other one is refused before anything is packed. The release workflow
+packs `x86_64` only, and the installer and `tehas update` ask for nothing else.
 
 `--commit` is the commit of tehas the tree is, written to a `COMMIT` file. A
 tree with no git has no other way to say it, the store records it in the
@@ -307,9 +308,9 @@ curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install |
 
 It downloads the newest release (or the release or prerelease `--version` names) of this machine: the
 asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
-`uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
-those. A machine whose `uname -m` says anything else stops before anything is
-downloaded, with the words it answered. It checks the `.sha256`
+`uname -m` answers. The release workflow builds for `x86_64` only, with
+`amd64` read as that. A machine whose `uname -m` says anything else, `aarch64`
+among them, stops before anything is downloaded, with the words it answered. It checks the `.sha256`
 and the signature with the key written into the script, which
 `test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
 unpacks it. It installs `minisign` with apt-get when the host has none. It runs

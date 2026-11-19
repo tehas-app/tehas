@@ -257,12 +257,11 @@ fn indented(body: &str) -> String {
         .collect()
 }
 
-/// The architecture in the name of an asset: releases are published for linux
-/// x86_64 and aarch64 only. arm64 is what some ports answer for aarch64.
+/// The architecture in the name of an asset: the release workflow builds for
+/// linux x86_64 only.
 fn arch_of(machine: &str) -> Option<&'static str> {
     match machine {
         "x86_64" | "amd64" => Some("x86_64"),
-        "aarch64" | "arm64" => Some("aarch64"),
         _ => None,
     }
 }
@@ -280,7 +279,7 @@ fn arch() -> Result<&'static str, String> {
         } else {
             &machine
         };
-        format!("this machine has no tehas release to download: releases are published for x86_64 and aarch64, and uname -m says {said}")
+        format!("this machine has no tehas release to download: releases are published for x86_64 only, and uname -m says {said}")
     })
 }
 
@@ -1532,13 +1531,13 @@ mod tests {
     fn the_asset_is_named_by_the_machine() {
         assert_eq!(arch_of("x86_64"), Some("x86_64"));
         assert_eq!(arch_of("amd64"), Some("x86_64"));
-        assert_eq!(arch_of("aarch64"), Some("aarch64"));
-        assert_eq!(arch_of("arm64"), Some("aarch64"));
+        assert_eq!(arch_of("aarch64"), None);
+        assert_eq!(arch_of("arm64"), None);
         assert_eq!(arch_of("riscv64"), None);
         assert_eq!(arch_of(""), None);
         assert_eq!(
-            tarball_of("v1.2.0", "aarch64"),
-            "tehas-v1.2.0-linux-aarch64.tar.gz"
+            tarball_of("v1.2.0", "x86_64"),
+            "tehas-v1.2.0-linux-x86_64.tar.gz"
         );
     }
 
