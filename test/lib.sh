@@ -151,6 +151,11 @@ for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   unset "$t_leak"
 done
 unset t_leak
+# No test reads the caller's stdin. When it is a socket, as some agent tools
+# start a command, bash -c with no SHLVL (t_run's env -i) reads ~/.bashrc and
+# /etc/bash.bashrc: every run of a case then sourced the scratch home's
+# .bashrc, which after a first install loads env.sh and drops GH_TOKEN (#2495).
+exec </dev/null
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The workspace's target directory, the one scripts/test.sh builds into.

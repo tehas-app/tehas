@@ -465,6 +465,14 @@ instead. So the runner needs cargo, as the gate does. Each check of the pool
 is an `xtask test-task` process that runs it under the timeout and records its
 status and time when it ends.
 
+A test file never reads the caller's stdin: `test/lib.sh` points it at
+`/dev/null`. A run of a case is `bash -c` under `env -i`, which leaves no
+`SHLVL`, and such a bash reads `~/.bashrc` and `/etc/bash.bashrc` when its
+stdin is a socket, as some agent tools start a command. Every run of a case
+then read the scratch home's `.bashrc`, which after a first install loads
+`env.sh` and drops `GH_TOKEN`: the gate failed by the hundred in the install
+and update tests, the same cases each time (#2495).
+
 Every task runs at the core limit of 0, which the run puts in front of the
 check with `prlimit --core=0`, so a program that crashes during a run leaves no
 core file in the checkout. The dump would land in the directory the task runs

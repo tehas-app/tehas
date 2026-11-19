@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Tests for the deny stubs of test/lib.sh: a run of t_run that calls docker, gh,
+# Tests for test/lib.sh: the deny stubs (a run of t_run that calls docker, gh,
 # systemctl, curl or ssh with no t_stub for it reaches a stand-in, not the
-# host's program, and the case it ran in fails. Each case runs a small test file
-# of its own that sources the harness, and reads what that file printed.
+# host's program, and the case it ran in fails), and the stdin of a run. Each
+# case runs a small test file of its own that sources the harness, and reads
+# what that file printed.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -47,6 +48,31 @@ printf '. %q\nt_case "first"\nt_run "curl u"\nt_case "second"\nt_done\n' "$T_ROO
 t_out=$(bash "$T/inner_test.sh" 2>&1)
 t_contains "$t_out" "FAIL: first: no stub stands in for curl: curl u"
 t_lacks "$t_out" "FAIL: second"
+
+t_case "a run never reads the stdin the test file was given"
+printf '. %q\nt_case "inner"\nt_run "cat"\necho "read=$t_out"\nt_done\n' "$T_ROOT/test/lib.sh" >"$T/inner_test.sh"
+t_out=$(echo "the caller's input" | bash "$T/inner_test.sh" 2>&1)
+t_contains "$t_out" "read="$'\n'
+t_lacks "$t_out" "the caller's input"
+
+# bash -c reads ~/.bashrc when its stdin is a socket and SHLVL is below 2, and
+# env -i in t_run drops SHLVL. A runner started with a socket on stdin, as some
+# agent tools start a command, then had every run source the scratch home's
+# .bashrc: after a first install that is env.sh, which drops GH_TOKEN (#2495).
+t_case "a run started with a socket on stdin does not read the home's .bashrc"
+if ! command -v python3 >/dev/null 2>&1; then
+  t_skip "no python3 to give the test file a socket on stdin"
+else
+  printf '%s\n' ". $(printf %q "$T_ROOT/test/lib.sh")" 't_case "inner"' \
+    'echo "echo read the bashrc" >"$T/home/.bashrc"' 't_run "echo ran"' 'echo "$t_out"' 't_done' \
+    >"$T/inner_test.sh"
+  t_out=$(python3 -I -c 'import os, socket, sys
+a, b = socket.socketpair()
+os.dup2(a.fileno(), 0)
+os.execvp("bash", ["bash", sys.argv[1]])' "$T/inner_test.sh" 2>&1)
+  t_contains "$t_out" "ran"
+  t_lacks "$t_out" "read the bashrc"
+fi
 
 t_case "t_lib_link twice leaves no lib/lib in the checkout it links to"
 mkdir -p "$T/fake/lib" "$T/linked"
