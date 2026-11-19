@@ -83,9 +83,17 @@ RUN mkdir -p /usr/local/cargo/registry && chown -R vscode:vscode /usr/local/carg
 # neither, an agent writes its own PNG decoder to measure a screenshot. They
 # are distribution packages, taken at whatever version the distribution carries,
 # and they are in the container only: bootstrap.sh installs neither and its
-# check does not look for them.
-RUN apt-get update -qq \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends file python3-pil \
+# check does not look for them. A mirror caught mid-sync answers with a hash
+# mismatch that a retry seconds later does not fix, so after apt's own retries
+# the whole step is tried once more after a pause.
+RUN for try in 1 2; do \
+      apt-get update -qq -o Acquire::Retries=5 \
+      && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq -o Acquire::Retries=5 --no-install-recommends file python3-pil \
+      && break; \
+      [ "$try" = 1 ] || exit 1; \
+      echo "sandbox: apt failed, trying once more in 30 seconds" >&2; \
+      rm -rf /var/lib/apt/lists/*; sleep 30; \
+    done \
  && rm -rf /var/lib/apt/lists/* \
  && echo "sandbox: file and a Python image library are in the image"
 
