@@ -160,10 +160,15 @@ fn copied(text: &str) -> Vec<String> {
 }
 
 /// Feed `path`, named `name` in the context, to `hash`: a file's bytes, a
-/// directory's entries in order, and a name that is not there as such.
-fn feed(hash: &mut Sha256, path: &Path, name: &str) -> Result<(), String> {
+/// directory's entries in order, and a name that is not there as such. A
+/// link inside a directory is its target, as docker copies it, so a loop is
+/// read once.
+fn feed(hash: &mut Sha256, path: &Path, name: &str, follow: bool) -> Result<(), String> {
     let unread = |e: io::Error| format!("could not read {}: {e}", path.display());
-    if path.is_dir() {
+    if !follow && path.is_symlink() {
+        let to = fs::read_link(path).map_err(unread)?;
+        hash.update(format!("link\0{name}\0{}\0", to.display()));
+    } else if path.is_dir() {
         let mut names: Vec<String> = fs::read_dir(path)
             .map_err(unread)?
             .filter_map(|e| e.ok())
@@ -172,7 +177,7 @@ fn feed(hash: &mut Sha256, path: &Path, name: &str) -> Result<(), String> {
         names.sort();
         hash.update(format!("dir\0{name}\0"));
         for n in names {
-            feed(hash, &path.join(&n), &format!("{name}/{n}"))?;
+            feed(hash, &path.join(&n), &format!("{name}/{n}"), false)?;
         }
     } else if path.exists() {
         let bytes = fs::read(path).map_err(unread)?;
@@ -194,7 +199,7 @@ pub fn layer_sum(file: &Path) -> Result<String, String> {
     hash.update(&bytes);
     for name in copied(&String::from_utf8_lossy(&bytes)) {
         let rel = name.trim_start_matches('/');
-        feed(&mut hash, &dir.join(rel), rel)?;
+        feed(&mut hash, &dir.join(rel), rel, true)?;
     }
     let hex: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     Ok(format!("sha256:{hex}"))
@@ -621,5 +626,20 @@ mod tests {
         assert_eq!(layer_sum(&file).unwrap(), two);
         fs::write(&file, "FROM y\nCOPY tools /t\n").unwrap();
         assert_ne!(layer_sum(&file).unwrap(), two);
+    }
+
+    #[test]
+    fn a_link_inside_a_copied_directory_is_summed_as_a_link() {
+        let d = TestDir::new("sandbox-layer-link");
+        let file = d.join("sandbox.Dockerfile");
+        fs::write(&file, "FROM x\nCOPY tools /t\n").unwrap();
+        fs::create_dir(d.join("tools")).unwrap();
+        // Followed, two links back to the directory would be read 2^40 times.
+        std::os::unix::fs::symlink(".", d.join("tools/a")).unwrap();
+        std::os::unix::fs::symlink(".", d.join("tools/b")).unwrap();
+        let one = layer_sum(&file).unwrap();
+        fs::remove_file(d.join("tools/b")).unwrap();
+        std::os::unix::fs::symlink("..", d.join("tools/b")).unwrap();
+        assert_ne!(layer_sum(&file).unwrap(), one);
     }
 }
