@@ -26,6 +26,7 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
 use tehas_core::install::{self, Step};
 use tehas_core::{exit, sandbox, time};
@@ -212,6 +213,7 @@ fn checks(sandbox: bool) -> Result<u8, u8> {
     let name = setting("TEHAS_REPO")?;
     let repo = setting("TEHAS_WORK_REPO")?;
     let models_file = format!("{}/models.json", setting("TEHAS_INSTANCE_DIR")?);
+    let bound = if sandbox { verify_bound()? } else { 0 };
 
     let mut run = Run::default();
     let head = "refs/remotes/origin/HEAD";
@@ -285,7 +287,7 @@ fn checks(sandbox: bool) -> Result<u8, u8> {
                 install: install.unwrap_or_default(),
                 setup: in_commit(&repo, head, ".pi/worktree-setup"),
             };
-            sandboxed = in_sandbox(&home, &name, &repo, gates, &mut run)?;
+            sandboxed = in_sandbox(&home, &name, &repo, gates, bound, &mut run)?;
         }
     }
 
@@ -398,12 +400,47 @@ struct Gates {
     setup: bool,
 }
 
+/// The seconds the gates' container may run: TEHAS_VERIFY_TIMEOUT, the bound
+/// of one run of the gate in a cycle.
+fn verify_bound() -> Result<u64, u8> {
+    let text = setting("TEHAS_VERIFY_TIMEOUT")?;
+    match text.parse::<u64>() {
+        Ok(n) if n > 0 => Ok(n),
+        _ => {
+            complain(&format!(
+                "tehas: TEHAS_VERIFY_TIMEOUT is not a whole number of seconds: {text}"
+            ));
+            Err(78)
+        }
+    }
+}
+
+// The name of a container of the check: the mktemp suffix of its scratch
+// directory and what it runs, so a container that outlives its bound can be
+// killed.
+fn container_name(dir: &str, what: &str) -> String {
+    let base = Path::new(dir)
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let id = base.rsplit_once('.').map_or(&*base, |(_, id)| id);
+    format!("tehas-check-product-{id}-{what}")
+}
+
+// Kill a container of the check by its name. Ending the docker client leaves
+// the container running.
+fn kill_container(name: &str) {
+    quiet(Command::new("docker").args(["kill", name]));
+}
+
 // A container of the check: <dir> mounted at its own path, <at> the directory
-// it starts in, bash its entrypoint.
-fn container(dir: &str, at: &str, image: &str, user: &str) -> Vec<String> {
+// it starts in, bash its entrypoint, <name> its name.
+fn container(dir: &str, at: &str, image: &str, user: &str, name: &str) -> Vec<String> {
     [
         "run",
         "--rm",
+        "--name",
+        name,
         "--cgroup-parent",
         "tehas.slice",
         "--memory",
@@ -439,14 +476,16 @@ fn gates_run(dir: &str, image: &str, user: &str, gates: &Gates) -> Vec<String> {
     if !gates.smoke.is_empty() {
         script.push_str(" && sh -c \"$2\"");
     }
-    let mut argv = container(dir, &format!("{dir}/tree"), image, user);
+    let name = container_name(dir, "gates");
+    let mut argv = container(dir, &format!("{dir}/tree"), image, user, &name);
     argv.extend(["-c", &script, "gates", &gates.gate, &gates.smoke].map(String::from));
     argv
 }
 
 // The container of the product's install, at the root of the clone.
 fn install_run(dir: &str, image: &str, user: &str, steps: &[Step]) -> Vec<String> {
-    let mut argv = container(dir, &format!("{dir}/clone"), image, user);
+    let name = container_name(dir, "install");
+    let mut argv = container(dir, &format!("{dir}/clone"), image, user, &name);
     argv.extend(["-c".to_string(), install::script(steps)]);
     argv
 }
@@ -523,6 +562,7 @@ fn in_sandbox(
     name: &str,
     repo: &str,
     gates: Gates,
+    bound: u64,
     run: &mut Run,
 ) -> Result<Option<bool>, u8> {
     let image = setting("PI_ENSEMBLE_IMAGE")?;
@@ -589,13 +629,59 @@ fn in_sandbox(
         }
         run.pass("install", &format!("the install passed in {image}"));
     }
-    let passed = ran(Command::new("docker").args(gates_run(&dir.0, &image, &user, &gates)));
-    if passed {
-        run.pass("sandbox", &format!("the gates passed in {image}"));
-    } else {
-        run.fail("sandbox", format!("the gates failed in {image}"));
+    let argv = gates_run(&dir.0, &image, &user, &gates);
+    let gated = gates_in(&argv, &container_name(&dir.0, "gates"), bound);
+    match gated {
+        Gated::Passed => run.pass("sandbox", &format!("the gates passed in {image}")),
+        Gated::Failed => run.fail("sandbox", format!("the gates failed in {image}")),
+        Gated::Outlived => run.fail(
+            "sandbox",
+            format!("the gates did not end within {bound}s (TEHAS_VERIFY_TIMEOUT) in {image}"),
+        ),
     }
-    Ok(Some(passed))
+    Ok(Some(gated == Gated::Passed))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Gated {
+    Passed,
+    Failed,
+    /// Still running at the bound, and killed.
+    Outlived,
+}
+
+// The gates' container run to its end, for at most `bound` seconds. One still
+// running then is killed by its name, so a gate that hangs fails the check
+// instead of holding tehas setup.
+fn gates_in(argv: &[String], name: &str, bound: u64) -> Gated {
+    let Ok(mut child) = Command::new("docker").args(argv).spawn() else {
+        return Gated::Failed;
+    };
+    let began = Instant::now();
+    let bound = Duration::from_secs(bound);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Gated::Passed,
+            Ok(Some(_)) | Err(_) => return Gated::Failed,
+            Ok(None) if began.elapsed() < bound => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(None) => break,
+        }
+    }
+    kill_container(name);
+    // The client ends once its container is gone; one that does not is
+    // killed after a grace.
+    let gone = Instant::now();
+    while matches!(child.try_wait(), Ok(None)) {
+        if gone.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Gated::Outlived
 }
 
 // tehas_core::sandbox::clone: the tip the checkout last fetched,
@@ -1141,14 +1227,15 @@ mod tests {
             install: Vec::new(),
             setup: true,
         };
-        let said = gates_run("/t", "img", "1:2", &gates).join(" ");
+        let said = gates_run("/t/check-product.AbC123", "img", "1:2", &gates).join(" ");
         assert_eq!(
-            said,
-            "run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
+            said.replace("/t/check-product.AbC123", "/t"),
+            "run --rm --name tehas-check-product-AbC123-gates --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user 1:2 \
              -e HOME=/home/vscode -v /t:/t -w /t/tree --entrypoint bash img \
              -c sh .pi/worktree-setup && sh -c \"$1\" gates g "
         );
         let said = install_run("/t", "img", "1:2", &[]).join(" ");
+        assert!(said.starts_with("run --rm --name tehas-check-product-t-install "));
         assert!(said.contains(" -v /t:/t -w /t/clone --entrypoint bash img -c set -e\n"));
         assert_eq!(
             table(),
