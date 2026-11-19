@@ -574,22 +574,7 @@ pub fn said(home: &Path, dir: &Path, what: &str, reads: &str) -> String {
 pub fn reads_images() -> String {
     let format =
         "{{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}}";
-    let out = Command::new("docker")
-        .args([
-            "image",
-            "inspect",
-            "--format",
-            format,
-            &env("PI_ENSEMBLE_IMAGE"),
-        ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let text = out
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
+    let text = inspect(&env("PI_ENSEMBLE_IMAGE"), format).unwrap_or_default();
     let line = text.lines().next().unwrap_or("");
     match line.split_once('|') {
         Some((_, w @ ("1" | "0"))) => w.to_string(),
