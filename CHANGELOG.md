@@ -515,6 +515,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `build.sh --if-moved`, which `tehas setup`, `tehas update` and `bootstrap.sh user` run, now rebuilds the sandbox image when the instance's `sandbox.Dockerfile`, or a file it copies, changed since the image was built. The instance's layer carries the sum as the label `tehas.layer` (#2496).
 - `install.sh` builds the programs without the caller's rustflags or release profile settings (`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`, `CARGO_TARGET_<triple>_RUSTFLAGS`, `CARGO_PROFILE_RELEASE_*`) and without the rustflags of cargo's configuration files, so `-C debug-assertions` there can no longer turn on the store's test hooks. The release workflow builds the same way (#2512).
 - The pinned bun moves from 1.4.4 to 1.4.5.
+- Health now compares the sandbox image's instance layer too, as `build.sh --check` does. `checks.rukas` gains `layer` (the image's `tehas.layer` label), `instanceLayer` (the sum of the instance's `sandbox.Dockerfile` and what it copies) and `layerMoved`, and `/health` says `warn` while the layer moved. The MCP server's `factory_status` passes the three fields on (#2520).
+- The front pages, the manual, `llms.txt` and both share images name tehas "The Lean Software Factory". A new manual page, `/lean-software-factory`, says what makes it lean and links the Pi software factory page, which stays.
 
 ### Held back
 
@@ -640,6 +642,8 @@ If a command logs `its Docker daemon counts <n>`, restart the Docker daemon when
 Rebuild the sandbox image (`install.sh` rebuilds it) for the fixes to reach cycles.
 
 On a host with a `sandbox.Dockerfile`, the first `tehas update` or `tehas setup` after updating rebuilds the image once, because the image there has no `tehas.layer` label yet.
+
+On a host with a `sandbox.Dockerfile` whose image was built before the `tehas.layer` label, health says `warn` until `tehas update` rebuilds the image.
 
 ## v0.30.6 (2026-11-15)
 
