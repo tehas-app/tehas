@@ -118,10 +118,12 @@ In order, stopping at the first step that fails:
    was left as it is`, and goes on with its status unchanged.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
-6. Unless `--no-build`: it builds the sandbox image when there is none, or
-   when `install.sh` left the `sandbox` step owed because the instance's
-   `sandbox.Dockerfile` or the platform's recipe changed
-   (`~/tehas/sandbox/build.sh`), and takes that step off the record. It then
+6. Unless `--no-build`: it builds the sandbox image when there is none, when
+   it is not on the commit `PI_RUKAS_FOLLOW` resolves to, when the instance's
+   `sandbox.Dockerfile`, or a file it copies, is not the one the image was
+   built from, or when `install.sh` left the `sandbox` step owed because the
+   platform's recipe changed (`~/tehas/sandbox/build.sh`), and takes that
+   step off the record. It then
    runs the product's gates in it with `tehas check-product --sandbox` where
    that command is installed. Where it is not, it says the gates were not run.
 7. It writes the timer's drop-in for `TEHAS_POLL_SECS`, or removes it at the

@@ -169,8 +169,8 @@ t_eq "$(cat "$T/shim.err")" "HTTP 429: Too Many Requests"
 t_eq "$(calls)" 1
 t_lacks "$(cat "$T/shim.err")" "trying once more"
 
-# In a TMPDIR of the case's own: /tmp holds the files of every other shim
-# running on the host, as another gate's run of this file.
+# In a TMPDIR of the case's own: the $T/tmp that t_run gives holds what the
+# file's other runs left there.
 t_case "the shim leaves no temporary file of its own"
 stub_reset
 answer 1 "" "HTTP 429: Too Many Requests" 1

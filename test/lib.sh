@@ -133,7 +133,9 @@
 # program jails its run (t_unstub, T_PLANT).
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
-# TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
+# TEHAS_HOME point into it, so a test cannot touch the real ones. So does the
+# TMPDIR of a run, $T/tmp: a snippet's temporary files are its own, not in the
+# /tmp that every test file and every gate on the host share. On a factory
 # host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
@@ -163,7 +165,7 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T_TARGET=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny"
+mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny" "$T/tmp"
 # tehas_load asks the console, and a test's tree has none beside lib/config.sh:
 # every load of a test goes to the one of this run, which a test can stub apart
 # from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does,
@@ -566,7 +568,8 @@ t_stub_analytics() {
 # $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
 # builds into this checkout. CARGO_RC makes the build fail, CARGO_FAIL names
 # the one package whose build fails, CONSOLE_BUILD tells one build from
-# another, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
+# another, CARGO_CONFIG_FLAGS stands for rustflags in cargo's configuration
+# files, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
 # that asks for --offline is a build from the cache alone: CARGO_OFFLINE names
 # what such a build answers, in cargo's own words, and the build without it is
 # The answer is one of miss, fetch_miss, noise or fail, and no other word is
@@ -644,6 +647,13 @@ case $pkg in analytics) art=an ;; *) art=a ;; esac
 with=""
 [ "${CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:-}" != true ] || with=" with debug assertions"
 [ "${TEHAS_LAB_BUILD:-}" != on ] || with="$with as a lab build"
+# Any rustflags or release profile setting install.sh does not set itself.
+flags=$(env | grep -E "^([A-Z0-9_]*RUSTFLAGS|CARGO_PROFILE_RELEASE_[A-Z0-9_]*)=." | grep -vx CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false | LC_ALL=C sort | tr "\n" " ")
+[ -z "$flags" ] || with="$with with ${flags% }"
+# Rustflags in the configuration files of cargo count only while neither
+# variable is set, even empty.
+[ -z "${CARGO_CONFIG_FLAGS:-}" ] || [ -n "${CARGO_ENCODED_RUSTFLAGS+set}${RUSTFLAGS+set}" ] ||
+  with="$with with configured $CARGO_CONFIG_FLAGS"
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}$with" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or
@@ -1296,9 +1306,11 @@ t_run() {
     done
     jail+=('T_PATH_JAIL=1')
   fi
+  # A file may clear $T or name a TMPDIR of its own in T_ENV, which env lets win.
+  mkdir -p "$T/tmp"
   t_out=$(env -i "${jail[@]}" PATH="$T/bin:$T/deny:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" \
     T="$T" T_ROOT="$T_ROOT" CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
-    TEHAS_TEST_STORE_ANSWERS="$T/store-answers" "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
+    TEHAS_TEST_STORE_ANSWERS="$T/store-answers" TMPDIR="$T/tmp" "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }

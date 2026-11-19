@@ -116,8 +116,10 @@ jobs:
           . host/versions.env
           cargo --version
           # A release is never a lab build (console/core/src/features.rs), nor
-          # built with debug assertions, whatever the runner's environment says.
-          unset TEHAS_LAB_BUILD CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS
+          # built with debug assertions, whatever the runner's environment says:
+          # no rustflags or release profile settings from it, as in install.sh.
+          unset TEHAS_LAB_BUILD $(compgen -e | grep -E 'RUSTFLAGS$|^CARGO_PROFILE_RELEASE_')
+          export CARGO_ENCODED_RUSTFLAGS=
           # The MCP server is static, as install.sh builds it.
           rustup target add x86_64-unknown-linux-musl
           target=$RUNNER_TEMP/target

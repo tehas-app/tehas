@@ -99,4 +99,18 @@ t_eq "$?" 1
 t_contains "$t_out" "is inside the checkout"
 t_eq "$(ls -A "$T/fake/lib")" ""
 
+t_case "a run's temporary files are under \$T, not in the host's shared /tmp"
+t_run 'f=$(mktemp) && echo "$TMPDIR $f"'
+t_eq "$t_rc" 0
+t_eq "${t_out%% *}" "$T/tmp"
+t_eq "$(dirname "${t_out#* }")" "$T/tmp"
+# A file that clears $T still gets the directory, and one that names a TMPDIR
+# of its own in T_ENV keeps it.
+rm -rf "$T/tmp"
+T_ENV=(TMPDIR="$T/own")
+t_run 'echo "$TMPDIR"; [ -d "$T/tmp" ] && echo made'
+t_eq "$t_out" "$T/own
+made"
+T_ENV=()
+
 t_done

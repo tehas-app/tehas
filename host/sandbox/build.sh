@@ -65,10 +65,14 @@
 #
 # Usage: build.sh              build
 #        build.sh --if-moved   build only when the commit followed is not the
-#                              one the current image was built on
-#        build.sh --check      build nothing; say whether the commit moved
+#                              one the current image was built on, or the
+#                              instance's layer is not the one it was built
+#                              from (its label tehas.layer, console sandbox
+#                              layer)
+#        build.sh --check      build nothing; say whether either moved
 #
-# Exit: 0 built, or nothing to do; 3 the commit moved (--check); 1 the commit,
+# Exit: 0 built, or nothing to do; 3 the commit or the layer moved (--check);
+#       1 the commit,
 #       the base or the build could not be had, or the base does not
 #       support what tehas work needs, or a smoke run of the new image started
 #       no step or found vipune writing to stderr; 64 usage; 78 the instance's settings
@@ -152,9 +156,14 @@ if ! target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}
 fi
 head=${target%% *} what=${target#* }
 
+# The sum of the instance's layer, nothing without one. The layer is labelled
+# with it, so a changed sandbox.Dockerfile is a reason to build too.
+layer_sum=$("$console" sandbox layer "$instance_file") || exit 1
+
 if [ "$mode" != build ]; then
   have=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "$current" 2>/dev/null) || have=""
-  if "$console" sandbox current "$current" "$have" "$head" "$what"; then
+  have_layer=$(docker image inspect --format '{{index .Config.Labels "tehas.layer"}}' "$current" 2>/dev/null) || have_layer=""
+  if "$console" sandbox current "$current" "$have" "$head" "$what" "$have_layer" "$layer_sum"; then
     exit 0
   fi
   [ "$mode" != check ] || exit 3
@@ -300,7 +309,7 @@ if [ -f "$instance_file" ]; then
   # and this one belongs to a file that checkout does not own, so it joins
   # neither count.
   if ! docker build -t "$image:$stamp-product" \
-    "--build-arg=TEHAS_BASE=$image:$stamp" \
+    "--build-arg=TEHAS_BASE=$image:$stamp" "--label=tehas.layer=$layer_sum" \
     -f "$instance_file" "$(dirname "$instance_file")"; then
     echo "sandbox: $instance_file did not build on $image:$stamp; $current is left as it was" >&2
     exit 1

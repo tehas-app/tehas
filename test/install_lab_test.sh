@@ -2,9 +2,9 @@
 # Tests for install.sh --lab-build: the programs are built with the lab marker
 # (TEHAS_LAB_BUILD=on) and without debug assertions, so they read
 # TEHAS_TEST_FEATURES and none of the tests' other hooks; a plain run builds
-# them again; neither takes the marker or debug assertions from the caller's
-# environment; a release tree is refused; and a lab environment file a plain
-# run finds is named for removal.
+# them again; neither takes the marker, debug assertions, rustflags or a
+# release profile setting from the caller's environment, or rustflags from
+# cargo's configuration files; a release tree is refused; and a lab environment file a plain run finds is named for removal.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -50,6 +50,27 @@ t_eq "$(cat "$th/libexec/console")" "a console built from source as a lab build"
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
+T_ENV=()
+
+t_case "no build takes rustflags or a release profile setting from the environment"
+T_ENV=(RUSTFLAGS="-C debug-assertions" CARGO_ENCODED_RUSTFLAGS="-Cdebug-assertions" CARGO_BUILD_RUSTFLAGS="-C debug-assertions"
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C debug-assertions" CARGO_PROFILE_RELEASE_PACKAGE_STORE_DEBUG_ASSERTIONS=true)
+t_run "$install --lab-build"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source as a lab build"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source as a lab build"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
+T_ENV=()
+
+t_case "no build takes rustflags from cargo's configuration files"
+T_ENV=(CARGO_CONFIG_FLAGS="-C debug-assertions")
+t_run "$install --lab-build"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source as a lab build"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source as a lab build"
 T_ENV=()
 
 t_case "a plain run names a lab environment file it finds, and a lab build does not"
