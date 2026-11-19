@@ -317,6 +317,28 @@ pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result
     Ok(join(&l, &before, &after, drop))
 }
 
+/// The changelog with its Unreleased section named `version (date)`, as a
+/// release's section is, and a new, empty Unreleased above it. None when it
+/// has no Unreleased section. A prerelease after the release reads what is
+/// new from the empty Unreleased, so everything in it then is new.
+pub fn name_release(text: &str, version: &str, date: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut done = false;
+    for line in text.split_inclusive('\n') {
+        let heading = line.trim_end_matches('\n');
+        let unreleased = heading
+            .strip_prefix("## Unreleased")
+            .is_some_and(|r| r.is_empty() || r.starts_with(' '));
+        if unreleased && !done {
+            out += &format!("## Unreleased\n\n## {version} ({date})\n");
+            done = true;
+        } else {
+            out += line;
+        }
+    }
+    done.then_some(out)
+}
+
 fn join(
     l: &[&str],
     before: &[(usize, String)],

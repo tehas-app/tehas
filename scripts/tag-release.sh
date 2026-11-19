@@ -12,16 +12,24 @@
 # "### Adopter action" heading, each with at least one line under it, the
 # lines of its changelog fragments (changelog.d/*.md) counted: an Adopter
 # action of "None." over no changes is a page that describes nothing. Only
-# the collection of those fragments and the move of the pinned tools below
-# edit CHANGELOG.md: a person renames Unreleased to the version in the
-# release's pull request, or leaves it.
+# the collection of those fragments, the naming of a release's section and
+# the move of the pinned tools below edit CHANGELOG.md.
+#
+# A release's page is its own section (scripts/release-notes.sh). For a
+# release vX.Y.Z whose head has no section for it, the changelog pull request
+# below renames Unreleased to "## vX.Y.Z (YYYY-MM-DD)", today in UTC, with a
+# new empty Unreleased above it; it is opened even with no fragments. A
+# prerelease keeps Unreleased: its page is what is new there since the tag
+# before it, and a prerelease whose tag before has no Unreleased section is
+# not tagged.
 #
 # When the head has changelog fragments, the head's own
 # scripts/collect-changelog.sh moves their lines into that section and deletes
-# them; then it runs the gate, pushes a branch changelog-<tag>, opens a pull
-# request, and tags nothing: the tag waits for a person to merge it. An open
-# pull request from such a branch holds the tag the same way. The pinned tools
-# move on the next run. A head with fragments and no such script is not tagged.
+# them; then, and for a release whose section is named, it runs the gate,
+# pushes a branch changelog-<tag>, opens a pull request, and tags nothing: the
+# tag waits for a person to merge it. An open pull request from such a branch
+# holds the tag the same way. The pinned tools move on the next run. A head
+# with fragments and no such script is not tagged.
 #
 # The tag is annotated: "Release <tag> - <message>", the message being the
 # subject of the head commit unless --message gives one.
@@ -88,9 +96,10 @@
 #   --no-verify  no gate at all: neither the release gate nor scripts/verify.sh
 #   --local-gate run scripts/verify.sh here instead of the release gate
 #   --gate-wait  the minutes to wait for the release gate, default 90
-#   --dry-run    check CHANGELOG.md and print the tag it would make, and the
-#                section with the fragments collected when there are any; make
-#                none, run no gate and check no polyfill
+#   --dry-run    check CHANGELOG.md and print the tag it would make, the
+#                section with the fragments collected when there are any, and
+#                the name a release's section would get; make none, run no
+#                gate and check no polyfill
 #   --remote     the remote to read and push to, default origin
 #   --rukas-caps the --capabilities answer of that pi-rukas, from a file,
 #                instead of asking its image
@@ -99,13 +108,15 @@
 # Exit: 0 tagged, or the head already carries the newest tag; 1 git, the
 #       remote, GitHub or docker failed, the newest tag is not on the branch,
 #       CHANGELOG.md has no Changes or no Adopter action for the release,
+#       or the tag before a prerelease has no Unreleased section,
 #       a polyfill it keeps
 #       has no live upstream issue and pull request, a pinned tool could not be
 #       moved, the fragments could not be collected, or the gate failed, or
 #       no green release gate came within the bound, or --pre names a stage
 #       before one already out for that version;
 #       2 nothing tagged: a pull request, named on stderr, removes polyfills,
-#       collects the changelog fragments or moves the pinned tools first;
+#       collects the changelog fragments or names the release's section, or
+#       moves the pinned tools first;
 #       64 a bad argument; another status when cargo cannot build the task
 set -uo pipefail
 
