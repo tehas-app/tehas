@@ -462,16 +462,19 @@ it ships, by installing a build that reads `TEHAS_TEST_FEATURES` and naming the
 feature there. No release reads the variable, so this is never a setting of a
 production host.
 
-1. Build from a checkout with debug assertions on. A release tree has no
-   source and is refused with 78:
+1. Make a lab build from a checkout. A release tree has no source and is
+   refused with 78:
 
    ```
    cd ~/tehas/platform
    TEHAS_TEST_FEATURES=outsource ./install.sh --lab-build
    ```
 
-   Every program is built with `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true`
-   and gets a lab build's stamp. `TEHAS_TEST_FEATURES` on the command line is
+   Every program is built with `TEHAS_LAB_BUILD=on`, a marker the programs
+   read when they are compiled, and gets a lab build's stamp. A lab build reads
+   `TEHAS_TEST_FEATURES` and nothing else of the tests: it has no debug
+   assertions, so it does not read the tests' other hooks, such as
+   `TEHAS_TEST_STORE_ANSWERS`. `TEHAS_TEST_FEATURES` on the command line is
    for this run only: it lets the install see the feature, so a feature with
    programs or units of its own, as outsource has, gets them. The run prints
    `note: a lab build`.
@@ -496,12 +499,13 @@ production host.
    typed there, such as `tehas api --json`, needs
    `TEHAS_TEST_FEATURES=outsource` in front of it, or it stops with 78.
 
-While the variable is set, health warns with `A lab build:
-TEHAS_TEST_FEATURES names outsource, still being built. No release reads it.`,
-`checks.testFeatures` says `{"read": true, "features": ["outsource"]}`, and
-`tehas status` prints a `features` line. A build with debug assertions also
-reads the tests' other hooks, such as `TEHAS_TEST_STORE_ANSWERS`; nothing on a
-host sets them.
+Health warns on a lab build whether the variable is set or not. Set, it says
+`A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No
+release reads it.` and `checks.testFeatures` says `{"read": true, "features":
+["outsource"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
+is unset, so no building feature is on. ./install.sh without --lab-build goes
+back.` and `features` is empty. `tehas status` prints a `features` line either
+way.
 
 To go back to a release, switch the feature off, then:
 
@@ -513,8 +517,9 @@ tehas update            # or ./install.sh in the checkout
 
 Any run without `--lab-build`, from a checkout or a release, installs every
 program again: a lab build's stamp matches no other. A run from a checkout
-without `--lab-build` builds with `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false`,
-whatever the environment it runs in says. `install.sh --check` and
+without `--lab-build` builds with `TEHAS_LAB_BUILD=off`, and every run with
+`CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false`, whatever the environment it
+runs in says. The release workflow builds with neither variable set. `install.sh --check` and
 `tehas update --check` report a lab build's programs as `differs`. A run that
 finds `~/.config/environment.d/tehas-lab.conf` prints `later: rm ... &&
 systemctl --user daemon-reload`, and leaves the file to you. If the variable

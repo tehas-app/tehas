@@ -562,7 +562,7 @@ fn a_task_that_cannot_start_stops_the_run_even_over_a_clean_record() {
 fn built(d: &TestDir, word: &str) -> String {
     let target = d.join("target");
     fs::create_dir_all(target.join("debug")).unwrap();
-    for (_, bin) in BINS {
+    for (_, _, bin) in BINS {
         fs::write(target.join("debug").join(bin), format!("{bin} {word}")).unwrap();
     }
     target.to_string_lossy().into_owned()
@@ -576,7 +576,7 @@ fn the_test_files_get_copies_of_the_programs_that_outlive_the_targets() {
     fs::create_dir_all(&out).unwrap();
     let bins = stage(&target, &out).unwrap();
     assert_eq!(bins.len(), BINS.len());
-    for ((_, bin), path) in BINS.iter().zip(&bins) {
+    for ((_, _, bin), path) in BINS.iter().zip(&bins) {
         assert_eq!(path, &out.join("bin").join(bin));
         // A cargo beside the run takes the target's program away; the copy stays.
         fs::remove_file(Path::new(&target).join("debug").join(bin)).unwrap();

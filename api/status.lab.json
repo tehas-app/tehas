@@ -37,6 +37,7 @@
     "read": true,
     "features": [
       "outsource"
-    ]
+    ],
+    "lab": true
   }
 }

@@ -76,6 +76,7 @@ pub const BINS: &[(&str, &str)] = &[
     ("T_DISPATCH_BIN", "tehas-dispatch"),
     ("T_CYCLE_BIN", "tehas-cycle"),
     ("T_CONSOLE_BIN", "console"),
+    ("T_XTASK_BIN", "xtask"),
 ];
 
 /// `cargo metadata` of the tree's workspace. --no-deps needs neither the lock
