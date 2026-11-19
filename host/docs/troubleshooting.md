@@ -207,8 +207,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   line` or `<NAME> is no longer read: <why>, so take the line out`: a setting
   tehas 1.0 renamed or removed, a row of `api/renames-1.0.tsv`, is still in
   `instance.env` or `~/.config/tehas/env`. Every command stops with 78 until
-  the line is renamed or taken out. `tehas update --check` lists every such
-  line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
+  the line is renamed or taken out. The refusal and `tehas update --check`
+  list every such line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the

@@ -68,7 +68,9 @@ A host that turned the review loop on under an earlier release takes
 and the key the old release reads, and they are the ones 1.0 is published
 and signed with. It asks 1.0's settings check before it switches
 `~/tehas/current`, so an instance that still sets a renamed setting stops with
-78 and nothing switched. From 1.0 on, the repository and the key are the ones
+78 and nothing switched. The check lists every such line of `instance.env`
+and `~/.config/tehas/env` at once, with every line of a feature still being
+built. From 1.0 on, the repository and the key are the ones
 built into tehas, and `versions.env` and `~/tehas/release/minisign.pub` are
 no longer read for them.
 

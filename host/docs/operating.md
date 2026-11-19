@@ -2455,8 +2455,8 @@ has the rest and a known limit for a factory a program manages. The steps:
    for a drain.
 4. **Update.** Run `tehas update`. It asks 1.0's settings check before it
    switches `~/tehas/current`. While a line is left to fix, it stops with 78,
-   names the first such line and switches nothing: fix it and run it again.
-   From 1.0 on, `tehas update --check` lists every such line at once.
+   names every such line at once and switches nothing: fix them and run it
+   again.
 5. **Labels.** Run `tehas labels`: it makes and pins `tehas:classic` and gives
    `tehas:improvement` its new description.
 6. **Start.** Run `tehas limit clear`.

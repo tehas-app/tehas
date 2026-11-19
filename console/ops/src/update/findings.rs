@@ -22,9 +22,9 @@
 //!    Dockerfile's bytes are built into the image every cycle runs, so a file
 //!    another account can write is refused before it is sourced.
 //! 2. The settings load (tehas_load), and every setting an instance has to set
-//!    itself is set and valid (tehas_require_instance_settings). A load that
-//!    stops on a setting tehas 1.0 renamed or removed names one line; here
-//!    every such line of instance.env and ~/.config/tehas/env is listed, each
+//!    itself is set and valid (tehas_require_instance_settings). As the load
+//!    does, every line of instance.env and ~/.config/tehas/env that sets a
+//!    setting tehas 1.0 renamed or removed is listed (settings::refused), each
 //!    with its new key or why it went, so a 0.30 instance is put right in one
 //!    edit before anything is installed. So is every line that switches on,
 //!    or sets a setting of, a feature this release is still building, such
@@ -42,7 +42,6 @@ use std::path::Path;
 use serde_json::Value;
 use tehas_core::models;
 use tehas_core::settings::load::Vars;
-use tehas_core::settings::renamed;
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 use super::{say, tell};
@@ -112,48 +111,12 @@ pub(crate) fn findings(
         }
     }
     if let Err(line) = load(&mut vars) {
-        return refused(line, &dir, &config);
+        return settings::refused(line, &dir, &config);
     }
     if let Some(line) = settings::refusal(&INSTANCE_SETTINGS, &vars) {
         return vec![line];
     }
     model_findings(&dir, &vars)
-}
-
-/// A refused load's line, `tehas: ` and all, then every other row of
-/// api/renames-1.0.tsv and every line of a feature still being built set in
-/// `<dir>/instance.env` and `<config>/env`: the load stops at the first.
-pub(crate) fn refused(line: String, dir: &str, config: &str) -> Vec<String> {
-    let mut found = renamed_lines(dir, config);
-    for line in building_lines(dir, config) {
-        if !found.contains(&line) {
-            found.push(line);
-        }
-    }
-    if !found.contains(&line) {
-        found.insert(0, line);
-    }
-    found
-}
-
-/// Every row of api/renames-1.0.tsv the instance and the credential file still
-/// set, as the load words each.
-fn renamed_lines(dir: &str, config: &str) -> Vec<String> {
-    [format!("{dir}/instance.env"), format!("{config}/env")]
-        .iter()
-        .flat_map(|file| renamed::found_in(&fs::read(file).unwrap_or_default(), file))
-        .map(|line| format!("tehas: {line}"))
-        .collect()
-}
-
-/// Every line of a building feature's the instance and the credential file
-/// set, as the load words each (tehas_core::features::found_in).
-fn building_lines(dir: &str, config: &str) -> Vec<String> {
-    [format!("{dir}/instance.env"), format!("{config}/env")]
-        .iter()
-        .flat_map(|file| tehas_core::features::found_in(&fs::read(file).unwrap_or_default(), file))
-        .map(|line| format!("tehas: {line}"))
-        .collect()
 }
 
 /// Why another account could write `file`, or None. A file that is not there
@@ -245,6 +208,7 @@ mod tests {
     use super::super::testing::{dir, Dir};
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+    use tehas_core::settings::renamed;
 
     const MODELS: &str = r#"{"providers": {"p": {"apiKey": "unused",
         "models": [{"id": "m"}, {"id": "session"}]}}}"#;
