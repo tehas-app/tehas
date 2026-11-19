@@ -156,20 +156,28 @@
 # then) or another update is running, 78 the instance settings are invalid,
 # the instance's sandbox.Dockerfile cannot be read, TEHAS_HOME is not
 # provably tehas's or --lab-build was given a release tree (nothing was
-# changed).
+# changed), 64 an argument it does not take (nothing was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
 tests=0
-[ "${1:-}" = "--check" ] && check=1
-[ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
 # A plain run says off rather than leave the marker to the environment, so
 # only --lab-build ever builds programs that read TEHAS_TEST_FEATURES. No run
 # builds with debug assertions, which would read the tests' other hooks too.
 build_kind=build lab=off
-[ "${1:-}" = "--lab-build" ] && build_kind=lab lab=on
+# Anything else is refused: a mistyped --check must not install.
+case "$#:${1:-}:${2:-}" in
+  0::) ;;
+  1:--check:) check=1 ;;
+  2:--check:--tests) check=1 tests=1 ;;
+  1:--lab-build:) build_kind=lab lab=on ;;
+  *)
+    echo "usage: ./install.sh [--check [--tests] | --lab-build]" >&2
+    exit 64
+    ;;
+esac
 if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
   echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
   exit 78
