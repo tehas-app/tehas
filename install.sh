@@ -154,8 +154,9 @@
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
 # then) or another update is running, 78 the instance settings are invalid,
-# TEHAS_HOME is not provably tehas's or --lab-build was given a release tree
-# (nothing was changed).
+# the instance's sandbox.Dockerfile cannot be read, TEHAS_HOME is not
+# provably tehas's or --lab-build was given a release tree (nothing was
+# changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -735,6 +736,11 @@ owed=$("$loaded_console" update sandbox "$TEHAS_HOME/versions.env" "$host/versio
   "$instance/sandbox.Dockerfile" "$sandbox_at_file") ||
   { echo "tehas: the console at $loaded_console could not tell whether the sandbox build is owed; nothing was installed" >&2; exit 1; }
 read -r versions_owed sandbox_changed sandbox_unread <<<"$owed"
+if [ "$sandbox_unread" = 1 ] && [ "$check" != 1 ]; then
+  echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
+  echo "tehas: nothing was installed" >&2
+  exit 78
+fi
 
 changed=()
 report=()
@@ -986,13 +992,7 @@ fi
 # the files below, in its own line, and not in changed[], which holds only source
 # paths of the file table.
 if [ "$sandbox_unread" = 1 ]; then
-  if [ "$check" = 1 ]; then
-    note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
-  else
-    echo "tehas: $instance/sandbox.Dockerfile cannot be read (check its permissions)" >&2
-    echo "tehas: nothing was installed" >&2
-    exit 78
-  fi
+  note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
 fi
 if [ "$sandbox_changed" = 1 ]; then
   sandbox_drift=1
