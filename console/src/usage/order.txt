@@ -13,8 +13,8 @@ cleared.
 
 Usage:
   tehas order [--json]          show the order, or "none"
-  tehas order set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT]
-  tehas order clear
+  tehas order set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT] [--json]
+  tehas order clear [--json]
 
   --issues N,N   the issues to start first, in order: distinct numbers, at
                  most 200. A number that is not a ready issue is passed over.

@@ -757,7 +757,7 @@ mod tests {
 
     /// Each public `--json` row of api/commands.txt and the schemas in api/ of
     /// the objects it prints.
-    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 19] = [
+    const JSON_SCHEMAS: [(&str, Option<&str>, &[&str]); 21] = [
         ("analytics", Some("copy"), &["analytics-copy"]),
         ("api", None, &["api"]),
         ("disk", None, &["disk", "disk-cycles"]),
@@ -769,6 +769,8 @@ mod tests {
         ("host-message", Some("list"), &["host-messages"]),
         ("limit", None, &["limit"]),
         ("order", None, &["order"]),
+        ("order", Some("clear"), &["order"]),
+        ("order", Some("set"), &["order"]),
         ("panel", None, &["panel"]),
         ("refresh", None, &["refresh"]),
         ("start", None, &["start"]),
