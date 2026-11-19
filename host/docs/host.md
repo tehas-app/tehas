@@ -525,6 +525,11 @@ module the page loads as `type="module"`, whose own `import "./x.js"` lines name
 its siblings by name: hashing the page is safe, hashing the module would make it
 ask for files none of them is named by.
 
+The kit in `fun/kit/` is of the last kind: its modules and its Solid,
+`fun/kit/vendor/solid.js`, are imported by a relative address and keep their
+names. A module a tag names, such as an island's element file, is hashed beside
+its plain name, so the relative addresses it imports still find the kit.
+
 `/favicon.ico`, which browsers and crawlers ask for whatever a page links, is
 answered with the icon the pages link, `fun/favicon.svg`, sent as SVG and
 cached for a day.
