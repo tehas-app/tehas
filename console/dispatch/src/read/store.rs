@@ -179,7 +179,7 @@ fn known_call(n: u64, qid: &str) -> Vec<String> {
 /// the whole queue, so a host with a queue four times this long would lose every
 /// read of the poll to one refusal; asking in runs of this size costs a busy
 /// host more processes and no answers.
-const MAX_CALLS: usize = 512;
+const MAX_CALLS: usize = tehas_core::call::STORE_BATCH_CALLS;
 
 /// The snapshot's per-issue reads of the store, asked in runs of the program
 /// and one opening of the database apiece: `plan-show`, `park-show` and
