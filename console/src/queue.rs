@@ -57,7 +57,9 @@
 //! the list of issues failed, the lists of work (`queueAt`, `running`, `queued`,
 //! `awaiting`, `stopped`, `planned`, `planning`) are the file's before, and
 //! when the read of what closed them failed, `completedAt`, `completed` and
-//! `completedCount` are; `stale` names each part kept so.
+//! `completedCount` are; when neither the control issue's labels nor its
+//! events could be read, `pause.label` and `pause.lifted` are. `stale` names
+//! each part kept so: `queue`, `completed` or `pause`.
 //!
 //! Prints nothing but an ignored all-hands label, once, analytics warnings and
 //! WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
@@ -178,7 +180,8 @@ const COMPLETED_PART: [&str; 3] = ["completedAt", COMPLETED, "completedCount"];
 /// The snapshot with the parts named in `stale` taken from `previous`, the
 /// file it replaces: a key that file did not have is left out, and a `queueAt`
 /// or `completedAt` it did not have is its `generatedAt`. `stale` is written
-/// beside them when it names a part.
+/// beside them when it names a part. `pause` takes no key here: `kept` has
+/// already put the switches of the file before into the snapshot.
 fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
     if stale.is_empty() {
         return snap;
@@ -187,7 +190,8 @@ fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
         .iter()
         .flat_map(|part| match *part {
             "queue" => QUEUE_PART.as_slice(),
-            _ => COMPLETED_PART.as_slice(),
+            "completed" => COMPLETED_PART.as_slice(),
+            _ => &[],
         })
         .copied()
         .collect();
@@ -260,6 +264,21 @@ struct Control {
     label: bool,
     lifted: bool,
     all_hands: Option<bool>,
+    /// False when neither the labels nor the events could be read, so
+    /// `label` and `lifted` say nothing.
+    read: bool,
+}
+
+/// The switches, with `label` and `lifted` of `previous`, the file before,
+/// when they could not be read; true when they were so taken.
+fn kept(mut c: Control, previous: &J) -> (Control, bool) {
+    if c.read {
+        return (c, false);
+    }
+    let pause = previous.get("pause");
+    c.label = pause.get("label").truthy();
+    c.lifted = pause.get("lifted").truthy();
+    (c, true)
 }
 
 /// `labels` is what the read of its labels printed, joined by spaces, None
@@ -270,7 +289,9 @@ struct Control {
 /// this reports the verdict the poll acts on (rule 5), so that a factory held by
 /// a pause a stranger lifted is not published as taking work. An answer that
 /// cannot be read reports nothing extra: the poll, which acts on it, ends when
-/// it cannot read the events.
+/// it cannot read the events. When the labels could not be read, the events
+/// say whether the label is on: it is when its last event applied it. When
+/// neither answered, `read` is false.
 ///
 /// tehas:all-hands holds while it is on the issue and the account that applied
 /// it is allowed. It is reported and changes nothing in the factory. A label
@@ -284,13 +305,20 @@ fn control(
     issue: &str,
 ) -> Control {
     let joined = format!(" {} ", labels.unwrap_or_default().trim_end_matches('\n'));
-    let label = joined.contains(" tehas:pause ");
+    let mut label = joined.contains(" tehas:pause ");
     let mut read: Option<String> = None;
     let mut lifted = false;
+    let mut known = true;
     if !label {
         let text = read.get_or_insert_with(&mut *read_events);
-        lifted =
-            events_of(text).is_some_and(|e| !text.is_empty() && pause_holds(&e, allowed).is_some());
+        let holds = events_of(text)
+            .filter(|_| !text.is_empty())
+            .map(|e| pause_holds(&e, allowed));
+        match holds {
+            Some(Some((event, _))) if labels.is_none() && event == "labeled" => label = true,
+            Some(holds) => lifted = holds.is_some(),
+            None => known = labels.is_some(),
+        }
     }
     let all_hands = if labels.is_none() {
         None
@@ -327,6 +355,7 @@ fn control(
         label,
         lifted,
         all_hands,
+        read: known,
     }
 }
 
@@ -921,6 +950,11 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     } else {
         J::Null
     };
+    let (switches, pause_stale) = kept(switches, &previous);
+    let mut said = stale.clone();
+    if pause_stale {
+        said.push("pause");
+    }
     let no_list = J::Arr(Vec::new());
     let at = time::iso(now);
     let snapshot = snapshot(&Facts {
@@ -937,7 +971,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         flag_paused,
         no_resources: no_resources(&live.join("dispatch.json"), now),
     })
-    .map(|s| carried(s, &previous, &stale))
+    .map(|s| carried(s, &previous, &said))
     .map(|s| {
         let starts = tehas_core::read_only::on().then(|| {
             let work = env::var("TEHAS_WORK_DIR").unwrap_or_default();
@@ -1067,6 +1101,7 @@ mod tests {
                 label: false,
                 lifted: false,
                 all_hands: Some(false),
+                read: true,
             },
             flag: J::Null,
             flag_paused: false,
@@ -1410,6 +1445,61 @@ mod tests {
             pause("unlabeled", "alice")
         );
         assert!(lifted(&pages));
+    }
+
+    #[test]
+    fn labels_that_could_not_be_read_take_the_pause_from_its_events() {
+        let dir = temp("unread");
+        let f = dir.join("ignored");
+        let unread = |events: &str| switches(None, events, &f).0;
+        // The last event put the label on: it is on, and nobody lifted it.
+        let c = unread(&pause("labeled", "mallory"));
+        assert!(c.label && !c.lifted && c.read);
+        let c = unread(&pause("unlabeled", "mallory"));
+        assert!(!c.label && c.lifted && c.read);
+        let c = unread(&pause("unlabeled", "alice"));
+        assert!(!c.label && !c.lifted && c.read);
+        let c = unread("[]");
+        assert!(!c.label && !c.lifted && c.read);
+        // Neither read answered: the switches are unknown.
+        for bad in ["", "not json", "{}"] {
+            assert!(!unread(bad).read, "{bad}");
+        }
+        assert!(switches(Some(""), "", &f).0.read);
+    }
+
+    #[test]
+    fn unknown_switches_are_the_file_before() {
+        let read = Control {
+            label: false,
+            lifted: false,
+            all_hands: None,
+            read: true,
+        };
+        let before = j(r#"{"pause":{"flag":null,"label":true,"lifted":false}}"#);
+        let (c, stale) = kept(read, &before);
+        assert!(!c.label && !stale);
+        let unread = || Control {
+            label: false,
+            lifted: false,
+            all_hands: None,
+            read: false,
+        };
+        let (c, stale) = kept(unread(), &before);
+        assert!(c.label && !c.lifted && stale);
+        let lifted = j(r#"{"pause":{"label":false,"lifted":true}}"#);
+        let (c, _) = kept(unread(), &lifted);
+        assert!(!c.label && c.lifted);
+        let (c, stale) = kept(unread(), &J::Null);
+        assert!(!c.label && !c.lifted && stale);
+
+        // Said stale beside the others, and nothing else is taken.
+        let issues = j("[]");
+        let fresh = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        let s = carried(fresh.clone(), &before, &["pause"]);
+        assert_eq!(s.get("stale").dump(), r#"["pause"]"#);
+        assert_eq!(s.get("completed").dump(), "[]");
+        assert_eq!(s.get("queueAt").as_str(), Some("2026-11-01T00:00:00Z"));
     }
 
     #[test]

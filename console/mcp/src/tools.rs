@@ -1522,17 +1522,39 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     // "why is nothing starting" is the most useful thing to say to someone
     // waiting, and dispatch.json is published already: the hold is copied from
     // it, and left out when the poll said nothing held.
-    put(&mut out, "hold", held(live).map(Held::into_value));
-    put(&mut out, "held", held_issues(live));
+    let report = report(live, &health);
+    put(
+        &mut out,
+        "hold",
+        report.as_ref().and_then(held).map(Held::into_value),
+    );
+    put(&mut out, "held", report.as_ref().and_then(held_issues));
     Ok(out)
 }
 
-/// The ready issues the poll's report held one by one, as `hold::Held` writes
-/// them, None when it held none or there is no report to read. An entry of
-/// another shape is left out, and the two lines of text are masked, then cut.
-fn held_issues(live: &Path) -> Option<Value> {
+/// The poll's report, None when there is none to read or it is of a poll
+/// long gone. A poll that ends before it weighs room, a paused one among
+/// them, leaves the file as it was, while the health file is written at every
+/// poll: a report whose `time` is more than `STALE_SECS` before the health
+/// file's, or that has no time to read, is not served.
+///
+/// A poll that is not on record leaves `hold` out like any other field
+/// without a value, rather than failing the tool: the rest of the answer
+/// stands on its own. A file over the bound, a link or one the reader cannot
+/// open is answered the same way: the tool says nothing about a report it did
+/// not read, and a bounded read costs the same for any file.
+fn report(live: &Path, health: &Value) -> Option<Value> {
     let (report, _) = tehas_core::file::read_regular(&live.join(DISPATCH_FILE), HOLD_BOUND).ok()?;
     let report = serde_json::from_slice::<Value>(&report).ok()?;
+    let at = report.get(hold::KEY_TIME)?.as_str().and_then(epoch)?;
+    let reference = health["time"].as_str().and_then(epoch).unwrap_or_else(now);
+    (reference - at <= STALE_SECS).then_some(report)
+}
+
+/// The ready issues the poll's report held one by one, as `hold::Held` writes
+/// them, None when it held none. An entry of another shape is left out, and
+/// the two lines of text are masked, then cut.
+fn held_issues(report: &Value) -> Option<Value> {
     let cut = |t: &str| mask(t).chars().take(HOLD_MAX).collect::<String>();
     let list: Vec<Value> = report
         .get(hold::KEY_HELD)?
@@ -1565,20 +1587,13 @@ impl Held {
 }
 
 /// What the dispatcher's last poll says holds, or None when it says nothing
-/// holds, and None for a report that is not one: no file, no JSON, no reason
+/// holds, and None for a report that is not one: no reason
 /// of the thirteen words, or no line of either field. The line of the file is
 /// `hold`; the answer calls it `text`, like the free text of the tool's other
 /// answers, and masks it before it cuts it, so a cut never leaves part of a
 /// secret the mask would have known whole. `why` needs no mask: the answer
 /// holds the word of [`hold::Why`], never the file's bytes.
-fn held(live: &Path) -> Option<Held> {
-    // A poll that is not on record leaves `hold` out like any other field
-    // without a value, rather than failing the tool: the rest of the answer
-    // stands on its own. A file over the bound, a link or one the reader
-    // cannot open is answered the same way: the tool says nothing about a
-    // report it did not read, and a bounded read costs the same for any file.
-    let (report, _) = tehas_core::file::read_regular(&live.join(DISPATCH_FILE), HOLD_BOUND).ok()?;
-    let report = serde_json::from_slice::<Value>(&report).ok()?;
+fn held(report: &Value) -> Option<Held> {
     // Both fields of the pair are read before anything is built: a word that
     // is not one of the thirteen, or a line that is not text at all, is no
     // hold, never an answer of one key of the two.
@@ -2117,7 +2132,7 @@ mod tests {
         ] {
             let dir = TestDir::new(&format!("mcp-hold-{name}"));
             std::fs::write(dir.join(DISPATCH_FILE), report.to_string()).unwrap();
-            let got = self::held(&dir).map(Held::into_value);
+            let got = self::held(&report_of(&dir)).map(Held::into_value);
             assert_eq!(got, want, "{name}: {report}");
         }
         // Every word of the poll's own type is a reason the answer serves, so
@@ -2130,7 +2145,7 @@ mod tests {
                 json!({ hold::KEY_WHY: why.as_str(), hold::KEY_HOLD: "a line" }).to_string(),
             )
             .unwrap();
-            let got = self::held(&dir).map(Held::into_value);
+            let got = self::held(&report_of(&dir)).map(Held::into_value);
             assert_eq!(
                 got,
                 Some(json!({"why": why.as_str(), "text": "a line"})),
@@ -2140,10 +2155,18 @@ mod tests {
         }
     }
 
+    /// The report as `report` reads it, with no age gate: Null for no file.
+    fn report_of(dir: &Path) -> Value {
+        std::fs::read_to_string(dir.join(DISPATCH_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null)
+    }
+
     #[test]
     fn the_issues_a_poll_held_are_copied_and_one_of_another_shape_is_not() {
         let dir = TestDir::new("mcp-held");
-        assert_eq!(held_issues(&dir), None);
+        assert_eq!(held_issues(&report_of(&dir)), None);
         std::fs::write(
             dir.join(DISPATCH_FILE),
             json!({"why": "", "hold": "", "held": [
@@ -2155,7 +2178,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            held_issues(&dir),
+            held_issues(&report_of(&dir)),
             Some(
                 json!([{"issue": 7, "why": "parked", "text": "its last cycle parked on `gate`", "clear": "edit the body"}])
             )
@@ -2165,15 +2188,15 @@ mod tests {
             json!({"why": "", "hold": ""}).to_string(),
         )
         .unwrap();
-        assert_eq!(held_issues(&dir), None);
+        assert_eq!(held_issues(&report_of(&dir)), None);
         // A hold of the whole poll and a held issue are two answers of their own.
         std::fs::write(
             dir.join(DISPATCH_FILE),
             json!({"why": "count", "hold": "holding: 5", "held": []}).to_string(),
         )
         .unwrap();
-        assert_eq!(held_issues(&dir), None);
-        assert!(held(&dir).is_some());
+        assert_eq!(held_issues(&report_of(&dir)), None);
+        assert!(held(&report_of(&dir)).is_some());
     }
 
     // Dirs of the fixtures, for tests that ask the dispatch which side of it

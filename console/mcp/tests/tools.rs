@@ -288,6 +288,42 @@ fn status_copies_the_hold_of_the_poll() {
     }
 }
 
+// A poll that ends before it weighs room, a paused one among them, does not
+// rewrite dispatch.json, while the health file is written at every poll. A
+// report more than ten minutes older than the health file, or one with no
+// time, is of a poll long gone: neither its hold nor its held issues are
+// served.
+#[test]
+fn an_old_report_is_no_hold() {
+    let c = copy("hold-old");
+    let file = c.join("dispatch.json");
+    let mut report: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let health_file = c.join("health.json");
+    let mut health: Value =
+        serde_json::from_str(&std::fs::read_to_string(&health_file).unwrap()).unwrap();
+    let t = now();
+    health["time"] = json!(iso(t));
+    std::fs::write(&health_file, health.to_string()).unwrap();
+    let answer = |report: &Value| {
+        std::fs::write(&file, report.to_string()).unwrap();
+        call(&c, "factory_status", &json!({})).unwrap()
+    };
+    report["time"] = json!(iso(t - 60));
+    let out = answer(&report);
+    assert_eq!(out["hold"]["why"], "count");
+    assert_eq!(out["held"][0]["issue"], 21);
+    report["time"] = json!(iso(t - 24 * 3600));
+    let out = answer(&report);
+    assert!(out.get("hold").is_none(), "{}", out["hold"]);
+    assert!(out.get("held").is_none(), "{}", out["held"]);
+    for bad in [json!("yesterday"), json!(null)] {
+        report["time"] = bad;
+        let out = answer(&report);
+        assert!(out.get("hold").is_none(), "{}", out["hold"]);
+        assert!(out.get("held").is_none(), "{}", out["held"]);
+    }
+}
+
 // A poll that found nothing holding writes the empty word, and an answer with
 // no hold at all reads better than one of an empty line.
 #[test]
@@ -333,10 +369,10 @@ fn status_leaves_hold_out_when_nothing_holds() {
     // The same file, one byte under the bound, is a report and is answered, so
     // the bound is the file's size and not the length of the line.
     let c = copy("hold-under-bound");
-    let line = "y".repeat(64 * 1024 - 40);
+    let line = "y".repeat(64 * 1024 - 80);
     std::fs::write(
         c.join("dispatch.json"),
-        format!(r#"{{"why":"count","hold":"{line}"}}"#),
+        format!(r#"{{"why":"count","hold":"{line}","time":"2026-10-20T08:46:07Z"}}"#),
     )
     .unwrap();
     let out = call(&c, "factory_status", &json!({})).unwrap();
@@ -360,6 +396,7 @@ fn a_hold_is_masked_then_cut() {
         c.join("dispatch.json"),
         json!({
             "why": "limit",
+            "time": "2026-10-20T08:46:07Z",
             "hold": format!(
                 "the limit expired at {} with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij and {}",
                 "2020-01-01T00:00:00Z",
