@@ -547,4 +547,19 @@ t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -c .checks.poll_cost "$live/health.json")" null
 
+# A lab host puts TEHAS_TEST_FEATURES in the units' environment, and only a
+# build with debug assertions, the tests' and a lab host's, reads it.
+t_case "test features: the variable set is a warning, a line and a field, and unset is none"
+reset
+T_ENV=(TEHAS_TEST_FEATURES="outsource nothing")
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built"
+t_eq "$(jq -c '[.status, .checks.testFeatures]' "$live/health.json")" '["warn",{"read":true,"features":["outsource"]}]'
+t_run "$summary --json"
+t_eq "$(jq -c .testFeatures <<<"$t_out")" '{"read":true,"features":["outsource"]}'
+T_ENV=()
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.state, .testFeatures]' <<<"$t_out")" '["pass",null]'
+
 t_done

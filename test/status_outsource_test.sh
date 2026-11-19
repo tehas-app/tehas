@@ -66,6 +66,7 @@ t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$live/contractors.json" ] && echo there)" ""
 t_run "$summary"
-t_eq "$(grep -c 'outsource\|in-house' <<<"$t_out")" 0
+# The variable is still set, so the lines that name it say outsource; no other does.
+t_eq "$(grep -v TEHAS_TEST_FEATURES <<<"$t_out" | grep -c 'outsource\|in-house')" 0
 
 t_done

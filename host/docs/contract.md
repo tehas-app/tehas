@@ -270,7 +270,9 @@ are not contract until the release that ships it. `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
 building feature `"building": true`. Promoting a
-feature to shipped only adds.
+feature to shipped only adds. A lab host proves a building feature on a build
+that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
+building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 What each registered feature leaves visible while its flag is off:
 
