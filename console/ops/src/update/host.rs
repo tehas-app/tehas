@@ -23,8 +23,10 @@
 //!
 //! `featured` prints what the features that are on install besides the rest
 //! (core/src/features.rs), one per line: `program <name>` for a program of the
-//! workspace, `unit <name>` for a unit of host/systemd. Nothing when none is
-//! on. It reads the settings from its environment. Exit 0, 64 usage.
+//! workspace, `unit <name>` for a unit of host/systemd. Then `idle <name>` for
+//! each timer of a feature that is off, which install.sh stops and disables
+//! where an earlier release left it enabled. It reads the settings from its
+//! environment. Exit 0, 64 usage.
 //!
 //! `login` compares the command root installed for the other accounts,
 //! `<login command>` (/usr/local/bin/tehas), with `<root>/host/login/tehas`.
@@ -178,9 +180,13 @@ pub fn featured_verb(given: &[String]) -> u8 {
 
 fn featured(get: &dyn Fn(&str) -> String) -> Vec<String> {
     let (programs, units) = features::installs_in(get);
+    let idle: Vec<&str> = features::units()
+        .filter(|u| u.ends_with(".timer") && !units.contains(u))
+        .collect();
     let programs = programs.into_iter().map(|p| format!("program {p}"));
     programs
         .chain(units.into_iter().map(|u| format!("unit {u}")))
+        .chain(idle.into_iter().map(|u| format!("idle {u}")))
         .collect()
 }
 
@@ -422,8 +428,9 @@ mod tests {
                     .unwrap_or_default()
             }
         };
-        assert!(featured(&get(&[])).is_empty());
-        assert!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])).is_empty());
+        let idle = ["idle tehas-review.timer"];
+        assert_eq!(featured(&get(&[])), idle);
+        assert_eq!(featured(&get(&[("TEHAS_OUTSOURCE", "on")])), idle);
         assert_eq!(
             featured(&get(&[
                 ("TEHAS_OUTSOURCE", "on"),
@@ -432,8 +439,17 @@ mod tests {
             [
                 "program tehas-proxy",
                 "program tehas-contractor",
-                "unit tehas-outsource-proxy.service"
+                "unit tehas-outsource-proxy.service",
+                "idle tehas-review.timer"
             ]
+        );
+        // On, the timer is installed and no longer idle.
+        assert_eq!(
+            featured(&get(&[
+                ("TEHAS_REVIEW", "on"),
+                ("TEHAS_TEST_FEATURES", "review")
+            ])),
+            ["unit tehas-review.service", "unit tehas-review.timer"]
         );
         assert_eq!(featured_verb(&["x".to_string()]), 64);
     }
@@ -452,7 +468,11 @@ mod tests {
                     String::new()
                 }
             };
-            assert!(featured(&get).is_empty(), "{value}");
+            let installed = featured(&get);
+            assert!(
+                installed.iter().all(|l| l.starts_with("idle ")),
+                "{value}: {installed:?}"
+            );
             let units = first_units(|name| Some(get(name)), None);
             assert_eq!(units, ["tehas-dispatch.timer", "tehas-dispatch.path"]);
         }

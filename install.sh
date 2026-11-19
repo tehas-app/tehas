@@ -38,7 +38,8 @@
 # (console/contractor, libexec/tehas-contractor), and installs the proxy's
 # unit, tehas-outsource-proxy.service; off, none of the three. The review
 # loop's units, tehas-review.service and .timer, are installed only while
-# review is on (TEHAS_REVIEW), which no release allows yet. A real
+# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
+# earlier release left enabled is stopped and disabled, its files kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -712,10 +713,12 @@ shopt -u nullglob
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
   { echo "tehas: the console at $loaded_console could not name what the features that are on install; nothing was installed" >&2; exit 1; }
 featured_programs=()
+idle_timers=()
 while read -r kind name; do
   case $kind in
     program) featured_programs+=("$name") ;;
     unit) files+=("systemd/$name|$units/$name|644") ;;
+    idle) idle_timers+=("$name") ;;
   esac
 done <<<"$featured"
 
@@ -1118,6 +1121,17 @@ for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
 done
 
+# The timers of features that are off, which an earlier release may have
+# installed and a person enabled. Found here; in step 5 each enabled one is
+# stopped and disabled. Its files stay for the release that ships the feature.
+idle_on=()
+for timer in ${idle_timers[@]+"${idle_timers[@]}"}; do
+  [ -e "$units/$timer" ] || continue
+  systemctl --user is-enabled --quiet "$timer" 2>/dev/null || continue
+  idle_on+=("$timer")
+  [ "$check" = 0 ] || note "enabled: $units/$timer (its feature is off; a real run disables it)"
+done
+
 # The slice file on the host, which the console compares with the one in this
 # checkout, and what the sandbox image says of the images a cycle is given
 # (console/ops/src/update/report.rs). Inside the tests the slice is not checked
@@ -1141,7 +1155,7 @@ if [ "$check" = 1 ]; then
   bashrc_ok || asked+=(--shell-missing "$bashrc")
   rc=0
   printf '%s\n' "${report[@]}" | "$loaded_console" update report "$root" "$instance" "${slice[@]}" "${images[@]}" \
-    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift + ${#old_units[@]}))" --store "$store_refusal" \
+    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift + ${#old_units[@]} + ${#idle_on[@]}))" --store "$store_refusal" \
     --login "$login_bin" "$login_fix" --steps "$steps_console" || rc=$?
   case $rc in
     0 | 1) exit "$rc" ;;
@@ -1314,6 +1328,13 @@ if [ "${#old_units[@]}" -gt 0 ]; then
   [ "$gone" = 0 ] || systemctl --user daemon-reload >/dev/null 2>&1 ||
     echo "later: systemctl --user daemon-reload   (units of a retired feature are removed)"
 fi
+for timer in ${idle_on[@]+"${idle_on[@]}"}; do
+  if systemctl --user disable --now "$timer" >/dev/null 2>&1; then
+    echo "systemd: stopped and disabled $timer: its feature is off (the unit files stay)"
+  else
+    echo "later: systemctl --user disable --now $timer   (its feature is off)"
+  fi
+done
 
 # Where the manual puts TEHAS_TEST_FEATURES on a lab host. Only a lab build
 # reads it, so after any other run the file does nothing but mislead.

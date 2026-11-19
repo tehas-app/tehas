@@ -1894,9 +1894,10 @@ and on a host installed before, a person does with
 [tehasbot review](/tools-plan#tehasbot-review) for the container, the record
 and the exits.
 
-A host that has `tehas-review.timer` from an earlier release keeps the file,
-and an enabled timer starts a run that exits 0 at once.
-`systemctl --user disable --now tehas-review.timer` stops it.
+A host that has `tehas-review.timer` from an earlier release keeps the unit
+files, for the release that ships the feature. While review is off,
+`install.sh` and `tehas update` stop and disable the timer if it is enabled,
+and say so on a `systemd:` line; `--check` names it as drift.
 
 ## The cleaner
 

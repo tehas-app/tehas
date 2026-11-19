@@ -124,8 +124,8 @@ Decided for 1.0 on 2026-11-18.
   though its row is marked `"building": true` and the release refuses it:
   `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` of [review](#review).
 - **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
-  protolab-zip-url, prototype-file and lean are planned for 1.1 (decided
-  2026-11-19). The names [listed for each below](#names-reserved-for-11) are
+  protolab-zip-url, prototype-file, lean and review are planned for 1.1
+  (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
   the ones 1.1 adds to the frozen surface: no other feature takes them, and
   1.1 ships each under the same name. Their shapes may still be settled
   before 1.1; once shipped, they are only added to.
@@ -301,6 +301,7 @@ already and keep their meaning in 1.0.
 | protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
 | prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
 | lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
+| review | `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (both frozen) | none | none | `tehas:improvement` (frozen) | `tehas-review.service`, `tehas-review.timer` |
 
 Each feature's name is its key in `flags` and the word 1.1 appends to
 `features`. None of them adds a `/health` field.
@@ -399,7 +400,7 @@ does once it ships.
 
 ### review
 
-Building since v1.0.0-rc.1. It shipped as a setting before the registry, but
+Building since v1.0.0-rc.1, planned for 1.1. It shipped as a setting before the registry, but
 no run was seen on a host, so it became building (decided 2026-11-19). Off by
 default; `TEHAS_REVIEW=on` stops every command with exit 78 and says `review`
 is still being built.
@@ -414,8 +415,8 @@ is still being built.
 - `tehasbot review` exits 0 at once and calls nothing.
 - `install.sh` does not install `tehas-review.service` or
   `tehas-review.timer`, does not enable the timer and an update does not
-  restart it. A host that had them from an earlier release keeps the files;
-  the timer, if enabled, starts a run that exits 0.
+  restart it. A host that had them from an earlier release keeps the files,
+  and `install.sh` stops and disables the timer if it is enabled.
 - No command, no label, no `--json` field, no MCP tool.
 
 [The review loop](/operating#the-review-loop) says what the feature does once
