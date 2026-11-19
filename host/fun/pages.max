@@ -12,9 +12,10 @@ page dashboard 75363 53988
 page manual 0 49838
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4686
-island factory/tehas-factory-host 3919
-island factory/tehas-factory-issues 4323
-island factory/tehas-factory-previews 4086
-island factory/tehas-factory-readonly 2926
+island factory/parts 847
+island factory/tehas-factory-host 3904
+island factory/tehas-factory-issues 3728
+island factory/tehas-factory-previews 4071
+island factory/tehas-factory-readonly 2877
 island factory/tehas-factory-state 3261
 library solid 123689
