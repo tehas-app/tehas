@@ -281,7 +281,9 @@ pub fn changed_after(at: &str, who: &str, since: &str, approver: &str) -> bool {
 /// Whether the edits of an issue's body hold back the approval `approver`
 /// gave at `since`: the login of an editor `allowed` refuses whose edit is
 /// after `since` (as `changed_after` reads it), or "unknown" for one that
-/// names no editor or a history that may be cut. `edit` carries GraphQL's
+/// names no editor or a history that may be cut. An edit by no account holds
+/// even when a list names an account "unknown": the rule compares the login,
+/// and only the answer is text. `edit` carries GraphQL's
 /// `lastEditedAt` and `editor.login`, and `userContentEdits` with
 /// `totalCount` and `nodes { editedAt editor { login } }`.
 ///
@@ -306,9 +308,8 @@ pub fn edit_holds(
     if at.is_empty() || !changed_after(at, by, since, approver) {
         return None;
     }
-    let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
-    if !allowed(who) {
-        return Some(who.to_string());
+    if by == NOBODY || !allowed(by) {
+        return Some(shown(by));
     }
     let history = edit.get("userContentEdits");
     let nodes = history
@@ -329,9 +330,19 @@ pub fn edit_holds(
         if !at.is_empty() && !changed_after(at, by, since, approver) {
             return None;
         }
-        let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
-        (!allowed(who)).then(|| who.to_string())
+        (by == NOBODY || !allowed(by)).then(|| shown(by))
     })
+}
+
+/// A login as a person reads it: [`UNKNOWN_ACTOR`] for no account. Only for
+/// text; a rule compares the login itself.
+fn shown(login: &str) -> String {
+    if login == NOBODY {
+        UNKNOWN_ACTOR
+    } else {
+        login
+    }
+    .to_string()
 }
 
 /// Whether `edit_holds` held only because the history it needed was a read
@@ -669,7 +680,7 @@ mod standing_tests {
 
 #[cfg(test)]
 mod edit_tests {
-    use super::{edit_holds, UNKNOWN_ACTOR};
+    use super::{edit_history_unread, edit_holds, UNKNOWN_ACTOR};
     use serde_json::json;
 
     const SINCE: &str = "2026-01-02T10:00:00Z";
@@ -764,6 +775,26 @@ mod edit_tests {
         let mut r = record("alice", &[(AFTER, "mallory")], 1);
         r["userContentEdits"]["nodes"][0]["editedAt"] = json!(null);
         assert_eq!(held(&r).as_deref(), Some("mallory"));
+    }
+
+    /// A list may name a GitHub account "unknown": an edit by no account still
+    /// holds, as the last edit and as a node of the history.
+    #[test]
+    fn an_edit_by_no_account_holds_with_unknown_on_the_list() {
+        let list = |w: &str| w == "alice" || w == UNKNOWN_ACTOR;
+        let held = |e: &serde_json::Value| edit_holds(e, SINCE, "alice", &list);
+        let nobody = json!({"lastEditedAt": AFTER, "editor": null});
+        assert_eq!(held(&nobody).as_deref(), Some(UNKNOWN_ACTOR));
+        let mut r = record("alice", &[(AFTER, "alice")], 1);
+        r["userContentEdits"]["nodes"][0]["editor"] = json!(null);
+        assert_eq!(held(&r).as_deref(), Some(UNKNOWN_ACTOR));
+        let mut r = record("alice", &[(AFTER, "alice")], 1);
+        r["userContentEdits"]["nodes"][0]["editor"] = json!({"login": ""});
+        assert_eq!(held(&r).as_deref(), Some(UNKNOWN_ACTOR));
+        // The account named "unknown" is allowed like any other.
+        let named = record(UNKNOWN_ACTOR, &[(AFTER, UNKNOWN_ACTOR)], 1);
+        assert_eq!(held(&named), None);
+        assert!(!edit_history_unread(&nobody, &list));
     }
 
     /// A last edit before the approval needs no history: every edit is older.
