@@ -453,6 +453,16 @@ t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,
 t_case "the cycle's container has an init"
 t_eq "$(cycle_args | grep -c -x -e --init)" 1
 
+# The image is built on the host and its name is a Docker Hub name: an image
+# that is gone fails the start, and nothing of that name is pulled and given
+# the cycle's token. Each container of a start names the policy right after run.
+t_case "no container of a start pulls its image"
+t_eq "$(cycle_args | sed -n 2p)" "--pull=never"
+t_eq "$(preflight_args | sed -n 2p)" "--pull=never"
+t_eq "$(cycle_args | grep -c -e '^--pull')" 1
+t_eq "$(preflight_args | grep -c -e '^--pull')" 1
+t_eq "$(grep -c -v '^run --pull=never --rm --init ' "$T/calls/docker.caps")" 0
+
 # --- Without a usable slice ----------------------------------------------------
 # refused: 78, and neither a clone nor a container was made.
 refused() {

@@ -557,11 +557,9 @@ impl Writer {
             &tree_s,
             &self.host.image,
         );
-        // The poll's own docker in place of the bare name, and the host's own
-        // image: a pull inside the poll would put docker's words where git's
-        // should be.
+        // The poll's own docker in place of the bare name. The check never
+        // pulls, so the image is the host's own.
         words[0] = self.docker.clone();
-        words.insert(2, "--pull=never".into());
         Ok((words, Some(token)))
     }
 

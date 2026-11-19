@@ -342,6 +342,25 @@ T_ENV=("${keep[@]}" "TEHAS_CYCLE_ATTEMPT=$(t_row cycle-show 7 -- .cycle.attempt)
 t_run "$work 7"
 t_eq "$(push_fault_file)" ""
 
+# docker that could not start the check's container ends 125 in its own words.
+# That is the host's fault, not git's refusal: the start stops with 78, writes
+# no fault and tells the issue nothing, as the poll's probe does.
+t_case "a push check docker could not start records no fault and stops the start with 78"
+fresh
+under_cycle
+push_fault_store 0
+T_ENV=("${T_ENV[@]}" PUSH_RC=125)
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cycle_args)" ""
+t_contains "$t_out" "the sandbox could not be asked whether it can push (exit 125), not starting a cycle: docker: Error response from daemon"
+t_eq "$(push_fault_file)" ""
+t_lacks "$(t_store_lines)" "push-fault"
+t_lacks "$(t_calls gh)" "the sandbox cannot push"
+keep=()
+for e in "${T_ENV[@]}"; do [[ $e == PUSH_RC=125 || -z $e ]] || keep+=("$e"); done
+T_ENV=("${keep[@]}")
+
 # stop_in_prepare: TERM to the script once the stub of docker holds a step, then
 # wait for that step to see it.
 stop_in_prepare() {

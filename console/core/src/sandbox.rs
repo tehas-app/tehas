@@ -62,6 +62,11 @@ const CYCLE_LEAVES_OUT: [&str; 7] = [
 /// its own source (pi-rukas v0.12.80).
 pub const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
 
+/// The pull policy of every container of the sandbox image, right after `run`.
+/// The image is built on the host, and its name is a Docker Hub name: an image
+/// that is gone is a fault of the host, not a cue to pull a stranger's.
+pub const NEVER_PULL: &str = "--pull=never";
+
 /// The handoff allowance of a cycle, in seconds: the one budget its handoff has,
 /// given to pi-rukas and kept clear of the stop by the deadline.
 pub const HANDOFF_SECONDS: u64 = 480;
@@ -203,8 +208,9 @@ const NOT_EXECUTABLE: i32 = 127;
 /// Whether the first words of a probe's log, or its exit code, are the host's
 /// own rather than git's. `docker run` ends 125 when it could not start the
 /// container, `timeout` 126 or 127 when it could not run the client. A missing
-/// client, image or daemon is no push that git refused.
-fn host_words(line: &str, rc: i32) -> bool {
+/// client, image or daemon is no push that git refused. A cycle's own check
+/// and the poll's probe both follow it.
+pub fn host_words(line: &str, rc: i32) -> bool {
     matches!(rc, 125 | 126 | NOT_EXECUTABLE)
         || line.starts_with("timeout:")
         || line.starts_with("docker:")
@@ -512,7 +518,7 @@ pub fn push_check(
     host: &str,
     image: &str,
 ) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm"]);
+    let mut w = words(&["docker", "run", NEVER_PULL, "--rm"]);
     w.extend_from_slice(security);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(env);
@@ -539,7 +545,7 @@ pub fn install_run(
     image: &str,
     script: &str,
 ) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm"]);
+    let mut w = words(&["docker", "run", NEVER_PULL, "--rm"]);
     w.extend_from_slice(held);
     w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
     w.extend_from_slice(network);
@@ -573,7 +579,9 @@ pub struct CycleRun<'a> {
 /// its own children, and a process that outlives its parent would count against
 /// the pids limit until the container ends.
 pub fn cycle_run(c: &CycleRun) -> Vec<String> {
-    let mut w = words(&["docker", "run", "--rm", "--init", "--name", c.name]);
+    let mut w = words(&[
+        "docker", "run", NEVER_PULL, "--rm", "--init", "--name", c.name,
+    ]);
     w.extend_from_slice(c.limits);
     w.extend_from_slice(c.security);
     w.extend(words(&[
@@ -598,6 +606,7 @@ pub fn capabilities(image: &str) -> Vec<String> {
     words(&[
         "docker",
         "run",
+        NEVER_PULL,
         "--rm",
         "--init",
         image,
