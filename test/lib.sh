@@ -566,7 +566,8 @@ t_stub_analytics() {
 # $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
 # builds into this checkout. CARGO_RC makes the build fail, CARGO_FAIL names
 # the one package whose build fails, CONSOLE_BUILD tells one build from
-# another, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
+# another, CARGO_CONFIG_FLAGS stands for rustflags in cargo's configuration
+# files, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
 # that asks for --offline is a build from the cache alone: CARGO_OFFLINE names
 # what such a build answers, in cargo's own words, and the build without it is
 # The answer is one of miss, fetch_miss, noise or fail, and no other word is
@@ -647,6 +648,10 @@ with=""
 # Any rustflags or release profile setting install.sh does not set itself.
 flags=$(env | grep -E "^([A-Z0-9_]*RUSTFLAGS|CARGO_PROFILE_RELEASE_[A-Z0-9_]*)=." | grep -vx CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false | LC_ALL=C sort | tr "\n" " ")
 [ -z "$flags" ] || with="$with with ${flags% }"
+# Rustflags in the configuration files of cargo count only while neither
+# variable is set, even empty.
+[ -z "${CARGO_CONFIG_FLAGS:-}" ] || [ -n "${CARGO_ENCODED_RUSTFLAGS+set}${RUSTFLAGS+set}" ] ||
+  with="$with with configured $CARGO_CONFIG_FLAGS"
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}$with" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or
