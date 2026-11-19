@@ -510,6 +510,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
   text holds a `pi-spec v1` block and classic when it does not, and the poll
   logs which and why. `tehas:lean` and `tehas:classic` from an account in
   `TEHAS_ALLOWED_LABELERS` then each choose the driver for one issue (#1099).
+- `install.sh --lab-build` builds with the marker `TEHAS_LAB_BUILD=on` in place of debug assertions, so a lab build reads `TEHAS_TEST_FEATURES` and none of the tests' other hooks (#2500).
+- Health warns on a lab build even with `TEHAS_TEST_FEATURES` unset, and `checks.testFeatures` on `/health` and `testFeatures` of `tehas status --json` carry a new field `lab` (#2501).
 
 ### Held back
 
