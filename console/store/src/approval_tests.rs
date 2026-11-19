@@ -1179,6 +1179,7 @@ fn the_hosts_approval_waits_starts_a_cycle_and_is_a_base() {
     let v = ok(&home, &["approval-hosts"]);
     assert_eq!(v["waiting"], json!([]));
     assert_eq!(v["running"][0]["issue"], 31);
+    assert_eq!(v["running"][0]["lock"], "held");
     record(&home, 31, 1_791_000_100, "tehas-millwright", "millwright");
     let v = current(&home, 31);
     assert_eq!(v["rests_on"]["how"], "host");
@@ -1196,4 +1197,18 @@ fn a_waiting_host_approval_is_undone() {
     );
     assert_eq!(v["undone"], true);
     assert_eq!(ok(&home, &["approval-hosts"])["waiting"], json!([]));
+}
+
+/// A cycle killed outright leaves its record open with its lock free: the
+/// list says so, for `tehas status` to say it is not running.
+#[test]
+fn a_host_start_whose_cycle_was_killed_is_listed_with_its_lock_free() {
+    let home = home("approval-host-killed");
+    record(&home, 33, 1_791_000_000, "host", "host");
+    let lock = hold(&home, 33);
+    ok(&home, &["cycle-start", "33"]);
+    drop(lock);
+    let v = ok(&home, &["approval-hosts"]);
+    assert_eq!(v["running"][0]["issue"], 33);
+    assert_eq!(v["running"][0]["lock"], "free");
 }

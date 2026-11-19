@@ -287,7 +287,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
         Call::Undo { issue, at } => undo(home, *issue, *at),
         Call::Current { issue } => verbs::look(home, |c| current(c, *issue)),
         Call::View { issue, want } => view(home, *issue, *want),
-        Call::Hosts => verbs::look(home, hosts),
+        Call::Hosts => verbs::look(home, |c| hosts(home, c)),
     }
 }
 
@@ -431,8 +431,9 @@ fn undo(home: &Path, issue: i64, at: i64) -> Result<String, Fail> {
 
 /// `approval-hosts`: the host's approvals no cycle has used yet, the oldest
 /// issue first, and the cycles running on one, which is what the poll and
-/// `tehas status` read of them.
-fn hosts(c: &Connection) -> Result<String, Fail> {
+/// `tehas status` read of them. Each cycle carries its lock's state: an open
+/// record whose lock is free is a cycle killed before it could report.
+fn hosts(home: &Path, c: &Connection) -> Result<String, Fail> {
     let mut q = c
         .prepare(
             "SELECT issue, at, body_sha256, title_sha256 FROM approvals
@@ -462,9 +463,11 @@ fn hosts(c: &Connection) -> Result<String, Fail> {
         .q()?;
     let running = q
         .query_map([HOST], |r| {
+            let issue = r.get::<_, i64>(0)?;
             Ok(obj(&[
-                ("issue", j(r.get::<_, i64>(0)?)),
+                ("issue", j(issue)),
                 ("started_at", j(r.get::<_, i64>(1)?)),
+                ("lock", j(crate::lock::probe(home, issue, true).state())),
             ]))
         })
         .q()?

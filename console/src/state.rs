@@ -372,12 +372,24 @@ fn numbers(v: &Value, path: &str) -> Vec<i64> {
 /// A cycle or a planning turn that runs, as the store has it.
 fn no_work_running(home: &Path) -> Result<(), Fail> {
     let shown = answer(home, &["cycle-show", "--running"])?;
-    let mut cycles = numbers(&shown, "/cycles");
+    // An open record whose lock is free is a cycle killed before it reported.
+    let (killed, live): (Vec<&Value>, Vec<&Value>) = shown["cycles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .partition(|c| c["lock"]["state"] == "free");
+    let mut cycles: Vec<i64> = live.iter().filter_map(|c| c["issue"].as_i64()).collect();
     cycles.extend(numbers(&answer(home, &["locks-held"])?, "/held"));
     cycles.sort_unstable();
     cycles.dedup();
     if let Some(n) = cycles.first() {
         return Err((1, format!("a cycle is running for #{n}")));
+    }
+    if let Some(n) = killed.iter().find_map(|c| c["issue"].as_i64()) {
+        return Err((
+            1,
+            format!("the cycle for #{n} was killed before it reported and its record is open: tehas stop {n} ends it"),
+        ));
     }
     if shown["probe_rc"].as_i64() != Some(0) {
         return Err((

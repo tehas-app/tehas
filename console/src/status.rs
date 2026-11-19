@@ -121,9 +121,16 @@ fn host_lines_of(v: &J, now: i64) -> Vec<String> {
         .items()
         .iter()
         .map(|r| {
+            let n = r.get("issue").text();
+            // An open record whose lock is free: the cycle died without a report.
+            let state = match r.get("lock").as_str() {
+                Some("free") => {
+                    format!("killed before it reported: tehas stop {n} ends its record")
+                }
+                _ => "running".to_string(),
+            };
             format!(
-                "start     #{} started from the host {}, running",
-                r.get("issue").text(),
+                "start     #{n} started from the host {}, {state}",
                 when(r.get("started_at"))
             )
         })
@@ -1196,6 +1203,19 @@ mod tests {
             ]
         );
         assert!(host_lines_of(&h(r#"{"running":[],"waiting":[]}"#), 1600).is_empty());
+    }
+
+    #[test]
+    fn a_hosts_start_whose_lock_is_free_is_not_running() {
+        let v = h(r#"{"running":[{"issue":12,"started_at":1000,"lock":"free"},
+            {"issue":13,"started_at":1000,"lock":"held"}],"waiting":[]}"#);
+        assert_eq!(
+            host_lines_of(&v, 1600),
+            [
+                "start     #12 started from the host 10 min ago, killed before it reported: tehas stop 12 ends its record",
+                "start     #13 started from the host 10 min ago, running",
+            ]
+        );
     }
 
     #[test]
