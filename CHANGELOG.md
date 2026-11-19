@@ -495,6 +495,21 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `spec-pipe`, still being built: the manual defines the pull request spec block, version 1, and tehas can read it. The manifest's `spec` entry names the block version a cycle writes in `block`, and a runner that lists `issueSpec` is expected to write it. Nothing writes or checks the block yet (#2480).
 - `spec-pipe`, still being built: with the feature on, a handoff whose approval pins a spec waits for a merge only when its pull request's spec block names that sha256. A pull request with no block, a block of another sha256 or one tehas cannot read parks the issue with `needs-human-attention` and the park reason `spec-block`, and stays open (#2481).
 - The release tarball now carries `tehas-proxy` and `tehas-contractor`, the two programs of outsource. A host installed from a release still installs them only while `TEHAS_OUTSOURCE` is on (#2463).
+- `console slice room` names a reserve that is no size as what it is:
+  `TEHAS_CYCLE_RESERVE=<word> is not a size` instead of "the slice was not
+  probed", so the line points at the setting and not at
+  `/sys/fs/cgroup/tehas.slice`. Its reserve field prints the setting's own
+  word where a size is printed in bytes, and `nosize` when the name is unset,
+  so the line keeps its places. A pressure figure too big to count counts as
+  the slice stalling, not as a slice that never stalled (#2235).
+- `install.sh --lab-build` installs a build from a checkout that reads `TEHAS_TEST_FEATURES`, so a lab host can prove a feature that is still being built. A release tree is refused with 78. While the variable is set, health warns, `tehas status` prints a `features` line and `tehas status --json` has `testFeatures`; a release that finds it set says it does not read it. See "Proving a building feature on a lab host" in the manual (#2489).
+- The header of the docs and the business page shows a new wordmark, teHas in IBM Plex Sans Bold with the upper right of the H cut at the crossbar.
+- Part of the lean driver, still being built: a release refuses
+  `TEHAS_DRIVER=lean`, so nothing changes on a host yet. With lean on and
+  `TEHAS_DRIVER=lean`, a start with no driver label runs lean when the issue's
+  text holds a `pi-spec v1` block and classic when it does not, and the poll
+  logs which and why. `tehas:lean` and `tehas:classic` from an account in
+  `TEHAS_ALLOWED_LABELERS` then each choose the driver for one issue (#1099).
 
 ### Held back
 
