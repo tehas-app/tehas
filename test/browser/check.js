@@ -52,6 +52,13 @@ async function run() {
   s.pickedAfterClick = text("#picked .picked");
   s.highlighted = document.querySelector("#queue li.is-picked button")?.dataset.number ?? null;
 
+  // A feed whose rows change only a time keeps each row's nodes.
+  await wait(() => document.querySelectorAll("#ticking li").length > 0);
+  const row = document.querySelector("#ticking li");
+  s.ticked = await wait(() => (found.fetches["/tick/status.json"] ?? 0) >= 3);
+  s.rowKept = document.querySelector("#ticking li") === row && row.isConnected;
+  document.getElementById("ticking").remove();
+
   s.missing = await wait(() => text("#missing [role=alert] p") !== null);
   s.missingText = text("#missing [role=alert] p");
   s.busyHidden = document.querySelector("#picked .tehas-busy")?.hidden ?? null;

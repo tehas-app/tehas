@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { extname, join, normalize } from "node:path";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const MOUNTS = { "/fun/": "host/fun/", "/live/": "test/fixtures/live/", "/demo/": "test/browser/" };
+const MOUNTS = { "/fun/": "host/fun/", "/live/": "test/fixtures/live/", "/demo/": "test/browser/", "/tick/": "test/fixtures/live/" };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'";
 
@@ -46,6 +46,12 @@ function serve(req, res) {
       .end(readFileSync(file));
   // The feed is slow, so the page shows its loading state first.
   if (mount === "/live/") setTimeout(send, 300);
+  else if (mount === "/tick/") {
+    // The status sample with a new time on every answer.
+    const status = JSON.parse(readFileSync(file));
+    status.running[0].updatedAt = new Date().toISOString();
+    res.writeHead(200, { "content-type": TYPES[".json"], "content-security-policy": CSP }).end(JSON.stringify(status));
+  }
   else send();
 }
 
@@ -91,6 +97,7 @@ const checks = [
   ["a pick in one island shows in the other", s.pickedAfterClick === "#42 A search with no match says so", s.pickedAfterClick],
   ["the picking island marks the row", s.highlighted === "42", s.highlighted],
   ["the pick is a bubbling event with JSON detail", JSON.stringify(found.events[0]) === JSON.stringify({ type: "kit-demo-queue:pick", bubbles: true, detail: { number: 42 } }), found.events],
+  ["a row keeps its nodes when the feed changes", s.ticked && s.rowKept, [s.ticked, s.rowKept]],
   ["a missing feed shows the error with a retry", s.missing && /missing\.json: 404/.test(s.missingText), s.missingText],
   ["the busy sign is hidden once the data is in", s.busyHidden === true, s.busyHidden],
   ["the retry polls again and fails again", s.retried && s.failedAgain, [s.retried, s.failedAgain]],

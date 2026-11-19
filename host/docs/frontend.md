@@ -311,8 +311,11 @@ What differs from 1.x:
   that changes is a function: `${() => m.title}`. A function with no arguments
   passed to a component becomes a getter, so a handler passed as a prop takes
   an argument: `retry=${(e) => live.refresh()}`.
-- `<For each>` passes the item and an index accessor;
-  `keyed={false}` replaces `Index`.
+- `<For each>` passes the item and an index accessor, and keys rows by
+  reference. A model makes new row objects on every feed change, so that would
+  draw every row again: focus is lost and a click can land on a node just
+  removed. Key rows by what names them, `keyed=${(r) => r.number}`; the item
+  then comes as an accessor, `row().title`. `keyed={false}` replaces `Index`.
 
 The ratchet's test fails on these 1.x names in any file of `host/fun`:
 `createResource`, `startTransition`, `useTransition`, `batch(`, `onMount`,
@@ -357,9 +360,9 @@ export const mount = view((props, ctx) => {
   const model = () => queueModel(live.data(), props);
   return html`<${Guard} retry=${(e) => live.refresh()}>
     <ul>
-      <${For} each=${() => model().rows} fallback=${html`<${Empty} text="Nothing in line" />`}>${(row) =>
-        html`<li><button type="button" onClick=${() => ctx.emit("pick", { number: row.number })}>
-          ${() => row.title}
+      <${For} each=${() => model().rows} keyed=${(r) => r.number} fallback=${html`<${Empty} text="Nothing in line" />`}>${(row) =>
+        html`<li><button type="button" onClick=${() => ctx.emit("pick", { number: row().number })}>
+          ${() => row().title}
         </button></li>`}<//>
     </ul>
   <//>`;
