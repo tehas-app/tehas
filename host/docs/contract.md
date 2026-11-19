@@ -101,6 +101,10 @@ describe one driver's steps and the Protolab, and may change. The fields of
 `contractors` may change while outsource is still being built, and so may
 `api/status.outsourced.json`, the sample that shows them.
 
+The keys of `rows` in `tehas state check --json` are the store's table names.
+They are internal: a later release may add, rename or drop a table, and with it
+a key. `rows` itself is public.
+
 ## The rules for 1.x
 
 Decided for 1.0 on 2026-11-18.
@@ -322,6 +326,8 @@ Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every comm
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
 - The state store has its tables for contractors and jobs, which are internal.
+  `tehas state check --json` counts them under `rows`, whose keys are the
+  store's table names and internal.
 - `analytics.db` has the column `contractor_id` of `runs`, the name of the
   contractor that ran the cycle, NULL on every run while outsource is off. It
   is part of schema 4, which is frozen: 1.1 keeps its name, its type and its

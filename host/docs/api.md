@@ -850,7 +850,7 @@ store's own answer to `store check`, whole and in its order:
 | `ok` | `true`. A store that fails its check prints no object |
 | `schema` | The schema version of the store |
 | `integrity` | `ok`: SQLite's integrity check passed. Any other answer is no object: see the exit statuses |
-| `rows` | Each table of the store and its number of rows. A later schema may add tables |
+| `rows` | Each table of the store and its number of rows. The keys are the store's table names, which are internal: a later schema may add, rename or drop a table, and its key with it |
 
 `api/state-check.schema.json` in the source says what the object holds, and
 `api/state-check.sample.json`, a new store's, is a sample of it.
