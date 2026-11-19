@@ -166,6 +166,10 @@ pub const UNRULED: &[(&str, &str)] = &[
     ("TEHAS_SETTINGS_CMD", "a test's console for the settings"),
     ("TEHAS_GATE_POLL", "release tooling, not installed"),
     ("TEHAS_PACK_ROOT", "release tooling, not installed"),
+    (
+        "TEHAS_LAB_BUILD",
+        "set by install.sh while cargo builds, read when tehas-core is compiled",
+    ),
 ];
 
 /// Every name that starts with one of these.

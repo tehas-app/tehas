@@ -15,6 +15,6 @@
     "allHands": null,
     "pause": {"flag": null, "label": false, "lifted": false},
     "platform": null,
-    "testFeatures": {"read": true, "features": ["outsource"]}
+    "testFeatures": {"read": true, "features": ["outsource"], "lab": true}
   }
 }

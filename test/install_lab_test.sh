@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Tests for install.sh --lab-build: the programs are built with debug
-# assertions on, so they read TEHAS_TEST_FEATURES; a plain run builds them
-# again; a release tree is refused; and a lab environment file a plain run
-# finds is named for removal.
+# Tests for install.sh --lab-build: the programs are built with the lab marker
+# (TEHAS_LAB_BUILD=on) and without debug assertions, so they read
+# TEHAS_TEST_FEATURES and none of the tests' other hooks; a plain run builds
+# them again; neither takes the marker or debug assertions from the caller's
+# environment; a release tree is refused; and a lab environment file a plain
+# run finds is named for removal.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -11,14 +13,14 @@
 
 lab_env=$home/.config/environment.d/tehas-lab.conf
 
-t_case "a lab build builds every program with debug assertions on and says so"
+t_case "a lab build builds every program with the lab marker, without debug assertions, and says so"
 fresh
 instance
 t_run "$install --lab-build"
 t_eq "$t_rc" 0
-t_eq "$(cat "$th/libexec/console")" "a console built from source with debug assertions"
-t_eq "$(cat "$th/libexec/tehas-dispatch")" "a tehas-dispatch built from source with debug assertions"
-t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source with debug assertions"
+t_eq "$(cat "$th/libexec/console")" "a console built from source as a lab build"
+t_eq "$(cat "$th/libexec/tehas-dispatch")" "a tehas-dispatch built from source as a lab build"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source as a lab build"
 t_contains "$t_out" "note: a lab build: its programs read TEHAS_TEST_FEATURES, from $lab_env for the units"
 t_lacks "$t_out" "later: rm $lab_env"
 
@@ -40,10 +42,11 @@ t_eq "$(cat "$th/libexec/tehas-cycle")" "a tehas-cycle built from source"
 t_contains "$(t_calls cargo)" "-p tehas-cycle"
 t_lacks "$t_out" "note: a lab build"
 
-t_case "a plain run builds without debug assertions even when the environment asks for them"
-T_ENV=(CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true)
+t_case "no run takes the lab marker or debug assertions from the environment"
+T_ENV=(CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true TEHAS_LAB_BUILD=on)
 t_run "$install --lab-build"
 t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source as a lab build"
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(cat "$th/libexec/console")" "a console built from source"

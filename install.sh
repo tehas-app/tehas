@@ -14,9 +14,10 @@
 #                           most of a check's time, so tehas update --check,
 #                           which has a time limit, leaves them out
 #   ./install.sh --lab-build
-#                           a real run whose programs are built with debug
-#                           assertions on, so they read TEHAS_TEST_FEATURES:
-#                           for a lab host that proves a building feature
+#                           a real run whose programs are built with
+#                           TEHAS_LAB_BUILD=on, so they read TEHAS_TEST_FEATURES
+#                           and none of the tests' other hooks: for a lab host
+#                           that proves a building feature
 #                           (host/docs/tools-update.md). A checkout only: a
 #                           release tree has no source to build and is refused
 #                           (78). Each program's stamp is a lab build's, so a
@@ -160,10 +161,11 @@ check=0
 tests=0
 [ "${1:-}" = "--check" ] && check=1
 [ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
-# A plain run says false rather than leave the setting to the environment, so
-# only --lab-build ever builds programs that read TEHAS_TEST_FEATURES.
-build_kind=build assertions=false
-[ "${1:-}" = "--lab-build" ] && build_kind=lab assertions=true
+# A plain run says off rather than leave the marker to the environment, so
+# only --lab-build ever builds programs that read TEHAS_TEST_FEATURES. No run
+# builds with debug assertions, which would read the tests' other hooks too.
+build_kind=build lab=off
+[ "${1:-}" = "--lab-build" ] && build_kind=lab lab=on
 if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
   echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
   exit 78
@@ -256,7 +258,7 @@ cargo_build() {
   esac
   args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
   build_cmd="cargo ${args[*]}"
-  out=$(timeout "$build_timeout" env "${hidden[@]}" CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS="$assertions" \
+  out=$(timeout "$build_timeout" env "${hidden[@]}" CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false TEHAS_LAB_BUILD="$lab" \
     cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
 }
 # cache_miss <cargo's words>: true when one line is cargo's own report that a
