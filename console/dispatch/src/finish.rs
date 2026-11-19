@@ -24,7 +24,9 @@ use crate::text::body_sha256;
 use crate::Settings;
 use serde_json::Value;
 use tehas_core::call::Ran;
-use tehas_core::events::{edit_holds, first_unallowed_rename, label_actor, Event, Events};
+use tehas_core::events::{
+    edit_history_unread, edit_holds, first_unallowed_rename, label_actor, Event, Events,
+};
 use tehas_core::text::disarm;
 
 /// The label of the ask.
@@ -211,6 +213,9 @@ fn grant(c: &Settings, a: &Ask) -> Result<Option<String>, String> {
         )));
     }
     if edit_holds(&a.edit, since, by, &|w| c.allowed(w)).is_some() {
+        if edit_history_unread(&a.edit, &|w| c.allowed(w)) {
+            return Err("its edit history could not be read".into());
+        }
         return Ok(Some(format!(
             "its title or text was changed since {by} approved it"
         )));

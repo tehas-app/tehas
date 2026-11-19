@@ -187,6 +187,19 @@ case "$1 $2" in
           done
           echo "{\"data\":{\"repository\":$acc}}"
         fi ;;
+      # The body edit histories of a chunk of issues, one alias i<n> an issue:
+      # edits-<n>.json when a case wrote it, else the last edit of
+      # edit-<n>.json (or edit.json) alone.
+      *"userContentEdits(last"*) [ ! -e "$T/fx/edits-fail" ] || exit 1
+        acc="{}"
+        for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
+          f="$T/fx/edit-$k.json"
+          [ -r "$f" ] || f="$T/fx/edit.json"
+          one=$(cat "$T/fx/edits-$k.json" 2>/dev/null) ||
+            one=$(jq -c ".data.repository.issue | if .lastEditedAt then {totalCount: 1, nodes: [{editedAt: .lastEditedAt, editor}]} else {totalCount: 0, nodes: []} end" "$f") || exit 1
+          acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): {userContentEdits: \$one}}" <<<"$acc") || exit 1
+        done
+        echo "{\"data\":{\"repository\":$acc}}" ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
       *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
@@ -441,7 +454,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/state-[0-9]* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
+  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/pull-* "$fx"/edit-* "$fx"/edits-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/perm-* "$fx"/reviews-* "$fx"/inline-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/state-[0-9]* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails "$fx"/closed.json "$fx"/labels.json
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/labels" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" "$T/home/tehas/state/github-failures" "$T/home/tehas/state/push-fault.json" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
