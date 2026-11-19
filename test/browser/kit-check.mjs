@@ -90,11 +90,13 @@ const checks = [
   ["one fetch of the address for two islands", found.fetches["/live/status.json"] === 1, found.fetches],
   ["a pick in one island shows in the other", s.pickedAfterClick === "#42 A search with no match says so", s.pickedAfterClick],
   ["the picking island marks the row", s.highlighted === "42", s.highlighted],
-  ["the pick is a bubbling event with JSON detail", JSON.stringify(found.events) === JSON.stringify([{ type: "kit-demo-queue:pick", bubbles: true, detail: { number: 42 } }]), found.events],
+  ["the pick is a bubbling event with JSON detail", JSON.stringify(found.events[0]) === JSON.stringify({ type: "kit-demo-queue:pick", bubbles: true, detail: { number: 42 } }), found.events],
   ["a missing feed shows the error with a retry", s.missing && /missing\.json: 404/.test(s.missingText), s.missingText],
   ["the busy sign is hidden once the data is in", s.busyHidden === true, s.busyHidden],
   ["the retry polls again and fails again", s.retried && s.failedAgain, [s.retried, s.failedAgain]],
   ["the store outlives the island that wrote it", s.afterRemove === "#42 A search with no match says so", s.afterRemove],
+  ["a new island gets the store as it was", s.againHighlighted === "42", s.againHighlighted],
+  ["a pick after the removal reaches the island that stayed", s.pickedAfterRemove === "#41 Export the report as CSV", s.pickedAfterRemove],
 ];
 let failed = 0;
 for (const [name, ok, got] of checks) {

@@ -64,7 +64,18 @@ async function run() {
   document.querySelector("#missing").remove();
   await new Promise((r) => setTimeout(r, 50));
   s.afterRemove = text("#picked .picked");
-  s.queueEmptied = document.getElementById("picked").isConnected;
+  // A new queue island gets the store as it was, and a pick in it reaches the
+  // island that stayed.
+  const again = document.createElement("kit-demo-queue");
+  again.id = "again";
+  again.setAttribute("data-tehas-island", "");
+  again.setAttribute("src", "/live/status.json");
+  document.querySelector("main").append(again);
+  await wait(() => document.querySelectorAll("#again li").length > 0);
+  s.againHighlighted = document.querySelector("#again li.is-picked button")?.dataset.number ?? null;
+  document.querySelector('#again button[data-number="41"]').click();
+  await wait(() => text("#picked .picked") !== s.afterRemove);
+  s.pickedAfterRemove = text("#picked .picked");
 }
 
 run()
