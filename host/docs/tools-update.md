@@ -512,7 +512,9 @@ tehas update            # or ./install.sh in the checkout
 ```
 
 Any run without `--lab-build`, from a checkout or a release, installs every
-program again: a lab build's stamp matches no other. `install.sh --check` and
+program again: a lab build's stamp matches no other. A run from a checkout
+without `--lab-build` builds with `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false`,
+whatever the environment it runs in says. `install.sh --check` and
 `tehas update --check` report a lab build's programs as `differs`. A run that
 finds `~/.config/environment.d/tehas-lab.conf` prints `later: rm ... &&
 systemctl --user daemon-reload`, and leaves the file to you. If the variable

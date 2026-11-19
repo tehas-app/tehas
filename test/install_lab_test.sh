@@ -40,6 +40,15 @@ t_eq "$(cat "$th/libexec/tehas-cycle")" "a tehas-cycle built from source"
 t_contains "$(t_calls cargo)" "-p tehas-cycle"
 t_lacks "$t_out" "note: a lab build"
 
+t_case "a plain run builds without debug assertions even when the environment asks for them"
+T_ENV=(CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true)
+t_run "$install --lab-build"
+t_eq "$t_rc" 0
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+T_ENV=()
+
 t_case "a plain run names a lab environment file it finds, and a lab build does not"
 mkdir -p "${lab_env%/*}"
 echo "TEHAS_TEST_FEATURES=outsource" >"$lab_env"

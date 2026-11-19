@@ -160,10 +160,11 @@ check=0
 tests=0
 [ "${1:-}" = "--check" ] && check=1
 [ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
-lab=""
-build_kind=build
-[ "${1:-}" = "--lab-build" ] && lab=1 && build_kind=lab
-if [ -n "$lab" ] && [ ! -d "$root/console" ]; then
+# A plain run says false rather than leave the setting to the environment, so
+# only --lab-build ever builds programs that read TEHAS_TEST_FEATURES.
+build_kind=build assertions=false
+[ "${1:-}" = "--lab-build" ] && build_kind=lab assertions=true
+if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
   echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
   exit 78
 fi
@@ -255,7 +256,7 @@ cargo_build() {
   esac
   args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
   build_cmd="cargo ${args[*]}"
-  out=$(timeout "$build_timeout" env "${hidden[@]}" ${lab:+CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true} \
+  out=$(timeout "$build_timeout" env "${hidden[@]}" CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS="$assertions" \
     cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
 }
 # cache_miss <cargo's words>: true when one line is cargo's own report that a
@@ -1311,7 +1312,7 @@ fi
 # Where the manual puts TEHAS_TEST_FEATURES on a lab host. Only a lab build
 # reads it, so after any other run the file does nothing but mislead.
 lab_env=$HOME/.config/environment.d/tehas-lab.conf
-if [ -n "$lab" ]; then
+if [ "$build_kind" = lab ]; then
   echo "note: a lab build: its programs read TEHAS_TEST_FEATURES, from $lab_env for the units; ./install.sh without --lab-build goes back"
 elif [ -e "$lab_env" ]; then
   echo "later: rm $lab_env && systemctl --user daemon-reload   (this is no lab build, so TEHAS_TEST_FEATURES does nothing)"
