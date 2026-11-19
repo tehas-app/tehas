@@ -187,6 +187,11 @@ case "$1 $2" in
           done
           echo "{\"data\":{\"repository\":$acc}}"
         fi ;;
+      # The edit histories of edited comments, by their node ids: the
+      # comment-edits.json a case wrote, else none. It is asked before the
+      # body histories of the issues below, whose query holds the same words.
+      *"nodes(ids:"*) [ ! -e "$T/fx/comment-edits-fail" ] || exit 1
+        cat "$T/fx/comment-edits.json" 2>/dev/null || echo "{\"data\":{\"nodes\":[]}}" ;;
       # The body edit histories of a chunk of issues, one alias i<n> an issue:
       # edits-<n>.json when a case wrote it, else the last edit of
       # edit-<n>.json (or edit.json) alone.

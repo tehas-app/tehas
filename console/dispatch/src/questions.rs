@@ -125,9 +125,11 @@ pub fn answer(
         json!({"status": "none"})
     } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
         let h = qv.get("userContentEdits").cloned().unwrap_or(json!({}));
-        // A history whose read failed cannot show that only the fixer saved
-        // the question, so it holds. The poll's read gives every comment a
-        // history: read, none for an unedited one, or failed.
+        // A history whose read failed says nothing of who saved the question:
+        // the tick is "unread", and the rules wait for a poll that reads it,
+        // as they did when the whole comment read failed. The poll's read
+        // gives every comment a history: read, none for an unedited one, or
+        // failed.
         let failed = h.get("failed") == Some(&Value::Bool(true));
         let nodes = h
             .get("nodes")
@@ -135,8 +137,9 @@ pub fn answer(
             .cloned()
             .unwrap_or_default();
         let total = h.get("totalCount").and_then(Value::as_f64).unwrap_or(0.0);
-        if failed
-            || total > nodes.len() as f64
+        if failed {
+            json!({"status": "unread", "by": ed})
+        } else if total > nodes.len() as f64
             || nodes
                 .iter()
                 .any(|x| login(x, "/editor/login") != fixer && !bots(x, "/editor"))
@@ -588,16 +591,19 @@ mod tests {
     }
 
     #[test]
-    fn a_tick_the_fixer_saved_whose_history_read_failed_is_held() {
-        // A history whose read failed cannot show that only the fixer saved
-        // the question.
+    fn a_tick_the_fixer_saved_whose_history_read_failed_is_unread() {
+        // A history whose read failed says neither that only the fixer saved
+        // the question nor that someone else did: the tick waits, unread.
         let mut c = asked(&ticked("Change some"), FIXER, json!([]));
         c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
             json!({"failed": true, "line": "ERROR: gh api graphql failed"});
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "held");
+        assert_eq!(
+            read_with_fixer(&c)["tick"],
+            json!({"status": "unread", "by": FIXER})
+        );
         c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
             json!({"failed": true});
-        assert_eq!(read_with_fixer(&c)["tick"]["status"], "held");
+        assert_eq!(read_with_fixer(&c)["tick"]["status"], "unread");
     }
 
     #[test]
