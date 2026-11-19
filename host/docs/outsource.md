@@ -19,8 +19,9 @@ In this release outsource is a feature still being built. It cannot be
 switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
 that `outsource` is still being built, and so does a line that gives a value
 to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
-`flags` as `false`. This page says what the proxy does once the feature
-ships.
+`flags` as `false`. Outsource is planned for 1.1, under the names
+[the contract reserves for it](/contract#names-reserved-for-11). This page
+says what the proxy does once the feature ships.
 
 This page covers how the feature is switched on and installed, the model
 proxy, the job channel on the same listener, the contractor program, the
@@ -605,6 +606,15 @@ issue it is on, when it was last heard of, and its jobs done and lost.
 and resting, and how many cycles are outsourced. `revoke` loses the
 contractor's jobs, and its check-ins, model requests and results are refused
 from then on.
+
+With `--json` each prints one object with `api` 1: `invite` adds `name`,
+`command` and `expiresAt`; `list` adds `contractors`, an array of each
+contractor's `name`, `status`, `issue`, `lastSeenAt`, `jobsDone`, `jobsLost`,
+`image`, `rukas`, `memMb`, `diskKb` and `reportedAt`; `status` adds
+`contractors`, the counts `idle`, `working`, `stopping`, `silent`, `resting`,
+`draining`, `revoked` and `outsourced`; `revoke` and `drain` add `name` and
+`said`. These objects have no schema in `api/` yet: their shapes may change
+until the feature ships.
 
 Off, or while the feature is being built, every subcommand exits 78 and
 touches nothing. Exit: 0 done; 1 the store refused, or no such contractor; 64
