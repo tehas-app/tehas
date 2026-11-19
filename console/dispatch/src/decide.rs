@@ -11,7 +11,7 @@ use crate::text;
 use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
-    changed_after, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
+    edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit,
     sole_application, Event, Events, LabelState, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
@@ -1868,10 +1868,10 @@ impl<'a> Poll<'a> {
     /// unchanged_since: the title and body are what the approval at `since`
     /// covered, changed since by nobody outside the list. The two reads of a
     /// change rank a missing time in opposite directions on purpose: an
-    /// unstamped rename counts as after the approval and holds the start (see
-    /// `first_unallowed_rename`), and an unstamped edit is no edit at all, as
-    /// the bash poll's `[ -n "$edited_at" ]` reads it. A change in the second
-    /// of `since` is after it unless `approver` made it (`changed_after`).
+    /// unstamped rename counts as after the approval and holds the start
+    /// (`first_unallowed_rename`), and an unstamped edit is no edit at all
+    /// (`edit_holds`). A change in the second of `since` is after it unless
+    /// `approver` made it (`changed_after`).
     fn unchanged_since(
         &mut self,
         n: u64,
@@ -1890,21 +1890,7 @@ impl<'a> Poll<'a> {
                 let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
                     return Err(self.unreadable(&format!("edit record of #{n}"), None));
                 };
-                let at = edit
-                    .get("lastEditedAt")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let by = edit
-                    .get("editor")
-                    .and_then(|e| e.get("login"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                if !at.is_empty() && changed_after(at, by, since, approver) {
-                    let who = or_unknown(by).to_string();
-                    (!self.c.allowed(&who)).then_some(who)
-                } else {
-                    None
-                }
+                edit_holds(&Value::Object(edit), since, approver, &|w| c.allowed(w))
             }
         };
         if let Some(stale) = stale {
