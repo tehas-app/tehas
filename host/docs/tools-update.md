@@ -428,9 +428,11 @@ cd ~/tehas/platform
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the home is
-not provably tehas's, or `--lab-build` was run from a release tree (nothing
-was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the
+instance's `sandbox.Dockerfile` cannot be read, the home is not provably
+tehas's, or `--lab-build` was run from a release tree (nothing was changed).
+`--check` reports an unreadable `sandbox.Dockerfile` with an `unreadable:`
+line and exits 1.
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
