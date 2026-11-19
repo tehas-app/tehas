@@ -1236,7 +1236,7 @@ mod tests {
              -c sh .pi/worktree-setup && sh -c \"$1\" gates g "
         );
         let said = install_run("/t", "img", "1:2", &[]).join(" ");
-        assert!(said.starts_with("run --rm --name tehas-check-product-t-install "));
+        assert!(said.starts_with("run --pull=never --rm --name tehas-check-product-t-install "));
         assert!(said.contains(" -v /t:/t -w /t/clone --entrypoint bash img -c set -e\n"));
         assert_eq!(
             table(),
