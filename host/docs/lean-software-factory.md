@@ -1,12 +1,12 @@
 ---
-title: Lean Software Factory
+title: The Lean Software Factory
 faq: Questions
-description: "Tehas is the Lean Software Factory: work is pulled from GitHub issues, one issue makes one reviewed pull request, the line stops on a defect, and it all runs on one host with self-hosted models."
+description: "Tehas is The Lean Software Factory: work is pulled from GitHub issues, one issue makes one reviewed pull request, the line stops on a defect, and it all runs on one host with self-hosted models."
 ---
 
-# Tehas, the Lean Software Factory
+# Tehas, The Lean Software Factory
 
-Tehas is the Lean Software Factory. A GitHub issue goes in and a reviewed pull
+Tehas is The Lean Software Factory. A GitHub issue goes in and a reviewed pull
 request comes out, built by coding agents in a sandbox on self-hosted models. A
 person decides two things: what to build and what to merge. The factory does
 the rest, and it does it the way a lean factory runs a line.

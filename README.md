@@ -7,9 +7,9 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
  
 ```
 
-# Tehas - the Lean Software Factory
+# Tehas - The Lean Software Factory
 
-Tehas is the [Lean Software Factory](host/docs/lean-software-factory.md),
+Tehas is [The Lean Software Factory](host/docs/lean-software-factory.md),
 powered by the [Pi coding agent](https://pi.dev).
 You write a GitHub issue and label it. Agents on your own model server work on
 it in a sandbox, and a pull request comes back for you to review and merge.

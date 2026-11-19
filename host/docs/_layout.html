@@ -22,7 +22,7 @@
 {{- else -}}
 {{- $doc := splitFrontMatter (readFile $file) -}}
 {{- $title = $doc.Meta.title -}}
-{{- $description = default "The operating manual of Tehas, the Lean Software Factory, powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
+{{- $description = default "The operating manual of Tehas, The Lean Software Factory, powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
 {{- $body = markdown $doc.Body | replace "<table>" "<div class=\"tablewrap\"><table>" | replace "</table>" "</table></div>" -}}
 {{- with $doc.Meta.faq -}}
 {{- $heading := printf "\n## %s\n" . -}}

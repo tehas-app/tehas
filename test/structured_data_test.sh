@@ -48,7 +48,7 @@ for front in index.html business.html; do
   t_case "$front: one software block with licence, author and repository"
   t_eq "$(grep -c 'application/ld+json' "$T_ROOT/host/fun/$front")" 1
   t_contains "$text" '"@type": "SoftwareApplication",'
-  t_contains "$text" '"alternateName": ["Tehas - the Lean Software Factory", "Tehas, an open source Pi software factory"],'
+  t_contains "$text" '"alternateName": ["Tehas - The Lean Software Factory", "Tehas, an open source Pi software factory"],'
   t_contains "$text" '"slogan": "The Lean Software Factory",'
   t_contains "$text" '"softwareHelp": "{{ $base }}/lean-software-factory",'
   t_contains "$text" '"keywords": "Lean Software Factory,'
