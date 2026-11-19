@@ -102,7 +102,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tehas_core::plan::{criteria_directive, WHY_MAX};
 
 /// `find ! -size +1024k`: a carried file is at most this long.
@@ -134,9 +134,7 @@ fn refuse(why: &str) -> u8 {
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    tehas_core::time::now() as u64
 }
 
 /// `rm -rf`: what is not there is gone, and a symlink goes, not what it names.

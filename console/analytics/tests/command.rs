@@ -52,11 +52,7 @@ fn ip(octets: [u8; 4]) -> String {
 }
 
 fn iso(t: i64) -> String {
-    let out = Command::new("date")
-        .args(["-u", "-d", &format!("@{t}"), "+%FT%TZ"])
-        .output()
-        .unwrap();
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+    tehas_core::time::iso(t)
 }
 
 struct Host {
