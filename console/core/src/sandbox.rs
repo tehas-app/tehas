@@ -208,8 +208,9 @@ const NOT_EXECUTABLE: i32 = 127;
 /// Whether the first words of a probe's log, or its exit code, are the host's
 /// own rather than git's. `docker run` ends 125 when it could not start the
 /// container, `timeout` 126 or 127 when it could not run the client. A missing
-/// client, image or daemon is no push that git refused.
-fn host_words(line: &str, rc: i32) -> bool {
+/// client, image or daemon is no push that git refused. A cycle's own check
+/// and the poll's probe both follow it.
+pub fn host_words(line: &str, rc: i32) -> bool {
     matches!(rc, 125 | 126 | NOT_EXECUTABLE)
         || line.starts_with("timeout:")
         || line.starts_with("docker:")
