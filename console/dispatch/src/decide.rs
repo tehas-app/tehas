@@ -159,12 +159,10 @@ impl Stranger {
     }
 
     /// The driver that runs when `label` is off, and that tehas does not run
-    /// in its place. Under `TEHAS_DRIVER=lean` with `tehas:lean` that is
-    /// whichever the issue's text gives.
+    /// in its place. Under `TEHAS_DRIVER=lean` that is whichever the issue's
+    /// text gives, for either label.
     fn default_name(&self) -> &'static str {
-        if self.label == CLASSIC {
-            Driver::Lean.word()
-        } else if self.lean_default {
+        if self.lean_default {
             "the driver its text would choose"
         } else {
             Driver::Classic.word()

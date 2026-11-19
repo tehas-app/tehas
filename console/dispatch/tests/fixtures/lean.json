@@ -3125,7 +3125,7 @@
       "remove": [
        "tehas:ready"
       ],
-      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run lean in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, or takes it off for lean, then applies `tehas:ready`."
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run the driver its text would choose in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, or takes it off for the driver its text would choose, then applies `tehas:ready`."
      }
     ],
     "no_actions": [
@@ -3192,7 +3192,7 @@
       "remove": [
        "tehas:ready"
       ],
-      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run lean in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, and takes it off for lean, then applies `tehas:ready`."
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run the driver its text would choose in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, and takes it off for the driver its text would choose, then applies `tehas:ready`."
      }
     ],
     "no_actions": [
@@ -3228,6 +3228,102 @@
      {
       "start": 7,
       "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:classic from another account with no pi-spec v1 block starts nothing, and the text does not choose in its place",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7 tehas:classic"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=mallory"
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:classic was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:classic` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run the driver its text would choose in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:classic` again, or takes it off for the driver its text would choose, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: tehas:classic taken off by an allowed account with no pi-spec v1 block is classic",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:classic=alice",
+     "-tehas:classic=alice"
+    ]
+   },
+   "spec": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ],
+    "log": [
+     "start #7 on classic: TEHAS_DRIVER=lean and its text holds no pi-spec v1 block lean can read"
+    ]
+   }
+  },
+  {
+   "case": "TEHAS_DRIVER=lean: no label and a text that was not read starts nothing: the start waits",
+   "settings": {
+    "TEHAS_DRIVER": "lean"
+   },
+   "queue": [
+    "7"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "wait #7: its text could not be read, and TEHAS_DRIVER=lean chooses the driver by its pi-spec v1 block"
+    ],
+    "no_actions": [
+     {
+      "start": 7
      }
     ]
    }
