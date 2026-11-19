@@ -55,8 +55,9 @@ pub struct Judged {
 
 /// Judges the snapshot `snap` against `pins`: the current labels
 /// (`tehas_labels`) first, then each application in the issues' and the
-/// control issue's events, which a refused one leaves with no account. Only when the pins are not `kept` yet does it pin, and then only
-/// the current labels: an event pins nothing.
+/// control issue's events, which a refused one leaves with no account. Only
+/// when the pins are not `kept` yet does it pin, and then only the current
+/// labels: an event pins nothing.
 pub fn judge(pins: &mut Pins, kept: bool, snap: &mut Value) -> Judged {
     let mut j = Judged::default();
     let current = snap.get("tehas_labels").and_then(Value::as_array).cloned();
