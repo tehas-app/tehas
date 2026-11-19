@@ -1846,8 +1846,7 @@ impl<'a> Poll<'a> {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 if !at.is_empty() && changed_after(at, by, since, approver) {
-                    let who = or_unknown(by).to_string();
-                    (!self.c.allowed(&who)).then_some(who)
+                    (!self.c.allowed(by)).then(|| or_unknown(by).to_string())
                 } else {
                     None
                 }

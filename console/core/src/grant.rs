@@ -4,7 +4,7 @@
 //! The poll takes the decision in steps over what it reads, and each step
 //! asks the rule here: `accounts::Accounts::vouch` renames an account that
 //! does not come with its recorded id (`doubt`, `counted`), the pins
-//! (tehas_dispatch::pins) give a refused application the unknown actor
+//! (tehas_dispatch::pins) give a refused application no account
 //! (`account_of`), and the rules ask who applied the label last
 //! (`events::label_actor`, `last_application`), whether its newest event is
 //! an application (`events::label_state`, `latest`) and whether that account
@@ -18,7 +18,7 @@
 //! small numbers for them; the poll uses text.
 
 use crate::accounts::Doubt;
-use crate::events::UNKNOWN_ACTOR;
+use crate::events::NOBODY;
 use std::borrow::Cow;
 
 /// Who an event names.
@@ -65,18 +65,20 @@ pub enum Name<L> {
     Login(L),
     /// A listed login without its recorded id, with the id it carried.
     Doubted(L, Option<u64>),
-    /// Nobody: an application the pins refuse.
+    /// Nobody: an application the pins refuse. The log names it `unknown`,
+    /// but a list may hold that login, so its text is `events::NOBODY`.
     Unknown,
 }
 
 impl Name<&str> {
     /// The login the poll writes for it: the login, `<login>#<id>`,
-    /// `<login>#` or `unknown`. No login of a list holds `#`.
+    /// `<login>#` or the empty login. No login of a list holds `#`, and no
+    /// list holds the empty login.
     pub fn text(&self) -> Cow<'_, str> {
         match *self {
             Name::Login(l) => Cow::Borrowed(l),
             Name::Doubted(l, id) => Cow::Owned(doubted(l, id)),
-            Name::Unknown => Cow::Borrowed(UNKNOWN_ACTOR),
+            Name::Unknown => Cow::Borrowed(NOBODY),
         }
     }
 }
@@ -218,7 +220,7 @@ mod tests {
         assert_eq!(counted(&a, false).text(), "alice");
         let none = Actor { carried: None, ..a };
         assert_eq!(counted(&none, true).text(), "alice#");
-        assert_eq!(Name::<&str>::Unknown.text(), UNKNOWN_ACTOR);
+        assert_eq!(Name::<&str>::Unknown.text(), NOBODY);
         for i in [0, 7, 10, 99, 100, 1001, u64::MAX] {
             assert_eq!(doubted("a", Some(i)), format!("a#{i}"));
         }
@@ -234,6 +236,49 @@ mod tests {
                 assert!(!allowed_in("alice unknown", &name), "{name}");
             }
         }
+    }
+
+    /// A list may name the GitHub account `unknown`, the word the log uses
+    /// for nobody. Nobody's name is on no list; the account's own login is.
+    #[test]
+    fn nobody_is_on_no_list_of_logins() {
+        use crate::settings::rules::is_login;
+        let nobody = Name::<&str>::Unknown.text().into_owned();
+        assert!(!is_login(&nobody));
+        for list in ["unknown", "alice unknown", "alice  unknown", ""] {
+            assert!(!allowed_in(list, &nobody), "{list:?}");
+        }
+        assert!(allowed_in("alice unknown", &Name::Login("unknown").text()));
+    }
+
+    /// With the account `unknown` on the list, an application the pins
+    /// refuse grants nothing, and that account's own application grants.
+    #[test]
+    fn the_account_unknown_takes_no_refused_application() {
+        let listed = |l: &str| l == "alice" || l == "unknown";
+        let allowed = |n: Name<&str>| allowed_in("alice unknown", &n.text());
+        let tl = |login, pinned| {
+            [LabelEvent {
+                actor: Actor {
+                    login,
+                    recorded: Some(7),
+                    carried: Some(7),
+                },
+                label: "tehas:ready",
+                pinned,
+                change: Change::Applied,
+            }]
+        };
+        for login in ["alice", "unknown", "mallory", ""] {
+            assert_eq!(
+                grant(&tl(login, false), &"tehas:ready", &listed, &allowed),
+                None
+            );
+        }
+        assert_eq!(
+            grant(&tl("unknown", true), &"tehas:ready", &listed, &allowed),
+            Some(0)
+        );
     }
 }
 
@@ -287,13 +332,14 @@ mod proofs {
         }
         /// `allowed_in(list, name.text())`: a doubted name holds `#`, which
         /// no login of the list does (`Rule::Logins`; the test
-        /// `a_doubted_name_is_on_no_list_of_logins`), and the unknown actor's
-        /// name is the login `unknown`. Text is too dear for the proofs.
+        /// `a_doubted_name_is_on_no_list_of_logins`), and nobody's name is
+        /// the empty login, which no list holds, not even one that names the
+        /// account `unknown` (the test `nobody_is_on_no_list_of_logins`).
+        /// Text is too dear for the proofs.
         fn allows(&self, n: Name<Login>) -> bool {
             match n {
                 Name::Login(l) => self.allows_login(l),
-                Name::Doubted(..) => false,
-                Name::Unknown => self.allows_login(UNKNOWN_LOGIN),
+                Name::Doubted(..) | Name::Unknown => false,
             }
         }
     }
@@ -333,12 +379,15 @@ mod proofs {
     #[kani::unwind(8)]
     fn a_grant_is_an_allowed_recorded_pinned_application() {
         let w = world();
-        kani::assume(!w.allows_login(UNKNOWN_LOGIN));
         let (tl, n) = timeline(&w);
         let tl = &tl[..n];
         let got = decide(&w, tl);
         kani::cover!(got.is_some() && n == MAX, "a full timeline grants");
         kani::cover!(got.is_none() && n == MAX, "a full timeline does not");
+        kani::cover!(
+            got.is_some_and(|i| tl[i].actor.login == UNKNOWN_LOGIN),
+            "the account unknown grants"
+        );
         if let Some(i) = got {
             let e = &tl[i];
             assert!(e.label == READY && e.change == Change::Applied && e.pinned);
@@ -354,7 +403,6 @@ mod proofs {
     #[kani::unwind(8)]
     fn a_doubted_login_never_grants() {
         let w = world();
-        kani::assume(!w.allows_login(UNKNOWN_LOGIN));
         let (tl, n) = timeline(&w);
         let tl = &tl[..n];
         if let Some(i) = last_application(tl, &READY) {
@@ -372,19 +420,22 @@ mod proofs {
     }
 
     /// An application with the unknown actor never grants: refused by the
-    /// pins, or naming nobody. Unless TEHAS_ALLOWED_LABELERS names the
-    /// GitHub account `unknown`: see `the_account_unknown_takes_refused_applications`.
+    /// pins, or naming nobody. Whatever TEHAS_ALLOWED_LABELERS names, the
+    /// GitHub account `unknown` too.
     #[kani::proof]
     #[kani::unwind(8)]
     fn the_unknown_actor_never_grants() {
         let w = world();
-        kani::assume(!w.allows_login(UNKNOWN_LOGIN));
         let (tl, n) = timeline(&w);
         let tl = &tl[..n];
         if let Some(i) = last_application(tl, &READY) {
             let e = &tl[i];
-            let unknown = !e.pinned || e.actor.login == UNKNOWN_LOGIN || e.actor.login == EMPTY;
+            let unknown = !e.pinned || e.actor.login == EMPTY;
             kani::cover!(unknown && n == MAX, "the newest application is nobody's");
+            kani::cover!(
+                unknown && w.allows_login(UNKNOWN_LOGIN),
+                "nobody's, with the account unknown on the list"
+            );
             if unknown {
                 assert!(decide(&w, tl).is_none());
             }
@@ -392,14 +443,22 @@ mod proofs {
     }
 
     /// With the account `unknown` on the list, an application the pins
-    /// refused grants: the pins' name for nobody is that account's login.
+    /// refused grants nothing, of any account; that account's own pinned
+    /// application can.
     #[kani::proof]
-    #[kani::should_panic]
     #[kani::unwind(8)]
-    fn the_account_unknown_takes_refused_applications() {
+    fn the_account_unknown_takes_no_refused_application() {
         let w = world();
+        kani::assume(w.allows_login(UNKNOWN_LOGIN));
         let e = event(&w);
-        assert!(!(e.change == Change::Applied && !e.pinned && decide(&w, &[e]).is_some()));
+        let got = decide(&w, &[e]);
+        kani::cover!(
+            got.is_some() && e.actor.login == UNKNOWN_LOGIN,
+            "the account unknown grants"
+        );
+        if e.change == Change::Applied && !e.pinned {
+            assert!(got.is_none());
+        }
     }
 
     /// `last_application` is the newest application of the label: who

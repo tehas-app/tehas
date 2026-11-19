@@ -11,9 +11,15 @@ use crate::accounts::account;
 use crate::grant::{self, Actor, Change, LabelEvent};
 use serde_json::Value;
 
-/// The account of an event that names nobody: tehas's word for it, the same
-/// one decide's `or_unknown` answers for an empty login.
+/// The account of an event that names nobody, as a person reads it: the
+/// same word decide's `or_unknown` answers for an empty login. A list may
+/// name a GitHub account of that login, so no rule compares this word with
+/// one: they compare [`NOBODY`].
 pub const UNKNOWN_ACTOR: &str = "unknown";
+
+/// The login of an event that names nobody, such as an application the pins
+/// refuse. `allowed_in` allows no list to hold it.
+pub const NOBODY: &str = "";
 
 /// One label event of an issue, as the REST events list gives it.
 #[derive(Clone, Debug, PartialEq)]
@@ -276,12 +282,10 @@ pub fn first_unallowed_rename(
         {
             return None;
         }
-        let who = if e.actor.is_empty() {
-            UNKNOWN_ACTOR.to_string()
-        } else {
-            e.actor.clone()
-        };
-        (!allowed(&who)).then_some(who)
+        if e.actor == NOBODY {
+            return Some(UNKNOWN_ACTOR.to_string());
+        }
+        (!allowed(&e.actor)).then(|| e.actor.clone())
     })
 }
 
@@ -479,7 +483,7 @@ mod plan_tests {
 
 #[cfg(test)]
 mod renamed_tests {
-    use super::{changed_after, first_unallowed_rename, Event, UNKNOWN_ACTOR};
+    use super::{allowed_in, changed_after, first_unallowed_rename, Event, UNKNOWN_ACTOR};
 
     const SINCE: &str = "2026-01-02T10:00:00Z";
 
@@ -523,6 +527,23 @@ mod renamed_tests {
         assert_eq!(vetoed(&nobody, SINCE).as_deref(), Some(UNKNOWN_ACTOR));
         let mine = [event("renamed", "alice", Some(SINCE))];
         assert_eq!(vetoed(&mine, SINCE), None);
+    }
+
+    /// A list may name a GitHub account called unknown: a rename by no
+    /// account is still nobody's, and the account's own is allowed.
+    #[test]
+    fn a_rename_by_no_account_is_not_the_account_unknown() {
+        let listed = |w: &str| allowed_in("alice unknown", w);
+        for at in [None, Some(SINCE), Some("2026-01-02T10:01:00Z")] {
+            let nobody = [event("renamed", "", at)];
+            let got = first_unallowed_rename(&nobody, SINCE, "alice", &listed);
+            assert_eq!(got.as_deref(), Some(UNKNOWN_ACTOR), "{at:?}");
+            let theirs = [event("renamed", "unknown", at)];
+            assert_eq!(
+                first_unallowed_rename(&theirs, SINCE, "alice", &listed),
+                None
+            );
+        }
     }
 
     /// The approver's own rename in that second is the title it approved,
