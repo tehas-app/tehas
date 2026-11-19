@@ -108,6 +108,14 @@ t_eq "$t_rc" 0
 t_eq "$(fingerprint "$src")" "$before"
 t_eq "$(tar -tf "$tar_file" | head -n 1)" tehas-state.json
 
+t_case "a pack whose reader goes away is exit 141, with nothing on standard error"
+reset
+T_ENV=(TEHAS_HOME="$src")
+t_run "{ sleep 0.3; $state pack --rehearse - 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+T_ENV=()
+t_eq "$t_rc" 141
+t_eq "$(cat "$T/err")" ""
+
 t_case "pack holds the listed paths and not the logs, the work or the settings"
 reset
 pack
