@@ -1,58 +1,51 @@
 #!/usr/bin/env bash
-# Print the section of CHANGELOG.md for one release, without its heading.
+# Print the release notes of a tag from CHANGELOG.md: the text of its page.
 #
 # A section starts at a line "## <name>", with anything after the name, such as
-# the date, and ends before the next "## " line. The release workflow calls this
-# for the text of a release's page. scripts/tag-release.sh reads a section the
-# same way (console/xtask/src/tag.rs) to check that the release has an
-# "### Adopter action" before it tags.
+# the date, and ends before the next "## " line. A tag with a section of its
+# own gets that section, without its heading. The release workflow calls this
+# for the text of a release's page, and a failure stops the publish.
+#
+# A release vX.Y.Z needs a section of its own: without one it is an error.
+# scripts/tag-release.sh names it in its changelog pull request, renaming
+# Unreleased to "## vX.Y.Z (YYYY-MM-DD)" before it tags.
+#
+# A prerelease without a section of its own gets what is new since the tag
+# before it: a line "New since <tag>." and then the items of Unreleased at the
+# prerelease's tag that Unreleased at the tag before did not have, under their
+# headings, with "None." under an Adopter action with nothing new. An item is
+# a bullet with its continuation lines, or a paragraph under "### Adopter
+# action". The tag before is the highest vX.Y.Z or prerelease tag, below this
+# one, that its commit reaches. Both are read with git from the repository of
+# the file, so the tag must be there; the file itself is read only for a
+# section of the tag's own. When the tag before cannot be read, it fails: it
+# never prints the whole of Unreleased, which holds every prerelease's changes
+# since the last release.
 #
 # Unreleased also has the lines of the changelog fragments in changelog.d/
 # beside the file, under their headings (scripts/collect-changelog.sh). A
 # tagged release is read from the file alone.
 #
+# The work is `xtask release-notes` (console/xtask/src/notes.rs), built with
+# cargo from the workspace beside this script, or the build TEHAS_XTASK names.
+#
 # Usage: scripts/release-notes.sh <tag> [<file>]
 #   <tag>    a vX.Y.Z tag, or vX.Y.Z-alpha.N, -beta.N or -rc.N for a
 #            prerelease, or Unreleased for the section at the top
 #   <file>   the changelog to read, default the CHANGELOG.md beside scripts/;
-#            - reads standard input, with no fragments
+#            - reads standard input, with no fragments, and a prerelease
+#            read from it needs a section of its own
 #
 # Example:
-#   scripts/release-notes.sh v0.9.0
+#   scripts/release-notes.sh v1.0.0-rc.2
 #
-# Exit: 0 the section is printed; 1 the file has no section for that name, or
-#       cannot be read, or a fragment cannot; 64 a bad argument
+# Exit: 0 the notes are printed; 1 the file has no section for a release or
+#       Unreleased, or cannot be read, or a fragment cannot, or what is new
+#       in a prerelease cannot be read with git; 64 a bad argument; another
+#       status when cargo cannot build the task
 set -uo pipefail
 
-case "${1:-}" in
-  -h | --help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
-esac
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || { echo "release-notes: usage: release-notes.sh <tag> [<file>]" >&2; exit 64; }
-name=$1
-file=${2:-$(dirname "${BASH_SOURCE[0]}")/../CHANGELOG.md}
-[[ $name =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || [ "$name" = Unreleased ] || {
-  echo "release-notes: the tag must be vX.Y.Z, vX.Y.Z-alpha.N, -beta.N, -rc.N or Unreleased, got: $name" >&2
-  exit 64
-}
-where=$file
-if [ "$file" = - ]; then
-  where="standard input"
-  text=$(cat) || exit 1
-else
-  text=$(cat "$file" 2>/dev/null) || { echo "release-notes: cannot read $file" >&2; exit 1; }
-  if [ "$name" = Unreleased ] && [ -d "$(dirname "$file")/changelog.d" ]; then
-    text=$("$(dirname "${BASH_SOURCE[0]}")/collect-changelog.sh" --print "$file") || {
-      echo "release-notes: the changelog fragments beside $file cannot be read" >&2
-      exit 1
-    }
-  fi
-fi
-
-# The name is matched as a string, so the dots of a version are not a pattern.
-section=$(awk -v name="$name" '
-  /^## / { if (found) exit; found = (substr($0, 4, length(name)) == name && (length($0) == 3 + length(name) || substr($0, 4 + length(name), 1) == " ")); next }
-  found { print }
-  END { exit !found }
-' <<<"$text") || { echo "release-notes: no section for $name in $where" >&2; exit 1; }
-# Blank lines at either end are the file's layout, not the release's text.
-printf '%s\n' "$section" | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd) || exit 1
+xtask=(cargo run --quiet --locked --manifest-path "$here/console/Cargo.toml" -p tehas-xtask --)
+[ -z "${TEHAS_XTASK:-}" ] || xtask=("$TEHAS_XTASK")
+exec "${xtask[@]}" release-notes --script "$here/scripts/release-notes.sh" "$@"
