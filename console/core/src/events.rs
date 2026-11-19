@@ -3,7 +3,8 @@
 //! One rule for an event with no time, and it has two directions: an event
 //! with no `created_at` is older than any when it must not authorise something
 //! (`label_actor`, `label_state`, `standing_actor`, `pause_holds`: an
-//! unstamped application is not the latest one), and later than any when it must veto one
+//! unstamped application is not the latest one), and later than any when it
+//! must veto one
 //! (`first_unallowed_rename`: an unstamped rename is never the title an
 //! approval covered). Each direction holds the start, never lets it.
 
