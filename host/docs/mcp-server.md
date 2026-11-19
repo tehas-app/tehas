@@ -451,11 +451,12 @@ Limits:
   a log the cap spent before it kept a line of its own has nothing in the answer
   to read on past, so the reading moves on to the next log and the rest of that
   one waits for a call of its own.
-- The way on of a search that stopped is the same call with the `next` put on the
-  session's own record as its `searchResume`, which is what a caller of the tools
-  holds from `factory_session`. Of that session then only the log `next` names is
-  read, from its offset on; every other session keeps its own way on, so the rest
-  of one log never hides another session's lines.
+- The way on of a search that stopped is `factory_log` with the `id` and the
+  `file` of `next`, from `next.offset`: read the rest of that log in pieces and
+  look for the text in it. The logs the search had not reached yet are read by
+  another search that names only them, with `ids` and `files`. A search has no
+  argument of its own to start from `next`: the same call again answers the same
+  first page.
 - Two logs are sent at a time, by `factory_log` and `factory_search` together. A
   log holds its place until its answer has been sent, however slowly the client
   reads. A third call meanwhile gets a tool error that asks to try again in a few
