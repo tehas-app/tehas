@@ -635,9 +635,10 @@ fn switches(vars: &mut Vars) {
 }
 
 /// The settings of the host (rules::HOST) that hold a value, each against its
-/// rule, named with where the host gives it. A refusal never shows the value:
-/// a token or a key may be one.
-fn host_values(vars: &Vars) -> Result<(), String> {
+/// rule, named with where it is given: `file`, the instance's, when `text`, its
+/// bytes, sets it. A refusal never shows the value: a token or a key may be
+/// one.
+fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
     let mut names: Vec<String> = HOST
         .iter()
         .filter(|s| !s.name.starts_with(rules::MODEL_KEY))
@@ -647,6 +648,7 @@ fn host_values(vars: &Vars) -> Result<(), String> {
     for name in names.iter().filter(|n| has(vars, n)) {
         if let Err(why) = rules::check(name, &vars.text(name), &Trees::default()) {
             let place = match name.as_str() {
+                _ if assigns(text, name) => file.to_string(),
                 "TEHAS_HOME" => "the environment".to_string(),
                 "TEHAS_INSTANCE_DIR" => format!(
                     "the environment or {}/.config/tehas/instance-dir",
@@ -856,7 +858,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
         features::refuse_building_settings(&|name| has(vars, name), &|name| vars.text(name));
     defaults(vars, host, uid);
     check_values(vars, &gave, &file)?;
-    host_values(vars)?;
+    host_values(vars, &text, &file)?;
     switches(vars);
     host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
@@ -1466,6 +1468,14 @@ mod tests {
                     .to_string()
             )
         );
+        // instance.env that sets it is the file named.
+        for line in ["TEHAS_ENERGY=solar", "TEHAS_MCP=yes"] {
+            let name = line.split('=').next().unwrap();
+            assert_eq!(
+                refused(&[line]),
+                format!("{name} is not valid: expected on or off (see {FILE})")
+            );
+        }
     }
 
     #[test]
