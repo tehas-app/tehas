@@ -1458,7 +1458,7 @@ lists the feature `settings-rules`.
 | `roles` | The roles that take a model of their own: the suffixes of `PI_ENSEMBLE_MODEL_<ROLE>` and `PI_ENSEMBLE_PROVIDER_<ROLE>`, each a `one-word` value |
 | `settings` | One object per setting, in the order a load checks them, which picks the setting an operator is told about first |
 | `settings.name` | The setting |
-| `settings.rule` | The shape of its value, a kebab-case name such as `repo`, `count`, `one-of` or `low-gate`. Rows with the same rule take the same values, except `one-of`, whose words are the row's own |
+| `settings.rule` | The shape of its value, a kebab-case name such as `repo`, `count` or `one-of`. Rows with the same rule take the same values, except `one-of`, whose words are the row's own, and the two timeouts below whose ceiling only the load checks |
 | `settings.when` | When a load checks it: `always` (it has a default, so it always holds something), `given` (when the instance gives it a value), `named` (when the instance names it, even with an empty value), `required` (when a command requires it) |
 | `settings.default` | What the load uses when the instance leaves it out or empty, or `null`: it stays unset, or the load works it out |
 | `settings.words` | Only for a `one-of` row: the values it takes |
@@ -1482,7 +1482,8 @@ The file holds a rule's name and one reason, not the check itself: to check a
 value, run `libexec/console settings valid <name> <value>` from the tarball of
 the same release. It exits 0 for a value the setting takes, and 1 with the
 reason on standard output for one it refuses, the same reason the factory
-gives, for any rule. A `low-gate` value is also refused when it is a path under
-the host's own trees, the tehas home, the instance directory and the work
-repository, which only the host knows; the console checks those when
-`TEHAS_HOME`, `TEHAS_INSTANCE_DIR` and `TEHAS_WORK_REPO` are set.
+gives, for any rule. It checks one value against its rule and nothing more.
+The load also checks settings against each other and two ceilings that are
+not in the rule: `TEHAS_WORK_TIMEOUT` at most 25200 and `TEHAS_PLAN_TIMEOUT`
+at most 7200, both rule `count`. `settings valid` exits 0 for a larger count,
+and the load refuses it with 78.
