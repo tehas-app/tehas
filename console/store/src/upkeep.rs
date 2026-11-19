@@ -454,10 +454,9 @@ fn unused(c: &rusqlite::Connection, file: &Path, issue: i64, before: i64) -> Res
 }
 
 /// Removes the lock file while holding it, when it is still the file that was
-/// probed. False when someone holds it or it changed. tehasbot cycle opens its
-/// lock with `exec 9>`, which touches the file before it waits for the lock:
-/// a file touched in the last minute may have a waiter on it, and removing it
-/// would leave that waiter holding a lock no one else can see.
+/// probed. False when someone holds it or it changed. A waiter that gets the
+/// lock after the removal opens the path again (`lock::take` in tehasbot
+/// cycle). A file made in the last minute is left, as one a cycle is starting on.
 fn remove_held(file: &Path) -> Result<bool, String> {
     let before = fs::symlink_metadata(file).map_err(|e| e.to_string())?;
     if !before.file_type().is_file() {
