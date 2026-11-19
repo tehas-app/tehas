@@ -17,8 +17,10 @@
 # console/target, with its dev profile
 # (when cargo's cache lacks a locked crate, it is fetched once and built again):
 # the gate's cargo test (scripts/verify.sh) builds the same crates there, and
-# cargo lets go of the directory's lock once a build ends. The test files are
-# told where they are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN,
+# cargo lets go of the directory's lock once a build ends. The test files get
+# copies of them in the run's root, made under that lock, because the gate's
+# cargo test replaces the target's programs while the tests run (#2495). They
+# are told where the copies are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN,
 # T_CYCLE_BIN and T_CONSOLE_BIN, or why there are none in T_STORE_WHY
 # (test/lib.sh, t_store, t_attach, t_dispatch, t_cycle and t_console). A test that needs one fails without it.
 #

@@ -435,7 +435,12 @@ builds the same crates there: cargo holds the directory's lock only while it
 builds, so one build waits for the other and reuses what it made, and the
 tests of each run side by side. One tree instead of two takes about 170 MB
 off every checkout (#1360); the dev profile keeps line tables and no
-incremental data, so the tree stays under 750 MB. A `console/target/shell`
+incremental data, so the tree stays under 750 MB. The test files do not run
+the programs in the target: `cargo test` builds them with the features of the
+whole workspace and puts its own in their place while the shell tests run, so
+a test could find no program there (#2495). Once its build ends, the runner
+copies them into the run's root under cargo's lock of `target/debug`, and
+`T_STORE_BIN` and its siblings name the copies. A `console/target/shell`
 left by an earlier runner is removed. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_approval_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the

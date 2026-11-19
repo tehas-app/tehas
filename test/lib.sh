@@ -160,11 +160,13 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home" "$T/deny"
 # tehas_load asks the console, and a test's tree has none beside lib/config.sh:
 # every load of a test goes to the one of this run, which a test can stub apart
-# from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
+# from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does,
+# and runs a copy: another cargo of the workspace replaces the target's (#2495).
 if [ -z "${T_CONSOLE_BIN:-}" ] && [ -z "${T_STORE_WHY:-}" ] && command -v cargo >/dev/null 2>&1 &&
   cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
-    --target-dir "$T_TARGET" -p console >"$T/console-build.log" 2>&1; then
-  export T_CONSOLE_BIN=$T_TARGET/debug/console
+    --target-dir "$T_TARGET" -p console >"$T/console-build.log" 2>&1 &&
+  cp "$T_TARGET/debug/console" "$T/settings-console"; then
+  export T_CONSOLE_BIN=$T/settings-console
 fi
 export TEHAS_SETTINGS_CMD=${T_CONSOLE_BIN:-}
 # The stubs name bash by its path: through /usr/bin/env a stub costs one more
