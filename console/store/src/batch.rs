@@ -34,7 +34,7 @@ pub const MAX_BYTES: u64 = tehas_core::file::READ_BOUND;
 /// calls for every issue it read -- and a host that asks about more than this
 /// is refused the whole request with 64 rather than answered in part, because
 /// half a snapshot's answers are no use to a poll that decides by all of them.
-pub const MAX_CALLS: usize = 512;
+pub const MAX_CALLS: usize = tehas_core::call::STORE_BATCH_CALLS;
 
 /// The verbs one batch answers. `verbs::parse_read` takes its four arms from
 /// this list, so a name added here without an audit of its body is a name

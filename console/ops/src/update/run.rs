@@ -13,8 +13,9 @@
 
 use super::finish::INSTALL_LIMIT;
 use super::lock::Held;
-use super::{code, gate, output, parse, prepare, tell, temp_dir, timed, wait};
-use super::{host_or_refuse, Mode, Plan, Prepared, API, NO_LOCK};
+use super::{code, gate, output, parse, prepare, release, tell, temp_dir, timed, wait};
+use super::{host_or_refuse, Mode, Plan, Prepared, Undo, API, NO_LOCK};
+use crate::settings;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -95,7 +96,7 @@ pub(super) fn main(given: &[String]) -> u8 {
             return 78;
         }
     };
-    if let Err(rc) = crate::settings::loaded(&INSTANCE_SETTINGS) {
+    if let Err(rc) = settings::loaded(&INSTANCE_SETTINGS) {
         return rc;
     }
     let lock = match gate(&asked) {
@@ -120,30 +121,34 @@ pub(super) fn main(given: &[String]) -> u8 {
         return 1;
     };
     let (plan, out, err) = (dir.0.join("plan"), dir.0.join("out"), dir.0.join("err"));
-    match prepare(&plan, &asked) {
-        Ok(Prepared::Planned) => {}
+    let undo = match prepare(&plan, &asked) {
+        Ok(Prepared::Planned(undo)) => undo,
         Ok(Prepared::Over) => return 0,
         Err(rc) => return rc,
-    }
+    };
     let Some(read) = Plan::read(&plan) else {
         tell(&format!(
             "tehas update: could not read {}; run tehas update again to finish",
             plan.display()
         ));
+        put_back(undo, 1, true);
         return 1;
     };
     let rc = match install(&read, lock.as_ref(), &out, &err) {
         Ok(rc) => rc,
         Err(e) => {
             tell(&format!("tehas update: could not run install.sh: {e}"));
+            put_back(undo, 1, true);
             return 1;
         }
     };
+    let refused = refused(rc, &fs::read_to_string(&err).unwrap_or_default());
     let prev = format!("{console}.prev");
     let Some(finisher) = [console.as_str(), &prev].into_iter().find(|c| speaks(c)) else {
         copy(&out, &mut io::stdout());
         copy(&err, &mut io::stderr());
         tell(&format!("tehas update: neither {console} nor {prev} can finish this update; what install.sh copied is installed, and what it recorded is still owed"));
+        put_back(undo, rc, refused);
         return 1;
     };
     let finished = Command::new(finisher)
@@ -155,11 +160,58 @@ pub(super) fn main(given: &[String]) -> u8 {
         .arg(&err)
         .args(["--install-rc", &rc.to_string()])
         .status();
-    match finished {
+    let status = match finished {
         Ok(status) => code(status) as u8,
         Err(e) => {
             tell(&format!("tehas update: {finisher} cannot run: {e}"));
             1
         }
+    };
+    put_back(undo, rc, refused);
+    status
+}
+
+/// Whether install.sh stopped before it installed anything: it ended red and
+/// said so. One that had begun to copy, or was stopped at its time limit, may
+/// have installed the new version's files and migrated the database, so
+/// current stays on that version and the next `tehas update` finishes it.
+fn refused(rc: i32, err: &str) -> bool {
+    rc != 0 && rc != 124 && err.contains("nothing was installed")
+}
+
+/// An install.sh that installed nothing leaves current, and the image tag,
+/// where they were before the switch.
+fn put_back(undo: Option<Undo>, rc: i32, refused: bool) {
+    let Some(undo) = undo.filter(|_| rc != 0) else {
+        return;
+    };
+    if !refused {
+        tell(&format!(
+            "release: install.sh stopped after it began to install {}, so current stays on it; tehas update finishes it",
+            undo.to
+        ));
+        return;
+    }
+    if let Ok(host) = host_or_refuse() {
+        release::undo(&host, &undo);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refused;
+
+    #[test]
+    fn only_an_install_that_said_it_installed_nothing_is_undone() {
+        let said = "tehas: this release cannot migrate db; nothing was installed\n";
+        assert!(refused(78, said));
+        assert!(refused(1, said));
+        assert!(!refused(0, said));
+        assert!(!refused(124, said));
+        assert!(!refused(
+            1,
+            "tehas: the store could not migrate db; the files are installed\n"
+        ));
+        assert!(!refused(1, ""));
     }
 }

@@ -210,6 +210,7 @@ What an unattended run refuses to get past, and what each one means:
 | a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 | `tehas: the commit of <tree> is not known…`    | The tree is neither a git checkout with a commit nor a release with a `COMMIT` file. Nothing is installed. See [The state store](#the-state-store) |
+| `tehas: this release cannot migrate …; nothing was installed`, exit 78 | The store's line above it says why: a store older than v0.30, a damaged file, or a backup it cannot write into `state/backup`. Nothing is installed and the database is not changed. See [The state store](#the-state-store) |
 | `tehas: the store could not init…` or `…migrate…`, exit 1 | The store's line above it says why: `corrupt`, `unreadable`, `future` or `busy`. The files are installed and the database is not changed. See [The state store](#the-state-store) |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this
@@ -669,6 +670,11 @@ it to releases, once a signed release is published:
 3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
+A checkout whose tag is newer than the newest release, such as a prerelease,
+moves to the release of its own tag rather than back to the newest. When that
+tag is not published, `tehas update` changes nothing and says so; name a
+release with `--to`.
+
 The checkout stays where it is and is no longer read. To go back to it, set
 `TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.
 
@@ -676,7 +682,8 @@ The checkout stays where it is and is no longer read. To go back to it, set
 
 On a host that updates from releases, go back with
 `tehas update --to <version>`. A version still in `~/tehas/versions` is not
-downloaded again, and its sandbox image is put back if it still has its tag. To
+downloaded again, and its sandbox image is put back if it still has its tag and
+was built from the instance's `sandbox.Dockerfile` as it is now. To
 stay there, hold the host, or the next `tehas update` moves it to the newest
 again:
 
@@ -771,7 +778,8 @@ JSON answer:
   two steps leaves the store at the last one with its rows; the next install
   goes on from there.
 - The oldest store it brings forward is the one v0.30.0 wrote, at schema 12.
-  v0.30.1 wrote 13 and v0.30.2 to v0.30.6 wrote 14. The step to 13 keeps on
+  v0.30.1 wrote 13, v0.30.2 to v0.30.6 wrote 14, v0.31.0 wrote 16 and
+  v0.32.0 wrote 17. The step to 13 keeps on
   each approval what its start was, the step to 14 rebuilds `cycles` so its
   `how` may say `host`, a start [`tehas start`](/api#tehas-start) approved,
   the step to 15 adds the five outsource tables, empty, the step to 16
@@ -783,9 +791,14 @@ JSON answer:
   as it was, with no backup written: `store: unreadable ... is at schema <n>,
   older than v0.30.0 wrote: update to a v0.30 release first, then to this
   one`. `install.sh` asks the store it installs first, with `store migrate
-  --dry-run`, which reads only, so such a host stops with exit 78 before any
-  file is copied and keeps the release it runs. Install any
-  v0.30 release on the host first, then this one. The records an older tehas
+  --dry-run`, so such a host stops with exit 78 before any file is copied and
+  keeps the release it runs. Install any v0.30 release on the host first, then
+  this one.
+- The same dry run, given `--backup ~/tehas/state/backup`, writes the copies
+  the migration writes and removes them again. A `state/backup` that is a link
+  out of the home, or a disk with no room for the copies, stops the install
+  with exit 78 before any file is copied, and `tehas update` puts `current`
+  back. The records an older tehas
   kept as files under `state/` are no longer imported: v0.30 imported them.
 
 The store is told the version and commit of the tree `install.sh` runs from,
@@ -1635,12 +1648,17 @@ image: one `work` turn started inside it, in a container with no network
 (`--network none`), no token and no model, small memory and pids bounds of its
 own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
-such line, or a result that says its runner crashed, is refused, the build
-exits 1 and the uid tag stays where it was, as for a layer that does not
-build. After a started turn the smoke run adds a memory with vipune and
+such line, or a result that says its runner crashed, is refused and the build
+exits 1. A refused platform image leaves the uid tag where it was. A refused
+instance layer, like a layer that does not build, leaves it on this build's
+platform image, without the layer, and the build's last line says so. After a started turn the smoke run adds a memory with vipune and
 searches it back, in a second container with no network, as the build's uid,
 on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
-on). Anything vipune writes to stderr there refuses the image the same way
+on). dockerd checks that CPU against the list it read when it started, so in
+a container whose cpuset has moved since (Incus with `limits.cpu`) it can
+refuse it; the check then runs once more on the highest CPU both the build
+and dockerd name, and when they share none it says to restart docker.
+Anything vipune writes to stderr there refuses the image the same way
 and is printed in the build's log: it is how a lost onnxruntime thread count
 shows, since only a cpuset refuses onnxruntime's pins (`taskset` does not). A
 build with an instance layer smoke-runs both images. The run and the
@@ -1659,9 +1677,15 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. Both
-first print which commit the current image is on. The
-factory's health reports the same comparison (`checks.rukas`), and the footers
+image was built on, or when the instance's layer is not the one the image was
+built from, and `build.sh --check` only says whether either moved. Both
+first print which commit the current image is on, and the two sums when the
+layer differs. The layer of an instance's `sandbox.Dockerfile` carries the
+label `tehas.layer`: the SHA-256 of that file and of the files of the instance
+directory its `COPY` and `ADD` lines name. A file changed, added or taken away
+makes the sum differ, and so the next `--if-moved` builds. The
+factory's health reports the same comparison of the commit and the layer
+(`checks.rukas.behind` and `checks.rukas.layerMoved`), and the footers
 of the front pages show the version the image runs from there. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
@@ -1789,7 +1813,10 @@ and the build stops when a lockfile is not the one whose `_LOCK_SHA256` is
 recorded. pi is `PI_VERSION`, and the build stops when that is older than the
 version pi-rukas's own recipe pins. To move the ubuntu digest, take the index
 digest from `docker buildx imagetools inspect ubuntu:24.04` and change both
-`FROM` lines. The
+`FROM` lines. Each apt step, of the base and of the sandbox layer, has apt
+retry its fetches and, when the step still fails, runs it once more after 30
+seconds: a mirror caught mid-sync answers with a hash mismatch that a quick
+retry does not fix. The
 user `vscode` is made at the tehas user's uid in the first layer, so the remap
 of the sandbox layer finds nothing to copy: it used to store every file twice.
 Playwright brings only its headless shell, since a container has no display.
@@ -1849,7 +1876,8 @@ What follows from it:
   failed build stops it with the command to run again.
 - The health of the factory (`checks.rukas`) names the commit the image runs,
   the one the host follows and the clone's, and says `warn` while the image is
-  behind. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
+  behind, or while its instance layer is not the one `sandbox.Dockerfile` sums
+  to now. With `PI_RUKAS_FOLLOW=release:0` the line of `versions.env` stays the
   same from one pi-rukas release to the next, so no `install.sh` owes a build;
   `tehas update` runs `build.sh --if-moved` on every update, and health is what
   says a host that has not run one is behind.

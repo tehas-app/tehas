@@ -42,7 +42,17 @@ ARG RUST_VERSION
 ARG RUSTUP_VERSION
 ARG RUSTUP_SHA256
 ENV DEBIAN_FRONTEND=noninteractive RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl pkg-config libssl-dev g++ make perl \
+# Each apt step retries its fetches, then tries the whole step once more after
+# a pause: a mirror caught mid-sync answers with a hash mismatch that a retry
+# seconds later does not fix.
+RUN for try in 1 2; do \
+      apt-get update -o Acquire::Retries=5 \
+      && apt-get install -y -o Acquire::Retries=5 --no-install-recommends ca-certificates curl pkg-config libssl-dev g++ make perl \
+      && break; \
+      [ "$try" = 1 ] || exit 1; \
+      echo "base: apt failed, trying once more in 30 seconds" >&2; \
+      rm -rf /var/lib/apt/lists/*; sleep 30; \
+    done \
  && rm -rf /var/lib/apt/lists/*
 RUN test -n "$RUST_VERSION" \
  && curl -fsSL --proto '=https' --tlsv1.2 "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" -o /tmp/rustup-init \
@@ -80,16 +90,23 @@ USER root
 
 # pi-rukas's package list, plus what the devcontainer base brought that the
 # image relies on: procps and openssh-client.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl wget gnupg lsb-release \
-      git jq tree less unzip xz-utils \
-      build-essential pkg-config libssl-dev \
-      python3 python3-pip \
-      sudo procps openssh-client \
-      ripgrep fd-find \
-      docker.io \
-      util-linux \
-      tini \
+RUN for try in 1 2; do \
+      apt-get update -o Acquire::Retries=5 \
+      && apt-get install -y -o Acquire::Retries=5 --no-install-recommends \
+        ca-certificates curl wget gnupg lsb-release \
+        git jq tree less unzip xz-utils \
+        build-essential pkg-config libssl-dev \
+        python3 python3-pip \
+        sudo procps openssh-client \
+        ripgrep fd-find \
+        docker.io \
+        util-linux \
+        tini \
+      && break; \
+      [ "$try" = 1 ] || exit 1; \
+      echo "base: apt failed, trying once more in 30 seconds" >&2; \
+      rm -rf /var/lib/apt/lists/*; sleep 30; \
+    done \
  && rm -rf /var/lib/apt/lists/* \
  && ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
@@ -190,10 +207,17 @@ RUN chmod +x /usr/local/bin/pi-rukas-entrypoint
 # Everyday tools an agent may reach for: what the devcontainer base had on its
 # PATH, less man pages, zsh, gettext tooling, glab and the VS Code helpers, and
 # a few common ones neither image had.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      rsync lsof strace iproute2 net-tools psmisc zip bsdextrautils gettext-base \
-      vim-tiny nano htop ncdu sq \
-      zstd p7zip-full gawk yq sqlite3 bc dnsutils netcat-openbsd iputils-ping git-lfs tmux \
+RUN for try in 1 2; do \
+      apt-get update -o Acquire::Retries=5 \
+      && apt-get install -y -o Acquire::Retries=5 --no-install-recommends \
+        rsync lsof strace iproute2 net-tools psmisc zip bsdextrautils gettext-base \
+        vim-tiny nano htop ncdu sq \
+        zstd p7zip-full gawk yq sqlite3 bc dnsutils netcat-openbsd iputils-ping git-lfs tmux \
+      && break; \
+      [ "$try" = 1 ] || exit 1; \
+      echo "base: apt failed, trying once more in 30 seconds" >&2; \
+      rm -rf /var/lib/apt/lists/*; sleep 30; \
+    done \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 ENV PI_ENSEMBLE_SANDBOX_MODE=1

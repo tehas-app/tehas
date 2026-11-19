@@ -571,11 +571,6 @@ fn an_out_dir_that_cannot_be_made_is_a_bad_argument() {
 /// each with why. Every other program is in each list below.
 const NOT_INSTALLED: &[(&str, &str)] = &[("tehas-xtask", "the development tasks of scripts/")];
 
-/// The programs the pack takes and install.sh installs by feature that the
-/// release workflow does not build yet. The workflow is a person's to change;
-/// the change that adds them to it takes them out of here.
-const NOT_BUILT_BY_THE_WORKFLOW: &[&str] = &["tehas-proxy", "tehas-contractor"];
-
 /// The name of `[package]` in a manifest.
 fn package_name(manifest: &str) -> String {
     let mut in_package = false;
@@ -671,17 +666,9 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
     let mut pack_flags = set(&["--console"]);
     for (flag, name) in PROGRAMS {
         packed.insert(name.to_string());
-        if !NOT_BUILT_BY_THE_WORKFLOW.contains(name) {
-            pack_flags.insert(flag.to_string());
-        }
+        pack_flags.insert(flag.to_string());
     }
     assert_eq!(packed, programs, "pack-release PROGRAMS");
-    for name in NOT_BUILT_BY_THE_WORKFLOW {
-        assert!(
-            programs.remove(*name),
-            "{name} is no program of the workspace"
-        );
-    }
     let built = names_after(&between("cargo build", "mkdir -p"), " -p ", &[' ', '\n']);
     assert_eq!(built, programs, "release.yml: cargo build -p");
     let copies = between("cp \"$target", "\"$RUNNER_TEMP/programs/\"");
@@ -693,4 +680,16 @@ fn every_program_of_the_workspace_reaches_a_host_or_is_named_as_not_installed() 
         .map(String::from)
         .collect();
     assert_eq!(flags, pack_flags, "release.yml: pack-release.sh flags");
+    // By feature too, so a program a feature adds is never left out of a release.
+    for f in tehas_core::features::FEATURES {
+        for p in f.programs {
+            let (flag, _) = PROGRAMS
+                .iter()
+                .find(|(_, name)| name == p)
+                .unwrap_or_else(|| panic!("{p} of {} is not in PROGRAMS", f.name));
+            assert!(built.contains(*p), "release.yml builds {p} of {}", f.name);
+            assert!(copied.contains(*p), "release.yml copies {p} of {}", f.name);
+            assert!(flags.contains(*flag), "release.yml passes {flag} for {p}");
+        }
+    }
 }

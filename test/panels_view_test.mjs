@@ -74,7 +74,14 @@ test("the bridge's menu follows the file's items, and takes the place of one wit
   assert.deepEqual(merge(file, undefined, ORIGIN), file);
   assert.deepEqual(merge(file, [item("c")], ORIGIN).map((i) => i.id), ["a", "b", "c"]);
   const swapped = merge(file, [item("a", { label: "From the host", url: "http://host.example.net/a" })], ORIGIN);
-  assert.deepEqual(swapped, [{ id: "a", label: "From the host", url: "http://host.example.net/a" }, file[1]]);
+  assert.deepEqual(swapped, [{ id: "a", label: "From the host", url: "http://host.example.net/a", open: undefined }, file[1]]);
+});
+
+test("a bridge item keeps how it opens, and one with a panel's id takes the panel's place as a page", () => {
+  const out = merge([], [item("a", { open: "page" }), item("b", { open: "dock" })], ORIGIN);
+  assert.deepEqual(out.map((i) => [i.id, i.open]), [["a", "page"], ["b", "dock"]]);
+  const swapped = merge(view(file([panel("a")]), ORIGIN), [item("a", { open: "page" })], ORIGIN);
+  assert.equal(swapped[0].open, "page");
 });
 
 test("four is the most with the bridge's too, and a bridge item on the page's own origin is dropped", () => {

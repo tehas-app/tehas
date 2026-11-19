@@ -44,7 +44,6 @@ pub(crate) const UNITS: &[&str] = &[
     "tehas-preview.timer",
     "tehas-preview-sweep.timer",
     "tehas-protolab.timer",
-    "tehas-review.timer",
     "tehas-clean.timer",
 ];
 
@@ -134,14 +133,19 @@ fn steps_for_in(sources: &[String], get: &dyn Fn(&str) -> String) -> Vec<String>
     }) {
         // A feature's unit while the feature is on, as the others. While it
         // is off, only when its own file or its program changed, so the line
-        // stays as it was.
+        // stays as it was. A service its timer starts is the timer's: the
+        // timer stands for it.
         let (_, on) = tehas_core::features::installs_in(get);
         let mut units: Vec<&str> = UNITS.to_vec();
+        let all: Vec<&str> = tehas_core::features::units().collect();
+        let changed = |unit: &str| any(&|s| s == format!("systemd/{unit}"));
         for unit in tehas_core::features::units().chain(servers.iter().copied()) {
+            let service = unit
+                .strip_suffix(".timer")
+                .is_some_and(|stem| changed(&format!("{stem}.service")));
             if !units.contains(&unit)
-                && (on.contains(&unit)
-                    || servers.contains(&unit)
-                    || any(&|s| s == format!("systemd/{unit}")))
+                && !tehas_core::features::timed(unit, &all)
+                && (on.contains(&unit) || servers.contains(&unit) || changed(unit) || service)
             {
                 units.push(unit);
             }
@@ -556,6 +560,56 @@ mod tests {
         );
         assert!(asked_on(&["libexec/dispatch"]).is_empty());
         assert!(valid(&with_proxy));
+    }
+
+    #[test]
+    fn the_review_timer_stands_for_its_service_in_the_units_step() {
+        let on = |name: &str| {
+            match name {
+                "TEHAS_REVIEW" => "on",
+                "TEHAS_TEST_FEATURES" => "review",
+                _ => "",
+            }
+            .to_string()
+        };
+        let all = format!("units {}", UNITS.join(" "));
+        assert!(!UNITS.contains(&"tehas-review.timer"));
+        assert_eq!(asked(&["env.sh"]), [all.as_str()]);
+        let with_timer = format!("{all} tehas-review.timer");
+        assert_eq!(
+            steps_for_in(&lines(&["env.sh"]), &on),
+            [with_timer.as_str()]
+        );
+        assert_eq!(
+            steps_for_in(
+                &lines(&["systemd/tehas-review.service", "systemd/tehas-review.timer"]),
+                &on
+            ),
+            [with_timer.as_str()]
+        );
+        // Off, a change to either file restarts the timer where it runs.
+        for file in ["systemd/tehas-review.service", "systemd/tehas-review.timer"] {
+            assert_eq!(asked(&[file]), [with_timer.as_str()], "{file}");
+        }
+        // A line an older version recorded with the timer still runs.
+        assert!(valid(&with_timer));
+    }
+
+    #[test]
+    fn an_update_restarts_no_unit_of_a_building_feature_set_on() {
+        use tehas_core::features::{Stage, FEATURES};
+        let get = |name: &str| {
+            let mut building = FEATURES.iter().filter(|f| f.stage == Stage::Building);
+            if building.any(|f| f.setting == name) {
+                "on".to_string()
+            } else {
+                String::new()
+            }
+        };
+        let all = format!("units {}", UNITS.join(" "));
+        for source in ["env.sh", "systemd/tehas-top.service"] {
+            assert_eq!(steps_for_in(&lines(&[source]), &get), [all.as_str()]);
+        }
     }
 
     #[test]

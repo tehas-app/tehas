@@ -130,10 +130,10 @@ t_contains "$t_out" "Usage:"
 # What --help prints is the text file of the dispatcher's own package, which is
 # the one `console update sources` counts in its sum. An edit of the help is the
 # only way to change it, and such an edit changes this line on purpose: the last
-# was the camelCase head and api of --json.
+# was the 78 of a tehas-dispatch that cannot run.
 t_case "the refresh text is the words it has"
 t_eq "$(sha256sum <"$T_ROOT/console/dispatch/src/usage/refresh.txt" | cut -d' ' -f1)" \
-  "ac94b82be1c38e5efd549cc2f72f79e079af2dc31fcd64cb953bf8e9a359eed7"
+  "a96583168befd694cbc49a3eb435a3c711fdf012b38c7bf90d9c699e7bf1fd4f"
 
 t_case "the refresh text says drafts are kept, as the rule keeps them"
 t_lacks "$(cat "$T_ROOT/console/dispatch/src/usage/refresh.txt")" "no draft"

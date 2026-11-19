@@ -22,7 +22,7 @@
 {{- else -}}
 {{- $doc := splitFrontMatter (readFile $file) -}}
 {{- $title = $doc.Meta.title -}}
-{{- $description = default "The operating manual of tehas, a software factory powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
+{{- $description = default "The operating manual of Tehas, The Lean Software Factory, powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
 {{- $body = markdown $doc.Body | replace "<table>" "<div class=\"tablewrap\"><table>" | replace "</table>" "</table></div>" -}}
 {{- with $doc.Meta.faq -}}
 {{- $heading := printf "\n## %s\n" . -}}
@@ -107,7 +107,7 @@
         <img src="/fun/factory.svg" width="100" height="50" alt="">
         {{- else }}
         <img src="/fun/favicon.svg" width="50" height="50" alt="">
-        <img class="wordmark" src="/fun/tehas-logotype.svg" width="82" height="28" alt="TEHAS">
+        <img class="wordmark" src="/fun/tehas-logotype.svg" width="99" height="28" alt="TEHAS">
         <small>FACTORY</small>
         {{- end }}
         {{- if eq $design "pixel" }}
@@ -129,6 +129,8 @@
           {{ end }}>PLAIN DASHBOARD</a>
         <a href="/overview" {{ if eq $path "overview" }} aria-current="page"
           {{ end }}>OVERVIEW</a>
+        <a href="/lean-software-factory" {{ if eq $path "lean-software-factory" }} aria-current="page"
+          {{ end }}>LEAN SOFTWARE FACTORY</a>
         <a href="/pi-software-factory" {{ if eq $path "pi-software-factory" }} aria-current="page"
           {{ end }}>PI SOFTWARE FACTORY</a>
         <a href="/features" {{ if eq $path "features" }} aria-current="page"

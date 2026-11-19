@@ -300,7 +300,7 @@ impl Writer {
                 };
                 // The bot's login, when the settings name it: the settling
                 // comes before the poll has read it.
-                let bot = self.host.bot.trim_end_matches("[bot]").to_string();
+                let bot = crate::settings::account(&self.host.bot);
                 let posted = v.as_array().into_iter().flatten().find(|c| {
                     let login = c
                         .pointer("/user/login")
@@ -308,7 +308,7 @@ impl Writer {
                         .unwrap_or("");
                     let body = c.get("body").and_then(Value::as_str).unwrap_or("");
                     let got = sum_of(body);
-                    (bot.is_empty() || login.trim_end_matches("[bot]") == bot)
+                    (bot.is_empty() || crate::settings::account(login) == bot)
                         && c.get("created_at")
                             .and_then(Value::as_str)
                             .is_some_and(|t| t >= posted_since.as_str())
@@ -365,17 +365,25 @@ impl Writer {
                 let title = v.get("title").and_then(Value::as_str);
                 let text = v.get("body").and_then(Value::as_str).unwrap_or("");
                 let sum = a.pointer("/args/input/sha256").and_then(Value::as_str);
-                if body.starts_with("Replaces #") {
+                let wants = after(&gh, "--title").first().copied();
+                // A title the plan kept, or a body a refine filed with
+                // `Replaces #`, is there whether the write landed or not.
+                // Only a row from before the journal kept sums is settled by
+                // either.
+                if let Some(s) = sum {
+                    if s == sum_of(text) || s == sum_of(&body) {
+                        Found::Done(json!({"body": sum}))
+                    } else {
+                        Found::Abandoned("its body is not the text it wrote")
+                    }
+                } else if wants.is_some() {
+                    if wants == title {
+                        Found::Done(json!({"title": title}))
+                    } else {
+                        Found::Abandoned("its body is not the text it wrote")
+                    }
+                } else if body.starts_with("Replaces #") {
                     Found::Done(json!({"replaces": true}))
-                } else if sum.is_some_and(|s| s == sum_of(text)) {
-                    // The note a cycle leaves in a body is its own text.
-                    Found::Done(json!({"body": sum}))
-                } else if after(&gh, "--title")
-                    .first()
-                    .is_some_and(|t| title == Some(*t))
-                {
-                    // A plan written onto its issue names its title.
-                    Found::Done(json!({"title": title}))
                 } else {
                     Found::Abandoned("its body does not say what it replaces")
                 }

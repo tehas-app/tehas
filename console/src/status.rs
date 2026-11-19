@@ -18,7 +18,8 @@
 //!     nothing.
 //!
 //! The files of live/ beside the health file are read when they are there:
-//! protolab.json as `prototypes`, and contractors.json, which the factory
+//! protolab.json as `prototypes`, previews.json, which the factory writes only
+//! with previews on, as `previews`, and contractors.json, which the factory
 //! writes only with outsource on, as `contractors`, the `outsource:` line and
 //! where each running cycle is built.
 //!
@@ -120,9 +121,16 @@ fn host_lines_of(v: &J, now: i64) -> Vec<String> {
         .items()
         .iter()
         .map(|r| {
+            let n = r.get("issue").text();
+            // An open record whose lock is free: the cycle died without a report.
+            let state = match r.get("lock").as_str() {
+                Some("free") => {
+                    format!("killed before it reported: tehas stop {n} ends its record")
+                }
+                _ => "running".to_string(),
+            };
             format!(
-                "start     #{} started from the host {}, running",
-                r.get("issue").text(),
+                "start     #{n} started from the host {}, {state}",
                 when(r.get("started_at"))
             )
         })
@@ -232,6 +240,12 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
                 .and_then(|t| J::parse(&t));
             if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
                 o.push(("prototypes".to_string(), p));
+            }
+            let shown = fs::read_to_string(beside(file, "previews.json"))
+                .ok()
+                .and_then(|t| J::parse(&t));
+            if let (J::Obj(o), Some(p)) = (&mut said, shown.as_ref().and_then(previews)) {
+                o.push(("previews".to_string(), p));
             }
             if let (J::Obj(o), Some(c)) = (&mut said, hands.as_ref().and_then(contractors)) {
                 o.push(("contractors".to_string(), c));
@@ -426,6 +440,19 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             "push      the sandbox cannot push: {}",
             shown(&J::Str(tehas_ops::health::push_fault_line(push)))
         ));
+    }
+    if let Some((read, _, named)) = test_features(checks) {
+        let var = tehas_core::features::TEST_VAR;
+        lines.push(match (read, named.is_empty()) {
+            (false, _) => {
+                format!("features  {var} is set and this build does not read it: take it out")
+            }
+            (true, true) => format!("features  a lab build: {var} names no building feature"),
+            (true, false) => format!(
+                "features  a lab build: {var} names {}, still being built",
+                named.join(", ")
+            ),
+        });
     }
     let limit = checks.get("limit");
     if limit.truthy() && limit.get("state").as_str() != Some("none") {
@@ -822,6 +849,26 @@ fn versions(checks: &J) -> J {
     ])
 }
 
+/// `checks.testFeatures` of the health file: whether the build reads
+/// TEHAS_TEST_FEATURES, whether it is a lab build (false from a health that
+/// does not say) and the building features the variable names. None when the
+/// check is not there or not what health writes.
+fn test_features(checks: &J) -> Option<(bool, bool, Vec<String>)> {
+    let t = checks.get("testFeatures");
+    let J::Bool(read) = t.get("read") else {
+        return None;
+    };
+    let lab = t.get("lab").is_true();
+    let named = t
+        .get("features")
+        .items()
+        .iter()
+        .filter_map(|f| f.as_str().map(|n| shown(&J::str(n))))
+        .filter(|n| !n.is_empty())
+        .collect();
+    Some((*read, lab, named))
+}
+
 /// The object tehas status --json prints.
 pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     let checks = h.get("checks");
@@ -994,6 +1041,18 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
     }
+    // Only where TEHAS_TEST_FEATURES is set or the build is a lab build, as
+    // health says it.
+    if let Some((read, lab, named)) = test_features(checks) {
+        fields.push((
+            "testFeatures",
+            obj(vec![
+                ("read", J::Bool(read)),
+                ("features", J::Arr(named.into_iter().map(J::Str).collect())),
+                ("lab", J::Bool(lab)),
+            ]),
+        ));
+    }
     obj(fields)
 }
 
@@ -1016,6 +1075,44 @@ pub fn prototypes(list: &J) -> Option<J> {
                 let mut f = vec![("issue", t.get("number").clone())];
                 if t.get("builtAt").as_str().and_then(epoch).is_some() {
                     f.push(("builtAt", t.get("builtAt").clone()));
+                }
+                obj(f)
+            })
+            .collect(),
+    ))
+}
+
+/// The previews of the open pull requests, from the list the previews write
+/// beside the health file: each pull request's number, the preview's own word
+/// for its state, and its address while it serves. The default branch's
+/// preview has no number and is not one of them. None when there is no list
+/// to read, as on a host without previews.
+pub fn previews(list: &J) -> Option<J> {
+    let J::Arr(rows) = list.get("previews") else {
+        return None;
+    };
+    Some(J::Arr(
+        rows.iter()
+            .filter(|r| {
+                r.get("number")
+                    .as_f64()
+                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
+                    && r.get("state").as_str().is_some_and(|s| !s.is_empty())
+            })
+            .map(|r| {
+                let mut f = vec![
+                    ("number", r.get("number").clone()),
+                    ("state", r.get("state").clone()),
+                ];
+                // An address only while it serves, as the schema says: a
+                // program shows it to a person as the place to try the
+                // change, so one left from another state is not given.
+                if r.get("state").as_str() == Some("serving")
+                    && r.get("address")
+                        .as_str()
+                        .is_some_and(|a| a.starts_with("https://"))
+                {
+                    f.push(("url", r.get("address").clone()));
                 }
                 obj(f)
             })
@@ -1106,6 +1203,19 @@ mod tests {
             ]
         );
         assert!(host_lines_of(&h(r#"{"running":[],"waiting":[]}"#), 1600).is_empty());
+    }
+
+    #[test]
+    fn a_hosts_start_whose_lock_is_free_is_not_running() {
+        let v = h(r#"{"running":[{"issue":12,"started_at":1000,"lock":"free"},
+            {"issue":13,"started_at":1000,"lock":"held"}],"waiting":[]}"#);
+        assert_eq!(
+            host_lines_of(&v, 1600),
+            [
+                "start     #12 started from the host 10 min ago, killed before it reported: tehas stop 12 ends its record",
+                "start     #13 started from the host 10 min ago, running",
+            ]
+        );
     }
 
     #[test]
@@ -1396,6 +1506,50 @@ mod tests {
     }
 
     #[test]
+    fn the_test_variable_is_a_line_and_a_field_only_where_health_says_it() {
+        let lab = h(
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":["outsource","lean",7]}}}"#,
+        );
+        assert_eq!(
+            status_json(&lab, NOW, false).get("testFeatures").dump(),
+            r#"{"read":true,"features":["outsource","lean"],"lab":false}"#
+        );
+        assert!(state_lines(&lab, NOW, false, "").contains(
+            &"features  a lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built"
+                .to_string()
+        ));
+        let release = h(
+            r#"{"status":"warn","output":"x","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":false,"features":[]}}}"#,
+        );
+        assert!(state_lines(&release, NOW, false, "").contains(
+            &"features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out"
+                .to_string()
+        ));
+        let unset = h(
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":[],"lab":true}}}"#,
+        );
+        assert_eq!(
+            status_json(&unset, NOW, false).get("testFeatures").dump(),
+            r#"{"read":true,"features":[],"lab":true}"#
+        );
+        assert!(state_lines(&unset, NOW, false, "").contains(
+            &"features  a lab build: TEHAS_TEST_FEATURES names no building feature".to_string()
+        ));
+        for other in [
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{}}"#,
+            r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":"yes"}}}"#,
+        ] {
+            let other = h(other);
+            assert!(status_json(&other, NOW, false)
+                .get("testFeatures")
+                .is_null());
+            assert!(!state_lines(&other, NOW, false, "")
+                .iter()
+                .any(|l| l.starts_with("features")));
+        }
+    }
+
+    #[test]
     fn the_json_limit_keeps_its_order_without_the_reason() {
         let health = h(
             r#"{"status":"warn","checks":{"limit":{"state":"ok","cycles":1,"plan":true,"reason":"x"}}}"#,
@@ -1430,6 +1584,24 @@ mod tests {
             r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
         );
         assert!(prototypes(&h("{}")).is_none());
+    }
+
+    #[test]
+    fn the_previews_are_the_pull_requests_of_the_list_with_an_address_only_while_serving() {
+        let list = h(r#"{"generatedAt":"2026-10-17T14:00:00Z","previews":[
+              {"number":null,"name":"main","state":"serving","address":"https://uat-main.example.org/"},
+              {"number":31,"state":"serving","reason":"","title":"T","url":"u","address":"https://uat-31.example.org/"},
+              {"number":30,"state":"no-space","reason":"Low on disk.","address":null},
+              {"number":29,"state":"building","address":"uat-29"},
+              {"number":26,"state":"build-failed","address":"https://uat-26.example.org/"},
+              {"number":28,"state":""},
+              {"number":"27","state":"serving"}]}"#);
+        assert_eq!(
+            previews(&list).unwrap().dump(),
+            r#"[{"number":31,"state":"serving","url":"https://uat-31.example.org/"},{"number":30,"state":"no-space"},{"number":29,"state":"building"},{"number":26,"state":"build-failed"}]"#
+        );
+        assert_eq!(previews(&h(r#"{"previews":[]}"#)).unwrap().dump(), "[]");
+        assert!(previews(&h("{}")).is_none());
     }
 
     #[test]

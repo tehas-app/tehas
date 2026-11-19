@@ -413,8 +413,7 @@ mod tests {
         ] {
             assert_eq!(host_pair(word).as_deref(), want, "{word}");
             assert_eq!(
-                crate::settings::rules::check("TEHAS_EGRESS_HOSTS", word, &Default::default())
-                    .is_ok(),
+                crate::settings::rules::check("TEHAS_EGRESS_HOSTS", word).is_ok(),
                 want.is_some(),
                 "{word}"
             );

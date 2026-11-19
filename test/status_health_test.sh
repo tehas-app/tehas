@@ -365,8 +365,8 @@ t_stub docker
 poll room "holding: the reason"
 t_run "$status && $summary"
 t_eq "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
-# Only status asks docker, for the label of the image cycles run (console/ops/src/rukas.rs).
-t_eq "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
+# Only status asks docker, for the labels of the image cycles run (console/ops/src/rukas.rs).
+t_eq "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} {{index .Config.Labels \"tehas.layer\"}} tehas/pi-rukas:uid$(id -u)"
 rm -f "$T"/calls/docker
 t_run "$health && $summary"
 t_eq "$(t_calls docker)" ""
@@ -388,6 +388,40 @@ t_eq "$(jq -r .checks.rukas.imageVersion "$live/health.json")" v0.14.53
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The sandbox image runs pi-rukas v0.14.53 and the host follows bbbbbbbb: run tehas update."
 t_contains "$(t_calls docker)" "run --rm --init --network none tehas/pi-rukas:uid$(id -u) /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
+
+t_case "status compares the image's instance layer with sandbox.Dockerfile, and health warns while it moved"
+reset
+b=$(printf 'b%.0s' {1..40})
+printf 'FROM x\nCOPY tools /t\n' >"$TEHAS_INSTANCE_DIR/sandbox.Dockerfile"
+mkdir -p "$TEHAS_INSTANCE_DIR/tools"
+echo 1 >"$TEHAS_INSTANCE_DIR/tools/pin"
+t_stub docker "case \"\$1 \$2\" in
+  'image inspect') echo 'sha256:1 $b sha256:old' ;;
+  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+esac"
+T_ENV=("PI_RUKAS_FOLLOW=commit:$b")
+t_run "$status"
+t_eq "$t_rc" 0
+sum=$(jq -r .instanceLayer "$live/rukas.json")
+t_eq "$(jq -c '{behind, layer, layerMoved}' "$live/rukas.json")" '{"behind":false,"layer":"sha256:old","layerMoved":true}'
+t_eq "$(grep -cE '^sha256:[0-9a-f]{64}$' <<<"$sum")" 1
+t_eq "$(jq -c '[.checks.rukas.layer, .checks.rukas.instanceLayer == $s, .checks.rukas.layerMoved]' --arg s "$sum" "$live/health.json")" '["sha256:old",true,true]'
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The sandbox image was built from another instance layer than sandbox.Dockerfile is now: run tehas update."
+# The image built from that layer is current.
+t_stub docker "case \"\$1 \$2\" in
+  'image inspect') echo 'sha256:1 $b $sum' ;;
+  'run --rm') echo '{\"version\":\"0.14.54\"}' ;;
+esac"
+t_run "$status"
+t_eq "$(jq -r .checks.rukas.layerMoved "$live/health.json")" false
+t_eq "$(jq -r .status "$live/health.json")" pass
+# A file the layer copies changed since the build.
+echo 2 >"$TEHAS_INSTANCE_DIR/tools/pin"
+t_run "$status"
+T_ENV=()
+t_eq "$(jq -r .checks.rukas.layerMoved "$live/health.json")" true
+rm -rf "$TEHAS_INSTANCE_DIR/sandbox.Dockerfile" "$TEHAS_INSTANCE_DIR/tools"
 
 t_case "an image built from a release newer than the target cached is current, and one older is behind"
 reset
@@ -546,5 +580,21 @@ t_store_answers poll-idle 1 'store: busy: the store is held'
 t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -c .checks.poll_cost "$live/health.json")" null
+
+# A lab host puts TEHAS_TEST_FEATURES in the units' environment, and only a
+# build with debug assertions, the tests', and a lab build read it. A lab build
+# warns with it unset too (console/ops/src/health.rs); the tests' builds do not.
+t_case "test features: the variable set is a warning, a line and a field, and unset is none"
+reset
+T_ENV=(TEHAS_TEST_FEATURES="outsource nothing")
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built"
+t_eq "$(jq -c '[.status, .checks.testFeatures]' "$live/health.json")" '["warn",{"read":true,"features":["outsource"],"lab":false}]'
+t_run "$summary --json"
+t_eq "$(jq -c .testFeatures <<<"$t_out")" '{"read":true,"features":["outsource"],"lab":false}'
+T_ENV=()
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.state, .testFeatures]' <<<"$t_out")" '["pass",null]'
 
 t_done

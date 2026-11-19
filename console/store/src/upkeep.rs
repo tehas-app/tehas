@@ -27,7 +27,7 @@
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and reviews
-//!                     older than 7 days, the four long-lived logs rolled past
+//!                     older than 7 days, the seven long-lived logs rolled past
 //!                     64 MiB, then backup and prune --days 90. A dry run
 //!                     names the logs and touches nothing
 
@@ -154,16 +154,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 
 /// The UTC date of `now` as YYYYMMDD.
 pub fn date(now: i64) -> String {
-    // Howard Hinnant's days-to-civil.
-    let z = now.div_euclid(DAY) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (y, m, d) = tehas_core::time::civil_from_days(now.div_euclid(DAY));
     format!("{y:04}{m:02}{d:02}")
 }
 
@@ -371,7 +362,7 @@ pub fn history_delete(table: HistoryTable) -> String {
 
 fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)>, Fail> {
     let before = now - days * DAY;
-    verbs::write(home, |c| {
+    verbs::write_checked(home, |c| {
         let endings = c
             .execute("DELETE FROM endings WHERE ended_at < ?1", [before])
             .q()?;
@@ -463,10 +454,9 @@ fn unused(c: &rusqlite::Connection, file: &Path, issue: i64, before: i64) -> Res
 }
 
 /// Removes the lock file while holding it, when it is still the file that was
-/// probed. False when someone holds it or it changed. tehasbot cycle opens its
-/// lock with `exec 9>`, which touches the file before it waits for the lock:
-/// a file touched in the last minute may have a waiter on it, and removing it
-/// would leave that waiter holding a lock no one else can see.
+/// probed. False when someone holds it or it changed. A waiter that gets the
+/// lock after the removal opens the path again (`lock::take` in tehasbot
+/// cycle). A file made in the last minute is left, as one a cycle is starting on.
 fn remove_held(file: &Path) -> Result<bool, String> {
     let before = fs::symlink_metadata(file).map_err(|e| e.to_string())?;
     if !before.file_type().is_file() {
@@ -560,7 +550,7 @@ fn locks_held(home: &Path) -> Result<String, Fail> {
 // --- upkeep -------------------------------------------------------------------
 
 /// The logs upkeep removes: a cycle's, a planning turn's, an index run's, a
-/// review's, and the analyst's an earlier version left. The four long-lived
+/// review's, and the analyst's an earlier version left. The long-lived
 /// logs are not among them: `roll` keeps those under the cap by copy and
 /// truncate instead, because the units hold them open for append.
 fn old_log(name: &str) -> bool {
@@ -577,20 +567,24 @@ const LOG_DAYS: i64 = 7;
 const PRUNE_DAYS: i64 = 90;
 
 /// The size one long-lived log may reach before upkeep rolls it: one figure for
-/// the four, no setting for it, and nothing fsynced. The cap is a function
+/// the seven, no setting for it, and nothing fsynced. The cap is a function
 /// argument all the way to `upkeep`, and the parse of the verb gives this, so a
 /// test proves the same rule on a log it can write instead of 64 MiB.
 pub const LOG_CAP: u64 = 64 * 1024 * 1024;
 
 /// The long-lived logs the units and the shim append to, by the fixed names of
-/// the tools that read them: the dispatcher's and the refresh's in `logs/`, the
-/// review timer's, and the `gh` shim's record of every GitHub write in `state/`.
-/// The four names are written out, never found by a pattern, and a rotated
-/// `.1` is never a candidate for another cut.
-pub const LONG_LIVED: [&str; 4] = [
+/// the tools that read them: the dispatcher's, the refresh's, the review
+/// timer's, the previews', the protolab's and the cleaner's in `logs/`, and the
+/// `gh` shim's record of every GitHub write in `state/`. The names are written
+/// out, never found by a pattern, and a rotated `.1` is never a candidate for
+/// another cut.
+pub const LONG_LIVED: [&str; 7] = [
     "logs/dispatch.log",
     "logs/review-timer.log",
     "logs/refresh.log",
+    "logs/preview.log",
+    "logs/protolab.log",
+    "logs/clean.log",
     "state/github-writes.log",
 ];
 

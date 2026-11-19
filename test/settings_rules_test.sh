@@ -42,6 +42,17 @@ t_eq "$(check "$T/bad.json")" '.settings[0].when: "sometimes" is not one of ["al
 .settings[1].refused: not in the schema
 .settings[2]: reason is missing'
 
+t_case "a row of a feature still being built is marked building, and the schema takes only true"
+# The console's own tests hold the marked rows to the feature registry
+# (console/core/src/features.rs); here the file and the schema agree.
+t_eq "$(jq -c '[.settings[] | select(has("building")) | .building] | unique' "$file")" '[true]'
+t_contains "$(jq -r '.settings[] | select(.building) | .name' "$file")" "TEHAS_OUTSOURCE"
+t_contains "$(jq -r '.settings[] | select(.building) | .name' "$file")" "TEHAS_REVIEW_REPO"
+t_eq "$(jq -r '.settings[] | select(.name == "TEHAS_REVIEW") | .building' "$file")" true
+t_eq "$(jq -c '[.host[] | select(has("building"))]' "$file")" '[]'
+jq '(.settings[] | select(.name == "TEHAS_OUTSOURCE") | .building) = false' "$file" >"$T/bad.json"
+t_contains "$(check "$T/bad.json")" ".building"
+
 t_case "words are given for one-of rows and for no other row"
 t_eq "$(jq -c '[.settings[] | select((.rule == "one-of") != has("words")) | .name]' "$file")" '[]'
 t_eq "$(jq '[.settings[] | select(.rule == "one-of")] | length > 0' "$file")" true

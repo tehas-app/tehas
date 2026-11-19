@@ -7,6 +7,7 @@
 
 use crate::tools::{self, Dirs, ToolError};
 use serde_json::{json, Map, Value};
+use tehas_core::mask::mask;
 
 /// The name of the published file, under the live directory.
 pub const FILE: &str = "disk.json";
@@ -50,7 +51,7 @@ pub fn tool() -> Value {
                         "type": "object", "properties": {
                             "path": text("The place: its path under the instance's home, or its name alone when it is outside the home."),
                             "bytes": int_("Its bytes. Left out, with cut, when it could not be measured."),
-                            "cut": text("The bound the walk ran out of: whole, entries, depth, time or unreadable."),
+                            "cut": text("The bound the walk ran out of: entries, depth, time or unreadable. Left out when the figure is the whole of the place."),
                         },
                     }},
                     "docker": {"type": "object", "description": "docker system df, as the daemon printed it.", "properties": {
@@ -94,6 +95,7 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     let mut out = Map::new();
     tools::merge(&mut out, tools::pick(&answer, &spec()));
     unrooted(&mut out, &answer);
+    masked_docker(&mut out);
     let stale = answer["time"]
         .as_str()
         .and_then(tools::epoch)
@@ -175,6 +177,24 @@ fn unrooted(out: &mut Map<String, Value>, answer: &Value) {
     }
 }
 
+/// Docker's own words are host text like any log line, so they pass the
+/// mask, which also hides private network addresses, before they are served.
+/// A line that is no text is not one the schema promises, and is left out.
+fn masked_docker(out: &mut Map<String, Value>) {
+    let lines = out
+        .get_mut("full")
+        .and_then(|f| f.get_mut("docker"))
+        .and_then(|d| d.get_mut("lines"))
+        .and_then(Value::as_array_mut);
+    if let Some(lines) = lines {
+        *lines = lines
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|t| json!(mask(t)))
+            .collect();
+    }
+}
+
 /// The allowlist the answer is copied with: what the file holds that a person
 /// may be shown. `true` is the mark `pick` keeps a field on, as every other
 /// tool's spec uses it, and a field the file has no figure for is `null` there
@@ -191,7 +211,7 @@ pub(crate) fn spec() -> Value {
         "filesystems": [{"paths": [true], "mount": true, "freeBytes": true, "totalBytes": true, "why": true}],
         "full": {
             "places": [{"path": true, "bytes": true, "cut": true}],
-            "docker": {"state": true, "lines": []},
+            "docker": {"state": true, "lines": [true]},
             "stoppedContainers": true,
         },
     })
@@ -227,14 +247,15 @@ mod tests {
                      {"paths":["/tmp"],"why":"df answered nothing"}],
       "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"},
                         {"path":"/tmp/scratch","bytes":null,"cut":"unreadable"}],
-              "docker":{"state":"read","lines":["TYPE\tTOTAL"]},
+              "docker":{"state":"read","lines":["TYPE\tTOTAL","Images\t3 TOKEN",7]},
               "stoppedContainers":2,
               "containers":[{"id":"ab12","image":"x","command":"/bin/sh"}],
               "hostname":"a name no answer gives"},"other":"not asked for"}"#;
 
     #[test]
     fn the_answer_carries_the_published_figures_and_nothing_else() {
-        let dir = published(ANSWER);
+        let token = format!("ghp_{}", "a".repeat(30));
+        let dir = published(&ANSWER.replace("TOKEN", &token));
         let out = call(&dirs(&dir)).unwrap();
         let out = Value::Object(out);
         assert_eq!(out["time"], "2026-10-31T23:09:32Z");
@@ -258,6 +279,13 @@ mod tests {
         );
         assert_eq!(out["full"]["places"][1]["cut"], "unreadable");
         assert_eq!(out["full"]["stoppedContainers"], 2);
+        // Docker's lines are served, masked, and a line that is no text is
+        // left out.
+        assert_eq!(out["full"]["docker"]["state"], "read");
+        let lines = out["full"]["docker"]["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(lines[0], "TYPE\tTOTAL");
+        assert!(lines[1].as_str().unwrap().starts_with("Images\t3 "));
         // What the allowlist does not name does not reach the answer.
         let said = out.to_string();
         for forbidden in [
@@ -269,6 +297,7 @@ mod tests {
             "/home/boss",
             "/var/lib/docker",
             "/tmp",
+            "ghp_aaaa",
         ] {
             assert!(
                 !said.contains(forbidden),

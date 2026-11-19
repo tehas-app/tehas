@@ -497,16 +497,20 @@ A cycle runs on the classic driver unless a person chooses lean for that issue
 with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
 
 `TEHAS_DRIVER` in the instance sets the default: `classic`, the default, or
-`lean`. With `TEHAS_DRIVER=lean` every approved start runs lean unless a person
-chooses classic for that issue with `tehas:classic`, which is then read as
-`tehas:lean` is under the classic default: from an allowed account only, read
-from the label's events, and the rules below hold with the two labels and the
-two drivers swapped. `tehas:lean` then agrees with the default and chooses
-nothing, and `tehas:classic` does the same under the classic default. An issue
-that carries both labels starts nothing, whatever the default: the poll takes
-`tehas:ready` off, says why once, and an allowed account takes one of them
-off. Each approval record binds the driver its start ran, so changing the
-setting changes no retry of a start already on record.
+`lean`. With `TEHAS_DRIVER=lean` an approved start with no driver label runs
+lean when the issue's text holds a `pi-spec v1` block (the same check as
+below: one fence of valid JSON), and classic when it does not, since lean
+declines an issue without one. The poll logs which it chose and why:
+`start #N on lean: TEHAS_DRIVER=lean and its text holds a pi-spec v1 block`,
+or `start #N on classic: ...`. A person still chooses for one issue:
+`tehas:classic` runs it on classic, and `tehas:lean` on lean, block or not (a
+new lean start without the block is still refused, as below). Both labels are
+read as `tehas:lean` is under the classic default: from an allowed account
+only, read from the label's events, and the rules below hold for either. Under
+the classic default `tehas:classic` agrees with it and chooses nothing. An
+issue that carries both labels starts nothing, whatever the default: the poll
+takes `tehas:ready` off, says why once, and an allowed account takes one of
+them off. Each approval record binds the driver its start ran.
 
 A lean start runs `pi-rukas-headless work-lean` in the same container classic
 `work` gets, which needs a sandbox image of pi-rukas v0.14.47 or later
@@ -684,8 +688,8 @@ bash did not:
   that write and the rest of the report's writes go to GitHub with no row. A
   poll's write in that case is not made, as its next read decides again;
   nothing decides a report again.
-- A write that timed out or that GitHub answered with a 5xx may have reached
-  GitHub, so the report reads it back before it tries again: a comment by its
+- A write that timed out, that GitHub answered with a 5xx, or whose connection
+  broke after it was made (a reset, an EOF) may have reached GitHub, so the report reads it back before it tries again: a comment by its
   text, a label by name. Found, it is done. Not found, it is sent again with
   the tries it has left; a park question that was not found gets the plain
   park comment, as a refused one does. Only when that read fails too does the
@@ -750,6 +754,14 @@ adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
 parks whatever the findings are.
+
+With `TEHAS_SPEC_PIPE=on` and a start whose approval pins a spec, a pull
+request waits only for a merge when its body holds a [spec
+block](/contract#the-pull-request-spec-block) that names the sha256 of that
+pin. Without one, or with a block of another sha256 or one tehas cannot read,
+the issue parks with `needs-human-attention` instead of
+`tehas:awaiting-merge`, and the pull request stays open. See [a pull request
+that does not answer to the spec](/troubleshooting).
 
 A pull request that waits while other work merges may start to conflict with
 the branch. Where the instance turns [refreshes](#refreshes) on, the factory
@@ -950,8 +962,8 @@ that the question is not one the factory is waiting on and names the label.
 
 The next cycle starts in a fresh workspace, with `--restart` when the issue
 carries `needs-human-attention`. That flag is the answer the label asks for:
-pi-rukas lets the cycle past its check of the label and takes the label off.
-tehas removes it nowhere. Branches and
+pi-rukas lets the cycle past its check of the label, and the cycle takes the
+label off on the host before its runner starts. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until the retry it
@@ -1309,14 +1321,18 @@ and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. A write that timed out, or that GitHub
-answered with a 5xx, may have reached GitHub: its row is left open as
+or as not done, and never made again. A write that timed out, that GitHub
+answered with a 5xx, or whose connection broke after it was made, may have
+reached GitHub: its row is left open as
 `unknown`, the log says `may have been posted`, and the next poll reads it the
 same way before anything is sent again. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
 tell or a hold's note is then on record as said); not found, it is abandoned
 and the poll sends it once; a read that failed leaves the row open and the
-write is not sent that poll. A read of GitHub that failed on a bad
+write is not sent that poll. An edit of an issue's text, such as a plan
+written onto its issue or a cycle's note, is found done only when the body
+is the text it wrote: a title the plan kept, or a body that says
+`Replaces #`, does not count. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
@@ -1853,11 +1869,14 @@ the ones that should still carry the label.
 
 ## The review loop
 
-Optional. It is off unless the instance sets `TEHAS_REVIEW=on` and the timer
-`tehas-review.timer` is enabled; see [Commands](/tools). The two are separate
-on purpose: `install.sh` and `tehas update` copy the units and enable nothing,
-and a host that turns the setting on without the timer reviews nothing on a
-schedule.
+Still being built in this release, and never seen working on a host. A
+release refuses `TEHAS_REVIEW=on` and a `TEHAS_REVIEW_REPO` line with exit 78
+and names `review`; `install.sh` does not install `tehas-review.service` or
+`tehas-review.timer`, and `tehasbot review` exits 0 at once. A host that set
+either line under an earlier release takes it out before it updates. What
+the feature leaves visible meanwhile is in
+[the contract](/contract#review). The rest of this section says what it is
+meant to do once a release ships it.
 
 Once a week, on Monday morning, a model reads what the default branch gained
 since the commit the last review read and reports what it would change. It is
@@ -1880,24 +1899,19 @@ but its findings.
   review turn takes. Nothing about a cycle changes, and no issue of the product
   is written by it.
 
-To turn it on, write the two lines in `instance.env` and enable the timer:
+Once shipped, the two lines `TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` turn it
+on. `install.sh` then installs the units; a first install enables the timer,
+and on a host installed before, a person does with
+`systemctl --user enable --now tehas-review.timer`.
+`~/tehas/logs/review-timer.log` says what the runs did and
+`~/tehas/logs/review-<time>.json` holds one run's document. See
+[tehasbot review](/tools-plan#tehasbot-review) for the container, the record
+and the exits.
 
-```
-TEHAS_REVIEW=on
-TEHAS_REVIEW_REPO=example-owner/example-backlog
-```
-
-```
-systemctl --user enable --now tehas-review.timer
-```
-
-`~/tehas/logs/review-timer.log` says what the runs did and `~/tehas/logs/review-<time>.json`
-holds one run's document. See [tehasbot review](/tools-plan#tehasbot-review) for the
-container, the record and the exits.
-
-To turn it off, set `TEHAS_REVIEW=off` (or remove it) in `instance.env`: a run
-exits at once and calls nothing, so the timer costs one short process a week.
-`systemctl --user disable --now tehas-review.timer` stops the weekly run as well.
+A host that has `tehas-review.timer` from an earlier release keeps the unit
+files, for the release that ships the feature. While review is off,
+`install.sh` and `tehas update` stop and disable the timer if it is enabled,
+and say so on a `systemd:` line; `--check` names it as drift.
 
 ## The cleaner
 
@@ -1976,7 +1990,10 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   to take one away.
 - the logs of cycles, planning turns, index runs and reviews in
   `~/tehas/logs` older than 7 days, and the analyst logs an earlier version
-  left. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+  left. The long-lived logs stay: `dispatch.log`, `refresh.log`,
+  `review-timer.log`, `preview.log`, `protolab.log`, `clean.log` and
+  `~/tehas/state/github-writes.log`. Each one past 64 MiB is copied to a single
+  `.1` and emptied.
 - the state store's upkeep: a copy a day (see below), and rows past 90 days
   removed with `store prune --days 90`: cycle endings, settled actions of the
   journal, old heartbeats of cycles that have ended, and the cycle and plan
@@ -2413,7 +2430,8 @@ its own copy of the code, so it ends on the version it began on, and the next
 one starts on the new version (see [Updating tehas](/host#updating-tehas)).
 The one exception is the update from 0.30.x to 1.0: see
 [Updating from 0.30.x to 1.0](#updating-from-030x-to-10).
-This release updates a host on v0.30.0 or later. A host on an older release
+This release updates a host on v0.30.0 or later: 0.30.x, 0.31.x or 0.32.x.
+A host on an older release
 updates to a v0.30 release first: the store refuses an older database, and the
 record files a tehas before the state store kept are no longer imported. While
 such a file is still in `state/`, every poll stops with exit 78 and logs
@@ -2430,11 +2448,15 @@ pulling it until it is moved: see
 `--json` objects, changes exit statuses, and migrates the state store. Every
 renamed or removed public name is one row of `api/renames-1.0.tsv` in the
 release. tehas does not edit `instance.env`: it is a checkout of your
-settings. The steps:
+settings. 1.0 updates a host on 0.30.x, 0.31.x or 0.32.x. A host on 0.31.x or
+0.32.x already refuses every setting below, so its instance needs no rename.
+A 0.30.x host can name only a release candidate or the release with `--to`,
+not an alpha or a beta; [From v0.30.x, v0.31.x or v0.32.x](/tools-update#from-v030x-v031x-or-v032x)
+has the rest and a known limit for a factory a program manages. The steps:
 
-1. **Be on 0.30.** 1.0 migrates a store that v0.30.0 or later wrote. A host on
-   an older release runs `tehas update --to v0.30.6` first; 1.0 refuses an
-   older store with exit 78 and installs nothing.
+1. **Be on 0.30 or later.** 1.0 migrates a store that v0.30.0 or later wrote.
+   A host on an older release runs `tehas update --to v0.30.6` first; 1.0
+   refuses an older store with exit 78 and installs nothing.
 2. **Edit the settings.** Change `instance.env` and `~/.config/tehas/env`
    from the tables below, or from the 1.0 Adopter action that
    `tehas update --check` prints. On 0.30.x, `--check` is 0.30's own check: it
@@ -2447,8 +2469,8 @@ settings. The steps:
    for a drain.
 4. **Update.** Run `tehas update`. It asks 1.0's settings check before it
    switches `~/tehas/current`. While a line is left to fix, it stops with 78,
-   names the first such line and switches nothing: fix it and run it again.
-   From 1.0 on, `tehas update --check` lists every such line at once.
+   names every such line at once and switches nothing: fix them and run it
+   again.
 5. **Labels.** Run `tehas labels`: it makes and pins `tehas:classic` and gives
    `tehas:improvement` its new description.
 6. **Start.** Run `tehas limit clear`.

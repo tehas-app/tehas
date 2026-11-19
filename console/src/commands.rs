@@ -48,7 +48,6 @@ use crate::{
     mcp, order, panel, queue, review, start, state, status, stop, top,
 };
 use std::env;
-use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
@@ -316,6 +315,7 @@ pub fn check(given: &[String]) -> u8 {
     let said = match words[..] {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "order"] => order::words(rest).map(|_| ()),
+        ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
@@ -396,7 +396,11 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
     match words[..] {
         ["tehas", "api" | "check-product" | "export" | "history" | "index" | "init-product" | "labels"]
         | ["tehasbot", "cycle" | "preview"] => &["TEHAS_REPO"],
-        ["tehas", "resume"] | ["tehasbot", "status"] => &[
+        // What writes or calls GitHub stops on the three before it does.
+        ["tehas", "resume"]
+        | ["tehasbot", "status"]
+        | ["tehas", "start" | "limit" | "order" | "panel" | "host-message" | "freeze" | "thaw" | "pause"
+        | "drain"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -416,9 +420,9 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
     }
 }
 
-// A reader that took what it wanted and left is no fault, as it was for sed.
+/// 141 when the reader has gone, as in every command.
 fn say(text: &str) {
-    let _ = io::stdout().write_all(text.as_bytes());
+    tehas_core::out!("{text}");
 }
 
 pub fn text(command: &str) -> Option<&'static str> {
@@ -713,7 +717,23 @@ mod tests {
             required(&words(&["tehasbot", "status"])),
             required(&words(&["tehas", "resume"]))
         );
-        assert!(required(&words(&["tehas", "drain"])).is_empty());
+        for writer in [
+            "start",
+            "limit",
+            "order",
+            "panel",
+            "host-message",
+            "freeze",
+            "thaw",
+            "pause",
+            "drain",
+        ] {
+            assert_eq!(
+                required(&words(&["tehas", writer])),
+                required(&words(&["tehas", "resume"])),
+                "{writer}"
+            );
+        }
         assert!(required(&words(&["tehasbot", "health"])).is_empty());
         assert!(required(&words(&["tehasbot", "github-token"])).is_empty());
         for repo in [

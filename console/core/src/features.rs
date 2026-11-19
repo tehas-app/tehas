@@ -5,9 +5,11 @@
 //! `features`. Promoting one to shipped only adds.
 //!
 //! A test turns a building feature on by naming it in [`TEST_VAR`], in the
-//! environment it starts a program with. Only a build with debug assertions
-//! reads it, as the store reads its tests' answers; a release never does, and
-//! the load refuses the variable in instance.env and in ~/.config/tehas/env.
+//! environment it starts a program with. A build with debug assertions, the
+//! tests', reads it, and so does a lab build, which `install.sh --lab-build`
+//! makes with [`LAB_VAR`] on and debug assertions off: it reads none of the
+//! tests' other hooks. A release never reads it, and the load refuses the
+//! variable in instance.env and in ~/.config/tehas/env.
 
 use crate::settings::rules::switch;
 
@@ -91,18 +93,55 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &[],
     },
+    // Shipped as a setting before the registry, never seen on a host: its
+    // names stay on api/surface-1.0.txt (console/tests/surface.rs).
+    Feature {
+        name: "review",
+        stage: Stage::Building,
+        setting: "TEHAS_REVIEW",
+        settings: &["TEHAS_REVIEW_REPO"],
+        since: "v1.0.0-rc.1",
+        programs: &[],
+        units: &["tehas-review.service", "tehas-review.timer"],
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
 /// names, one space apart.
 pub const TEST_VAR: &str = "TEHAS_TEST_FEATURES";
 
+/// The variable `install.sh --lab-build` sets to `on` while cargo builds, and
+/// every other run of it to `off`. Read when this crate is compiled, never
+/// while a program runs; rustc names it in the build's dependencies, so cargo
+/// builds again when it changes.
+pub const LAB_VAR: &str = "TEHAS_LAB_BUILD";
+
+/// Whether `install.sh --lab-build` made this program.
+pub fn lab_build() -> bool {
+    lab_marker(option_env!("TEHAS_LAB_BUILD"))
+}
+
+fn lab_marker(value: Option<&str>) -> bool {
+    value == Some("on")
+}
+
+/// Whether this build reads [`TEST_VAR`]: the tests' builds and a lab build.
+fn reads_test_var() -> bool {
+    reads(cfg!(debug_assertions), option_env!("TEHAS_LAB_BUILD"))
+}
+
+/// `debug` is whether the build has debug assertions, `marker` [`LAB_VAR`] as
+/// it was when it was compiled.
+fn reads(debug: bool, marker: Option<&str>) -> bool {
+    debug || lab_marker(marker)
+}
+
 fn find(name: &str) -> Option<&'static Feature> {
     FEATURES.iter().find(|f| f.name == name)
 }
 
 fn usable(feature: &Feature, get: &dyn Fn(&str) -> String) -> bool {
-    usable_in(feature, get, cfg!(debug_assertions))
+    usable_in(feature, get, reads_test_var())
 }
 
 /// `tested` is whether this build reads [`TEST_VAR`].
@@ -145,6 +184,14 @@ pub fn units() -> impl Iterator<Item = &'static str> {
     FEATURES.iter().flat_map(|f| f.units.iter().copied())
 }
 
+/// Whether `unit` is a service a timer of `units` starts: it is installed with
+/// the timer, but neither enabled nor restarted on its own, which would run
+/// its job off schedule.
+pub fn timed(unit: &str, units: &[&str]) -> bool {
+    unit.strip_suffix(".service")
+        .is_some_and(|stem| units.contains(&format!("{stem}.timer").as_str()))
+}
+
 /// The names of the shipped features: the words they add to `features`.
 pub fn shipped() -> Vec<&'static str> {
     FEATURES
@@ -152,6 +199,16 @@ pub fn shipped() -> Vec<&'static str> {
         .filter(|f| f.stage == Stage::Shipped)
         .map(|f| f.name)
         .collect()
+}
+
+/// Whether the setting is the switch or one of the own settings of a feature
+/// this release is still building: a row api/settings-rules.json marks
+/// `building`, which is not contract.
+pub fn building_setting(name: &str) -> bool {
+    FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building)
+        .any(|f| f.setting == name || f.settings.contains(&name))
 }
 
 /// A building feature's switch set to on, as the load refuses it. Err is the
@@ -187,6 +244,34 @@ pub fn refuse_building_settings(
     Ok(())
 }
 
+/// Every line of `text`, a file named `file`, that the load refuses for a
+/// feature still being built: its switch set on, or one of its own settings
+/// given a value. One line each, as the load words it, so an update names them
+/// all at once.
+pub fn found_in(text: &[u8], file: &str) -> Vec<String> {
+    found_in_with(text, file, &env)
+}
+
+fn found_in_with(text: &[u8], file: &str, get: &dyn Fn(&str) -> String) -> Vec<String> {
+    let value = |name: &str| crate::settings::renamed::value_in(text, name).unwrap_or_default();
+    let mut found = Vec::new();
+    for f in FEATURES.iter().filter(|f| !usable(f, get)) {
+        if switch(&value(f.setting)) == Some(true) {
+            found.push(format!(
+                "{} is on and {} is still being built in this release: set it to off or take the line out (see {file})",
+                f.setting, f.name
+            ));
+        }
+        for name in f.settings.iter().filter(|n| !value(n).is_empty()) {
+            found.push(format!(
+                "{name} is set and {} is still being built in this release: take the line out (see {file})",
+                f.name
+            ));
+        }
+    }
+    found
+}
+
 /// Why `what` cannot run while the feature is not on, or Ok when it is. The
 /// words every refusal of a part of a feature says, so the load, the poll and
 /// a command name the feature and its switch the same way.
@@ -210,6 +295,48 @@ pub fn needs(name: &str, what: &str, get: &dyn Fn(&str) -> String) -> Result<(),
     }
 }
 
+/// What [`TEST_VAR`] comes to, for health and `tehas status`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tested {
+    /// Whether this build reads it.
+    pub read: bool,
+    /// Whether this is a lab build ([`lab_build`]).
+    pub lab: bool,
+    /// Whether it is set and not blank.
+    pub set: bool,
+    /// The building features it names, in the registry's order.
+    pub features: Vec<&'static str>,
+}
+
+/// [`Tested`] in this environment: None while the variable is unset or blank
+/// and this is no lab build, so the tests' own builds say nothing of it. A
+/// release reads it never; a build with debug assertions or a lab build,
+/// always.
+pub fn test_features() -> Option<Tested> {
+    test_features_in(&env, reads_test_var(), lab_build())
+}
+
+/// [`test_features`] over the variables `get` gives; `read` is whether this
+/// build reads [`TEST_VAR`] and `lab` whether it is a lab build.
+pub fn test_features_in(get: &dyn Fn(&str) -> String, read: bool, lab: bool) -> Option<Tested> {
+    let value = get(TEST_VAR);
+    let set = !value.trim().is_empty();
+    if !set && !lab {
+        return None;
+    }
+    let features = FEATURES
+        .iter()
+        .filter(|f| f.stage == Stage::Building && value.split_whitespace().any(|w| w == f.name))
+        .map(|f| f.name)
+        .collect();
+    Some(Tested {
+        read,
+        lab,
+        set,
+        features,
+    })
+}
+
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
 }
@@ -225,6 +352,84 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         move |name: &str| map.get(name).cloned().unwrap_or_default()
+    }
+
+    fn tested(read: bool, lab: bool, set: bool, features: &[&'static str]) -> Option<Tested> {
+        Some(Tested {
+            read,
+            lab,
+            set,
+            features: features.to_vec(),
+        })
+    }
+
+    #[test]
+    fn the_test_variable_is_reported_only_when_set_and_names_only_building_features() {
+        assert_eq!(test_features_in(&vars(&[]), true, false), None);
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, " ")]), true, false),
+            None
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "lean nothing outsource")]), true, false),
+            tested(true, false, true, &["outsource", "lean"])
+        );
+        // A release does not read it, and says what it names all the same.
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "spec-pipe")]), false, false),
+            tested(false, false, true, &["spec-pipe"])
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "nothing")]), true, false),
+            tested(true, false, true, &[])
+        );
+    }
+
+    #[test]
+    fn a_lab_build_is_reported_with_the_test_variable_unset() {
+        assert_eq!(
+            test_features_in(&vars(&[]), true, true),
+            tested(true, true, false, &[])
+        );
+        assert_eq!(
+            test_features_in(&vars(&[(TEST_VAR, "outsource")]), true, true),
+            tested(true, true, true, &["outsource"])
+        );
+    }
+
+    #[test]
+    fn only_the_word_on_marks_a_lab_build() {
+        assert!(lab_marker(Some("on")));
+        for other in [None, Some(""), Some("off"), Some("true"), Some(" on")] {
+            assert!(!lab_marker(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn install_and_the_release_name_the_lab_variable_this_crate_reads() {
+        let this = include_str!("features.rs");
+        assert!(this.contains(&format!("option_env!(\"{LAB_VAR}\")")));
+        // Every run of install.sh says on or off, so the caller's environment
+        // never decides; the release builds with it unset.
+        let install = include_str!("../../../install.sh");
+        assert!(install.contains(&format!("{LAB_VAR}=\"$lab\"")));
+        let release = include_str!("../../../.github/workflows/release.yml");
+        let unset = release.find(&format!("unset {LAB_VAR}"));
+        let build = release.find("cargo build --release");
+        assert!(
+            matches!((unset, build), (Some(u), Some(b)) if u < b),
+            "release.yml unsets {LAB_VAR} before it builds"
+        );
+    }
+
+    #[test]
+    fn a_lab_build_reads_the_test_variable_and_a_release_does_not() {
+        let get = vars(&[(TEST_VAR, "outsource")]);
+        let outsource = find("outsource").unwrap();
+        assert!(usable_in(outsource, &get, reads(false, Some("on"))));
+        assert!(usable_in(outsource, &get, reads(true, None)));
+        assert!(!usable_in(outsource, &get, reads(false, Some("off"))));
+        assert!(!usable_in(outsource, &get, reads(false, None)));
     }
 
     #[test]
@@ -255,6 +460,23 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), FEATURES.len());
+    }
+
+    #[test]
+    fn a_building_setting_is_a_building_features_switch_or_own_setting() {
+        for name in [
+            "TEHAS_OUTSOURCE",
+            "TEHAS_OUTSOURCE_REPOS",
+            "TEHAS_PROTOLAB_ZIP_HOSTS",
+            "TEHAS_LEAN",
+            "TEHAS_REVIEW",
+            "TEHAS_REVIEW_REPO",
+        ] {
+            assert!(building_setting(name), "{name}");
+        }
+        for name in ["TEHAS_REPO", "TEHAS_DRIVER", "TEHAS_NOPE"] {
+            assert!(!building_setting(name), "{name}");
+        }
     }
 
     #[test]
@@ -316,6 +538,63 @@ mod tests {
             refuse_building(&vars(&[("TEHAS_LEAN", "on")])),
             Err("TEHAS_LEAN is on and lean is still being built in this release: set it to off or take the line out".to_string())
         );
+    }
+
+    #[test]
+    fn review_is_building_and_follows_its_switch_only_in_a_test() {
+        let name = "review";
+        assert_eq!(find(name).map(|f| f.stage), Some(Stage::Building));
+        assert!(!shipped().contains(&name));
+        assert!(!on_in(name, &vars(&[("TEHAS_REVIEW", "on")])));
+        assert!(flags().contains(&(name, false)));
+        let tested = vars(&[("TEHAS_REVIEW", "1"), (TEST_VAR, name)]);
+        assert!(on_in(name, &tested));
+        assert_eq!(
+            refuse_building(&vars(&[("TEHAS_REVIEW", "on")])),
+            Err("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out".to_string())
+        );
+        let set = |n: &str| n == "TEHAS_REVIEW_REPO";
+        assert_eq!(
+            refuse_building_settings(&set, &vars(&[])),
+            Err("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out".to_string())
+        );
+    }
+
+    #[test]
+    fn review_installs_its_timer_and_service_only_while_on() {
+        let none: (Vec<&str>, Vec<&str>) = (vec![], vec![]);
+        assert_eq!(installs_in(&vars(&[("TEHAS_REVIEW", "on")])), none);
+        let on = vars(&[("TEHAS_REVIEW", "on"), (TEST_VAR, "review")]);
+        assert_eq!(
+            installs_in(&on),
+            (vec![], vec!["tehas-review.service", "tehas-review.timer"])
+        );
+    }
+
+    #[test]
+    fn a_service_its_timer_starts_is_timed() {
+        let units = ["tehas-review.service", "tehas-review.timer"];
+        assert!(timed("tehas-review.service", &units));
+        assert!(!timed("tehas-review.timer", &units));
+        assert!(!timed("tehas-review.service", &["tehas-review.service"]));
+        assert!(!timed(
+            "tehas-outsource-proxy.service",
+            &["tehas-outsource-proxy.service"]
+        ));
+    }
+
+    #[test]
+    fn every_line_of_a_building_feature_in_a_file_is_found() {
+        let text = b"TEHAS_REPO=acme/widget\nexport TEHAS_REVIEW=on\nTEHAS_REVIEW_REPO='acme/backlog'\nTEHAS_LEAN=off\nTEHAS_SPEC_PIPE=\n";
+        assert_eq!(
+            found_in_with(text, "/i/instance.env", &vars(&[])),
+            [
+                "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see /i/instance.env)",
+                "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see /i/instance.env)",
+            ]
+        );
+        assert!(found_in_with(text, "/i/instance.env", &vars(&[(TEST_VAR, "review")])).is_empty());
+        assert!(found_in_with(b"TEHAS_REVIEW=0\n", "f", &vars(&[])).is_empty());
     }
 
     #[test]
@@ -451,7 +730,11 @@ mod tests {
         );
         assert_eq!(
             units().collect::<Vec<_>>(),
-            ["tehas-outsource-proxy.service"]
+            [
+                "tehas-outsource-proxy.service",
+                "tehas-review.service",
+                "tehas-review.timer"
+            ]
         );
     }
 
@@ -468,5 +751,116 @@ mod tests {
         let names: Vec<&str> = flags().iter().map(|(n, _)| *n).collect();
         let want: Vec<&str> = FEATURES.iter().map(|f| f.name).collect();
         assert_eq!(names, want);
+    }
+
+    fn building() -> impl Iterator<Item = &'static Feature> {
+        FEATURES.iter().filter(|f| f.stage == Stage::Building)
+    }
+
+    /// The switch and the own settings of every building feature.
+    fn building_names() -> Vec<&'static str> {
+        building()
+            .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()))
+            .collect()
+    }
+
+    /// Labels older than the building feature that now reads them. Each is in
+    /// the feature's section of contract.md.
+    const KEPT_LABELS: [(&str, &str); 1] = [("lean", "tehas:lean")];
+
+    #[test]
+    fn no_building_feature_adds_a_label() {
+        let table = include_str!("../../../host/labels.tsv");
+        let mut labels: Vec<&str> = table
+            .lines()
+            .filter_map(|l| l.split('\t').next())
+            .filter(|n| !n.is_empty())
+            .collect();
+        labels.extend(crate::label_pins::PINNED);
+        labels.extend(crate::label_pins::GRANTING);
+        labels.extend([
+            crate::kinds::Kind::Improvement.label(),
+            crate::kinds::Kind::Prototype.label(),
+        ]);
+        let page = include_str!("../../../host/docs/contract.md");
+        for f in building() {
+            let own = |label: &str| {
+                label.strip_prefix("tehas:").is_some_and(|word| {
+                    word == f.name
+                        || word.starts_with(&format!("{}-", f.name))
+                        || word.starts_with(&format!("{}:", f.name))
+                })
+            };
+            for label in labels.iter().filter(|l| own(l)) {
+                assert!(
+                    KEPT_LABELS.contains(&(f.name, label)),
+                    "{label} is a label of {}, which is still being built",
+                    f.name
+                );
+            }
+        }
+        for (name, label) in KEPT_LABELS {
+            assert!(labels.contains(&label), "{label} is no label");
+            let start = page
+                .find(&format!("\n### {name}\n"))
+                .unwrap_or_else(|| panic!("contract.md has no section {name}"));
+            let section = &page[start + 1..];
+            let section = &section[..section.find("\n#").unwrap_or(section.len())];
+            assert!(
+                section.contains(&format!("`{label}`")),
+                "contract.md does not say {name} keeps {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_building_features_switch_defaults_to_off() {
+        for f in building() {
+            let row = crate::settings::rules::TABLE
+                .iter()
+                .find(|s| s.name == f.setting)
+                .unwrap();
+            assert_eq!(row.default.and_then(switch), Some(false), "{}", f.setting);
+        }
+    }
+
+    #[test]
+    fn no_rename_an_update_names_moves_a_value_onto_a_building_feature() {
+        let names = building_names();
+        let table = include_str!("../../../api/renames-1.0.tsv");
+        for line in table.lines().skip(1) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            for field in fields.iter().skip(1).take(2) {
+                let key = field.split('=').next().unwrap_or_default();
+                assert!(!names.contains(&key), "api/renames-1.0.tsv: {line}");
+            }
+        }
+    }
+
+    /// The update and the manual point at these files for an example line.
+    #[test]
+    fn the_example_instance_switches_no_building_feature_on() {
+        let names = building_names();
+        let switches: Vec<&str> = building().map(|f| f.setting).collect();
+        for text in [
+            include_str!("../../../instances/example/instance.env"),
+            include_str!("../../../instances/example/optional.env"),
+        ] {
+            for line in text.lines() {
+                let commented = line.starts_with('#');
+                let rest = line.trim_start_matches('#').trim_start();
+                let rest = rest.strip_prefix("export ").unwrap_or(rest);
+                let Some((key, value)) = rest.split_once('=') else {
+                    continue;
+                };
+                if !names.contains(&key) {
+                    continue;
+                }
+                assert!(commented, "the example sets {key}: {line}");
+                if switches.contains(&key) {
+                    assert_eq!(switch(value), Some(false), "{line}");
+                }
+            }
+        }
     }
 }

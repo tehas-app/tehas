@@ -5,7 +5,7 @@
 //! there as in a full clone. pi-rukas reads exit 1 of `--is-ancestor` as a
 //! definite no, and on a shallow tree git says 1 for a commit beyond the cut.
 
-use crate::settings::rules::{self, Trees};
+use crate::settings::rules;
 use std::env;
 use std::process::{Command, Stdio};
 
@@ -30,7 +30,7 @@ pub fn from_env() -> Result<u32, String> {
 
 /// A value of the setting as the load's rule reads it.
 pub fn parse(value: &str) -> Result<u32, String> {
-    rules::check(SETTING, value, &Trees::default())?;
+    rules::check(SETTING, value)?;
     value.parse().map_err(|_| format!("{value} is no number"))
 }
 

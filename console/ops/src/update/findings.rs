@@ -22,11 +22,13 @@
 //!    Dockerfile's bytes are built into the image every cycle runs, so a file
 //!    another account can write is refused before it is sourced.
 //! 2. The settings load (tehas_load), and every setting an instance has to set
-//!    itself is set and valid (tehas_require_instance_settings). A load that
-//!    stops on a setting tehas 1.0 renamed or removed names one line; here
-//!    every such line of instance.env and ~/.config/tehas/env is listed, each
+//!    itself is set and valid (tehas_require_instance_settings). As the load
+//!    does, every line of instance.env and ~/.config/tehas/env that sets a
+//!    setting tehas 1.0 renamed or removed is listed (settings::refused), each
 //!    with its new key or why it went, so a 0.30 instance is put right in one
-//!    edit before anything is installed.
+//!    edit before anything is installed. So is every line that switches on,
+//!    or sets a setting of, a feature this release is still building, such
+//!    as TEHAS_REVIEW=on.
 //! 3. The instance's models.json is there and holds JSON. It lists every model
 //!    the agents use (`tehas_core::models::used`) under the provider each uses, every key it
 //!    names is a word or a set token (tehas_core::models::keys_ok), and it lists
@@ -40,7 +42,6 @@ use std::path::Path;
 use serde_json::Value;
 use tehas_core::models;
 use tehas_core::settings::load::Vars;
-use tehas_core::settings::renamed;
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 use super::{say, tell};
@@ -110,26 +111,12 @@ pub(crate) fn findings(
         }
     }
     if let Err(line) = load(&mut vars) {
-        let mut found = renamed_lines(&dir, &config);
-        if !found.contains(&line) {
-            found.insert(0, line);
-        }
-        return found;
+        return settings::refused(line, &dir, &config);
     }
     if let Some(line) = settings::refusal(&INSTANCE_SETTINGS, &vars) {
         return vec![line];
     }
     model_findings(&dir, &vars)
-}
-
-/// Every row of api/renames-1.0.tsv the instance and the credential file still
-/// set, as the load words each.
-fn renamed_lines(dir: &str, config: &str) -> Vec<String> {
-    [format!("{dir}/instance.env"), format!("{config}/env")]
-        .iter()
-        .flat_map(|file| renamed::found_in(&fs::read(file).unwrap_or_default(), file))
-        .map(|line| format!("tehas: {line}"))
-        .collect()
 }
 
 /// Why another account could write `file`, or None. A file that is not there
@@ -221,6 +208,7 @@ mod tests {
     use super::super::testing::{dir, Dir};
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+    use tehas_core::settings::renamed;
 
     const MODELS: &str = r#"{"providers": {"p": {"apiKey": "unused",
         "models": [{"id": "m"}, {"id": "session"}]}}}"#;
@@ -434,6 +422,29 @@ mod tests {
         assert_eq!(said.len(), 2, "{said:?}");
         assert_eq!(said[0], "tehas: other");
         assert!(said[1].starts_with("tehas: TEHAS_BOT_LOGIN is no longer read: "));
+    }
+
+    #[test]
+    fn every_line_of_a_building_feature_is_listed_at_once() {
+        // A host that had the review loop on before it became building: the
+        // load names the switch, and the findings name its repository too.
+        let (d, vars) = instance(&[
+            (
+                "instance.env",
+                "TEHAS_REPO=acme/widget\nTEHAS_REVIEW=on\nTEHAS_REVIEW_REPO=acme/backlog\n",
+            ),
+            ("models.json", MODELS),
+        ]);
+        let file = format!("{}/instance.env", inst(&d));
+        let line = format!("tehas: TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {file})");
+        let said = findings(vars, &me(), |_| Err(line.clone()));
+        assert_eq!(
+            said,
+            [
+                line.clone(),
+                format!("tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {file})"),
+            ]
+        );
     }
 
     #[test]

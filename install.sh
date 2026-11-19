@@ -13,6 +13,15 @@
 #                           the same, and run the shell tests too. They take
 #                           most of a check's time, so tehas update --check,
 #                           which has a time limit, leaves them out
+#   ./install.sh --lab-build
+#                           a real run whose programs are built with
+#                           TEHAS_LAB_BUILD=on, so they read TEHAS_TEST_FEATURES
+#                           and none of the tests' other hooks: for a lab host
+#                           that proves a building feature
+#                           (host/docs/tools-update.md). A checkout only: a
+#                           release tree has no source to build and is refused
+#                           (78). Each program's stamp is a lab build's, so a
+#                           plain run builds it again, and a release replaces it
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab and the
@@ -27,7 +36,10 @@
 # outsource is on (TEHAS_OUTSOURCE) it compiles two more, the model proxy
 # (console/proxy, libexec/tehas-proxy) and the contractor program
 # (console/contractor, libexec/tehas-contractor), and installs the proxy's
-# unit, tehas-outsource-proxy.service; off, none of the three. A real
+# unit, tehas-outsource-proxy.service; off, none of the three. The review
+# loop's units, tehas-review.service and .timer, are installed only while
+# review is on (TEHAS_REVIEW), which no release allows yet; off, a timer an
+# earlier release left enabled is stopped and disabled, its files kept. A real
 # run builds each with cargo in this checkout (console/target, which git
 # ignores) and installs them as libexec/console, libexec/analytics,
 # libexec/tehas-mcp, libexec/store, libexec/attach, libexec/tehas-dispatch and
@@ -141,8 +153,9 @@
 #
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed,
 # the console that reads the settings did not build (nothing can judge them
-# then) or another update is running, 78 the instance settings are invalid or
-# TEHAS_HOME is not provably tehas's (nothing was changed).
+# then) or another update is running, 78 the instance settings are invalid,
+# TEHAS_HOME is not provably tehas's or --lab-build was given a release tree
+# (nothing was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -151,6 +164,15 @@ check=0
 tests=0
 [ "${1:-}" = "--check" ] && check=1
 [ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
+# A plain run says off rather than leave the marker to the environment, so
+# only --lab-build ever builds programs that read TEHAS_TEST_FEATURES. No run
+# builds with debug assertions, which would read the tests' other hooks too.
+build_kind=build lab=off
+[ "${1:-}" = "--lab-build" ] && build_kind=lab lab=on
+if [ "$build_kind" = lab ] && [ ! -d "$root/console" ]; then
+  echo "tehas: --lab-build builds from the source in console/, and $root has none (a release tree); nothing was installed" >&2
+  exit 78
+fi
 # The tests give a stand-in for the suite: a check inside the tests never runs
 # the real one, which would run these tests again. Read before tehas_load,
 # which drops it from the environment.
@@ -239,7 +261,8 @@ cargo_build() {
   esac
   args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
   build_cmd="cargo ${args[*]}"
-  out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
+  out=$(timeout "$build_timeout" env "${hidden[@]}" CARGO_ENCODED_RUSTFLAGS= CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false TEHAS_LAB_BUILD="$lab" \
+    cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
 }
 # cache_miss <cargo's words>: true when one line is cargo's own report that a
 # crate it needs is not in its cache.
@@ -302,10 +325,13 @@ build_ready() {
   # so what is installed is what this build made. The build scripts of the
   # crates run here: they are given no variable that is named like a secret,
   # the bot's token and the model keys among them. The words are those of
-  # secret::NAME_WORDS in the console, in any case.
+  # secret::NAME_WORDS in the console, in any case. Nor are they given the
+  # caller's rustflags or release profile: -C debug-assertions there would turn
+  # on the store's test hooks. cargo_build sets CARGO_ENCODED_RUSTFLAGS empty,
+  # which also outweighs rustflags in cargo's configuration files.
   target=${CARGO_TARGET_DIR:-$root/console/target}
   hidden=()
-  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -iE 'TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL')
+  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -iE 'TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL|RUSTFLAGS$|^CARGO_PROFILE_RELEASE_')
   # The bound is one build's own, so it names no tool of its own: without
   # timeout(1) every build would be reported as one that did not build.
   if ! command -v timeout >/dev/null; then
@@ -649,8 +675,6 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
-  "systemd/tehas-review.service|$units/tehas-review.service|644"
-  "systemd/tehas-review.timer|$units/tehas-review.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   # 600 as Pi keeps its own files: Pi 1.5 lets the global mcp.json hold a
   # server's auth. A container runs as this account, so it still reads it.
@@ -683,15 +707,18 @@ for f in "$root"/lib/polyfill-*.sh; do
 done
 shopt -u nullglob
 # What a feature that is on installs besides the rest: outsource's model proxy,
-# its unit and the contractor program (console/ops/src/update/host.rs). Off,
+# its unit and the contractor program, review's units
+# (console/ops/src/update/host.rs). Off,
 # none of it is installed or compared.
 featured=$(export "${!TEHAS_@}"; "$loaded_console" update featured) ||
   { echo "tehas: the console at $loaded_console could not name what the features that are on install; nothing was installed" >&2; exit 1; }
 featured_programs=()
+idle_timers=()
 while read -r kind name; do
   case $kind in
     program) featured_programs+=("$name") ;;
     unit) files+=("systemd/$name|$units/$name|644") ;;
+    idle) idle_timers+=("$name") ;;
   esac
 done <<<"$featured"
 
@@ -821,7 +848,7 @@ else
   # program's source (console/ops/src/update/sources.rs) and compares the stamps
   # (console/ops/src/update/programs.rs).
   programs_console=${built_console:-${TEHAS_SETTINGS_CMD:-$TEHAS_HOME/libexec/console}}
-  programs=$("$programs_console" update programs "$TEHAS_HOME" build "$root/console" "${compiled[@]}") ||
+  programs=$("$programs_console" update programs "$TEHAS_HOME" "$build_kind" "$root/console" "${compiled[@]}") ||
     { echo "tehas: $programs_console could not read the programs' source in $root/console" >&2; exit 1; }
 fi
 due=()
@@ -885,8 +912,10 @@ fi
 # A poll that holds it now is waited for up to TEHAS_DISPATCH_LOCK_WAIT seconds
 # (900), then nothing is installed. home_refusal has proved the home by now, so
 # a home without the marker gets it here. Then, before the first copy, the store
-# this run installs judges the database there with a dry run that reads only: a
-# store it would not migrate stops the run with exit 78.
+# this run installs judges the database there with a dry run: it opens it to
+# write and writes the copies the migration in step 5 writes into state/backup,
+# then removes them. A store it would not migrate, a backup directory it
+# refuses or copies it cannot write stop the run with exit 78.
 dispatch_held=0
 dispatch_hold() {
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
@@ -905,7 +934,8 @@ dispatch_hold() {
   fi
   # The store says its refusal itself, exit 78; any other status is a store
   # that could not say.
-  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run >/dev/null && return 0
+  local copies=$TEHAS_HOME/state/backup
+  TEHAS_HOME=$TEHAS_HOME "$gate_store" migrate --dry-run --backup "$copies" >/dev/null && return 0
   [ $? = 78 ] || { echo "tehas: the store could not judge $TEHAS_HOME/state/tehas.db; nothing was installed" >&2; exit 1; }
   echo "tehas: this release cannot migrate $TEHAS_HOME/state/tehas.db; nothing was installed" >&2
   exit 78
@@ -1053,17 +1083,6 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
   if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
 done
 
-# A cycle that started before this release renews its token through the old
-# libexec/github-token, so that file stays while one runs. This guard goes in
-# the next release, when no cycle of before this one can still be running.
-a_cycle_runs() { # true while a cycle holds its lock
-  local lock
-  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
-    [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock" && return 0
-  done
-  return 1
-}
-
 # The files of an older layout, as the console lists them
 # (console/ops/src/update/retired.list). Found here, removed in step 5 once systemd
 # has the new units.
@@ -1071,10 +1090,6 @@ old=()
 while IFS= read -r f; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
-  if [ "$f" = libexec/github-token ] && a_cycle_runs; then
-    echo "later: ./install.sh again when no cycle runs   ($to stays: a running cycle renews its token through it)"
-    continue
-  fi
   old+=("$to")
   changed+=("$f")
   # A running sampler or publisher is the old file calling itself; only a
@@ -1092,6 +1107,17 @@ for unit in tehas-refresh.timer tehas-refresh.service tehas-improve.timer tehas-
   [ -e "$scan_units/$unit" ] || [ -L "$scan_units/$unit" ] || continue
   old_units+=("$unit")
   [ "$check" = 0 ] || note "stale: $scan_units/$unit"
+done
+
+# The timers of features that are off, which an earlier release may have
+# installed and a person enabled. Found here; in step 5 each enabled one is
+# stopped and disabled. Its files stay for the release that ships the feature.
+idle_on=()
+for timer in ${idle_timers[@]+"${idle_timers[@]}"}; do
+  [ -e "$units/$timer" ] || continue
+  systemctl --user is-enabled --quiet "$timer" 2>/dev/null || continue
+  idle_on+=("$timer")
+  [ "$check" = 0 ] || note "enabled: $units/$timer (its feature is off; a real run disables it)"
 done
 
 # The slice file on the host, which the console compares with the one in this
@@ -1117,7 +1143,7 @@ if [ "$check" = 1 ]; then
   bashrc_ok || asked+=(--shell-missing "$bashrc")
   rc=0
   printf '%s\n' "${report[@]}" | "$loaded_console" update report "$root" "$instance" "${slice[@]}" "${images[@]}" \
-    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift + ${#old_units[@]}))" --store "$store_refusal" \
+    "${asked[@]}" --drift "$((${#changed[@]} + sandbox_drift + ${#old_units[@]} + ${#idle_on[@]}))" --store "$store_refusal" \
     --login "$login_bin" "$login_fix" --steps "$steps_console" || rc=$?
   case $rc in
     0 | 1) exit "$rc" ;;
@@ -1289,6 +1315,22 @@ if [ "${#old_units[@]}" -gt 0 ]; then
   done
   [ "$gone" = 0 ] || systemctl --user daemon-reload >/dev/null 2>&1 ||
     echo "later: systemctl --user daemon-reload   (units of a retired feature are removed)"
+fi
+for timer in ${idle_on[@]+"${idle_on[@]}"}; do
+  if systemctl --user disable --now "$timer" >/dev/null 2>&1; then
+    echo "systemd: stopped and disabled $timer: its feature is off (the unit files stay)"
+  else
+    echo "later: systemctl --user disable --now $timer   (its feature is off)"
+  fi
+done
+
+# Where the manual puts TEHAS_TEST_FEATURES on a lab host. Only a lab build
+# reads it, so after any other run the file does nothing but mislead.
+lab_env=$HOME/.config/environment.d/tehas-lab.conf
+if [ "$build_kind" = lab ]; then
+  echo "note: a lab build: its programs read TEHAS_TEST_FEATURES, from $lab_env for the units; ./install.sh without --lab-build goes back"
+elif [ -e "$lab_env" ]; then
+  echo "later: rm $lab_env && systemctl --user daemon-reload   (this is no lab build, so TEHAS_TEST_FEATURES does nothing)"
 fi
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then

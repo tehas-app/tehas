@@ -24,7 +24,7 @@ t_eq "$(grep -cE '^OSV_SCANNER_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$T_ROOT/host/ve
 t_eq "$(grep -cE '^OSV_SCANNER_SHA256=[0-9a-f]{64}$' "$T_ROOT/host/versions.env")" 1
 
 t_case "the step downloads the pinned version and refuses a binary that is not it"
-t_contains "$step" 'curl -fsSL -o "$RUNNER_TEMP/osv-scanner"'
+t_contains "$step" 'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/osv-scanner"'
 t_contains "$step" 'releases/download/v$OSV_SCANNER_VERSION/osv-scanner_linux_amd64'
 t_contains "$step" 'echo "$OSV_SCANNER_SHA256  $RUNNER_TEMP/osv-scanner" | sha256sum -c -'
 t_contains "$step" 'osv-scanner version: $OSV_SCANNER_VERSION'

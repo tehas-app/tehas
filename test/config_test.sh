@@ -467,6 +467,8 @@ t_contains "$t_out" "rc=0"
 t_lacks "$t_out" "no longer read"
 
 t_case "the review never files in the product repository, whatever its case"
+# review is still being built: a test turns it on to load its repository.
+T_ENV=(TEHAS_TEST_FEATURES=review)
 for v in TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
   printf '%s\n' "${T_MINIMAL[@]}" "$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -476,6 +478,12 @@ done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REVIEW_REPO]\""
 t_eq "$t_out" "[acme/backlog]"
+T_ENV=()
+
+t_case "a release refuses a review repository while review is being built"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out"
+t_contains "$t_out" "rc=78"
 
 t_case "the millwright may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -541,14 +549,16 @@ for bad in "TEHAS_EASY_MERGE=1" "TEHAS_EASY_MERGE=yes"; do
   t_contains "$t_out" "tehas: TEHAS_EASY_MERGE is no longer read: the easy merge is removed"
 done
 
-t_case "the overlap hold is gone: its setting is refused unless blank, and says what holds an issue instead"
+t_case "the overlap hold is gone: its setting is refused unless blank or 0, and says what holds an issue instead"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
 t_eq "$t_out" "[unset]"
-printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
-t_eq "$t_out" "[unset]"
-for v in 0 1; do
+for v in '' 0; do
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$v" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\${TEHAS_OVERLAP_HOLD-unset}]\""
+  t_eq "$t_out" "[unset]"
+done
+for v in 1 yes; do
   printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_OVERLAP_HOLD=$v" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
@@ -580,7 +590,13 @@ printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
 t_eq "$t_out" "[0]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+# review is still being built: a release refuses it on, a test may turn it on.
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out"
+t_contains "$t_out" "rc=78"
+T_ENV=(TEHAS_TEST_FEATURES=review)
 t_run "$load && echo \"[\$TEHAS_REVIEW]\""
+T_ENV=()
 t_eq "$t_out" "[1]"
 
 for bad in "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX_PER_PR=0" "TEHAS_REFRESH_MAX_PER_PR=-1" "TEHAS_REFRESH_MAX_PER_PR=many" \
@@ -1742,7 +1758,9 @@ while IFS='|' read -r -u 5 -a lines; do
   t_out=${t_out//$T/@T}
   # Bash 5.3 names the command it was parsing here, and 5.2 does not.
   t_out=$(sed -E "s/(unexpected end of file) from \`if' command on line [0-9]+/\1/" <<<"$t_out")
-  grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD|TEHAS_TEST_STORE_ANSWERS)(=|$)' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
+  # The TMPDIR of every run is left out only as t_run gave it: a load that
+  # changed it would still show.
+  grep -vE '^declare -x (PATH|PWD|OLDPWD|SHLVL|_|T|T_ROOT|TEHAS_SETTINGS_CMD|TEHAS_TEST_STORE_ANSWERS)(=|$)|^declare -x TMPDIR="@T/tmp"$' <<<"${t_out//uid$EUID/uid@}" >>"$T/loads"
 done 5<<'INSTANCES'
 
 TEHAS_SITE_INDEXING=1
@@ -1826,7 +1844,7 @@ T_INSIDE=$TEHAS_INSTANCE_DIR/$HOME
 INSTANCES
 T_ENV=()
 t_instance "${T_MINIMAL[@]}"
-t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "e5d059262186bf16acc837cf118f32dd934251b4b07f2d52f26fa8a82c2cf77b"
+t_eq "$(sha256sum <"$T/loads" | cut -d' ' -f1)" "cabefd3c56c010839ca26a37bc9597d2f7277794b2875352e30f03f495ed81cb"
 t_contains "$(cat "$T/loads")" "rc=78"
 
 t_case "no instance.env keeps the environment as it was, as bash did"
@@ -1951,23 +1969,6 @@ rm -f "$T/home/tehas/libexec/console"
 t_run "unset TEHAS_SETTINGS_CMD; . \"\$T/tree/lib/config.sh\"; tehas_load; echo rc=\$?"
 t_contains "$t_out" "no console at $T/home/tehas/libexec/console"
 t_contains "$t_out" "rc=78"
-
-t_case "only the check of an update from before the console loses tehas_load, and only with no console"
-mkdir -p "$T/tree/lib"
-rm -f "$T/tree/libexec/console"
-kept='. "$1/lib/config.sh"; type -t tehas_load || echo gone'
-t_run "unset TEHAS_SETTINGS_CMD; bash -c '$kept' _ \"\$T/tree\""
-t_eq "$t_out" function
-asked="$kept # install.sh will check the settings itself"
-t_run "unset TEHAS_SETTINGS_CMD; bash -c '$asked' _ \"\$T/tree\""
-t_eq "$t_out" gone
-t_run "bash -c '$asked' _ \"\$T/tree\""
-t_eq "$t_out" function
-printf '#!%s\n' "$T_BASH" >"$T/tree/libexec/console"
-chmod +x "$T/tree/libexec/console"
-t_run "unset TEHAS_SETTINGS_CMD; bash -c '$asked' _ \"\$T/tree\""
-t_eq "$t_out" function
-rm -f "$T/tree/libexec/console"
 
 t_case "a console that cannot run or does not know the verb is 78, its words are not run, and the shell goes on"
 printf 'not a program\0\0\0' >"$T/garbage"

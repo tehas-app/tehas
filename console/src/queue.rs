@@ -9,8 +9,11 @@
 //! The words are counted over the titles and labels of every issue of the
 //! repository, the newest thousand, whether the factory was ever given it or
 //! not. Only the hundred most used words and their counts are written: no
-//! title and no issue number. Without an answer to that call the snapshot is
-//! written with no words, and the page counts the tickets it does list.
+//! title and no issue number. That list is read at most once an hour
+//! (`WORDS_KEEP`, from state/buzzwords.at); between reads, and when a read
+//! fails, the words of the file before are kept. With no words before and no
+//! answer the snapshot is written with no words, and the page counts the
+//! tickets it does list.
 //!
 //! The run also writes live/platform.json (src/platform.rs), live/rukas.json
 //! (ops/src/rukas.rs), live/contractors.json with outsource on, taken away
@@ -57,7 +60,9 @@
 //! the list of issues failed, the lists of work (`queueAt`, `running`, `queued`,
 //! `awaiting`, `stopped`, `planned`, `planning`) are the file's before, and
 //! when the read of what closed them failed, `completedAt`, `completed` and
-//! `completedCount` are; `stale` names each part kept so.
+//! `completedCount` are; when neither the control issue's labels nor its
+//! events could be read, `pause.label` and `pause.lifted` are. `stale` names
+//! each part kept so: `queue`, `completed` or `pause`.
 //!
 //! Prints nothing but an ignored all-hands label, once, analytics warnings and
 //! WARN lines, on standard error. Exit 0 even when GitHub is down. Exit 78, before
@@ -100,6 +105,9 @@ const POLL_KEEP: i64 = 600;
 const BEFORE_KEEP: i64 = 3600;
 /// The report's window, in seconds: nothing older is an event.
 const EVENT_WINDOW: i64 = 864_000;
+/// How long the breakroom's words are kept before every issue is read again,
+/// in seconds: the read is the run's largest, and the words change slowly.
+const WORDS_KEEP: i64 = 3600;
 const LABELS: &str = "label:\"tehas:ready\",\"tehas:running\",\"tehas:awaiting-merge\",\"needs-human-attention\",\"tehas:plan\",\"tehas:planning\" sort:updated-desc";
 const COUNT_QUERY: &str =
     "\n  query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }";
@@ -178,7 +186,8 @@ const COMPLETED_PART: [&str; 3] = ["completedAt", COMPLETED, "completedCount"];
 /// The snapshot with the parts named in `stale` taken from `previous`, the
 /// file it replaces: a key that file did not have is left out, and a `queueAt`
 /// or `completedAt` it did not have is its `generatedAt`. `stale` is written
-/// beside them when it names a part.
+/// beside them when it names a part. `pause` takes no key here: `kept` has
+/// already put the switches of the file before into the snapshot.
 fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
     if stale.is_empty() {
         return snap;
@@ -187,7 +196,8 @@ fn carried(snap: J, previous: &J, stale: &[&str]) -> J {
         .iter()
         .flat_map(|part| match *part {
             "queue" => QUEUE_PART.as_slice(),
-            _ => COMPLETED_PART.as_slice(),
+            "completed" => COMPLETED_PART.as_slice(),
+            _ => &[],
         })
         .copied()
         .collect();
@@ -260,6 +270,21 @@ struct Control {
     label: bool,
     lifted: bool,
     all_hands: Option<bool>,
+    /// False when neither the labels nor the events could be read, so
+    /// `label` and `lifted` say nothing.
+    read: bool,
+}
+
+/// The switches, with `label` and `lifted` of `previous`, the file before,
+/// when they could not be read; true when they were so taken.
+fn kept(mut c: Control, previous: &J) -> (Control, bool) {
+    if c.read {
+        return (c, false);
+    }
+    let pause = previous.get("pause");
+    c.label = pause.get("label").truthy();
+    c.lifted = pause.get("lifted").truthy();
+    (c, true)
 }
 
 /// `labels` is what the read of its labels printed, joined by spaces, None
@@ -270,7 +295,9 @@ struct Control {
 /// this reports the verdict the poll acts on (rule 5), so that a factory held by
 /// a pause a stranger lifted is not published as taking work. An answer that
 /// cannot be read reports nothing extra: the poll, which acts on it, ends when
-/// it cannot read the events.
+/// it cannot read the events. When the labels could not be read, the events
+/// say whether the label is on: it is when its last event applied it. When
+/// neither answered, `read` is false.
 ///
 /// tehas:all-hands holds while it is on the issue and the account that applied
 /// it is allowed. It is reported and changes nothing in the factory. A label
@@ -284,13 +311,20 @@ fn control(
     issue: &str,
 ) -> Control {
     let joined = format!(" {} ", labels.unwrap_or_default().trim_end_matches('\n'));
-    let label = joined.contains(" tehas:pause ");
+    let mut label = joined.contains(" tehas:pause ");
     let mut read: Option<String> = None;
     let mut lifted = false;
+    let mut known = true;
     if !label {
         let text = read.get_or_insert_with(&mut *read_events);
-        lifted =
-            events_of(text).is_some_and(|e| !text.is_empty() && pause_holds(&e, allowed).is_some());
+        let holds = events_of(text)
+            .filter(|_| !text.is_empty())
+            .map(|e| pause_holds(&e, allowed));
+        match holds {
+            Some(Some((event, _))) if labels.is_none() && event == "labeled" => label = true,
+            Some(holds) => lifted = holds.is_some(),
+            None => known = labels.is_some(),
+        }
     }
     let all_hands = if labels.is_none() {
         None
@@ -327,6 +361,7 @@ fn control(
         label,
         lifted,
         all_hands,
+        read: known,
     }
 }
 
@@ -416,6 +451,14 @@ fn uri(text: &str) -> String {
         }
     }
     out
+}
+
+/// The words of the file before, while they were counted less than
+/// `WORDS_KEEP` seconds ago: `at` is when, a time ahead of `now` is no time.
+fn kept_words(previous: &J, at: Option<i64>, now: i64) -> Option<J> {
+    let words = previous.get("buzzwords");
+    let fresh = at.is_some_and(|at| at <= now && now - at < WORDS_KEEP);
+    (fresh && matches!(words, J::Arr(_))).then(|| words.clone())
 }
 
 /// The hundred most used words of the titles and labels of every issue,
@@ -508,7 +551,8 @@ struct Facts<'a> {
     control: &'a str,
     now: String,
     issues: &'a J,
-    every: &'a J,
+    /// The breakroom's words, or null for none.
+    words: J,
     shipped: Vec<J>,
     count: Option<J>,
     query: String,
@@ -615,8 +659,8 @@ fn snapshot(f: &Facts) -> Result<J, String> {
             ),
         ]),
     ));
-    if !f.every.is_null() {
-        fields.push(("buzzwords", buzzwords(f.every)));
+    if !f.words.is_null() {
+        fields.push(("buzzwords", f.words.clone()));
     }
     Ok(obj(fields))
 }
@@ -826,22 +870,42 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     if stopped() {
         return;
     }
-    let every = reads
-        .read(&[
-            "issue",
-            "list",
-            "--repo",
-            repo,
-            "--state",
-            "all",
-            "--limit",
-            "1000",
-            "--json",
-            "title,labels",
-        ])
-        .and_then(|text| J::parse(&text))
-        .filter(|v| matches!(v, J::Arr(_)))
+    let previous = fs::read_to_string(live.join("status.json"))
+        .ok()
+        .and_then(|t| J::parse(&t))
         .unwrap_or(J::Null);
+    let words_at = home.join("state/buzzwords.at");
+    let read_at = fs::read_to_string(&words_at)
+        .ok()
+        .and_then(|t| t.trim().parse().ok());
+    let words = kept_words(&previous, read_at, time::now()).unwrap_or_else(|| {
+        let asked = time::now();
+        let every = reads
+            .read(&[
+                "issue",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "all",
+                "--limit",
+                "1000",
+                "--json",
+                "title,labels",
+            ])
+            .and_then(|text| J::parse(&text))
+            .filter(|v| matches!(v, J::Arr(_)));
+        match every {
+            Some(every) => {
+                let _ = write_atomic(&words_at, asked.to_string().as_bytes(), 0o644, &Temp::Pid);
+                buzzwords(&every)
+            }
+            None => match previous.get("buzzwords") {
+                w @ J::Arr(_) => w.clone(),
+                _ => J::Null,
+            },
+        }
+    });
     // The closing pull request is only in the issue's closed event, so this one
     // is GraphQL. The query and the acceptance rule are shipped.rs's, the same
     // ones tehas tidy reads, so the two commands cannot disagree on what a merge
@@ -912,15 +976,16 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     let (flag, flag_paused) = host_pause_flag(&home.join("state/pause.json"));
     let now = time::now();
     let on = env::var("TEHAS_ANALYTICS").as_deref() == Ok("on");
-    let previous = fs::read_to_string(live.join("status.json"))
-        .ok()
-        .and_then(|t| J::parse(&t))
-        .unwrap_or(J::Null);
     let was = if on && stale.is_empty() {
         before(&live.join("status.json"), now)
     } else {
         J::Null
     };
+    let (switches, pause_stale) = kept(switches, &previous);
+    let mut said = stale.clone();
+    if pause_stale {
+        said.push("pause");
+    }
     let no_list = J::Arr(Vec::new());
     let at = time::iso(now);
     let snapshot = snapshot(&Facts {
@@ -928,7 +993,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         control: issue,
         now: at.clone(),
         issues: issues.as_ref().unwrap_or(&no_list),
-        every: &every,
+        words,
         shipped: nodes.clone().unwrap_or_default(),
         count: completed,
         query: shipped_query,
@@ -937,7 +1002,7 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
         flag_paused,
         no_resources: no_resources(&live.join("dispatch.json"), now),
     })
-    .map(|s| carried(s, &previous, &stale))
+    .map(|s| carried(s, &previous, &said))
     .map(|s| {
         let starts = tehas_core::read_only::on().then(|| {
             let work = env::var("TEHAS_WORK_DIR").unwrap_or_default();
@@ -1053,13 +1118,13 @@ mod tests {
         tehas_core::testdir::TestDir::new(&format!("queue-{name}"))
     }
 
-    fn facts<'a>(issues: &'a J, every: &'a J, shipped: Vec<J>) -> Facts<'a> {
+    fn facts(issues: &J, words: J, shipped: Vec<J>) -> Facts<'_> {
         Facts {
             repo: "acme/widget",
             control: "1",
             now: "2026-11-01T00:00:00Z".to_string(),
             issues,
-            every,
+            words,
             shipped,
             count: None,
             query: "is:issue is:closed label:tehas:shipped".to_string(),
@@ -1067,6 +1132,7 @@ mod tests {
                 label: false,
                 lifted: false,
                 all_hands: Some(false),
+                read: true,
             },
             flag: J::Null,
             flag_paused: false,
@@ -1179,6 +1245,27 @@ mod tests {
     }
 
     #[test]
+    fn the_words_of_the_file_before_are_kept_for_an_hour() {
+        let before = j(r#"{"buzzwords":[{"word":"queue","count":3}]}"#);
+        let now = 10_000;
+        let kept = |at| kept_words(&before, at, now).map(|w| w.dump());
+        assert_eq!(
+            kept(Some(now - 3599)).as_deref(),
+            Some(r#"[{"word":"queue","count":3}]"#)
+        );
+        assert_eq!(
+            kept(Some(now)).as_deref(),
+            Some(r#"[{"word":"queue","count":3}]"#)
+        );
+        assert_eq!(kept(Some(now - 3600)), None);
+        assert_eq!(kept(Some(now + 1)), None);
+        assert_eq!(kept(None), None);
+        // No words before: nothing to keep, however recent the read.
+        assert!(kept_words(&j("{}"), Some(now), now).is_none());
+        assert!(kept_words(&J::Null, Some(now), now).is_none());
+    }
+
+    #[test]
     fn the_count_is_a_whole_number_a_page_can_hold() {
         let of = |n: &str| count(&format!(r#"{{"data":{{"search":{{"issueCount":{n}}}}}}}"#));
         for good in ["0", "1", "138", "9007199254740991"] {
@@ -1212,7 +1299,7 @@ mod tests {
     #[test]
     fn a_part_whose_read_failed_is_the_file_before_and_said_stale() {
         let issues = j("[]");
-        let fresh = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        let fresh = snapshot(&facts(&issues, J::Null, Vec::new())).unwrap();
         let before = j(
             r#"{"generatedAt":"2026-10-31T23:50:00Z","running":[{"number":7}],
             "queued":[{"number":8}],"awaiting":[],"stopped":[],"planned":[],"planning":0,
@@ -1247,7 +1334,7 @@ mod tests {
     #[test]
     fn the_keys_of_the_snapshot_stay_in_their_order() {
         let issues = j("[]");
-        let s = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        let s = snapshot(&facts(&issues, J::Null, Vec::new())).unwrap();
         let keys: Vec<&str> = match &s {
             J::Obj(o) => o.iter().map(|(k, _)| k.as_str()).collect(),
             _ => panic!(),
@@ -1273,8 +1360,7 @@ mod tests {
                 "links"
             ]
         );
-        let every = j("[]");
-        let mut f = facts(&issues, &every, Vec::new());
+        let mut f = facts(&issues, buzzwords(&j("[]")), Vec::new());
         f.count = Some(J::num(3.0));
         let s = snapshot(&f).unwrap();
         let J::Obj(o) = &s else { panic!() };
@@ -1290,7 +1376,7 @@ mod tests {
     #[test]
     fn every_list_its_readers_name_is_in_the_snapshot() {
         let issues = j("[]");
-        let s = snapshot(&facts(&issues, &J::Null, Vec::new())).unwrap();
+        let s = snapshot(&facts(&issues, J::Null, Vec::new())).unwrap();
         for name in tehas_core::queue_lists::LISTS {
             assert!(matches!(s.get(name), J::Arr(_)), "{name}");
         }
@@ -1313,13 +1399,12 @@ mod tests {
             r#"{"number":7,"state":"OPEN","labels":[{"name":"tehas:running"},{"name":"needs-human-attention"}]}"#,
             issue(8, "OPEN", "needs-human-attention"),
         ));
-        let every = J::Null;
         let shipped = vec![
             j(r#"{"number":20,"closedAt":"2026-01-01T00:00:00Z","labels":[]}"#),
             j(r#"{"number":21,"closedAt":"2026-01-02T00:00:00Z"}"#),
             j(r#"{"number":22,"closedAt":"2026-01-02T00:00:00Z"}"#),
         ];
-        let s = snapshot(&facts(&issues, &every, shipped)).unwrap();
+        let s = snapshot(&facts(&issues, J::Null, shipped)).unwrap();
         let nums = |k: &str| numbers(&s, k).iter().map(|n| n.dump()).collect::<Vec<_>>();
         assert_eq!(nums("queued"), ["3", "4"]);
         assert_eq!(nums("running"), ["7"]);
@@ -1343,14 +1428,14 @@ mod tests {
         ] {
             let issues = j(bad);
             assert!(
-                snapshot(&facts(&issues, &J::Null, Vec::new())).is_err(),
+                snapshot(&facts(&issues, J::Null, Vec::new())).is_err(),
                 "{bad}"
             );
         }
         for fine in ["[]", "{}", "[null]", r#"[{"state":"CLOSED"}]"#] {
             let issues = j(fine);
             assert!(
-                snapshot(&facts(&issues, &J::Null, Vec::new())).is_ok(),
+                snapshot(&facts(&issues, J::Null, Vec::new())).is_ok(),
                 "{fine}"
             );
         }
@@ -1410,6 +1495,61 @@ mod tests {
             pause("unlabeled", "alice")
         );
         assert!(lifted(&pages));
+    }
+
+    #[test]
+    fn labels_that_could_not_be_read_take_the_pause_from_its_events() {
+        let dir = temp("unread");
+        let f = dir.join("ignored");
+        let unread = |events: &str| switches(None, events, &f).0;
+        // The last event put the label on: it is on, and nobody lifted it.
+        let c = unread(&pause("labeled", "mallory"));
+        assert!(c.label && !c.lifted && c.read);
+        let c = unread(&pause("unlabeled", "mallory"));
+        assert!(!c.label && c.lifted && c.read);
+        let c = unread(&pause("unlabeled", "alice"));
+        assert!(!c.label && !c.lifted && c.read);
+        let c = unread("[]");
+        assert!(!c.label && !c.lifted && c.read);
+        // Neither read answered: the switches are unknown.
+        for bad in ["", "not json", "{}"] {
+            assert!(!unread(bad).read, "{bad}");
+        }
+        assert!(switches(Some(""), "", &f).0.read);
+    }
+
+    #[test]
+    fn unknown_switches_are_the_file_before() {
+        let read = Control {
+            label: false,
+            lifted: false,
+            all_hands: None,
+            read: true,
+        };
+        let before = j(r#"{"pause":{"flag":null,"label":true,"lifted":false}}"#);
+        let (c, stale) = kept(read, &before);
+        assert!(!c.label && !stale);
+        let unread = || Control {
+            label: false,
+            lifted: false,
+            all_hands: None,
+            read: false,
+        };
+        let (c, stale) = kept(unread(), &before);
+        assert!(c.label && !c.lifted && stale);
+        let lifted = j(r#"{"pause":{"label":false,"lifted":true}}"#);
+        let (c, _) = kept(unread(), &lifted);
+        assert!(!c.label && c.lifted);
+        let (c, stale) = kept(unread(), &J::Null);
+        assert!(!c.label && !c.lifted && stale);
+
+        // Said stale beside the others, and nothing else is taken.
+        let issues = j("[]");
+        let fresh = snapshot(&facts(&issues, J::Null, Vec::new())).unwrap();
+        let s = carried(fresh.clone(), &before, &["pause"]);
+        assert_eq!(s.get("stale").dump(), r#"["pause"]"#);
+        assert_eq!(s.get("completed").dump(), "[]");
+        assert_eq!(s.get("queueAt").as_str(), Some("2026-11-01T00:00:00Z"));
     }
 
     #[test]

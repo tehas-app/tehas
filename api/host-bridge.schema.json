@@ -32,7 +32,8 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9-]{1,32}$"},
           "label": {"type": "string", "minLength": 1, "maxLength": 24},
-          "url": {"type": "string", "maxLength": 512, "pattern": "^https?://\\S*$"}
+          "url": {"type": "string", "maxLength": 512, "pattern": "^https?://\\S*$"},
+          "open": {"enum": ["dock", "page"]}
         }
       }
     }

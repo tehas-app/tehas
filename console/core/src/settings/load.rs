@@ -8,9 +8,10 @@
 //!   instance.env that sets a token is refused: it is in a repository.
 //! - PI_RUKAS_FOLLOW may be set in instance.env, over the line of versions.env.
 //! - Loading runs no git command, makes no network call and writes nothing.
-//! - TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
-//!   review exits at once and calls nothing. TEHAS_REVIEW_REPO is never
-//!   TEHAS_REPO: a person triages findings before they are tickets.
+//! - TEHAS_REVIEW is the switch of review, a feature still being built: on
+//!   stops the load, and so does a TEHAS_REVIEW_REPO line (features.rs). Off,
+//!   tehasbot review exits at once and calls nothing. TEHAS_REVIEW_REPO is
+//!   never TEHAS_REPO: a person triages findings before they are tickets.
 //! - TEHAS_GITHUB_APP_ID names the GitHub App the factory acts as, and is the
 //!   only setting that does; the load refuses without it. The app's login is
 //!   not a setting: state/github/login holds it, one line, `<slug>[bot]`, and
@@ -24,16 +25,11 @@
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
 //!   stop the load. A TEHAS_FIXER_* name stops it too, and so does every
 //!   setting tehas 1.0 renamed or removed (renamed.rs).
-//! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
-//!   lowest issues. Unset is valid and means there is no gate. It is asked with
-//!   nothing of the poll's environment but PATH, and it may not name a file
-//!   under TEHAS_HOME or the instance directory: those are the trees a merged
-//!   pull request writes, and the gate runs as the tehas user.
 //! - Nothing falls back to a project: a setting with no generic default stays
 //!   unset until a command requires it.
 
 use super::renamed;
-use super::rules::{self, Trees, When, HOST, ROLES, SWITCH_WORDS, TABLE};
+use super::rules::{self, When, HOST, ROLES, SWITCH_WORDS, TABLE};
 use crate::driver::Driver;
 use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,7 +109,7 @@ pub(super) const KEPT: &[&str] = &[
 /// The names an earlier version read are refused, not ignored: a line that
 /// does nothing in an instance file is a mistake the operator sees. The order
 /// picks which of two retired lines is reported.
-const RETIRED: [&str; 13] = [
+const RETIRED: [&str; 12] = [
     "TEHAS_FIXER_LOGIN",
     "TEHAS_FIXER_MAX_RETRIES",
     "TEHAS_FIXER_MAX_PLAN_ANSWERS",
@@ -126,7 +122,6 @@ const RETIRED: [&str; 13] = [
     "TEHAS_LOW_GATE",
     "TEHAS_LOW_GATE_WAIT",
     "TEHAS_PRIORITY_FIELD",
-    "TEHAS_OVERLAP_HOLD",
 ];
 
 /// Whether `name` is one an earlier version read, refused now (`RETIRED`).
@@ -435,10 +430,7 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
                 | ("TEHAS_THEME", "beesknees26" | "")
                 | ("TEHAS_LAYOUT", "business" | "")
                 | (
-                    "TEHAS_LOW_GATE"
-                        | "TEHAS_LOW_GATE_WAIT"
-                        | "TEHAS_PRIORITY_FIELD"
-                        | "TEHAS_OVERLAP_HOLD",
+                    "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD",
                     ""
                 )
         ) {
@@ -457,7 +449,6 @@ fn retired_names(vars: &mut Vars, file: &str) -> Result<(), String> {
             "TEHAS_DISPATCHER" => "is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out".to_string(),
             "TEHAS_THEME" => "is no longer read: TEHAS_DESIGN draws the whole site, beesknees26 by default or pixel, so take the line out".to_string(),
             "TEHAS_LOW_GATE" | "TEHAS_LOW_GATE_WAIT" | "TEHAS_PRIORITY_FIELD" => "is no longer read: tehas order sets the order ready issues start in, so take the line out".to_string(),
-            "TEHAS_OVERLAP_HOLD" => "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out".to_string(),
             "TEHAS_LAYOUT" => "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out".to_string(),
             "TEHAS_FIXER_LOGIN" => "is no longer read: the millwright is the GitHub App's login, or the app TEHAS_MILLWRIGHT_APP names, so take the line out".to_string(),
             _ => format!(
@@ -571,22 +562,8 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     vars.set("PI_ENSEMBLE_NO_SSH", "1");
 }
 
-fn trees_of(vars: &Vars) -> [String; 3] {
-    [
-        vars.text("TEHAS_HOME"),
-        vars.text("TEHAS_INSTANCE_DIR"),
-        vars.text("TEHAS_WORK_REPO"),
-    ]
-}
-
 fn valid(vars: &Vars, name: &str, file: &str) -> Result<(), String> {
-    let [home, instance, work_repo] = trees_of(vars);
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
-    rules::check(name, &vars.text(name), &trees)
+    rules::check(name, &vars.text(name))
         .map_err(|why| format!("{name} is not valid: {why} (see {file})"))
 }
 
@@ -639,9 +616,10 @@ fn switches(vars: &mut Vars) {
 }
 
 /// The settings of the host (rules::HOST) that hold a value, each against its
-/// rule, named with where the host gives it. A refusal never shows the value:
-/// a token or a key may be one.
-fn host_values(vars: &Vars) -> Result<(), String> {
+/// rule, named with where it is given: `file`, the instance's, when `text`, its
+/// bytes, sets it. A refusal never shows the value: a token or a key may be
+/// one.
+fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
     let mut names: Vec<String> = HOST
         .iter()
         .filter(|s| !s.name.starts_with(rules::MODEL_KEY))
@@ -649,8 +627,9 @@ fn host_values(vars: &Vars) -> Result<(), String> {
         .collect();
     names.extend(vars.prefixed(rules::MODEL_KEY));
     for name in names.iter().filter(|n| has(vars, n)) {
-        if let Err(why) = rules::check(name, &vars.text(name), &Trees::default()) {
+        if let Err(why) = rules::check(name, &vars.text(name)) {
             let place = match name.as_str() {
+                _ if assigns(text, name) => file.to_string(),
                 "TEHAS_HOME" => "the environment".to_string(),
                 "TEHAS_INSTANCE_DIR" => format!(
                     "the environment or {}/.config/tehas/instance-dir",
@@ -860,7 +839,7 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
         features::refuse_building_settings(&|name| has(vars, name), &|name| vars.text(name));
     defaults(vars, host, uid);
     check_values(vars, &gave, &file)?;
-    host_values(vars)?;
+    host_values(vars, &text, &file)?;
     switches(vars);
     host_switches(vars);
     features::refuse_building(&|name| vars.text(name))
@@ -879,12 +858,6 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
 /// Every setting a command could require that holds no value of its rule, with
 /// why, for tehas_require to read. An empty one is tehas_require's to name.
 pub fn bad(vars: &Vars) -> Vec<(String, String)> {
-    let [home, instance, work_repo] = trees_of(vars);
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
     let roles = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
         .iter()
         .flat_map(|prefix| vars.prefixed(prefix));
@@ -894,7 +867,7 @@ pub fn bad(vars: &Vars) -> Vec<(String, String)> {
         .chain(roles)
         .filter(|name| has(vars, name))
         .filter_map(|name| {
-            let why = rules::check(&name, &vars.text(&name), &trees).err()?;
+            let why = rules::check(&name, &vars.text(&name)).err()?;
             Some((name, why))
         })
         .collect()
@@ -1085,10 +1058,10 @@ mod tests {
     fn refused(extra: &[&str]) -> String {
         run(&mut Fake::with(extra)).1.unwrap_err()
     }
-    /// A load whose environment names outsource in the test variable, as a
-    /// test of a building feature starts a program.
+    /// A load whose environment names outsource and review in the test
+    /// variable, as a test of a building feature starts a program.
     fn tested(extra: &[&str]) -> (Vars, Result<(), String>) {
-        let mut vars = start(&[(crate::features::TEST_VAR, "outsource")]);
+        let mut vars = start(&[(crate::features::TEST_VAR, "outsource review")]);
         let got = load(&mut vars, &mut Fake::with(extra), "1000");
         (vars, got)
     }
@@ -1365,6 +1338,27 @@ mod tests {
     }
 
     #[test]
+    fn the_review_switch_set_on_and_a_review_repo_stop_the_load() {
+        assert_eq!(
+            refused(&["TEHAS_REVIEW=on"]),
+            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_REVIEW=1", "TEHAS_REVIEW_REPO=acme/backlog"]),
+            format!("TEHAS_REVIEW is on and review is still being built in this release: set it to off or take the line out (see {FILE})")
+        );
+        assert_eq!(
+            refused(&["TEHAS_REVIEW_REPO=acme/backlog"]),
+            format!("TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see {FILE})")
+        );
+        assert_eq!(loads(&["TEHAS_REVIEW=off"]).text("TEHAS_REVIEW"), "0");
+        let (vars, got) = tested(&["TEHAS_REVIEW=on", "TEHAS_REVIEW_REPO=acme/backlog"]);
+        assert_eq!(got, Ok(()));
+        assert_eq!(vars.text("TEHAS_REVIEW"), "1");
+        assert_eq!(vars.text("TEHAS_REVIEW_REPO"), "acme/backlog");
+    }
+
+    #[test]
     fn a_file_that_sets_the_test_variable_stops_the_load() {
         let got = refused(&["TEHAS_OUTSOURCE=on", "TEHAS_TEST_FEATURES=outsource"]);
         assert_eq!(
@@ -1449,6 +1443,14 @@ mod tests {
                     .to_string()
             )
         );
+        // instance.env that sets it is the file named.
+        for line in ["TEHAS_ENERGY=solar", "TEHAS_MCP=yes"] {
+            let name = line.split('=').next().unwrap();
+            assert_eq!(
+                refused(&[line]),
+                format!("{name} is not valid: expected on or off (see {FILE})")
+            );
+        }
     }
 
     #[test]
@@ -1479,7 +1481,7 @@ mod tests {
     /// The reason the rule of `name` gives `value`, read off the rule itself so
     /// the test above names no copy of it.
     fn reason_of(name: &str, value: &str) -> String {
-        rules::check(name, value, &Trees::default()).unwrap_err()
+        rules::check(name, value).unwrap_err()
     }
 
     #[test]
@@ -1782,6 +1784,7 @@ mod tests {
             "TEHAS_REFRESH_EVERY=1",
             "TEHAS_REFRESH_EVERY=1440",
             "TEHAS_OVERLAP_HOLD=",
+            "TEHAS_OVERLAP_HOLD=0",
         ] {
             let vars = loads(&[line]);
             assert!(!vars.is_set(line.split('=').next().unwrap()));
@@ -1820,10 +1823,6 @@ mod tests {
                 "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
             ),
             (
-                "TEHAS_OVERLAP_HOLD=0",
-                "is no longer read: a host holds an issue out of the start order with tehas order set --only, so take the line out",
-            ),
-            (
                 "TEHAS_LAYOUT=floor",
                 "is no longer read: the front page follows TEHAS_DESIGN, the business page for beesknees26 and the factory floor for pixel, so take the line out",
             ),
@@ -1845,11 +1844,12 @@ mod tests {
 
     #[test]
     fn what_a_load_requires_later_does_not_refuse_it() {
-        let vars = loads(&[
+        let (vars, got) = tested(&[
             "TEHAS_REPO=widget",
             "TEHAS_ALLOWED_LABELERS=alice ",
             "TEHAS_REVIEW_REPO=acme",
         ]);
+        assert_eq!(got, Ok(()));
         let found: Vec<(String, String)> = bad(&vars);
         let names: Vec<&str> = found.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(

@@ -112,7 +112,10 @@ t_eq "$(t_calls gh | head -1)" "api repos/acme/widget/issues/7"
 t_eq "$(t_calls fake-work)" "7"
 
 # --restart is the answer to a handoff: pi-rukas's attention gate lets it
-# through and takes needs-human-attention off. tehas removes no such label.
+# through. The cycle's container cannot take a label off (the relay refuses
+# it), so the cycle takes needs-human-attention off on the host before the
+# runner starts. Left on, the report would park a pull request that waits only
+# for a merge.
 t_case "a cycle restarts only an issue that carries needs-human-attention"
 reset
 t_run "$cycle 7"
@@ -125,10 +128,35 @@ rm -f "$T"/calls/*
 echo '{"number":7,"state":"open","labels":[{"name":"tehas:running"},{"name":"needs-human-attention"}]}' >"$fx/issue-7.json"
 t_run "$cycle 7"
 t_eq "$(t_calls fake-work)" "7 --restart"
-t_lacks "$(t_calls gh | grep -e '--remove-label needs-human-attention')" "needs-human-attention"
+t_eq "$(t_calls gh | grep -c '^api -X DELETE repos/acme/widget/issues/7/labels/needs-human-attention$')" 1
+t_eq "$(t_calls gh | sed -n 2p)" "api -X DELETE repos/acme/widget/issues/7/labels/needs-human-attention"
+
+t_case "a restart whose label cannot be taken off still runs, and the log says so"
+rm -f "$T"/calls/*
+: >"$fx/unmark-fails"
+t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7 --restart"
+t_eq "$(t_calls gh | grep -c '^api -X DELETE repos/acme/widget/issues/7/labels/needs-human-attention$')" 3
+t_contains "$t_out" "WARN: #7: needs-human-attention could not be taken off before its restart"
+rm -f "$fx/unmark-fails"
+
+t_case "a restart whose label a person took off already is not tried again"
+rm -f "$T"/calls/*
+: >"$fx/label-missing"
+t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7 --restart"
+t_eq "$(t_calls gh | grep -c '^api -X DELETE repos/acme/widget/issues/7/labels/needs-human-attention$')" 1
+t_lacks "$t_out" "could not be taken off"
+rm -f "$fx/label-missing"
+
+t_case "a start of an issue without needs-human-attention takes no label off"
+rm -f "$T"/calls/* "$fx/issue-7.json"
+t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7"
+t_lacks "$(t_calls gh)" "DELETE"
 
 t_case "it says that it holds its lock, and lets go of it at the end"
-t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[3,true]'
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[6,true]'
 t_eq "$(flock -n "$state/7.lock" echo free)" "free"
 
 # A run leaves its lock and the carriers kept to the next start beside it;

@@ -179,7 +179,8 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 }
 
 fn begin(home: &Path, now: i64) -> Result<String, Fail> {
-    verbs::write(home, |c| {
+    // The poll's one check of the whole file, before its other writes.
+    verbs::write_checked(home, |c| {
         c.execute(
             "INSERT OR IGNORE INTO polls (at, lock_taken_at) VALUES (?1, ?1)",
             [now],

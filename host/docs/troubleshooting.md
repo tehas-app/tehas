@@ -189,7 +189,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
   start order with tehas order set --only, so take the line out`: every
   command stops with 78 while the instance sets it to a value. Take the line
   out, and keep two issues apart with `tehas order set --only` instead. A
-  blank value is ignored.
+  blank value or `0`, the old default, is ignored.
 - `TEHAS_IMPROVE_REPO is no longer read: the improvement loop is removed, so
   take the line out` (the same for
   `TEHAS_IMPROVE_RUKAS_REPO`, `TEHAS_IMPROVE_RUKAS_SKIP` and
@@ -207,8 +207,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   line` or `<NAME> is no longer read: <why>, so take the line out`: a setting
   tehas 1.0 renamed or removed, a row of `api/renames-1.0.tsv`, is still in
   `instance.env` or `~/.config/tehas/env`. Every command stops with 78 until
-  the line is renamed or taken out. `tehas update --check` lists every such
-  line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
+  the line is renamed or taken out. The refusal and `tehas update --check`
+  list every such line at once (see [tehas update](/tools-update#settings-tehas-10-renamed-or-removed)).
 - `ERROR: TEHAS_ISSUE_TYPES maps improvement to ...` (the poll) or
   `... maps prototype to ...` (the Protolab's log): the owner of the repository has no issue type of that name. Nothing was
   written. Add the type in the organisation's settings, spell it as the
@@ -504,6 +504,7 @@ issue. The queue is kept and is taken up when the hold ends. The line is in
 | `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
 | `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
 | `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above the slice's limit over `TEHAS_SLICE_CONTAINERS`. Set a lower `TEHAS_CYCLE_RESERVE` or `TEHAS_SLICE_CONTAINERS` in `instance.env`. The line names the host size the reserve needs. |
+| `TEHAS_CYCLE_RESERVE=... is not a size` | The word is no Docker size (a count of bytes with a `k`, `m` or `g`, at least 6m). `tehas_load` refuses it in `instance.env`, and the dispatcher's own check says the same, so this line comes from `console slice room` run with the name exported in the shell or set outside the load. `console slice room 0` prints that word in its fourth field, where a size is printed in bytes; the word is one field even when it holds a space, and `nosize` when the name is not set at all, so the reason and the note keep their places. A `pressure` figure too big to count is held as the slice stalling, not as the `0.00` of a slice that never stalled. Fix the word, not the slice: there is nothing in `/sys/fs/cgroup/tehas.slice` to read. |
 | `the slice's use could not be read: ...` | The rest of the line names the file and what was missing: `.../memory.pressure cannot be read` or `has no full avg60`, `.../memory.stat has no number for anon` (or `shmem`, `kernel`, `slab_reclaimable`), `.../memory.low cannot be read` or `is not a number`. Read that file as the tehas user. A kernel booted with `psi=0` has no `memory.pressure`: remove that option from the kernel command line. A kernel too old for the `kernel` line in `memory.stat` is read without it: kernel memory is then not counted. A `slab_reclaimable` line that is missing, as it is for a container that has just started, counts as 0: the slab counts as used, so that one container holds. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
 
 The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
@@ -550,7 +551,8 @@ A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
 taken off by another account is no park: the choice of driver was not an allowed account's.
 The comment says `` `tehas:lean` was applied by `<login>`, an account that may
 not choose the driver in this factory ``.
-Under `TEHAS_DRIVER=lean` the same holds for `tehas:classic`, and a comment
+Under `TEHAS_DRIVER=lean` the same holds for `tehas:classic`, and for a
+`tehas:lean` that another account took off, and a comment
 that the issue carries both `tehas:lean` and `tehas:classic` asks an allowed
 account to take one of them off.
 See [choosing the driver](/operating#choosing-the-driver).
@@ -595,6 +597,22 @@ means the sandbox image's pi-rukas does not read a spec: the start stops with
 78 rather than run a cycle that would never see it. Rebuild the image on a
 pi-rukas that lists `issueSpec`, or take the `Spec:` line out and approve the
 issue again.
+
+A cycle with a pinned spec that hands off with its pull request open parks,
+rather than wait for a merge, when the pull request does not answer to that
+spec. The park reason is `spec-block`, and the comment says `Its pull request
+does not answer to the approved spec:` and then one of:
+
+- `its body has no spec block`;
+- `its spec block names sha256 <got>, not <pinned>, the one approved`;
+- `its spec block cannot be read: <why>`, with the reason of the parser;
+- `the approval of this start could not be read, so its spec block could not
+  be checked`, when the state store did not answer.
+
+Fix the block in the pull request's body so that it is [one tehas
+reads](/contract#the-pull-request-spec-block) and names the approved sha256,
+then retry. Or, when the issue should not be held to a spec, take the `Spec:`
+line out of the issue and approve it again.
 
 The caps this factory has posted are explained one by one in the next
 section.

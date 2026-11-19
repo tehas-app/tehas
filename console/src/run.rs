@@ -18,7 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
-//!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
+//!   review    exit 0 after step 3 unless the review feature is on
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
 //! The review's gate sits below the check of the settings it needs because an
@@ -41,7 +41,7 @@ use crate::{clean, disk, github, plan, preview, product, protolab, review, setti
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{ErrorKind, Read};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -121,8 +121,8 @@ fn dispatch_soon(home: &Path) -> u8 {
     }
 }
 
-/// tehas-dispatch's own refresh verb takes over, with the status a shell's exec
-/// would have ended with when it cannot.
+/// tehas-dispatch's own refresh verb takes over. When it cannot, 78, as for a
+/// missing tehas-cycle.
 fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8 {
     let program = dispatcher(libexec);
     let mut refresh = Command::new(&program);
@@ -131,12 +131,8 @@ fn hand_to_dispatcher(libexec: &str, rest: &[String], log: Option<String>) -> u8
         refresh.env("TEHAS_REFRESH_LOG", log);
     }
     let failed = refresh.exec();
-    eprintln!("tehas refresh: {program}: {failed}");
-    if failed.kind() == ErrorKind::NotFound {
-        127
-    } else {
-        126
-    }
+    eprintln!("tehas refresh: {program} cannot run (run install.sh): {failed}");
+    78
 }
 
 /// The GitHub App's token goes in this environment for the pass and its children.
@@ -328,7 +324,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
-        ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
+        ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
         _ => commands::tehasbot(&words[1..]),
     })

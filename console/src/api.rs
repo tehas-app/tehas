@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 27] = [
+const FEATURES: [&str; 28] = [
     "status",
     "millwright-grant",
     "all-hands",
@@ -41,6 +41,7 @@ const FEATURES: [&str; 27] = [
     "refresh-pr",
     "host-start",
     "flags",
+    "status-previews",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -233,7 +234,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 
@@ -295,10 +296,13 @@ mod tests {
 
     #[test]
     fn a_building_feature_is_a_flag_and_no_word_of_features() {
+        use tehas_core::features::{Stage, FEATURES as REGISTRY};
         let words = features();
         let flags = tehas_core::features::flags();
-        assert!(flags.iter().any(|(name, _)| *name == "outsource"));
-        assert!(!words.contains(&"outsource"));
+        for f in REGISTRY.iter().filter(|f| f.stage == Stage::Building) {
+            assert!(flags.iter().any(|(name, _)| *name == f.name), "{}", f.name);
+            assert!(!words.contains(&f.name), "{}", f.name);
+        }
         assert!(words.contains(&"flags"));
         for gone in [
             "store-copy",

@@ -10,10 +10,14 @@ stays compatible through every 1.x release: within 1.x a public name is only
 added, never renamed, removed or given a new meaning. Everything it does not
 name public is internal and may change in any release.
 
-Until the first beta of 1.0 the public surface may still be renamed or
-reshaped. Each rename is a row of `api/renames-1.0.tsv`, and
+The freeze started at v1.0.0-beta.1. From then on nothing public is renamed,
+reshaped or removed; a beta or a release candidate only fixes, adds tests and
+docs, or promotes a feature to shipped. The renames 1.0 made came in the
+alphas. Each is a row of `api/renames-1.0.tsv`, and
 [tehas update](/tools-update#tehas-update) lists every one an instance still
 uses.
+
+The rules 1.x keeps are in [the rules for 1.x](#the-rules-for-1x).
 
 ## Public and internal
 
@@ -32,15 +36,15 @@ Public:
   `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env` is the version of the
   program that manages the factory, written by that program and shown by
   health;
-- the update from any 0.30.x release by `tehas update`, with the state store
-  and analytics migrated;
+- the update from any 0.30.x, 0.31.x or 0.32.x release by `tehas update`,
+  with the state store and analytics migrated;
 - [the cycle inputs rule](#cycle-inputs);
 - the host namespace `/host/` and [the host bridge](/api#the-host-bridge);
 - [analytics.db at schema 4](#analyticsdb).
 
-[The pull request spec block](#the-pull-request-spec-block) is described
-below but not built yet: it becomes public with the release that writes and
-checks it.
+[The pull request spec block](#the-pull-request-spec-block) is defined
+below as part of `spec-pipe`, a feature still being built: it becomes public
+with the release that ships that feature.
 
 Internal:
 
@@ -71,20 +75,84 @@ Internal:
 | Settings | Each row of `api/settings-rules.json`: its name, its meaning, and what a missing or malformed value does (exit 78) | `test/settings_rules_test.sh` |
 | Switch grammar | Every switch takes `on`, `off`, `1` and `0`. The manual writes `on` and `off` | The Rust tests of the settings rules |
 | Commands | The `tehas` commands, their subcommands and the flags of each, but the flags marked `internal` | `api/commands.txt`, held to the commands tehas knows and to the synopsis lines of each command's text by the tests of `console/src/front.rs` |
-| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, and the shell tests of each command |
+| Exit statuses | One meaning per status, and [one table per command](#exit-statuses) | `console/core/src/exit.rs`, the shell tests of each command, and `console/tests/surface.rs`, which fails when a public command of `api/commands.txt` has no table below |
 | Labels | The rows of `host/labels.tsv`: the name and what the dispatcher does with it | The dispatcher's and the tidy's tests |
 | Store | The store opens any store from schema 12 (v0.30.0) and brings it to its own schema. An older store is refused with a message that names v0.30 | The store's migration tests |
 | analytics.db | `user_version` 4, tables and columns only added | `console/analytics/src/schema.pinned` |
 | Factory API | `tehas api --json`: `api`, `features` (words only added), `flags`, `millwright`, `poll` | `api/api.schema.json` and its samples, and `api/features.txt`, the words of `features` in order, held by `test/api_test.sh` |
-| `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints |
+| `--json` objects | Each object with a schema and samples in `api/`. Fields are only added | `test/json_contract_test.sh`, which lists every schema in `api/` and the test that holds each one's samples to what its command prints, and the tests of `console/src/front.rs`, which fail when a public `--json` row of `api/commands.txt` has no schema |
 | MCP | The tools, their input and output schemas | The MCP server's tests: every answer they read is checked against its tool's output schema, and the cycle status enum against the core's vocabulary |
-| `tehas update` | From any 0.30.x release. The release repository and the signing key are the ones the last install left on the host (`TEHAS_RELEASE_REPO` in `instance.env` or `versions.env`, and `~/tehas/release/minisign.pub`); they are not yet pinned in tehas | The update's shell tests |
-| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x | `test/work_test.sh` |
-| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock) |
+| `tehas update` | From any 0.30.x, 0.31.x or 0.32.x release. A 0.30.x host can name an rc or the release, not an alpha or a beta. From 1.0 on, the release repository and the signing key are built into tehas: the `TEHAS_RELEASE_REPO` line of `host/versions.env` and `host/release/minisign.pub` when the release was built. An instance may name another repository with `TEHAS_RELEASE_REPO` in `instance.env`; the key stays the built-in one | The update's shell tests, and the tests of `console/core/src/release.rs` |
+| Cycle inputs | [The rule below](#cycle-inputs), with the names as pi-rukas has them while it is 0.x; a renamed name is taken under both names through 1.x | `test/work_test.sh` |
+| Host namespace | `/host/` on the factory's origin belongs to the host that fronts the factory's domain: tehas never serves a path under it, and its docs server answers 404 there, which the dashboard reads as no host. The host bridge, `/host/bridge.json`, is `bridge: 1`, by `api/host-bridge.schema.json` and [its rules](/api#the-host-bridge) | `test/host_bridge_test.sh` (the 404 under `/host/`, the schema and its samples), `test/json_contract_test.sh`, `test/host_bridge_test.mjs` (what the dashboard keeps of an answer) and `test/panels_dock_test.mjs` (a menu item opens in the dock, and a page item in a new tab with no dock) |
+
+`api/surface-1.0.txt` lists the names of the frozen surface in one place:
+each public command, subcommand and flag, setting, role, label and `--json`
+field, read from the files in the table above. Lines are only added.
+`console/tests/surface.rs` fails when one of its names goes, and when the
+surface gains a name the list does not have yet. What a building feature
+adds is not in it. A name that was on the list before its feature became
+building stays on it: the list is only added to. Such a name is refused
+while the feature is building, as every building feature's name is
+([review](#review)).
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change. The fields of
-`contractors` may change while outsource is still being built.
+`contractors` may change while outsource is still being built, and so may
+`api/status.outsourced.json`, the sample that shows them.
+
+`testFeatures` in `tehas status --json` stays, with `read`, `features` and
+`lab`, through 1.x. It has been on the surface since 1.0.0-beta.7. It reports
+a lab build, and that a release reads no `TEHAS_TEST_FEATURES`, so a person
+can tell a lab host from a release host. A release prints it only while the
+variable is set. If 1.x replaces the lab mechanism, the field and its
+subfields keep their meaning.
+
+The keys of `rows` in `tehas state check --json` are the store's table names.
+They are internal: a later release may add, rename or drop a table, and with it
+a key. `rows` itself is public.
+
+## The rules for 1.x
+
+Decided for 1.0 on 2026-11-18.
+
+- **Readers.** A program that reads a `--json` object, `tehas api --json`,
+  `api/settings-rules.json` or an MCP answer ignores a field it does not know.
+  A schema in `api/` describes the release that ships it: a later 1.x release
+  may add to it.
+- **What 1.x may add.** Within 1.x a field, an enum value or an exit status
+  may be added. An existing field, value or exit status keeps its meaning and
+  is never removed. A reader treats an enum value it does not know as
+  unknown, not as an error.
+- **Building features.** A feature still being built is outside the contract:
+  its rows in `api/settings-rules.json` (each marked `"building": true`), its
+  key in the `flags` object of `tehas api --json`, its `--json` fields (such
+  as `contractors` in `tehas status --json` and `api/status.outsourced.json`),
+  its commands and its MCP tools may change or go until the release that ships
+  it. Only a shipped feature's key is guaranteed in `flags`, and
+  `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
+  before its feature became building stays on it and keeps its meaning,
+  though its row is marked `"building": true` and the release refuses it:
+  `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` of [review](#review).
+- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
+  protolab-zip-url, prototype-file, lean and review are planned for 1.1
+  (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
+  the ones 1.1 adds to the frozen surface: no other feature takes them, and
+  1.1 ships each under the same name. Their shapes may still be settled
+  before 1.1; once shipped, they are only added to.
+- **MCP protocol revisions.** The revisions [the MCP server](/mcp-server)
+  accepts at 1.0, 2026-07-28 and 2025-11-25, stay accepted through 1.x. Newer
+  ones may be added.
+- **pi-rukas names.** When pi-rukas renames a `PI_ENSEMBLE_*` input, tehas
+  takes both the old and the new name through 1.x.
+- **Driver labels and settings.** The labels `tehas:lean` and `tehas:classic`
+  and `TEHAS_DRIVER=lean` stay accepted through 1.x, whatever lean becomes.
+- **Update sources.** `tehas update` reaches 1.0 from 0.30.x, 0.31.x and
+  0.32.x. A 0.30.x host can name only an rc or the release with `--to`, not
+  an alpha or a beta: that is what v0.30.6 accepts as a tag.
+- **Release repository and key.** From 1.0 the update reads releases from the
+  repository built into tehas and checks them with the key built into tehas,
+  as [tehas update](/tools-update#from-a-release) says.
 
 ## Settings and the knob rule
 
@@ -136,8 +204,9 @@ What a cycle's container is given, as `tehas work` gives it:
 | `<workspace>.state/relay` | `/run/tehas/relay` |
 
 The `PI_ENSEMBLE_*` names, and what each means, follow pi-rukas while pi-rukas
-is 0.x: a name pi-rukas renames is renamed here in the release that follows
-it, and the release notes say so. The rule itself, which names pass and what
+is 0.x: a name pi-rukas renames is taken under the new name in the release
+that follows it, the old name stays accepted through 1.x, and the release
+notes say so. The rule itself, which names pass and what
 is mounted, is frozen. `test/work_test.sh` pins the mounts and the variables,
 and a change to them is a security change.
 
@@ -152,39 +221,107 @@ takes a consistent copy.
 
 ## The pull request spec block
 
-Not built yet: nothing writes or checks this block today, and it is not part of
-the frozen surface until the release that does. When it lands, a pull request
-built from an approved spec carries this block in its body, version 1:
+Part of `spec-pipe`, a feature still being built, so it is not part of the
+frozen surface until the release that ships it. A pull request built from an
+approved spec answers it with this block in its body, version 1:
 
 ```
 <!-- tehas:spec v1 -->
-Spec: <file name> sha256:<64 hex>
-- R1 met: <where>
-- R2 not met: <why>
+Spec: <link> sha256:<64 lower-case hex>
+- <id> met: <where>
+- <id> not met: <why>
 <!-- /tehas:spec -->
 ```
 
-One line per requirement. A spec with no requirement ids gets one line per top
-heading. tehas will check only that the block is there and that the hash is
-the one approved; the lines are for the person who reviews.
+For example:
+
+```
+<!-- tehas:spec v1 -->
+Spec: https://github.com/user-attachments/files/123/spec.md sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+- R1 met: src/search.rs, search() with tests in tests/search.rs
+- R2 not met: the export needs an API the backend does not have yet
+<!-- /tehas:spec -->
+```
+
+The rules (`spec_block` in `console/core/src/grammar.rs`):
+
+- The open line is exactly `<!-- tehas:spec v1 -->` and the close line exactly
+  `<!-- /tehas:spec -->`, each on a line of its own. Spaces around a line do
+  not count, and LF and CRLF line ends are both read.
+- Only lines outside fenced code blocks count, as for the issue's `Spec:` line.
+  A block quoted inside a fence is text.
+- The first line inside that is not blank is the `Spec:` line, in the form of
+  the issue's: the link of the spec, not its file name, and the sha256 of the
+  manifest's `spec` entry.
+- One or more requirement lines follow, blank lines allowed between them:
+  `- <id> met: <text>` or `- <id> not met: <text>`. A line splits at its first
+  `:`. What comes before must end in ` not met` or ` met`, and what precedes
+  that is the id. The id is not empty and holds no `:` and no backtick. The
+  text is not empty.
+- The id is the spec's own requirement id, such as `R1` or `FR-3`. A spec
+  with no ids uses the text of each top heading instead, without the `#`s and
+  any `:`.
+
+A body with no block has none. A body tehas cannot read: no close line, a
+second block, an open line of another version (named) or one that starts
+`<!-- tehas:spec v` and is not exactly the open line, a missing or malformed
+`Spec:` line, a line inside of neither form, no requirement line, or an id
+named twice. The manifest's `spec` entry says in `block` which version the
+cycle writes.
+
+What tehas checks (`spec_answered`, and the cycle's report): with the feature
+on, a start not run by hand whose approval pins a spec, a pull request waits
+only for a merge when its body holds one block tehas can read and the block's
+`Spec:` line names the sha256 of that pin. The link is not compared. A body
+with no block, a block of another sha256 or one tehas cannot read parks the
+issue with `needs-human-attention` and the park reason `spec-block`; so does an
+approval that cannot be read. The pull request stays open and gets no
+comment.
+
+The lines are for the person who reviews. This block is not lean's `pi-spec v1`
+block, which goes in an issue body.
 
 ## Features still being built
 
 A feature is `building` or `shipped` in a release (`console/core/src/features.rs`).
 Only a shipped feature can be on. A building feature leaves nothing in the
-frozen surface: its switch set to `on`, or a line that gives one of its own
+frozen surface ([the rules for 1.x](#the-rules-for-1x)): its switch set to `on`, or a line that gives one of its own
 settings a value, stops every command with exit 78 and names the feature, it
 adds no command, no label, no `--json` field and no MCP
-tool, and its settings, commands and fields are not contract until the release
-that ships it. `tehas api --json` lists every feature in `flags`, `false`
-while it is building, and a shipped feature's word in `features`. Promoting a
-feature to shipped only adds.
+tool, and its settings, its key in `flags`, its commands, fields and MCP tools
+are not contract until the release that ships it, except a name that was
+public before the feature became building, which stays on
+`api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
+every feature in `flags`, `false` while it is building, and a shipped
+feature's word in `features`. `api/settings-rules.json` marks the rows of a
+building feature `"building": true`. Promoting a
+feature to shipped only adds. A lab host proves a building feature on a build
+that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
+building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
+
+### Names reserved for 1.1
+
+Each building feature of 1.0 is planned for 1.1, and these are the names it
+adds when it ships. The names marked frozen are in `api/surface-1.0.txt`
+already and keep their meaning in 1.0.
+
+| Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
+| --- | --- | --- | --- | --- | --- |
+| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>`, the column `runs.contractor_id` of `analytics.db` (frozen) | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
+| spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
+| protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
+| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
+| lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
+| review | `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (both frozen) | none | none | `tehas:improvement` (frozen) | `tehas-review.service`, `tehas-review.timer` |
+
+Each feature's name is its key in `flags` and the word 1.1 appends to
+`features`. None of them adds a `/health` field.
 
 What each registered feature leaves visible while its flag is off:
 
 ### outsource
 
-Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
+Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 78 and says `outsource` is still being built.
 
 - `tehas api --json` has `"outsource": false` in `flags`, and no word
@@ -196,12 +333,18 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 - No command, no label, no `contractors` in `tehas status --json`, no MCP
   tool, nothing in `live/`.
 - The state store has its tables for contractors and jobs, which are internal.
+  `tehas state check --json` counts them under `rows`, whose keys are the
+  store's table names and internal.
+- `analytics.db` has the column `contractor_id` of `runs`, the name of the
+  contractor that ran the cycle, NULL on every run while outsource is off. It
+  is part of schema 4, which is frozen: 1.1 keeps its name, its type and its
+  meaning.
 
 [Outsource](/outsource) says what the feature does once it ships.
 
 ### spec-pipe
 
-Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
+Building, planned for 1.1. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
 78 and says `spec-pipe` is still being built.
 
 - `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
@@ -212,13 +355,15 @@ Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
   in the state store has room for one, which is internal.
 - A cycle is given no `spec` and no `approved.json`, and its manifest names
   neither.
+- No pull request is checked for a spec block: a handoff waits for a merge as
+  before.
 - No command, no label, no `--json` field, no MCP tool.
 
 [tehas work](/tools-work) says what the feature gives a cycle once it ships.
 
 ### protolab-zip-url
 
-Building. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
+Building, planned for 1.1. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
 exit 78 and says `protolab-zip-url` is still being built.
 
 - `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
@@ -234,7 +379,7 @@ does once it ships.
 
 ### prototype-file
 
-Building. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
+Building, planned for 1.1. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
 exit 78 and says `prototype-file` is still being built.
 
 - `tehas api --json` has `"prototype-file": false` in `flags`, and no word
@@ -248,7 +393,7 @@ feature does once it ships.
 
 ### lean
 
-Building. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
+Building, planned for 1.1. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
 and says `lean` is still being built, and so does `TEHAS_DRIVER=lean`, which
 names the feature it needs.
 
@@ -258,7 +403,8 @@ names the feature it needs.
 - `tehas work --driver lean` exits 78 and starts no cycle. `--driver classic`
   works as before.
 - The labels `tehas:lean` and `tehas:classic` stay in the label set, so
-  `tehas labels` does not remove them. `tehas:lean` is inert: a start that
+  `tehas labels` does not remove them, and they and `TEHAS_DRIVER=lean` stay
+  accepted through 1.x whatever lean becomes. `tehas:lean` is inert: a start that
   would run lean starts nothing, the label that asked comes off and the issue
   says once that lean is still being built. Classic never runs in its place.
   `tehas:classic` and an issue with no driver label run classic.
@@ -268,6 +414,30 @@ names the feature it needs.
 
 [Choosing the driver](/operating#choosing-the-driver) says what the feature
 does once it ships.
+
+### review
+
+Building since v1.0.0-rc.1, planned for 1.1. It shipped as a setting before the registry, but
+no run was seen on a host, so it became building (decided 2026-11-19). Off by
+default; `TEHAS_REVIEW=on` stops every command with exit 78 and says `review`
+is still being built.
+
+- `tehas api --json` has `"review": false` in `flags`, and no word `review`
+  in `features`.
+- The settings `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` were public before
+  review became building, so they stay on `api/surface-1.0.txt` and keep
+  their meaning. While review is building they are refused: a line that
+  gives `TEHAS_REVIEW_REPO` a value stops every command with exit 78 and
+  names `review`.
+- `tehasbot review` exits 0 at once and calls nothing.
+- `install.sh` does not install `tehas-review.service` or
+  `tehas-review.timer`, does not enable the timer and an update does not
+  restart it. A host that had them from an earlier release keeps the files,
+  and `install.sh` stops and disables the timer if it is enabled.
+- No command, no label, no `--json` field, no MCP tool.
+
+[The review loop](/operating#the-review-loop) says what the feature does once
+it ships.
 
 ## Exit statuses
 
@@ -373,9 +543,9 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | Status | When |
 | --- | --- |
 | 0 | Shown, set or cleared |
-| 1 | The file could not be written or removed |
+| 1 | The state store refused the change or did not answer |
 | 64 | A bad argument; nothing is written |
-| 78 | The settings are missing or malformed; nothing is written |
+| 78 | The settings are missing or malformed, or the state store is not installed or cannot be used; nothing is written |
 
 ### tehas start
 
@@ -395,7 +565,7 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 1 | The read of GitHub failed, took more than 20 seconds or named no pull request; nothing is written |
 | 3 | It is not a pull request the factory refreshes, or it does not conflict; nothing is written |
 | 64 | No `--pr`, or N is not a whole number above 0 |
-| 78 | The settings are missing or malformed |
+| 78 | The settings are missing or malformed, or `tehas-dispatch` is not installed or cannot run |
 
 ### tehas drain
 

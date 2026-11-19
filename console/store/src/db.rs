@@ -773,11 +773,14 @@ pub enum Purpose {
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
-/// A connection that writes also runs `PRAGMA quick_check` (#1769), so the
-/// first write of a run is refused rather than written into a damaged file.
-/// A file that exists but cannot be opened is `unreadable`, and the store does
-/// not move it (ADR 0003).
+/// A connection that writes also runs `PRAGMA quick_check` (#1769), so a write
+/// is refused rather than written into a damaged file. A file that exists but
+/// cannot be opened is `unreadable`, and the store does not move it (ADR 0003).
 pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
+    open_as(file, purpose, purpose == Purpose::Write)
+}
+
+fn open_as(file: &Path, purpose: Purpose, check: bool) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
         return Err(DbError::Missing);
@@ -802,7 +805,7 @@ pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
         )),
         _ => classify(e),
     })?;
-    prepare(&conn, purpose)?;
+    prepare(&conn, purpose, check)?;
     Ok(conn)
 }
 
@@ -831,6 +834,17 @@ pub fn lock(file: &Path) -> Result<Connection, DbError> {
     Ok(conn)
 }
 
+/// `lock` without the `quick_check`, for the writes a timer makes many times a
+/// minute: a cycle's heartbeat, a poll's records. Each store verb is its own
+/// process, so a check on every such open read the whole file every few
+/// seconds. The check stays where it pays: `poll-begin` once a poll, `upkeep`,
+/// `prune`, `migrate`, `check` and `init`.
+pub fn lock_unchecked(file: &Path) -> Result<Connection, DbError> {
+    let conn = open_as(file, Purpose::Write, false)?;
+    conn.execute("BEGIN IMMEDIATE", []).map_err(classify)?;
+    Ok(conn)
+}
+
 /// The statement that gives the write lock back, for the verb that looked at
 /// the store and has nothing to write: nothing was changed, so there is nothing
 /// to commit, and SQLite asks for the word all the same.
@@ -851,8 +865,8 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
 /// is not a database at all - `classify` still turns it into 78 `corrupt` - and
 /// the damage a read cannot see is the read verb's to survive and `check`'s to
 /// name: `check` runs `PRAGMA integrity_check` over the whole file whatever the
-/// open did, and every verb that writes meets the quick_check of its own open
-/// before it changes a byte.
+/// open did, and `poll-begin` and `upkeep` meet the quick_check of their own
+/// open before they change a byte.
 pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
@@ -873,7 +887,7 @@ fn read_only(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, purpose)?;
+    prepare(&conn, purpose, false)?;
     Ok(conn)
 }
 
@@ -923,7 +937,7 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, Purpose::Write)?;
+    prepare(&conn, Purpose::Write, true)?;
     Ok(conn)
 }
 
@@ -934,11 +948,11 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 /// one that reads, then the word `busy`. It replaces SQLite's busy_timeout,
 /// which then reads 0.
 ///
-/// The check belongs to the writer alone (#1769). `check`, `migrate` and
-/// `create` keep it, and so does the first write of a run: those are the opens
-/// after which the store's own rows are at risk, and refusing a damaged file
-/// there is what keeps a verb from writing into one. A read pays nothing for a
-/// file it cannot change.
+/// The check belongs to the writer alone (#1769), and not to every writer:
+/// `check`, `migrate`, `create`, `poll-begin`, `prune` and `upkeep` run it, so
+/// a damaged file is refused once a poll and once an hour before the rows of
+/// the next writes are at risk. The writes a timer makes every few seconds open
+/// with `lock_unchecked`. A read pays nothing for a file it cannot change.
 ///
 /// `prepare_of_the_store` is the one test's way in: it puts SQLite's trace hook on the
 /// connection between the call that makes it and the call that prepares it, which is the only
@@ -946,10 +960,16 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 /// function rather than a copy of what it says.
 #[cfg(test)]
 pub(crate) fn prepare_of_the_store(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
-    prepare(conn, purpose)
+    prepare(conn, purpose, purpose == Purpose::Write)
 }
 
-fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
+#[cfg(test)]
+thread_local! {
+    /// The quick_checks this thread's opens ran.
+    pub(crate) static QUICK_CHECKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn prepare(conn: &Connection, purpose: Purpose, check: bool) -> Result<(), DbError> {
     conn.busy_handler(Some(handler(purpose)))
         .map_err(classify)?;
     let mode: String = conn
@@ -963,13 +983,15 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
         .map_err(classify)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
-    if purpose == Purpose::Write {
-        let check: String = conn
+    if purpose == Purpose::Write && check {
+        #[cfg(test)]
+        QUICK_CHECKS.with(|n| n.set(n.get() + 1));
+        let found: String = conn
             .query_row("PRAGMA quick_check", [], |r| r.get(0))
             .map_err(classify)?;
-        if check != "ok" {
+        if found != "ok" {
             return Err(DbError::Corrupt(format!(
-                "the database failed its check: {check}"
+                "the database failed its check: {found}"
             )));
         }
     }

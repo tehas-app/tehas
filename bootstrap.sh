@@ -581,8 +581,10 @@ install_gh() {
   tar -xzf "$dl/gh.tar.gz" -C "$dl"
   install -m 755 "$dl/gh_${GH_VERSION}_linux_amd64/bin/gh" "$TEHAS_HOME/bin/gh"
 }
-# The system's jq stays for bootstrap.sh itself; tehas's commands find this one
-# first, as lib/paths.sh puts $TEHAS_HOME/bin ahead of the system's.
+# The system's jq stays for bootstrap.sh itself. No installed tehas command runs
+# jq: this pinned one is for the gate and the shell tests on a host that works on
+# a checkout, and for a person's jq in the manual, found first because
+# lib/paths.sh puts $TEHAS_HOME/bin ahead of the system's.
 install_jq() {
   fetch "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" "$JQ_SHA256" "$dl/jq"
   install -m 755 "$dl/jq" "$TEHAS_HOME/bin/jq"

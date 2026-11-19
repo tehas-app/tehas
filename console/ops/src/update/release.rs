@@ -7,13 +7,16 @@
 //! are built into tehas (tehas_core::release), never read from a file an
 //! earlier release left on the host or from the download. Nothing is unpacked before both checks pass, and current moves
 //! only after the unpack and the target's own settings check, so whatever
-//! fails leaves the host on the version it runs.
+//! fails leaves the host on the version it runs. An install.sh that says it
+//! installed nothing after the switch has current and the image tag put back
+//! (`undo`).
 //!
 //! host/release/install repeats these checks in POSIX sh, because it runs on a
 //! host with nothing installed yet.
 
 use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
+    Undo,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -704,27 +707,28 @@ fn unknown_keys(tree: &Path, env_file: &Path) -> (Vec<String>, Vec<String>) {
 /// A new link renamed over the old one, so current is never missing. The
 /// history is what prune reads: the versions in the order they were switched to.
 fn switch(host: &Host, tag: &str) -> bool {
-    let new = host.home.join("current.new");
-    match fs::remove_file(&new) {
-        Err(e) if e.kind() != ErrorKind::NotFound => return false,
-        _ => {}
-    }
-    if unix_fs::symlink(format!("versions/{tag}"), &new).is_err()
-        || fs::rename(&new, host.current()).is_err()
-    {
-        return false;
-    }
+    // The history goes first, so a failed append leaves `current` where it was.
     let state = host.home.join("state");
     if fs::create_dir_all(&state).is_err() {
         return false;
     }
     use std::io::Write;
-    fs::OpenOptions::new()
+    if fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(state.join("release-history"))
         .and_then(|mut f| writeln!(f, "{tag}"))
-        .is_ok()
+        .is_err()
+    {
+        return false;
+    }
+    let new = host.home.join("current.new");
+    match fs::remove_file(&new) {
+        Err(e) if e.kind() != ErrorKind::NotFound => return false,
+        _ => {}
+    }
+    unix_fs::symlink(format!("versions/{tag}"), &new).is_ok()
+        && fs::rename(&new, host.current()).is_ok()
 }
 
 /// The versions the last three switches named, newest first.
@@ -808,12 +812,63 @@ pub(crate) fn keep(host: &Host) {
     prune(host);
 }
 
+/// What `reuse_image` did.
+#[derive(Debug, PartialEq)]
+enum Reuse {
+    Done,
+    /// The image is there, built from another instance layer than the one
+    /// the instance has now.
+    OtherLayer,
+    No,
+}
+
+/// What docker answers for one field of an image, or None.
+fn inspect(image: &str, format: &str) -> Option<String> {
+    let (rc, said) = output(
+        timed(DOCKER_LIMIT, "docker")
+            .args(["image", "inspect", "--format", format, image])
+            .stderr(Stdio::null()),
+    );
+    (rc == 0).then_some(said)
+}
+
+fn image_id(image: &str) -> Option<String> {
+    inspect(image, "{{.Id}}").filter(|id| !id.is_empty())
+}
+
+/// The sum of the instance's sandbox.Dockerfile, empty without one, None when
+/// it cannot be read.
+fn layer_now() -> Option<String> {
+    let file = PathBuf::from(instance_dir()).join("sandbox.Dockerfile");
+    if !file.exists() {
+        return Some(String::new());
+    }
+    crate::sandbox::layer_sum(&file).ok()
+}
+
+/// Whether an image's tehas.layer label says it was built from the layer the
+/// instance has now. An older docker prints `<no value>` for a missing label.
+fn same_layer(label: &str, now: &str) -> bool {
+    let label = if label == "<no value>" { "" } else { label };
+    label == now
+}
+
 /// A version that ran here before has its sandbox image still tagged, so going
-/// back to it is a tag and not a build.
-fn reuse_image(host: &Host, target: &str) -> bool {
+/// back to it is a tag and not a build, unless the instance's layer changed
+/// since that image was built: then the build install.sh owes runs.
+fn reuse_image(host: &Host, target: &str) -> Reuse {
     let tagged = format!("{IMAGE_TAG}{target}");
-    quiet(timed(DOCKER_LIMIT, "docker").args(["image", "inspect", &tagged]))
-        && quiet(timed(DOCKER_LIMIT, "docker").args(["tag", &tagged, &host.image]))
+    let Some(label) = inspect(&tagged, "{{index .Config.Labels \"tehas.layer\"}}") else {
+        return Reuse::No;
+    };
+    if !layer_now().is_some_and(|now| same_layer(&label, &now)) {
+        return Reuse::OtherLayer;
+    }
+    if quiet(timed(DOCKER_LIMIT, "docker").args(["tag", &tagged, &host.image])) {
+        Reuse::Done
+    } else {
+        Reuse::No
+    }
 }
 
 /// The notes a person reads before moving: each release's own section of the
@@ -929,6 +984,20 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
         ));
         from_note = tag;
     }
+    // A checkout ahead of the newest release, on a prerelease, moves to the
+    // release of its own tag: the newest would take it back.
+    if to.is_none() && installed.is_empty() && !from_note.is_empty() && older(&newest, &from_note) {
+        if !list.iter().any(|r| r.tag == from_note) {
+            tell(&format!(
+                "release: the checkout's {from_note} is newer than the newest release {newest} and is not published; tehas update --to names the release to move to; nothing was changed"
+            ));
+            return 1;
+        }
+        say(&format!(
+            "release: the checkout's {from_note} is newer than the newest release; it moves to the release of its own tag"
+        ));
+        target = from_note.clone();
+    }
     if to.is_none() && !installed.is_empty() && older(&newest, &installed) {
         say(&format!(
             "release: {installed} is newer than the newest release; tehas update --to moves it back"
@@ -1023,13 +1092,59 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     };
     say(&format!("release: current is {target}, was {was}"));
     plan.tree = current.display().to_string();
-    if reuse_image(host, &target) {
-        say(&format!(
-            "sandbox: the image {target} ran with is in use again"
-        ));
-        plan.reused = true;
+    let mut undo = Undo {
+        to: target.clone(),
+        was: installed.clone(),
+        image: None,
+    };
+    let before = image_id(&host.image);
+    match reuse_image(host, &target) {
+        Reuse::Done => {
+            say(&format!(
+                "sandbox: the image {target} ran with is in use again"
+            ));
+            plan.reused = true;
+            undo.image = before;
+        }
+        Reuse::OtherLayer => say(&format!(
+            "sandbox: the image {target} ran with was built from another sandbox.Dockerfile, so it is not put back"
+        )),
+        Reuse::No => {}
     }
+    plan.undo = Some(undo);
     0
+}
+
+/// Current and the uid tag as they were before `go` moved them.
+pub(crate) fn undo(host: &Host, undo: &Undo) {
+    let Undo { to, was, image } = undo;
+    let back = if was.is_empty() {
+        !matches!(fs::remove_file(host.current()), Err(e) if e.kind() != ErrorKind::NotFound)
+    } else {
+        switch(host, was)
+    };
+    let named = if was.is_empty() {
+        "the platform checkout"
+    } else {
+        was
+    };
+    if back {
+        say(&format!(
+            "release: install.sh did not finish {to}, so current is {named} again"
+        ));
+    } else {
+        tell(&format!(
+            "release: install.sh did not finish {to}, and current could not be put back to {named}; it still names {to}"
+        ));
+    }
+    if let Some(id) = image {
+        if !quiet(timed(DOCKER_LIMIT, "docker").args(["tag", id, &host.image])) {
+            tell(&format!(
+                "sandbox: {} could not be put back on {id}; it names the image {to} ran with",
+                host.image
+            ));
+        }
+    }
 }
 
 /// `console update release <question>`. The two that compare answer by status
@@ -1098,6 +1213,16 @@ mod tests {
             tag: tag.to_string(),
             body: format!("body of {tag}"),
         }
+    }
+
+    #[test]
+    fn an_image_is_reused_only_when_built_from_the_layer_the_instance_has_now() {
+        assert!(same_layer("", ""));
+        assert!(same_layer("<no value>", ""));
+        assert!(same_layer("sha256:a", "sha256:a"));
+        assert!(!same_layer("sha256:a", "sha256:b"));
+        assert!(!same_layer("", "sha256:b"));
+        assert!(!same_layer("sha256:a", ""));
     }
 
     #[test]
@@ -1537,6 +1662,21 @@ mod tests {
         assert_eq!(
             fs::read_to_string(d.0.join("state/release-history")).unwrap(),
             "v1.1.0\n"
+        );
+    }
+
+    #[test]
+    fn a_history_that_cannot_be_written_leaves_current_where_it_was() {
+        let d = dir("switch-history");
+        let h = host(&d.0);
+        d.file("versions/v1.0.0/VERSION", "v1.0.0\n");
+        d.file("versions/v1.1.0/VERSION", "v1.1.0\n");
+        unix_fs::symlink("versions/v1.0.0", d.0.join("current")).unwrap();
+        fs::create_dir_all(d.0.join("state/release-history")).unwrap();
+        assert!(!switch(&h, "v1.1.0"));
+        assert_eq!(
+            fs::read_link(d.0.join("current")).unwrap(),
+            Path::new("versions/v1.0.0")
         );
     }
 

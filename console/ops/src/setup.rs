@@ -1302,8 +1302,9 @@ fn sandbox_done(home: &Path) {
 
 fn the_sandbox(vars: &Vars, libexec: &Path, home: &str) -> Result<(), Fail> {
     // --if-moved builds when there is no image or it is not on the commit
-    // PI_RUKAS_FOLLOW resolves to, and says so when it is current. It does not
-    // see a changed recipe, so an owed build runs without it.
+    // PI_RUKAS_FOLLOW resolves to or not on the instance's sandbox.Dockerfile,
+    // and says so when it is current. It does not see a changed platform
+    // recipe, so an owed build runs without it.
     let owed = sandbox_owed(Path::new(home));
     let mut build = program(vars, format!("{home}/sandbox/build.sh"));
     if !owed {

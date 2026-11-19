@@ -161,7 +161,7 @@ t_contains "$(cat "$T_ROOT/console/cycle/src/caps.rs")" 'is_num(i.get("manifestV
 # found and broken (issue #261).
 
 t_case "a cycle can look at a picture: file and a Python image library are installed"
-t_contains "$recipe" 'apt-get install -y -qq --no-install-recommends file python3-pil'
+t_contains "$recipe" 'apt-get install -y -qq -o Acquire::Retries=5 --no-install-recommends file python3-pil'
 t_contains "$recipe" "python3 -c 'import PIL'"
 # The apt lists a step fetched do not stay in the image. The check is asked of
 # each RUN that installs: a count over the whole file is met by one step that
@@ -172,6 +172,12 @@ while IFS= read -r run; do
   case "$run" in *apt-get\ install*) ;; *) continue ;; esac
   apt_installs=$((apt_installs + 1))
   case "$run" in *"rm -rf /var/lib/apt/lists/"*) ;; *) apt_unclean="${apt_unclean}RUN ${run:0:60}
+" ;; esac
+  # A mirror mid-sync answers with a hash mismatch: apt retries each fetch,
+  # and the whole step is tried once more after a pause.
+  case "$run" in *"apt-get update -qq -o Acquire::Retries=5 "*) ;; *) apt_unclean="${apt_unclean}no retried update: RUN ${run:0:60}
+" ;; esac
+  case "$run" in *"for try in 1 2; do "*"&& break; "*"sleep 30; "*" done "*) ;; *) apt_unclean="${apt_unclean}not tried twice: RUN ${run:0:60}
 " ;; esac
 done <<<"$(docker_runs "$dockerfile")"
   # The count is what the image's recipe holds today: one step that installs.

@@ -278,6 +278,79 @@ pub fn changed_after(at: &str, who: &str, since: &str, approver: &str) -> bool {
         || (at == since && (approver.is_empty() || account(who) != account(approver)))
 }
 
+/// Whether the edits of an issue's body hold back the approval `approver`
+/// gave at `since`: the login of an editor `allowed` refuses whose edit is
+/// after `since` (as `changed_after` reads it), or "unknown" for one that
+/// names no editor or a history that may be cut. `edit` carries GraphQL's
+/// `lastEditedAt` and `editor.login`, and `userContentEdits` with
+/// `totalCount` and `nodes { editedAt editor { login } }`.
+///
+/// An empty or missing `lastEditedAt` is no edit: GitHub stamps every edit it
+/// saves, so an unstamped record is one nobody saved. When the last edit is
+/// after the approval, every edit is judged, not only the last: an allowed
+/// account that saves the body after an outside one does not clear it. A
+/// history that is missing, that holds fewer nodes than `totalCount`, or a
+/// node with no stamp, cannot be placed before the approval, so it holds. A
+/// rename is read the same way (`first_unallowed_rename`).
+pub fn edit_holds(
+    edit: &Value,
+    since: &str,
+    approver: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let at = edit
+        .get("lastEditedAt")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let by = login_of(edit);
+    if at.is_empty() || !changed_after(at, by, since, approver) {
+        return None;
+    }
+    let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
+    if !allowed(who) {
+        return Some(who.to_string());
+    }
+    let history = edit.get("userContentEdits");
+    let nodes = history
+        .and_then(|h| h.get("nodes"))
+        .and_then(Value::as_array);
+    let total = history
+        .and_then(|h| h.get("totalCount"))
+        .and_then(Value::as_u64);
+    let (Some(nodes), Some(total)) = (nodes, total) else {
+        return Some(UNKNOWN_ACTOR.to_string());
+    };
+    if total > nodes.len() as u64 {
+        return Some(UNKNOWN_ACTOR.to_string());
+    }
+    nodes.iter().find_map(|n| {
+        let at = n.get("editedAt").and_then(Value::as_str).unwrap_or("");
+        let by = login_of(n);
+        if !at.is_empty() && !changed_after(at, by, since, approver) {
+            return None;
+        }
+        let who = if by.is_empty() { UNKNOWN_ACTOR } else { by };
+        (!allowed(who)).then(|| who.to_string())
+    })
+}
+
+/// Whether `edit_holds` held only because the history it needed was a read
+/// that failed: the last editor is one `allowed` takes, and the history is
+/// `{"failed": true}`. The caller waits for a read rather than refuse.
+pub fn edit_history_unread(edit: &Value, allowed: &dyn Fn(&str) -> bool) -> bool {
+    let by = login_of(edit);
+    !by.is_empty()
+        && allowed(by)
+        && edit.pointer("/userContentEdits/failed") == Some(&Value::Bool(true))
+}
+
+fn login_of(v: &Value) -> &str {
+    v.get("editor")
+        .and_then(|e| e.get("login"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
 /// The first `renamed` event after `since` (any of them when `since` is
 /// empty) whose account is not allowed, or the veto of nobody: "unknown" for
 /// a rename that names no account. None when no rename holds the title back.
@@ -591,6 +664,143 @@ mod standing_tests {
         other.label = "tehas:blocked".into();
         let ev = [event("labeled", "alice", Some(T)), other];
         assert_eq!(who(&ev), ("alice".into(), T.into()));
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::{edit_holds, UNKNOWN_ACTOR};
+    use serde_json::json;
+
+    const SINCE: &str = "2026-01-02T10:00:00Z";
+    const AFTER: &str = "2026-01-02T10:05:00Z";
+
+    fn held(edit: &serde_json::Value) -> Option<String> {
+        edit_holds(edit, SINCE, "alice", &|w| w == "alice")
+    }
+
+    /// GitHub stamps every saved edit: one with no stamp is no edit.
+    #[test]
+    fn an_unstamped_edit_is_no_edit() {
+        assert_eq!(
+            held(&json!({"lastEditedAt": null, "editor": {"login": "mallory"}})),
+            None
+        );
+        assert_eq!(held(&json!({"editor": {"login": "mallory"}})), None);
+        assert_eq!(
+            held(&json!({"lastEditedAt": "", "editor": {"login": "mallory"}})),
+            None
+        );
+    }
+
+    /// The record of an issue last edited by `last` after the approval, with
+    /// a history of `edits` (editedAt, editor) and `total` edits in all.
+    fn record(last: &str, edits: &[(&str, &str)], total: usize) -> serde_json::Value {
+        let nodes: Vec<_> = edits
+            .iter()
+            .map(|(at, who)| json!({"editedAt": at, "editor": {"login": who}}))
+            .collect();
+        json!({"lastEditedAt": AFTER, "editor": {"login": last},
+            "userContentEdits": {"totalCount": total, "nodes": nodes}})
+    }
+
+    #[test]
+    fn an_edit_after_the_approval_holds_unless_allowed() {
+        assert_eq!(
+            held(&record("mallory", &[(AFTER, "mallory")], 1)).as_deref(),
+            Some("mallory")
+        );
+        assert_eq!(held(&record("alice", &[(AFTER, "alice")], 1)), None);
+        let nobody = json!({"lastEditedAt": AFTER, "editor": null});
+        assert_eq!(held(&nobody).as_deref(), Some(UNKNOWN_ACTOR));
+    }
+
+    /// An allowed account that saves the body after an outside one does not
+    /// clear the outside edit.
+    #[test]
+    fn an_outside_edit_followed_by_an_allowed_one_holds() {
+        let edits = [("2026-01-02T10:01:00Z", "mallory"), (AFTER, "alice")];
+        assert_eq!(
+            held(&record("alice", &edits, 2)).as_deref(),
+            Some("mallory")
+        );
+        // Newest first, as GitHub may list them.
+        let edits = [(AFTER, "alice"), ("2026-01-02T10:01:00Z", "mallory")];
+        assert_eq!(
+            held(&record("alice", &edits, 2)).as_deref(),
+            Some("mallory")
+        );
+    }
+
+    #[test]
+    fn only_allowed_edits_after_the_approval_start() {
+        let edits = [
+            ("2026-01-01T00:00:00Z", "mallory"),
+            ("2026-01-02T09:59:00Z", "mallory"),
+            ("2026-01-02T10:01:00Z", "alice"),
+            (AFTER, "alice"),
+        ];
+        assert_eq!(held(&record("alice", &edits, 4)), None);
+    }
+
+    #[test]
+    fn a_history_that_may_be_cut_or_cannot_be_read_holds() {
+        let unknown = Some(UNKNOWN_ACTOR);
+        // Fewer nodes than GitHub counts: the edits left out may be after.
+        assert_eq!(
+            held(&record("alice", &[(AFTER, "alice")], 101)).as_deref(),
+            unknown
+        );
+        // No history read at all.
+        let bare = json!({"lastEditedAt": AFTER, "editor": {"login": "alice"}});
+        assert_eq!(held(&bare).as_deref(), unknown);
+        let failed = json!({"lastEditedAt": AFTER, "editor": {"login": "alice"},
+            "userContentEdits": {"failed": true}});
+        assert_eq!(held(&failed).as_deref(), unknown);
+        // An edit that names no editor, or carries no stamp.
+        let mut r = record("alice", &[(AFTER, "alice")], 1);
+        r["userContentEdits"]["nodes"][0]["editor"] = json!(null);
+        assert_eq!(held(&r).as_deref(), unknown);
+        let mut r = record("alice", &[(AFTER, "mallory")], 1);
+        r["userContentEdits"]["nodes"][0]["editedAt"] = json!(null);
+        assert_eq!(held(&r).as_deref(), Some("mallory"));
+    }
+
+    /// A last edit before the approval needs no history: every edit is older.
+    #[test]
+    fn a_last_edit_before_the_approval_reads_no_history() {
+        let before = json!({"lastEditedAt": "2026-01-02T09:59:00Z", "editor": {"login": "alice"}});
+        assert_eq!(held(&before), None);
+    }
+
+    #[test]
+    fn an_edit_before_the_approval_is_the_text_it_covered() {
+        let before =
+            json!({"lastEditedAt": "2026-01-02T09:59:00Z", "editor": {"login": "mallory"}});
+        assert_eq!(held(&before), None);
+    }
+
+    /// An empty `since` has every edit after it, but still no unstamped one.
+    #[test]
+    fn with_no_approval_time_only_a_stamped_edit_holds() {
+        let allowed = |w: &str| w == "alice";
+        let unstamped = json!({"lastEditedAt": null, "editor": {"login": "mallory"}});
+        assert_eq!(edit_holds(&unstamped, "", "alice", &allowed), None);
+        let stamped = json!({"lastEditedAt": SINCE, "editor": {"login": "mallory"}});
+        assert_eq!(
+            edit_holds(&stamped, "", "alice", &allowed).as_deref(),
+            Some("mallory")
+        );
+    }
+
+    /// GitHub stamps to the second: an edit in the approval's second holds
+    /// unless the approver made it.
+    #[test]
+    fn an_edit_in_the_approval_second_holds_unless_the_approver_made_it() {
+        let by = |who: &str| json!({"lastEditedAt": SINCE, "editor": {"login": who}});
+        assert_eq!(held(&by("mallory")).as_deref(), Some("mallory"));
+        let only_bob = |w: &str| w == "bob";
+        assert_eq!(edit_holds(&by("alice"), SINCE, "alice", &only_bob), None);
     }
 }
 

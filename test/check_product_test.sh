@@ -46,6 +46,13 @@ t_contains "$t_out" "ok    gate     .pi/verify-cmd: make test"
 t_contains "$t_out" "no .pi/settings.json, the instance's model is used"
 t_eq "$(jq -c '{ok, failures, sandbox}' "$result")" '{"ok":true,"failures":[],"sandbox":null}'
 
+t_case "a reader that goes away is exit 141, and the result is still written"
+product "${good[@]}"
+t_run "{ sleep 0.3; $check 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+t_eq "$t_rc" 141
+t_eq "$(cat "$T/err")" ""
+t_eq "$(jq -c '{ok, failures}' "$result")" '{"ok":true,"failures":[]}'
+
 t_case "settings missing: 78 before any git call"
 product "${good[@]}"
 t_stub git

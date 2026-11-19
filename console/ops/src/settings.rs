@@ -3,8 +3,11 @@
 //!   console settings load <euid> [<bash>]
 //!
 //! What tehas_load does, as lines for a shell to eval: standard output holds
-//! the exports, whether the load was refused or not. Exit 78 with one line on
-//! standard error when it was refused.
+//! the exports, whether the load was refused or not. Exit 78 when it was
+//! refused, with its line on standard error, then every other line of
+//! instance.env and ~/.config/tehas/env that sets a setting tehas 1.0 renamed
+//! or removed or a line of a feature still being built ([`refused`]): the load
+//! stops at the first, and an update names them all at once.
 //!
 //! instance.env is shell, so a shell of its own runs it, on the environment
 //! this load leaves after its sweep. The shell's own output goes to standard
@@ -38,7 +41,7 @@
 //! The rules a value of each setting is checked with, built from TABLE: what
 //! api/settings-rules.json holds, for a tool with no factory to check
 //! instance.env values. A rule's `reason` is what the check says for its
-//! refused example with empty trees.
+//! refused example.
 //!
 //!   console settings checkout | branch
 //!
@@ -51,14 +54,16 @@
 
 use std::env;
 use std::ffi::OsStr;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::{Command, Stdio};
+use tehas_core::features;
 use tehas_core::jq::{self, J};
 use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
-use tehas_core::settings::rules::{self, Setting, Trees, When, TABLE};
+use tehas_core::settings::renamed;
+use tehas_core::settings::rules::{self, Setting, When, TABLE};
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 const REFUSED: u8 = 78;
@@ -156,6 +161,49 @@ pub(crate) fn instance_dir(vars: &Vars) -> String {
     load::instance_dir(vars, &host)
 }
 
+/// A refused load's line, `tehas: ` and all, then every other row of
+/// api/renames-1.0.tsv and every line of a feature still being built set in
+/// `<dir>/instance.env` and `<config>/env`: the load stops at the first.
+pub(crate) fn refused(line: String, dir: &str, config: &str) -> Vec<String> {
+    let mut found = renamed_lines(dir, config);
+    for line in building_lines(dir, config) {
+        if !found.contains(&line) {
+            found.push(line);
+        }
+    }
+    if !found.contains(&line) {
+        found.insert(0, line);
+    }
+    found
+}
+
+/// Every row of api/renames-1.0.tsv the instance and the credential file still
+/// set, as the load words each.
+fn renamed_lines(dir: &str, config: &str) -> Vec<String> {
+    [format!("{dir}/instance.env"), format!("{config}/env")]
+        .iter()
+        .flat_map(|file| renamed::found_in(&fs::read(file).unwrap_or_default(), file))
+        .map(|line| format!("tehas: {line}"))
+        .collect()
+}
+
+/// Every line of a building feature's the instance and the credential file
+/// set, as the load words each (tehas_core::features::found_in).
+fn building_lines(dir: &str, config: &str) -> Vec<String> {
+    [format!("{dir}/instance.env"), format!("{config}/env")]
+        .iter()
+        .flat_map(|file| features::found_in(&fs::read(file).unwrap_or_default(), file))
+        .map(|line| format!("tehas: {line}"))
+        .collect()
+}
+
+/// [`refused`] for a load that started from `start`, the line without its
+/// `tehas: `.
+fn refused_from(start: &Vars, line: &str) -> Vec<String> {
+    let config = format!("{}/.config/tehas", start.text("HOME"));
+    refused(format!("tehas: {line}"), &instance_dir(start), &config)
+}
+
 /// tehas_load on `vars`, for a program that runs what follows itself. Err is
 /// the line for standard error, without its `tehas: `.
 pub(crate) fn load_into(vars: &mut Vars, uid: &str, bash: &str) -> Result<(), String> {
@@ -196,16 +244,23 @@ fn run_load(uid: &str, bash: &str) -> u8 {
     match got {
         Ok(()) => 0,
         Err(line) => {
-            eprintln!("tehas: {line}");
+            say_refused(&start, &line);
             REFUSED
         }
     }
 }
 
+fn say_refused(start: &Vars, line: &str) {
+    for line in refused_from(start, line) {
+        eprintln!("{line}");
+    }
+}
+
 fn run_require(uid: &str, bash: &str) -> u8 {
-    let mut vars = this_environment();
+    let start = this_environment();
+    let mut vars = start.clone();
     if let Err(line) = load_into(&mut vars, uid, bash) {
-        eprintln!("tehas: {line}");
+        say_refused(&start, &line);
         return REFUSED;
     }
     match require(&INSTANCE_SETTINGS, &vars) {
@@ -246,7 +301,7 @@ pub fn load_here(uid: &str, bash: &str) -> Result<Vars, u8> {
     match got {
         Ok(()) => Ok(vars),
         Err(line) => {
-            eprintln!("tehas: {line}");
+            say_refused(&start, &line);
             Err(REFUSED)
         }
     }
@@ -272,18 +327,7 @@ pub fn loaded(names: &[&str]) -> Result<(), u8> {
 }
 
 fn why(name: &str, value: &str) -> Option<String> {
-    let var = |k: &str| env::var(k).unwrap_or_default();
-    let (home, instance, work_repo) = (
-        var("TEHAS_HOME"),
-        var("TEHAS_INSTANCE_DIR"),
-        var("TEHAS_WORK_REPO"),
-    );
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
-    rules::check(name, value, &trees).err()
+    rules::check(name, value).err()
 }
 
 fn valid_stream() -> u8 {
@@ -323,13 +367,9 @@ fn strings(words: &[&str]) -> J {
 }
 
 fn rule_row(setting: &Setting) -> J {
-    let reason = rules::check(
-        setting.name,
-        setting.rule.refused_example(),
-        &Trees::default(),
-    )
-    .err()
-    .unwrap_or_default();
+    let reason = rules::check(setting.name, setting.rule.refused_example())
+        .err()
+        .unwrap_or_default();
     let mut fields = vec![
         ("name", J::str(setting.name)),
         ("rule", J::str(setting.rule.name())),
@@ -340,6 +380,9 @@ fn rule_row(setting: &Setting) -> J {
         fields.push(("words", strings(words)));
     }
     fields.push(("reason", J::str(reason)));
+    if tehas_core::features::building_setting(setting.name) {
+        fields.push(("building", J::bool(true)));
+    }
     jq::obj(fields)
 }
 
@@ -486,6 +529,32 @@ mod tests {
     }
 
     #[test]
+    fn a_row_is_marked_building_when_the_registry_builds_its_feature() {
+        use tehas_core::features::{Stage, FEATURES};
+        let object = J::parse(&rules_json()).unwrap();
+        let mut marked: Vec<String> = object
+            .get("settings")
+            .items()
+            .iter()
+            .chain(object.get("host").items().iter())
+            .filter(|row| !row.get("building").is_null())
+            .map(|row| {
+                assert!(row.get("building").is_true());
+                row.get("name").text()
+            })
+            .collect();
+        let mut building: Vec<String> = FEATURES
+            .iter()
+            .filter(|f| f.stage == Stage::Building)
+            .flat_map(|f| std::iter::once(f.setting).chain(f.settings.iter().copied()))
+            .map(str::to_string)
+            .collect();
+        marked.sort();
+        building.sort();
+        assert_eq!(marked, building);
+    }
+
+    #[test]
     fn a_reason_is_what_the_check_says_for_the_example() {
         let object = J::parse(&rules_json()).unwrap();
         let rows = object.get("settings").items();
@@ -495,11 +564,7 @@ mod tests {
             let reason = row.get("reason").text();
             assert!(!reason.is_empty(), "{}", setting.name);
             assert_eq!(
-                rules::check(
-                    setting.name,
-                    setting.rule.refused_example(),
-                    &Trees::default()
-                ),
+                rules::check(setting.name, setting.rule.refused_example()),
                 Err(reason),
                 "{}",
                 setting.name

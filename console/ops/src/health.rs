@@ -51,6 +51,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::features::Tested;
 use tehas_core::github_fails;
 use tehas_core::grammar::an_end;
 use tehas_core::hold;
@@ -99,6 +100,9 @@ struct Given {
     mcp: Option<String>,
     /// TEHAS_MANAGER_VERSION: the program that manages this factory.
     manager: Option<String>,
+    /// TEHAS_TEST_FEATURES when it is set or this is a lab build
+    /// (tehas_core::features::test_features).
+    test_features: Option<Tested>,
 }
 
 /// Where the run looks for the MCP server: `TEHAS_MCP` and `TEHAS_HOST_ADDR`
@@ -362,6 +366,7 @@ fn checks(home: &Path, budget: &str, systemctl: &Path, mcp: &Mcp) -> Result<Give
         poll_idle: idle.map(|v| v.to_string()),
         mcp: Some(mcp_check(&mcp).dump()),
         manager: env::var("TEHAS_MANAGER_VERSION").ok(),
+        test_features: tested(),
     })
 }
 
@@ -925,7 +930,10 @@ pub fn main(given: &[String]) -> u8 {
         [verb, home, rest @ ..] if verb == "report" => (Path::new(home), rest),
         _ => return usage(),
     };
-    let mut g = Given::default();
+    let mut g = Given {
+        test_features: tested(),
+        ..Given::default()
+    };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
         let Some(v) = it.next().cloned() else {
@@ -1055,8 +1063,9 @@ fn platform(live: &Path) -> J {
     }
 }
 
-/// The pi-rukas the sandbox image runs against the one the host follows, as
-/// tehasbot status last read it (src/rukas.rs).
+/// The pi-rukas the sandbox image runs against the one the host follows, and
+/// its instance layer against the instance's sandbox.Dockerfile, as tehasbot
+/// status last read them (src/rukas.rs).
 fn rukas(live: &Path) -> J {
     match read(&live.join("rukas.json")) {
         Some(r @ J::Obj(_)) if matches!(r.get("behind"), J::Bool(_)) => J::Obj(get_fields(
@@ -1069,6 +1078,9 @@ fn rukas(live: &Path) -> J {
                 "imageVersion",
                 "clone",
                 "behind",
+                "layer",
+                "instanceLayer",
+                "layerMoved",
             ],
         )),
         _ => J::Null,
@@ -1087,6 +1099,42 @@ fn manager(given: Option<&str>) -> Option<J> {
     let pre_ok = pre.len() <= 32 && pre.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
     let shaped = parts.len() == 3 && parts.iter().all(digits) && pre_ok && !v.ends_with('-');
     shaped.then(|| obj(vec![("version", J::str(v))]))
+}
+
+/// TEHAS_TEST_FEATURES in this environment, as `Given` holds it.
+fn tested() -> Option<Tested> {
+    tehas_core::features::test_features()
+}
+
+/// Where the manual puts TEHAS_TEST_FEATURES on a lab host.
+const LAB_ENV_FILE: &str = "~/.config/environment.d/tehas-lab.conf";
+
+/// `checks.testFeatures`, `{read, features, lab}`, and the line health says of it.
+fn test_features(given: Option<&Tested>) -> Option<(J, String)> {
+    let t = given?;
+    let var = tehas_core::features::TEST_VAR;
+    let check = obj(vec![
+        ("read", J::Bool(t.read)),
+        (
+            "features",
+            J::Arr(t.features.iter().map(|n| J::str(*n)).collect()),
+        ),
+        ("lab", J::Bool(t.lab)),
+    ]);
+    let line = match (t.read, t.features.is_empty()) {
+        _ if !t.set => format!(
+            "A lab build: {var} is unset, so no building feature is on. ./install.sh without --lab-build goes back."
+        ),
+        (false, _) => format!(
+            "{var} is set and this build does not read it: take it out of the units' environment ({LAB_ENV_FILE})."
+        ),
+        (true, true) => format!("A lab build: {var} is set and names no building feature."),
+        (true, false) => format!(
+            "A lab build: {var} names {}, still being built. No release reads it.",
+            t.features.join(", ")
+        ),
+    };
+    Some((check, line))
 }
 
 /// Where `tehas host-message` keeps the factory's messages.
@@ -1622,6 +1670,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let limit = limit(home, now);
     let order = order(home);
     let manager_check = manager(g.manager.as_deref());
+    let (test_check, test_line) = test_features(g.test_features.as_ref()).unzip();
     // The host's own record of a sandbox that cannot push: what the poll holds
     // starts on, and what a person has to fix.
     let push_fault = push_fault(home);
@@ -1729,6 +1778,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .unwrap_or(0)
             > BEHIND_FOR;
     let rukas_behind = rukas.get("behind").is_true();
+    let layer_moved = rukas.get("layerMoved").is_true();
     // The lists are as old as the last read of them: a snapshot that kept
     // them from the file before, as its read of GitHub failed, says when, and
     // one that had none to keep is as old as can be.
@@ -1792,12 +1842,14 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         || disk_low
         || behind
         || rukas_behind
+        || layer_moved
         || old_backup
         || over_budget
         || !unlinked.is_empty()
         || mcp_silent
         || github_out
         || held_line.is_some()
+        || test_line.is_some()
     {
         "warn"
     } else {
@@ -1886,6 +1938,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             named("imageVersion", "image"),
             named("targetVersion", "target")
         )
+    } else if layer_moved {
+        "The sandbox image was built from another instance layer than sandbox.Dockerfile is now: run tehas update.".to_string()
     } else if old_backup {
         let why = if upkeep_failed {
             format!(
@@ -1934,6 +1988,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             "Labelled epic with no sub-issues: {}. Link their parts to them as sub-issues.",
             named.join(", ")
         )
+    } else if let Some(line) = test_line {
+        line
     } else if let Some(line) = refused_line {
         line
     } else if !running.is_empty() {
@@ -2070,6 +2126,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     }
     if let Some(i) = manager_check {
         checks.push(("manager", i));
+    }
+    // Only where TEHAS_TEST_FEATURES is set or the build is a lab build: a
+    // lab host, or one that kept the variable after it went back to a release.
+    if let Some(t) = test_check {
+        checks.push(("testFeatures", t));
     }
     // TEHAS_READ_ONLY (#608): said only when on, so a health file of any
     // other instance is as it was.
@@ -2871,6 +2932,26 @@ mod tests {
             r.at(&["checks", "rukas", "imageVersion"]).text(),
             "v0.14.54"
         );
+        // The image on the commit followed, its instance layer not the one
+        // sandbox.Dockerfile is now.
+        h.write(
+            "live/rukas.json",
+            &format!(
+                r#"{{"target":"{b}","image":"{b}","behind":false,"layer":"sha256:1","instanceLayer":"sha256:2","layerMoved":true}}"#
+            ),
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "The sandbox image was built from another instance layer than sandbox.Dockerfile is now: run tehas update.".into()
+            )
+        );
+        let c = r.at(&["checks", "rukas"]);
+        assert_eq!(c.get("layer").text(), "sha256:1");
+        assert_eq!(c.get("instanceLayer").text(), "sha256:2");
+        assert!(c.get("layerMoved").is_true());
         // A file of another shape is no check.
         h.write("live/rukas.json", r#"{"behind":"yes"}"#);
         let r = h.report(&Given::default());
@@ -2966,6 +3047,87 @@ mod tests {
         assert_eq!(
             said(&r),
             ("warn".into(), "The host message x is set.".into())
+        );
+    }
+
+    #[test]
+    fn the_test_variable_warns_and_says_whether_this_build_reads_it() {
+        let h = home("test-features");
+        let with = |t: Option<(bool, &[&'static str])>| {
+            h.report(&Given {
+                test_features: t.map(|(read, n)| Tested {
+                    read,
+                    lab: false,
+                    set: true,
+                    features: n.to_vec(),
+                }),
+                ..Given::default()
+            })
+        };
+        let r = with(None);
+        assert!(r.at(&["checks", "testFeatures"]).is_null());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+
+        let r = with(Some((true, &["outsource", "lean"])));
+        assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(true));
+        assert_eq!(
+            r.at(&["checks", "testFeatures", "features"]),
+            &J::Arr(vec![J::str("outsource"), J::str("lean")])
+        );
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "A lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built. No release reads it.".into()
+            )
+        );
+        assert_eq!(
+            said(&with(Some((true, &[])))).1,
+            "A lab build: TEHAS_TEST_FEATURES is set and names no building feature."
+        );
+
+        let r = with(Some((false, &["outsource"])));
+        assert_eq!(r.at(&["checks", "testFeatures", "read"]), &J::Bool(false));
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "TEHAS_TEST_FEATURES is set and this build does not read it: take it out of the units' environment (~/.config/environment.d/tehas-lab.conf).".into()
+            )
+        );
+    }
+
+    #[test]
+    fn a_lab_build_warns_with_the_test_variable_unset() {
+        let h = home("lab-build");
+        let lab = |set: bool, features: &[&'static str]| {
+            h.report(&Given {
+                test_features: Some(Tested {
+                    read: true,
+                    lab: true,
+                    set,
+                    features: features.to_vec(),
+                }),
+                ..Given::default()
+            })
+        };
+        let r = lab(false, &[]);
+        assert_eq!(
+            r.at(&["checks", "testFeatures"]).dump(),
+            r#"{"read":true,"features":[],"lab":true}"#
+        );
+        assert_eq!(
+            said(&r),
+            (
+                "warn".into(),
+                "A lab build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh without --lab-build goes back.".into()
+            )
+        );
+        let r = lab(true, &["outsource"]);
+        assert_eq!(r.at(&["checks", "testFeatures", "lab"]), &J::Bool(true));
+        assert_eq!(
+            said(&r).1,
+            "A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No release reads it."
         );
     }
 

@@ -65,9 +65,21 @@ retar() {
 t_case "pack refuses a running cycle: exit 1, the issue, nothing on stdout"
 reset
 t_live "$src" 12 true running work
+t_hold "$src/state/cycles/12.lock"
+pack
+t_release
+t_eq "$t_rc" 1
+t_contains "$t_out" "a cycle is running for #12"
+t_eq "$(wc -c <"$tar_file")" 0
+
+t_case "pack refuses a cycle killed before it reported and names tehas stop"
+reset
+t_live "$src" 12 true running work
 pack
 t_eq "$t_rc" 1
-t_contains "$t_out" "#12"
+t_contains "$t_out" "the cycle for #12 was killed before it reported"
+t_contains "$t_out" "tehas stop 12"
+t_lacks "$t_out" "a cycle is running"
 t_eq "$(wc -c <"$tar_file")" 0
 
 t_case "pack refuses a planning turn: exit 1, the issue, nothing on stdout"
@@ -602,6 +614,11 @@ t_eq "$(fingerprint "$dst")" "$before"
 drain
 t_live "$dst" 12 true running work
 t_run "$state load --from '$T/copies/c.db'"
+t_eq "$t_rc" 1
+t_eq "$t_out" "tehas state: the cycle for #12 was killed before it reported and its record is open: tehas stop 12 ends it"
+t_hold "$dst/state/cycles/12.lock"
+t_run "$state load --from '$T/copies/c.db'"
+t_release
 t_eq "$t_rc" 1
 t_eq "$t_out" "tehas state: a cycle is running for #12"
 

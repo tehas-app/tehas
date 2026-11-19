@@ -578,6 +578,8 @@ t_run "$work 7"
 t_eq "$t_rc" 78
 t_eq "$(cycle_args)" ""
 t_eq "$(preflight_args)" ""
+t_eq "$(cat "$T/home/tehas/state/cycles/7.refused")" "scratch-unmade $T/scratch/widget-7"
+rm -f "$T/home/tehas/state/cycles/7.refused"
 
 t_case "the watch loop stops a cycle by the cycle clock, not the wall clock"
 fresh

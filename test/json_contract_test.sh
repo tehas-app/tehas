@@ -44,9 +44,11 @@ surfaces=(
   'sample	sample'
   'sample	expired'
   'sample	empty'
+  'sample	unreadable'
   'state	ok'
   'state	expired'
   'state	none'
+  'state	unreadable'
   'check	del(.state) | .zz = 1 | .only = "yes"	.: state is missing'
   'check	del(.state) | .zz = 1 | .only = "yes"	.zz: not in the schema'
   'check	del(.state) | .zz = 1 | .only = "yes"	.only: string, not boolean'
@@ -546,7 +548,9 @@ panel_reading() { # <name>
 # The order of the `order` samples, on the state store: issues 12 and 8 first,
 # nothing else, an expiry forty minutes on and a reason, written at the moment
 # `limit` is, and read then (`sample`) or after it expired (`expired`). A store
-# that cannot be read is no answer at all: the command exits 1.
+# that cannot be read is no answer at all: the command exits 1. A store that
+# answers with an order this console cannot read (`unreadable`), as a store of
+# another release might, is a planted answer of the store.
 order_world() { # <name>
   t_store_home "$T/home/tehas"
   case $1 in
@@ -554,6 +558,7 @@ order_world() { # <name>
         tehas order set --issues 12,8 --only --until 2026-10-17T15:00:20Z --reason held >/dev/null 2>&1" ||
       t_bad "setting the order failed: $t_out" ;;
     empty) ;;
+    unreadable) t_store_answers order-show 0 '{"api":1,"ok":true,"verb":"order-show","order":{"state":"sorted"}}' ;;
   esac
 }
 

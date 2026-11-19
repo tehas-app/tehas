@@ -23,6 +23,16 @@
       }
     },
     "readOnly": {"const": true},
+    "testFeatures": {
+      "type": "object",
+      "required": ["read", "features"],
+      "additionalProperties": false,
+      "properties": {
+        "read": {"type": "boolean"},
+        "features": {"type": "array", "items": {"type": "string"}},
+        "lab": {"type": "boolean"}
+      }
+    },
     "allHands": {"type": "boolean"},
     "pushFault": {
       "type": "object",
@@ -141,6 +151,20 @@
         "properties": {
           "issue": {"type": "integer", "minimum": 1},
           "builtAt": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    "previews": {
+      "description": "The previews of the open pull requests, as the previews last listed them, newest pull request first. The preview of the default branch is not one of them. Left out when there is no such list, as on a host that does not run previews.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["number", "state"],
+        "additionalProperties": false,
+        "properties": {
+          "number": {"type": "integer", "minimum": 1},
+          "state": {"description": "The preview's own word: building, serving, build-failed, no-recipe, over-limit or no-space. An open list: later releases add words.", "type": "string", "minLength": 1},
+          "url": {"description": "Where the preview answers; there only while it serves.", "type": "string", "pattern": "^https://"}
         }
       }
     },

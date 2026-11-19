@@ -3,6 +3,7 @@
 
 use crate::given::{cut, Ordered, CUT_LINK, MOST_LEFT};
 use serde_json::Value;
+use tehas_core::grammar::SPEC_BLOCK_VERSION;
 
 /// One file given to a cycle. A file of an archive also says the archive and
 /// where in it the file stood; a text file says the name it had.
@@ -118,7 +119,8 @@ pub fn nothing(issue: &str, approval: &str, files: bool) -> String {
 
 /// The `spec` entry: the file of the spec an approval pinned, as the cycle
 /// is given it, with its link, the name the link has, and the bytes and
-/// sha256 that equal the approval's pin.
+/// sha256 that equal the approval's pin, and the version of the pull request
+/// spec block the cycle writes.
 pub fn spec(file: &str, link: &str, bytes: i64, sha256: &str) -> Ordered {
     Ordered::map([
         ("file", Ordered::text(file)),
@@ -129,6 +131,7 @@ pub fn spec(file: &str, link: &str, bytes: i64, sha256: &str) -> Ordered {
         ),
         ("bytes", Ordered::Plain(bytes.into())),
         ("sha256", Ordered::text(sha256)),
+        ("block", Ordered::Plain(SPEC_BLOCK_VERSION.into())),
     ])
 }
 
@@ -219,7 +222,7 @@ mod tests {
         let doc: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(
             doc["spec"],
-            serde_json::json!({"file": "spec.md", "link": "https://github.com/user-attachments/files/1/search.md", "name": "search.md", "bytes": 12, "sha256": "a".repeat(64)})
+            serde_json::json!({"file": "spec.md", "link": "https://github.com/user-attachments/files/1/search.md", "name": "search.md", "bytes": 12, "sha256": "a".repeat(64), "block": 1})
         );
         assert_eq!(
             doc["approvedText"],

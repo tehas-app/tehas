@@ -362,8 +362,17 @@ fn lines(snapshot: &str, cols: usize, rows: usize) -> Option<Vec<String>> {
 }
 
 fn put(text: &str) -> bool {
+    printed(text) == 0
+}
+
+/// The status of a print: 141 when the reader has gone, 1 another failure.
+fn printed(text: &str) -> u8 {
     let mut out = std::io::stdout().lock();
-    out.write_all(text.as_bytes()).and(out.flush()).is_ok()
+    match out.write_all(text.as_bytes()).and(out.flush()) {
+        Ok(()) => 0,
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => tehas_core::exit::CLOSED,
+        Err(_) => 1,
+    }
 }
 
 fn tty(args: &[&str]) -> Option<String> {
@@ -473,14 +482,14 @@ pub fn view(given: &[String]) -> u8 {
     match mode {
         Mode::Json => {
             let (snapshot, _) = take(size().1, "", second);
-            u8::from(!put(&format!("{snapshot}\n")))
+            printed(&format!("{snapshot}\n"))
         }
         Mode::Live if std::io::stdout().is_terminal() => live_view(every),
         _ => {
             let (cols, rows) = size();
             let (snapshot, _) = take(rows, "", second);
             match lines(&snapshot, cols, rows) {
-                Some(frame) => u8::from(!put(&format!("{}\n", frame.join("\n")))),
+                Some(frame) => printed(&format!("{}\n", frame.join("\n"))),
                 None => 1,
             }
         }

@@ -921,6 +921,246 @@
    }
   },
   {
+   "case": "an outside edit after the approval holds though an allowed account edited after it",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "alice"
+       },
+       "userContentEdits": {
+        "totalCount": 2,
+        "nodes": [
+         {
+          "editedAt": "2026-01-01T12:00:00Z",
+          "editor": {
+           "login": "mallory"
+          }
+         },
+         {
+          "editedAt": "2026-01-02T00:00:00Z",
+          "editor": {
+           "login": "alice"
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its text was changed by 'mallory' after alice applied tehas:ready; apply the label again to approve it"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "edits after the approval by allowed accounts alone start the issue",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "alice"
+       },
+       "userContentEdits": {
+        "totalCount": 3,
+        "nodes": [
+         {
+          "editedAt": "2025-12-31T00:00:00Z",
+          "editor": {
+           "login": "mallory"
+          }
+         },
+         {
+          "editedAt": "2026-01-01T12:00:00Z",
+          "editor": {
+           "login": "alice"
+          }
+         },
+         {
+          "editedAt": "2026-01-02T00:00:00Z",
+          "editor": {
+           "login": "alice"
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "would run a cycle for #7 (labelled by alice)"
+    ]
+   }
+  },
+  {
+   "case": "an edit history GitHub cut short holds the start",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "alice"
+       },
+       "userContentEdits": {
+        "totalCount": 101,
+        "nodes": [
+         {
+          "editedAt": "2026-01-02T00:00:00Z",
+          "editor": {
+           "login": "alice"
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its text was changed by 'unknown' after alice applied tehas:ready; apply the label again to approve it"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an edit history that could not be read ends the poll",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "alice"
+       },
+       "userContentEdits": {
+        "failed": true,
+        "line": "ERROR: gh api graphql failed"
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: unreadable edit history of #7: gh api graphql failed"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an outside last edit holds the start though its history could not be read",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "mallory"
+       },
+       "userContentEdits": {
+        "failed": true,
+        "line": "ERROR: gh api graphql failed"
+       }
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'mallory' after alice applied tehas:ready; apply the label again to approve it"
+    ]
+   }
+  },
+  {
    "case": "the account unknown on the list approves with its own label",
    "settings": {
     "TEHAS_ALLOWED_LABELERS": "alice unknown"

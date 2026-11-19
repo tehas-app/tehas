@@ -19,8 +19,9 @@ In this release outsource is a feature still being built. It cannot be
 switched on: `TEHAS_OUTSOURCE=on` stops every command with exit 78 and says
 that `outsource` is still being built, and so does a line that gives a value
 to any `TEHAS_OUTSOURCE_*` setting below. `tehas api --json` lists it in
-`flags` as `false`. This page says what the proxy does once the feature
-ships.
+`flags` as `false`. Outsource is planned for 1.1, under the names
+[the contract reserves for it](/contract#names-reserved-for-11). This page
+says what the proxy does once the feature ships.
 
 This page covers how the feature is switched on and installed, the model
 proxy, the job channel on the same listener, the contractor program, the
@@ -606,6 +607,15 @@ and resting, and how many cycles are outsourced. `revoke` loses the
 contractor's jobs, and its check-ins, model requests and results are refused
 from then on.
 
+With `--json` each prints one object with `api` 1: `invite` adds `name`,
+`command` and `expiresAt`; `list` adds `contractors`, an array of each
+contractor's `name`, `status`, `issue`, `lastSeenAt`, `jobsDone`, `jobsLost`,
+`image`, `rukas`, `memMb`, `diskKb` and `reportedAt`; `status` adds
+`contractors`, the counts `idle`, `working`, `stopping`, `silent`, `resting`,
+`draining`, `revoked` and `outsourced`; `revoke` and `drain` add `name` and
+`said`. These objects have no schema in `api/` yet: their shapes may change
+until the feature ships.
+
 Off, or while the feature is being built, every subcommand exits 78 and
 touches nothing. Exit: 0 done; 1 the store refused, or no such contractor; 64
 a bad argument.
@@ -756,9 +766,10 @@ exits 78.
 - **Plain http on a network you control.** Version 1 has bearer keys and no
   TLS or signed requests on the channel (#2354). Bind
   `TEHAS_OUTSOURCE_PROXY_ADDR` on a private network, never a public interface.
-- **Still being built.** A release refuses `TEHAS_OUTSOURCE=on` with 78, and
-  the release tarball does not carry `tehas-proxy` or `tehas-contractor` yet:
-  only a host that builds from a checkout gets them, and only in a test.
+- **Still being built.** A release refuses `TEHAS_OUTSOURCE=on` with 78. The
+  release tarball carries `tehas-proxy` and `tehas-contractor` since
+  v1.0.0-beta.6, but a host installs them only with the feature on, so only a
+  test build gets them.
 - **No installer for a contractor's host.** The contractor program is built
   and installed on a factory host with the feature on; a host of its own,
   and its unit `tehas-outsource-contractor.service`, are set up by hand until

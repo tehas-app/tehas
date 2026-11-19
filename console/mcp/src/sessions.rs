@@ -286,7 +286,7 @@ pub fn tools() -> Vec<Value> {
     );
     with(
         arg("issue", "integer", "Only sessions on this issue."),
-        json!({"minimum": 1}),
+        json!({"minimum": 1, "maximum": tools::ISSUE_MAX}),
     );
     with(
         arg(
@@ -455,11 +455,7 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     };
     let issue = match &args["issue"] {
         Value::Null => None,
-        v => Some(
-            v.as_i64()
-                .filter(|n| *n >= 1)
-                .ok_or_else(|| bad("issue is a positive integer"))?,
-        ),
+        v => Some(i64::from(tools::issue_arg(v)?)),
     };
     let limit = match &args["limit"] {
         Value::Null => DEFAULT_LIMIT,
@@ -780,10 +776,7 @@ pub(crate) fn issue_spec() -> Value {
 /// owns it now, and its runs of the snapshot's window. The caller does not
 /// join `factory_issues`, `factory_sessions` and `factory_session`.
 pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
-    let issue = args["issue"]
-        .as_u64()
-        .filter(|n| *n > 0)
-        .ok_or_else(|| bad("issue is a positive integer"))? as i64;
+    let issue = i64::from(tools::issue_arg(&args["issue"])?);
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;

@@ -420,9 +420,12 @@ fn scratch_made(given: &[String]) -> u8 {
 /// output waits behind `state/dev/<name>.lock` and no file of `state/cycles`, so
 /// this makes the directory the session's cargo build output is mounted at - a
 /// plain directory of the account the session runs as, never a link or a tree
-/// another account left - makes the lock and takes it. `tehas dev` holds what it
-/// returns for the session's life. The words go to standard error, and name who
-/// else holds the lock. `wait` is in seconds.
+/// another account left - makes the lock and takes it. The cleaner removes that
+/// directory under the lock, so before the lock is held one gone since its
+/// create is no refusal, and once it is held the directory is made and asked
+/// again. `tehas dev` holds what it returns for the session's life. The words
+/// go to standard error, and name who else holds the lock. `wait` is in
+/// seconds.
 #[allow(clippy::result_unit_err)]
 pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
     let devs = Path::new(home).join("dev");
@@ -443,24 +446,29 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
         Ok(()) => true,
         Err(e) => e.kind() == io::ErrorKind::AlreadyExists,
     };
+    let me = account::uid();
+    let refused = || {
+        eprintln!(
+            "tehas clean: {} is not a directory of this account, or could not be made",
+            target.display()
+        );
+        Err(())
+    };
     let prepared = fs::create_dir_all(devs).is_ok()
         && fs::create_dir_all(lock.parent().unwrap_or(Path::new(home))).is_ok()
         && made(&state)
         && fs::symlink_metadata(&state).is_ok_and(|m| m.is_dir())
         && made(&target)
-        && own_dir(&target, account::uid());
+        && own_or_gone(&target, me);
     if !prepared {
-        eprintln!(
-            "tehas clean: {} is not a directory of this account, or could not be made",
-            target.display()
-        );
-        return Err(());
+        return refused();
     }
     let deadline = Instant::now() + Duration::from_secs(wait);
     let mut said = false;
     loop {
         match take_clone_lock(&lock) {
-            Ok(locked) => return Ok(locked),
+            Ok(locked) if made(&target) && own_dir(&target, me) => return Ok(locked),
+            Ok(_) => return refused(),
             Err(why) => {
                 if Instant::now() >= deadline {
                     eprintln!("tehas clean: {shown} is held{why}");
@@ -758,6 +766,15 @@ fn own_dir(p: &Path, me: Option<u32>) -> bool {
     me.is_some_and(|me| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir() && m.uid() == me))
 }
 
+/// A directory of <me>, or nothing at all: what a clone's build output may be
+/// before its lock is held, since the cleaner removes it under that lock.
+fn own_or_gone(p: &Path, me: Option<u32>) -> bool {
+    match fs::symlink_metadata(p) {
+        Ok(_) => own_dir(p, me),
+        Err(e) => e.kind() == io::ErrorKind::NotFound,
+    }
+}
+
 fn is_link(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
 }
@@ -879,14 +896,40 @@ fn bytes_within(p: &Path, max: usize, deadline: Instant) -> Size {
     }
 }
 
-/// `rm -rf`: true when nothing is left at the path.
+/// `rm -rf`: true when nothing is left at the path. A tree the walk cannot
+/// enter or empty, such as a mode-0 directory a product's test left, is opened
+/// up and tried once more.
 fn remove(p: &Path) -> bool {
     let r = match fs::symlink_metadata(p) {
         Err(e) => return e.kind() == io::ErrorKind::NotFound,
-        Ok(m) if m.is_dir() => fs::remove_dir_all(p),
+        Ok(m) if m.is_dir() => fs::remove_dir_all(p).or_else(|_| {
+            open_up(p);
+            fs::remove_dir_all(p)
+        }),
         Ok(_) => fs::remove_file(p),
     };
     r.is_ok() || !p.exists() && !is_link(p)
+}
+
+/// Gives `u+rwx` to every directory of the tree, no link followed. Only the
+/// owner may change a mode, so a directory of another account stays as it is.
+fn open_up(root: &Path) {
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        let Ok(m) = fs::symlink_metadata(&d) else {
+            continue;
+        };
+        if !m.is_dir() {
+            continue;
+        }
+        let mode = m.permissions().mode();
+        if mode & 0o700 != 0o700 {
+            let _ = fs::set_permissions(&d, fs::Permissions::from_mode(mode | 0o700));
+        }
+        if let Ok(entries) = fs::read_dir(&d) {
+            dirs.extend(entries.flatten().map(|e| e.path()));
+        }
+    }
 }
 
 fn starts_dot(p: &Path) -> bool {
@@ -2332,6 +2375,25 @@ mod tests {
         assert_eq!(scratch_made(&["scratch".to_string(), "w".to_string()]), 78);
     }
 
+    /// A product's test can leave a directory its account owns but cannot
+    /// enter or empty. It stops no later start.
+    #[test]
+    fn a_closed_directory_of_its_own_does_not_stop_the_scratch() {
+        let tmp = TestDir::new("clean-scratch-closed");
+        let root = tmp.join("disk");
+        let made = root.join("widget-7");
+        fs::create_dir_all(made.join("a/shut/inner")).unwrap();
+        fs::write(made.join("a/shut/inner/f"), "x").unwrap();
+        fs::create_dir_all(made.join("b/readonly/x")).unwrap();
+        fs::set_permissions(made.join("a/shut/inner"), fs::Permissions::from_mode(0o000)).unwrap();
+        fs::set_permissions(made.join("a/shut"), fs::Permissions::from_mode(0o000)).unwrap();
+        fs::set_permissions(made.join("b/readonly"), fs::Permissions::from_mode(0o500)).unwrap();
+        let args = [root.display().to_string(), "widget-7".to_string()];
+        assert_eq!(scratch_made(&args), 0);
+        assert!(!made.join("a").exists());
+        assert!(!made.join("b").exists());
+    }
+
     #[test]
     fn a_clone_keeps_its_build_output_till_the_disk_or_the_age_says_otherwise() {
         let root = TestDir::new("clean-clone");
@@ -2582,6 +2644,86 @@ mod tests {
         // A link is not taken, and a name of no plain word has no lock to hold.
         assert!(run.hold_clone("dave").is_none());
         assert!(run.hold_clone("a.b").is_none());
+    }
+
+    #[test]
+    fn a_clones_build_output_may_be_gone_before_its_lock_but_not_another_shape() {
+        let root = TestDir::new("clean-own-or-gone");
+        let me = account::uid();
+        let dir = root.join("target");
+        assert!(own_or_gone(&dir, me));
+        fs::create_dir(&dir).unwrap();
+        assert!(own_or_gone(&dir, me));
+        assert!(!own_or_gone(&dir, None));
+        assert!(!own_or_gone(&dir, me.map(|u| u + 1)));
+        let file = root.join("file");
+        fs::write(&file, "").unwrap();
+        assert!(!own_or_gone(&file, me));
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        assert!(!own_or_gone(&link, me));
+        let dangling = root.join("dangling");
+        std::os::unix::fs::symlink(root.join("nothing"), &dangling).unwrap();
+        assert!(!own_or_gone(&dangling, me));
+    }
+
+    #[test]
+    fn a_session_makes_the_build_output_the_cleaner_took_during_its_wait() {
+        let root = TestDir::new("clean-open-session-taken");
+        let home = root.join("home");
+        let target = home.join("dev/frank.state/target");
+        let lock = home.join("state/dev/frank.lock");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        // The cleaner's hold: a descriptor of its own, which the session's
+        // try_lock meets as held though it is the same process.
+        let cleaner = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&lock)
+            .unwrap();
+        cleaner.try_lock().unwrap();
+        let shown = home.display().to_string();
+        let session = std::thread::spawn(move || open_session(&shown, "frank", 30).is_ok());
+        let begun = Instant::now();
+        while !target.is_dir() {
+            assert!(begun.elapsed() < Duration::from_secs(30), "no target made");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        fs::remove_dir(&target).unwrap();
+        cleaner.unlock().unwrap();
+        assert!(session.join().unwrap());
+        assert!(own_dir(&target, account::uid()));
+    }
+
+    #[test]
+    fn a_session_refuses_a_link_left_at_the_build_output_during_its_wait() {
+        let root = TestDir::new("clean-open-session-link");
+        let home = root.join("home");
+        let target = home.join("dev/frank.state/target");
+        let lock = home.join("state/dev/frank.lock");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        let cleaner = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&lock)
+            .unwrap();
+        cleaner.try_lock().unwrap();
+        let shown = home.display().to_string();
+        let session = std::thread::spawn(move || open_session(&shown, "frank", 30).is_ok());
+        let begun = Instant::now();
+        while !target.is_dir() {
+            assert!(begun.elapsed() < Duration::from_secs(30), "no target made");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // Most often the session is in its wait by now; a link that lands
+        // before its first look is refused there, the same answer.
+        fs::remove_dir(&target).unwrap();
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+        cleaner.unlock().unwrap();
+        assert!(!session.join().unwrap());
+        assert!(is_link(&target));
     }
 
     enum LockShape {

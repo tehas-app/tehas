@@ -35,10 +35,13 @@ with what was read: when the list of issues failed, the lists of work
 (`running`, `queued`, `awaiting`, `stopped`, `planned`, `planning`) and
 `queueAt`, the time they were read, are the file's of the run before; when the
 read of what closed them failed or answered no list, `completed`,
-`completedCount` and `completedAt` are. `stale` names each part kept so,
-`queue` or `completed`, and is absent when every read answered. A part the
-file before did not hold is left out. The pause, all-hands and the words are
-this run's. `planned` lists the open issues labelled `tehas:plan` or
+`completedCount` and `completedAt` are. When the read of the control issue's
+labels failed, its events say whether `tehas:pause` is on: it is when the last
+event of the label applied it. When that read failed too, `pause.label` and
+`pause.lifted` are the file's of the run before, and `paused` follows them.
+`stale` names each part kept so, `queue`, `completed` or `pause`, and is absent
+when every read answered. A part the file before did not hold is left out. The
+pause flag, all-hands and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
@@ -197,8 +200,11 @@ They are counted over the titles and labels of every issue of the repository,
 the newest thousand, not only the ones the factory was given: work going on
 beside the factory shows up there. The file holds the hundred most used words
 with their counts, and no title or issue number. On a published dashboard
-those words are public too. If GitHub does not answer that call, the snapshot
-is written without them and the game counts the tickets on the line. A round
+those words are public too. The list is read at most once an hour, the time
+of the last read kept in `state/buzzwords.at`; between reads the words of the
+file before are kept. If GitHub does not answer that call, the words before
+are kept and the next run asks again; with none before, the snapshot is
+written without them and the game counts the tickets on the line. A round
 shows at most twelve of the forty most used words, picked by chance, and writes
 them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
 taller than six, its cells solid from the top down with no holes in them, so it
@@ -256,7 +262,7 @@ minutes old, which is what a failed read leaves, and then it warns of nothing.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or GitHub failed three calls or more in the last ten minutes (`checks.github`; `output` counts them and quotes the last). Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`, null when that read did not answer), or no cycle runs and the last poll held every issue in line on its own (`checks.slice.held`: issue, why, text, clear), as one whose last cycle parked on the body it still has, or an open issue labelled `epic` has no sub-issues (`checks.epics`; `output` names up to five and says to link their parts as sub-issues), or the MCP server is on and does not answer (`checks.mcp`), or the sandbox image is behind the pi-rukas the host follows (`checks.rukas.behind`; run `tehas update`), or the image was built from another instance layer than the instance's `sandbox.Dockerfile` is now (`checks.rukas.layerMoved`; run `tehas update`), or `TEHAS_TEST_FEATURES` is set or this is a lab build (`checks.testFeatures`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot, or the sandbox cannot push (`checks.pushFault`) and the factory is not paused | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the time its lists
@@ -304,7 +310,8 @@ recorded as ended with the status `lost`, which is a failure. While
 checkout of a host that has one. It is `null` on a host with neither.
 
 `checks.rukas` is `live/rukas.json`, which `tehasbot status` writes: the
-pi-rukas the sandbox image runs against the one the host follows. `follow` is
+pi-rukas the sandbox image runs against the one the host follows, and the
+image's instance layer against the instance's `sandbox.Dockerfile`. `follow` is
 `PI_RUKAS_FOLLOW` (the instance's over `versions.env`), `target` the commit it
 names now and `targetVersion` its release (asked upstream at most once an
 hour, and once more as soon as the image is on another commit than the answer
@@ -318,7 +325,16 @@ target is no drift), and makes the health `warn` with `The sandbox image runs pi
 <image> and the host follows <target>: run tehas update.`; `install.sh --check`
 reports it as `Sandbox: BEHIND`, unless the image's `tehas.rukas` label is no
 longer the `image` the health read: an update built it after the last status
-run, and the check says `Sandbox: NOT READ` and finds nothing. A value that could not be read is `null` and
+run, and the check says `Sandbox: NOT READ` and finds nothing. `layer` is the
+`tehas.layer` label of the image, read by the same `docker image inspect`,
+and `instanceLayer` the sum of the instance's `sandbox.Dockerfile` and the
+files its `COPY` and `ADD` lines name, as `console sandbox layer` gives it;
+each is `null` when there is none. `layerMoved` is true when the two are not
+the same, which is what `sandbox/build.sh --check` compares, and makes the
+health `warn` with `The sandbox image was built from another instance layer
+than sandbox.Dockerfile is now: run tehas update.` It is false when no image
+was read or the instance directory is not known. Health itself runs no docker
+and builds nothing: it reads the file. A value that could not be read is `null` and
 decides nothing. `checks.rukas` is `null` on a host with no pi-rukas.
 
 `checks.manager` is `{version}` of the program that manages this factory,
@@ -326,6 +342,18 @@ from `TEHAS_MANAGER_VERSION` in `~/.config/tehas/env`, which that program
 writes. A factory that runs on its own has no `checks.manager`, and its status is
 decided as before. A value that is not `vX.Y.Z`, with an optional `-<suffix>`
 of letters, digits and dots, is left out the same way, and nothing fails.
+
+`checks.testFeatures` is `{read, features, lab}`, there only while
+`TEHAS_TEST_FEATURES` is set in the environment health runs in or this is a
+lab build (`install.sh --lab-build`): `read` is whether this build reads the
+variable, which only a lab build does, `features` the building features it
+names, and `lab` whether this is a lab build. Either way the status is at least
+`warn`: a lab build says `A lab build: TEHAS_TEST_FEATURES names <features>,
+still being built. No release reads it.`, or with the variable unset `A lab
+build: TEHAS_TEST_FEATURES is unset, so no building feature is on. ./install.sh
+without --lab-build goes back.`, and a release says the variable is set and not
+read, so take it out of the units' environment. See [proving a building
+feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and

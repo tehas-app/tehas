@@ -30,14 +30,16 @@
     "host-message",
     "refresh-pr",
     "host-start",
-    "flags"
+    "flags",
+    "status-previews"
   ],
   "flags": {
     "outsource": false,
     "spec-pipe": false,
     "protolab-zip-url": false,
     "prototype-file": false,
-    "lean": false
+    "lean": false,
+    "review": false
   },
   "millwright": null,
   "poll": null

@@ -124,15 +124,22 @@ impl Journal<'_> {
     }
 
     /// Whether GitHub may have taken a call that did not answer as done: it
-    /// timed out after gh started, or GitHub answered 5xx, which it does for a
-    /// write it went on to commit. A gh that never ran sent nothing.
+    /// timed out after gh started, GitHub answered 5xx, which it does for a
+    /// write it went on to commit, or the connection broke after it was made.
+    /// A gh that never ran, or never connected (`connection refused`, `no such
+    /// host`), sent nothing.
     fn maybe_taken(&self, r: &Ran) -> bool {
-        static FIVE: OnceLock<Regex> = OnceLock::new();
-        let five = FIVE.get_or_init(|| Regex::new(r"HTTP 5[0-9]{2}\b").expect("a regex"));
+        static TAKEN: OnceLock<Regex> = OnceLock::new();
+        let taken = TAKEN.get_or_init(|| {
+            Regex::new(
+                r"(?i)HTTP 5[0-9]{2}\b|connection reset|\bEOF\b|GOAWAY|connection closed|closed network connection|server closed",
+            )
+            .expect("a regex")
+        });
         match r.status {
             None => r.err != format!("{} could not be run", self.gh),
             Some(0) => false,
-            Some(_) => five.is_match(&r.err),
+            Some(_) => taken.is_match(&r.err),
         }
     }
 
@@ -348,6 +355,37 @@ mod tests {
         let (w, result) = settled("/nonexistent/gh", vec![], long);
         assert!(matches!(w, Wrote::Failed(_)), "{w:?}");
         assert_eq!(result, "timed-out");
+    }
+
+    /// A connection that broke after the request went out may have carried
+    /// it; one that was never made carried nothing.
+    #[test]
+    fn a_write_whose_connection_broke_is_unknown() {
+        let long = Duration::from_secs(5);
+        for said in [
+            "read tcp: read: connection reset by peer",
+            "Post \"https://api.github.com/graphql\": unexpected EOF",
+            "Post \"https://api.github.com/graphql\": EOF",
+            "http2: server sent GOAWAY and closed the connection",
+            "http2: client connection closed",
+            "write tcp: use of closed network connection",
+            "http: server closed idle connection",
+        ] {
+            let script = format!("cat >/dev/null; echo '{said}' >&2; exit 1");
+            let (w, result) = settled("sh", sh(&script), long);
+            assert!(matches!(w, Wrote::Unknown(_)), "{said}: {w:?}");
+            assert_eq!(result, "unknown", "{said}");
+        }
+        for said in [
+            "dial tcp: connect: connection refused",
+            "dial tcp: lookup api.github.com: no such host",
+            "GraphQL: Could not add label: issue is closed",
+        ] {
+            let script = format!("cat >/dev/null; echo '{said}' >&2; exit 1");
+            let (w, result) = settled("sh", sh(&script), long);
+            assert!(matches!(w, Wrote::Failed(_)), "{said}: {w:?}");
+            assert_eq!(result, "read-failed", "{said}");
+        }
     }
 
     #[test]

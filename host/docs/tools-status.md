@@ -82,6 +82,16 @@ And while [`tehas:all-hands`](/operating#all-hands) holds:
 all-hands tehas:all-hands is on the control issue, applied by an allowed account
 ```
 
+On a lab build, and wherever `TEHAS_TEST_FEATURES` is set (see [proving a
+building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host)).
+A lab build with the variable unset names no building feature:
+
+```
+features  a lab build: TEHAS_TEST_FEATURES names outsource, still being built
+features  a lab build: TEHAS_TEST_FEATURES names no building feature
+features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out
+```
+
 On a host that runs a release (`~/tehas/current`), the `platform` line names
 that release and the newest there is, instead of a commit:
 

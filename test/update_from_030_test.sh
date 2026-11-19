@@ -102,6 +102,24 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_EASY_MERGE is no longer read"
 t_contains "$t_out" "$TEHAS_INSTANCE_DIR/instance.env"
 
+t_case "this release's settings check lists every renamed, removed or building line of a 0.30.x host at once"
+home_030
+mapfile -t lines <"$old/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_FROM=release "${lines[@]}" \
+  TEHAS_OVERLAP_HOLD=1 TEHAS_REVIEW_REPO=acme/backlog
+mkdir -p "$T/home/.config/tehas"
+echo 'TEHAS_BOT_LOGIN=acme[bot]' >"$T/home/.config/tehas/env"
+settings_hold "$T_ROOT"
+rm -f "$T/home/.config/tehas/env"
+t_eq "$t_rc" 78
+for name in TEHAS_TICKET_CONCURRENCY TEHAS_CONCURRENCY TEHAS_REFRESH_MAX TEHAS_OWNER \
+  TEHAS_INDEXING TEHAS_EASY_MERGE TEHAS_CYCLE_REPORT TEHAS_OVERLAP_HOLD; do
+  t_contains "$t_out" "tehas: $name is no longer read: "
+done
+t_contains "$t_out" "tehas: TEHAS_REVIEW_REPO is set and review is still being built in this release: take the line out (see $TEHAS_INSTANCE_DIR/instance.env)"
+t_contains "$t_out" "tehas: TEHAS_BOT_LOGIN is no longer read: the bot is the GitHub App's login, kept in state/github/login, so take the line out (see $T/home/.config/tehas/env)"
+t_eq "$(grep -c '^tehas: ' <<<"$t_out")" 10
+
 t_case "with the renames applied, this release's settings check holds"
 mapfile -t lines < <(renamed_030)
 t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_FROM=release "${lines[@]}"

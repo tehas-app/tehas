@@ -13,7 +13,6 @@ use crate::text::closing_numbers;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use tehas_core::driver::Driver;
 use tehas_core::events::{pause_holds, Events};
 
 /// Where the snapshot reads from, and with what.
@@ -246,7 +245,11 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     } else {
         s["plan_open"] = sessions;
     }
-    let locks = host::running(home);
+    // A listing that fails is no list of none: the rules end the poll on it.
+    let locks = host::cycles(home).unwrap_or_else(|| {
+        s["running_unlisted"] = json!(true);
+        Vec::new()
+    });
     let mut running: Vec<Value> = locks
         .iter()
         .map(|n| json!({"issue": n, "how": ""}))
@@ -436,12 +439,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)]),
     );
     // The driver of a retry is on its record, whichever rule starts it. Only an
-    // issue that carries the label choosing against the default costs a read.
-    let opt_out = Driver::opt_out(c.driver_default);
+    // issue that carries a label that chooses the driver costs a read.
+    let read = crate::decide::driver_labels(c.driver_default);
     let lean: Vec<u64> = q
         .open
         .iter()
-        .filter(|o| has(&o.labels, opt_out))
+        .filter(|o| read.iter().any(|l| has(&o.labels, l)))
         .map(|o| o.number)
         .collect();
     want(
@@ -609,8 +612,60 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .gh(&["api", &path])
             .unwrap_or_else(|_| json!({"failed": true}));
     }
+    edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
     s["issues"] = Value::Object(issues);
     Ok(s)
+}
+
+/// The open issues a rule may start or finish on an approval, and so whose
+/// body edits after it are judged whole: the candidates and their epics, the
+/// plans, the refines, the finishes and the parks owed a cycle. Only one that
+/// was ever edited, as one with no edit has no history to read.
+fn edit_wanted(s: &Value, q: &github::Queue, candidates: &[u64]) -> Vec<u64> {
+    let mut want: BTreeSet<u64> = candidates.iter().copied().collect();
+    for key in ["plans", "refines"] {
+        want.extend(numbers(&s[key]));
+    }
+    for key in ["owed", "refines_owed"] {
+        want.extend(
+            s[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| p["issue"].as_u64()),
+        );
+    }
+    for o in &q.open {
+        if has(&o.labels, crate::finish::LABEL) {
+            want.insert(o.number);
+        }
+        if candidates.contains(&o.number) {
+            if let Some(p) = o.node.pointer("/parent/number").and_then(Value::as_u64) {
+                want.insert(p);
+            }
+        }
+    }
+    q.open
+        .iter()
+        .filter(|o| want.contains(&o.number))
+        .filter(|o| {
+            o.node
+                .get("lastEditedAt")
+                .and_then(Value::as_str)
+                .is_some_and(|at| !at.is_empty())
+        })
+        .map(|o| o.number)
+        .collect()
+}
+
+/// The body edit history of each issue of `ns`, put beside its last edit.
+fn edit_histories(calls: &mut Calls, c: &Settings, issues: &mut Map<String, Value>, ns: &[u64]) {
+    for (n, h) in ns.iter().zip(github::edits_of(calls, &c.repo, ns)) {
+        let i = entry(issues, *n);
+        if i["edit"].is_object() {
+            i["edit"]["userContentEdits"] = h;
+        }
+    }
 }
 
 /// Whether `n` is held by `tehas:blocked` on the queue's page. The page is the
@@ -914,6 +969,38 @@ mod tests {
         );
         let failed = json!({"failed": true});
         assert_eq!(joined_lists(vec![json!([a]), failed.clone()]), failed);
+    }
+
+    /// The edit history is read only of an edited issue a rule may start.
+    #[test]
+    fn the_edit_history_is_asked_of_the_edited_issues_that_may_start() {
+        let open = |n: u64, label: &str, edited: bool, parent: Option<u64>| github::Open {
+            number: n,
+            labels: vec![label.to_string()],
+            node: json!({"number": n,
+                "lastEditedAt": if edited { json!("2026-10-01T00:00:00Z") } else { json!(null) },
+                "parent": parent.map(|p| json!({"number": p}))}),
+        };
+        let q = github::Queue {
+            repo: None,
+            open: vec![
+                open(3, "tehas:ready", true, Some(9)),
+                open(4, "tehas:ready", false, None),
+                open(5, "bug", true, None),
+                open(6, "tehas:plan", true, None),
+                open(7, crate::finish::LABEL, true, None),
+                open(8, "needs-human-attention", true, None),
+                open(9, "epic", true, None),
+                open(10, "tehas:awaiting-merge", true, None),
+            ],
+            closed_running: Vec::new(),
+            open_pulls: None,
+            issue_types: None,
+            labels: None,
+        };
+        let s = json!({"plans": [{"number": 6}], "refines": [],
+            "owed": [{"issue": 8}], "refines_owed": []});
+        assert_eq!(edit_wanted(&s, &q, &[3, 4]), [3, 6, 7, 8, 9]);
     }
     use crate::snapshot::Snapshot;
 
@@ -2734,5 +2821,30 @@ esac"#,
             "a key of no number names no issue: {:?}",
             parsed.pulls_name
         );
+    }
+
+    /// state/cycles that cannot be listed is no list of none: the snapshot
+    /// says so, and lists no running cycle it cannot see.
+    #[test]
+    fn a_cycles_directory_that_cannot_be_listed_is_said_in_the_snapshot() {
+        let _clock = crate::read::run::no_case_clock();
+        let w = world();
+        let dir = host(&w, &[]);
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap.get("running_unlisted"), None, "a listed directory");
+        std::fs::remove_dir_all(dir.join("state/cycles")).unwrap();
+        std::fs::write(dir.join("state/cycles"), "not a directory").unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap["running_unlisted"], json!(true));
+        assert_eq!(snap["running"], json!([]));
+        assert!(Snapshot::parse(&snap).running_unlisted);
     }
 }

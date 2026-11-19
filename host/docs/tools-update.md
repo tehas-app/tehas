@@ -49,17 +49,48 @@ the update again. From a release, `--check` reads the release's own console;
 from the checkout, `--check` reads the console an earlier build left, so a
 real run, which builds first, is what names the rows there.
 
-### From v0.30.x
+The installed version loads the settings too, before it takes the lock. When
+that load stops on such a row, it also lists every one of them, the rows of
+`instance.env` and of `~/.config/tehas/env` its own `api/renames-1.0.tsv`
+names, and exits 78 before install.sh runs.
 
-A host on any v0.30.x release moves to 1.0 with `tehas update`. That run is
-v0.30.x's own: it reads the repository from its `versions.env` and the key
-from `~/tehas/release/minisign.pub`, and both are the ones 1.0 is published
+A feature still being built is refused the same way: its switch set to `on`,
+or a line that gives one of its own settings a value, stops every command
+with 78 and names the feature, and both checks list every such line at once.
+A host that turned the review loop on under an earlier release takes
+`TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` out before it updates
+([the review loop](/operating#the-review-loop)).
+
+### From v0.30.x, v0.31.x or v0.32.x
+
+1.0 updates a host on any v0.30.x, v0.31.x or v0.32.x release, with
+`tehas update`. That run is the old release's own: it reads the repository
+and the key the old release reads, and they are the ones 1.0 is published
 and signed with. It asks 1.0's settings check before it switches
 `~/tehas/current`, so an instance that still sets a renamed setting stops with
-78 and nothing switched. From 1.0 on, the repository and the key are the ones
-built into tehas, and those two files are no longer read.
+78 and nothing switched. The check lists every such line of `instance.env`
+and `~/.config/tehas/env` at once, with every line of a feature still being
+built. From 1.0 on, the repository and the key are the ones
+built into tehas, and `versions.env` and `~/tehas/release/minisign.pub` are
+no longer read for them.
+
+A v0.30.x host can name only a release candidate or the release:
+`tehas update --to v1.0.0-rc.1` or `--to v1.0.0`. Its update does not take an
+alpha or a beta. A v0.31.x or v0.32.x host takes any of them when `--to`
+names it. To try a beta from v0.30.x, update to v0.32.0 first.
+
+v0.31.x and v0.32.x already refuse every setting 1.0 renamed or removed, so
+an instance that loads there needs no rename. A v0.30.x instance does.
 The steps a person takes, drain first, and every name 1.0 renamed or removed
 are in [Updating from 0.30.x to 1.0](/operating#updating-from-030x-to-10).
+
+**Known limit.** A program that manages the factory and writes 0.30 names
+into the factory's `instance.env`, such as `TEHAS_TICKET_CONCURRENCY`, stops
+the update with 78 and switches nothing: v0.31.x and later refuse the old
+name, and the manager writes it again on each upgrade. `TEHAS_INDUSTRY_VERSION`
+in `~/.config/tehas/env` is the one 0.30 name that is ignored, not refused.
+Until the manager writes 1.0's names, such a factory cannot be updated
+through it.
 
 ### From a release
 
@@ -79,6 +110,11 @@ rc, then the release, so a host on `v1.0.0-beta.1` moves on with a plain
 update once `v1.0.0` is out, and stays where it is until then. `tehas status
 --json` names the release a host runs and the commit it was built from in
 `versions.platform`.
+
+A host that runs from its platform checkout, with no `current` yet, moves to
+the newest too, unless the checkout's tag is newer than the newest release, as
+a prerelease can be. Then it moves to the release of that tag, and when that
+tag is not published it changes nothing and exits 1.
 
 `tehas update --check` prints the version installed, the newest, and the notes
 of each release between them: its section of the changelog, with its
@@ -112,11 +148,22 @@ version to move to.
    be searched for is named in a warning of its own;
 5. point `~/tehas/current` at the version, and run `install.sh` and its
    follow-ups from there, as an update from the checkout does. The commands and
-   units are the copies `install.sh` makes from that tree.
+   units are the copies `install.sh` makes from that tree. When `install.sh`
+   stops before it installs anything and says `nothing was installed`, for
+   example because the version's store cannot open this host's database,
+   `current` and the uid tag of the sandbox image are put back where they were
+   (`release: install.sh did not finish <version>, so current is <version>
+   again`), so a plain `tehas update` installs the version the host ran. A
+   host that ran from its checkout loses `current` again. An `install.sh` that
+   fails after it began to copy, or runs out of time, may have installed the
+   version's files and migrated the database, so `current` stays on that
+   version and the next `tehas update` finishes it.
 
 The sandbox image a version ran with keeps the tag
 `tehas/pi-rukas:release-<version>`. Going back to a version that still has one
-puts that image back under the uid tag and builds nothing. The version
+puts that image back under the uid tag and builds nothing, unless its
+`tehas.layer` label is not the sum of the instance's `sandbox.Dockerfile` as
+it is now: then it is not put back, and the build `install.sh` owes runs. The version
 `current` names and the two switched to before it stay in `~/tehas/versions`,
 in the order `~/tehas/state/release-history` records; older ones are removed
 with their image tags.
@@ -212,7 +259,8 @@ install.sh answers it with 78 before it copies a file.
 After the follow-ups, pi-rukas. It is not pinned: where the installed `versions.env` sets
 `PI_RUKAS_FOLLOW`, the update runs `sandbox/build.sh --if-moved`, which
 rebuilds the sandbox image only when the commit it names, the newest release
-tag by default, is not the commit the image was built on. It does this also when no file of tehas changed, and
+tag by default, is not the commit the image was built on, or when the
+instance's `sandbox.Dockerfile` is not the one the image was built from. It does this also when no file of tehas changed, and
 skips it when this run built the image already or a step failed. An image that
 cannot be moved, for example because upstream has not published that commit's
 image yet, makes the update exit 1. `--check` runs `build.sh --check` and
@@ -374,13 +422,15 @@ host points at. See [The host](/host).
 cd ~/tehas/platform
 ./install.sh --check     # change nothing; Home, Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
 ./install.sh
+./install.sh --lab-build # a lab host only: programs that read TEHAS_TEST_FEATURES
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
 step failed or another update is still holding the lock after the
 `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
-the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid or the home is
-not provably tehas's (nothing was changed).
+the instance settings or `TEHAS_UPDATE_LOCK_WAIT` are invalid, the home is
+not provably tehas's, or `--lab-build` was run from a release tree (nothing
+was changed).
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
@@ -428,6 +478,84 @@ stops it from starting one issue after another. `install.sh --check`, and so
 something `tehas update` does not fix. A host with no product checkout proves
 nothing and prints no line. See
 [Troubleshooting](/troubleshooting#tehas-update-says-the-cycle-token-cannot-push).
+
+### Proving a building feature on a lab host
+
+A feature still being built ([features still being
+built](/contract#features-still-being-built)) is off in every release: its
+switch set to `on` stops every command with 78. A lab host proves one before
+it ships, by installing a build that reads `TEHAS_TEST_FEATURES` and naming the
+feature there. No release reads the variable, so this is never a setting of a
+production host.
+
+1. Make a lab build from a checkout. A release tree has no source and is
+   refused with 78:
+
+   ```
+   cd ~/tehas/platform
+   TEHAS_TEST_FEATURES=outsource ./install.sh --lab-build
+   ```
+
+   Every program is built with `TEHAS_LAB_BUILD=on`, a marker the programs
+   read when they are compiled, and gets a lab build's stamp. A lab build reads
+   `TEHAS_TEST_FEATURES` and nothing else of the tests: it has no debug
+   assertions, so it does not read the tests' other hooks, such as
+   `TEHAS_TEST_STORE_ANSWERS`. `TEHAS_TEST_FEATURES` on the command line is
+   for this run only: it lets the install see the feature, so a feature with
+   programs or units of its own, as outsource has, gets them. The run prints
+   `note: a lab build`.
+
+2. Put the variable in the units' environment. The settings load refuses it
+   in `instance.env` and `~/.config/tehas/env`. systemd gives every user unit,
+   the dispatcher, each cycle, the Protolab and the console they run, the
+   variables of `~/.config/environment.d/`:
+
+   ```
+   mkdir -p ~/.config/environment.d
+   echo 'TEHAS_TEST_FEATURES=outsource' > ~/.config/environment.d/tehas-lab.conf
+   systemctl --user daemon-reload
+   systemctl --user restart tehas-mcp.service tehas-top.service   # the long-running units that are active
+   ```
+
+   Names are separated by spaces. A word that is no building feature is
+   ignored.
+
+3. Switch the feature on in `instance.env` (`TEHAS_OUTSOURCE=on`) and prove
+   it. A shell of the tehas user does not read `environment.d`, so a command
+   typed there, such as `tehas api --json`, needs
+   `TEHAS_TEST_FEATURES=outsource` in front of it, or it stops with 78.
+
+Health warns on a lab build whether the variable is set or not. Set, it says
+`A lab build: TEHAS_TEST_FEATURES names outsource, still being built. No
+release reads it.` and `checks.testFeatures` says `{"read": true, "features":
+["outsource"], "lab": true}`. Unset, it says `A lab build: TEHAS_TEST_FEATURES
+is unset, so no building feature is on. ./install.sh without --lab-build goes
+back.` and `features` is empty. `tehas status` prints a `features` line either
+way.
+
+To go back to a release, switch the feature off, then:
+
+```
+rm ~/.config/environment.d/tehas-lab.conf
+systemctl --user daemon-reload
+tehas update            # or ./install.sh in the checkout
+```
+
+Any run without `--lab-build`, from a checkout or a release, installs every
+program again: a lab build's stamp matches no other. A run from a checkout
+without `--lab-build` builds with `TEHAS_LAB_BUILD=off`, and every run with
+`CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=false`, whatever the environment it
+runs in says. No build takes rustflags or release profile settings from the
+environment (`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_RUSTFLAGS`,
+`CARGO_TARGET_<triple>_RUSTFLAGS`, `CARGO_PROFILE_RELEASE_*`), and an empty
+`CARGO_ENCODED_RUSTFLAGS` outweighs the rustflags of cargo's configuration
+files too, so `-C debug-assertions` there does not reach the programs. The
+release workflow builds with neither variable set and the same rustflags. `install.sh --check` and
+`tehas update --check` report a lab build's programs as `differs`. A run that
+finds `~/.config/environment.d/tehas-lab.conf` prints `later: rm ... &&
+systemctl --user daemon-reload`, and leaves the file to you. If the variable
+stays in the units' environment, health warns on every poll that this build
+does not read it.
 
 A real run that ended well on a factory `tehas drain` stopped prints one more
 line last: `the factory is drained: tehas limit clear starts the factory, and

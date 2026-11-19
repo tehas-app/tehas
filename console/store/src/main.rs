@@ -45,11 +45,14 @@
 //!     Answers
 //!     {"api":1,"verb":"migrate","ok":true,"from":12,"to":16,
 //!     "backup":"..."}.
-//!   store migrate --dry-run [--json]
+//!   store migrate --dry-run [--backup <dir>] [--json]
 //!     Reads only: whether this store would migrate the database, refused as
 //!     migrate refuses it. install.sh asks it before it copies anything.
 //!     Answers {"api":1,"verb":"migrate","ok":true,"dry_run":true,"from":12,
-//!     "to":16}.
+//!     "to":16}. With --backup it opens the database to write, settles <dir>
+//!     as migrate does and writes the copies migrate would write, then removes
+//!     them; the answer adds "backup", the directory. A store that cannot make
+//!     its copies is refused here, before anything is installed.
 //!   store check [--json]
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
 //!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":2,

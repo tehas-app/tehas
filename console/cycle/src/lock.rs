@@ -22,16 +22,27 @@ use std::time::{Duration, Instant};
 /// Open `path`, made if it is not there, and take its lock, trying until `wait`
 /// has passed. `Ok(None)` when another holds it then; `Err` when the file cannot
 /// be opened.
+///
+/// A holder may remove the file before it lets go, as `tehas stop` and the
+/// store's sweep do. A lock then taken on the open file names no path, so the
+/// file is opened again until the lock is on the file the path names.
 pub fn take(path: &Path, wait: Duration) -> Result<Option<File>, String> {
-    let f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let open = || {
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| format!("{}: {e}", path.display()))
+    };
+    let mut f = open()?;
     let until = Instant::now() + wait;
     loop {
         match f.try_lock() {
-            Ok(()) => return Ok(Some(f)),
+            Ok(()) if names(&f, path) => return Ok(Some(f)),
+            Ok(()) => {
+                f = open()?;
+                continue;
+            }
             // Any refusal is a lock not taken, as flock -n reads it.
             Err(TryLockError::WouldBlock | TryLockError::Error(_)) => {}
         }
@@ -39,6 +50,13 @@ pub fn take(path: &Path, wait: Duration) -> Result<Option<File>, String> {
             return Ok(None);
         }
         sleep(Duration::from_millis(100));
+    }
+}
+
+fn names(f: &File, path: &Path) -> bool {
+    match (f.metadata(), fs::metadata(path)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
     }
 }
 
@@ -109,6 +127,25 @@ mod tests {
         });
         assert!(take(&path, Duration::from_secs(5)).unwrap().is_some());
         t.join().unwrap();
+    }
+
+    // tehas stop removes the file while it holds the lock; the waiter must end
+    // on the file the path names, where every probe looks.
+    #[test]
+    fn a_lock_whose_file_was_removed_during_the_wait_is_taken_on_the_new_file() {
+        let dir = TestDir::new("lock-removed");
+        let path = dir.join("7.lock");
+        let mine = take(&path, Duration::ZERO).unwrap().unwrap();
+        let gone = path.clone();
+        let t = std::thread::spawn(move || {
+            sleep(Duration::from_millis(200));
+            fs::remove_file(&gone).unwrap();
+            drop(mine);
+        });
+        let f = take(&path, Duration::from_secs(5)).unwrap().unwrap();
+        t.join().unwrap();
+        assert!(names(&f, &path));
+        assert!(take(&path, Duration::ZERO).unwrap().is_none());
     }
 
     #[test]

@@ -108,8 +108,6 @@ files="./.bashrc
 ./.config/systemd/user/tehas-preview.timer
 ./.config/systemd/user/tehas-protolab.service
 ./.config/systemd/user/tehas-protolab.timer
-./.config/systemd/user/tehas-review.service
-./.config/systemd/user/tehas-review.timer
 ./.config/systemd/user/tehas-top.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
@@ -185,7 +183,7 @@ next_steps() {
     systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service \
     systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-review.service systemd/tehas-review.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/base.Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json \
     npm/pi/package.json npm/pi/package-lock.json npm/ctx7/package.json npm/ctx7/package-lock.json \
     npm/parallel-web-cli/package.json npm/parallel-web-cli/package-lock.json versions.env \

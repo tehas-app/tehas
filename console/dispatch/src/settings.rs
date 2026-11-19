@@ -25,7 +25,7 @@ pub struct Settings {
     /// starts nothing on an issue a start of this host is on record for.
     pub read_only: bool,
     pub refresh_slots: i64,
-    /// TEHAS_CYCLE_MIN_FREE as written, and in MiB.
+    /// TEHAS_CYCLE_MIN_FREE as written, and in MiB as the load derives it.
     pub min_free: String,
     pub min_free_mb: u64,
     pub branch_check: String,
@@ -96,9 +96,8 @@ impl Settings {
                 x.as_str().map_or(x.to_string(), str::to_string)
             })
         };
-        let min_free_mb = crate::slice::bytes(&min_free)
-            .map(|b| b / 1_048_576)
-            .unwrap_or(0);
+        // Unreachable after `refused`; the floor that holds every start.
+        let min_free_mb = min_free_mb(v).unwrap_or(u64::MAX);
         Settings {
             home: s("TEHAS_HOME", "/home/tehas/tehas"),
             instance_dir: s("TEHAS_INSTANCE_DIR", "/home/tehas/tehas/instance"),
@@ -157,6 +156,12 @@ impl Settings {
     /// GitHub, is no value to act by. The load refuses it too; a run with no
     /// load before it must not read it as the setting left unset.
     pub fn refused(v: &Value) -> Option<String> {
+        if min_free_mb(v).is_none() {
+            return Some(
+                "TEHAS_CYCLE_MIN_FREE is not valid: expected a size such as 10g, and TEHAS_CYCLE_MIN_FREE_MB a number of MiB as tehas_load sets it"
+                    .into(),
+            );
+        }
         let driver = v.get("TEHAS_DRIVER").and_then(Value::as_str).unwrap_or("");
         if !driver.is_empty() && Driver::named(driver).is_none() {
             return Some("TEHAS_DRIVER is not valid: expected classic or lean".into());
@@ -184,6 +189,21 @@ impl Settings {
     pub fn is_millwright(&self, login: &str) -> bool {
         !self.millwright.is_empty() && account(login) == self.millwright
     }
+}
+
+/// The disk floor in MiB: TEHAS_CYCLE_MIN_FREE_MB, which a good load derives
+/// from TEHAS_CYCLE_MIN_FREE. Without it, TEHAS_CYCLE_MIN_FREE read by the
+/// load's own rule. None when it is no number.
+fn min_free_mb(v: &Value) -> Option<u64> {
+    let text = |x: &Value| x.as_str().map_or(x.to_string(), str::to_string);
+    let mb = match v.get("TEHAS_CYCLE_MIN_FREE_MB") {
+        Some(mb) => text(mb),
+        None => {
+            let given = v.get("TEHAS_CYCLE_MIN_FREE").map_or("10g".into(), text);
+            tehas_core::settings::rules::mem_mb(&given)?
+        }
+    };
+    mb.parse().ok()
 }
 
 /// A login as GraphQL gives it: gh's JSON `app/<slug>`, REST's `<slug>[bot]`
@@ -245,6 +265,31 @@ mod tests {
             Settings::refused(&off).as_deref(),
             Some("TEHAS_DRIVER=lean needs the feature lean: set TEHAS_LEAN=on")
         );
+    }
+
+    #[test]
+    fn the_disk_floor_is_the_one_the_load_derives_and_no_number_is_refused() {
+        // 05g: the load reads 5 GiB, as the shell did; the poll takes its MiB.
+        let v = json!({"TEHAS_CYCLE_MIN_FREE": "05g", "TEHAS_CYCLE_MIN_FREE_MB": "5120"});
+        assert_eq!(Settings::refused(&v), None);
+        assert_eq!(Settings::parse(&v).min_free_mb, 5120);
+        assert_eq!(Settings::parse(&json!({})).min_free_mb, 10240);
+        // Without the derived one, the load's rule reads the size.
+        let v = json!({"TEHAS_CYCLE_MIN_FREE": "010g"});
+        assert_eq!(Settings::parse(&v).min_free_mb, 8192);
+        let bad_mb = ["", "x", "-1", "5g"]
+            .map(|bad| json!({"TEHAS_CYCLE_MIN_FREE": "05g", "TEHAS_CYCLE_MIN_FREE_MB": bad}));
+        for v in bad_mb
+            .iter()
+            .chain(&[json!({"TEHAS_CYCLE_MIN_FREE": "five"})])
+        {
+            assert_eq!(
+                Settings::refused(v).as_deref(),
+                Some("TEHAS_CYCLE_MIN_FREE is not valid: expected a size such as 10g, and TEHAS_CYCLE_MIN_FREE_MB a number of MiB as tehas_load sets it"),
+                "{v}"
+            );
+            assert_eq!(Settings::parse(v).min_free_mb, u64::MAX, "{v}");
+        }
     }
 
     #[test]

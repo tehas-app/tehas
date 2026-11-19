@@ -254,6 +254,17 @@ fn a_rule_not_met_takes_the_label_off_runs_nothing_and_says_why() {
             "changed since alice approved it",
         ),
         (
+            // An allowed account's last edit does not clear an outside one.
+            Ask {
+                edit: json!({"body": BODY, "title": "T", "lastEditedAt": "2026-10-31T00:00:00Z",
+                    "editor": {"login": "alice"}, "userContentEdits": {"totalCount": 2, "nodes": [
+                        {"editedAt": "2026-10-30T12:00:00Z", "editor": {"login": "mallory"}},
+                        {"editedAt": "2026-10-31T00:00:00Z", "editor": {"login": "alice"}}]}}),
+                ..ask("acme-millwright")
+            },
+            "changed since alice approved it",
+        ),
+        (
             // GitHub stamps to the second: an edit in the approval's second
             // may be after it.
             Ask {
@@ -315,6 +326,11 @@ fn what_cannot_be_read_waits_with_the_label_on() {
         },
         Ask {
             approval: Err(()),
+            ..ask("acme-millwright")
+        },
+        Ask {
+            edit: json!({"body": BODY, "title": "T", "lastEditedAt": "2026-10-31T00:00:00Z",
+                "editor": {"login": "alice"}, "userContentEdits": {"failed": true}}),
             ..ask("acme-millwright")
         },
     ];

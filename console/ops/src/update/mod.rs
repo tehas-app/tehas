@@ -16,7 +16,7 @@
 //!   console update units <env file>
 //!   console update login <root> <login command> <marker>
 //!   console update pi <instance> <generic settings> <provider> <model> <out>
-//!   console update programs <home> release|build <tree> <program>...
+//!   console update programs <home> release|build|lab <tree> <program>...
 //!   console update programs stamp <installed program> release|<source sum>
 //!   console update retired
 //!   console update report <root> <instance> <options>
@@ -149,13 +149,29 @@ pub(crate) struct Plan {
     /// The run is over and went well: nothing is left for install.sh or
     /// `finish`. Not written to the plan file.
     pub over: bool,
+    /// What a release switch moved before install.sh ran. Not written to the
+    /// plan file: the console that began the run puts it back.
+    pub undo: Option<Undo>,
+}
+
+/// What a release switch moved, so an install.sh that does not finish leaves
+/// the host on the version it ran.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Undo {
+    /// The version current was pointed at.
+    pub to: String,
+    /// The version current named before, empty for the platform checkout.
+    pub was: String,
+    /// The image the uid tag named before a reused image took it.
+    pub image: Option<String>,
 }
 
 /// What `prepare` leaves for `run`.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Prepared {
-    /// The plan file is written: run install.sh, then `finish`.
-    Planned,
+    /// The plan file is written: run install.sh, then `finish`. What to put
+    /// back when install.sh fails.
+    Planned(Option<Undo>),
     /// The run is over and went well.
     Over,
 }
@@ -540,9 +556,12 @@ fn prepare(file: &Path, asked: &Asked) -> Result<Prepared, u8> {
             "tehas update: could not write {}; run tehas update again to finish",
             file.display()
         ));
+        if let Some(undo) = &plan.undo {
+            release::undo(&host, undo);
+        }
         return Err(1);
     }
-    Ok(Prepared::Planned)
+    Ok(Prepared::Planned(plan.undo.take()))
 }
 
 pub fn main(given: &[String]) -> u8 {
@@ -617,6 +636,7 @@ mod tests {
             leftover: vec!["docs --force-recreate".into(), "sandbox".into()],
             unknown: vec!["rm -rf something=else".into()],
             over: false,
+            undo: None,
         };
         assert_eq!(Plan::parse(&plan.text()).unwrap(), plan);
         assert_eq!(

@@ -170,6 +170,9 @@ An address outside GitHub with that feature off is exit 78, and one on
 another host exit 64. The spec is a file attached on GitHub. A sha256 is 64
 lower-case hex digits. A text that has a `Zip:` or `Spec:` line of its own for
 one it is given, or leaves a code fence open before the lines, is exit 64.
+The `Spec:` line is written and checked by the grammar the dispatcher reads it
+with, so with `spec-pipe` on, a filed ticket that is later labelled
+`tehas:ready` starts its cycle with that spec pinned.
 
 Exit: 0 filed and marked; 1 gh could not say who is signed in, or a call of
 GitHub failed (an issue opened but not marked is named, to mark by hand); 3

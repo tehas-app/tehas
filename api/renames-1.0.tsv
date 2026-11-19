@@ -55,6 +55,7 @@ setting	TEHAS_BOT_LOGIN		the bot is the GitHub App's login, kept in state/github
 setting	TEHAS_GITHUB_APP_INSTALLATION		the installation is looked up from TEHAS_GITHUB_APP_ID
 setting	TEHAS_REFRESH_CONFLICTS		the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request
 setting	TEHAS_REFRESH_EVERY		the timed refresh scan is removed and tehas refresh --pr N asks for the refresh of one pull request
+setting	TEHAS_OVERLAP_HOLD		a host holds an issue out of the start order with tehas order set --only
 field	status.room.slots		auto sizing is removed and the object was filled only for the auto count
 setting	TEHAS_INDEXING	TEHAS_SITE_INDEXING	search engines may index the site; same values
 setting	TEHAS_ANALYTICS_SRC	TEHAS_SITE_ANALYTICS_SRC	the site's visitor tracker; TEHAS_ANALYTICS is unchanged

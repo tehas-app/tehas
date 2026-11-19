@@ -1,7 +1,7 @@
-//! The schema this binary writes, and the steps from the stores of the v0.30
-//! releases, which must keep every row. A store older than v0.30.0 wrote is
-//! refused. The stores are the ones those releases made, kept as SQL in
-//! tests/fixtures/store-v0.30.<n>.sql.
+//! The schema this binary writes, and the steps from the stores of the
+//! releases 1.0 updates from (0.30.x, 0.31.x and 0.32.x), which must keep
+//! every row. A store older than v0.30.0 wrote is refused. The stores are the
+//! ones those releases made, kept as SQL in tests/fixtures/store-v<n>.sql.
 
 use crate::db;
 use crate::verbs_tests::*;
@@ -12,9 +12,10 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
-/// The store each tagged v0.30 release makes, by the schema it is at: v0.30.0
-/// wrote 12, v0.30.1 13, and v0.30.2 to v0.30.6 14, with one schema.sql.
-const RELEASES: [(&str, i64, &str); 3] = [
+/// The store each tagged release 1.0 updates from makes, by the schema it is
+/// at: v0.30.0 wrote 12, v0.30.1 13, v0.30.2 to v0.30.6 14 with one
+/// schema.sql, v0.31.0 16 and v0.32.0 17.
+const RELEASES: [(&str, i64, &str); 5] = [
     (
         "v0.30.0",
         12,
@@ -29,6 +30,16 @@ const RELEASES: [(&str, i64, &str); 3] = [
         "v0.30.2",
         14,
         include_str!("../tests/fixtures/store-v0.30.2.sql"),
+    ),
+    (
+        "v0.31.0",
+        16,
+        include_str!("../tests/fixtures/store-v0.31.0.sql"),
+    ),
+    (
+        "v0.32.0",
+        17,
+        include_str!("../tests/fixtures/store-v0.32.0.sql"),
     ),
 ];
 
@@ -137,6 +148,15 @@ fn rows(c: &Connection) -> Vec<(String, usize)> {
             let n = dump(c, &t, &columns(c, &t)).len();
             (t, n)
         })
+        .collect()
+}
+
+/// The rows of every table but the outsource ones, which a store of 15 or
+/// later has and an older one does not.
+fn host_rows(c: &Connection) -> Vec<(String, usize)> {
+    rows(c)
+        .into_iter()
+        .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
         .collect()
 }
 
@@ -346,12 +366,12 @@ fn the_fixtures_are_the_stores_of_the_releases() {
 }
 
 #[test]
-fn a_store_of_each_0_30_release_comes_to_18_with_every_row() {
+fn a_store_of_each_release_1_0_updates_from_comes_to_18_with_every_row() {
     let made = home("init-shape");
     let b = conn(&made);
     for (version, schema, _) in RELEASES {
         let home = release(&format!("release-{version}"), schema);
-        let before = rows(&conn(&home));
+        let before = host_rows(&conn(&home));
         let meta = count(&home, "meta");
         let v: serde_json::Value = serde_json::from_str(&migrate(&home).unwrap()).unwrap();
         assert_eq!(
@@ -366,10 +386,7 @@ fn a_store_of_each_0_30_release_comes_to_18_with_every_row() {
         );
         assert_eq!(count(&home, "meta"), meta, "{version}");
         // Every row kept; the outsource tables are new and empty.
-        let after: Vec<(String, usize)> = rows(&conn(&home))
-            .into_iter()
-            .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
-            .collect();
+        let after = host_rows(&conn(&home));
         assert_eq!(after, before, "{version}");
         for t in db::OUTSOURCE_TABLES {
             assert_eq!(count(&home, t), 0, "{t} of {version}");
@@ -436,7 +453,7 @@ fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
         for stop in schema + 1..=db::SCHEMA_VERSION {
             let name = format!("stopped-{version}-at-{stop}");
             let home = release(&name, schema);
-            let before = rows(&conn(&home));
+            let before = host_rows(&conn(&home));
             let mut c = conn(&home);
             for (to, run) in db::STEPS {
                 if *to > schema && *to < stop {
@@ -465,10 +482,7 @@ fn a_migrate_stopped_at_any_step_comes_to_18_when_it_runs_again() {
                 (Some(stop - 1), Some(db::SCHEMA_VERSION)),
                 "{name}"
             );
-            let after: Vec<(String, usize)> = rows(&conn(&home))
-                .into_iter()
-                .filter(|(t, _)| !db::OUTSOURCE_TABLES.contains(&t.as_str()))
-                .collect();
+            let after = host_rows(&conn(&home));
             assert_eq!(after, before, "{name}");
             same_shape_as_init(&home, &b, &name);
         }
@@ -535,7 +549,7 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
         assert_eq!(kept, 0, "{}", backups.display());
         // The dry run, which install.sh asks before it copies anything,
         // refuses it the same way.
-        let (code, line) = execute(&home, &Verb::MigrateDry, NOW).unwrap_err();
+        let (code, line) = execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap_err();
         assert_eq!(code, 78, "{line}");
         assert!(line.contains("update to a v0.30 release first"), "{line}");
         // The verbs say the same.
@@ -552,15 +566,15 @@ fn a_store_older_than_v0_30_is_refused_and_left_as_it_was() {
 }
 
 #[test]
-fn the_dry_run_of_migrate_judges_a_0_30_store_and_writes_nothing() {
-    for schema in [12, 13, 14, db::SCHEMA_VERSION] {
-        let home = release(&format!("dry-{schema}"), schema.min(14));
+fn the_dry_run_of_migrate_judges_a_release_store_and_writes_nothing() {
+    for schema in [12, 13, 14, 16, 17, db::SCHEMA_VERSION] {
+        let home = release(&format!("dry-{schema}"), schema.min(17));
         if schema == db::SCHEMA_VERSION {
             migrate(&home).unwrap();
         }
         let file = db::path(&home);
         let before = fs::read(&file).unwrap();
-        let said = execute(&home, &Verb::MigrateDry, NOW).unwrap();
+        let said = execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap();
         let v: serde_json::Value = serde_json::from_str(&said).unwrap();
         assert_eq!(v["ok"], true, "{said}");
         assert_eq!(v["dry_run"], true, "{said}");
@@ -572,14 +586,92 @@ fn the_dry_run_of_migrate_judges_a_0_30_store_and_writes_nothing() {
 }
 
 #[test]
-fn the_dry_run_of_migrate_takes_no_other_word() {
+fn the_dry_run_of_migrate_takes_a_backup_directory_and_no_other_word() {
     let p = |a: &[&str]| crate::parse(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    assert_eq!(p(&["migrate", "--dry-run"]), Some(Verb::MigrateDry));
+    let dry = |backup: Option<&str>| {
+        Some(Verb::MigrateDry {
+            backup: backup.map(std::path::PathBuf::from),
+        })
+    };
+    assert_eq!(p(&["migrate", "--dry-run"]), dry(None));
+    assert_eq!(p(&["migrate", "--dry-run", "--json"]), dry(None));
     assert_eq!(
-        p(&["migrate", "--dry-run", "--json"]),
-        Some(Verb::MigrateDry)
+        p(&["migrate", "--dry-run", "--backup", "/x"]),
+        dry(Some("/x"))
     );
-    assert_eq!(p(&["migrate", "--dry-run", "--backup", "/x"]), None);
+    assert_eq!(
+        p(&["migrate", "--backup", "/x", "--dry-run"]),
+        dry(Some("/x"))
+    );
+    assert_eq!(p(&["migrate", "--dry-run", "--backup", "x"]), None);
+    assert_eq!(p(&["migrate", "--dry-run", "--backup"]), None);
+    assert_eq!(
+        p(&["migrate", "--dry-run", "--backup", "/x", "--backup", "/y"]),
+        None
+    );
+    assert_eq!(p(&["migrate", "--dry-run", "--dry-run"]), None);
+    assert_eq!(p(&["migrate", "--dry-run", "--outsource"]), None);
+}
+
+fn rehearse(home: &Path, backup: &Path) -> Result<String, (u8, String)> {
+    execute(
+        home,
+        &Verb::MigrateDry {
+            backup: Some(backup.to_path_buf()),
+        },
+        NOW,
+    )
+}
+
+// install.sh asks it before its first copy, so what stops the real migration
+// before its first step stops the install while nothing is installed.
+#[test]
+fn the_dry_run_with_a_backup_writes_the_copies_and_takes_them_away() {
+    for schema in [17, db::SCHEMA_VERSION] {
+        let home = release(&format!("rehearse-{schema}"), 17);
+        if schema == db::SCHEMA_VERSION {
+            migrate(&home).unwrap();
+            for copy in fs::read_dir(home.join("state/backup")).unwrap() {
+                fs::remove_file(copy.unwrap().path()).unwrap();
+            }
+        }
+        let file = db::path(&home);
+        let before = fs::read(&file).unwrap();
+        let backup = home.join("state").join("backup");
+        let said = rehearse(&home, &backup).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&said).unwrap();
+        assert_eq!(v["dry_run"], true, "{said}");
+        assert_eq!(v["from"], schema, "{said}");
+        assert_eq!(v["to"], db::SCHEMA_VERSION, "{said}");
+        let made = backup.canonicalize().unwrap();
+        assert_eq!(v["backup"], made.to_str().unwrap(), "{said}");
+        assert_eq!(fs::read_dir(&backup).unwrap().count(), 0);
+        assert_eq!(fs::read(&file).unwrap(), before);
+        assert_eq!(one::<i64>(&home, "PRAGMA user_version"), schema);
+    }
+}
+
+#[test]
+fn the_dry_run_with_a_backup_refuses_a_directory_out_of_the_home() {
+    let home = release("rehearse-out", 17);
+    let elsewhere = home.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, home.join("state/backup")).unwrap();
+    let file = db::path(&home);
+    let before = fs::read(&file).unwrap();
+    // The plain dry run cannot see it, which is why install.sh asks with it.
+    execute(&home, &Verb::MigrateDry { backup: None }, NOW).unwrap();
+    let (code, line) = rehearse(&home, &home.join("state/backup")).unwrap_err();
+    assert_eq!(code, 78, "{line}");
+    assert!(
+        line.contains("the backup goes in the state/ or state/backup/ of the store's home"),
+        "{line}"
+    );
+    assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    assert_eq!(fs::read(&file).unwrap(), before);
+    // The real migration is refused the same way.
+    let (code, _) = migrate(&home).unwrap_err();
+    assert_eq!(code, 78);
 }
 
 #[test]
@@ -811,6 +903,8 @@ fn load_brings_a_copy_of_a_0_30_store_forward_as_migrate_does() {
         ("15", at_15("load-old-15")),
         ("16", at_16("load-old-16")),
         ("17", at_17("load-old-17")),
+        ("v0.31.0", release("load-old-v0.31.0", 16)),
+        ("v0.32.0", release("load-old-v0.32.0", 17)),
     ] {
         let from = one::<i64>(&old, "PRAGMA user_version");
         let into = home(&format!("load-old-into-{name}"));
