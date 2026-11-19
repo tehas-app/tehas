@@ -30,7 +30,8 @@
     "host-message",
     "refresh-pr",
     "host-start",
-    "flags"
+    "flags",
+    "status-previews"
   ],
   "flags": {
     "outsource": false,

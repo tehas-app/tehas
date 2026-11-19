@@ -18,7 +18,8 @@
 //!     nothing.
 //!
 //! The files of live/ beside the health file are read when they are there:
-//! protolab.json as `prototypes`, and contractors.json, which the factory
+//! protolab.json as `prototypes`, previews.json, which the factory writes only
+//! with previews on, as `previews`, and contractors.json, which the factory
 //! writes only with outsource on, as `contractors`, the `outsource:` line and
 //! where each running cycle is built.
 //!
@@ -232,6 +233,12 @@ fn answer(file: &str, now: i64, lines: Option<(&str, Option<&str>)>, ends: &[Str
                 .and_then(|t| J::parse(&t));
             if let (J::Obj(o), Some(p)) = (&mut said, list.as_ref().and_then(prototypes)) {
                 o.push(("prototypes".to_string(), p));
+            }
+            let shown = fs::read_to_string(beside(file, "previews.json"))
+                .ok()
+                .and_then(|t| J::parse(&t));
+            if let (J::Obj(o), Some(p)) = (&mut said, shown.as_ref().and_then(previews)) {
+                o.push(("previews".to_string(), p));
             }
             if let (J::Obj(o), Some(c)) = (&mut said, hands.as_ref().and_then(contractors)) {
                 o.push(("contractors".to_string(), c));
@@ -1068,6 +1075,44 @@ pub fn prototypes(list: &J) -> Option<J> {
     ))
 }
 
+/// The previews of the open pull requests, from the list the previews write
+/// beside the health file: each pull request's number, the preview's own word
+/// for its state, and its address while it serves. The default branch's
+/// preview has no number and is not one of them. None when there is no list
+/// to read, as on a host without previews.
+pub fn previews(list: &J) -> Option<J> {
+    let J::Arr(rows) = list.get("previews") else {
+        return None;
+    };
+    Some(J::Arr(
+        rows.iter()
+            .filter(|r| {
+                r.get("number")
+                    .as_f64()
+                    .is_some_and(|n| n >= 1.0 && n.fract() == 0.0)
+                    && r.get("state").as_str().is_some_and(|s| !s.is_empty())
+            })
+            .map(|r| {
+                let mut f = vec![
+                    ("number", r.get("number").clone()),
+                    ("state", r.get("state").clone()),
+                ];
+                // An address only while it serves, as the schema says: a
+                // program shows it to a person as the place to try the
+                // change, so one left from another state is not given.
+                if r.get("state").as_str() == Some("serving")
+                    && r.get("address")
+                        .as_str()
+                        .is_some_and(|a| a.starts_with("https://"))
+                {
+                    f.push(("url", r.get("address").clone()));
+                }
+                obj(f)
+            })
+            .collect(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1519,6 +1564,24 @@ mod tests {
             r#"[{"issue":7,"builtAt":"2026-10-17T12:00:00Z"},{"issue":9}]"#
         );
         assert!(prototypes(&h("{}")).is_none());
+    }
+
+    #[test]
+    fn the_previews_are_the_pull_requests_of_the_list_with_an_address_only_while_serving() {
+        let list = h(r#"{"generatedAt":"2026-10-17T14:00:00Z","previews":[
+              {"number":null,"name":"main","state":"serving","address":"https://uat-main.example.org/"},
+              {"number":31,"state":"serving","reason":"","title":"T","url":"u","address":"https://uat-31.example.org/"},
+              {"number":30,"state":"no-space","reason":"Low on disk.","address":null},
+              {"number":29,"state":"building","address":"uat-29"},
+              {"number":26,"state":"build-failed","address":"https://uat-26.example.org/"},
+              {"number":28,"state":""},
+              {"number":"27","state":"serving"}]}"#);
+        assert_eq!(
+            previews(&list).unwrap().dump(),
+            r#"[{"number":31,"state":"serving","url":"https://uat-31.example.org/"},{"number":30,"state":"no-space"},{"number":29,"state":"building"},{"number":26,"state":"build-failed"}]"#
+        );
+        assert_eq!(previews(&h(r#"{"previews":[]}"#)).unwrap().dump(), "[]");
+        assert!(previews(&h("{}")).is_none());
     }
 
     #[test]

@@ -154,6 +154,20 @@
         }
       }
     },
+    "previews": {
+      "description": "The previews of the open pull requests, as the previews last listed them, newest pull request first. The preview of the default branch is not one of them. Left out when there is no such list, as on a host that does not run previews.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["number", "state"],
+        "additionalProperties": false,
+        "properties": {
+          "number": {"type": "integer", "minimum": 1},
+          "state": {"description": "The preview's own word: building, serving, build-failed, no-recipe, over-limit or no-space. An open list: later releases add words.", "type": "string", "minLength": 1},
+          "url": {"description": "Where the preview answers; there only while it serves.", "type": "string", "pattern": "^https://"}
+        }
+      }
+    },
     "room": {
       "description": "Free places as the last poll counted them. A cycle outsourced to a contractor takes a place as a cycle on this host does.",
       "type": ["object", "null"],

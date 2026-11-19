@@ -295,8 +295,10 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    commit is not built again, so the pull request has no preview until a new
    commit is pushed. Both states are `build-failed`.
 7. The pull request is told, at the top of its own description, and
-   `~/tehas/live/previews.json` is written for the dashboard and for
-   [tehasbot health](/tools-health#tehasbot-health).
+   `~/tehas/live/previews.json` is written for the dashboard, for
+   [tehasbot health](/tools-health#tehasbot-health) and for `previews` in
+   [`tehas status --json`](/api#tehas-status---json), where a program reads
+   each pull request's state and address.
 
 Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 
