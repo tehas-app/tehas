@@ -335,7 +335,12 @@ holds the lock of #N`: its client died, and it would work on with the bot's
 token and hold the name. The container of a planning turn that was cut off,
 `tehas-plan-<issue>`, is removed the same way before the turn is reported. A
 paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
-host no cycle holds a lock.
+host no cycle holds a lock. When `~/tehas/state/cycles` is there but cannot be
+listed, for example after a change of its mode or when a file stands in its
+place, no cycle can be told to run or not, and the poll ends with exit 1 before
+it acts: `ERROR: state/cycles could not be listed, so no cycle can be told to
+run or not: the poll acts on none`. It removes no container, parks no issue
+and starts nothing until the directory can be listed again.
 
 The other way round, a cycle that holds its lock but has not been heard from
 for 20 minutes is stuck, for example a `tehas work` that hangs after its
@@ -426,6 +431,9 @@ starts. `needs-human-attention` is left for the cycle, which starts with
 says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
+A label change GitHub did not answer (a timeout or a 5xx) is read back once:
+when the issue carries `tehas:running` and not the labels the change takes
+off, the change was made and the cycle starts.
 
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`

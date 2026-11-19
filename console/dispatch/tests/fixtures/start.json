@@ -731,6 +731,25 @@
    }
   },
   {
+   "case": "a cycles directory that cannot be listed ends the poll before it removes a container or parks a marked issue",
+   "snapshot": {
+    "running_unlisted": true,
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: state/cycles could not be listed, so no cycle can be told to run or not: the poll acts on none"
+    ]
+   }
+  },
+  {
    "case": "pull requests GitHub answers with something that is no list end the poll",
    "snapshot": {
     "issues": {

@@ -176,11 +176,12 @@ a turn whose client died, is removed before the turn starts.
 
 Reviews what the default branch gained since the last reviewed commit, with
 pi-rukas's lens reviewer running headless in the sandbox image. It is the
-review step of the review loop: `tehas-review.timer` starts it once a week
-where a person has enabled it, and it files its findings only where
-`TEHAS_REVIEW_REPO` names a repository. With `TEHAS_REVIEW` other than `1` --
-the default -- it exits 0 at once and calls nothing, so an enabled timer costs
-such a host nothing.
+review step of the review loop, which is still being built in this release
+([the review loop](/operating#the-review-loop)): a release refuses
+`TEHAS_REVIEW=on` with exit 78, and with the feature off the command exits 0
+at once and calls nothing. What follows is what it does on a build that turns
+the feature on for a test: `tehas-review.timer` starts it once a week, and it
+files its findings only where `TEHAS_REVIEW_REPO` names a repository.
 
 ```
 tehasbot review
@@ -325,16 +326,12 @@ does for a cycle.
 
 `tehas-review.timer` starts `tehas-review.service` on Monday morning once a
 week, `Persistent=true` so a host that was down when it was due runs it when it
-comes back. `install.sh` and `tehas update` copy both units and restart the
-timer where it was already running; enabling it is a person's action:
-
-```
-systemctl --user enable --now tehas-review.timer
-```
+comes back. `install.sh` installs both units, and a first install enables the
+timer, only while review is on, which no release allows yet.
 
 The unit keeps its own lines in `~/tehas/logs/review-timer.log`, beside the
 `review-<time>` files of the runs; `journalctl --user -u tehas-review` holds
 what a run printed before it could open that file. `TimeoutStartSec` of the
 service is 3 hours, above the 2 hours `TEHAS_PLAN_TIMEOUT` gives the container,
-so systemd is the last bound and not the first. With `TEHAS_REVIEW` other than
-`1` a run exits at once and all of this costs the host one short process a week.
+so systemd is the last bound and not the first. With review off a run exits
+at once and all of this costs the host one short process a week.

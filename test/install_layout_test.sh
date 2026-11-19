@@ -35,7 +35,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-review.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-clean.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
@@ -149,6 +149,39 @@ t_eq "$([ -e "$units/tehas-refresh.timer" ] && echo there)" "there"
 t_stub systemctl
 t_run "$install"
 t_contains "$t_out" "removed: $units/tehas-refresh.timer"
+
+t_case "an enabled timer of a feature that is off is named, then stopped and disabled, and its files stay"
+echo "[Timer]" >"$units/tehas-review.timer"
+echo "[Service]" >"$units/tehas-review.service"
+rm -f "$T/disabled"
+t_stub systemctl 'case $2 in
+  is-enabled) [ ! -e "$T/disabled" ] ;;
+  disable) : >"$T/disabled" ;;
+esac'
+rm -f "$T/calls/systemctl"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "enabled: $units/tehas-review.timer (its feature is off; a real run disables it)"
+t_lacks "$(t_calls systemctl)" "disable"
+rm -f "$T/calls/systemctl"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemd: stopped and disabled tehas-review.timer: its feature is off (the unit files stay)"
+t_contains "$(t_calls systemctl)" "--user disable --now tehas-review.timer"
+t_eq "$(cat "$units/tehas-review.timer" "$units/tehas-review.service")" "[Timer]
+[Service]"
+t_run "$install"
+t_contains "$t_out" "tehas is up to date"
+t_lacks "$t_out" "tehas-review.timer"
+
+t_case "a timer of a feature that is off that systemd cannot disable is left for the next run"
+rm -f "$T/disabled"
+t_stub systemctl '[ "$2" != disable ]'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: systemctl --user disable --now tehas-review.timer   (its feature is off)"
+rm -f "$units/tehas-review.timer" "$units/tehas-review.service"
+t_stub systemctl
 
 t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
 old_layout

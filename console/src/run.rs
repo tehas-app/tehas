@@ -18,7 +18,7 @@
 //! (AGENTS.md, rule 2). A command's own rule sits between 2 and 4:
 //!
 //!   refresh   exit 64 before step 2 unless the arguments are --pr N
-//!   review    exit 0 after step 3 unless TEHAS_REVIEW is 1
+//!   review    exit 0 after step 3 unless the review feature is on
 //!   preview   exit 78 after step 3 unless TEHAS_PREVIEWS is 1
 //!
 //! The review's gate sits below the check of the settings it needs because an
@@ -328,7 +328,7 @@ fn command(libexec: &str, uid: &str, bash: &str, words: &[String]) -> Result<u8,
             env::set_var("PATH", path);
             hand_to_dispatcher(libexec, rest, Some(format!("{home}/logs/refresh.log")))
         }
-        ["tehasbot", "review"] if var("TEHAS_REVIEW") != "1" => 0,
+        ["tehasbot", "review"] if !tehas_core::features::on("review") => 0,
         ["tehasbot", "review"] => review::main(&["main".to_string()]),
         _ => commands::tehasbot(&words[1..]),
     })

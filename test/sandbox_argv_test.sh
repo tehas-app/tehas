@@ -115,6 +115,9 @@ echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":
 # The instance of every case, and the tokens of the host's environment: all a
 # container can be given by name. A container that takes no token shows it too.
 all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1)
+# review is still being built: the review's container is pinned as a test
+# turns the feature on.
+T_ENV_ALWAYS+=(TEHAS_TEST_FEATURES=review)
 clean() {
   fresh
   rm -f "$T/docker.n"

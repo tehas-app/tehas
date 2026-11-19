@@ -5,7 +5,8 @@
 # gate for the whole batch. It makes scripts/verify.sh something a
 # ruleset can require, and the check of the repository's lockfiles against
 # published advisories. It reads only the repository. It reaches the network for
-# the tools it downloads at the pinned versions of host/versions.env, and for
+# the tools it downloads at the pinned versions of host/versions.env, each
+# download retried when a transfer fails and checked against its sum, and for
 # the advisory scan, which sends the name and version of each package of those
 # lockfiles to the OSV database and nothing else. The one secret it may use
 # is GENERIC_NAMES, the private list of names for scripts/check-generic.sh,
@@ -57,7 +58,7 @@ jobs:
           # carried on purpose is named in osv-scanner.toml with its reason and
           # the date to look again.
           . host/versions.env
-          curl -fsSL -o "$RUNNER_TEMP/osv-scanner" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/osv-scanner" \
             "https://github.com/google/osv-scanner/releases/download/v$OSV_SCANNER_VERSION/osv-scanner_linux_amd64"
           echo "$OSV_SCANNER_SHA256  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
           chmod 755 "$RUNNER_TEMP/osv-scanner"
@@ -74,7 +75,7 @@ jobs:
       - name: shellcheck at the pinned version
         run: |
           . host/versions.env
-          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/shellcheck.tar.xz" \
             "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
           echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
@@ -87,7 +88,7 @@ jobs:
           # program parses only in a newer jq fails here too.
           . host/versions.env
           mkdir -p "$RUNNER_TEMP/jq"
-          curl -fsSL -o "$RUNNER_TEMP/jq/jq" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/jq/jq" \
             "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
           echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -
           chmod 755 "$RUNNER_TEMP/jq/jq"
@@ -100,7 +101,7 @@ jobs:
           . host/versions.env
           rm -rf "$RUNNER_TEMP/node"
           mkdir -p "$RUNNER_TEMP/node"
-          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/node.tar.xz" \
             "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"
           echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/node.tar.xz" -C "$RUNNER_TEMP/node" --strip-components=1

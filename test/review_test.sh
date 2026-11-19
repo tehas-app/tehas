@@ -7,6 +7,9 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 T_APP_WORLD=0
+# review is still being built: every run here turns it on as a test does, and
+# the case of a release empties this to see the refusal.
+T_ENV_ALWAYS+=(TEHAS_TEST_FEATURES=review)
 # What tehas-cycle sandbox gives a container: the mounts, the variables and the
 # security options. AGENTS.md rule 4. The review's container is pinned against
 # these lists, which name what the library gives and not what this command
@@ -513,6 +516,30 @@ t_eq "$(t_calls gh)" ""
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T" -maxdepth 1 -name 'caps.call.*' | wc -l)" 0
 t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+
+t_case "a release refuses the loop switched on, and with it off calls nothing"
+# What a host gets while review is building: no test variable, so the switch
+# set on is a malformed instance and nothing runs.
+reset
+kept_always=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1
+t_run "$review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REVIEW is on and review is still being built in this release"
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls gh)" ""
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO="$findings_repo"
+t_run "$review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REVIEW_REPO is set and review is still being built in this release"
+t_instance "${T_MINIMAL[@]}"
+t_run "$review"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls gh)" ""
+T_ENV_ALWAYS=("${kept_always[@]}")
 
 t_case "with the loop on the same instance reviews"
 reset

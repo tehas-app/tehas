@@ -91,7 +91,10 @@ each public command, subcommand and flag, setting, role, label and `--json`
 field, read from the files in the table above. Lines are only added.
 `console/tests/surface.rs` fails when one of its names goes, and when the
 surface gains a name the list does not have yet. What a building feature
-adds is not in it.
+adds is not in it. A name that was on the list before its feature became
+building stays on it: the list is only added to. Such a name is refused
+while the feature is building, as every building feature's name is
+([review](#review)).
 
 In `tehas status --json` the fields of `running[].progress` and `prototypes`
 describe one driver's steps and the Protolab, and may change. The fields of
@@ -116,7 +119,16 @@ Decided for 1.0 on 2026-11-18.
   as `contractors` in `tehas status --json` and `api/status.outsourced.json`),
   its commands and its MCP tools may change or go until the release that ships
   it. Only a shipped feature's key is guaranteed in `flags`, and
-  `api/api.schema.json` requires only those.
+  `api/api.schema.json` requires only those. A name that was on `api/surface-1.0.txt`
+  before its feature became building stays on it and keeps its meaning,
+  though its row is marked `"building": true` and the release refuses it:
+  `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` of [review](#review).
+- **The building features of 1.0 come in 1.1.** outsource, spec-pipe,
+  protolab-zip-url, prototype-file, lean and review are planned for 1.1
+  (decided 2026-11-19). The names [listed for each below](#names-reserved-for-11) are
+  the ones 1.1 adds to the frozen surface: no other feature takes them, and
+  1.1 ships each under the same name. Their shapes may still be settled
+  before 1.1; once shipped, they are only added to.
 - **MCP protocol revisions.** The revisions [the MCP server](/mcp-server)
   accepts at 1.0, 2026-07-28 and 2025-11-25, stay accepted through 1.x. Newer
   ones may be added.
@@ -266,7 +278,9 @@ frozen surface ([the rules for 1.x](#the-rules-for-1x)): its switch set to `on`,
 settings a value, stops every command with exit 78 and names the feature, it
 adds no command, no label, no `--json` field and no MCP
 tool, and its settings, its key in `flags`, its commands, fields and MCP tools
-are not contract until the release that ships it. `tehas api --json` lists
+are not contract until the release that ships it, except a name that was
+public before the feature became building, which stays on
+`api/surface-1.0.txt` ([review](#review)). `tehas api --json` lists
 every feature in `flags`, `false` while it is building, and a shipped
 feature's word in `features`. `api/settings-rules.json` marks the rows of a
 building feature `"building": true`. Promoting a
@@ -274,11 +288,29 @@ feature to shipped only adds. A lab host proves a building feature on a build
 that reads `TEHAS_TEST_FEATURES`, which no release does: see [proving a
 building feature on a lab host](/tools-update#proving-a-building-feature-on-a-lab-host).
 
+### Names reserved for 1.1
+
+Each building feature of 1.0 is planned for 1.1, and these are the names it
+adds when it ships. The names marked frozen are in `api/surface-1.0.txt`
+already and keep their meaning in 1.0.
+
+| Feature | Settings | Commands | Fields, tools and text | Labels | Programs and units |
+| --- | --- | --- | --- | --- | --- |
+| outsource | `TEHAS_OUTSOURCE` and `TEHAS_OUTSOURCE_TIMEOUT`, `_GRACE`, `_RETRIES`, `_REST`, `_REPOS`, `_CONTRACTORS`, `_JOIN_TTL`, `_PROXY_ADDR`, `_PROXY_IDLE` | `tehas outsource invite [--name NAME]`, `list`, `status`, `revoke <contractor>`, `drain <contractor>`, each with `--json` | `contractors` in `tehas status --json` (`api/status.outsourced.json`), the MCP tool `factory_contractors`, the job channel `/outsource/v1/<call>` | none | `tehas-proxy`, `tehas-contractor`, `tehas-outsource-proxy.service` |
+| spec-pipe | `TEHAS_SPEC_PIPE` | none | the issue line `Spec: <link> sha256:<hex>`, [the pull request spec block](#the-pull-request-spec-block) version 1, the cycle's `spec` and `approved.json` and their manifest keys `spec` and `approvedText`, the runner capability `issueSpec` | none | none |
+| protolab-zip-url | `TEHAS_PROTOLAB_ZIP_URL`, `TEHAS_PROTOLAB_ZIP_HOSTS` | none | the ticket line `Zip: <address> sha256:<hex>` | `tehas:prototype` (frozen) | none |
+| prototype-file | `TEHAS_PROTOTYPE_FILE` | `tehas prototype file` with `--title`, `--body-file`, `--spec`, `--spec-sha256`, `--zip`, `--zip-sha256` | none | `tehas:prototype` (frozen) | none |
+| lean | `TEHAS_LEAN`, and the word `lean` of `TEHAS_DRIVER` (frozen) | `tehas work --driver lean` (the flag is frozen) | the issue's `pi-spec v1` block, the `driver` columns of `analytics.db` (frozen) | `tehas:lean`, `tehas:classic` (frozen) | none |
+| review | `TEHAS_REVIEW`, `TEHAS_REVIEW_REPO` (both frozen) | none | none | `tehas:improvement` (frozen) | `tehas-review.service`, `tehas-review.timer` |
+
+Each feature's name is its key in `flags` and the word 1.1 appends to
+`features`. None of them adds a `/health` field.
+
 What each registered feature leaves visible while its flag is off:
 
 ### outsource
 
-Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
+Building, planned for 1.1. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 78 and says `outsource` is still being built.
 
 - `tehas api --json` has `"outsource": false` in `flags`, and no word
@@ -295,7 +327,7 @@ Building. Off by default; `TEHAS_OUTSOURCE=on` stops every command with exit
 
 ### spec-pipe
 
-Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
+Building, planned for 1.1. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
 78 and says `spec-pipe` is still being built.
 
 - `tehas api --json` has `"spec-pipe": false` in `flags`, and no word
@@ -314,7 +346,7 @@ Building. Off by default; `TEHAS_SPEC_PIPE=on` stops every command with exit
 
 ### protolab-zip-url
 
-Building. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
+Building, planned for 1.1. Off by default; `TEHAS_PROTOLAB_ZIP_URL=on` stops every command with
 exit 78 and says `protolab-zip-url` is still being built.
 
 - `tehas api --json` has `"protolab-zip-url": false` in `flags`, and no word
@@ -330,7 +362,7 @@ does once it ships.
 
 ### prototype-file
 
-Building. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
+Building, planned for 1.1. Off by default; `TEHAS_PROTOTYPE_FILE=on` stops every command with
 exit 78 and says `prototype-file` is still being built.
 
 - `tehas api --json` has `"prototype-file": false` in `flags`, and no word
@@ -344,7 +376,7 @@ feature does once it ships.
 
 ### lean
 
-Building. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
+Building, planned for 1.1. Off by default; `TEHAS_LEAN=on` stops every command with exit 78
 and says `lean` is still being built, and so does `TEHAS_DRIVER=lean`, which
 names the feature it needs.
 
@@ -365,6 +397,30 @@ names the feature it needs.
 
 [Choosing the driver](/operating#choosing-the-driver) says what the feature
 does once it ships.
+
+### review
+
+Building since v1.0.0-rc.1, planned for 1.1. It shipped as a setting before the registry, but
+no run was seen on a host, so it became building (decided 2026-11-19). Off by
+default; `TEHAS_REVIEW=on` stops every command with exit 78 and says `review`
+is still being built.
+
+- `tehas api --json` has `"review": false` in `flags`, and no word `review`
+  in `features`.
+- The settings `TEHAS_REVIEW` and `TEHAS_REVIEW_REPO` were public before
+  review became building, so they stay on `api/surface-1.0.txt` and keep
+  their meaning. While review is building they are refused: a line that
+  gives `TEHAS_REVIEW_REPO` a value stops every command with exit 78 and
+  names `review`.
+- `tehasbot review` exits 0 at once and calls nothing.
+- `install.sh` does not install `tehas-review.service` or
+  `tehas-review.timer`, does not enable the timer and an update does not
+  restart it. A host that had them from an earlier release keeps the files,
+  and `install.sh` stops and disables the timer if it is enabled.
+- No command, no label, no `--json` field, no MCP tool.
+
+[The review loop](/operating#the-review-loop) says what the feature does once
+it ships.
 
 ## Exit statuses
 

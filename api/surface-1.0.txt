@@ -4,7 +4,9 @@
 # host/labels.tsv and the fields of the --json objects of api/*.schema.json,
 # an array's items written `[]`. A feature still being built is not here, nor
 # are the flags api/commands.txt marks internal or the fields under those
-# host/docs/contract.md says may change.
+# host/docs/contract.md says may change. A name that was here before its
+# feature became building stays, and a release refuses it while the feature
+# is building: TEHAS_REVIEW and TEHAS_REVIEW_REPO of review.
 #
 # Lines are only added, at the end, in the release that brings the name.
 # None is taken out or changed within 1.x. console/tests/surface.rs fails

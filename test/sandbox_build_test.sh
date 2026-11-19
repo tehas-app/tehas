@@ -213,6 +213,16 @@ done
 # pi-rukas's own recipe is read for the floor of the pi version.
 t_contains "$(cat "$T_ROOT/host/sandbox/base.Dockerfile")" "source=.devcontainer/Dockerfile"
 
+t_case "each apt step of the base retries its fetches, and the whole step once after a pause"
+recipe=$T_ROOT/host/sandbox/base.Dockerfile
+t_eq "$(grep -c 'apt-get update' "$recipe")" 3
+t_eq "$(grep -c 'apt-get update -o Acquire::Retries=5 ' "$recipe")" 3
+t_eq "$(grep -c 'apt-get install' "$recipe")" 3
+t_eq "$(grep -c 'apt-get install -y -o Acquire::Retries=5 --no-install-recommends' "$recipe")" 3
+t_eq "$(grep -c 'RUN for try in 1 2; do' "$recipe")" 3
+t_eq "$(grep -c '&& break; ' "$recipe")" 3
+t_eq "$(grep -c 'rm -rf /var/lib/apt/lists/\*; sleep 30; ' "$recipe")" 3
+
 t_case "the base is built from pinned inputs: images by digest, downloads checked before they run"
 recipe=$T_ROOT/host/sandbox/base.Dockerfile
 froms=$(grep -E '^FROM ' "$recipe")
@@ -590,6 +600,10 @@ t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
 t_contains "$t_out" "-product failed its smoke run (crashed)"
+# The tag already moved onto the platform image, and the line says so.
+t_contains "$t_out" "tehas/pi-rukas:uid$uid names tehas/pi-rukas:"
+t_contains "$t_out" "without the layer of $T/instance/sandbox.Dockerfile"
+t_lacks "$t_out" "is left as it was"
 # One tag moved: the platform image's. The layer that was refused takes nothing.
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
 uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')
@@ -643,6 +657,8 @@ fx_ids
 t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$T/instance/sandbox.Dockerfile did not build"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid names tehas/pi-rukas:"
+t_lacks "$t_out" "is left as it was"
 # The tag cycles run is left on the image the host can run, the platform image
 # of this run and not the layer that failed to build: the last tag of the run is
 # that one, and no tag of the run names the layer at all.
@@ -660,6 +676,7 @@ cp "$fx/layers-cached" "$fx/layers-product"
 t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "was not built on tehas/pi-rukas:"
+t_contains "$t_out" "without the layer of $T/instance/sandbox.Dockerfile"
 t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
 rm -f "$T/instance/sandbox.Dockerfile" "$fx/product-missing"
 

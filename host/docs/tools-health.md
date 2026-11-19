@@ -35,10 +35,13 @@ with what was read: when the list of issues failed, the lists of work
 (`running`, `queued`, `awaiting`, `stopped`, `planned`, `planning`) and
 `queueAt`, the time they were read, are the file's of the run before; when the
 read of what closed them failed or answered no list, `completed`,
-`completedCount` and `completedAt` are. `stale` names each part kept so,
-`queue` or `completed`, and is absent when every read answered. A part the
-file before did not hold is left out. The pause, all-hands and the words are
-this run's. `planned` lists the open issues labelled `tehas:plan` or
+`completedCount` and `completedAt` are. When the read of the control issue's
+labels failed, its events say whether `tehas:pause` is on: it is when the last
+event of the label applied it. When that read failed too, `pause.label` and
+`pause.lifted` are the file's of the run before, and `paused` follows them.
+`stale` names each part kept so, `queue`, `completed` or `pause`, and is absent
+when every read answered. A part the file before did not hold is left out. The
+pause flag, all-hands and the words are this run's. `planned` lists the open issues labelled `tehas:plan` or
 `tehas:planning`, found by the same search as the lists, and `planning` counts
 them. `completedCount` is a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past

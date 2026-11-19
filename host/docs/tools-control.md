@@ -111,7 +111,10 @@ to standard output and `unpack` reads it from standard input. It holds
 store made of itself, behind a `tehas-state.json` that names the release and
 the schema; the live token (`state/github`) is left out, and the target keeps
 its own. `pack` refuses while a cycle or a planning turn runs or a `tehas-*`
-unit is active; `--rehearse` does not, changes nothing and marks the tar a
+unit is active. A cycle killed before it reported, by a power loss or the OOM
+killer, leaves its record open with its lock free: `pack` refuses that too and
+says `the cycle for #N was killed before it reported and its record is open:
+tehas stop N ends it`. `--rehearse` does not refuse, changes nothing and marks the tar a
 rehearsal that `unpack` takes only with `--rehearse`, which replaces the
 target's state as `unpack` does: the old state is gone, so use it only on a
 machine that will be rebuilt. `unpack` refuses while a

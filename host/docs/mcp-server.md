@@ -317,13 +317,16 @@ secret the mask would have known whole. The field is left out when the poll
 named no reason, which is how "nothing holds" is answered, and left out when
 the report is missing, unreadable or of another shape: the rest of the answer
 stands on its own, and a caller is not told the poll is not on record by a
-field that is not there.
+field that is not there. It is also left out when the report's `time` is more
+than ten minutes before the health file's, or cannot be read: a poll that
+ends before it weighs room, such as a paused one, does not rewrite the report,
+so its reason would be of a poll long gone.
 
 `held` comes from the same file: the ready issues the poll held one by one
 while it had room, such as one whose last cycle parked and whose body has not
 changed since. Each has `issue`, `why` (`parked`), `text` and `clear`, what a
 person does to release it; the two lines are masked and cut as `hold.text` is.
-It is left out when the poll held none. A queue view should not show these
+It is left out when the poll held none, or the report is too old for `hold`. A queue view should not show these
 issues as next.
 
 `factory_outcomes` reads `outcomes.jsonl` from the same directory, which

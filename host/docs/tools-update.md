@@ -54,6 +54,13 @@ that load stops on such a row, it also lists every one of them, the rows of
 `instance.env` and of `~/.config/tehas/env` its own `api/renames-1.0.tsv`
 names, and exits 78 before install.sh runs.
 
+A feature still being built is refused the same way: its switch set to `on`,
+or a line that gives one of its own settings a value, stops every command
+with 78 and names the feature, and both checks list every such line at once.
+A host that turned the review loop on under an earlier release takes
+`TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` out before it updates
+([the review loop](/operating#the-review-loop)).
+
 ### From v0.30.x, v0.31.x or v0.32.x
 
 1.0 updates a host on any v0.30.x, v0.31.x or v0.32.x release, with
@@ -102,6 +109,11 @@ update once `v1.0.0` is out, and stays where it is until then. `tehas status
 --json` names the release a host runs and the commit it was built from in
 `versions.platform`.
 
+A host that runs from its platform checkout, with no `current` yet, moves to
+the newest too, unless the checkout's tag is newer than the newest release, as
+a prerelease can be. Then it moves to the release of that tag, and when that
+tag is not published it changes nothing and exits 1.
+
 `tehas update --check` prints the version installed, the newest, and the notes
 of each release between them: its section of the changelog, with its
 `Adopter action`. Going back with `--to`, it prints the notes of the releases
@@ -134,11 +146,22 @@ version to move to.
    be searched for is named in a warning of its own;
 5. point `~/tehas/current` at the version, and run `install.sh` and its
    follow-ups from there, as an update from the checkout does. The commands and
-   units are the copies `install.sh` makes from that tree.
+   units are the copies `install.sh` makes from that tree. When `install.sh`
+   stops before it installs anything and says `nothing was installed`, for
+   example because the version's store cannot open this host's database,
+   `current` and the uid tag of the sandbox image are put back where they were
+   (`release: install.sh did not finish <version>, so current is <version>
+   again`), so a plain `tehas update` installs the version the host ran. A
+   host that ran from its checkout loses `current` again. An `install.sh` that
+   fails after it began to copy, or runs out of time, may have installed the
+   version's files and migrated the database, so `current` stays on that
+   version and the next `tehas update` finishes it.
 
 The sandbox image a version ran with keeps the tag
 `tehas/pi-rukas:release-<version>`. Going back to a version that still has one
-puts that image back under the uid tag and builds nothing. The version
+puts that image back under the uid tag and builds nothing, unless its
+`tehas.layer` label is not the sum of the instance's `sandbox.Dockerfile` as
+it is now: then it is not put back, and the build `install.sh` owes runs. The version
 `current` names and the two switched to before it stay in `~/tehas/versions`,
 in the order `~/tehas/state/release-history` records; older ones are removed
 with their image tags.

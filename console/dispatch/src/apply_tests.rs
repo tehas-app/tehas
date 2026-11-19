@@ -1523,6 +1523,119 @@ fn a_unit_that_never_says_it_started_is_put_back_and_said() {
         .any(|c| c.contains("`tehas-cycle@7.service` did not come up: its start exited 1.")));
 }
 
+/// A start of the host's: the approval of `tehas start`, which no label backs.
+fn host_start_of(n: u64) -> Value {
+    let mut a = start_of(n, "host");
+    a["by"] = json!("host");
+    a["remove"] = json!([]);
+    a
+}
+
+#[test]
+fn a_host_start_that_gives_up_before_its_cycle_keeps_the_hosts_approval() {
+    // The host's approval is the only record that asks for the start: a
+    // failure that may pass leaves it for the next poll.
+    for (program, pattern) in [
+        ("gh", "--add-label tehas:running"),
+        ("store", "cycle-show|busy"),
+    ] {
+        let mut t = world();
+        t.fail(program, pattern);
+        let a = t.apply(json!([host_start_of(7)]));
+        assert_eq!(a.exit, Some(1), "{pattern}");
+        let w = t.writes();
+        assert!(
+            !w.iter().any(|c| c.contains("approval-record 7 --undo")),
+            "{pattern}: {w:?}"
+        );
+        assert!(
+            a.log.contains(
+                &"the host's approval of #7 stays on record: the next poll tries it again"
+                    .to_string()
+            ),
+            "{pattern}: {:?}",
+            a.log
+        );
+        assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+    }
+}
+
+#[test]
+fn a_host_start_whose_unit_does_not_come_up_says_to_run_tehas_start_again() {
+    let mut t = world();
+    t.fail("start", "7");
+    let a = t.apply(json!([host_start_of(7)]));
+    assert_eq!(a.exit, Some(1));
+    let w = t.writes();
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("store approval-record 7 --undo --at 1793008800")));
+    let said = w
+        .iter()
+        .find(|c| c.contains("did not come up"))
+        .expect("the comment");
+    assert!(
+        said.contains("To retry, run `tehas start 7` on `tehas-tehas`."),
+        "{said}"
+    );
+    assert!(!said.contains("apply `tehas:ready`"), "{said}");
+}
+
+#[test]
+fn a_mark_answered_unknown_that_landed_starts_the_cycle() {
+    let mut t = world();
+    t.fail("gh", "--add-label tehas:running|HTTP 502");
+    fs::write(
+        t.dir.join("issue-7"),
+        r#"{"labels":[{"name":"tehas:running"},{"name":"bug"}]}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None, "{:?}", a.log);
+    assert!(
+        a.log.contains(
+            &"#7 is marked tehas:running: the mark GitHub did not answer was made".to_string()
+        ),
+        "{:?}",
+        a.log
+    );
+    let w = t.writes();
+    assert!(
+        !w.iter().any(|c| c.contains("approval-record 7 --undo")),
+        "{w:?}"
+    );
+    assert!(t.calls().iter().any(|c| c == "start 7"));
+}
+
+#[test]
+fn a_mark_answered_unknown_that_did_not_land_starts_nothing() {
+    for issue in [
+        // Its label is still on: the mark was not made whole.
+        Some(r#"{"labels":[{"name":"tehas:running"},{"name":"tehas:ready"}]}"#),
+        Some(r#"{"labels":[{"name":"tehas:ready"}]}"#),
+        // A read that fails cannot say it was made.
+        None,
+    ] {
+        let mut t = world();
+        t.fail("gh", "--add-label tehas:running|HTTP 502");
+        match issue {
+            Some(body) => fs::write(t.dir.join("issue-7"), body).unwrap(),
+            None => t.fail("gh", "api repos/example-owner/example-product/issues/7"),
+        }
+        let a = t.apply(json!([start_of(7, "label")]));
+        assert_eq!(a.exit, Some(1), "{issue:?}");
+        assert_eq!(
+            a.log.last().unwrap(),
+            "ERROR: could not mark #7 as running, not starting a cycle"
+        );
+        assert!(t
+            .writes()
+            .iter()
+            .any(|c| c.starts_with("store approval-record 7 --undo --at 1793008800")));
+        assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+    }
+}
+
 /// A start command that comes up and puts nothing on record, after which the
 /// store answers `cycle-show` with `word`, or with no failure when empty.
 fn start_then_store(t: &mut World, word: &str) {
@@ -6115,6 +6228,7 @@ fn an_action_without_its_intended_time_is_not_said_to_be_new() {
     ]);
 }
 
+/// A row from before the journal kept the sum of what it wrote.
 #[test]
 fn a_plans_issue_edit_is_settled_by_its_title() {
     let mut t = world();
@@ -6135,8 +6249,45 @@ fn a_plans_issue_edit_is_settled_by_its_title() {
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec![
         "journal: action 3 (issue-edit on #7, 10s old) was done",
-        "journal: action 4 (issue-edit on #7, 10s old) did not happen (its body does not say what it replaces); this poll decides it again",
+        "journal: action 4 (issue-edit on #7, 10s old) did not happen (its body is not the text it wrote); this poll decides it again",
     ]);
+}
+
+/// A plan's edit that did not land leaves the old body; settle says so even
+/// when the plan kept the issue's title or the body says what it replaces.
+#[test]
+fn a_plans_issue_edit_is_settled_by_its_body_not_its_title() {
+    use sha2::{Digest, Sha256};
+    let plan = "Outcome: the plan.";
+    let sum: String = Sha256::digest(plan.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    let edit = json!({"id": 3, "kind": "issue-edit", "issue": 7, "state": "attempted",
+        "intended_at": 990, "attempted_at": 991,
+        "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--title", "feat: faster search", "--body-file", "-"],
+                 "input": {"sha256": sum, "bytes": plan.len()}}});
+    for (body, done) in [
+        ("Outcome: the old text.", false),
+        ("Replaces #3\n\nThe old text.", false),
+        (plan, true),
+    ] {
+        let mut t = world();
+        left_open(&t, json!([edit.clone()]));
+        fs::write(
+            t.dir.join("issue-7"),
+            json!({"title": "feat: faster search", "body": body, "labels": []}).to_string(),
+        )
+        .unwrap();
+        let mut log = Vec::new();
+        t.w.settle(1000, &mut log);
+        let want = if done {
+            "journal: action 3 (issue-edit on #7, 10s old) was done"
+        } else {
+            "journal: action 3 (issue-edit on #7, 10s old) did not happen (its body is not the text it wrote); this poll decides it again"
+        };
+        assert_eq!(log, vec![want], "{body}");
+    }
 }
 
 /// A lock of `t`'s home for the issue: held for as long as the file lives.
@@ -6209,6 +6360,28 @@ fn a_body_written_whole_settles_as_done_by_its_sum() {
         "journal: action 3 (issue-edit on #7, 10s old) was done"
     );
     assert!(log[1].contains("did not happen"), "{log:?}");
+}
+
+/// A cycle's note that did not land on an issue a refine filed: the body
+/// still says what it replaces, but it is not the note.
+#[test]
+fn a_note_that_did_not_land_on_a_filed_issue_did_not_happen() {
+    let mut t = world();
+    let row = json!({"id": 3, "kind": "issue-edit", "issue": 7, "state": "attempted",
+        "intended_at": 990, "attempted_at": 991,
+        "args": {"gh": ["api", "-X", "PATCH", "repos/r/issues/7", "--input", "-"],
+                 "input": {"sha256": "0000", "bytes": 4}}});
+    left_open(&t, json!([row]));
+    fs::write(
+        t.dir.join("issue-7"),
+        json!({"body": "Replaces #3\n\nFix the drain."}).to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (issue-edit on #7, 10s old) did not happen (its body is not the text it wrote); this poll decides it again",
+    ]);
 }
 
 /// The outcome file of issue 7 and its sibling, as `outcome_kept` names them.

@@ -493,10 +493,10 @@ rm "$live/health.json"
 t_run "$status && $summary"
 t_eq "$t_rc" 0
 t_eq "$(lists)" "$lists_before"
-t_eq "$(jq -c .stale "$live/status.json")" '["queue","completed"]'
+t_eq "$(jq -c .stale "$live/status.json")" '["queue","completed","pause"]'
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_contains "$(jq -r .output "$live/health.json")" "GitHub failed 6 calls in the last 10 min, the last: WARN status: gh "
-t_contains "$t_out" "queue     stale: queue and completed kept from an earlier read, GitHub did not answer"
+t_contains "$t_out" "queue     stale: queue and completed and pause kept from an earlier read, GitHub did not answer"
 t_contains "$t_out" "github    6 failed calls in the last 10 min"
 
 t_case "given the poll's name, status leaves the health file to the poll"
@@ -703,6 +703,31 @@ t_eq "$(jq -r .paused "$live/status.json")" "true"
 t_eq "$(jq -r .pause.lifted "$live/status.json")" "true"
 t_eq "$(jq -r .status "$live/health.json")" "warn"
 t_contains "$t_out" "pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off"
+
+t_case "labels that cannot be read take the pause from its events, then from the file before"
+reset
+echo true >"$T/paused"
+t_run "$status"
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":true,"lifted":false}'
+: >"$T/control-down"
+pause_events labeled alice
+t_run "$status"
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":true,"lifted":false}'
+t_eq "$(jq -c .stale "$live/status.json")" null
+rm "$T/events.json"
+t_run "$status && $summary"
+t_eq "$(jq -r .paused "$live/status.json")" true
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":true,"lifted":false}'
+t_eq "$(jq -c .stale "$live/status.json")" '["pause"]'
+t_eq "$(jq -r .checks.pause.label "$live/health.json")" true
+t_contains "$t_out" "pause     label: tehas:pause on the control issue"
+# A run that reads the labels again says what it read.
+rm "$T/control-down"
+echo false >"$T/paused"
+echo '[]' >"$T/events.json"
+t_run "$status"
+t_eq "$(jq -r .paused "$live/status.json")" false
+t_eq "$(jq -c .stale "$live/status.json")" null
 
 t_case "a flag that cannot be read still holds the factory paused"
 reset

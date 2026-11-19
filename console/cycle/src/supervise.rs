@@ -86,7 +86,8 @@ pub fn number(answer: &str) -> Number {
 }
 
 /// An issue a handoff left with needs-human-attention starts again only on a
-/// person's answer: --restart tells the runner so, and takes the label off.
+/// person's answer: --restart tells the runner so, and the cycle takes the
+/// label off before the runner starts.
 pub fn wants_restart(answer: &str) -> bool {
     let Some(v) = runner::first_value(answer) else {
         return false;
@@ -265,15 +266,43 @@ fn ask_github(repo: &str, n: &str) -> Result<String, String> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
     let args = ["api".to_string(), format!("repos/{repo}/issues/{n}")];
-    ask("gh", &args, ASK_BOUND, Duration::from_secs(wait))
+    ask("gh", &args, ASK_BOUND, Duration::from_secs(wait), None)
 }
 
-/// Three tries of `program`, each under `bound`, `wait` between them.
-fn ask(program: &str, args: &[String], bound: Duration, wait: Duration) -> Result<String, String> {
+/// A 404 says the label is off already, which is what this wants.
+fn clear_attention(repo: &str, n: &str) -> Result<String, String> {
+    let wait: u64 = std::env::var("TEHAS_CYCLE_RETRY_WAIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let args = [
+        "api".to_string(),
+        "-X".to_string(),
+        "DELETE".to_string(),
+        format!("repos/{repo}/issues/{n}/labels/needs-human-attention"),
+    ];
+    ask(
+        "gh",
+        &args,
+        ASK_BOUND,
+        Duration::from_secs(wait),
+        Some("Not Found"),
+    )
+}
+
+/// Three tries of `program`, each under `bound`, `wait` between them. A
+/// failure whose error stream says `done_if` is taken as done.
+fn ask(
+    program: &str,
+    args: &[String],
+    bound: Duration,
+    wait: Duration,
+    done_if: Option<&str>,
+) -> Result<String, String> {
     let mut why = String::new();
     for attempt in 1..=3 {
         let r = run_full(program, args, None, bound, GRACE, &[]);
-        if r.ok() {
+        if r.ok() || done_if.is_some_and(|w| r.status.is_some() && r.err.contains(w)) {
             return Ok(r.out);
         }
         why = match r.status {
@@ -431,6 +460,16 @@ pub fn run(home: &Path, g: &Given) -> i32 {
     if g.runner == Runner::Job {
         crate::stamp::note_heads(home, g.issue, &repo);
     }
+    // The container cannot take the label off: the relay refuses a label
+    // change. Left on, the report would park a pull request that waits only
+    // for a merge.
+    if restart {
+        if let Err(why) = clear_attention(&repo, &n) {
+            log(&format!(
+                "WARN: #{n}: needs-human-attention could not be taken off before its restart (3 tries, the last: {why})"
+            ));
+        }
+    }
     let (rc, signalled) = supervise(home, g, &attempt, restart, &stop);
     let start = Start {
         issue: g.issue,
@@ -470,6 +509,7 @@ mod tests {
             &sh("exec sleep 30"),
             Duration::from_secs(1),
             Duration::ZERO,
+            None,
         );
         assert_eq!(got, Err("no answer within 1s".to_string()));
         assert!(
@@ -486,6 +526,7 @@ mod tests {
             &sh("echo 'HTTP 502: Bad Gateway' >&2; exit 1"),
             Duration::from_secs(10),
             Duration::ZERO,
+            None,
         );
         assert_eq!(got, Err("exit 1: HTTP 502".to_string()));
         let got = ask(
@@ -493,8 +534,28 @@ mod tests {
             &sh("printf '{}'"),
             Duration::from_secs(10),
             Duration::ZERO,
+            None,
         );
         assert_eq!(got, Ok("{}".to_string()));
+    }
+
+    #[test]
+    fn a_failure_that_says_it_is_done_is_done_at_the_first_try() {
+        let d = TestDir::new("supervise-ask-gone");
+        let calls = d.join("calls");
+        let script = stand_in(
+            &d,
+            &format!(
+                "echo x >>'{}'\necho 'gh: Not Found (HTTP 404)' >&2\nexit 1\n",
+                calls.display()
+            ),
+        );
+        let args = strings(&["sh", &script], &["api"]);
+        let got = ask("sh", &args, ASK_BOUND, Duration::ZERO, Some("Not Found"));
+        assert!(got.is_ok(), "{got:?}");
+        assert_eq!(fs::read_to_string(&calls).unwrap(), "x\n");
+        let got = ask("sh", &args, ASK_BOUND, Duration::ZERO, None);
+        assert_eq!(got, Err("exit 1: HTTP 404".to_string()));
     }
 
     #[test]
@@ -581,6 +642,7 @@ mod tests {
             &strings(&["sh", &script], &["api", "repos/acme/widget/issues/7"]),
             Duration::from_secs(1),
             Duration::ZERO,
+            None,
         );
         assert_eq!(got, Err("no answer within 1s".to_string()));
         assert!(
@@ -610,6 +672,7 @@ mod tests {
             &strings(&["sh", &script], &["api", "repos/acme/widget/issues/7"]),
             ASK_BOUND,
             Duration::ZERO,
+            None,
         );
         assert_eq!(number(&got.unwrap()), Number::Open);
     }

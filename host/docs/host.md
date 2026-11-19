@@ -669,6 +669,11 @@ it to releases, once a signed release is published:
 3. Run `tehas update --check`, read the Adopter action of each release it
    lists, then run `tehas update`.
 
+A checkout whose tag is newer than the newest release, such as a prerelease,
+moves to the release of its own tag rather than back to the newest. When that
+tag is not published, `tehas update` changes nothing and says so; name a
+release with `--to`.
+
 The checkout stays where it is and is no longer read. To go back to it, set
 `TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.
 
@@ -676,7 +681,8 @@ The checkout stays where it is and is no longer read. To go back to it, set
 
 On a host that updates from releases, go back with
 `tehas update --to <version>`. A version still in `~/tehas/versions` is not
-downloaded again, and its sandbox image is put back if it still has its tag. To
+downloaded again, and its sandbox image is put back if it still has its tag and
+was built from the instance's `sandbox.Dockerfile` as it is now. To
 stay there, hold the host, or the next `tehas update` moves it to the newest
 again:
 
@@ -1636,9 +1642,10 @@ image: one `work` turn started inside it, in a container with no network
 (`--network none`), no token and no model, small memory and pids bounds of its
 own, and at most 40 seconds. A good image prints a `step-started` line within a
 few seconds, the run ends there, and the tag moves; an image that prints no
-such line, or a result that says its runner crashed, is refused, the build
-exits 1 and the uid tag stays where it was, as for a layer that does not
-build. After a started turn the smoke run adds a memory with vipune and
+such line, or a result that says its runner crashed, is refused and the build
+exits 1. A refused platform image leaves the uid tag where it was. A refused
+instance layer, like a layer that does not build, leaves it on this build's
+platform image, without the layer, and the build's last line says so. After a started turn the smoke run adds a memory with vipune and
 searches it back, in a second container with no network, as the build's uid,
 on one CPU of a cpuset (`--cpuset-cpus`, the highest CPU the build may run
 on). dockerd checks that CPU against the list it read when it started, so in
@@ -1800,7 +1807,10 @@ and the build stops when a lockfile is not the one whose `_LOCK_SHA256` is
 recorded. pi is `PI_VERSION`, and the build stops when that is older than the
 version pi-rukas's own recipe pins. To move the ubuntu digest, take the index
 digest from `docker buildx imagetools inspect ubuntu:24.04` and change both
-`FROM` lines. The
+`FROM` lines. Each apt step, of the base and of the sandbox layer, has apt
+retry its fetches and, when the step still fails, runs it once more after 30
+seconds: a mirror caught mid-sync answers with a hash mismatch that a quick
+retry does not fix. The
 user `vscode` is made at the tehas user's uid in the first layer, so the remap
 of the sandbox layer finds nothing to copy: it used to store every file twice.
 Playwright brings only its headless shell, since a container has no display.

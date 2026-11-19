@@ -954,8 +954,8 @@ that the question is not one the factory is waiting on and names the label.
 
 The next cycle starts in a fresh workspace, with `--restart` when the issue
 carries `needs-human-attention`. That flag is the answer the label asks for:
-pi-rukas lets the cycle past its check of the label and takes the label off.
-tehas removes it nowhere. Branches and
+pi-rukas lets the cycle past its check of the label, and the cycle takes the
+label off on the host before its runner starts. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until the retry it
@@ -1318,7 +1318,10 @@ same way before anything is sent again. What the read finds decides the write
 when the poll decides it again: found done, it is done and not sent (a park
 tell or a hold's note is then on record as said); not found, it is abandoned
 and the poll sends it once; a read that failed leaves the row open and the
-write is not sent that poll. A read of GitHub that failed on a bad
+write is not sent that poll. An edit of an issue's text, such as a plan
+written onto its issue or a cycle's note, is found done only when the body
+is the text it wrote: a title the plan kept, or a body that says
+`Replaces #`, does not count. A read of GitHub that failed on a bad
 minute (a 5xx, a bare 403, or its bound) is tried once more after a short
 wait, at most six times a poll; `tehasbot status` and `console tidy run` follow the
 same rule for their reads. A read that still failed is a line that names gh's
@@ -1855,11 +1858,14 @@ the ones that should still carry the label.
 
 ## The review loop
 
-Optional. It is off unless the instance sets `TEHAS_REVIEW=on` and the timer
-`tehas-review.timer` is enabled; see [Commands](/tools). The two are separate
-on purpose: `install.sh` and `tehas update` copy the units and enable nothing,
-and a host that turns the setting on without the timer reviews nothing on a
-schedule.
+Still being built in this release, and never seen working on a host. A
+release refuses `TEHAS_REVIEW=on` and a `TEHAS_REVIEW_REPO` line with exit 78
+and names `review`; `install.sh` does not install `tehas-review.service` or
+`tehas-review.timer`, and `tehasbot review` exits 0 at once. A host that set
+either line under an earlier release takes it out before it updates. What
+the feature leaves visible meanwhile is in
+[the contract](/contract#review). The rest of this section says what it is
+meant to do once a release ships it.
 
 Once a week, on Monday morning, a model reads what the default branch gained
 since the commit the last review read and reports what it would change. It is
@@ -1882,24 +1888,19 @@ but its findings.
   review turn takes. Nothing about a cycle changes, and no issue of the product
   is written by it.
 
-To turn it on, write the two lines in `instance.env` and enable the timer:
+Once shipped, the two lines `TEHAS_REVIEW=on` and `TEHAS_REVIEW_REPO` turn it
+on. `install.sh` then installs the units; a first install enables the timer,
+and on a host installed before, a person does with
+`systemctl --user enable --now tehas-review.timer`.
+`~/tehas/logs/review-timer.log` says what the runs did and
+`~/tehas/logs/review-<time>.json` holds one run's document. See
+[tehasbot review](/tools-plan#tehasbot-review) for the container, the record
+and the exits.
 
-```
-TEHAS_REVIEW=on
-TEHAS_REVIEW_REPO=example-owner/example-backlog
-```
-
-```
-systemctl --user enable --now tehas-review.timer
-```
-
-`~/tehas/logs/review-timer.log` says what the runs did and `~/tehas/logs/review-<time>.json`
-holds one run's document. See [tehasbot review](/tools-plan#tehasbot-review) for the
-container, the record and the exits.
-
-To turn it off, set `TEHAS_REVIEW=off` (or remove it) in `instance.env`: a run
-exits at once and calls nothing, so the timer costs one short process a week.
-`systemctl --user disable --now tehas-review.timer` stops the weekly run as well.
+A host that has `tehas-review.timer` from an earlier release keeps the unit
+files, for the release that ships the feature. While review is off,
+`install.sh` and `tehas update` stop and disable the timer if it is enabled,
+and say so on a `systemd:` line; `--check` names it as drift.
 
 ## The cleaner
 

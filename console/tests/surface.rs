@@ -4,7 +4,8 @@
 //! api/commands.txt for commands and flags, api/settings-rules.json for
 //! settings and roles, host/labels.tsv for labels and api/*.schema.json for
 //! the fields of the `--json` objects. What a feature still being built adds
-//! is left out (console/core/src/features.rs), and so are the flags
+//! is left out (console/core/src/features.rs), unless the baseline had it
+//! before the feature became building, and so are the flags
 //! api/commands.txt marks internal and the fields host/docs/contract.md says
 //! may change.
 //!
@@ -107,7 +108,11 @@ fn settings(text: &str, out: &mut BTreeSet<String>) {
                 .iter()
                 .map(|n| n.as_str().expect("required")),
         );
-    for name in names.filter(|n| !building_setting(n)) {
+    // A name of the baseline stays when its feature became building after
+    // it: the surface is only added to (review's settings, decided
+    // 2026-11-19, host/docs/contract.md).
+    let kept = baseline();
+    for name in names.filter(|n| !building_setting(n) || kept.contains(&format!("setting {n}"))) {
         out.insert(format!("setting {name}"));
     }
     for role in v["roles"].as_array().expect("roles") {
@@ -180,6 +185,20 @@ fn surface() -> BTreeSet<String> {
 
 fn baseline() -> Vec<String> {
     rows(&read(BASELINE)).map(str::to_string).collect()
+}
+
+#[test]
+fn a_building_features_settings_stay_when_the_baseline_had_them() {
+    assert!(building_setting("TEHAS_REVIEW"));
+    assert!(building_setting("TEHAS_REVIEW_REPO"));
+    assert!(!building_setting("TEHAS_REPO"));
+    let surface = surface();
+    for name in ["setting TEHAS_REVIEW", "setting TEHAS_REVIEW_REPO"] {
+        assert!(baseline().iter().any(|n| n == name), "{name}");
+        assert!(surface.contains(name), "{name}");
+    }
+    // A building feature's setting the baseline never had stays out.
+    assert!(!surface.contains("setting TEHAS_LEAN"));
 }
 
 #[test]
