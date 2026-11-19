@@ -29,14 +29,19 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "(runner exit 3)"
 
-t_case "a runner that started no cycle over an image (exit 4) is parked with that reason"
+t_case "a runner that started no cycle (exit 4) is parked without naming a cause it cannot know"
 reset
 echo 'exit 4' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4)."
+t_contains "$(t_calls gh)" "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle."
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+# Exit 4 has many causes and only tehas work's own comment names which: an
+# edited body is not said to be an image that could not be given.
+t_lacks "$(t_calls gh)" "could not be given to it"
+t_contains "$t_out" "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why"
+t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "the comment tehas work posted on the issue says why"
 
 t_case "a cycle that never ran is reported from the approval record, and the record goes with the report"
 reset

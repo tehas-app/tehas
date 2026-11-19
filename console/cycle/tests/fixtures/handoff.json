@@ -526,7 +526,7 @@
     "-"
    ],
    "log": [
-    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
+    "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why"
    ],
    "writes": [
     [
@@ -535,7 +535,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -684,7 +684,7 @@
     "-"
    ],
    "log": [
-    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
+    "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why"
    ],
    "writes": [
     [
@@ -693,7 +693,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -821,7 +821,7 @@
     "-"
    ],
    "log": [
-    "#7: tehas work refused the start before its runner ran (exit 4): an image or file the issue links could not be given to it"
+    "#7: tehas work refused the start before its runner ran (exit 4): the comment tehas work posted on the issue says why"
    ],
    "writes": [
     [
@@ -830,7 +830,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: tehas work refused the start before its runner ran (runner exit 4). It refuses one when the issue changed after its approval, when the approval or the issue cannot be read, or when an image or file the issue links cannot be given to the cycle. Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry with the issue text only\n- [ ] Leave it parked\n\nThe retry starts over in a new workspace. \"Issue text only\" means the\ntitle and body, nothing else.\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

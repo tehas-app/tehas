@@ -171,7 +171,8 @@ keeps the workspace of one that stopped. The images `tehas work` fetched for
 the cycle are removed in every case. A runner that started no cycle (exit 4) is
 parked as a cycle that never ran: `tehas work` has already said on the issue which reason it was (an image
 or file it could not be given, or an issue whose text or title is not the approved one),
-and tehasbot cycle's own line names the exit status, who approved the start and
+and tehasbot cycle's own line names the exit status and the possible causes
+without picking one, who approved the start and
 when from the approval its start used, and where the run log is, naming no
 status, step, duration or token usage as that cycle's. The approval of such a
 start is taken off the record with the report: the millwright, a refresh and a later
