@@ -90,7 +90,9 @@ the update with 78 and switches nothing: v0.31.x and later refuse the old
 name, and the manager writes it again on each upgrade. `TEHAS_INDUSTRY_VERSION`
 in `~/.config/tehas/env` is the one 0.30 name that is ignored, not refused.
 Until the manager writes 1.0's names, such a factory cannot be updated
-through it.
+through it. industry writes them from v0.36.1 (tehas-industry#1405): it
+writes `TEHAS_MAX_CYCLES` for a tehas from v0.31.0 on, betas included, so a
+factory it manages takes v0.32.0 and then any 1.0 release.
 
 ### From a release
 
