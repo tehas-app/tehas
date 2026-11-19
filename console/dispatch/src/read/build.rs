@@ -1020,6 +1020,7 @@ mod tests {
     /// read cannot answer for a batched one by carrying a shared word.
     const COMMENT_MARK: &str = "issue(number:";
     const BLOCKER_MARK: &str = "issueOrPullRequest";
+    const EDITS_MARK: &str = "nodes(ids:";
 
     /// The blocked world of a poll: issues #21, #22 and #23, open on the queue's
     /// page and all carrying `tehas:blocked`, each held by the marker of its own
@@ -1108,6 +1109,11 @@ mod tests {
 
     const READS: &[Read] = &[
         Read {
+            word: EDITS_MARK,
+            fixture: "edits",
+            fails: false,
+        },
+        Read {
             word: COMMENT_MARK,
             fixture: "issues-",
             fails: false,
@@ -1169,7 +1175,7 @@ mod tests {
         // space (`issue view`) or a `?`, so the shell sees the list as one word
         // per line and never splits it further.
         let words: Vec<&'static str> = READS.iter().map(|r| r.word).collect();
-        assert_eq!(words.len(), 7, "the stub's list holds one word a read");
+        assert_eq!(words.len(), 8, "the stub's list holds one word a read");
         // One word a line; the stub reads it with IFS set to the newline alone,
         // so a word that holds a space stays one word.
         std::fs::write(dir.join("words"), words.join("\n")).unwrap();
@@ -1229,6 +1235,15 @@ mod tests {
         fixture(&dir, "queue", &world["queue"]);
         fixture(&dir, "states", &world["states"]);
         fixture(&dir, "control", &world["control"]);
+        // The edit histories of edited comments, read by their ids: none
+        // unless the case names them.
+        fixture(
+            &dir,
+            "edits",
+            world
+                .get("edits")
+                .unwrap_or(&json!({"data": {"nodes": []}})),
+        );
         if let Some(r) = world.get("refreshing") {
             fixture(&dir, "refreshing", r);
         }
@@ -2192,8 +2207,10 @@ esac"#,
             json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
         world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
         world["events"] = json!({"21": world["events"]["21"]});
+        // An unedited comment, with the empty history GitHub gives one.
         world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
-                {"nodes": [{"body": "no marker here"}]}}}}}});
+                {"nodes": [{"body": "no marker here",
+                            "userContentEdits": {"totalCount": 0, "nodes": []}}]}}}}}});
         let (snap, calls, _, _) = poll(&world, &[]);
         assert!(
             queries(&calls, BLOCKER_MARK).is_empty(),
@@ -2208,6 +2225,86 @@ esac"#,
         assert!(parsed.issues[&21].blockers.is_empty());
         assert!(parsed.issues[&21].comments.is_some());
         assert_eq!(snap["issues"]["21"]["comments"], world["comments"]["21"]);
+    }
+
+    /// An edited comment's history is read by its id and put back on it, as
+    /// the comment read itself gave it before: an outside account's edit of a
+    /// comment the factory's own account saved last still holds, every edit
+    /// counting. An unedited comment asks for no history, and a poll with no
+    /// edited comment makes no read of histories at all.
+    #[test]
+    fn an_edited_comment_carries_the_history_read_by_its_id() {
+        let mut world = world();
+        world["queue"]["data"]["repository"]["issues"]["nodes"] =
+            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
+        world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
+        world["events"] = json!({"21": world["events"]["21"]});
+        world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
+        {"nodes": [
+            {"id": "IC_kwDOplain", "body": "never edited",
+             "lastEditedAt": null, "editor": null},
+            {"id": "IC_kwDOedited", "body": "<!-- tehas:retry -->",
+             "author": {"login": "tehas-bot"},
+             "lastEditedAt": "2026-10-04T00:00:00Z",
+             "editor": {"login": "tehas-bot"}}
+        ]}}}}}});
+        let history = json!({"totalCount": 2, "nodes": [
+            {"editor": {"login": "mallory"}},
+            {"editor": {"login": "tehas-bot"}}
+        ]});
+        world["edits"] = json!({"data": {"nodes": [
+            {"id": "IC_kwDOedited", "userContentEdits": history}
+        ]}});
+        let (snap, calls, _, _) = poll(&world, &[]);
+        let asked = queries(&calls, EDITS_MARK);
+        assert_eq!(asked.len(), 1, "one history read: {calls:?}");
+        assert!(asked[0].contains("IC_kwDOedited"), "{}", asked[0]);
+        assert!(!asked[0].contains("IC_kwDOplain"), "{}", asked[0]);
+        let nodes =
+            &snap["issues"]["21"]["comments"]["data"]["repository"]["issue"]["comments"]["nodes"];
+        assert_eq!(
+            nodes[0]["userContentEdits"],
+            json!({"totalCount": 0, "nodes": []})
+        );
+        assert_eq!(nodes[1]["userContentEdits"], history);
+        let ours = |w: &str| w == "tehas-bot";
+        assert_eq!(
+            tehas_core::events::edit_holds(&nodes[1], "", "", &ours).as_deref(),
+            Some("mallory"),
+            "the outside edit still holds"
+        );
+
+        // With no edited comment, no history is read.
+        world["comments"]["21"]["data"]["repository"]["issue"]["comments"]["nodes"] =
+            json!([world["comments"]["21"]["data"]["repository"]["issue"]["comments"]["nodes"][0]]);
+        let (_, calls, _, _) = poll(&world, &[]);
+        assert!(queries(&calls, EDITS_MARK).is_empty(), "{calls:?}");
+    }
+
+    /// A history the answer leaves out is a read that failed, which holds: the
+    /// comment cannot be shown to have only allowed editors.
+    #[test]
+    fn an_edited_comment_whose_history_is_not_answered_holds() {
+        let mut world = world();
+        world["queue"]["data"]["repository"]["issues"]["nodes"] =
+            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
+        world["blocked"] = json!([{"number": 21, "labels": [{"name": crate::decide::BLOCKED}]}]);
+        world["events"] = json!({"21": world["events"]["21"]});
+        world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
+        {"nodes": [
+            {"id": "IC_kwDOedited", "body": "<!-- tehas:retry -->",
+             "author": {"login": "tehas-bot"},
+             "lastEditedAt": "2026-10-04T00:00:00Z",
+             "editor": {"login": "tehas-bot"}}
+        ]}}}}}});
+        world["edits"] = json!({"data": {"nodes": [null]}});
+        let (snap, _, _, _) = poll(&world, &[]);
+        let c = &snap["issues"]["21"]["comments"]["data"]["repository"]["issue"]["comments"]
+            ["nodes"][0];
+        assert_eq!(c["userContentEdits"], json!({"failed": true}));
+        let ours = |w: &str| w == "tehas-bot";
+        assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
+        assert!(tehas_core::events::edit_history_unread(c, &ours));
     }
 
     /// A chunk whose comment query GitHub refused is a failed read for every

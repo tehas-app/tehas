@@ -524,12 +524,14 @@ ready() { # issue... : the queue, each labelled by alice
 }
 
 # The comments of an issue: the bot's question, who edited it last, and
-# whatever was written after it.
+# whatever was written after it. The question carries the edit history the
+# poll's read gives it: the one edit of its editor, or none.
 comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
   jq -n --arg body "$2" --arg ed "$3" --argjson after "${4:-[]}" '{data: {repository: {issue: {comments: {nodes: ([
     {databaseId: 4001, author: {login: "tehas-bot", databaseId: ("tehas-bot" | explode | add)}, body: $body, createdAt: "2026-01-01T00:00:00Z",
      lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
-     editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
+     editor: (if $ed == "" then null else {login: $ed} end),
+     userContentEdits: (if $ed == "" then {totalCount: 0, nodes: []} else {totalCount: 1, nodes: [{editor: {login: $ed}}]} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
 }
 # comments_of <issue> <id> <question body> <editor or "">: the same, the bot's
 # question being the comment <id>, as a poll of this run posted it.
