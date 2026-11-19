@@ -436,7 +436,10 @@ it, or `null` with `cleared: false` when none waited.
 are samples of it.
 
 The start comment on the issue, [`tehas history`](#tehas-history) (`"how":
-"host"`) and `tehas status` say the cycle was started from the host. The
+"host"`) and `tehas status` say the cycle was started from the host. A cycle
+killed before it reported keeps its record open with its lock free; `tehas
+status` says so, `killed before it reported: tehas stop N ends its record`,
+in place of `running`. The
 millwright may retry such a cycle as one a person's label started, and may
 ask for its finish.
 

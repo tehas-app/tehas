@@ -24,12 +24,6 @@ pub fn held(path: &Path) -> bool {
     )
 }
 
-/// The issues whose cycle holds its lock. A listing that fails reads as none
-/// here; a caller that must not take that for no cycle asks `cycles`.
-pub fn running(home: &Path) -> Vec<u64> {
-    cycles(home).unwrap_or_default()
-}
-
 /// The issues whose cycle holds its lock, or None when `state/cycles` is there
 /// but cannot be listed: then a cycle may be running. No directory is no cycle.
 pub fn cycles(home: &Path) -> Option<Vec<u64>> {
@@ -795,6 +789,5 @@ mod tests {
         fs::remove_dir_all(h.join("state/cycles")).unwrap();
         fs::write(h.join("state/cycles"), "").unwrap();
         assert_eq!(cycles(&h), None, "a directory that cannot be listed");
-        assert_eq!(running(&h), Vec::<u64>::new());
     }
 }

@@ -245,7 +245,11 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     } else {
         s["plan_open"] = sessions;
     }
-    let locks = host::running(home);
+    // A listing that fails is no list of none: the rules end the poll on it.
+    let locks = host::cycles(home).unwrap_or_else(|| {
+        s["running_unlisted"] = json!(true);
+        Vec::new()
+    });
     let mut running: Vec<Value> = locks
         .iter()
         .map(|n| json!({"issue": n, "how": ""}))
@@ -2733,5 +2737,30 @@ esac"#,
             "a key of no number names no issue: {:?}",
             parsed.pulls_name
         );
+    }
+
+    /// state/cycles that cannot be listed is no list of none: the snapshot
+    /// says so, and lists no running cycle it cannot see.
+    #[test]
+    fn a_cycles_directory_that_cannot_be_listed_is_said_in_the_snapshot() {
+        let _clock = crate::read::run::no_case_clock();
+        let w = world();
+        let dir = host(&w, &[]);
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap.get("running_unlisted"), None, "a listed directory");
+        std::fs::remove_dir_all(dir.join("state/cycles")).unwrap();
+        std::fs::write(dir.join("state/cycles"), "not a directory").unwrap();
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.line),
+        };
+        assert_eq!(snap["running_unlisted"], json!(true));
+        assert_eq!(snap["running"], json!([]));
+        assert!(Snapshot::parse(&snap).running_unlisted);
     }
 }
