@@ -256,7 +256,7 @@ compute on the issue.
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
   label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-  `tehas:lean`, `tehas:classic`) in `~/tehas/state/labels`,
+  `tehas:blocked`, `tehas:lean`, `tehas:classic`) in `~/tehas/state/labels`,
   written by `tehas labels` when it makes the labels, and an application of a
   label with another id, or of a granting label with no pin, counts as
   nobody's. The poll logs each refusal with the
@@ -343,7 +343,7 @@ An issue with an open native blocked-by link is not started, whatever label asks
 
 To keep two issues that change the same files apart, hold one of them out of the start order: `tehas order set --only --issues 12,15` lets only #12 and #15 start and holds every other ready issue, #14 among them, so a host that runs the factory leaves #14 out until #12's pull request is merged and then names it again.
 
-The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
+The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does, and only while the label is the one the factory pinned (see [label pins](/github-app#label-pins)). A `tehas:blocked` the millwright applies holds an issue but does not start one, and so does one the pins refuse. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
 ```
 Blocked by #12 and #34.

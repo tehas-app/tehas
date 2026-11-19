@@ -268,6 +268,31 @@ mod tests {
         assert_eq!(pins["tehas:ready"], "LA_real");
     }
 
+    // A lone tehas:blocked starts work, so a person's `bug` renamed to it
+    // must not bring alice's old application with it.
+    #[test]
+    fn another_label_renamed_to_blocked_grants_nothing() {
+        let mut pins = Pins::from([("tehas:blocked".into(), "LA_real".into())]);
+        let blocked = json!({"event": "labeled", "label": {"name": "tehas:blocked", "id": "LA_bug"},
+            "actor": {"login": "alice"}});
+        let mut s = snap(
+            json!([{"name": "tehas:blocked", "id": "LA_real"}]),
+            json!([blocked]),
+        );
+        let j = judge(&mut pins, true, &mut s);
+        assert_eq!(actor(&s), NOBODY);
+        assert!(j.said[0].contains("tehas:blocked") && j.said[0].contains("event LA_bug"));
+        // The real one renamed away and `bug` renamed in.
+        let mut s = snap(
+            json!([{"name": "tehas:blocked", "id": "LA_bug"}]),
+            json!([{"event": "labeled", "label": {"name": "tehas:blocked"},
+                "actor": {"login": "alice"}}]),
+        );
+        let j = judge(&mut pins, true, &mut s);
+        assert_eq!(actor(&s), NOBODY);
+        assert_eq!(j.refused, BTreeSet::from(["tehas:blocked".to_string()]));
+    }
+
     // A list may name a GitHub account called unknown. A refused application
     // is still nobody's, and that account's own application counts.
     #[test]
