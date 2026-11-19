@@ -27,7 +27,6 @@ arch_of() { # [machine]
   local machine=${1:-$(uname -m)}
   case "$machine" in
     x86_64 | amd64) printf 'x86_64\n' ;;
-    aarch64 | arm64) printf 'aarch64\n' ;;
     # Nothing is printed and the call fails for a machine no release is packed
     # for, so a caller cannot build an asset name out of it.
     *) return 1 ;;
@@ -557,25 +556,27 @@ t_eq "$(readlink "$th/current")" versions/v1.2.0
 t_contains "$(t_calls gh)" "release download v1.2.0"
 t_eq "$(t_calls install)" "install v1.2.0 "
 
-t_case "an unsupported architecture stops before the download, and names what uname -m said"
-stubs
-instance
-host_at_arch riscv64
-t_stub uname 'echo riscv64'
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "uname -m says riscv64"
-t_lacks "$t_out" "downloaded, checked"
-t_lacks "$t_out" "$th/tmp"   # no directory to download into was made
-t_lacks "$(t_calls gh)" "release download"
-t_lacks "$(t_calls curl)" "releases/download"
-t_eq "$(t_calls install)" ""
-t_eq "$(readlink "$th/current")" versions/v1.0.0
-t_eq "$(ls "$th/versions")" v1.0.0
+# Releases are built for x86_64 only, so an arm machine stops the same way.
+for machine in riscv64 aarch64 arm64; do
+  t_case "an unsupported architecture ($machine) stops before the download, and names what uname -m said"
+  stubs
+  instance
+  host_at_arch "$machine"
+  t_stub uname "echo $machine"
+  t_run "$update"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "releases are published for x86_64 only, and uname -m says $machine"
+  t_lacks "$t_out" "downloaded, checked"
+  t_lacks "$t_out" "$th/tmp"   # no directory to download into was made
+  t_lacks "$(t_calls gh)" "release download"
+  t_lacks "$(t_calls curl)" "releases/download"
+  t_eq "$(t_calls install)" ""
+  t_eq "$(readlink "$th/current")" versions/v1.0.0
+  t_eq "$(ls "$th/versions")" v1.0.0
+done
 
-# The three machines a release exists for: the asset asked for is the one of
-# that machine, so an aarch64 host is never served the x86_64 tarball.
-for machine in x86_64 aarch64 arm64; do
+# The machines a release exists for: the asset asked for is the x86_64 one.
+for machine in x86_64 amd64; do
   t_case "on a machine whose uname -m says $machine, the download is of that asset"
   stubs
   instance

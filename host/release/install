@@ -45,12 +45,11 @@ usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0" >&2; exit 64; }
 
 # The architecture in the name of the asset: the same choice as
 # console/ops/src/update/release.rs, repeated because this script runs on a host that has
-# nothing of tehas on it yet. Releases are published for x86_64 and aarch64
-# only, so another machine stops before anything is downloaded.
+# nothing of tehas on it yet. Releases are published for x86_64 only, so
+# another machine stops before anything is downloaded.
 release_arch() {
   case "$(uname -m)" in
     x86_64 | amd64) echo x86_64 ;;
-    aarch64 | arm64) echo aarch64 ;;
     *) return 1 ;;
   esac
 }
@@ -96,7 +95,7 @@ if [ -z "$version" ]; then
   printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || die "$repo has no release to install"
 fi
 arch=$(release_arch) ||
-  die "this machine has no tehas release to install: releases are published for x86_64 and aarch64, and uname -m says $(uname -m)"
+  die "this machine has no tehas release to install: releases are published for x86_64 only, and uname -m says $(uname -m)"
 tarball=tehas-$version-linux-$arch.tar.gz
 
 mkdir "$work/dl"
