@@ -159,9 +159,9 @@ t_contains "$t_out" "host      2 cpus, load ?, cpu ?%, mem ? of ? MB"
 
 # The wait between two readings is a wait on the clock, not a `sleep` child, so
 # it leaves nothing to record. To keep the case quick it runs against a tree
-# whose two readings give the same figures, and the wall time of one snapshot
-# that waits is bounded below: a call that takes no wait ends in well under a
-# second, a call that waits for a second reading takes about a second.
+# whose two readings give the same figures. The wall time of a snapshot that
+# waits is bounded below, which load cannot break. That a snapshot takes no
+# second reading is told by counting its readings, not by its wall time.
 
 # The same tree five seconds on: tehas-cycle used 5 s of CPU in the window, and
 # the aggregate line moved by 1000 ticks of which 500 were idle - 50% over the
@@ -207,19 +207,19 @@ t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
 # Time passes, as it does between two frames of a view. The reading of the frame
 # before is handed to the next one, and that call takes no wait at all.
 proc_ahead "$proc1"
-# The clock of the bound starts here, at the call that is meant to take no
-# wait at all: the run of the snapshot above waits a second for its pair and
-# is timed by that case's own bound, so it is no part of this one. Each timed
-# case starts its own clock at the command it bounds.
-t_start
-t_run '"$TEHAS_CONSOLE" top snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
+# The clock of the tree is a pipe that one writer fills once: a reading opens it
+# and reads it to its end, and a second reading would wait on a writer that
+# never comes. So the call ends only if it took one reading, and the timeout is
+# no measure of speed: the one reading ends the call however loaded the host
+# is, and only a second reading reaches the timeout.
+rm -f "$proc1/uptime"
+mkfifo "$proc1/uptime"
+t_run '{ printf "1005.00 0.00\n" >"$TEHAS_PROC_DIR/uptime"; } & writer=$!
+  timeout 10 "$TEHAS_CONSOLE" top snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"; rc=$?
+  kill "$writer" 2>/dev/null; wait "$writer" 2>/dev/null; exit "$rc"'
 t_eq "$t_rc" 0
 # The reading of the frame before was given, so no second reading is taken and
-# no wait is taken with it: .reading below is that same reading, and the wall
-# time here - well under the second of the case above - is what says so. The
-# margin is generous because the start of a run is no measure of a wait inside
-# it; the wait of the run above is five times this bound.
-t_fast 200
+# no wait is taken with it: .reading below is the one reading of the pipe.
 t_eq "$(jq -r '.reading.clock' "$T/two")" "1005.00"
 # Measured over the five seconds between the two readings: 50% for the host, and
 # 100% for the process that used them.
