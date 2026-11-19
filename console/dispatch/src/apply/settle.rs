@@ -365,17 +365,22 @@ impl Writer {
                 let title = v.get("title").and_then(Value::as_str);
                 let text = v.get("body").and_then(Value::as_str).unwrap_or("");
                 let sum = a.pointer("/args/input/sha256").and_then(Value::as_str);
-                if body.starts_with("Replaces #") {
-                    Found::Done(json!({"replaces": true}))
-                } else if sum.is_some_and(|s| s == sum_of(text)) {
+                let wants = after(&gh, "--title").first().copied();
+                if sum.is_some_and(|s| s == sum_of(text) || s == sum_of(&body)) {
                     // The note a cycle leaves in a body is its own text.
                     Found::Done(json!({"body": sum}))
-                } else if after(&gh, "--title")
-                    .first()
-                    .is_some_and(|t| title == Some(*t))
-                {
-                    // A plan written onto its issue names its title.
-                    Found::Done(json!({"title": title}))
+                } else if wants.is_some() {
+                    // A plan written onto its issue: a title the plan kept,
+                    // or a body that says what it replaces, is not the plan.
+                    // Only a row from before the journal kept sums is settled
+                    // by its title.
+                    if sum.is_none() && wants == title {
+                        Found::Done(json!({"title": title}))
+                    } else {
+                        Found::Abandoned("its body is not the text it wrote")
+                    }
+                } else if body.starts_with("Replaces #") {
+                    Found::Done(json!({"replaces": true}))
                 } else {
                     Found::Abandoned("its body does not say what it replaces")
                 }
