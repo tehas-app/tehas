@@ -24,9 +24,9 @@ The arguments are checked here, the settings are loaded here, and the reading,
 the writing and the printing are the console's (console/ops/src/holds.rs).
 
 Exit: 0 the host is paused (this command wrote the flag, or it was already
-there and is kept as it was); 64 a bad argument, a reason given without
---reason among them; 78 the instance settings are missing or malformed, or no
-console to run, which write nothing.
+there and is kept as it was); 1 the flag could not be written; 64 a bad
+argument, a reason given without --reason among them; 78 the instance
+settings are missing or malformed, or no console to run, which write nothing.
 
 Instance settings (lib/config.sh): none beyond a valid instance. The flag is
 mode 600, so only the account that runs this command reads it.

@@ -140,6 +140,15 @@ for args in "--wait" "--wait x" "--wait -1" "--wait 1 --wait 2" "--json --json" 
 done
 t_contains "$t_out" "usage: tehas drain"
 
+t_case "a limit that cannot be written is exit 1, prints no object and waits for nothing"
+reset
+rm -rf "$home/state"
+: >"$home/state"
+t_run "$drain --wait 0 --json"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas limit: could not create"
+t_eq "$(grep -c '^{' <<<"$t_out")" 0
+
 t_case "without an instance nothing is written, exit 78"
 reset
 t_no_instance
