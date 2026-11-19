@@ -1127,3 +1127,33 @@ fn a_swap_that_fails_says_which_step_and_why() {
     assert!(why.contains("No such file or directory"), "{why}");
     assert_eq!(listing(&base), ["images"]);
 }
+
+#[test]
+fn a_text_file_of_an_archive_is_held_to_the_1_mb_of_a_file() {
+    let (_scratch, dir) = scratch();
+    let zip = file(1, "a.zip");
+    let (fits, big) = (vec![b'x'; 1024 * 1024], vec![b'x'; 1024 * 1024 + 1]);
+    let mut net = Fake::default();
+    net.bytes
+        .insert(zip.clone(), zip_of(&[("fits.md", &fits), ("big.md", &big)]));
+    let mut t = take(&net, &dir, ALL);
+    t.all(&[body(&zip)]).unwrap();
+    assert_eq!(names(&t.files), ["file-1.md"]);
+    assert_eq!(reasons(&t), ["Over the 1 MB limit of a file."]);
+    assert_eq!(listing(&dir), ["file-1.md"]);
+}
+
+#[test]
+fn an_image_of_an_archive_is_held_to_what_is_left_of_the_10_mb() {
+    let (_scratch, dir) = scratch();
+    let zip = file(1, "a.zip");
+    let png = [PNG, &vec![0; 3 * 1024 * 1024][..]].concat();
+    let mut net = Fake::default();
+    net.bytes.insert(zip.clone(), zip_of(&[("a.png", &png)]));
+    let mut t = take(&net, &dir, ALL);
+    t.n.used = 9 * 1024 * 1024;
+    t.all(&[body(&zip)]).unwrap();
+    assert!(t.images.is_empty());
+    assert_eq!(reasons(&t), ["Over the 10 MB limit of an issue."]);
+    assert_eq!(listing(&dir), Vec::<String>::new());
+}
