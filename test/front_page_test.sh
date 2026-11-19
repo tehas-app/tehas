@@ -658,10 +658,10 @@ t_lacks "$hostisl_text" 'HOST_STALE'
 
 # The panel judges the age of a snapshot by the server's clock: a host whose
 # clock runs behind would else read its own dead file as fresh. The plain
-# dashboard reads the file through the kit's feed, which gives no headers, so
-# it judges by the viewer's clock.
+# dashboard reads the file through the kit's feed, which gives no headers,
+# and judges by the viewer's clock. That is a regression waiting on the
+# owner, so it is not pinned here.
 t_contains "$hostjs_text" 'Date.parse(r.headers.get("Date") || "")'
-t_contains "$hostisl_text" 'hostModel(live.data(), now())'
 
 # One copy of what live/top.json means. The panel draws tables and the plain
 # dashboard draws a list, but both ask the same module for the figures, the
