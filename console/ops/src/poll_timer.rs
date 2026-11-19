@@ -10,7 +10,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
-use tehas_core::settings::rules::{self, Trees};
+use tehas_core::settings::rules;
 
 pub const SETTING: &str = "TEHAS_POLL_SECS";
 pub const DEFAULT: u64 = 120;
@@ -49,8 +49,7 @@ pub fn parse(value: Option<&str>) -> Result<u64, String> {
     if value.is_empty() {
         return Ok(DEFAULT);
     }
-    rules::check(SETTING, value, &Trees::default())
-        .map_err(|why| format!("{SETTING} is not valid: {why}"))?;
+    rules::check(SETTING, value).map_err(|why| format!("{SETTING} is not valid: {why}"))?;
     value
         .parse()
         .map_err(|_| format!("{SETTING} is not valid: {value} is no number"))

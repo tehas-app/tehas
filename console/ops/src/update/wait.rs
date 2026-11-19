@@ -57,7 +57,7 @@ fn update_seconds(value: Option<&str>) -> Result<u64, String> {
     if v.is_empty() {
         return Ok(UPDATE.default);
     }
-    tehas_core::settings::rules::check(UPDATE.name, v, &Default::default())
+    tehas_core::settings::rules::check(UPDATE.name, v)
         .map_err(|why| format!("{} is not valid: {why}", UPDATE.name))?;
     Ok(v.parse().unwrap_or(UPDATE.default))
 }

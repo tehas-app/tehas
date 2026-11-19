@@ -41,7 +41,7 @@
 //! The rules a value of each setting is checked with, built from TABLE: what
 //! api/settings-rules.json holds, for a tool with no factory to check
 //! instance.env values. A rule's `reason` is what the check says for its
-//! refused example with empty trees.
+//! refused example.
 //!
 //!   console settings checkout | branch
 //!
@@ -63,7 +63,7 @@ use tehas_core::jq::{self, J};
 use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
 use tehas_core::settings::renamed;
-use tehas_core::settings::rules::{self, Setting, Trees, When, TABLE};
+use tehas_core::settings::rules::{self, Setting, When, TABLE};
 use tehas_core::settings::INSTANCE_SETTINGS;
 
 const REFUSED: u8 = 78;
@@ -327,18 +327,7 @@ pub fn loaded(names: &[&str]) -> Result<(), u8> {
 }
 
 fn why(name: &str, value: &str) -> Option<String> {
-    let var = |k: &str| env::var(k).unwrap_or_default();
-    let (home, instance, work_repo) = (
-        var("TEHAS_HOME"),
-        var("TEHAS_INSTANCE_DIR"),
-        var("TEHAS_WORK_REPO"),
-    );
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
-    rules::check(name, value, &trees).err()
+    rules::check(name, value).err()
 }
 
 fn valid_stream() -> u8 {
@@ -378,13 +367,9 @@ fn strings(words: &[&str]) -> J {
 }
 
 fn rule_row(setting: &Setting) -> J {
-    let reason = rules::check(
-        setting.name,
-        setting.rule.refused_example(),
-        &Trees::default(),
-    )
-    .err()
-    .unwrap_or_default();
+    let reason = rules::check(setting.name, setting.rule.refused_example())
+        .err()
+        .unwrap_or_default();
     let mut fields = vec![
         ("name", J::str(setting.name)),
         ("rule", J::str(setting.rule.name())),
@@ -579,11 +564,7 @@ mod tests {
             let reason = row.get("reason").text();
             assert!(!reason.is_empty(), "{}", setting.name);
             assert_eq!(
-                rules::check(
-                    setting.name,
-                    setting.rule.refused_example(),
-                    &Trees::default()
-                ),
+                rules::check(setting.name, setting.rule.refused_example()),
                 Err(reason),
                 "{}",
                 setting.name

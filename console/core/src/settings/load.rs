@@ -25,16 +25,11 @@
 //!   GH_TOKEN in ~/.config/tehas/env, GH_CYCLE_TOKEN and TEHAS_CYCLE_LOGIN
 //!   stop the load. A TEHAS_FIXER_* name stops it too, and so does every
 //!   setting tehas 1.0 renamed or removed (renamed.rs).
-//! - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
-//!   lowest issues. Unset is valid and means there is no gate. It is asked with
-//!   nothing of the poll's environment but PATH, and it may not name a file
-//!   under TEHAS_HOME or the instance directory: those are the trees a merged
-//!   pull request writes, and the gate runs as the tehas user.
 //! - Nothing falls back to a project: a setting with no generic default stays
 //!   unset until a command requires it.
 
 use super::renamed;
-use super::rules::{self, Trees, When, HOST, ROLES, SWITCH_WORDS, TABLE};
+use super::rules::{self, When, HOST, ROLES, SWITCH_WORDS, TABLE};
 use crate::driver::Driver;
 use crate::features;
 use std::collections::{BTreeMap, BTreeSet};
@@ -567,22 +562,8 @@ fn defaults(vars: &mut Vars, host: &mut dyn Host, uid: &str) {
     vars.set("PI_ENSEMBLE_NO_SSH", "1");
 }
 
-fn trees_of(vars: &Vars) -> [String; 3] {
-    [
-        vars.text("TEHAS_HOME"),
-        vars.text("TEHAS_INSTANCE_DIR"),
-        vars.text("TEHAS_WORK_REPO"),
-    ]
-}
-
 fn valid(vars: &Vars, name: &str, file: &str) -> Result<(), String> {
-    let [home, instance, work_repo] = trees_of(vars);
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
-    rules::check(name, &vars.text(name), &trees)
+    rules::check(name, &vars.text(name))
         .map_err(|why| format!("{name} is not valid: {why} (see {file})"))
 }
 
@@ -646,7 +627,7 @@ fn host_values(vars: &Vars, text: &[u8], file: &str) -> Result<(), String> {
         .collect();
     names.extend(vars.prefixed(rules::MODEL_KEY));
     for name in names.iter().filter(|n| has(vars, n)) {
-        if let Err(why) = rules::check(name, &vars.text(name), &Trees::default()) {
+        if let Err(why) = rules::check(name, &vars.text(name)) {
             let place = match name.as_str() {
                 _ if assigns(text, name) => file.to_string(),
                 "TEHAS_HOME" => "the environment".to_string(),
@@ -877,12 +858,6 @@ pub fn load(vars: &mut Vars, host: &mut dyn Host, uid: &str) -> Result<(), Strin
 /// Every setting a command could require that holds no value of its rule, with
 /// why, for tehas_require to read. An empty one is tehas_require's to name.
 pub fn bad(vars: &Vars) -> Vec<(String, String)> {
-    let [home, instance, work_repo] = trees_of(vars);
-    let trees = Trees {
-        home: &home,
-        instance: &instance,
-        work_repo: &work_repo,
-    };
     let roles = ["PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_PROVIDER_"]
         .iter()
         .flat_map(|prefix| vars.prefixed(prefix));
@@ -892,7 +867,7 @@ pub fn bad(vars: &Vars) -> Vec<(String, String)> {
         .chain(roles)
         .filter(|name| has(vars, name))
         .filter_map(|name| {
-            let why = rules::check(&name, &vars.text(&name), &trees).err()?;
+            let why = rules::check(&name, &vars.text(&name)).err()?;
             Some((name, why))
         })
         .collect()
@@ -1506,7 +1481,7 @@ mod tests {
     /// The reason the rule of `name` gives `value`, read off the rule itself so
     /// the test above names no copy of it.
     fn reason_of(name: &str, value: &str) -> String {
-        rules::check(name, value, &Trees::default()).unwrap_err()
+        rules::check(name, value).unwrap_err()
     }
 
     #[test]
