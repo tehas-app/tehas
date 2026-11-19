@@ -7,13 +7,15 @@
 //! are built into tehas (tehas_core::release), never read from a file an
 //! earlier release left on the host or from the download. Nothing is unpacked before both checks pass, and current moves
 //! only after the unpack and the target's own settings check, so whatever
-//! fails leaves the host on the version it runs.
+//! fails leaves the host on the version it runs. An install.sh that does not
+//! finish after the switch has current and the image tag put back (`undo`).
 //!
 //! host/release/install repeats these checks in POSIX sh, because it runs on a
 //! host with nothing installed yet.
 
 use super::{
     fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
+    Undo,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -828,6 +830,10 @@ fn inspect(image: &str, format: &str) -> Option<String> {
     (rc == 0).then_some(said)
 }
 
+fn image_id(image: &str) -> Option<String> {
+    inspect(image, "{{.Id}}").filter(|id| !id.is_empty())
+}
+
 /// The sum of the instance's sandbox.Dockerfile, empty without one, None when
 /// it cannot be read.
 fn layer_now() -> Option<String> {
@@ -1084,19 +1090,59 @@ pub(crate) fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
     };
     say(&format!("release: current is {target}, was {was}"));
     plan.tree = current.display().to_string();
+    let mut undo = Undo {
+        to: target.clone(),
+        was: installed.clone(),
+        image: None,
+    };
+    let before = image_id(&host.image);
     match reuse_image(host, &target) {
         Reuse::Done => {
             say(&format!(
                 "sandbox: the image {target} ran with is in use again"
             ));
             plan.reused = true;
+            undo.image = before;
         }
         Reuse::OtherLayer => say(&format!(
             "sandbox: the image {target} ran with was built from another sandbox.Dockerfile, so it is not put back"
         )),
         Reuse::No => {}
     }
+    plan.undo = Some(undo);
     0
+}
+
+/// Current and the uid tag as they were before `go` moved them.
+pub(crate) fn undo(host: &Host, undo: &Undo) {
+    let Undo { to, was, image } = undo;
+    let back = if was.is_empty() {
+        !matches!(fs::remove_file(host.current()), Err(e) if e.kind() != ErrorKind::NotFound)
+    } else {
+        switch(host, was)
+    };
+    let named = if was.is_empty() {
+        "the platform checkout"
+    } else {
+        was
+    };
+    if back {
+        say(&format!(
+            "release: install.sh did not finish {to}, so current is {named} again"
+        ));
+    } else {
+        tell(&format!(
+            "release: install.sh did not finish {to}, and current could not be put back to {named}; it still names {to}"
+        ));
+    }
+    if let Some(id) = image {
+        if !quiet(timed(DOCKER_LIMIT, "docker").args(["tag", id, &host.image])) {
+            tell(&format!(
+                "sandbox: {} could not be put back on {id}; it names the image {to} ran with",
+                host.image
+            ));
+        }
+    }
 }
 
 /// `console update release <question>`. The two that compare answer by status

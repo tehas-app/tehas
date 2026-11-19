@@ -13,8 +13,8 @@
 
 use super::finish::INSTALL_LIMIT;
 use super::lock::Held;
-use super::{code, findings, gate, output, parse, prepare, tell, temp_dir, timed, wait};
-use super::{host_or_refuse, Mode, Plan, Prepared, API, NO_LOCK};
+use super::{code, findings, gate, output, parse, prepare, release, tell, temp_dir, timed, wait};
+use super::{host_or_refuse, Mode, Plan, Prepared, Undo, API, NO_LOCK};
 use crate::settings;
 use std::env;
 use std::fs::{self, File};
@@ -132,22 +132,24 @@ pub(super) fn main(given: &[String]) -> u8 {
         return 1;
     };
     let (plan, out, err) = (dir.0.join("plan"), dir.0.join("out"), dir.0.join("err"));
-    match prepare(&plan, &asked) {
-        Ok(Prepared::Planned) => {}
+    let undo = match prepare(&plan, &asked) {
+        Ok(Prepared::Planned(undo)) => undo,
         Ok(Prepared::Over) => return 0,
         Err(rc) => return rc,
-    }
+    };
     let Some(read) = Plan::read(&plan) else {
         tell(&format!(
             "tehas update: could not read {}; run tehas update again to finish",
             plan.display()
         ));
+        put_back(1, undo);
         return 1;
     };
     let rc = match install(&read, lock.as_ref(), &out, &err) {
         Ok(rc) => rc,
         Err(e) => {
             tell(&format!("tehas update: could not run install.sh: {e}"));
+            put_back(1, undo);
             return 1;
         }
     };
@@ -156,6 +158,7 @@ pub(super) fn main(given: &[String]) -> u8 {
         copy(&out, &mut io::stdout());
         copy(&err, &mut io::stderr());
         tell(&format!("tehas update: neither {console} nor {prev} can finish this update; what install.sh copied is installed, and what it recorded is still owed"));
+        put_back(rc, undo);
         return 1;
     };
     let finished = Command::new(finisher)
@@ -167,11 +170,24 @@ pub(super) fn main(given: &[String]) -> u8 {
         .arg(&err)
         .args(["--install-rc", &rc.to_string()])
         .status();
-    match finished {
+    let status = match finished {
         Ok(status) => code(status) as u8,
         Err(e) => {
             tell(&format!("tehas update: {finisher} cannot run: {e}"));
             1
         }
+    };
+    put_back(rc, undo);
+    status
+}
+
+/// An install.sh that did not finish leaves current, and the image tag, where
+/// they were before the switch.
+fn put_back(rc: i32, undo: Option<Undo>) {
+    if rc == 0 {
+        return;
+    }
+    if let (Some(undo), Ok(host)) = (undo, host_or_refuse()) {
+        release::undo(&host, &undo);
     }
 }
