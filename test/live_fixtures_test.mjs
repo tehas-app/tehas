@@ -1,7 +1,7 @@
 // The pages against test/fixtures/live/: one committed sample of each file under
 // /live/ that a page in host/fun/ reads. Every file a page fetches has a
 // sample, each sample goes through the page code that reads it, and the plain
-// dashboard is drawn from the samples against a page of stubs. A page reads
+// dashboard's island models make their sections from the samples. A page reads
 // these files add-only (host/docs/frontend.md): a field of a sample is one a
 // page may read, so a writer keeps it.
 //
@@ -15,10 +15,16 @@ import "../host/fun/panels.js";
 import "../host/fun/versions.js";
 import { analyticsView } from "../host/fun/analytics-data.js";
 import { boardRows, consoleView, labBase, lineView, liveView } from "../host/fun/business-view.js";
-import * as dashboard from "../host/fun/dashboard-view.js";
 import { layout as energyLayout } from "../host/fun/energy-view.js";
 import { normalize } from "../host/fun/game-data.js";
 import { layout as hostLayout } from "../host/fun/host-data.js";
+import { consoleModel } from "../host/fun/factory/tehas-factory-console.model.js";
+import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
+import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
+import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
+import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
+import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
+import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
 
 const FIXTURES = new URL("./fixtures/live/", import.meta.url);
 const FUN = new URL("../host/fun/", import.meta.url);
@@ -34,6 +40,9 @@ test("every file under /live/ a page fetches has a sample, and every sample is f
     for (const m of src.matchAll(/fetch\(\s*"\/live\/([a-z0-9-]+\.json)"/g)) fetched.add(m[1]);
     for (const m of src.matchAll(/read\(\s*"\/live\/([a-z0-9-]+\.json)"/g)) fetched.add(m[1]);
   }
+  // The islands' feeds are named by their elements' attributes.
+  const frag = readFileSync(new URL("../host/docs/dashboard.frag", import.meta.url), "utf8");
+  for (const m of frag.matchAll(/ (?:src|running|status)="\/live\/([a-z0-9-]+\.json)"/g)) fetched.add(m[1]);
   const samples = readdirSync(FIXTURES).filter((n) => n.endsWith(".json")).sort();
   assert.deepEqual(samples, [...fetched].sort());
 });
@@ -124,55 +133,22 @@ test("epics.json, panels.json and health.json draw their parts", () => {
   assert.deepEqual(messages(read("health.json"), NOW).map((m) => m.word), ["Notice"]);
 });
 
-// The plain dashboard, drawn from the samples by its own start(). The document,
-// the fetches and the timers are stubs, as in test/dashboard_host_test.mjs; here
-// every file the page asks for is answered with its sample.
-test("the plain dashboard draws every section from the samples", async () => {
-  const byId = new Map(), errors = [];
-  const node = (name) => {
-    const el = { name, hidden: false, dataset: {}, style: {}, attrs: {}, textContent: "", className: "", href: "", kids: [] };
-    el.setAttribute = (k, v) => { el.attrs[k] = String(v); };
-    el.append = (...kids) => { el.kids.push(...kids); };
-    el.replaceChildren = (...kids) => { el.kids = kids; };
-    return el;
-  };
-  const stubs = {
-    document: {
-      hidden: false,
-      getElementById: (id) => { let el = byId.get(id); if (!el) byId.set(id, (el = node(id))); return el; },
-      addEventListener: () => {},
-      createElement: (tag) => node(tag),
-      createElementNS: (_ns, tag) => node(tag),
-    },
-    TEHAS_CONSOLE_TABS: { ...globalThis.TEHAS_CONSOLE_TABS, render: () => {}, keys: () => {}, consoleFile: () => null },
-    fetch: async (url) => {
-      const name = url.replace(/^\/live\//, "");
-      let body;
-      try { body = read(name); } catch { errors.push("no sample for " + url); }
-      return { ok: !!body, status: body ? 200 : 404, json: async () => body ?? {}, headers: { get: () => new Date(T * 1000).toUTCString() } };
-    },
-    setInterval: () => 0,
-    setTimeout: () => 0,
-    clearInterval: () => {},
-    Date: class extends Date { constructor(...a) { super(...(a.length ? a : [NOW])); } static now() { return NOW; } },
-  };
-  const real = Object.fromEntries(Object.keys(stubs).map((k) => [k, globalThis[k]]));
-  const note = (e) => errors.push(String(e.message ?? e));
-  Object.assign(globalThis, stubs);
-  process.on("unhandledRejection", note);
-  try {
-    dashboard.start();
-    for (let i = 0; i < 60; i++) await new Promise((r) => setImmediate(r));
-  } finally {
-    process.off("unhandledRejection", note);
-    for (const [k, v] of Object.entries(real)) globalThis[k] = v;
-  }
-  assert.deepEqual(errors, []);
-  const count = (id) => byId.get(id)?.kids.length;
-  assert.deepEqual(
-    ["queued", "awaiting", "stopped", "completed", "preview-list", "host-list", "unit-list"].map(count),
-    [2, 1, 1, 2, 3, 3, 2]);
-  assert.equal(byId.get("previews").hidden, false);
-  assert.equal(byId.get("host").hidden, false);
-  assert.ok(byId.get("an-versions").kids.length > 0);
+// The plain dashboard: each island's model makes its section from the samples,
+// as the islands do with what their feeds read (test/browser/dashboard-check.mjs
+// draws them in a browser).
+test("the plain dashboard's islands make every section from the samples", () => {
+  const status = read("status.json"), running = read("running.json");
+  const state = stateModel(status, running, NOW);
+  assert.deepEqual([state.pill, state.state, state.fresh], ["pill run", "working", "queue read just now"]);
+  assert.deepEqual(["queued", "awaiting", "stopped", "completed"].map((list) => issuesModel(status, { list }, NOW).rows.length),
+    [2, 1, 1, 2]);
+  assert.equal(readonlyModel(status, NOW).on, false);
+  const c = consoleModel(running, status, null, NOW);
+  assert.deepEqual([c.tabs.length, c.title, c.file], [2, "Working on #41  Export the report as CSV", "console-41.txt"]);
+  const previews = previewsModel(read("previews.json"), NOW);
+  assert.deepEqual([previews.present, previews.rows.length], [true, 3]);
+  const host = hostModel(read("top.json"), NOW);
+  assert.deepEqual([host.present, host.rows.length, host.units.length], [true, 3, 2]);
+  const days = daysModel(read("analytics.json"));
+  assert.deepEqual([days.present, days.chart.length, days.versions.length > 0], [true, 10, true]);
 });

@@ -6,8 +6,15 @@
 #   page <name> <script bytes> <markup and style bytes>
 #   island <name> <bytes>
 #   library solid <bytes>    the kit's Solid, counted here and in no page
-page business 99122 40524
-page floor 144329 68492
+page business 99084 40524
+page floor 144291 68492
 page dashboard 74709 53988
 page manual 0 49838
+island factory/tehas-factory-console 4156
+island factory/tehas-factory-days 4686
+island factory/tehas-factory-host 3919
+island factory/tehas-factory-issues 4146
+island factory/tehas-factory-previews 4086
+island factory/tehas-factory-readonly 2926
+island factory/tehas-factory-state 2957
 library solid 123689

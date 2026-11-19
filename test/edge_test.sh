@@ -13,7 +13,7 @@ t_contains "$(cat "$caddyfile")" '@preview header_regexp preview Host ^uat-([1-9
 t_contains "$(cat "$caddyfile")" '@main header_regexp main Host ^uat-main\.'
 t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-main:8080'
 t_eq "$(awk '/handle @main \{/ {a = NR} /handle @odd \{/ {b = NR} END {print (a && a < b) ? "before" : "after"}' "$caddyfile")" before
-t_contains "$(cat "$T_ROOT/host/fun/dashboard-view.js")" 'const isMain = !!it && it.name === "main";'
+t_contains "$(cat "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 'const isMain = !!it && it.name === "main";'
 t_contains "$(cat "$caddyfile")" '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.'
 t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-{re.preview.1}:8080'
 t_contains "$(cat "$caddyfile")" 'root * /srv/protolab/{re.ticket.1}'
@@ -273,23 +273,24 @@ t_eq "$(grep -c -F '#previews h2' "$css")" 1
 t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard.frag")" 1
 
 t_case "the dashboard says when the list of previews was written"
-t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt) + ".");' "$T_ROOT/host/fun/dashboard-view.js")" 1
+t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt, nowMs) + ".");' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
 
 # A refused volume and a build that failed are both "build-failed": only the
 # reason the run wrote into the state says which. The reason is text this
 # command wrote, never the pull request's.
 t_case "the dashboard says why a preview is not serving, with the reason from its state"
-view=$(cat "$T_ROOT/host/fun/dashboard-view.js")
-t_eq "$(grep -c -F '"build-failed": "unable to create: the build failed"' "$T_ROOT/host/fun/dashboard-view.js")" 0
+view=$(cat "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/factory/tehas-factory-previews.render.js")
+t_eq "$(grep -c -F '"build-failed": "unable to create: the build failed"' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 0
 t_contains "$view" 'const reason = typeof it.reason === "string" ? it.reason.trim() : "";'
 t_contains "$view" 'return reason ? label + ": " + reason : label;'
-t_contains "$view" 'el("span", "when", previewWhy(it))'
-t_eq "$(grep -c -F 'el("span", "when", PREVIEW_STATES[it.state]' "$T_ROOT/host/fun/dashboard-view.js")" 0
+t_contains "$view" 'why: serving ? "" : previewWhy(it),'
+t_contains "$view" '<span class="when">${() => r().why}</span>'
+t_eq "$(grep -c -F 'STATES[it.state] || "not serving";' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
 
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
-t_eq "$(grep -c -F '/^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/.test(it.address)' "$T_ROOT/host/fun/dashboard-view.js")" 1
+t_eq "$(grep -c -F 'const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/;' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js")" 1
 t_eq "$(grep -c -F '/^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
-t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/fun/dashboard-view.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
+t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/fun/factory/tehas-factory-previews.model.js" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
 
 # The dashboard's files are compressed on their way out and cached by the
 # browser: the scripts and stylesheets under a name that holds their own bytes,

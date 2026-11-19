@@ -1,35 +1,27 @@
-// Runs the plain dashboard's own script against a page of stubs, to see the
-// half that shows the host: the list it draws from live/top.json, and when it
-// asks for that file; and the "Last 10 days" section it draws from
-// live/analytics.json. The fragment host/docs/dashboard.frag holds the
-// markup and loads host/fun/dashboard-view.js; this case imports that module
-// as the page would. No browser and no server: the document, the fetches and
-// the timers are stubs, and the file is the one host_view_test.mjs describes.
+// The models of the plain dashboard's islands (host/fun/factory/*.model.js):
+// what each makes of the file it is given, with no document and no Solid. The
+// state row, the issue lists, the read-only results, the previews, the host
+// and the last ten days. What the islands draw from them is checked in a
+// browser (test/browser/dashboard-check.mjs).
 //
 //   node --test test/dashboard_host_test.mjs
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
 import { test } from "node:test";
-
-// The module, imported once for the whole file and with no query string: every
-// page below is a call of its start() against that one copy, so state the
-// module kept outside start() would show up from one page in the next. No
-// document is installed yet, so the import itself draws nothing.
-import * as view from "../host/fun/dashboard-view.js";
-
-// The files the module reads, and so the only ones the stub fetch answers. The
-// console's file is not among them: the console half is stubbed out (below).
-const ANSWERED = ["/live/previews.json", "/live/top.json", "/live/analytics.json", "/live/status.json", "/live/running.json"];
-// The stub's surface, pinned by a case so that it stays this small.
-const GLOBALS = ["document", "fetch", "setInterval", "setTimeout", "clearInterval", "TEHAS_CONSOLE_TABS"];
-const NODE = ["name", "hidden", "dataset", "style", "attrs", "textContent", "className", "href", "kids",
-  "setAttribute", "append", "replaceChildren"];
+import { consoleModel, duration } from "../host/fun/factory/tehas-factory-console.model.js";
+import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
+import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
+import { MAX, chips, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
+import { previewWhy, previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
+import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
+import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
 
 const T = 1791526545;
+const NOW = T * 1000;
+const at = (secs = 0) => new Date((T - secs) * 1000).toISOString();
 
-function file(over = {}) {
+function top(over = {}) {
   return {
-    generatedAt: new Date(T * 1000).toISOString(),
+    generatedAt: at(),
     host: {
       cpus: 4,
       load: [0.1, 0.2, 0.3],
@@ -49,194 +41,154 @@ function file(over = {}) {
   };
 }
 
-function status() {
+function status(over = {}) {
   return {
-    generatedAt: new Date(T * 1000).toISOString(),
+    generatedAt: at(120),
+    repo: "acme/widget",
     links: { all: "https://github.com/acme/widget/issues", queued: "q", awaiting: "a", stopped: "s", completed: "c" },
     running: [], queued: [], awaiting: [], stopped: [], completed: [], paused: false, noResources: false,
+    ...over,
   };
 }
 
-async function page(opt = {}) {
-  const { top = 200, unreachable = false } = opt;
-  const byId = new Map(), listeners = {}, timers = [], errors = [], asked = [], chosen = [];
-  let hidden = false, topReads = 0, analyticsReads = 0, keyed = 0, choose = null;
-  const node = (name) => {
-    const el = { name, hidden: false, dataset: {}, style: {}, attrs: {}, textContent: "", className: "", href: "", kids: [] };
-    el.setAttribute = (k, v) => { el.attrs[k] = String(v); };
-    el.append = (...kids) => { el.kids.push(...kids); };
-    el.replaceChildren = (...kids) => { el.kids = kids; };
-    return el;
-  };
-  const note = (e) => errors.push(String(e.message ?? e));
-  const missing = (status = 404) => ({ ok: false, status, json: async () => ({}), headers: { get: () => "" } });
-  const stubs = {
-    document: {
-      get hidden() { return hidden; },
-      getElementById: (id) => { let el = byId.get(id); if (!el) byId.set(id, (el = node(id))); return el; },
-      addEventListener: (name, fn) => { (listeners[name] ??= []).push(fn); },
-      createElement: (tag) => node(tag),
-      createElementNS: (_ns, tag) => node(tag),
-    },
-    // The tabs are the plain dashboard's other module. Here they say nothing is
-    // running, so what a case sees is the host half. view() keeps the cycle it
-    // was asked to show and keys() the page's own select(), so a case can choose
-    // a tab and see what the page asked for next. consoleFile names no file, so
-    // the console's tail() is never reached: reaching it would take arrayBuffer,
-    // TextDecoder, checked and scrollTop, and a stub that grows to fit one case
-    // stops saying anything about the page.
-    TEHAS_CONSOLE_TABS: {
-      view: (_now, selected) => { chosen.push(selected); return { running: 0, shown: null, cycles: [], tabs: [] }; },
-      render: () => {},
-      keys: (_el, fn) => { keyed++; choose = fn; },
-      consoleFile: () => null,
-    },
-    fetch: async (url) => {
-      asked.push(url);
-      if (!ANSWERED.some((f) => url.endsWith(f))) {
-        // The module swallows a failed fetch, so a file nobody answers would
-        // pass unseen: it is an error of the case instead.
-        errors.push("asked for " + url + ", which the stub does not answer");
-        return missing();
-      }
-      if (url.endsWith("/live/top.json")) topReads++;
-      if (url.endsWith("/live/analytics.json")) analyticsReads++;
-      if (unreachable) throw new Error("no route to the host");
-      if (url.endsWith("/live/top.json")) {
-        return top === 200
-          ? { ok: true, status: 200, json: async () => (opt.topFile || file)(), headers: { get: () => new Date(T * 1000).toUTCString() } }
-          : missing(top);
-      }
-      if (url.endsWith("/live/analytics.json")) {
-        return opt.analytics ? { ok: true, status: 200, json: async () => opt.analytics, headers: { get: () => "" } } : missing();
-      }
-      // No previews and no running cycle on this host: the host section is what
-      // these cases are about.
-      if (url.endsWith("/live/previews.json") || url.endsWith("/live/running.json")) return missing();
-      return { ok: true, status: 200, json: async () => ({ ...status(), ...opt.status }), headers: { get: () => "" } };
-    },
-    // The page's own clock: the refresh it schedules is turned by a case, so no
-    // timer outlives one.
-    setInterval: (fn, ms) => { timers.push({ fn, ms }); return 0; },
-    setTimeout: (fn) => { timers.push({ fn, ms: 0 }); return 0; },
-    clearInterval: () => {},
-  };
-  const settle = async () => { for (let i = 0; i < 60; i++) await new Promise((r) => setImmediate(r)); };
-  // Each turn of a page puts its own stubs in place and takes them away again,
-  // so two pages can be turned one after the other.
-  const turn = async (fn) => {
-    const real = Object.fromEntries(GLOBALS.map((k) => [k, globalThis[k]]));
-    Object.assign(globalThis, stubs);
-    process.on("unhandledRejection", note);
-    try {
-      await fn();
-      await settle();
-    } finally {
-      process.off("unhandledRejection", note);
-      for (const [k, v] of Object.entries(real)) globalThis[k] = v;
-    }
-  };
-  // A case can load the page the way the browser does instead: a fresh copy of
-  // the module imported with the stubs in place, so only its own last line,
-  // the probe-guarded start(), can draw it.
-  await turn(() => (opt.entry ? import("../host/fun/dashboard-view.js?entry=" + opt.entry) : view.start()));
-  // A page that ran none of the module fails here, whatever its case asserts:
-  // the module set up its tabs once and asked for the queue.
-  assert.equal(keyed, 1, "the module did not start on this page");
-  assert.ok(asked.includes("/live/status.json"), "the module asked for nothing on this page");
-  const text = (id) => byId.get(id)?.textContent;
-  // The text of each row of one list: its cells joined as the page shows them.
-  const items = (id) => (byId.get(id)?.kids ?? []).map((li) => li.kids
-    .map((k) => (typeof k === "string" ? k : k.textContent)).join(""));
-  return {
-    errors, text, items, topReads: () => topReads, analyticsReads: () => analyticsReads,
-    asked: () => [...asked],
-    chosen: () => [...chosen],
-    node: (id) => byId.get(id),
-    periods: () => timers.map((t) => t.ms),
-    hidden: (id = "host") => byId.get(id)?.hidden,
-    hide: () => { hidden = true; },
-    show: () => { hidden = false; },
-    surface: () => ({ globals: Object.keys(stubs), node: Object.keys(node("probe")), tabs: stubs.TEHAS_CONSOLE_TABS }),
-    choose: (issue) => turn(() => choose(issue)),
-    tick: (n) => turn(async () => { for (let i = 0; i < n; i++) { for (const t of timers) await t.fn(); await settle(); } }),
-    fire: (name) => turn(async () => { for (const fn of listeners[name] ?? []) await fn(); }),
-  };
-}
+const running = (issues) => ({ cycles: issues.map((issue) => ({ issue, running: true, startedAt: T - 600, step: "develop", console: `console-${issue}.txt` })), last: null });
 
-test("the plain dashboard lists the host it is given", async () => {
-  const p = await page();
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.topReads(), 1);
-  assert.equal(p.hidden(), false);
-  // One row per process and one per unit: the same figures the panel draws, from
-  // the same function.
-  assert.deepEqual(p.items("host-list"), [
+test("the host is a list of its processes and units, with a note of its readings", () => {
+  const m = hostModel(top(), NOW);
+  assert.equal(m.present, true);
+  assert.deepEqual(m.rows.map((r) => r.name + " " + r.text), [
     "pi-rukas pid 300  cpu 40%  mem 7.3%  up 16 min",
     "tehas-cycle pid 200  cpu 2%  mem 4.9%  up 1 min",
     "systemd pid 100  cpu --  mem 1.8%  up 1 d",
   ]);
-  assert.deepEqual(p.items("unit-list"), [
+  assert.deepEqual(m.units.map((u) => u.name + " " + u.text), [
     "tehas-dispatch.timer enabled  active  next 10:00:00",
     "tehas-cycle@12.service -  active",
   ]);
-  assert.deepEqual([p.text("n-host"), p.text("n-units")], ["(3)", "(2)"]);
-  assert.deepEqual(p.text("host-note"),
-    "4 CPUs, load 0.10 0.20 0.30, 12.5% of the cpus in use, memory 1600 of 6400 MB, snapshot written just now.");
+  assert.deepEqual([m.n, m.nUnits], ["(3)", "(2)"]);
+  assert.equal(m.note, "4 CPUs, load 0.10 0.20 0.30, 12.5% of the cpus in use, memory 1600 of 6400 MB, snapshot written just now.");
 });
 
-test("importing the module on its page draws the page with no call of start()", async () => {
-  const p = await page({ entry: "auto" });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.topReads(), 1);
-  assert.equal(p.items("host-list").length, 3);
+test("an old snapshot is said to be old, and a host with no file has no section", () => {
+  assert.match(hostModel(top({ generatedAt: at(7200) }), NOW).note, /, snapshot is 2 h ago\.$/);
+  assert.match(hostModel(top({ generatedAt: "no" }), NOW).note, /, snapshot unreadable\.$/);
+  assert.equal(hostModel(null, NOW).present, false);
+  assert.equal(hostModel({ units: [] }, NOW).present, false);
+  const empty = hostModel(top({ host: { cpus: 1 }, units: [] }), NOW);
+  assert.deepEqual([empty.rows, empty.units, empty.n, empty.nUnits], [[], [], "", ""]);
 });
 
-test("a host that publishes no snapshot has no host section", async () => {
-  const p = await page({ top: 404 });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.hidden(), true);
-  assert.deepEqual(p.items("host-list"), []);
+test("the state says working, paused, finishing or idle", () => {
+  assert.deepEqual([stateModel(status(), null, NOW).pill, stateModel(status(), null, NOW).state], ["pill idle", "idle"]);
+  assert.equal(stateModel(status(), running([41]), NOW).state, "working");
+  assert.equal(stateModel(status(), running([41, 42]), NOW).state, "working on 2");
+  assert.equal(stateModel(status({ paused: true }), running([41, 42]), NOW).state, "paused, finishing #41, #42");
+  assert.equal(stateModel(status({ paused: true }), null, NOW).pill, "pill pause");
+  assert.equal(stateModel(status({ noResources: true }), null, NOW).state, "no resources");
+  const m = stateModel(status(), null, NOW);
+  assert.equal(m.fresh, "queue read 2 min ago");
+  assert.equal(m.all, "https://github.com/acme/widget/issues");
 });
 
-test("the dashboard asks for the host file only while the page is shown", async () => {
-  const p = await page();
-  assert.equal(p.topReads(), 1);
-  p.hide();
-  await p.tick(3); // three marks of the refresh it schedules
-  assert.equal(p.topReads(), 1); // nothing on screen wants a fresh answer
-  p.show();
-  await p.fire("visibilitychange");
-  assert.equal(p.topReads(), 2); // coming back asks at once
+test("all-hands and read-only are shown beside the state only while the snapshot says so", () => {
+  assert.equal(stateModel(status({ allHands: true }), null, NOW).allHands, true);
+  for (const allHands of [false, null, undefined, "yes"]) assert.equal(stateModel(status({ allHands }), null, NOW).allHands, false);
+  assert.equal(stateModel(status({ readOnly: { on: true } }), null, NOW).readOnly, true);
+  assert.equal(stateModel(status(), null, NOW).readOnly, false);
 });
 
-test("a file that is not there is not asked for at every refresh", async () => {
-  const p = await page({ top: 404 });
-  assert.equal(p.topReads(), 1);
-  await p.tick(5);
-  assert.equal(p.topReads(), 1); // once a minute, not at every period
-  await p.fire("visibilitychange");
-  assert.equal(p.topReads(), 2);
+test("a list shows the first ten rows, its count, the time and a link to the rest", () => {
+  const issue = (n) => ({ number: n, title: "t" + n, url: `https://github.com/acme/widget/issues/${n}`, updatedAt: at(3600), closedAt: at(120) });
+  const many = Array.from({ length: 12 }, (_, i) => issue(i + 1));
+  const m = issuesModel(status({ queued: many }), { list: "queued" }, NOW);
+  assert.equal(m.title, "In line");
+  assert.equal(m.n, "(12)");
+  assert.equal(m.rows.length, MAX);
+  assert.deepEqual(m.rows[0], { number: 1, title: "t1", href: "https://github.com/acme/widget/issues/1", notes: [], when: "60 min ago" });
+  assert.deepEqual(m.more, { text: "all 12 on GitHub", href: "q" });
+  // Completed rows tell the time they were closed.
+  assert.equal(issuesModel(status({ completed: [issue(3)] }), { list: "completed" }, NOW).rows[0].when, "2 min ago");
+  const empty = issuesModel(status(), { list: "stopped" }, NOW);
+  assert.deepEqual([empty.n, empty.rows, empty.more, empty.empty], ["", [], null, "Nothing is stopped."]);
+  // A list the element does not know of is the queue, not a key of the file.
+  assert.equal(issuesModel(status(), { list: "__proto__" }, NOW).name, "queued");
 });
 
-test("a host that cannot be reached keeps what was on screen", async () => {
-  const p = await page({ unreachable: true });
-  assert.deepEqual(p.errors, []); // the script caught it rather than rejecting
-  assert.equal(p.hidden(), true); // nothing was ever drawn
+test("a link of the queue file that is not a web address is not drawn as one", () => {
+  const issue = (url) => ({ number: 3, title: "t", url, updatedAt: at() });
+  const s = status({
+    links: { all: "javascript:void 0", queued: "data:text/html,x" },
+    queued: [issue("javascript:void 0"), ...Array.from({ length: 10 }, () => issue("https://github.com/acme/widget/issues/3"))],
+  });
+  const m = issuesModel(s, { list: "queued" }, NOW);
+  assert.deepEqual(m.rows.map((r) => r.href), ["", ...Array(9).fill("https://github.com/acme/widget/issues/3")]);
+  assert.equal(m.more.href, "");
+  assert.equal(stateModel(s, null, NOW).all, "");
 });
 
-test("all-hands is shown beside the state only while the snapshot says so", async () => {
-  const on = await page({ top: 404, status: { allHands: true } });
-  assert.deepEqual(on.errors, []);
-  assert.equal(on.hidden("allhands"), false);
-  for (const allHands of [false, null, undefined]) {
-    const off = await page({ top: 404, status: { allHands } });
-    assert.equal(off.hidden("allhands"), true);
-  }
+test("the host bridge's link and notes reach a row", () => {
+  const host = {
+    ticket: (repo, url) => (repo === "acme/widget" && url.endsWith("/42") ? "/host/tickets/42" : null),
+    notes: (n) => (n === 42 ? [{ text: "2 votes", link: null }, { text: "chat", link: "https://chat.example.org/42" }, { text: "here", link: "/host/x" }] : []),
+  };
+  const s = status({ queued: [{ number: 42, title: "a", url: "https://github.com/acme/widget/issues/42" }, { number: 43, title: "b", url: "https://github.com/acme/widget/issues/43" }] });
+  const [a, b] = issuesModel(s, { list: "queued" }, NOW, host).rows;
+  assert.equal(a.href, "/host/tickets/42");
+  assert.deepEqual(a.notes, [
+    { text: "2 votes", href: null, away: false },
+    { text: "chat", href: "https://chat.example.org/42", away: true },
+    { text: "here", href: "/host/x", away: false },
+  ]);
+  assert.deepEqual([b.href, b.notes], ["https://github.com/acme/widget/issues/43", []]);
+  assert.deepEqual(chips(undefined), []);
 });
 
-// A report as the analytics program prints it, cut short: two days, one
-// reason, one step, two version pairs.
+test("a read-only factory lists what its starts left, with the pull request text", () => {
+  const m = readonlyModel(status({ readOnly: { on: true, starts: [
+    { issue: 7, how: "cycle", at: at(120), workspace: "/h/work/widget-7", pr: { title: "Fix the thing", branch: "feature/issue-7", body: "The body." } },
+    { issue: 9, how: "cycle", at: at(120), workspace: "/h/work/widget-9" },
+  ] } }), NOW);
+  assert.equal(m.on, true);
+  assert.equal(m.n, "(2)");
+  assert.deepEqual(m.rows.map((r) => [r.issue, r.text, r.where, r.body]), [
+    [7, "Fix the thing", "feature/issue-7 in /h/work/widget-7, 2 min ago", "The body."],
+    [9, "cycle started, no pull request yet", "/h/work/widget-9, 2 min ago", ""],
+  ]);
+  const off = readonlyModel(status(), NOW);
+  assert.deepEqual([off.on, off.rows, off.n], [false, [], ""]);
+  assert.deepEqual(readonlyModel(status({ readOnly: { on: true } }), NOW).rows, []);
+});
+
+test("the previews say when the list was written and why one is not serving", () => {
+  const m = previewsModel({
+    generatedAt: at(300),
+    disk: { low: true, freeBytes: 1 },
+    previews: [
+      { name: "main", address: "https://uat-main.example.org/", state: "serving" },
+      { number: 46, title: "Export", address: "https://uat-46.example.org/", state: "serving" },
+      { number: 47, title: "", state: "build-failed", reason: " the build failed " },
+      { number: 48, title: "Odd", address: "https://uat-048.example.org/", state: "serving" },
+      { number: "49", title: "Not a number" },
+      null,
+    ],
+  }, NOW);
+  assert.equal(m.present, true);
+  assert.equal(m.n, "(6)");
+  assert.equal(m.note, "The host is low on disk: previews are not being built. List written 5 min ago.");
+  assert.deepEqual(m.rows.map((r) => [r.num, r.title, r.href, r.why]), [
+    ["main", "default branch", "https://uat-main.example.org/", ""],
+    ["#46", "Export", "https://uat-46.example.org/", ""],
+    ["#47", "pull request 47", null, "unable to create: the build failed"],
+    ["#48", "Odd", null, "not serving"],
+  ]);
+  assert.equal(previewWhy({ state: "no-recipe" }), "no preview/Dockerfile in the commit");
+  assert.equal(previewsModel({ disk: { low: true, freeBytes: null }, previews: [] }, NOW).note,
+    "The host's free disk space could not be read: previews are not being built.");
+  assert.equal(previewsModel(null, NOW).present, false);
+  assert.equal(previewsModel({ previews: "no" }, NOW).present, false);
+});
+
+// A report as the analytics program prints it, cut short.
 function report() {
   return {
     report: 1, from: 1792022400, to: 1792843200,
@@ -246,11 +198,11 @@ function report() {
     leadTime: { n: 2, median: 3600, p90: 7200 },
     cycleTime: { n: 4, median: 600, p90: 900 },
     machineTime: { n: 4, seconds: 2400, perShipped: 1200 },
-    tokens: { n: 4, total: 4000, input: 3000, output: 500, cacheRead: 500, perShipped: 2000 },
+    tokens: { n: 4, total: 4000, perShipped: 2000 },
     availability: { n: 10, seconds: 3600, share: 0.9 },
     daily: [
       { day: "2026-10-23", shipped: 1, runs: 2, failed: 1, minutes: 20 },
-      { day: "2026-10-24", shipped: 1, runs: 2, failed: 0, minutes: 20 },
+      { day: "2026-10-24", shipped: 1, runs: 2, failed: 0, minutes: 10 },
     ],
     stopReasons: { n: 2, top: [{ reason: "timeout", n: 2 }] },
     stations: { n: 4, steps: [{ step: "explore", n: 4, passed: 3, share: 0.75 }] },
@@ -261,202 +213,41 @@ function report() {
   };
 }
 
-test("the last ten days are drawn from the report", async () => {
-  const p = await page({ top: 404, analytics: report() });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.analyticsReads(), 1);
-  assert.equal(p.hidden("analytics"), false);
-  assert.equal(p.text("analytics-note"), "2026-10-23 to 2026-10-24, UTC");
-  const figures = p.node("an-figures").kids.map((box) => box.kids.slice(0, 2).map((k) => k.textContent).join(" "));
-  assert.deepEqual(figures, ["Shipped 2", "Runs 4", "First-pass yield 50%", "Lead time 60 min", "Cycle time 10 min",
-    "Machine time 40 min", "Tokens 4k", "Availability 90%"]);
-  // Two days of bars, then the line of cycle-minutes.
-  const chart = p.node("an-chart").kids;
-  assert.equal(chart.length, 3);
-  assert.deepEqual(chart[0].kids[0].kids.map((b) => [b.className, b.style.height, b.textContent]),
-    [["shipped", "100%", "1"], ["failed", "100%", "1"]]);
-  assert.equal(chart[2].kids[0].attrs.points, "5,0.0 15,0.0");
-  assert.deepEqual(p.items("an-reasons"), ["2timeout"]);
-  assert.deepEqual(p.items("an-steps"), ["explore  75%, 3 of 4"]);
-  const rows = p.node("an-versions").kids.map((tr) => tr.kids.map((td) => td.textContent));
-  assert.deepEqual(rows, [["v0.7.22", "0.13.0", "3", "66.7%", "10 min", "1k"], ["v0.7.21", "0.12.80", "1", "", "", ""]]);
+test("the last ten days are the report's figures, bars, line, reasons, steps and versions", () => {
+  const m = daysModel(report());
+  assert.equal(m.present, true);
+  assert.equal(m.window, "2026-10-23 to 2026-10-24, UTC");
+  assert.deepEqual(m.figures.map((f) => f.label + " " + f.value), ["Shipped 2", "Runs 4", "First-pass yield 50%",
+    "Lead time 60 min", "Cycle time 10 min", "Machine time 40 min", "Tokens 4k", "Availability 90%"]);
+  assert.deepEqual(m.figures[0].bars, ["100%", "100%"]);
+  assert.deepEqual(m.figures[1].bars, []);
+  assert.deepEqual(m.chart[0].bars, [{ cls: "shipped", height: "100%", text: "1" }, { cls: "failed", height: "100%", text: "1" }]);
+  assert.deepEqual(m.chart[1].bars[1], { cls: "failed", height: "0%", text: "" });
+  assert.equal(m.chart[0].label, "23");
+  assert.equal(m.viewBox, "0 0 20 100");
+  assert.equal(m.points, "5,0.0 15,50.0");
+  assert.deepEqual(m.reasons, [{ reason: "timeout", n: 2 }]);
+  assert.deepEqual(m.steps.map((s) => [s.step, s.width, s.text]), [["explore", "75%", "75%, 3 of 4"]]);
+  assert.deepEqual(m.versions, [["v0.7.22", "0.13.0", "3", "66.7%", "10 min", "1k"], ["v0.7.21", "0.12.80", "1", "", "", ""]]);
+  assert.equal(daysModel(null).present, false);
+  assert.equal(daysModel({ report: 2 }).present, false);
 });
 
-test("a host without the report has no ten-day section, and is asked once a minute", async () => {
-  const p = await page({ top: 404 });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.hidden("analytics"), true);
-  assert.equal(p.analyticsReads(), 1);
-  await p.tick(5);
-  assert.equal(p.analyticsReads(), 1);
-  await p.fire("visibilitychange");
-  assert.equal(p.analyticsReads(), 2);
-});
-
-// What follows pins the harness itself: that it runs the module it means to,
-// that it reaches what it claims to and no more, and that one copy of the
-// module can draw two pages.
-
-const ROOT = new URL("../", import.meta.url);
-const SOURCE = readFileSync(new URL("host/fun/dashboard-view.js", ROOT), "utf8");
-
-test("the harness has the module itself, and the module draws only when started", () => {
-  // An import that resolved to nothing, or to some other file, has no start().
-  assert.deepEqual(Object.keys(view), ["start"]);
-  assert.equal(typeof view.start, "function");
-  // Importing with no document drew nothing and left no page behind.
-  assert.equal(typeof globalThis.document, "undefined");
-  assert.deepEqual(globalThis.TEHAS_DASHBOARD, { probe: "state" });
-});
-
-test("the module's three imports are each exercised by a page", async () => {
-  // Every import of the module, by specifier. A fourth one fails this case until
-  // a case here draws what it brings in. dom.js is the shared el(): the page is
-  // drawn with it, so the module cannot name an element of its own, and the file
-  // is covered by its own test (test/dom_test.mjs) rather than by a page, so it
-  // is pinned as the side-effecting import the module starts itself with.
-  const imports = [...SOURCE.matchAll(/^import (?:.* from )?"([^"]+)";$/gm)].map((m) => m[1]);
-  assert.deepEqual(imports, ["./dom.js", "./host-data.js", "./analytics-data.js"]);
-  assert.ok(SOURCE.includes("const el = globalThis.TEHAS_DOM.el;"));
-  const p = await page({ analytics: report() });
-  assert.deepEqual(p.errors, []);
-  // Each import, seen through what only it draws: dom.js's el() the rows of the
-  // host list, host-data.js's layout() the host note, analytics-data.js's
-  // analyticsView() the ten-day window.
-  const exercised = [
-    p.items("host-list").length === 3 && "./dom.js",
-    p.text("host-note").startsWith("4 CPUs, load 0.10 0.20 0.30") && "./host-data.js",
-    p.text("analytics-note") === "2026-10-23 to 2026-10-24, UTC" && "./analytics-data.js",
-  ].filter(Boolean);
-  assert.equal(exercised.length, imports.length);
-  assert.deepEqual(exercised, imports);
-});
-
-test("a page asks for each file it reads once, and for no other", async () => {
-  const p = await page();
-  assert.deepEqual(p.errors, []);
-  assert.deepEqual(p.asked().sort(), [...ANSWERED].sort());
-});
-
-test("the console half is stubbed out, and stays out", async () => {
-  const p = await page();
-  const { tabs } = p.surface();
-  assert.equal(String(tabs.consoleFile), "() => null");
-  await p.tick(3);
-  // tail() was never reached: no file was asked for beyond the five, and the
-  // console was never written.
-  assert.deepEqual(p.errors, []);
-  assert.ok(p.asked().every((url) => ANSWERED.includes(url)));
-  assert.equal(p.node("console"), undefined);
-  assert.equal(p.node("console-note"), undefined);
-});
-
-test("the stub stays as small as it is", async () => {
-  const p = await page();
-  const { globals, node } = p.surface();
-  assert.deepEqual([...globals].sort(), [...GLOBALS].sort());
-  assert.deepEqual(node, NODE);
-  for (const name of ["children", "focus", "checked", "scrollTop", "scrollHeight", "arrayBuffer", "import" + "Node", "TextDecoder"]) {
-    assert.ok(!globals.includes(name) && !node.includes(name), name + " is in the stub");
-  }
-  // No DOM shim and no dependency: this file imports node's own modules and the
-  // module under test, nothing else.
-  const own = readFileSync(new URL(import.meta.url), "utf8");
-  const specifiers = [...own.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]);
-  assert.deepEqual(specifiers.filter((s) => !s.startsWith("node:")), ["../host/fun/dashboard-view.js"]);
-});
-
-test("no page or test reaches past the DOM the stub has", () => {
-  // The names are put together here so that this file does not hold them.
-  const banned = { host: ["inner" + "HTML"], test: [] };
-  for (const name of ["attach" + "Shadow", "shadow" + "Root", "adopted" + "StyleSheets", "import" + "Node"]) {
-    banned.host.push(name);
-    banned.test.push(name);
-  }
-  const files = (dir) => readdirSync(dir).flatMap((f) => {
-    const path = new URL(f, dir);
-    return statSync(path).isDirectory() ? files(new URL(f + "/", dir)) : [path];
-  });
-  // The kit's vendored Solid fills <template> elements from the constant text
-  // of html`…` templates (host/docs/frontend.md, "Solid 2 in tehas"); the
-  // ratchet's lints keep data out of that text.
-  const vendored = new URL("host/fun/kit/vendor/", ROOT).pathname;
-  for (const [dir, names] of Object.entries(banned)) {
-    for (const path of files(new URL(dir + "/", ROOT))) {
-      if (path.pathname.startsWith(vendored)) continue;
-      const body = readFileSync(path, "latin1");
-      for (const name of names) assert.ok(!body.includes(name), path.pathname + " holds " + name);
-    }
-  }
-});
-
-test("two pages from one copy of the module share no state", async () => {
-  // One page on a host with no snapshot, one on a host with one; both from the
-  // single import above. Each is turned on its own before either is read.
-  const missed = await page({ top: 404 });
-  const served = await page();
-  // The miss sets the first page's hostMissedAt: it does not ask again at the
-  // next refreshes. The second page's own hostMissedAt is still 0, so it asks
-  // at each one, and its answers do not clear the first page's miss.
-  await missed.tick(3);
-  await served.tick(3);
-  // Coming back to the first page clears its miss and asks again at once; the
-  // 404 sets it again. The second page keeps asking.
-  await missed.fire("visibilitychange");
-  await served.tick(1);
-  // A tab chosen on the first page is the first page's selected, not the second's.
-  await missed.choose(7);
-  await served.tick(1);
-
-  assert.deepEqual(missed.errors, []);
-  assert.deepEqual(served.errors, []);
-  assert.equal(missed.topReads(), 2);
-  assert.equal(missed.hidden(), true);
-  assert.equal(served.topReads(), 6);
-  assert.equal(served.hidden(), false);
-  assert.equal(served.items("host-list").length, 3);
-  assert.equal(missed.chosen().at(-1), 7);
-  assert.ok(served.chosen().length > 1);
-  assert.ok(served.chosen().every((issue) => issue === null));
-});
-
-test("a read-only factory says so and lists what its starts left, with the pull request text", async () => {
-  const p = await page({ status: { readOnly: { on: true, starts: [
-    { issue: 7, how: "cycle", at: new Date(T * 1000).toISOString(), workspace: "/h/work/widget-7",
-      pr: { title: "Fix the thing", branch: "feature/issue-7", body: "The body." } },
-    { issue: 9, how: "cycle", at: new Date(T * 1000).toISOString(), workspace: "/h/work/widget-9" },
-  ] } } });
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.hidden("readonly"), false);
-  assert.equal(p.hidden("ro"), false);
-  assert.equal(p.text("n-ro"), "(2)");
-  const rows = p.items("ro-list");
-  assert.match(rows[0], /^#7Fix the thing feature\/issue-7 in \/h\/work\/widget-7, /);
-  assert.match(rows[0], /The body\.$/);
-  assert.match(rows[1], /^#9cycle started, no pull request yet \/h\/work\/widget-9, /);
-});
-
-test("a factory that is not read-only shows no read-only pill or section", async () => {
-  const p = await page();
-  assert.deepEqual(p.errors, []);
-  assert.equal(p.hidden("readonly"), true);
-  assert.equal(p.hidden("ro"), true);
-  assert.deepEqual(p.items("ro-list"), []);
-});
-
-test("a link of the queue file that is not a web address is not drawn as one", async () => {
-  const issue = (url) => ({ number: 3, title: "t", url, updatedAt: new Date(T * 1000).toISOString() });
-  const p = await page({
-    top: 404,
-    status: {
-      links: { all: "javascript:void 0", queued: "data:text/html,x", awaiting: "a", stopped: "s", completed: "c" },
-      queued: [issue("javascript:void 0"), ...Array.from({ length: 10 }, () => issue("https://github.com/acme/widget/issues/3"))],
-    },
-  });
-  assert.deepEqual(p.errors, []);
-  const anchors = p.node("queued").kids.map((li) => li.kids.find((k) => k.name === "a"));
-  assert.deepEqual(anchors.map((a) => a.href), [
-    "", ...Array(9).fill("https://github.com/acme/widget/issues/3"), "",
-  ]);
-  assert.equal(p.node("all").href, "");
+test("the console shows the selected cycle, running or the last, and names its file", () => {
+  const now = { cycles: [{ issue: 41, running: true, step: "develop", statusText: "", startedAt: T - 3720, console: "console-41.txt" }],
+    last: { issue: 36, running: false, status: "pr", step: "handoff", startedAt: T - 9000, updatedAt: T - 4200, console: "../x" } };
+  const s = status({ running: [{ number: 41, title: "Export" }], completed: [{ number: 36, title: "Login" }] });
+  const m = consoleModel(now, s, null, NOW);
+  assert.deepEqual(m.tabs, [{ issue: 41, label: "#41", on: true }, { issue: 36, label: "#36 ended", on: false }]);
+  assert.equal(m.title, "Working on #41  Export");
+  assert.equal(m.step, "step develop   (1 h 2 min so far)");
+  assert.deepEqual([m.file, m.live], ["console-41.txt", true]);
+  const last = consoleModel(now, s, 36, NOW);
+  assert.equal(last.title, "Last cycle: #36  Login");
+  assert.equal(last.step, "ended as pr at step handoff after 1 h 20 min");
+  // A name that is not a plain file name under /live/ names no file.
+  assert.deepEqual([last.file, last.live], [null, false]);
+  assert.equal(consoleModel(null, s, null, NOW).shown, false);
+  assert.equal(consoleModel(now, null, null, NOW).title, "Working on #41");
+  assert.equal(duration(59), "0 min");
 });
