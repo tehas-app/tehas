@@ -1003,6 +1003,9 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
     if rc == 0 {
         return None;
     }
+    if let Some(rc) = could_not_run(rc, &preflight_line(preflight)) {
+        return Some(rc);
+    }
     if matches!(rc, 124 | 137) {
         let line = format!("the push check did not end within {}s", t.push_wait);
         to_preflight(preflight, &line);
@@ -1012,6 +1015,20 @@ fn push_check(t: &Tree, state: &Value, tree: &str, preflight: &Path) -> Option<i
         say(&format!("    {line}"));
     }
     Some(i32::from(NO_PUSH))
+}
+
+/// 78 when the host could not run the push check at all: docker could not
+/// start its container, or `timeout` could not run docker. Those are the
+/// host's words, not git's refusal, so the start records no push fault, as the
+/// poll's probe does not ([`sandbox::host_words`]).
+fn could_not_run(rc: i32, line: &str) -> Option<i32> {
+    if !sandbox::host_words(line, rc) {
+        return None;
+    }
+    eprintln!(
+        "tehas work: the sandbox could not be asked whether it can push (exit {rc}), not starting a cycle: {line}"
+    );
+    Some(78)
 }
 
 /// The last `n` lines of the log, or a line that says it could not be read or
@@ -1052,8 +1069,9 @@ pub fn preflight_line(preflight: &Path) -> String {
 /// store keeps the word as it was given (`an_end` accepts it); its readers name
 /// it in part 3. The issue keeps `tehas:ready`: nothing here changes a label.
 /// A check the host could not run at all records no fault: that is no refusal
-/// of a push, and its own words say what stopped it. The check itself cannot
-/// tell the two apart, so its caller asks for the log with `preflight_line`.
+/// of a push, and its own words say what stopped it. The check ends 78 for one
+/// docker or `timeout` could not start, and the empty line of a log that could
+/// not be read records nothing here.
 pub fn push_fault(home: &Path, issue: u64, line: &str) {
     if line.is_empty() {
         return;
@@ -2276,6 +2294,43 @@ mod tests {
             fs::read_to_string(d.join(PUSH_FAULT)).unwrap().trim_end(),
             "a fault of an earlier start"
         );
+    }
+
+    /// docker's own refusal to start the check is no refusal of a push: the
+    /// start stops with 78 and records no fault, as the poll's probe does.
+    /// git's refusal and a check that ran out of time are still the sandbox's.
+    #[test]
+    fn a_check_the_host_could_not_start_records_no_fault() {
+        for (rc, line) in [
+            (
+                125,
+                "docker: Error response from daemon: failed to create task",
+            ),
+            (125, ""),
+            (126, ""),
+            (127, ""),
+            (1, "docker: Error response from daemon: No such image: img"),
+            (1, "Unable to find image 'img' locally"),
+            (
+                1,
+                "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
+            ),
+            (124, "timeout: failed to run command 'docker'"),
+        ] {
+            assert_eq!(could_not_run(rc, line), Some(78), "{rc} {line}");
+        }
+        for (rc, line) in [
+            (128, "fatal: could not read from remote repository"),
+            (
+                1,
+                "remote: Permission to acme/widget denied to acme-app[bot].",
+            ),
+            (124, ""),
+            (137, ""),
+            (3, ""),
+        ] {
+            assert_eq!(could_not_run(rc, line), None, "{rc} {line}");
+        }
     }
 
     /// The three fields of the fault, its mode, and the word that ends the

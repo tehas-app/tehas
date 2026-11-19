@@ -187,7 +187,8 @@ case " $* " in
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ ! -e "$T/push-slow" ] || { : >"$T/slow-began"; "$(command -pv sleep)" 1; }
-    [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+    [ "${PUSH_RC:-0}" != 125 ] || { echo "docker: Error response from daemon: failed to create task" >&2; exit 125; }
+    [ "${PUSH_RC:-0}" = 0 ] || { echo "fatal: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
   *" --entrypoint bash "*)
     [ -z "${INSTALL_SAYS:-}" ] || echo "$INSTALL_SAYS" >&2
     exit "${INSTALL_RC:-0}" ;;
@@ -298,7 +299,7 @@ push_fault_parts() {
 }
 # The words the docker stub says for a push check the sandbox refused, on its
 # error stream, which is what the check's log holds: the one line a fault names.
-PUSH_SAYS='docker: could not read from remote repository'
+PUSH_SAYS='fatal: could not read from remote repository'
 # The account the factory acts as, which the host records beside its token: what
 # a fault names as its login.
 cycle_account() { cat "$T/home/tehas/state/github/login"; }
