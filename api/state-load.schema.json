@@ -9,7 +9,7 @@
   "properties": {
     "api": {"const": 1},
     "source": {"type": "string"},
-    "schema": {"type": "integer", "minimum": 1},
+    "schema": {"type": "integer", "minimum": 12},
     "rows": {"type": "integer", "minimum": 0},
     "ms": {"type": "integer", "minimum": 0}
   }
