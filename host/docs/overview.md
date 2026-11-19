@@ -1,12 +1,12 @@
 ---
 title: Overview
-description: "Tehas is a software factory powered by the Pi coding agent. How a GitHub issue flows through it to a reviewed pull request."
+description: "Tehas is the Lean Software Factory, powered by the Pi coding agent. How a GitHub issue flows through it to a reviewed pull request."
 ---
 
 # Tehas
 
-Tehas is a software factory powered by the [Pi coding agent](https://pi.dev)
-and [pi-rukas](https://github.com/trail-openers/pi-rukas). It turns a GitHub
+Tehas is the [Lean Software Factory](/lean-software-factory), powered by the
+[Pi coding agent](https://pi.dev) and [pi-rukas](https://github.com/trail-openers/pi-rukas). It turns a GitHub
 issue into a reviewed pull request without a person driving an agent session. GitHub issues are the only control plane: you label an issue,
 tehas works on it, and the result comes back as a pull request and comments on
 that issue. A human merges. Tehas never deploys and never touches production.
@@ -91,6 +91,7 @@ the factory works the same without it.
   `TEHAS_DESIGN=pixel`; the business page is the front page otherwise.
 - [Plain dashboard](/dashboard): what is in line, being worked on (with its live console),
   waiting for you and done.
+- [Lean Software Factory](/lean-software-factory): what makes tehas lean.
 - [Pi software factory](/pi-software-factory): what tehas is made of, and
   what it adds to running Pi by hand.
 - [Features](/features): everything it does, and how far each part is proven.

@@ -15,13 +15,13 @@
   <meta name="robots" content="noindex, nofollow">
   {{- end }}
   <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
-  <title>Tehas: an open source software factory powered by the Pi coding agent</title>
-  <meta name="description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
+  <title>Tehas - the Lean Software Factory: open source, powered by Pi</title>
+  <meta name="description" content="Tehas is the Lean Software Factory, open source and powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
   <link rel="canonical" href="{{ $base }}{{ $here }}">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Tehas">
-  <meta property="og:title" content="Tehas: an open source software factory powered by the Pi coding agent">
-  <meta property="og:description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
+  <meta property="og:title" content="Tehas - the Lean Software Factory: open source, powered by Pi">
+  <meta property="og:description" content="Tehas is the Lean Software Factory, open source and powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
   <meta property="og:url" content="{{ $base }}{{ $here }}">
   {{- if eq $design "pixel" }}
   <meta property="og:image" content="{{ $base }}/fun/share.png">
@@ -42,18 +42,19 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Tehas",
-    "alternateName": "Tehas, an open source Pi software factory",
+    "alternateName": ["Tehas - the Lean Software Factory", "Tehas, an open source Pi software factory"],
+    "slogan": "The Lean Software Factory",
     "url": "{{ $base }}/",
-    "description": "A software factory powered by the Pi coding agent and pi-rukas. A GitHub issue goes in and a reviewed pull request comes out, built in a sandbox on self-hosted models. A person merges.",
+    "description": "The Lean Software Factory, powered by the Pi coding agent and pi-rukas. A GitHub issue goes in and a reviewed pull request comes out, built in a sandbox on self-hosted models. A person merges.",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Linux",
     "softwareRequirements": "Pi coding agent, pi-rukas, Docker, an OpenAI-compatible model endpoint",
-    "softwareHelp": "{{ $base }}/pi-software-factory",
+    "softwareHelp": "{{ $base }}/lean-software-factory",
     "sameAs": "https://github.com/tehas-app/tehas",
     "license": "https://www.apache.org/licenses/LICENSE-2.0",
     "author": {"@type": "Organization", "name": "tehas-app", "url": "https://github.com/tehas-app"},
     "isBasedOn": {"@type": "SoftwareSourceCode", "codeRepository": "https://github.com/tehas-app/tehas", "license": "https://www.apache.org/licenses/LICENSE-2.0"},
-    "keywords": "Pi software factory, Pi coding agent, pi-rukas, software factory, coding agents, self-hosted models, GitHub issues"
+    "keywords": "Lean Software Factory, lean software factory, Pi software factory, Pi coding agent, pi-rukas, software factory, coding agents, self-hosted models, GitHub issues"
   }
   </script>
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
@@ -103,8 +104,8 @@
   <main class="stage">
     <section class="floor" aria-labelledby="floor-title">
       <div class="floor-head">
-        <h1 id="floor-title">TEHAS: AN OPEN SOURCE PI SOFTWARE FACTORY</h1>
-        <p class="floor-intro">The floor of a software factory powered by the <a href="https://pi.dev" target="_blank" rel="noopener noreferrer">Pi coding agent</a> and <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">pi-rukas</a>. GitHub issues go in and reviewed pull requests come out, built in a sandbox on self-hosted models. A person merges. <a href="/pi-software-factory">HOW IT WORKS</a> <a href="/operating#1-write-an-issue-tehas-can-build">HOW TO WRITE AN ISSUE</a></p>
+        <h1 id="floor-title">TEHAS: THE LEAN SOFTWARE FACTORY</h1>
+        <p class="floor-intro">The floor of an open source lean software factory powered by the <a href="https://pi.dev" target="_blank" rel="noopener noreferrer">Pi coding agent</a> and <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">pi-rukas</a>. GitHub issues go in and reviewed pull requests come out, built in a sandbox on self-hosted models. A person merges. <a href="/lean-software-factory">HOW IT WORKS</a> <a href="/operating#1-write-an-issue-tehas-can-build">HOW TO WRITE AN ISSUE</a></p>
         <p id="floor-summary">Waiting for ticket data.</p>
         <a class="floor-meter" id="floor-meter" href="#energy" aria-label="Live meter. Opens Energy use." hidden>
           <span class="meter-row"><b>POWER</b><span><i id="meter-watts">--</i> W</span></span>

@@ -6,7 +6,8 @@ description: "Tehas is a software factory powered by the Pi coding agent and pi-
 
 # A software factory powered by the Pi coding agent
 
-Tehas is a Pi software factory. It takes a GitHub issue, runs the
+Tehas, the [Lean Software Factory](/lean-software-factory), is a Pi software
+factory. It takes a GitHub issue, runs the
 [Pi coding agent](https://pi.dev) on it inside a sandbox, and hands back a
 reviewed pull request. Nobody sits in the agent session. A person writes the
 issue, applies one label, and later reviews and merges.

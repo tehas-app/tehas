@@ -36,11 +36,22 @@ t_contains "$(cat "$page")" $'\n## Questions\n'
 questions=$(awk '/^## / {on = ($0 == "## Questions")} on && /^### / {n++} END {print n + 0}' "$page")
 [ "$questions" -ge 1 ] || t_bad "the Questions section of pi-software-factory.md has no ### question"
 
+t_case "the Lean Software Factory page names its Questions section, which has questions"
+page=$T_ROOT/host/docs/lean-software-factory.md
+t_contains "$(sed -n '1,/^---$/{p}' "$page" | sed -n '2,$p')" 'faq: Questions'
+t_contains "$(cat "$page")" $'\n## Questions\n'
+questions=$(awk '/^## / {on = ($0 == "## Questions")} on && /^### / {n++} END {print n + 0}' "$page")
+[ "$questions" -ge 1 ] || t_bad "the Questions section of lean-software-factory.md has no ### question"
+
 for front in index.html business.html; do
   text=$(cat "$T_ROOT/host/fun/$front")
   t_case "$front: one software block with licence, author and repository"
   t_eq "$(grep -c 'application/ld+json' "$T_ROOT/host/fun/$front")" 1
   t_contains "$text" '"@type": "SoftwareApplication",'
+  t_contains "$text" '"alternateName": ["Tehas - the Lean Software Factory", "Tehas, an open source Pi software factory"],'
+  t_contains "$text" '"slogan": "The Lean Software Factory",'
+  t_contains "$text" '"softwareHelp": "{{ $base }}/lean-software-factory",'
+  t_contains "$text" '"keywords": "Lean Software Factory,'
   t_contains "$text" '"license": "https://www.apache.org/licenses/LICENSE-2.0",'
   # The front pages read versions from the factory's health, not version.txt
   # (test/install_build_test.sh), so the block names none.

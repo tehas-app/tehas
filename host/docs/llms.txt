@@ -3,10 +3,10 @@
 {{- $proto := default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto") -}}
 {{- if or (not (has $proto (list "http" "https"))) (not (regexMatch "^[A-Za-z0-9.-]+(:[0-9]+)?$" .Req.Host)) }}{{ httpError 400 }}{{ end -}}
 {{- $base := printf "%s://%s" $proto .Req.Host -}}
-# Tehas: a software factory powered by the Pi coding agent
+# Tehas - the Lean Software Factory
 
-> Tehas is a Pi software factory: a GitHub issue goes in and a reviewed pull
-> request comes out, built by the Pi coding agent and pi-rukas in a sandbox, on
+> Tehas is the Lean Software Factory, and a Pi software factory: a GitHub issue
+> goes in and a reviewed pull request comes out, built by the Pi coding agent and pi-rukas in a sandbox, on
 > self-hosted models. GitHub issues and labels are the only control plane. A
 > human merges; tehas never merges, deploys or touches production. This host is
 > one running factory and its operating manual.
@@ -34,6 +34,7 @@
   OpenAI-compatible endpoint works.
 - Source: https://github.com/tehas-app/tehas
 
+- [Lean Software Factory]({{ $base }}/lean-software-factory.md): what makes tehas lean: pull, limited work in progress, one-piece flow, a line that stops on a defect
 - [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand
 - [Features]({{ $base }}/features.md): every part, with how far it has been proven
 
