@@ -476,4 +476,31 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "refused: the label tehas:ready is not the one pinned in state/labels (pinned LA_ready, now LA_bug)"
 t_eq "$(cat "$pins")" "$(printf 'tehas:ready\tLA_ready')"
 
+# The list may name a GitHub account called unknown. An application the pins
+# refuse is logged as unknown's but is nobody's, and grants nothing.
+t_case "with the account unknown on the list, a refused application grants nothing"
+reset
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'TEHAS_ALLOWED_LABELERS="alice unknown"'
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[{"id":"LA_ready","name":"tehas:ready"}]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_bug"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "refused: an application of tehas:ready on #7 is of another label than the one pinned in state/labels (pinned LA_ready, event LA_bug)"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'unknown', not an allowed account"
+
+t_case "the account unknown on the list grants with the pinned label"
+reset
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+t_instance "${T_MINIMAL[@]}" TEHAS_MAX_CYCLES=1 'TEHAS_ALLOWED_LABELERS="alice unknown"'
+printf 'tehas:ready\tLA_ready\n' >"$pins"
+echo '[{"id":"LA_ready","name":"tehas:ready"}]' >"$fx/labels.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready","id":"LA_ready"},"actor":{"login":"unknown"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "refused"
+
 t_done

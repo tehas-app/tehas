@@ -67,6 +67,30 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "no person approved an earlier cycle of it"
 
+# The millwright's app may be called unknown. A tehas:ready by no account,
+# which the log names unknown, is still nobody's and is not the millwright's.
+t_case "with the millwright app called unknown, a tehas:ready by no account starts nothing"
+fixer_ready
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+echo 'TEHAS_MILLWRIGHT_APP=unknown[bot]' >>"$TEHAS_INSTANCE_DIR/instance.env"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":null,"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'unknown', not an allowed account"
+t_contains "$t_out" "clear #7: tehas:ready off, applied by 'unknown' who may not authorise work here"
+t_lacks "$t_out" "labelled by the fixer"
+
+t_case "the millwright app called unknown starts with its own tehas:ready"
+fixer_ready
+t_ids "$T/home/tehas" "${T_LOGINS[@]}" unknown
+echo 'TEHAS_MILLWRIGHT_APP=unknown[bot]' >>"$TEHAS_INSTANCE_DIR/instance.env"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"unknown[bot]"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (labelled by the fixer by unknown[bot])"
+
 t_case "a body changed since the person's approval: the fixer's label starts nothing"
 fixer_ready
 jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Other words."}}}}' >"$fx/edit-7.json"
