@@ -10,6 +10,9 @@
 // the page. The layout's template is stood in for: every condition is false,
 // so the else branches are drawn, and the page is the fragment's.
 //
+// A second load checks a host whose dispatcher has not written status.json
+// yet: its first read fails and running.json is never there.
+//
 // Not part of the gate, which has no browser: it prints "skip" and exits 0
 // when no Chromium is found. TEHAS_CHROMIUM names one; otherwise it looks for
 // Playwright's headless shell under ~/.cache/ms-playwright.
@@ -54,10 +57,10 @@ function chromium() {
 // The layout with its template actions taken out: every if, with and range
 // is false, so only else branches are drawn; $body is the fragment and
 // $design the default theme. Enough for this page, not a template engine.
-function page() {
+function page(probe) {
   const layout = readFileSync(join(ROOT, "host/docs/_layout.html"), "utf8");
   let body = readFileSync(join(ROOT, "host/docs/dashboard.frag"), "utf8");
-  if (CHECK) body += '\n<script type="module" src="/check/dashboard-probe.js"></script>\n';
+  if (probe) body += `\n<script type="module" src="/check/${probe}"></script>\n`;
   const values = { "$body": body, "$design": "beesknees26", "$title": "Dashboard", "$description": "" };
   const out = [];
   const stack = [];
@@ -83,11 +86,19 @@ function page() {
 
 // What the docs server answers, the samples for /live/ and a console that
 // grows on each read; /host/bridge.json is a host's answer with one note.
+// failing counts the 404s a /live/ address still answers before its file.
+let failing = {};
 function serve(req, res) {
-  const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  const url = new URL(req.url, "http://x");
+  const path = decodeURIComponent(url.pathname);
   const head = { "content-security-policy": CSP, "cache-control": "no-store" };
   if (path === "/" || path === "/dashboard") {
-    res.writeHead(200, { ...head, "content-type": "text/html" }).end(page());
+    res.writeHead(200, { ...head, "content-type": "text/html" }).end(page(url.searchParams.get("probe")));
+    return;
+  }
+  if (failing[path] > 0) {
+    failing[path] -= 1;
+    res.writeHead(404, head).end("not found");
     return;
   }
   if (path === "/host/bridge.json") {
@@ -124,11 +135,11 @@ if (!browser) {
 const server = createServer(serve).listen(0, "127.0.0.1");
 await new Promise((r) => server.once("listening", r));
 const url = `http://127.0.0.1:${server.address().port}/dashboard`;
-const run = (extra) =>
+const run = (extra, probe) =>
   new Promise((done, fail) =>
     execFile(
       browser.bin,
-      ["--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=20000", ...extra, url],
+      ["--headless", "--no-sandbox", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=20000", ...extra, probe ? `${url}?probe=${probe}` : url],
       { env: { ...process.env, ...browser.env }, timeout: 90000, maxBuffer: 1 << 25 },
       (err, out, errOut) => (err ? fail(new Error(`${err.message}\n${errOut}`)) : done(out)),
     ),
@@ -140,15 +151,23 @@ try {
     console.log(`shot  ${SHOT}`);
   }
   if (!CHECK) process.exit(0);
-  const dom = await run(["--window-size=1280,2000", "--dump-dom"]);
-  const raw = /<pre id="probe-result"[^>]*>([^<]*)<\/pre>/.exec(dom)?.[1];
-  if (!raw) {
+  const probe = async (file) => {
+    const dom = await run(["--window-size=1280,2000", "--dump-dom"], file);
+    const raw = /<pre id="probe-result"[^>]*>([^<]*)<\/pre>/.exec(dom)?.[1];
+    if (!raw) return null;
+    const found = JSON.parse(raw.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&"));
+    if (process.env.DASHBOARD_CHECK_DUMP) console.log(JSON.stringify(found, null, 1));
+    return found;
+  };
+  const found = await probe("dashboard-probe.js");
+  failing = { "/live/status.json": 1, "/live/running.json": Infinity };
+  const late = await probe("dashboard-recover-probe.js");
+  if (!found || !late) {
     console.log("FAIL  the dashboard in a browser: the page wrote no result");
     process.exit(1);
   }
-  const found = JSON.parse(raw.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&"));
-  if (process.env.DASHBOARD_CHECK_DUMP) console.log(JSON.stringify(found, null, 1));
   const s = found.steps;
+  const r = late.steps;
   const checks = [
     ["no error in the check", !found.error, found.error],
     ["no CSP violation", found.violations.length === 0, found.violations],
@@ -176,6 +195,12 @@ try {
     ["the versions table", s.versions === 2, s.versions],
     ["the seven islands that read the queue share one poller", s.fetches?.["/live/status.json"] <= 2, s.fetches],
     ["the host file is asked for again within ten seconds", s.fetches?.["/live/top.json"] >= 2, s.fetches],
+    ["with no status yet: no error, no CSP violation", !late.error && late.errors.length === 0 && late.violations.length === 0, [late.error, late.errors, late.violations]],
+    ["the lists keep their headings while there is no status", r.headingsAfterFailure === 4, r.headingsAfterFailure],
+    ["the page says there is no status yet", r.freshAfterFailure === "no status yet: the dispatcher has not written one", r.freshAfterFailure],
+    ["the queue is asked for again and drawn when it comes", r.fetches?.["/live/status.json"] >= 2 && r.queued === 2 && r.headings === 4, [r.fetches?.["/live/status.json"], r.queued, r.headings]],
+    ["with no running.json the state is drawn from the queue", r.pill === "idle" && /^queue read /.test(r.fresh ?? ""), [r.pill, r.fresh]],
+    ["the ten days do not wait for the queue", r.analyticsHidden === false, r.analyticsHidden],
   ];
   let failed = 0;
   for (const [name, ok, got] of checks) {

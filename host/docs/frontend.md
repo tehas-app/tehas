@@ -223,6 +223,12 @@ names the address reads the same async memo, and one poller asks for it.
 - `data()` is read inside `<Loading>` until the first answer;
   `isPending(() => f.data())` is true while any poll is out, also one that
   brings the same bytes. A `<Busy>` bound to it shows during every poll.
+- A template given as a value, such as a `fallback=${html`…`}`, is drawn
+  when the outer template is, outside the `<Loading>` and `<Errored>` around
+  it. It must not read a feed: an error there is caught by nothing and stops
+  every feed of the page. Pass a function, or take its text from props.
+- Data that only part of an island needs is read under a boundary of its
+  own, so a file that fails does not hide what another file gave.
 - The feed stops, and its fetch is aborted, when the last root that asked for
   it is disposed.
 

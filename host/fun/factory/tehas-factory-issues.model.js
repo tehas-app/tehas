@@ -26,15 +26,19 @@ export function chips(list) {
   }));
 }
 
+const known = (list) => (Object.hasOwn(LISTS, list) ? list : "queued");
+
+// Not from the file: the fallback is drawn outside the island's boundaries.
+export const emptyText = (list) => LISTS[known(list)][1];
+
 export function issuesModel(status, props, nowMs, host = NO_HOST) {
-  const name = Object.hasOwn(LISTS, props.list) ? props.list : "queued";
-  const [title, empty, when] = LISTS[name];
+  const name = known(props.list);
+  const [title, , when] = LISTS[name];
   const s = obj(status);
   const items = (Array.isArray(s[name]) ? s[name] : []).filter((it) => it && typeof it === "object");
   return {
     name,
     title,
-    empty,
     n: items.length ? "(" + items.length + ")" : "",
     rows: items.slice(0, MAX).map((it) => ({
       number: it.number,

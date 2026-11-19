@@ -14,7 +14,7 @@ export const mount = view((props, ctx) => {
     <h2>Read-only results${SP}<span class="n" id="n-ro">${() => m().n}</span></h2>
     <p class="muted">This factory writes nothing to GitHub. Each cycle's branch stays in its workspace on the host, with the pull request it would have opened.</p>
     <ul class="issues" id="ro-list">
-      <${For} each=${() => m().rows} keyed=${false} fallback=${html`<${Show} when=${() => m().on}><li class="empty">Nothing has started yet.</li><//>`}>${(r) =>
+      <${For} each=${() => m().rows} keyed=${false} fallback=${html`<li class="empty">Nothing has started yet.</li>`}>${(r) =>
         html`<li><span class="num">#${() => r().issue}</span><${Notes} list=${() => r().notes} />${SP}<span>${() => r().text}</span>${SP}<span class="muted">${() => r().where}</span><${Show} when=${() => r().body}><pre class="ro-body">${() => r().body}</pre><//></li>`}<//>
     </ul>
   </section><//><//>`;
