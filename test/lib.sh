@@ -137,8 +137,9 @@
 # host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
-# runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN) stay, because scripts/test.sh
-# names them and gives them to the file.
+# runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN, T_XTASK_BIN and the
+# rest of its T_*_BIN) stay, because scripts/test.sh names them and gives them
+# to the file.
 set -uo pipefail
 # The two families tehas_load clears, the PI_RUKAS_* family it
 # leaves alone, and the names outside them all.
@@ -151,6 +152,11 @@ for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   unset "$t_leak"
 done
 unset t_leak
+# No test reads the caller's stdin. When it is a socket, as some agent tools
+# start a command, bash -c with no SHLVL (t_run's env -i) reads ~/.bashrc and
+# /etc/bash.bashrc: every run of a case then sourced the scratch home's
+# .bashrc, which after a first install loads env.sh and drops GH_TOKEN (#2495).
+exec </dev/null
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The workspace's target directory, the one scripts/test.sh builds into.
@@ -637,6 +643,7 @@ fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
 with=""
 [ "${CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS:-}" != true ] || with=" with debug assertions"
+[ "${TEHAS_LAB_BUILD:-}" != on ] || with="$with as a lab build"
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}$with" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and says what the store says, or
@@ -699,23 +706,32 @@ t_store() {
   cp "$T_TARGET/debug/store" "$T_STORE"
 }
 # t_xtask: the development tasks of this checkout (console/xtask), in
-# $T_XTASK, built once per file offline into $T_TARGET. The scripts that exec
-# it (scripts/pack-release.sh) take it from TEHAS_XTASK, which every later run
-# of the file is given. Returns 1 with the reason in $t_xtask_why.
+# $T_XTASK, as t_store gets the store: from T_XTASK_BIN, or built here when the
+# file runs alone. The scripts that exec it (scripts/pack-release.sh) take it
+# from TEHAS_XTASK, which every later run of the file is given. Returns 1 with
+# the reason in $t_xtask_why.
 T_XTASK=$T/xtask-bin
 t_xtask_why=""
 t_xtask() {
   [ -x "$T_XTASK" ] && return 0
-  if ! command -v cargo >/dev/null 2>&1; then
+  if [ -n "${T_XTASK_BIN:-}" ]; then
+    cp "$T_XTASK_BIN" "$T_XTASK" || {
+      t_xtask_why="the xtask built for this run cannot be copied: $T_XTASK_BIN"
+      return 1
+    }
+  elif [ -n "${T_STORE_WHY:-}" ]; then
+    t_xtask_why=$T_STORE_WHY
+    return 1
+  elif ! command -v cargo >/dev/null 2>&1; then
     t_xtask_why="cargo is not installed"
     return 1
-  fi
-  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+  elif ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
     --target-dir "$T_TARGET" -p tehas-xtask >"$T/xtask-build.log" 2>&1; then
     t_xtask_why="the xtask did not build offline: $(tail -n 1 "$T/xtask-build.log")"
     return 1
+  else
+    cp "$T_TARGET/debug/xtask" "$T_XTASK" || return 1
   fi
-  cp "$T_TARGET/debug/xtask" "$T_XTASK" || return 1
   export TEHAS_XTASK=$T_XTASK
   T_ENV_ALWAYS+=(TEHAS_XTASK="$T_XTASK")
 }

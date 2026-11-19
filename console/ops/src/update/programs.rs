@@ -8,7 +8,7 @@
 //!
 //! `release` judges the programs a release tree carries in `<tree>/libexec`,
 //! `build` the ones built from the workspace, and `lab` the ones `install.sh
-//! --lab-build` builds from it with debug assertions on. A lab build's stamp is
+//! --lab-build` builds from it with the lab marker on. A lab build's stamp is
 //! a sum of its own, so a plain build of the same source replaces it and a lab
 //! build replaces a plain one. A program is due when
 //! `<home>/libexec/<program>` is not executable or its `.stamp` is not the one

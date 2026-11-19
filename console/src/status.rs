@@ -434,7 +434,7 @@ pub fn state_lines(h: &J, now: i64, stale: bool, poll: &str) -> Vec<String> {
             shown(&J::Str(tehas_ops::health::push_fault_line(push)))
         ));
     }
-    if let Some((read, named)) = test_features(checks) {
+    if let Some((read, _, named)) = test_features(checks) {
         let var = tehas_core::features::TEST_VAR;
         lines.push(match (read, named.is_empty()) {
             (false, _) => {
@@ -843,13 +843,15 @@ fn versions(checks: &J) -> J {
 }
 
 /// `checks.testFeatures` of the health file: whether the build reads
-/// TEHAS_TEST_FEATURES and the building features it names. None when the
+/// TEHAS_TEST_FEATURES, whether it is a lab build (false from a health that
+/// does not say) and the building features the variable names. None when the
 /// check is not there or not what health writes.
-fn test_features(checks: &J) -> Option<(bool, Vec<String>)> {
+fn test_features(checks: &J) -> Option<(bool, bool, Vec<String>)> {
     let t = checks.get("testFeatures");
     let J::Bool(read) = t.get("read") else {
         return None;
     };
+    let lab = t.get("lab").is_true();
     let named = t
         .get("features")
         .items()
@@ -857,7 +859,7 @@ fn test_features(checks: &J) -> Option<(bool, Vec<String>)> {
         .filter_map(|f| f.as_str().map(|n| shown(&J::str(n))))
         .filter(|n| !n.is_empty())
         .collect();
-    Some((*read, named))
+    Some((*read, lab, named))
 }
 
 /// The object tehas status --json prints.
@@ -1032,13 +1034,15 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     if checks.get("readOnly").is_true() {
         fields.push(("readOnly", J::Bool(true)));
     }
-    // Only where TEHAS_TEST_FEATURES is set, as health says it.
-    if let Some((read, named)) = test_features(checks) {
+    // Only where TEHAS_TEST_FEATURES is set or the build is a lab build, as
+    // health says it.
+    if let Some((read, lab, named)) = test_features(checks) {
         fields.push((
             "testFeatures",
             obj(vec![
                 ("read", J::Bool(read)),
                 ("features", J::Arr(named.into_iter().map(J::Str).collect())),
+                ("lab", J::Bool(lab)),
             ]),
         ));
     }
@@ -1488,7 +1492,7 @@ mod tests {
         );
         assert_eq!(
             status_json(&lab, NOW, false).get("testFeatures").dump(),
-            r#"{"read":true,"features":["outsource","lean"]}"#
+            r#"{"read":true,"features":["outsource","lean"],"lab":false}"#
         );
         assert!(state_lines(&lab, NOW, false, "").contains(
             &"features  a lab build: TEHAS_TEST_FEATURES names outsource, lean, still being built"
@@ -1500,6 +1504,16 @@ mod tests {
         assert!(state_lines(&release, NOW, false, "").contains(
             &"features  TEHAS_TEST_FEATURES is set and this build does not read it: take it out"
                 .to_string()
+        ));
+        let unset = h(
+            r#"{"status":"warn","output":"A lab build.","time":"2026-10-17T14:00:00Z","checks":{"testFeatures":{"read":true,"features":[],"lab":true}}}"#,
+        );
+        assert_eq!(
+            status_json(&unset, NOW, false).get("testFeatures").dump(),
+            r#"{"read":true,"features":[],"lab":true}"#
+        );
+        assert!(state_lines(&unset, NOW, false, "").contains(
+            &"features  a lab build: TEHAS_TEST_FEATURES names no building feature".to_string()
         ));
         for other in [
             r#"{"status":"pass","time":"2026-10-17T14:00:00Z","checks":{}}"#,
