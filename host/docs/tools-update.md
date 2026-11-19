@@ -107,7 +107,11 @@ The newest is the newest release, never a prerelease (`vX.Y.Z-alpha.N`,
 `-beta.N` or `-rc.N`): a plain `tehas update` passes over them, and a host
 installs one only when `--to` names it. They come in the order alpha, beta,
 rc, then the release, so a host on `v1.0.0-beta.1` moves on with a plain
-update once `v1.0.0` is out, and stays where it is until then. `tehas status
+update once `v1.0.0` is out, and stays where it is until then. While it
+is ahead of the newest release, `tehas update --check` says so rather than
+naming the older release as the newest, and names the newest prerelease of
+its own version when there is a newer one, such as `v1.0.0-beta.2`, for
+`--to` to move to. It does not offer to move back. `tehas status
 --json` names the release a host runs and the commit it was built from in
 `versions.platform`.
 
