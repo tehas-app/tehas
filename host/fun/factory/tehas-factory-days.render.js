@@ -3,7 +3,7 @@ import { feed } from "../kit/feed.js";
 import { view } from "../kit/parts.js";
 import { daysModel } from "./tehas-factory-days.model.js";
 
-// A length the stylesheet reads: the pages allow no inline style, and a
+// A length the stylesheet reads: the pages use no inline style, and a
 // custom property set through the CSSOM is not one.
 const share = (value) => (el) => el.style.setProperty("--tehas-factory-share", value);
 

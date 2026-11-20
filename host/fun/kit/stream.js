@@ -140,6 +140,8 @@ function make(src, opts) {
   const max = Math.max(min, opts.max ?? 30000);
   const fixed = opts.grow === "fixed";
   const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
+  // An ended over the default max is kept when the caller set no max.
+  const top = opts.max == null ? Math.max(max, ended ?? 0) : max;
   const live = opts.hidden === "live";
   const broke = opts.broken === "end";
   // heard: this connection brought an event; quiet: clean ends in a row
@@ -173,7 +175,7 @@ function make(src, opts) {
   // wait counts as a try.
   const later = (after, spent = 0, fail = true) => {
     if (s.gone || s.done) return;
-    const wait = after ?? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries);
+    const wait = after === undefined ? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries) : Math.min(top, after);
     if (fail) s.tries += 1;
     clearTimeout(s.timer);
     s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), Math.max(0, wait - spent));
@@ -187,7 +189,7 @@ function make(src, opts) {
     if (s.served) return s.base;
     s.quiet = s.heard ? 0 : s.quiet + 1;
     if (s.quiet < 2) return ended;
-    return Math.max(ended, Math.min(max, fixed ? s.base : s.base * 2 ** (s.quiet - 2)));
+    return Math.max(ended, fixed ? s.base : s.base * 2 ** (s.quiet - 2));
   };
 
   async function read(res, out) {
