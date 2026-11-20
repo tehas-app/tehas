@@ -7,9 +7,13 @@ document.addEventListener("securitypolicyviolation", (e) => {
 });
 
 const fetchOf = globalThis.fetch;
+// found.answers counts the answers each address has had.
+found.answers = {};
 globalThis.fetch = (src, init) => {
   found.fetches[src] = (found.fetches[src] ?? 0) + 1;
-  return fetchOf(src, init);
+  return fetchOf(src, init).finally(() => {
+    found.answers[src] = (found.answers[src] ?? 0) + 1;
+  });
 };
 
 document.addEventListener("kit-demo-queue:pick", (e) => {
@@ -83,6 +87,34 @@ async function run() {
   document.querySelector('#again button[data-number="41"]').click();
   await wait(() => text("#picked .picked") !== s.afterRemove);
   s.pickedAfterRemove = text("#picked .picked");
+
+  // The wire island: feeds with headers and an accepted 404, two streams
+  // into a page store, and a press with an optimistic value.
+  await wait(() => /^session/.test(text("#wire .echo") ?? ""));
+  s.echo = text("#wire .echo");
+  s.plan = text("#wire .plan");
+  s.eventsDone = await wait(() => /^closed/.test(text("#wire .events") ?? ""));
+  s.events = text("#wire .events");
+  s.linesDone = await wait(() => /^closed/.test(text("#wire .lines") ?? ""));
+  s.lines = text("#wire .lines");
+  await wait(() => text("#wire .votes") === "0");
+  // Each value the vote shows, with the number of press answers in by then.
+  const votes = document.querySelector("#wire .votes");
+  const answered = () => found.answers["/api/vote"] ?? 0;
+  s.voteViews = [`${votes.textContent}@${answered()}`];
+  new MutationObserver(() => {
+    const v = `${votes.textContent}@${answered()}`;
+    if (s.voteViews.at(-1) !== v) s.voteViews.push(v);
+  }).observe(votes, { childList: true, subtree: true, characterData: true });
+  document.querySelector("#wire .vote").click();
+  await wait(() => answered() === 1 && (found.answers["/api/votes"] ?? 0) >= 2);
+  await new Promise((r) => setTimeout(r, 100));
+  s.voteAfter = votes.textContent;
+  document.querySelector("#wire .vote").click();
+  await wait(() => text("#wire .failed") !== "");
+  await new Promise((r) => setTimeout(r, 50));
+  s.failAfter = votes.textContent;
+  s.failText = text("#wire .failed");
 }
 
 run()
