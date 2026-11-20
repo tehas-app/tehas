@@ -112,9 +112,8 @@ The release workflow reads that line from the tag, logs it and passes the
 commit as `--rukas-commit`; a tag without one is not published. A new
 pi-rukas then reaches a host installed from releases with the next release of
 tehas. An instance that sets `PI_RUKAS_FOLLOW` in `instance.env` still wins
-over the pin for the sandbox image; `bootstrap.sh` keeps the host's clone on
-the release's pin, so `tehas update` then prints its `bootstrap.sh user` line
-each run.
+over the pin, for the sandbox image and for the host's clone that
+`bootstrap.sh user` moves.
 
 pi is exact in both: `PI_VERSION` in `versions.env` and the lockfile in
 `host/npm/pi/` name one version, and `scripts/tag-release.sh` moves them at a
