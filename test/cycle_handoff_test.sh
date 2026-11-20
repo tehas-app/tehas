@@ -276,7 +276,8 @@ for outcome in pushed parked failed; do
   esac
   t_run "$cycle 7"
   t_eq "$t_rc" 0
-  t_contains "$(t_calls gh)" "$refresh_unmark"
+  t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 1
+  t_lacks "$t_out" "WARN: label change on pull request #9"
   t_lacks "$(t_calls gh)" "pr edit"
   [ "$outcome" != pushed ] || t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
   [ "$outcome" = pushed ] || t_contains "$(t_calls gh)" "--add-label needs-human-attention"
@@ -294,7 +295,8 @@ jq -n '[{url: "https://github.com/acme/widget/pull/9", state: "OPEN", body: "Fix
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
-t_contains "$(t_calls gh)" "$refresh_unmark"
+t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 1
+t_lacks "$t_out" "WARN: label change on pull request #9"
 
 t_case "a cycle that is no refresh leaves the labels of pull requests alone"
 reset
@@ -312,16 +314,16 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 3
 t_contains "$t_out" "WARN: label change on pull request #9 failed"
 
-t_case "a 404 from a mark GitHub has not got is tried as any other failure is"
-# The cycle cannot tell a label the repository has not got from a pull request
-# it cannot see, so it retries and then says so. What the dispatcher does on a
-# 404 of its own is a case in test/dispatch_refresh_test.sh.
+t_case "a 404 from a mark GitHub has not got counts as the mark gone and is not tried again"
+# A 404 says the label is not on the pull request, which is what the cycle
+# wants (host/docs/operating.md). What the dispatcher does on a 404 of its own
+# is a case in test/dispatch_refresh_test.sh.
 reset
 refresh_started
 : >"$fx/label-missing"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 3
-t_contains "$t_out" "WARN: label change on pull request #9 failed"
+t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 1
+t_lacks "$t_out" "WARN: label change on pull request #9"
 
 t_done
