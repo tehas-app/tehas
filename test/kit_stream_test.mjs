@@ -732,3 +732,46 @@ test("broken end: breaks in a row that bring no event back off, and an event sta
   await breaks(true);
   await waits(1000, 5);
 });
+
+test("a server retry field over max waits max after a clean end with ended set", async () => {
+  answer = () => {
+    const p = pipe();
+    p.push("retry: 600000\ndata: 1\n\n");
+    p.end();
+    return p;
+  };
+  reader("/api/events", { ended: 1000, max: 30000 });
+  await settle();
+  await after(29999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2, "max, not the served 600 s");
+});
+
+test("broken end: a server retry field over max waits max after a break", async () => {
+  reader("/api/events", { retry: 2000, ended: 1000, max: 30000, broken: "end" });
+  await settle();
+  calls[0].a.push("retry: 600000\ndata: 1\n\n");
+  calls[0].a.fail(new TypeError("network error"));
+  await settle();
+  await after(29999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2, "max, not the served 600 s");
+});
+
+test("ended over max waits max, after an end and in the quiet backoff", async () => {
+  answer = () => {
+    const p = pipe();
+    p.end();
+    return p;
+  };
+  reader("/api/events", { ended: 60000, max: 5000 });
+  await settle();
+  for (let n = 2; n <= 4; n++) {
+    await after(4999);
+    assert.equal(calls.length, n - 1);
+    await after(1);
+    assert.equal(calls.length, n, `end ${n - 1} waits max`);
+  }
+});

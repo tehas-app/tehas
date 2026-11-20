@@ -170,10 +170,10 @@ function make(src, opts) {
 
   // `after` is the wait when the server ended the stream, when set, `spent`
   // the time already gone since the answer came, and `fail` whether this
-  // wait counts as a try.
+  // wait counts as a try. No wait is longer than max.
   const later = (after, spent = 0, fail = true) => {
     if (s.gone || s.done) return;
-    const wait = after ?? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries);
+    const wait = Math.min(max, after ?? (fixed ? s.base : s.base * 2 ** s.tries));
     if (fail) s.tries += 1;
     clearTimeout(s.timer);
     s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), Math.max(0, wait - spent));
@@ -187,7 +187,7 @@ function make(src, opts) {
     if (s.served) return s.base;
     s.quiet = s.heard ? 0 : s.quiet + 1;
     if (s.quiet < 2) return ended;
-    return Math.max(ended, Math.min(max, fixed ? s.base : s.base * 2 ** (s.quiet - 2)));
+    return Math.max(ended, fixed ? s.base : s.base * 2 ** (s.quiet - 2));
   };
 
   async function read(res, out) {

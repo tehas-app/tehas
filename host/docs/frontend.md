@@ -368,7 +368,8 @@ live.reconnect();  // drop the connection and connect now
   starts at `retry` (1000 ms) and doubles up to `max` (30000 ms). An SSE
   `retry:` field sets the first wait, no shorter than `retry` and no longer
   than `max`. An answer that opens resets the wait. A stream the server ends
-  is asked for again. An SSE stream sends `Last-Event-ID` when it connects
+  is asked for again. No wait is longer than `max`, after a failure, an end
+  or a break, with a server's `retry:` field or `ended` set. An SSE stream sends `Last-Event-ID` when it connects
   again: the `id:` of the last event it dispatched, so an event cut off
   before its blank line is asked for again. An event the stream ends in the
   middle of is dropped, as an `EventSource` drops it.
