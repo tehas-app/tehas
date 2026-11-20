@@ -287,7 +287,8 @@
      "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
     ],
     "report": {
-     "why": "unknown-gate"
+     "why": "unknown-gate",
+     "hold": "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
     },
     "no_actions": [
      {
@@ -326,6 +327,96 @@
     "no_actions": [
      {
       "start": 7
+     }
+    ],
+    "report": {
+     "why": "unknown-gate",
+     "hold": "holding: the check \"build / verify (linux)\" on main at 0123456789ab finished without saying it passed: cycles start"
+    }
+   }
+  },
+  {
+   "case": "red: a finished run of 'action_required' is read as unknown",
+   "settings": {
+    "TEHAS_MAX_CYCLES": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "action_required"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+    ],
+    "report": {
+     "why": "unknown-gate",
+     "hold": "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+    },
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "start": 8
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a finished run of 'stale' is read as unknown",
+   "settings": {
+    "TEHAS_MAX_CYCLES": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "stale"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+    ],
+    "report": {
+     "why": "unknown-gate",
+     "hold": "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+    },
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "start": 8
      }
     ]
    }
