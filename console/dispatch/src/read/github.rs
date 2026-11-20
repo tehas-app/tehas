@@ -176,7 +176,7 @@ fn is_node_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'=')
 }
 
-/// The comment nodes of a comment read's answer, as `comments` gives it.
+/// The comment nodes of one issue's comment read, as `comments_of` gives it.
 fn comment_nodes(answer: &mut Value) -> Option<&mut Vec<Value>> {
     answer
         .pointer_mut("/data/repository/issue/comments/nodes")
@@ -752,7 +752,7 @@ pub fn issue(o: &Open) -> Map<String, Value> {
 
 /// The comments of several issues, one aliased query per chunk of
 /// `COMMENT_CHUNK`, the chunks side by side. Each issue's answer has the shape
-/// `comments` gives, so a rule cannot tell the two reads apart. A chunk that
+/// the one-issue query `COMMENTS` gives, so a rule cannot tell the two reads apart. A chunk that
 /// failed reads every issue of it as `failed_read`, as a failed `comments`
 /// does, so a hold stays a hold; an alias the answer left out or null is that
 /// one issue's failed read, with no line: no gh call failed.
@@ -797,9 +797,10 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
     out
 }
 
-/// The comments of one issue with no edit history read: for a reader that
-/// judges no comment's edits (the finish asks), which so pays no history
-/// read. `failed_read` when the call failed.
+/// The comments of one issue, with no edit history read: for a reader that
+/// reads no comment's edit history (the finish asks, which read only
+/// `lastEditedAt` and the editor), which so pays no history read.
+/// `failed_read` when the call failed.
 pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
     let (owner, name) = split(repo);
     let num = format!("number={n}");
@@ -809,22 +810,6 @@ pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
             "api", "graphql", "-F", &owner, "-F", &name, "-F", &num, "-f", &query,
         ])
         .unwrap_or_else(|f| failed_read(&f))
-}
-
-/// The comments of one issue, as the bash's question and blocker reads have
-/// them; `failed_read` when the call failed.
-pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
-    let (owner, name) = split(repo);
-    let num = format!("number={n}");
-    let query = format!("query={COMMENTS}");
-    let mut answer = [calls
-        .gh(&[
-            "api", "graphql", "-F", &owner, "-F", &name, "-F", &num, "-f", &query,
-        ])
-        .unwrap_or_else(|f| failed_read(&f))];
-    with_comment_edits(calls, &mut answer);
-    let [answer] = answer;
-    answer
 }
 
 /// The marker of a read whose gh call failed, with the call's line: a rule
