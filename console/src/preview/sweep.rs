@@ -235,7 +235,7 @@ impl Preview {
         }
 
         for n in numbers {
-            let verdict = verdict::ask(n, &repo);
+            let verdict = verdict::ask(n, &repo, &self.bot);
             let listing = docker_lines(&CONTAINERS);
             let why = match verdict {
                 Pull::Keep => {

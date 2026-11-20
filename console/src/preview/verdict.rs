@@ -21,7 +21,7 @@ pub enum Pull {
 
 /// Only "closed" is closed. An answer that does not say who opened it, or one
 /// about another number, is unclear.
-pub fn of_answer(answer: &Value, n: u64, repo: &str) -> Pull {
+pub fn of_answer(answer: &Value, n: u64, repo: &str, bot: &str) -> Pull {
     let (Some(state), Some(number)) = (
         answer.get("state").and_then(Value::as_str),
         answer.get("number").filter(|v| v.is_number()),
@@ -51,6 +51,14 @@ pub fn of_answer(answer: &Value, n: u64, repo: &str) -> Pull {
         Some(_) => return Pull::Unclear,
     };
     if name.eq_ignore_ascii_case(repo) {
+        // The factory's own App, as `by_us` in preview.rs reads it.
+        let author = answer
+            .pointer("/user/login")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if tehas_core::accounts::factorys(author, bot) {
+            return Pull::Keep;
+        }
         return match answer.get("author_association").and_then(Value::as_str) {
             Some("OWNER" | "MEMBER" | "COLLABORATOR") => Pull::Keep,
             Some(_) => Pull::Outside,
@@ -67,7 +75,7 @@ pub fn of_answer(answer: &Value, n: u64, repo: &str) -> Pull {
 /// A call that worked is read; a failure is `Gone` only on GitHub's own 404.
 /// The sweep checks that GitHub shows the repository at all before it reads a
 /// 404 this way, and the run got an answer from repos/<repo>/pulls a moment ago.
-fn of_call(worked: bool, stdout: &str, stderr: &str, n: u64, repo: &str) -> Pull {
+fn of_call(worked: bool, stdout: &str, stderr: &str, n: u64, repo: &str, bot: &str) -> Pull {
     if !worked {
         return if stderr.contains("HTTP 404") {
             Pull::Gone
@@ -75,13 +83,13 @@ fn of_call(worked: bool, stdout: &str, stderr: &str, n: u64, repo: &str) -> Pull
             Pull::Unclear
         };
     }
-    serde_json::from_str(stdout).map_or(Pull::Unclear, |answer| of_answer(&answer, n, repo))
+    serde_json::from_str(stdout).map_or(Pull::Unclear, |answer| of_answer(&answer, n, repo, bot))
 }
 
-pub fn ask(n: u64, repo: &str) -> Pull {
+pub fn ask(n: u64, repo: &str, bot: &str) -> Pull {
     let args = ["api".to_string(), format!("repos/{repo}/pulls/{n}")];
     let out = call::run("gh", &args, call::GH_BOUND);
-    of_call(out.ok(), &out.out, &out.err, n, repo)
+    of_call(out.ok(), &out.out, &out.err, n, repo, bot)
 }
 
 #[cfg(test)]
@@ -103,7 +111,25 @@ mod tests {
     }
 
     fn read(answer: &Value) -> Pull {
-        of_answer(answer, 12, REPO)
+        of_answer(answer, 12, REPO, "")
+    }
+
+    #[test]
+    fn the_factorys_own_app_is_kept_and_no_other_bot() {
+        let mut answer = with("author_association", json!("NONE"));
+        answer["user"] = json!({"login": "acme-app[bot]", "type": "Bot"});
+        assert_eq!(of_answer(&answer, 12, REPO, "acme-app[bot]"), Pull::Keep);
+        assert_eq!(
+            of_answer(&answer, 12, REPO, "other-app[bot]"),
+            Pull::Outside
+        );
+        assert_eq!(of_answer(&answer, 12, REPO, ""), Pull::Outside);
+        // The App's, but from a fork: never ours.
+        answer["head"]["repo"]["full_name"] = json!("stranger/widget");
+        assert_eq!(
+            of_answer(&answer, 12, REPO, "acme-app[bot]"),
+            Pull::Elsewhere
+        );
     }
 
     #[test]
@@ -184,19 +210,19 @@ mod tests {
     #[test]
     fn a_call_is_gone_only_on_a_404() {
         let answer = open().to_string();
-        assert_eq!(of_call(true, &answer, "", 12, REPO), Pull::Keep);
-        assert_eq!(of_call(true, "", "", 12, REPO), Pull::Unclear);
-        assert_eq!(of_call(true, "not json", "", 12, REPO), Pull::Unclear);
+        assert_eq!(of_call(true, &answer, "", 12, REPO, ""), Pull::Keep);
+        assert_eq!(of_call(true, "", "", 12, REPO, ""), Pull::Unclear);
+        assert_eq!(of_call(true, "not json", "", 12, REPO, ""), Pull::Unclear);
         assert_eq!(
-            of_call(true, "{}\n{}\n", "", 12, REPO),
+            of_call(true, "{}\n{}\n", "", 12, REPO, ""),
             Pull::Unclear,
             "two answers are not one"
         );
         for said in ["gh: Not Found (HTTP 404)", "HTTP 404\nmore\n"] {
-            assert_eq!(of_call(false, "", said, 12, REPO), Pull::Gone);
+            assert_eq!(of_call(false, "", said, 12, REPO, ""), Pull::Gone);
         }
         for said in ["gh: rate limit (HTTP 403)", "connection refused", ""] {
-            assert_eq!(of_call(false, "", said, 12, REPO), Pull::Unclear);
+            assert_eq!(of_call(false, "", said, 12, REPO, ""), Pull::Unclear);
         }
     }
 }

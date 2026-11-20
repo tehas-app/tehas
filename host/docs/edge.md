@@ -318,11 +318,19 @@ there and fails a check, and says so. The check is `~/tehas/libexec/console
 preview network`.
 
 Only a pull request whose branch is in the product repository gets one, and
-only when an owner, member or collaborator of the repository opened it.
-Pushing a branch there needs write access, and a pull request from a fork
-never gets a preview. Opening a pull request needs no access: on a public
-repository anyone can open one between two branches that are already there.
-Such a pull request is not built and takes no place from the others.
+only when an owner, member or collaborator of the repository opened it, or
+the factory's own GitHub App did. Pushing a branch there needs write access,
+and a pull request from a fork never gets a preview. Opening a pull request
+needs no access: on a public repository anyone can open one between two
+branches that are already there. Such a pull request is not built and takes
+no place from the others.
+
+A factory that acts as a GitHub App (`TEHAS_GITHUB_APP_ID`) opens its cycles'
+pull requests as `<slug>[bot]`, which GitHub's `author_association` calls
+`NONE`. That login is the one in `state/github/login`, which the lookup of the
+App's installation writes, and only that App can push a branch here and open
+a pull request under its name, so its pull requests are built like a
+member's. Any other bot's are not. Before the login is recorded, none is.
 
 ## Limits
 
