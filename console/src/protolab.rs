@@ -311,12 +311,14 @@ fn src(name: &str) -> String {
 }
 
 /// The door of a ticket: a name of its own with a domain, its number as a
-/// path without one.
+/// path without one. `domain` is what follows the label,
+/// [`tehas_core::settings::edge_suffix`]: `.example.org`, or `-demo.example.org`
+/// one level deep.
 fn door(number: i64, domain: &str) -> String {
     if domain.is_empty() {
         format!("/{number}/")
     } else {
-        format!("https://lab-{number}.{domain}/")
+        format!("https://lab-{number}{domain}/")
     }
 }
 
@@ -741,7 +743,11 @@ mod tests {
     #[test]
     fn a_ticket_is_linked_by_name_only_with_a_domain() {
         assert_eq!(door(7, ""), "/7/");
-        assert_eq!(door(7, "example.org"), "https://lab-7.example.org/");
+        assert_eq!(door(7, ".example.org"), "https://lab-7.example.org/");
+        assert_eq!(
+            door(7, "-demo.example.org"),
+            "https://lab-7-demo.example.org/"
+        );
     }
 
     #[test]
@@ -915,7 +921,7 @@ mod tests {
             &[value_of(
                 r#"{"number":7,"title":"M","url":"u","files":[],"bytes":0}"#,
             )],
-            "example.org",
+            ".example.org",
             "https://lab.example.org/",
             "",
             LIMIT,
@@ -942,7 +948,7 @@ mod tests {
             &tickets,
             "2026-10-28T09:00:00Z",
             "https://lab.example",
-            "example.org",
+            ".example.org",
             LIMIT,
         );
         let read: Value = serde_json::from_str(&named).unwrap();

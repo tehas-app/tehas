@@ -394,6 +394,7 @@ pub const TABLE: &[Setting] = &[
     row("PI_RUKAS_FOLLOW", Rule::Follow, When::Named, None),
     given("TEHAS_BRANCH", Rule::OneWord),
     given_or("TEHAS_DOMAIN", Rule::Domain, ""),
+    always("TEHAS_EDGE_ONE_LEVEL", SWITCH, "0"),
     given("TEHAS_PROTOLAB_URL", Rule::LabAddress),
     always("TEHAS_PROTOLAB_ZIP_URL", SWITCH, "0"),
     given_or("TEHAS_PROTOLAB_ZIP_HOSTS", Rule::Domains, ""),
@@ -1013,6 +1014,7 @@ mod tests {
             "TEHAS_SITE_INDEXING",
             "TEHAS_SITE_CONSOLE",
             "TEHAS_PREVIEWS",
+            "TEHAS_EDGE_ONE_LEVEL",
             "TEHAS_MILLWRIGHT_FEED",
             "TEHAS_MILLWRIGHT_EPICS",
             "TEHAS_ANALYTICS",
@@ -1024,7 +1026,7 @@ mod tests {
         ] {
             assert!(switches.contains(&name), "{name}");
         }
-        assert_eq!(switches.len(), 21);
+        assert_eq!(switches.len(), 22);
         for name in switches {
             for v in ["on", "off", "1", "0"] {
                 takes(name, v);

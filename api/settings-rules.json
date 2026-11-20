@@ -606,6 +606,19 @@
       "reason": "expected a domain such as example.org, in lower case, with no scheme and no path"
     },
     {
+      "name": "TEHAS_EDGE_ONE_LEVEL",
+      "rule": "one-of",
+      "when": "always",
+      "default": "0",
+      "words": [
+        "on",
+        "off",
+        "1",
+        "0"
+      ],
+      "reason": "expected on or off"
+    },
+    {
       "name": "TEHAS_PROTOLAB_URL",
       "rule": "lab-address",
       "when": "given",
