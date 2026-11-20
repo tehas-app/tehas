@@ -758,10 +758,11 @@ impl World {
 
     /// The question of #7's current park, "none" without one.
     pub fn park_q(&self) -> String {
-        self.park()["question"]
-            .as_str()
-            .unwrap_or("none")
-            .to_string()
+        match &self.park()["question"] {
+            Value::Null => "none".into(),
+            Value::String(s) => s.clone(),
+            v => v.to_string(),
+        }
     }
 
     /// The first row of #7's history.
