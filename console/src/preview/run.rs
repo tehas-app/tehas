@@ -34,6 +34,9 @@ pub struct Preview {
     pub min_kb: u64,
     pub settle: String,
     pub home: PathBuf,
+    /// The login the factory acts as on GitHub, `<slug>[bot]` for an App,
+    /// from `state/github/login`; empty when there is none.
+    pub bot: String,
     pub root: PathBuf,
     pub bare: PathBuf,
     pub live: PathBuf,
@@ -168,12 +171,14 @@ impl Preview {
         preview.min_kb = number("TEHAS_PREVIEW_MIN_FREE_MB")?.saturating_mul(1024);
         preview.settle = settle_of(&get("TEHAS_PREVIEW_SETTLE"));
         preview.work_repo = PathBuf::from(work_repo);
+        preview.bot = tehas_core::settings::bot_login(&preview.home).unwrap_or_default();
         Ok(preview)
     }
 
     fn under(home: PathBuf, repo: String, domain: String) -> Preview {
         let root = home.join("preview");
         Preview {
+            bot: String::new(),
             repo,
             domain,
             max: 0,
@@ -390,7 +395,7 @@ impl Preview {
             // neither, and one that is open would then look closed. So the run
             // asks about each number it means to remove, as the sweep does, and
             // keeps what GitHub says is open of ours.
-            let said = match verdict::ask(*n, &self.repo) {
+            let said = match verdict::ask(*n, &self.repo, &self.bot) {
                 Pull::Closed | Pull::Gone => "pull request no longer open, removed".to_string(),
                 Pull::Elsewhere => format!("its branch is not in {}, removed", self.repo),
                 Pull::Outside => format!("it was not opened by someone of {}, removed", self.repo),
@@ -509,7 +514,7 @@ impl Preview {
                 return 0;
             }
         };
-        let (chosen, elsewhere, outside) = match choose(&pulls, &self.repo, self.max) {
+        let (chosen, elsewhere, outside) = match choose(&pulls, &self.repo, self.max, &self.bot) {
             Choice::Incomplete => {
                 say(format_args!("the list of open pull requests does not say who opened each; nothing was built or removed"));
                 self.write_list();
