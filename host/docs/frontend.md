@@ -811,6 +811,10 @@ the kit's `MANIFEST` does not match its files, and on the Solid rules of
 that grows a page raises its line in the same change, and that raise is a
 person's call, said in the pull request, as with the bash ceiling.
 
+The owner approved two lines on 2026-11-20: `library solid 123689`, the kit's
+Solid as `tools/vendor-solid` bundles it, and `page dashboard 83939 53988`,
+the dashboard's script at 83939 bytes on the kit.
+
 The budgets for new work:
 
 | Thing | Budget | Held by |
@@ -819,7 +823,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams, presses, a refresh that resolves and `put`: 23597 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js` and `press.js`, 15600 more, load only on a page that imports them | Review |
+| The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24588 bytes, 12 over it. `stream.js` and `press.js`, 16909 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
@@ -848,6 +852,10 @@ The budgets for new work:
   dashboard: it renders the manual's layout around the fragment, serves the
   samples and a console that grows, and checks each section, the tabs, the
   console's tail and the polling. `--shot <png>` saves a screenshot.
+  `--staged` first stages `host/` with `console update assets`, as
+  `install.sh` does, and serves the stage, so the page is checked with the
+  hashed names a home gets; it also fails when an address under `/fun/` has
+  no file.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.
