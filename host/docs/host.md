@@ -512,7 +512,8 @@ stage holds and a hashed name of older content is removed as stale with any page
 that went away. The pages keep their own names. A directory under `~/tehas/fun`
 or `~/tehas/docs` that the checkout does not have is kept, and the install says
 `tehas: kept <dir>` each time. A symbolic link there, or in the checkout's
-`host/fun` or `host/docs`, stops the install before it copies anything: it says
+`host/fun` or `host/docs`, stops the install before it copies the manual or the
+front page: it says
 which path is a link, and nothing is written through it or removed behind it.
 Replace the link with a directory or file of its own and run the install again.
 

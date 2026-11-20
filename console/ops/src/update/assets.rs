@@ -26,7 +26,10 @@
 //! The same bytes give the same stage, which is what keeps `--check` quiet on
 //! the second run.
 //!
-//! Exit: 0 staged, 1 a file could not be read or written, 64 usage.
+//! A symbolic link under `host/fun` or `host/docs` is refused: it would bring
+//! into the home what lies outside the checkout.
+//!
+//! Exit: 0 staged, 1 a file could not be read or written or is a link, 64 usage.
 
 use super::{fault, tell};
 use sha2::{Digest, Sha256};
@@ -249,6 +252,13 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
         let source = entry.path();
+        // A link would bring into the home what lies outside the checkout.
+        if entry.file_type()?.is_symlink() {
+            return Err(io::Error::other(format!(
+                "{} is a symbolic link",
+                source.display()
+            )));
+        }
         if source.is_dir() {
             copy_dir(&source, &to.join(&name))?;
             continue;
@@ -689,6 +699,21 @@ mod tests {
         put(&d, "host/fun/panels.js", "// the panel\n");
         put(&d, "host/docs/host.md", "# The host\n");
         assert_eq!(run(&d), 1);
+    }
+
+    #[test]
+    fn a_symbolic_link_in_the_host_is_refused() {
+        let d = host("assets-link");
+        put(&d, "outside/secret.js", "// not for the home\n");
+        std::os::unix::fs::symlink(d.0.join("outside"), d.0.join("host/fun/kit")).unwrap();
+        assert_eq!(run(&d), 1);
+        assert!(!staged(&d, "fun/kit/secret.js").exists());
+        let d = host("assets-file-link");
+        put(&d, "outside/secret.js", "// not for the home\n");
+        std::os::unix::fs::symlink(d.0.join("outside/secret.js"), d.0.join("host/fun/x.js"))
+            .unwrap();
+        assert_eq!(run(&d), 1);
+        assert!(!staged(&d, "fun/x.js").exists());
     }
 
     #[test]
