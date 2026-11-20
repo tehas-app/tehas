@@ -259,7 +259,12 @@ GraphQL carry the id of their label:
   the file exists it pins only a label it made itself, one that did not exist
   before it ran: a label that was already there with no pin could be another
   label renamed to the name, so it is named (`not pinned: ... was there before
-  with no pin`) and the command exits 1.
+  with no pin`) and the command exits 1. The one exception is a label GitHub
+  says was created within a minute of a label that is pinned and still that
+  label: the same `tehas labels` run made both, so it is pinned (`pinned the
+  label <name> as <id> in state/labels: it was made with the pinned labels`).
+  A renamed label keeps its creation time, so this does not take one. This is
+  how `tehas:blocked`, pinned from 1.0, gets its pin on a host from before.
 - A host with no file, one from before the pins, is pinned by its first poll
   that reads the labels: each granting label it finds, and the file is written
   even when it finds none. A dry run says what it would pin and writes

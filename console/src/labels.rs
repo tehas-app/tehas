@@ -18,6 +18,7 @@
 //! no pin that was already there, or one that is not the pinned one, is said,
 //! and the command fails.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -103,6 +104,43 @@ fn node_id(repo: &str, name: &str) -> Option<String> {
     (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
 }
 
+/// When GitHub says each `tehas:` label of `repo` was created, in Unix
+/// seconds by node id. Empty when gh cannot say: no label is then taken as
+/// made with the pinned ones.
+fn created(repo: &str) -> BTreeMap<String, i64> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return BTreeMap::new();
+    };
+    let query = "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){labels(first:100,query:\"tehas:\"){nodes{id createdAt}}}}";
+    let ran = gh(&[
+        "api",
+        "graphql",
+        "-f",
+        &format!("query={query}"),
+        "-f",
+        &format!("owner={owner}"),
+        "-f",
+        &format!("name={name}"),
+        "--jq",
+        ".data.repository.labels.nodes[] | .id + \"\\t\" + .createdAt",
+    ]);
+    eprint!("{}", ran.err);
+    if !ran.ok() {
+        return BTreeMap::new();
+    }
+    times(&ran.out)
+}
+
+/// `<id>\t<time>` lines to times by id; a line of another shape is skipped.
+fn times(out: &str) -> BTreeMap<String, i64> {
+    out.lines()
+        .filter_map(|l| {
+            let (id, at) = l.split_once('\t')?;
+            Some((id.to_string(), tehas_core::time::from_iso(at)?))
+        })
+        .collect()
+}
+
 /// Each pinned label's id as `id_of` asks GitHub for it: the `before`
 /// half of what `pin` judges, read before the labels are made.
 fn ids(id_of: &mut dyn FnMut(&str) -> Option<String>) -> Vec<Option<String>> {
@@ -113,19 +151,26 @@ fn ids(id_of: &mut dyn FnMut(&str) -> Option<String>) -> Vec<Option<String>> {
 }
 
 /// Pins the labels of `PINNED`: `before` from `ids` before the labels were made,
-/// and `id_of` asking GitHub for each one's id now.
+/// `id_of` asking GitHub for each one's id now, and `made` when each id's
+/// label was created.
 fn pin(
     home: &Path,
     before: Vec<Option<String>>,
     id_of: &mut dyn FnMut(&str) -> Option<String>,
+    made: &BTreeMap<String, i64>,
 ) -> u8 {
     let seen: Vec<tehas_core::label_pins::Seen> = tehas_core::label_pins::PINNED
         .iter()
         .zip(before)
-        .map(|(n, before)| tehas_core::label_pins::Seen {
-            name: n,
-            before,
-            after: id_of(n),
+        .map(|(n, before)| {
+            let after = id_of(n);
+            let created = after.as_ref().and_then(|id| made.get(id).copied());
+            tehas_core::label_pins::Seen {
+                name: n,
+                before,
+                after,
+                created,
+            }
         })
         .collect();
     let (said, whole) = tehas_core::label_pins::pin_made(home, &seen);
@@ -175,7 +220,13 @@ pub fn main(given: &[String]) -> u8 {
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let before = ids(&mut |name| node_id(&repo, name));
     let made = run(&labels, &mut |label| make(&repo, label));
-    let pinned = pin(Path::new(&home), before, &mut |name| node_id(&repo, name));
+    let made_at = created(&repo);
+    let pinned = pin(
+        Path::new(&home),
+        before,
+        &mut |name| node_id(&repo, name),
+        &made_at,
+    );
     made.max(pinned)
 }
 
@@ -301,10 +352,15 @@ mod tests {
         let d = tehas_core::testdir::TestDir::new("labels-pin");
         let mut asked = Vec::new();
         let none = vec![None; tehas_core::label_pins::PINNED.len()];
-        let rc = pin(d.path(), none.clone(), &mut |n| {
-            asked.push(n.to_string());
-            Some(format!("LA_{}", n.trim_start_matches("tehas:")))
-        });
+        let rc = pin(
+            d.path(),
+            none.clone(),
+            &mut |n| {
+                asked.push(n.to_string());
+                Some(format!("LA_{}", n.trim_start_matches("tehas:")))
+            },
+            &BTreeMap::new(),
+        );
         assert_eq!(rc, 0);
         assert_eq!(asked.len(), tehas_core::label_pins::PINNED.len());
         let pins = tehas_core::label_pins::load(d.path());
@@ -313,10 +369,22 @@ mod tests {
         assert_eq!(pins.len(), tehas_core::label_pins::PINNED.len());
         // A label gh cannot find fails the command and pins nothing for it.
         let d = tehas_core::testdir::TestDir::new("labels-pin-missing");
-        let rc = pin(d.path(), none, &mut |n| {
-            (n != "tehas:plan").then(|| format!("LA_{n}"))
-        });
+        let rc = pin(
+            d.path(),
+            none,
+            &mut |n| (n != "tehas:plan").then(|| format!("LA_{n}")),
+            &BTreeMap::new(),
+        );
         assert_eq!(rc, 1);
         assert!(!tehas_core::label_pins::load(d.path()).contains_key("tehas:plan"));
+    }
+
+    #[test]
+    fn the_creation_times_are_read_by_id() {
+        let t = times(
+            "LA_r\t2026-10-19T18:16:01Z\nno tab\nLA_b\tyesterday\nLA_c\t2026-10-19T18:16:09Z\n",
+        );
+        assert_eq!(t.len(), 2);
+        assert_eq!(t["LA_c"] - t["LA_r"], 8);
     }
 }
