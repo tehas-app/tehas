@@ -384,17 +384,9 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
             format!("--rukas-digest must be sha256: and 64 hex digits: {rukas_digest}"),
         );
     }
-    if !rukas_commit.is_empty() && rukas_digest.is_empty() {
-        return fail(
-            64,
-            "--rukas-commit needs --rukas-digest: name both pins or neither",
-        );
-    }
+    // A digest is of a commit's image, so it names the commit too.
     if rukas_commit.is_empty() && !rukas_digest.is_empty() {
-        return fail(
-            64,
-            "--rukas-digest needs --rukas-commit: name both pins or neither",
-        );
+        return fail(64, "--rukas-digest needs --rukas-commit");
     }
 
     // The tree has to answer to tehas, not only hold an install.sh.

@@ -262,10 +262,11 @@ contract - `models.json` readable, valid JSON, listing the models the settings
 name, and the settings directory writable by nobody else - is install.sh's, and
 install.sh answers it with 78 before it copies a file.
 
-After the follow-ups, pi-rukas. It is not pinned: where the installed `versions.env` sets
+After the follow-ups, pi-rukas. Where the installed `versions.env` sets
 `PI_RUKAS_FOLLOW`, the update runs `sandbox/build.sh --if-moved`, which
-rebuilds the sandbox image only when the commit it names, the newest release
-tag by default, is not the commit the image was built on, or when the
+rebuilds the sandbox image only when the commit it names (from a checkout
+the newest release tag of the line, from a release the commit it pinned) is not
+the commit the image was built on, or when the
 instance's `sandbox.Dockerfile` is not the one the image was built from. It does this also when no file of tehas changed, and
 skips it when this run built the image already or a step failed. An image that
 cannot be moved, for example because upstream has not published that commit's
