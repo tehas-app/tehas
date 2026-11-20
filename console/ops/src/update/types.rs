@@ -5,7 +5,7 @@
 //!
 //! It runs when the pinned `tsc` is there: `TEHAS_TSC` names it, or `tsc` on
 //! `PATH` is that version. Without one the check is skipped and says so on
-//! stderr, except under CI, where it fails: CI installs it and names it.
+//! stderr, except when strict, where it fails: CI installs it and names it.
 //!
 //! `test/fixtures/kit-types/` holds code that uses the kit. `uses.js` uses it
 //! as the manual says and passes. Each `misuse-*.js` makes one mistake, on
@@ -107,19 +107,21 @@ fn version_of(path: &Path) -> Result<String, String> {
     }
 }
 
-/// Whether the `CI` variable says this runs under CI.
-fn under_ci(value: Option<&str>) -> bool {
-    value.is_some_and(|v| !v.is_empty() && v != "false" && v != "0")
+/// Whether a missing `tsc` fails the check rather than skips it: `CI` or
+/// `TEHAS_TEST_STRICT` set to anything, as xtask's `strict` decides for a
+/// missing shellcheck.
+fn strict(ci: Option<&str>, asked: Option<&str>) -> bool {
+    ci.is_some_and(|v| !v.is_empty()) || asked.is_some_and(|v| !v.is_empty())
 }
 
 /// Which `tsc` to run. One that is `named` must be the pinned version, or the
 /// check fails: it was named on purpose. One found `on_path` is used only when
 /// it is that version, since another version reads the files differently.
-/// With none, the check is skipped, but under `ci` it fails.
+/// With none, the check is skipped, but when `strict` it fails.
 fn choose(
     named: Option<PathBuf>,
     on_path: Option<PathBuf>,
-    ci: bool,
+    strict: bool,
     version: impl Fn(&Path) -> Result<String, String>,
 ) -> Result<Option<PathBuf>, String> {
     if let Some(path) = named {
@@ -133,15 +135,16 @@ fn choose(
         return Ok(Some(path));
     }
     let found = on_path.filter(|p| version(p).is_ok_and(|v| v == TSC_VERSION));
-    if found.is_none() && ci {
+    if found.is_none() && strict {
         return Err(format!(
-            "no tsc {TSC_VERSION} under CI: the workflow installs it and names it in {TSC_VAR}"
+            "no tsc {TSC_VERSION}, and CI or TEHAS_TEST_STRICT is set: name it in {TSC_VAR}"
         ));
     }
     Ok(found)
 }
 
-/// The `tsc` to run, from `TEHAS_TSC`, `PATH` and `CI`, as [`choose`] says.
+/// The `tsc` to run, from `TEHAS_TSC`, `PATH`, `CI` and `TEHAS_TEST_STRICT`,
+/// as [`choose`] says.
 fn find_tsc() -> Result<Option<PathBuf>, String> {
     let named = std::env::var_os(TSC_VAR)
         .filter(|v| !v.is_empty())
@@ -151,8 +154,11 @@ fn find_tsc() -> Result<Option<PathBuf>, String> {
             .map(|dir| dir.join("tsc"))
             .find(|p| p.is_file())
     });
-    let ci = under_ci(std::env::var("CI").ok().as_deref());
-    choose(named, on_path, ci, version_of)
+    let strict = strict(
+        std::env::var("CI").ok().as_deref(),
+        std::env::var("TEHAS_TEST_STRICT").ok().as_deref(),
+    );
+    choose(named, on_path, strict, version_of)
 }
 
 /// Checks `files`, relative to `root`, with the `tsc` at `tsc`. What it
@@ -378,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn a_named_tsc_must_be_the_pinned_version_and_none_fails_only_under_ci() {
+    fn a_named_tsc_must_be_the_pinned_version_and_none_fails_only_when_strict() {
         let pinned = |_: &Path| Ok(TSC_VERSION.to_owned());
         let older = |_: &Path| Ok("5.9.3".to_owned());
         let broken = |_: &Path| Err("no version".to_owned());
@@ -396,7 +402,7 @@ mod tests {
             assert_eq!(choose(None, on_path.clone(), ci, pinned).unwrap(), on_path);
         }
 
-        // With no pinned tsc the check is skipped, and under CI it fails.
+        // With no pinned tsc the check is skipped, and when strict it fails.
         assert_eq!(choose(None, on_path.clone(), false, older).unwrap(), None);
         assert_eq!(choose(None, on_path.clone(), false, broken).unwrap(), None);
         assert_eq!(choose(None, None, false, pinned).unwrap(), None);
@@ -409,18 +415,22 @@ mod tests {
             (None, pinned),
         ] {
             let err = choose(None, on_path, true, version).unwrap_err();
-            assert!(err.contains("under CI") && err.contains(TSC_VAR), "{err}");
+            assert!(
+                err.contains("TEHAS_TEST_STRICT") && err.contains(TSC_VAR),
+                "{err}"
+            );
         }
     }
 
     #[test]
-    fn ci_is_a_ci_variable_that_is_set_and_not_false() {
-        assert!(under_ci(Some("true")));
-        assert!(under_ci(Some("1")));
-        assert!(!under_ci(None));
-        assert!(!under_ci(Some("")));
-        assert!(!under_ci(Some("false")));
-        assert!(!under_ci(Some("0")));
+    fn strict_is_ci_or_tehas_test_strict_set_to_anything_as_xtask_says() {
+        // The same rule as xtask's strict, which fails on a missing shellcheck.
+        for value in ["true", "1", "false", "0"] {
+            assert!(strict(Some(value), None), "CI={value}");
+            assert!(strict(None, Some(value)), "TEHAS_TEST_STRICT={value}");
+        }
+        assert!(!strict(None, None));
+        assert!(!strict(Some(""), Some("")));
     }
 
     #[test]
