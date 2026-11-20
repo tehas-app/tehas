@@ -126,7 +126,7 @@ fn docker(dir: &Path) -> PathBuf {
     tehas_core::testing::write_exe(
         &path,
         format!(
-            "#!/bin/sh\nd={}\ncase \"$1\" in\n image) cat \"$d/id\" ;;\n save) echo x >>\"$d/saves\"; sleep 0.3; cat \"$d/content\" ;;\n *) exit 2 ;;\nesac\n",
+            "#!/bin/sh\nd={}\ncase \"$1\" in\n image) cat \"$d/id\" ;;\n save) echo x >>\"$d/saves\"; [ -e \"$d/hang\" ] && exec sleep 60; sleep 0.3; cat \"$d/content\" ;;\n *) exit 2 ;;\nesac\n",
             dir.display()
         ),
     )
@@ -216,6 +216,7 @@ fn case_with(
         branch: "main".to_string(),
         image: "tehas-sandbox:test".to_string(),
         docker: docker(&tools),
+        save_wait: Duration::from_secs(3),
         zstd: false,
         gives_files: files,
         fetch,
@@ -410,6 +411,35 @@ fn the_image_goes_to_a_contractor_s_key_whole_or_by_range_and_is_saved_once() {
         (revoked.status, revoked.refused().as_str()),
         (403, "revoked")
     );
+}
+
+#[test]
+fn a_save_that_hangs_is_killed_and_gives_its_place_back() {
+    let c = case("download-image-hang", false, fetched);
+    let path = format!("image?id={}", id('a'));
+    fs::write(c.home.path().join("tools/hang"), "").unwrap();
+    // More hung saves than there are places: each is killed at its bound, so
+    // none of them holds up the next.
+    for _ in 0..=tehas_proxy::download::IMAGES_AT_ONCE {
+        let began = std::time::Instant::now();
+        let hung = get(c.at, &path, &by_key(KEY));
+        assert_eq!(hung.status, 503, "{}", hung.head);
+        assert!(
+            hung.refused().starts_with("the image was not saved"),
+            "{}",
+            hung.refused()
+        );
+        assert!(began.elapsed() < Duration::from_secs(20));
+    }
+    assert!(!c
+        .home
+        .path()
+        .join(format!("state/images/{}.tar", "a".repeat(64)))
+        .exists());
+    fs::remove_file(c.home.path().join("tools/hang")).unwrap();
+    let got = get(c.at, &path, &by_key(KEY));
+    assert_eq!(got.status, 200, "{}", got.head);
+    assert_eq!(got.body, b"the saved image of a\n".to_vec());
 }
 
 #[test]

@@ -207,6 +207,7 @@ fn listen() -> ! {
         branch: tehas_core::settings::branch().unwrap_or_default(),
         image: env("PI_ENSEMBLE_IMAGE"),
         docker: PathBuf::from("docker"),
+        save_wait: tehas_proxy::download::SAVE_WAIT,
         zstd: on_path("zstd"),
         gives_files: env("TEHAS_WORK_IMAGES") == "1" || env("TEHAS_WORK_FILES") == "1",
         fetch: tehas_cycle::gives::for_job,
