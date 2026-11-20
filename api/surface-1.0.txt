@@ -565,3 +565,7 @@ field status.previews[].url
 field host-bridge.menu[].open
 flag order clear --json
 flag order set --json
+command wake
+flag wake --json
+field wake.api
+field wake.asked

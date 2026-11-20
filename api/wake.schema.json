@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/wake.schema.json",
+  "title": "tehas wake --json",
+  "description": "What tehas wake --json prints, version 1, on exit 0 and 1: whether a poll was asked for. host/docs/api.md says what each field means. The object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. console/src/wake.rs checks that the command prints the sample beside this file.",
+  "type": "object",
+  "required": ["api", "asked"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "asked": {"type": "boolean"}
+  }
+}

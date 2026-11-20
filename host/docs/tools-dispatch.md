@@ -25,7 +25,8 @@ second one: the file waits, and the next poll starts when the running one ends.
 Asking again before that poll starts asks for the same poll. This is the way
 for another program on the host, such as a webhook receiver or a script, to
 wake the dispatcher between two runs of the timer; it needs no GitHub token and
-calls nothing.
+calls nothing. [`tehas wake`](/api#tehas-wake) is the same ask in the factory
+API, with `--json`.
 
 `--help` (or `-h`) prints the header comment of the command and exits 0; it
 works even on a host with no instance settings yet. Any other argument, or more

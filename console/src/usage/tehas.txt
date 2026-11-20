@@ -20,6 +20,7 @@ Usage:
   tehas order [set ...|clear]      the order ready issues start in
   tehas start <issue> [--clear]    approve an issue for a start, from the host
   tehas refresh --pr N [--json]    ask for the refresh of pull request N
+  tehas wake [--json]              ask for a poll now, return at once
   tehas drain [--wait S] [--json]  start nothing new, wait for running cycles
   tehas history [--json] [--after C] [--issue N]  the cycles that ended
   tehas export --after C <dir>     copy them elsewhere, masked

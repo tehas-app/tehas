@@ -30,3 +30,4 @@ refresh-pr
 host-start
 flags
 status-previews
+wake
