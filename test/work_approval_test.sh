@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: the dispatcher's approval record and the comments
+# Tests for tehas work: the dispatcher's approval record and the comments
 # it names, as what the cycle is given of the issue.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh

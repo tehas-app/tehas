@@ -576,7 +576,8 @@ impl Take<'_> {
         );
         // The archive is read to the room its own download took: of five files
         // of 1 MB the cycle gets four and the fifth is left out by the room. The
-        // 1 MB of one file is the ceiling of one entry.
+        // 1 MB of one file is the least it is read to; each entry is held to it
+        // after.
         let room = ONE_FILE.max(ZLIMIT - self.n.fused);
         let most_files = MOST_FILES - self.n.fcount;
         // Made anew, the user's alone: what a run that died left under this name
@@ -691,12 +692,15 @@ impl Take<'_> {
                     self.leave(l, &format!("More than {MOST_IMAGES} images."), None);
                     continue;
                 }
-                if LIMIT - self.n.used <= 0 {
+                if size > LIMIT - self.n.used {
                     self.leave(l, OVER, None);
                     continue;
                 }
             } else if self.n.fcount >= MOST_FILES {
                 self.leave(l, &format!("More than {MOST_FILES} files."), None);
+                continue;
+            } else if size > ONE_FILE {
+                self.leave(l, FBIG, None);
                 continue;
             } else if FLIMIT - self.n.fused <= 0 || size > FLIMIT - self.n.fused {
                 // Unpacked within what was left when it was fetched; a file that

@@ -254,6 +254,101 @@ fn a_fenced_line_that_reads_as_a_changelog_heading_or_an_open_fence_is_refused()
 }
 
 #[test]
+fn a_fragment_whose_action_is_none_adds_no_action() {
+    let steps = lines(&[
+        "## Unreleased",
+        "",
+        "### Adopter action",
+        "",
+        "Edit the settings.",
+    ]);
+    let none = frag(
+        "d/x.md",
+        "### Changes\n\n- x\n\n### Adopter action\n\nNone.\n",
+    );
+    let out = collect(&steps, "Unreleased", std::slice::from_ref(&none)).unwrap();
+    assert_eq!(
+        out,
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "Edit the settings.",
+        ])
+    );
+    let real = frag(
+        "d/y.md",
+        "### Adopter action\n\n  None.  \n\nRun tehas update.\n",
+    );
+    let out = collect(&lines(LOG), "Unreleased", &[none.clone(), real]).unwrap();
+    let mut want = LOG.to_vec();
+    want.splice(
+        6..11,
+        [
+            "- in the file",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "  None.  ",
+            "",
+            "Run tehas update.",
+        ],
+    );
+    assert_eq!(out, lines(&want));
+    let bare = lines(&["## Unreleased", "", "### Changes", "", "- a"]);
+    assert_eq!(
+        collect(&bare, "Unreleased", std::slice::from_ref(&none)).unwrap(),
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- a",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "None.",
+        ])
+    );
+    // A heading with nothing under it still needs the "None.".
+    let heading = lines(&[
+        "## Unreleased",
+        "",
+        "### Changes",
+        "",
+        "- a",
+        "",
+        "### Adopter action",
+        "",
+        "## v0.1.0",
+    ]);
+    assert_eq!(
+        collect(&heading, "Unreleased", &[none]).unwrap(),
+        lines(&[
+            "## Unreleased",
+            "",
+            "### Changes",
+            "",
+            "- a",
+            "- x",
+            "",
+            "### Adopter action",
+            "",
+            "None.",
+            "",
+            "## v0.1.0",
+        ])
+    );
+}
+
+#[test]
 fn an_empty_fragment_changes_nothing() {
     assert_eq!(
         collect(&lines(LOG), "Unreleased", &[frag("1.md", "")]).unwrap(),
@@ -289,4 +384,30 @@ fn the_task_rewrites_deletes_and_names_or_prints() {
     assert!(d.join("changelog.d/notes.txt").exists());
     a.file = Some(d.join("none.md"));
     assert_eq!(run(&a, &log), 1);
+}
+
+#[test]
+fn a_release_names_unreleased_and_a_new_empty_one_goes_above_it() {
+    let text = "# Changelog\n\nIntro.\n\n## Unreleased\n\n### Changes\n\n- a\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n- old\n";
+    let named = name_release(text, "v0.2.0", "2026-11-19").unwrap();
+    assert_eq!(
+        named,
+        "# Changelog\n\nIntro.\n\n## Unreleased\n\n## v0.2.0 (2026-11-19)\n\n### Changes\n\n- a\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n- old\n"
+    );
+    // A heading that only starts with the word is not the section.
+    assert_eq!(
+        name_release("## Unreleasedx\n", "v0.2.0", "2026-11-19"),
+        None
+    );
+    assert_eq!(name_release("## v0.1.0\n", "v0.2.0", "2026-11-19"), None);
+    // The named section is what the release's notes read, and the new
+    // Unreleased has nothing in it.
+    assert_eq!(
+        crate::tag::section(&named, "v0.2.0").as_deref(),
+        Some("### Changes\n\n- a\n\n### Adopter action\n\nNone.")
+    );
+    assert_eq!(
+        crate::tag::section(&named, "Unreleased").as_deref(),
+        Some("")
+    );
 }

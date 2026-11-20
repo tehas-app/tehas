@@ -69,5 +69,5 @@ number, or an argument this does not know; 78 the instance settings are
 missing or malformed, or the state store is not installed or cannot be used,
 which changes nothing.
 
-Instance settings (lib/config.sh): TEHAS_REPO, for the name libexec/work gives
+Instance settings (lib/config.sh): TEHAS_REPO, for the name tehas work gives
 the workspace and for the issue this reads its labels from and relabels.

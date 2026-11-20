@@ -5,8 +5,8 @@
 # command to Rust must keep, so a port does not change them.
 #
 # What differs from run to run is made one word: the scratch directory, the uid
-# and gid, a commit, a mktemp suffix, a run's time stamp and the cycle's
-# deadline. The -e PI_ENSEMBLE_* block comes from
+# and gid, a commit, a mktemp suffix (in a path and in a container's name), a
+# run's time stamp and the cycle's deadline. The -e PI_ENSEMBLE_* block comes from
 # the order of the environment, which bash decides, so that block is sorted.
 # Everything else stands in the order it was given. Other docker calls (info,
 # image inspect, rm, stop) start no container and are not recorded.
@@ -144,6 +144,7 @@ normalised() { # <file of one call>
     -e "s|^$(id -u):$(id -g)$|@UID@:@GID@|" \
     -e 's/\b[0-9a-f]{40}\b/@COMMIT@/g' \
     -e 's|(/tmp/([a-z-]+/)?[a-z-]+\.)[A-Za-z0-9]{6}\b|\1@RANDOM@|g' \
+    -e 's/^(tehas-check-product-)[A-Za-z0-9]{6}-/\1@RANDOM@-/' \
     -e 's|/run-[0-9]{6}-[0-9]{6}/|/run-@STAMP@/|' \
     -e 's/^(PI_ENSEMBLE_CYCLE_DEADLINE=)[0-9]+$/\1@MS@/' "$1" | sort_env_block
 }

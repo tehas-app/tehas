@@ -341,8 +341,17 @@ t_eq "$(cat "$T/calls/contractor.own.as" 2>/dev/null)" "$(after --user)"
 T_ENV=("${saved_env[@]}")
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
-t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
+t_case "read-only: a kept cycle token made before the setting, which may write, reaches no container"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_READ_ONLY=1
+rm -f "$T"/calls/*
+t_run "$work 7"
+[ "$t_rc" != 0 ] || t_bad "a cycle started with a token that may write"
+t_eq "$(preflight_args)" ""
+t_eq "$(cycle_args)" ""
+
+t_case "read-only: the container is told so, and its git pushes to origin land in the workspace"
+# The mark of a token made on a read-only instance (console/ops/src/github.rs).
+: >"$T/home/tehas/state/github-cycle/token.read-only"
 rm -f "$T"/calls/*
 t_run "$work 7"
 ro_want="$want
@@ -357,6 +366,7 @@ t_eq "$(after -e | grep -E '^(GIT_CONFIG_COUNT|GIT_CONFIG_KEY_4|GIT_CONFIG_VALUE
 t_eq "$(after -e | grep '^GIT_CONFIG_VALUE_4=')" "GIT_CONFIG_VALUE_4=$(after -e | sed -n 's/^PI_ENSEMBLE_WORKSPACE_ROOT=//p')"
 # The push check is given the same: its dry run asks the workspace.
 t_contains "$(preflight_args | tr '\n' ' ')" "GIT_CONFIG_KEY_4=remote.origin.pushurl"
+rm -f "$T/home/tehas/state/github-cycle/token.read-only"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "the poll's token, which the load keeps, is not passed in"
@@ -442,6 +452,16 @@ t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,
 # collected and counts against the pids limit until the container ends.
 t_case "the cycle's container has an init"
 t_eq "$(cycle_args | grep -c -x -e --init)" 1
+
+# The image is built on the host and its name is a Docker Hub name: an image
+# that is gone fails the start, and nothing of that name is pulled and given
+# the cycle's token. Each container of a start names the policy right after run.
+t_case "no container of a start pulls its image"
+t_eq "$(cycle_args | sed -n 2p)" "--pull=never"
+t_eq "$(preflight_args | sed -n 2p)" "--pull=never"
+t_eq "$(cycle_args | grep -c -e '^--pull')" 1
+t_eq "$(preflight_args | grep -c -e '^--pull')" 1
+t_eq "$(grep -c -v '^run --pull=never --rm --init ' "$T/calls/docker.caps")" 0
 
 # --- Without a usable slice ----------------------------------------------------
 # refused: 78, and neither a clone nor a container was made.

@@ -31,7 +31,7 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 # One case runs tehas work, which parks a cycle of a product whose commit names
-# no gate and holds no stack it can guess a gate from (libexec/work). The gate
+# no gate and holds no stack it can guess a gate from. The gate
 # is read at the commit the clone is made at, so it is in a commit here, unlike
 # the fixture of the work files, which reads the checkout too. The work files
 # hold the same gate their way.
@@ -345,7 +345,7 @@ t_lacks "$args" "--privileged"
 t_lacks "$args" "test-token"
 t_lacks "$args" "$checkout"
 t_eq "$(grep -l -x -e plan "$T"/calls/docker.args.* | wc -l)" 1
-caps_at=$(t_calls docker | grep -n -F -e "run --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
+caps_at=$(t_calls docker | grep -n -F -e "run --pull=never --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e " $runner plan " | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$caps_at" ] && [ -n "$run_at" ] && [ "$caps_at" -lt "$run_at" ] && echo before)" before
 

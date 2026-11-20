@@ -342,6 +342,14 @@ t_case "release-notes exits 1 for a tag with no section, and 64 for a bad argume
 t_run "'$notes' v1.2.4 '$changelog'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no section for v1.2.4"
+# A release never gets Unreleased in place of its own section.
+t_contains "$t_out" "which scripts/tag-release.sh names in its changelog pull request"
+t_lacks "$t_out" "None."
+# A prerelease without one is read with git, which standard input is not.
+t_run "'$notes' v2.0.0-beta.1 - <'$changelog'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not from standard input"
+t_lacks "$t_out" "None."
 t_run "'$notes' v1.2 '$changelog'"
 t_eq "$t_rc" 64
 t_run "'$notes' v2.0.0-gamma.1 '$changelog'"

@@ -64,6 +64,7 @@ sandbox_valued_options="--name --cap-drop --cap-add --security-opt --user -w -v 
 sandbox_unknown_options() { # <image> (reads the arguments on standard input)
   awk -v image="$1" -v valued=" $sandbox_valued_options " '
     NR == 1 { next } # "run"
+    NR == 2 && $0 == "--pull=never" { next } # the image is built on the host
     skip { skip = 0; next }
     $0 == image { exit }
     index(valued, " " $0 " ") { skip = 1; next }
@@ -829,7 +830,7 @@ for rc in 0 10 20; do
 done
 
 # The document and the process have to agree before either is believed, as
-# libexec/work reads its result and libexec/plan reads its answer before it
+# tehas work reads its result and tehas plan reads its answer before it
 # decides. A container that exits 0 while its own document says the review was
 # incomplete has not read the range, and the record does not move on.
 t_case "a document that contradicts the container's exit records nothing and says which two disagreed"
@@ -978,7 +979,7 @@ t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
 t_lacks "$args" "--privileged"
 t_lacks "$args" "$checkout"
-caps_at=$(t_calls docker | grep -n -F -e "run --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
+caps_at=$(t_calls docker | grep -n -F -e "run --pull=never --rm --init $image $runner --capabilities" | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e " $runner lens-review " | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$caps_at" ] && [ -n "$run_at" ] && [ "$caps_at" -lt "$run_at" ] && echo before)" before
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-review' | cut -d: -f1 | head -n 1)
@@ -1114,7 +1115,7 @@ t_eq "$([ -e "$tree" ] && echo left)" ""
 
 # A docker that does not answer must not be the last thing a run does. The two
 # stops of the timeout path and the sweep of a name left behind are all
-# bounded, as libexec/work bounds its own: a wedged dockerd is then reported
+# bounded, as tehas work bounds its own: a wedged dockerd is then reported
 # and the run ends, which is what "it ran out of time" has to mean.
 t_case "a docker stop that never ends is bounded, and the run still ends with 2"
 reset

@@ -232,15 +232,24 @@ pub enum Refusal {
     Fragment(String),
 }
 
+/// The only line with text says "None.": an action with nothing to do.
+fn only_none<S: AsRef<str>>(lines: &[S]) -> bool {
+    let mut text = lines.iter().map(AsRef::as_ref).filter(|x| !blank(x));
+    text.next().is_some_and(|x| is_heading(x, "None.")) && text.next().is_none()
+}
+
 /// The changelog `text` with the fragments' lines in the section `name`, its
 /// lines ending in one newline. `fragments` are (path, text), in order.
 pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result<String, Refusal> {
     let mut changes: Vec<String> = Vec::new();
     let mut actions: Vec<String> = Vec::new();
+    let mut none = false;
     for (path, t) in fragments {
         let f = read_fragment(path, t).map_err(Refusal::Fragment)?;
         changes.extend(f.changes);
-        if !f.action.is_empty() {
+        if only_none(&f.action) {
+            none = true;
+        } else if !f.action.is_empty() {
             actions.push(f.action.join("\n"));
         }
     }
@@ -287,7 +296,13 @@ pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result
     let mut before: Vec<(usize, String)> = Vec::new();
     let mut drop = None;
     let c = changes.join("\n");
-    let a = actions.join("\n\n");
+    // A fragment's "None." says nothing beside another action, but a section
+    // without one still needs it.
+    let a = if actions.is_empty() && none && ad.is_none_or(|h| last(h) == h) {
+        "None.".to_string()
+    } else {
+        actions.join("\n\n")
+    };
     if !c.is_empty() {
         match (ch, sub1) {
             (Some(h), _) => {
@@ -303,8 +318,7 @@ pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result
         match ad {
             Some(h) => {
                 let at = last(h);
-                let lines: Vec<&str> = (h + 1..=at).map(|i| l[i]).filter(|x| !blank(x)).collect();
-                if lines.len() == 1 && is_heading(lines[0], "None.") {
+                if only_none(&l[h + 1..=at]) {
                     drop = Some(at);
                     after.push((at, a));
                 } else {
@@ -315,6 +329,28 @@ pub fn collect(text: &str, name: &str, fragments: &[(String, String)]) -> Result
         }
     }
     Ok(join(&l, &before, &after, drop))
+}
+
+/// The changelog with its Unreleased section named `version (date)`, as a
+/// release's section is, and a new, empty Unreleased above it. None when it
+/// has no Unreleased section. A prerelease after the release reads what is
+/// new from the empty Unreleased, so everything in it then is new.
+pub fn name_release(text: &str, version: &str, date: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut done = false;
+    for line in text.split_inclusive('\n') {
+        let heading = line.trim_end_matches('\n');
+        let unreleased = heading
+            .strip_prefix("## Unreleased")
+            .is_some_and(|r| r.is_empty() || r.starts_with(' '));
+        if unreleased && !done {
+            out += &format!("## Unreleased\n\n## {version} ({date})\n");
+            done = true;
+        } else {
+            out += line;
+        }
+    }
+    done.then_some(out)
 }
 
 fn join(

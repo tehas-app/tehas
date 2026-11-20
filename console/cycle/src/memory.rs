@@ -219,6 +219,7 @@ impl InImage {
     pub fn argv(&self, cycle: &str, planned: &Planned, repo: &str) -> Vec<String> {
         let mut argv: Vec<String> = [
             "run",
+            tehas_core::sandbox::NEVER_PULL,
             "--rm",
             "--network=none",
             "--cap-drop=ALL",
@@ -497,6 +498,7 @@ mod tests {
             i.argv("job-7", &p, REPO),
             args(&[
                 "run",
+                "--pull=never",
                 "--rm",
                 "--network=none",
                 "--cap-drop=ALL",

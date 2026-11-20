@@ -103,13 +103,33 @@ for args in "set" "set --cycles" "set --cycles -1" "set --cycles 1.5" "set --cyc
   "set --cycles 1 --cycles 2" "set --cycles 1 --plan maybe" "set --cycles 1 --for 0" "set --cycles 1 --for 5s" \
   "set --cycles 1 --for 60 --until $(in_secs 600)" "set --cycles 1 --until tomorrow" \
   "set --cycles 1 --until $(in_secs -60)" "set --cycles 1 --bogus" "set --cycles 1 extra" \
-  "clear now" "--json extra" "bogus" "--jsn"; do
+  "clear now" "clear --json" "set --json --cycles 2" "set --cycles 2 --json" \
+  "--json extra" "bogus" "--jsn"; do
   reset
   t_run "$limit $args"
   [ "$t_rc" = 64 ] || t_bad "'$args' exited $t_rc, not 64"
   [ ! -e "$file" ] || t_bad "'$args' wrote $file"
 done
 t_contains "$t_out" "usage: tehas limit"
+
+t_case "a limit file that cannot be written or removed is exit 1, and says why"
+reset
+rm -rf "$T/home/tehas/state"
+: >"$T/home/tehas/state"
+t_run "$limit set --cycles 1"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas limit: could not create"
+reset
+mkdir -p "$file/in-the-way"
+t_run "$limit clear"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas limit: could not remove"
+
+t_case "set takes no --json, so --json after --reason is the reason"
+reset
+t_run "$limit set --cycles 1 --reason --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .reason "$file")" "--json"
 
 t_case "an expired limit is read as expired, and says nothing starts"
 reset

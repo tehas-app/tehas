@@ -2,8 +2,9 @@
 # Tests for .github/workflows/release.yml: its first step, that the tagged
 # commit is on main and the account that pushed the tag is an admin of the
 # repository, and the clean hosted runner it runs on, which gets every tool
-# from the job's own steps. The steps' own scripts run here against scratch
-# repositories and trees, with curl stubbed. Nothing here reaches the network.
+# from the job's own steps, and the notes its publish step takes. The steps'
+# own scripts run here against scratch repositories and trees, with curl
+# stubbed. Nothing here reaches the network.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -252,5 +253,36 @@ done
 t_contains "$(cat "$workflow")" 'prerelease: $pre}'
 # shellcheck disable=SC2016  # the workflow's own text, not to expand here
 t_contains "$(cat "$workflow")" '\"make_latest\": \"$latest\"'
+
+# The publish step in a tree of its own: scripts/release-notes.sh, which execs
+# the xtask of this checkout, and a CHANGELOG.md whose Unreleased section is
+# the only one with text. curl records what it is asked and answers a release.
+t_xtask || t_bad "no xtask: $t_xtask_why"
+step 'publish the release' >"$T/publish.sh"
+mkdir -p "$T/pub/scripts" "$T/pub/dist"
+cp "$T_ROOT/scripts/release-notes.sh" "$T/pub/scripts/"
+printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Changes' '' '- every change since the last release' '' \
+  '## v1.0.0-rc.1 (2026-11-19)' '' '### Changes' '' '- the candidate' >"$T/pub/CHANGELOG.md"
+# shellcheck disable=SC2016  # the stub's own variables
+publish_curl='echo "$*" >>"$T/curl.args"; echo "{\"id\": 7, \"html_url\": \"https://example.invalid/r\"}"'
+publish() {
+  rm -f "$T/curl.args"
+  t_stub curl "$publish_curl"
+  t_run "cd '$T/pub' && TAG=$1 DIST='$T/pub/dist' GH_TOKEN=x REPO=acme/widget bash -eo pipefail '$T/publish.sh'"
+}
+
+t_case "a release without a section of its own is not published with Unreleased in its place"
+t_lacks "$(cat "$T/publish.sh")" 'release-notes.sh Unreleased'
+publish v1.0.0
+t_eq "$t_rc" 1
+t_contains "$t_out" "no section for v1.0.0"
+t_contains "$t_out" "no release notes for v1.0.0, as said above; nothing was published"
+t_eq "$(cat "$T/curl.args" 2>/dev/null)" ""
+
+t_case "a tag with a section of its own is published with it"
+publish v1.0.0-rc.1
+t_eq "$t_rc" 0
+t_contains "$(cat "$T/curl.args")" '"body": "### Changes\n\n- the candidate"'
+t_lacks "$(cat "$T/curl.args")" "every change since the last release"
 
 t_done

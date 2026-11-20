@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: how the runner's end is reported, from its exit
+# Tests for tehas work: how the runner's end is reported, from its exit
 # status, its result and its progress.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
