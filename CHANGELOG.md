@@ -19,14 +19,23 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.1.0 (2026-11-20)
+
+### Highlights
+
+- **Solid 2 front-end kit.** `host/fun/kit/` (`kit 1`) carries Solid 2 as one vendored module, with no build step, plus islands, feeds, streams, presses and shared parts. The dashboard at `/dashboard` is now drawn by Solid islands on it and looks the same. `host/docs/frontend.md` describes the kit, and programs that build on it copy it whole at a tehas tag.
+- **Releases pin pi-rukas and pi.** A release's `host/versions.env` ends with `PI_RUKAS_FOLLOW=commit:<sha>`, the pi-rukas commit its release gate built against, so every install of a release gets the same pi-rukas. pi stays exact at 1.5.2 with its lockfile. An install from a checkout still follows the newest pi-rukas release of its line.
+- **Node 26.** The pinned Node moves from 22.23.5 to 26.13.1, the current LTS line, on the host and in the sandbox image, where a product's tests run too. Run `./bootstrap.sh user` after the update, and see the Adopter action.
+- **Proofs on the release gate.** Kani proves the label grant decision, retries, the slice arithmetic, the zip path rule and placement on every release. It found and fixed an overflow in the memory a large `TEHAS_CYCLE_RESERVE` reports.
+- **Factory API.** `versions.rukas.latest` now names the release a pinned commit is. The API is otherwise unchanged.
+
 ### Changes
 
 - A `TEHAS_CYCLE_RESERVE` too large for the slice, such as `999999999g` with five or more containers, no longer overflows the memory the message says the host needs: it says the host needs more memory than any host has (#2446).
-- The pinned Node moves from 22.23.5 to 26.13.1, the current LTS line. Node 22 leaves support on 2027-04-30. Pi, ctx7 and parallel-cli run on it unchanged.
-- A release now pins the exact pi-rukas commit it was released with, so installing or updating to that release always gets the same pi-rukas. Its `host/versions.env` ends with `PI_RUKAS_FOLLOW=commit:<sha>`, the commit `release:0` named when the release was packed. The release workflow's log names the commit and its version. If upstream cannot be asked, the release is not published.
-- An install from a checkout still follows the newest pi-rukas release on the line, `PI_RUKAS_FOLLOW=release:0`, as before.
-- pi is pinned at an exact version in both, 1.5.2 today, with its lockfile in `host/npm/pi/`.
-- An instance that sets `PI_RUKAS_FOLLOW` in `instance.env` still wins for its sandbox image, as before, for example `release:0` to keep following the newest pi-rukas on a host installed from releases.
+- The pinned Node moves from 22.23.5 to 26.13.1, the current LTS line. Node 22 leaves support on 2027-04-30. Pi, ctx7 and parallel-cli run on it unchanged. The sandbox image is built with the same Node, so a product's tests in a cycle run on Node 26 too (#2607 lets a product choose its own).
+- A release now pins the exact pi-rukas commit its release gate built against, so installing or updating to that release always gets the same pi-rukas. Its `host/versions.env` ends with `PI_RUKAS_FOLLOW=commit:<sha>`. `scripts/tag-release.sh` names the commit before the gate and again after it, refuses to tag when upstream released in between, and writes the commit in the tag; the release workflow packs that commit and logs it with its version. A tag that names none is not published. (v1.1.0-beta.1 looked the commit up when it was packed.)
+- An install from a checkout still follows the newest pi-rukas release on the line, `PI_RUKAS_FOLLOW=release:0`, as before. pi stays pinned at an exact version, 1.5.2, with its lockfile in `host/npm/pi/`, as in 1.0.
+- An instance that sets `PI_RUKAS_FOLLOW` in `instance.env` still wins for its sandbox image, as before. `bootstrap.sh` does not read it and keeps the host's clone on the release's pin (#2603).
 - The front end's kit, `host/fun/kit/` (`kit 1`), now carries Solid 2 as one vendored module, `kit/vendor/solid.js` (solid-js 2.0.3, @solidjs/web 2.0.3, @solidjs/signals 2.0.3, @solidjs/html 2.0.1, MIT), with the island base, the feed store, page stores shared by the islands of a page, and shared parts. `host/docs/frontend.md` describes the split, the island contract and the Solid 2 rules.
 - The plain dashboard at `/dashboard` is drawn by Solid islands on the kit (`host/fun/factory/`), one per section, with the same markup and look. The server HTML stands until each island mounts, and every island that reads a `/live/` file shares one poll of it. The times beside the issues, the queue and the list of previews show: they were empty before. The age of the host's snapshot is judged by the server's clock, as before.
 - The kit's feeds can send request headers and credentials, read text, take a status such as a deliberate 404 as data, and give the last answer's status, chosen headers and the server's `Date`. The kit adds a stream source for server-sent events and NDJSON over fetch, which sends headers and connects again with a backoff, and a press for posts run inside Solid's `action()` with an optimistic value. `host/docs/frontend.md` has a section on moving a hand-written client onto them.
@@ -37,10 +46,15 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - An install no longer copies or sweeps through a symbolic link in `~/tehas/fun`, `~/tehas/docs` or the checkout's `host/fun` and `host/docs`, or over a name that is a directory on one side and a file on the other: it stops before it installs anything and names the path. A directory there that the checkout does not have is kept, and the install says `tehas: kept <dir>`. A file there that the checkout does not have is removed, as before, now in its folders too.
 - An install copies the dashboard's pages after the files they name, so one that fails partway leaves the old pages working.
 - `tools/vendor-solid` keeps the `kit <n>` line the kit's `MANIFEST` already has.
+- A stream of the front-end kit takes `broken: "end"`: a stream that breaks after it opened waits as after a clean end, and only failed connects make the wait grow. A page that read its own stream this way, such as a ticket page, keeps its old waits. A stream without it behaves as before.
+- A stream of the front-end kit no longer waits longer than its `max` before it asks again. A server's `retry:` field or an `ended` above a `max` given made it wait that long after a clean end or, with `broken: "end"`, after a break.
+- `tehas status`, the factory API and the dashboard name the pi-rukas release a pinned commit is (`versions.rukas.latest`), where a host installed from a release showed nothing.
 
 ### Adopter action
 
-After the update, run `./bootstrap.sh user` (the update's `later:` line says so): it replaces Node in `~/tehas/tools/node` and reinstalls the npm tools against it.
+After the update, run `./bootstrap.sh user` (the update's `later:` line says so): it replaces Node in `~/tehas/tools/node`. The npm tools stay as they are; none has a native part that needs a rebuild.
+
+The sandbox image is rebuilt on Node 26, and a product's tests run on it. A test that depends on Node 22's behaviour or error text may fail, and `tehas setup` then stops at `check-product --sandbox` with exit 3: on one product, a test matched the old wording of the error `localStorage` gives. Fix the test, and run `tehas setup` again. Node 26 no longer ships corepack: a `sandbox.Dockerfile` that runs `corepack enable` installs yarn or pnpm itself.
 
 If `~/tehas/fun` or `~/tehas/docs`, or anything in them, is a symbolic link, replace it with a directory or file of its own before you update: the install refuses to go on while it is there. Move any file of your own out of `~/tehas/fun/kit/` and `~/tehas/fun/factory/` too: the install now syncs those folders and removes what the release does not have.
 
