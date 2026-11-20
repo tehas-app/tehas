@@ -774,8 +774,13 @@ mod tests {
             &["tehas", "index", "--now"],
             &["tehas", "index", "--before-cycle", "x"],
             &["tehasbot", "cycle"],
+            &["tehasbot", "cycle", ""],
+            &["tehasbot", "cycle", "abc"],
+            &["tehasbot", "cycle", "07"],
             &["tehasbot", "cycle", "0"],
             &["tehasbot", "cycle", "7", "8"],
+            &["tehasbot", "cycle", "7x"],
+            &["tehasbot", "cycle", "-7"],
         ] {
             assert_eq!(check(&words(bad)), 64, "{bad:?}");
         }
