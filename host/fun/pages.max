@@ -8,12 +8,12 @@
 #   library solid <bytes>    the kit's Solid, counted here and in no page
 page business 99084 40524
 page floor 144291 68492
-page dashboard 79440 53988
+page dashboard 75467 53988
 page manual 0 49838
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4686
 island factory/parts 847
-island factory/tehas-factory-host 4008
+island factory/tehas-factory-host 4410
 island factory/tehas-factory-issues 3728
 island factory/tehas-factory-previews 4071
 island factory/tehas-factory-readonly 2877
