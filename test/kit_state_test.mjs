@@ -80,6 +80,33 @@ test("a second definition of a name with other actions is refused", () => {
   });
 });
 
+test("a second definition whose actions read the state while made gets the store", () => {
+  // The actions of both read the state as they are made, as a store that
+  // keeps a count from its start does. The second one is compared with the
+  // first by its actions' names, made against the store's own state.
+  const spec = () => ({
+    state: () => ({ items: [3] }),
+    actions: (set, state) => {
+      const start = state.items.length;
+      return { add() { set((d) => { d.items.push(start); }); } };
+    },
+  });
+  const one = pageStore("counted", spec());
+  const two = pageStore("counted", spec());
+  createRoot(() => {
+    const store = one();
+    assert.equal(two(), store);
+    store.actions.add();
+    flush();
+    assert.deepEqual([...store.state.items], [3, 1]);
+  });
+  const other = pageStore("counted", {
+    state: () => ({ items: [] }),
+    actions: (set, state) => ({ [`drop${state.items.length}`]() {} }),
+  });
+  createRoot(() => assert.throws(() => other(), /defined twice/));
+});
+
 test("shared() makes a value once per key, and resetPage() disposes it", () => {
   let made = 0;
   const one = shared("k", () => ++made);

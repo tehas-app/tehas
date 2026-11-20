@@ -45,7 +45,7 @@ export function resetPage() {
   for (const key of [...made.keys()]) release(key);
 }
 
-const actionNames = (spec) => Object.keys(spec.actions(() => {}, {})).sort().join();
+const names = (actions) => Object.keys(actions).sort().join();
 
 /**
  * A named page store. Returns `use()`, which gives `{ state, actions }`: the
@@ -65,7 +65,8 @@ export function pageStore(name, spec) {
       const actions = Object.freeze(spec.actions(set, state));
       return { spec, store: Object.freeze({ state, actions }) };
     });
-    if (entry.spec !== spec && actionNames(entry.spec) !== actionNames(spec)) {
+    // Made against the store's state, which actions may read as they are made.
+    if (entry.spec !== spec && names(entry.store.actions) !== names(spec.actions(() => {}, entry.store.state))) {
       throw new Error(`page store ${name} is defined twice with other actions`);
     }
     return entry.store;
