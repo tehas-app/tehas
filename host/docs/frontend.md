@@ -908,9 +908,9 @@ The budgets for new work:
   `TEHAS_TSC` names the `tsc`; otherwise one on `PATH` of that version is
   used. With neither the test says `SKIPPED` on stderr and passes, except
   when `CI` or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it
-  fails, as a missing shellcheck fails the shell tests. The gate's workflows install npm's
-  `@typescript/typescript-linux-x64` 7.0.2, checked by its sha256 on every run, and name
-  it. By hand, in `console/`:
+  fails, as a missing shellcheck fails the shell tests. The gate's workflows
+  install npm's `@typescript/typescript-linux-x64` 7.0.2, checked by its
+  sha256 on every run, and name it. By hand, in `console/`:
   `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
