@@ -836,9 +836,11 @@ rules of
 that grows a page raises its line in the same change, and that raise is a
 person's call, said in the pull request, as with the bash ceiling.
 
-The owner approved two lines on 2026-11-20: `library solid 123689`, the kit's
-Solid as `tools/vendor-solid` bundles it, and `page dashboard 83939 53988`,
-the dashboard's script at 83939 bytes on the kit.
+The owner approved three lines on 2026-11-20: `library solid 123689`, the
+kit's Solid as `tools/vendor-solid` bundles it, `page dashboard 83939 53988`,
+the dashboard's script at 83939 bytes on the kit, and then
+`page dashboard 88935 53988`, the dashboard's script with the kit's JSDoc
+types.
 
 The budgets for new work:
 
