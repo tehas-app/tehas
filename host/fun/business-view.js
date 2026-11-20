@@ -62,7 +62,7 @@ function labItems(lab, base) {
   return list(obj(lab).tickets).map((t) => {
     const item = ticket(t);
     if (!item) return null;
-    const own = typeof t.address === "string" && /^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address) ? t.address : null;
+    const own = typeof t.address === "string" && /^https:\/\/lab-[1-9][0-9]{0,8}[.-][a-z0-9.-]+\/$/.test(t.address) ? t.address : null;
     return { ...item, url: own || (base ? `${base}/${item.number}/` : item.url) };
   }).filter(Boolean);
 }

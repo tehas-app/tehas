@@ -89,7 +89,12 @@ pub fn run() -> u8 {
         work,
         repo,
         allowed,
-        domain: setting("TEHAS_DOMAIN"),
+        // What follows a ticket's label: .<domain>, or -<domain> one level
+        // deep (TEHAS_EDGE_ONE_LEVEL); empty with no domain.
+        domain: tehas_core::settings::edge_suffix(
+            &setting("TEHAS_DOMAIN"),
+            setting("TEHAS_EDGE_ONE_LEVEL") == "1",
+        ),
         url: setting("TEHAS_PROTOLAB_URL"),
         design: setting("TEHAS_DESIGN"),
         token: String::new(),

@@ -10,7 +10,7 @@ const STATES = {
   "no-space": "unable to create",
   "over-limit": "over the limit of previews",
 };
-const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/;
+const ADDRESS = /^https:\/\/uat-([1-9][0-9]{0,8}|main)[.-][a-z0-9.-]+\/$/;
 
 // What a preview that does not serve says about itself: the state, and the
 // reason the run wrote into its state file, which tells a refused volume from
