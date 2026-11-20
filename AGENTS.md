@@ -59,12 +59,14 @@ when a person pulls and runs `install.sh` there.
 5. **Authorisation is who applied the label.** The dispatcher reads the label
    events and compares the account with the allowed list. Do not replace that
    with a check that the label is present.
-6. **Tests first.** Every behaviour change comes with a case in `test/`, or
-   in the Rust tests beside the source for Rust code. The gate needs bash,
-   git, jq, shellcheck and cargo: no network, no sandbox image, no product
-   checkout. Stub the outside world with `t_stub`. A shell test may call a
-   program of the workspace; build it once per run in `test/lib.sh`, not once
-   per case.
+6. **Tests first.** Every behaviour change comes with a test. A behaviour of
+   Rust code is tested in Rust, beside the source or in the crate's
+   `tests/`. Shell tests in `test/` are for what is bash: install, bootstrap,
+   `lib/config.sh`, `bin/`, `libexec/` and the glue between commands. A shell
+   test may call a program of the workspace where the point is the bash
+   around it; build it once per run in `test/lib.sh`, not once per case. The
+   gate needs bash, git, jq, shellcheck and cargo: no network, no sandbox
+   image, no product checkout. Stub the outside world, with `t_stub` in shell.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
    gate is wrong, say so in your handoff.
@@ -95,6 +97,9 @@ when a person pulls and runs `install.sh` there.
   bash to Rust lowers the ceiling to the new count. A raise is a person's
   call: its pull request says why the logic cannot go into Rust now and
   names the issue that takes the lines out again.
+- The shell of `test/` has a ceiling too, `scripts/test-lines.max`, checked
+  the same way. A change that moves shell tests to Rust lowers it to the new
+  count; a raise is a person's call.
 - Keep jq to a minimum too. Do not add a jq program where the logic can live
   in Rust, and when you touch one that holds logic, consider moving it into
   Rust.

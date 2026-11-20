@@ -3,7 +3,8 @@
 #
 #   scripts/verify.sh          the lint for the names of particular
 #                              installations and private addresses, the
-#                              ceiling on bash lines, shellcheck,
+#                              ceilings on bash lines and on the shell
+#                              of test/, shellcheck,
 #                              every shell test, the tests of the cargo
 #                              workspace, its format and lints (rustfmt,
 #                              clippy) and, where node is installed, the
@@ -217,6 +218,7 @@ fi
 
 step "the names in platform files" scripts/check-generic.sh
 step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-lines.sh
+step "the shell of test/ under its ceiling (scripts/test-lines.max)" scripts/check-test-lines.sh
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
 else
