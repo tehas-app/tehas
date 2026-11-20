@@ -349,7 +349,7 @@ impl Copier {
             let is_dir = fs::symlink_metadata(&to).is_ok_and(|m| m.is_dir());
             if is_dir && !from_dir.join(&file).exists() {
                 fault(&format!(
-                    "kept {}: this checkout has no such directory, and a directory is never removed",
+                    "kept {}: this checkout has no such directory, and an install removes none: if a release dropped it, remove it by hand",
                     to.display()
                 ));
                 continue;
