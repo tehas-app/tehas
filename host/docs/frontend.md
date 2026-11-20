@@ -332,10 +332,13 @@ live.reconnect();  // drop the connection and connect now
 - `state()`, `error()` and `status()` are signals. A dropped connection, a
   status that is not 2xx and an answer that does not come in 30 s are
   errors: the state is `"error"` and it connects again after a wait that
-  starts at `retry` (1000 ms; an SSE `retry:` field sets it) and doubles up to
-  `max` (30000 ms). An answer that opens resets the wait. A stream the server
-  ends is asked for again. An SSE stream sends `Last-Event-ID` when it
-  connects again.
+  starts at `retry` (1000 ms) and doubles up to `max` (30000 ms). An SSE
+  `retry:` field sets the first wait, no shorter than `retry` and no longer
+  than `max`. An answer that opens resets the wait. A stream the server ends
+  is asked for again. An SSE stream sends `Last-Event-ID` when it connects
+  again: the `id:` of the last event it dispatched, so an event cut off
+  before its blank line is asked for again. An event the stream ends in the
+  middle of is dropped, as an `EventSource` drops it.
 - A 204 answer stops it, as it stops an `EventSource`: the state is
   `"closed"` until `reconnect()`.
 - While the page is hidden an open connection stays, and a reconnect that
