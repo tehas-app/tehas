@@ -276,7 +276,7 @@ group. What a member can and cannot do is on [The host](/host).
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
 | `codebase-memory-mcp`             | `~/.local/bin`                         | Its installer, pinned release |
-| pi-rukas                          | `~/tehas/repos/pi-rukas`, the commit `PI_RUKAS_FOLLOW` names (from a checkout the newest tag of the line in `versions.env`, from a release the commit it pinned) | Its repository, then its `install.sh` |
+| pi-rukas                          | `~/tehas/repos/pi-rukas`, the commit `PI_RUKAS_FOLLOW` names (the instance's in `instance.env`; else from a checkout the newest tag of the line in `versions.env`, from a release the commit it pinned) | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The directories it makes under the home are `bin/`, `tools/`,
@@ -320,9 +320,15 @@ again` and finishes, and `check` reports pi-rukas as `after install.sh`. Run
 pi-rukas comes from the repository named in `versions.env`, at the commit
 `PI_RUKAS_FOLLOW` names: from a checkout, the newest tag of the line
 `versions.env` gives; from a release, the commit the release pinned. An
-instance's `PI_RUKAS_FOLLOW` in `instance.env` is not read here: it picks the
-sandbox image's pi-rukas, not the clone's. Each run moves the clone to that
-commit,
+instance that sets `PI_RUKAS_FOLLOW` in `instance.env` wins, as it does for the
+sandbox image, so the clone and the image follow one pi-rukas. `user` and
+`check` load the instance's settings the way every command does, once a console
+is there to load them: from `TEHAS_INSTANCE_DIR`, else
+`~/.config/tehas/instance-dir`, else `~/.config/tehas`, as the account that runs
+them sees it. Settings that do not load stop `user` and `check` with 78 before
+anything is installed. With no console yet the instance is not read, and
+pi-rukas waits for `install.sh` anyway. `root`, `slice`, `dev` and `clock` never
+read it. Each run moves the clone to that commit,
 and `check` reports a clone behind it as `DIFFERS`. A clone already on the
 host is pointed at that repository before it is fetched. The clone is only a
 copy of upstream, so its tags follow upstream and the fetch takes them by force:

@@ -487,9 +487,11 @@ commit can move with no `versions.env` to copy; a release pins one commit,
 which moves only with the next release. `tehas update` prints the same line, once per run, when
 the commit the sandbox image was built on is not the commit the host's clone in
 `~/tehas/repos/pi-rukas` is on: the image moves to what is followed, the clone
-moves only when you run the line. It reads the image's `tehas.rukas` label and
-the clone's `HEAD`, and says nothing where either has no answer, so a host with
-no clone or an image with no label is left as it was.
+moves only when you run the line. Both follow the same `PI_RUKAS_FOLLOW`, the
+instance's when it sets one, so once `bootstrap.sh user` has run the clone is on
+the image's commit and the line is not printed again. It reads the image's
+`tehas.rukas` label and the clone's `HEAD`, and says nothing where either has no
+answer, so a host with no clone or an image with no label is left as it was.
 
 Each file is copied to `<name>.new` beside the installed one and renamed over
 it. A cycle that starts during an install runs the old file or the new one,
@@ -1897,11 +1899,11 @@ commit a host follows:
 - `commit:<40 hex>`: that commit, asked of no one, for a host that must keep one
   pi-rukas. A commit that is not 40 lower-case hex digits is refused with 78.
 
-For the sandbox build, any of these may go in the instance's `instance.env`, where
-it wins over the line in `versions.env`.
+Any of these may go in the instance's `instance.env`, where it wins over the
+line in `versions.env` for the sandbox build and for the host's clone, which
+`bootstrap.sh user` moves.
 An instance that sets none follows the line its tehas was shipped with. A load checks `PI_RUKAS_FOLLOW` when the
-settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
-`versions.env`.
+settings load and stops the command with 78 naming it.
 
 One reading of these values serves the sandbox build, `bootstrap.sh`,
 `tehasbot clean` and the release script: the console's, `console rukas target
@@ -1970,7 +1972,7 @@ On a host installed from a checkout, that holds until the next `tehas
 update`, which builds the followed commit again: hold off updates until
 upstream tags a fix. A host installed from a release stays on the commit the
 release pinned. On either, `PI_RUKAS_FOLLOW` in `instance.env` wins for the
-sandbox image: `branch:<name>` for a branch whose head is the commit you want,
+sandbox image and the host's clone: `branch:<name>` for a branch whose head is the commit you want,
 or `commit:<sha>` for one commit.
 
 No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
