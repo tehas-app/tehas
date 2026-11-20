@@ -9,8 +9,11 @@
 //! that event is an application (`events::standing_actor`, `standing`) and
 //! whether that account is allowed (`events::allowed_in`). `grant` is those
 //! steps in one, over a timeline in order. The poll does not call it: the
-//! proofs below are about `grant`, about the steps the poll takes, and that
-//! the two agree. A label taken off since it was applied grants nothing,
+//! proofs below are about `grant`, and show that `grant` and the helpers it
+//! shares with the poll (`standing`, `account_of`) agree. The poll's text
+//! path, vouch's renamed name and the pins' empty login, is held by the unit
+//! tests `a_doubted_name_is_on_no_list_of_logins` and
+//! `nobody_is_on_no_list_of_logins`. A label taken off since it was applied grants nothing,
 //! whatever the issue's own labels or the guard of a page
 //! (read::github::dropped_events) say.
 //!
