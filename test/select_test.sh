@@ -275,8 +275,8 @@ mkdir -p "$repo/console/dispatch/src"
 echo "// x" >"$repo/console/dispatch/src/poll.rs"
 t_run "cd '$repo' && bash scripts/verify.sh --changed"
 t_eq "$t_rc" 0
-t_contains "$t_out" "ok    the tests of store tehas-dispatch"
-t_eq "$(cat "$T/cargo-args")" "test --locked --quiet --manifest-path console/Cargo.toml -p store -p tehas-dispatch"
+t_contains "$t_out" "ok    the tests of console store tehas-dispatch"
+t_eq "$(cat "$T/cargo-args")" "test --locked --quiet --manifest-path console/Cargo.toml -p console -p store -p tehas-dispatch"
 
 t_case "verify.sh --changed fails when a crate's tests fail"
 gitrepo
