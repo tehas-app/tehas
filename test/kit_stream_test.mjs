@@ -59,7 +59,11 @@ beforeEach(() => {
     const a = answer(src, init);
     calls.push({ src, init, a });
     if (a instanceof Error) throw a;
-    if (a.body) return { ok: true, status: 200, body: a.body };
+    const headers = new Headers(a.type ? { "Content-Type": a.type } : {});
+    if (a.body) {
+      const status = a.status ?? 200;
+      return { ok: status < 300, status, statusText: a.statusText ?? "", headers, body: a.body };
+    }
     return { ok: a.status < 300, status: a.status, statusText: a.statusText ?? "" };
   };
   mock.timers.enable({ apis: ["setTimeout"] });
@@ -346,4 +350,156 @@ test("an answer that does not come in 30 s is an error and is asked again", asyn
 
 test("a stream outside an island's root is refused", () => {
   assert.throws(() => stream("/api/events"), /inside an island's root/);
+});
+
+// An answer with a body the stream does not read as events.
+function refused(status, body, type = "application/json") {
+  const p = pipe();
+  if (body !== undefined) p.push(body);
+  p.end();
+  return { status, statusText: "", body: p.body, type };
+}
+
+test("a refused answer's error carries its body, as JSON or as text", async () => {
+  answer = () => refused(503, '{"error":"The board is resting."}');
+  const r = reader("/api/events");
+  await settle();
+  assert.equal(r.live.state(), "error");
+  assert.equal(r.live.error().name, "StreamError");
+  assert.equal(r.live.error().status, 503);
+  assert.deepEqual(r.live.error().data, { error: "The board is resting." });
+  answer = () => refused(502, "<p>Bad gateway</p>", "text/html");
+  await after(1000);
+  assert.equal(r.live.error().data, "<p>Bad gateway</p>");
+});
+
+test("a refused answer's body is cut at 64 KiB", async () => {
+  answer = () => refused(500, "x".repeat(70000), "text/plain");
+  const r = reader("/api/events");
+  await settle();
+  assert.equal(r.live.error().data.length, 65536);
+});
+
+test("end lists the statuses that end the stream for good", async () => {
+  answer = () => refused(401, '{"error":"Sign in."}');
+  const r = reader("/api/events", { end: [401, 403] });
+  await settle();
+  assert.equal(r.live.state(), "closed");
+  assert.equal(r.live.status(), 401);
+  assert.deepEqual(r.live.error().data, { error: "Sign in." });
+  await after(60000);
+  assert.equal(calls.length, 1);
+  answer = () => pipe();
+  r.live.reconnect();
+  await settle();
+  assert.equal(r.live.state(), "open");
+});
+
+test("a status end does not list is asked again as before", async () => {
+  answer = () => refused(503, "");
+  const r = reader("/api/events", { end: [401] });
+  await settle();
+  assert.equal(r.live.state(), "error");
+  await after(1000);
+  assert.equal(calls.length, 2);
+});
+
+test("end as a function ends on any status or content type it refuses, as an EventSource does", async () => {
+  const eventSource = (status, type) => status !== 200 || type !== "text/event-stream";
+  answer = () => refused(200, "<html></html>", "text/html; charset=utf-8");
+  const a = reader("/api/a", { end: eventSource });
+  answer = () => refused(500, "down", "text/plain");
+  const b = reader("/api/b", { end: eventSource });
+  answer = () => {
+    const p = pipe();
+    p.type = "text/event-stream; charset=utf-8";
+    return p;
+  };
+  const c = reader("/api/c", { end: eventSource });
+  await settle();
+  assert.equal(a.live.state(), "closed");
+  assert.equal(a.live.error().data, "<html></html>");
+  assert.equal(b.live.state(), "closed");
+  assert.equal(b.live.status(), 500);
+  assert.equal(c.live.state(), "open");
+  await after(60000);
+  assert.equal(calls.length, 3);
+});
+
+test("grow fixed keeps the first wait, up to max", async () => {
+  answer = () => new Error("offline");
+  reader("/api/events", { retry: 3000, grow: "fixed" });
+  await settle();
+  await after(3000);
+  await after(3000);
+  await after(3000);
+  assert.equal(calls.length, 4);
+});
+
+test("the waits a page had: 2 s, then 4 s, and 1 s after a clean end", async () => {
+  answer = () => ({ status: 503 });
+  reader("/api/events", { retry: 2000, ended: 1000 });
+  await settle();
+  await after(1999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2);
+  await after(3999);
+  assert.equal(calls.length, 2);
+  answer = () => pipe();
+  await after(1);
+  assert.equal(calls.length, 3);
+  calls[2].a.end();
+  await settle();
+  await after(999);
+  assert.equal(calls.length, 3);
+  await after(1);
+  assert.equal(calls.length, 4);
+});
+
+test("ended 0 asks again at once after a clean end, and a failure still backs off", async () => {
+  reader("/api/events", { ended: 0 });
+  await settle();
+  calls[0].a.end();
+  await settle();
+  await after(0);
+  assert.equal(calls.length, 2);
+  answer = () => ({ status: 503 });
+  calls[1].a.end();
+  await settle();
+  await after(0);
+  assert.equal(calls.length, 3);
+  await after(1999);
+  assert.equal(calls.length, 3, "the failure after a clean end waits the second step");
+  await after(1);
+  assert.equal(calls.length, 4);
+});
+
+test("hidden live asks again while the page is hidden", async () => {
+  const r = reader("/api/events", { hidden: "live" });
+  await settle();
+  setHidden(true);
+  await settle();
+  calls[0].a.end();
+  await settle();
+  await after(1000);
+  assert.equal(calls.length, 2);
+  assert.equal(r.live.state(), "open");
+});
+
+test("hidden live connects on a page that starts hidden", async () => {
+  setHidden(true);
+  const r = reader("/api/events", { hidden: "live" });
+  await settle();
+  assert.equal(calls.length, 1);
+  assert.equal(r.live.state(), "open");
+});
+
+test("the new options make a connection of their own", async () => {
+  const a = reader("/api/events");
+  const b = reader("/api/events", { end: [401] });
+  const c = reader("/api/events", { grow: "fixed" });
+  const d = reader("/api/events", { ended: 0 });
+  await settle();
+  assert.equal(new Set([a.live, b.live, c.live, d.live]).size, 4);
 });

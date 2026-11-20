@@ -371,14 +371,50 @@ live.reconnect();  // drop the connection and connect now
   middle of is dropped, as an `EventSource` drops it.
 - A 204 answer stops it, as it stops an `EventSource`: the state is
   `"closed"` until `reconnect()`.
+- The error of an answer the stream did not read is a `StreamError` with
+  `status` and the body as `data`: parsed when it is JSON, else text, cut at
+  64 KiB. A `PressError` carries a body the same way.
 - While the page is hidden an open connection stays, and a reconnect that
   falls due waits until the page shows. With `hidden: "close"` the connection
-  closes while the page is hidden and opens again when it shows.
+  closes while the page is hidden and opens again when it shows. With
+  `hidden: "live"` it connects again while hidden too, as an `EventSource`
+  does.
 - `headers` is an object or a function read on each connect, so a session
   that changes is sent on the next one. Define the function once per page
   ([Request headers](#request-headers)): it is part of the connection's key.
   `credentials` is passed to `fetch`.
 - The connection closes when the last root that asked for it is disposed.
+
+A page moved from a client of its own can keep that client's ends and
+waits. These options were added in `kit 1`; without them a stream does what
+is said above. Each is part of the connection's key.
+
+| Option | Does |
+| --- | --- |
+| `end` | Ends the stream for good on an answer it names: a list of statuses, or a function `(status, type)` of the status and the content type, without its parameters, that returns `true`. The state is `"closed"`, `status()` and `error()` stay, with the body on the error, until `reconnect()` |
+| `grow` | `"double"`, the default, or `"fixed"`: every wait after a failure is `retry`, up to `max` |
+| `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did; a server that ends every stream at once is then asked in a loop |
+| `hidden` | `"live"`, above |
+
+```js
+// What an EventSource did: give up on any answer it cannot read, wait 3 s
+// after a failure or an end, and keep asking while the tab is hidden.
+const eventSource = (status, type) => status !== 200 || type !== "text/event-stream";
+stream(src, { end: eventSource, retry: 3000, grow: "fixed", ended: 3000, hidden: "live", on });
+
+// Give up on a refusal only, and show the server's sentence.
+const live = stream(src, { end: [401, 403], on });
+live.error()?.data?.error;   // "Sign in to see this ticket."
+
+// 2 s after a failure, then 4 s, and so on; 1 s after a clean end.
+stream(src, { retry: 2000, ended: 1000, on });
+
+// Ask again at once after a clean end.
+stream(src, { format: "ndjson", ended: 0, on });
+```
+
+Define an `end` function once per page, as a `headers` function is: it
+counts by its identity.
 
 ## Presses
 
@@ -467,6 +503,12 @@ For a page whose reads, streams and presses are a client of its own:
 | Its own reconnect and backoff | `stream` connects again; `state()` says where it is |
 | An event handler that writes state | `on: store.actions.<verb>`, a page store's action |
 | A post with its own pending and rollback | `action()` with `press()` and `createOptimistic` or `createOptimisticStore` |
+| An `EventSource` that gave up on a refusal or a wrong content type | `end: (status, type) => status !== 200 \|\| type !== "text/event-stream"`, or a list such as `end: [401]` |
+| The server's sentence of a refused stream | `error().data`, the refused answer's body |
+| Its own waits before asking again | `retry`, `grow: "fixed"`, `max`, and `ended` for the wait after a clean end |
+| Asking again while the tab is hidden | `hidden: "live"` |
+| A wait for the answer of a read it asked again | `await f.refresh()`: `{ ok, status, data }` or `{ ok: false, status, error }` |
+| Taking the answer of a press or a pushed event as the data, with no second read | `f.put(value)` |
 
 - Keep the client's model pure: the shapes of its answers become the
   model's input, the render module wires the feed, the stream and the store.
@@ -475,6 +517,26 @@ For a page whose reads, streams and presses are a client of its own:
   `headers` function and the same `on`.
 - A byte range read of a file that grows stays a plain element: see the
   console's tail in [The plain dashboard](#the-plain-dashboard).
+- Where the kit's default differs from what the page did, keep the old
+  behaviour with an option rather than code of the page's own:
+
+```js
+// The page read the view again after a press: take the press's answer.
+const done = action(function* () {
+  const r = yield press(api(`/t/${n}/act`), { ...ASK, body });
+  view(n).put(r.data);
+});
+
+// The page waited for a read it asked again, the same answer or not.
+const r = await tickets().refresh();
+
+// The page's EventSource gave up for good on a 401 or a 5xx, waited 3 s,
+// and asked again while hidden.
+const live = stream(src, { end: eventSource, retry: 3000, grow: "fixed", ended: 3000, hidden: "live", on });
+
+// The page asked again for the server's sentence after a refused stream.
+const said = live.error()?.data?.error;
+```
 
 ## Styling
 
@@ -752,7 +814,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams and presses: 20491 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js` and `press.js`, 11289 more, load only on a page that imports them | Review |
+| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams, presses, a refresh that resolves and `put`: 23597 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js` and `press.js`, 15600 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
