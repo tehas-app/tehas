@@ -63,6 +63,7 @@ async function run() {
   s.hostRows = document.querySelectorAll("#host-list li").length;
   s.units = document.querySelectorAll("#unit-list li").length;
   s.hostHidden = $("#host").hidden;
+  s.hostNote = text("#host-note");
   s.analyticsHidden = $("#analytics").hidden;
   s.figures = document.querySelectorAll("#an-figures .an-figure").length;
   s.days = document.querySelectorAll("#an-chart .an-day").length;

@@ -2,7 +2,7 @@ import { Errored, For, Loading, createEffect, createMemo, createRoot, getOwner, 
 import { feed } from "../kit/feed.js";
 import { now, view } from "../kit/parts.js";
 import { SP } from "./parts.render.js";
-import { hostModel } from "./tehas-factory-host.model.js";
+import { hostModel, serverNow } from "./tehas-factory-host.model.js";
 
 // The file is asked for every ten seconds while it is there, and once a
 // minute while it is not: the minute is this island's own period, and a
@@ -32,7 +32,7 @@ export function hostFeed(src) {
 
 export const mount = view((props, ctx) => {
   const live = hostFeed(props.src);
-  const m = createMemo(() => hostModel(live.data(), now()));
+  const m = createMemo(() => hostModel(live.data(), serverNow(live.meta(), now())));
   const row = (r) => html`<li><span>${() => r().name}</span>${SP}<span class="when">${() => r().text}</span></li>`;
   return html`<${Errored} fallback=${(_e) => ctx.first}><${Loading} fallback=${() => ctx.first}><section id="host" hidden=${() => !m().present}>
     <h2>Host${SP}<span class="n" id="n-host">${() => m().n}</span></h2>

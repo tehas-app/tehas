@@ -7,7 +7,7 @@
 import { setHidden } from "./kit_stub.mjs";
 import { test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { createRoot, flush } from "../host/fun/kit/vendor/solid.js";
+import { createEffect, createRoot, flush } from "../host/fun/kit/vendor/solid.js";
 import { resetPage } from "../host/fun/kit/state.js";
 import { hostFeed } from "../host/fun/factory/tehas-factory-host.render.js";
 
@@ -129,6 +129,23 @@ test("the host file is not asked for while the page is hidden", async () => {
   setHidden(false);
   await settle();
   assert.equal(calls.length, 2);
+});
+
+test("the host feed gives the server's Date for the snapshot's age", async () => {
+  const date = "Thu, 19 Nov 2026 10:00:00 GMT";
+  answer = () => ({ ok: true, status: 200, headers: new Headers({ Date: date }), text: async () => '{"generatedAt":"x"}' });
+  let meta;
+  createRoot(() => {
+    const live = hostFeed("/live/top.json");
+    createEffect(
+      () => live.meta(),
+      (m) => {
+        meta = m;
+      },
+    );
+  });
+  await settle();
+  assert.equal(meta.date, Date.parse(date));
 });
 
 test("the island gone, nothing is asked for", async () => {
