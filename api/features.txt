@@ -31,3 +31,5 @@ host-start
 flags
 status-previews
 wake
+start-reasons
+blockers

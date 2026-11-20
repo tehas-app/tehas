@@ -32,7 +32,9 @@
     "host-start",
     "flags",
     "status-previews",
-    "wake"
+    "wake",
+    "start-reasons",
+    "blockers"
   ],
   "flags": {
     "outsource": false,

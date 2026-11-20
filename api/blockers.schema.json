@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/blockers.schema.json",
+  "title": "tehas blockers --json",
+  "description": "What tehas blockers --json prints, version 1: the holds between issues the dispatcher's last poll read, the cycles among them and the ends of each chain. host/docs/api.md says what each field means. Objects are closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. A reason's code is an open list: a program accepts a code it does not know. console/src/blockers.rs checks that the command prints the sample beside this file.",
+  "type": "object",
+  "required": ["api", "state"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "state": {"enum": ["ok", "none", "unreadable"]},
+    "at": {"type": "string", "minLength": 1},
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "kind": {"enum": ["marker", "link"]},
+          "on": {"type": "integer", "minimum": 1},
+          "by": {"type": "string"},
+          "open": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "cycles": {
+      "type": "array",
+      "items": {"type": "array", "items": {"type": "integer", "minimum": 1}}
+    },
+    "chains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "cycle", "ends"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "cycle": {"type": "boolean"},
+          "ends": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["issue", "start"],
+              "additionalProperties": false,
+              "properties": {
+                "issue": {"type": "integer", "minimum": 1},
+                "start": {"type": "boolean"},
+                "reason": {
+                  "type": "object",
+                  "required": ["code", "text"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+                    "text": {"type": "string", "minLength": 1}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

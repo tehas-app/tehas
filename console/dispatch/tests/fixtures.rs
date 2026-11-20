@@ -714,6 +714,36 @@ fn run_suite(name: &str) {
                 bad.push(format!("demand {:?} not {x}", d.demand));
             }
         }
+        // starts: each issue of the record as "<n> start" or "<n> <code>";
+        // edges: the record's edges whole; holds: "<n> <code>".
+        let record = d.starts.to_value("");
+        let words = |k: &str, of: &dyn Fn(&Value) -> String| -> Value {
+            json!(record[k]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(of)
+                .collect::<Vec<_>>())
+        };
+        let code = |v: &Value| v["reason"]["code"].as_str().unwrap_or("start").to_string();
+        let got = [
+            (
+                "starts",
+                words("issues", &|v| format!("{} {}", v["issue"], code(v))),
+            ),
+            ("edges", record["edges"].clone()),
+            (
+                "holds",
+                words("holds", &|v| format!("{} {}", v["issue"], code(v))),
+            ),
+        ];
+        for (k, v) in got {
+            if let Some(x) = e.get(k) {
+                if *x != v {
+                    bad.push(format!("{k} {v} not {x}"));
+                }
+            }
+        }
         let needs = e.get("needs").cloned().unwrap_or_else(|| json!([]));
         if needs != json!(d.needs) {
             bad.push(format!("needs {:?} not {needs}", d.needs));
@@ -811,6 +841,11 @@ fn start() {
 }
 
 #[test]
+fn starts() {
+    run_suite("starts");
+}
+
+#[test]
 fn guard() {
     run_suite("guard");
 }
@@ -868,4 +903,54 @@ fn slots() {
 #[test]
 fn host_start() {
     run_suite("host_start");
+}
+
+/// Every hold a fixture expects the poll to log has a code of its own, so a
+/// rule whose words change does not fall to `other` unseen. A line listed
+/// here has no code yet on purpose.
+#[test]
+fn every_logged_hold_of_the_fixtures_has_a_code() {
+    const WITHOUT: &[&str] = &[
+        // Rule 5a, a refine of a park: it starts no cycle.
+        "not refined",
+        // Rule 5, the answers of a planning session: a turn, not a start.
+        "the fixer's answer runs no turn",
+        "the fixer saved the question after another account did",
+        "the question answered is not the one this session is waiting on",
+        "the ticked box matches no option on record",
+        // Rule 2's clean-up of the running mark, not a hold of a start.
+        "tehas:running is gone from it since the list was read",
+        "marked tehas:running, and no cycle holds its lock",
+    ];
+    let dir = format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR"));
+    let mut other = Vec::new();
+    for e in fs::read_dir(&dir).unwrap().flatten() {
+        let suite: Value = serde_json::from_str(&fs::read_to_string(e.path()).unwrap()).unwrap();
+        for c in suite["cases"].as_array().into_iter().flatten() {
+            for line in expected(&c["expect"]) {
+                let Some(n) = line
+                    .split_once('#')
+                    .and_then(|(_, r)| r.split_once(':'))
+                    .and_then(|(n, _)| n.parse::<u64>().ok())
+                else {
+                    continue;
+                };
+                let Some(text) = tehas_dispatch::starts::of_issue(&line, n) else {
+                    continue;
+                };
+                if tehas_dispatch::starts::code_of(text) == tehas_core::starts::code::OTHER
+                    && !WITHOUT.iter().any(|w| text.contains(w))
+                {
+                    other.push(line);
+                }
+            }
+        }
+    }
+    other.sort();
+    other.dedup();
+    assert!(
+        other.is_empty(),
+        "lines with no code:\n{}",
+        other.join("\n")
+    );
 }

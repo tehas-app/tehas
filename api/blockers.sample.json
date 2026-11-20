@@ -1,0 +1,22 @@
+{
+  "api": 1,
+  "state": "ok",
+  "at": "2026-11-20T10:00:00Z",
+  "edges": [
+    {"issue": 21, "kind": "marker", "on": 11, "by": "alice"},
+    {"issue": 22, "kind": "link", "open": 2},
+    {"issue": 30, "kind": "marker", "on": 31, "by": "alice"},
+    {"issue": 31, "kind": "marker", "on": 30, "by": "bob"}
+  ],
+  "cycles": [[30, 31]],
+  "chains": [
+    {"issue": 21, "cycle": false, "ends": [
+      {"issue": 11, "start": false, "reason": {"code": "question", "text": "it carries tehas:question: it waits for an answer"}}
+    ]},
+    {"issue": 22, "cycle": false, "ends": [
+      {"issue": 22, "start": false, "reason": {"code": "blocked-link", "text": "2 blocked-by links of it are open; which issues they name is not read"}}
+    ]},
+    {"issue": 30, "cycle": true, "ends": []},
+    {"issue": 31, "cycle": true, "ends": []}
+  ]
+}

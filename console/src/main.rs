@@ -185,6 +185,7 @@ use tehas_ops::{
 };
 mod api;
 mod attach;
+mod blockers;
 mod commands;
 mod dev;
 mod energy;

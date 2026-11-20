@@ -13,6 +13,7 @@ pub mod read;
 pub mod refresh;
 pub mod settings;
 pub mod snapshot;
+pub mod starts;
 pub mod text;
 
 pub use decide::{decide, Decision};

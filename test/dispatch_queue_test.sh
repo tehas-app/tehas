@@ -36,6 +36,47 @@ t_eq "$(started)" "8 "
 t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 t_lacks "$(t_calls gh)" "issue edit 7 "
 
+t_case "the poll records why each issue would not start, and tehas order and tehas blockers read it"
+reset
+queue "7 tehas:blocked" 8
+label_events 7 tehas:blocked=alice
+notes 7 "$(bnote 10 alice $'Blocked by #12.\n\n<!-- tehas:blocked by=12 -->')"
+states 12=OPEN
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "8 "
+record=$T/home/tehas/state/starts.json
+t_eq "$(jq -c '[.issues[] | [.issue, (.reason.code // "start")]]' "$record")" '[[7,"blocked"],[8,"start"]]'
+t_eq "$(jq -c '.edges' "$record")" '[{"by":"alice","issue":7,"kind":"marker","on":12}]'
+t_eq "$(jq -c '[.holds[] | [.issue, .reason.code]]' "$record")" '[[12,"no-approval"]]'
+t_store_home "$T/home/tehas"
+t_run "'$T_CONSOLE' tehas order set --issues 7,8,9 >/dev/null && '$T_CONSOLE' tehas order --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.issues, .only]' <<<"$t_out")" '[[7,8,9],false]'
+t_eq "$(jq -c '[.starts.issues[] | [.issue, .start, (.reason.code // "")]]' <<<"$t_out")" \
+  '[[7,false,"blocked"],[8,true,""],[9,false,"unseen"]]'
+t_contains "$(jq -r '.starts.issues[0].reason.text' <<<"$t_out")" "#12 is open"
+t_run "'$T_CONSOLE' tehas blockers --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.state, .cycles, [.chains[] | [.issue, .cycle, [.ends[] | [.issue, .reason.code]]]]]' <<<"$t_out")" \
+  '["ok",[],[[7,false,[[12,"no-approval"]]]]]'
+t_run "'$T_CONSOLE' tehas blockers"
+t_contains "$t_out" "#7 waits on #12: it is open, and no allowed account made it ready"
+
+t_case "a dry run writes no record, and with none tehas blockers says not yet"
+reset
+queue "7 tehas:blocked"
+label_events 7 tehas:blocked=alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=OPEN
+rm -f "$T/home/tehas/state/starts.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/home/tehas/state/starts.json" ] && echo written)" ""
+t_run "'$T_CONSOLE' tehas blockers --json"
+t_eq "$t_rc" 3
+t_eq "$t_out" '{"api":1,"state":"none"}'
+
 t_case "an open blocked-by link holds a ready issue, and the slot goes to the next one"
 reset
 queue 7 8
