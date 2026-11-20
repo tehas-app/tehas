@@ -55,11 +55,12 @@ taken() {
 not_found() { echo "message: Not Found" >&2; exit 1; }
 # api_rest <verb> <path-glob>: a call of gh api -X that changes one label of a
 # pull request, answered as GitHub answers it. Called with the two words, so
-# that no pattern of the case below has to name them.
+# that no pattern of the case below has to name them. The glob is unquoted
+# where it is matched, so that it matches as a pattern.
 api_rest() {
   [ "$rest_verb" = "$1" ] || return 1
   case "$rest_path" in
-    repos/acme/widget/issues/"$2") return 0 ;;
+    repos/acme/widget/issues/$2) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -81,11 +82,6 @@ case "$1 $2" in
     elif api_rest DELETE "*/labels/*"; then
       [ ! -e "$T/fx/label-missing" ] || not_found
       fails unmark-fails unmark-fails-times
-    # needs-human-attention taken off before a restart. $fx/unmark-fails
-    # makes it fail, and $fx/label-missing answers 404.
-    elif api_rest DELETE 7/labels/needs-human-attention; then
-      [ ! -e "$T/fx/label-missing" ] || not_found
-      fails unmark-fails
     # The body of the issue, written. $fx/patch-fails makes it fail.
     elif api_rest PATCH 7; then
       fails patch-fails
