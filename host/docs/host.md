@@ -482,8 +482,9 @@ The line is printed only by the run that copied the file. After that only
 version: a changed npm lockfile with the same version is not reported there
 (see [Bootstrap](/bootstrap#3-check)).
 
-pi-rukas is followed and not pinned, so its commit can move with no
-`versions.env` to copy. `tehas update` prints the same line, once per run, when
+On a host installed from a checkout pi-rukas is followed, not pinned, so its
+commit can move with no `versions.env` to copy; a release pins one commit,
+which moves only with the next release. `tehas update` prints the same line, once per run, when
 the commit the sandbox image was built on is not the commit the host's clone in
 `~/tehas/repos/pi-rukas` is on: the image moves to what is followed, the clone
 moves only when you run the line. It reads the image's `tehas.rukas` label and
@@ -1961,13 +1962,17 @@ Each image carries the pi-rukas commit it was built with, as its label
 record in the state store has the commit and the image's id as the cycle's
 container started.
 
-That holds until the next `tehas update`, which builds the followed commit
-again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
-`instance.env`, where it wins over the release's line: `branch:<name>` for a
-branch whose head is the commit you want, or `commit:<sha>` for one commit.
+On a host installed from a checkout, that holds until the next `tehas
+update`, which builds the followed commit again: hold off updates until
+upstream tags a fix. A host installed from a release stays on the commit the
+release pinned. On either, `PI_RUKAS_FOLLOW` in `instance.env` wins for the
+sandbox image: `branch:<name>` for a branch whose head is the commit you want,
+or `commit:<sha>` for one commit.
 
 No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
-a host with the next `tehas update` after upstream tags a release with it.
+a host installed from a checkout with the next `tehas update` after upstream
+tags a release with it, and a host installed from releases with the next
+release of tehas.
 
 ## Services
 

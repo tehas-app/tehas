@@ -453,8 +453,9 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
-# pi-rukas is not pinned: what is expected is the commit it follows now, as the
-# console of the release or the installed one names it. Otherwise why not, and
+# What is expected is the commit versions.env names now, a release's pin or
+# the newest tag of a checkout's line, as the console of the release or the
+# installed one names it. Otherwise why not, and
 # 2 when there is no console yet.
 rukas_head() {
   local console=$root/libexec/console target
