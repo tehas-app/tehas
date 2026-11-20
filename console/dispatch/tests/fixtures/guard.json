@@ -924,8 +924,18 @@
       "label": "tehas:plan"
      }
     ],
+    "action_count": {
+     "plan_turn": 1
+    },
     "log_lacks": [
      "TEHAS_SIZE_MAX_FILES"
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
+     }
     ]
    }
   },
