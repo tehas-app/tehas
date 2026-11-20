@@ -346,12 +346,12 @@ pattern=${matcher#*path_regexp }
 for name in /panels.0123456789ab.js /manual.0123456789ab.css \
   /kit/kit.0123456789ab.css /factory/tehas-factory-state.0123456789ab.js \
   /kit/vendor/solid.0123456789ab.js; do
-  printf '%s\n' "$name" | grep -q -E "$pattern" || t_bad "$name is not matched as hashed"
+  grep -q -E "$pattern" <<<"$name" || t_bad "$name is not matched as hashed"
 done
 for name in /panels.js /theme-beesknees26.css /kit/island.js /kit/kit.css \
   /kit/vendor/solid.js /factory/tehas-factory-state.js /kit/MANIFEST \
   /factory.svg /kit/x.0123456789ab.svg /kit/x.0123456789.js; do
-  printf '%s\n' "$name" | grep -q -E "$pattern" && t_bad "$name is matched as hashed"
+  grep -q -E "$pattern" <<<"$name" && t_bad "$name is matched as hashed"
 done
 # The 404 of a backup comes first: install.sh keeps a replaced file beside the
 # one it replaced, and an immutable header on the name of a backup would cache
