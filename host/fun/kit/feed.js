@@ -7,7 +7,8 @@
 //   status.data()     the parsed file; <Loading> until the first answer, <Errored> if it fails
 //   status.error()    the error of the last poll, or null; the data stays the last good one
 //   status.at()       when the data last changed, in ms
-//   status.refresh()  poll now
+//   status.refresh()  poll now; resolves { ok, status, data } or { ok: false, status, error }
+//   status.put(value) a value the page has, such as a press's answer: data with no fetch
 //   status.meta()     the last answer: { status, headers, date, at }, or null before one
 //   isPending(() => status.data())  true while any poll is out, even one that changes nothing
 //
@@ -34,14 +35,43 @@ const hidden = () => globalThis.document?.hidden === true;
 // The options that make a source of its own; `every` is shared by its readers.
 const KEYED = ["headers", "credentials", "parse", "accept", "expose"];
 
+// A put value as JSON, to know a poll that brings the same data; null when
+// it has none.
+function json(v) {
+  try {
+    return JSON.stringify(v) ?? null;
+  } catch {
+    return null;
+  }
+}
+const same = (put, data) => put !== null && put === json(data);
+
 function make(src, opts) {
   const [tick, setTick] = createSignal(0);
   const [meta, setMeta] = createSignal(null);
-  const f = { periods: [], every: Infinity, timer: 0, due: false, out: undefined, again: false, gone: false };
-  const entry = createMemo(async (prev) => {
+  const [given, give] = createSignal(null, { equals: false });
+  const f = { periods: [], every: Infinity, timer: 0, due: false, out: undefined, again: false, gone: false, waiting: [], giving: false };
+  // A put takes the place of a poll out, whose answer was asked before it.
+  const entry = createMemo((prev) => {
     tick();
+    const g = given();
+    if (f.giving) {
+      f.giving = false;
+      return g;
+    }
+    return ask(prev);
+  });
+  async function ask(prev) {
     const out = new AbortController();
     f.out = out;
+    // The refresh calls that asked for this poll hear its answer.
+    const waiting = f.waiting;
+    f.waiting = [];
+    let status = 0;
+    let heard;
+    const tell = () => {
+      for (const done of waiting) done(Object.freeze(heard));
+    };
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
     try {
       const init = { cache: "no-store", signal: out.signal };
@@ -52,6 +82,7 @@ function make(src, opts) {
       // Its own signal, so a new Date leaves the data's readers be. It lands
       // a moment before the data does, while the poll is still pending.
       setMeta({ status: res.status, headers: pickHeaders(res, opts.expose), date: dateOf(res), at: Date.now() });
+      status = res.status;
       if (!res.ok && !accepts(opts.accept, res.status)) {
         const error = new Error(`${src}: ${res.status} ${res.statusText ?? ""}`.trim());
         error.status = res.status;
@@ -59,17 +90,30 @@ function make(src, opts) {
       }
       const text = await res.text();
       const token = `${res.status} ${text}`;
-      if (prev?.token === token) return prev.error ? { ...prev, error: null } : prev;
-      return { token, data: bodyOf(res.status, text, opts), at: Date.now(), error: null };
+      if (prev?.token === token) {
+        heard = { ok: true, status, data: prev.data };
+        return prev.error ? { ...prev, error: null } : prev;
+      }
+      const data = bodyOf(res.status, text, opts);
+      heard = { ok: true, status, data };
+      // The data a put gave: the entry stays, so its readers are left be.
+      if (prev?.put !== undefined && same(prev.put, data)) {
+        prev.token = token;
+        prev.put = undefined;
+        return prev.error ? { ...prev, error: null } : prev;
+      }
+      return { token, data, at: Date.now(), error: null };
     } catch (error) {
+      heard = { ok: false, status, error };
       if (!prev) throw error;
       return { ...prev, error };
     } finally {
       clearTimeout(limit);
+      tell();
       // After the memo has its value: a tick now would replace it.
       queueMicrotask(() => landed(out));
     }
-  });
+  }
   const landed = (out) => {
     if (f.out !== out) return;
     f.out = null;
@@ -82,6 +126,7 @@ function make(src, opts) {
       f.again = true;
       return;
     }
+    if (f.gone) return;
     clearTimeout(f.timer);
     f.due = false;
     f.again = false;
@@ -104,10 +149,12 @@ function make(src, opts) {
     if (!hidden() && f.due) poll();
   };
   globalThis.document?.addEventListener?.("visibilitychange", onVisible);
+  const goneError = () => Object.freeze({ ok: false, status: 0, error: new Error(`${src}: the feed is gone`) });
   onCleanup(() => {
     f.gone = true;
     clearTimeout(f.timer);
     f.out?.abort();
+    for (const done of f.waiting.splice(0)) done(goneError());
     globalThis.document?.removeEventListener?.("visibilitychange", onVisible);
   });
   f.api = Object.freeze({
@@ -116,7 +163,20 @@ function make(src, opts) {
     error: () => entry().error,
     at: () => entry().at,
     meta,
-    refresh: poll,
+    refresh: () =>
+      new Promise((done) => {
+        if (f.gone) {
+          done(goneError());
+          return;
+        }
+        f.waiting.push(done);
+        poll();
+      }),
+    put: (data) => {
+      if (f.gone) return;
+      f.giving = true;
+      give({ token: null, data, put: json(data), at: Date.now(), error: null });
+    },
   });
   return f;
 }
@@ -129,12 +189,21 @@ function make(src, opts) {
  * on each poll), `credentials`, `parse` ("json" or "text"), `accept` (a
  * status that is data: its value, or a function of the body's text) and
  * `expose` (the answer's headers that meta() gives).
+ *
+ * refresh() polls now and returns a promise of that poll's answer, which
+ * never rejects: `{ ok, status, data }` when it is data, `{ ok: false,
+ * status, error }` when it failed, timed out or was aborted (status 0 when
+ * no answer came). A refresh while a poll is out hears the poll that
+ * follows it. put(value) makes `value` the data of every reader at once,
+ * with no fetch, as if an answer had brought it; the poll goes on at its
+ * period. A put while a poll is out takes the place of that poll's
+ * answer, which was asked before the value was known.
  * @param {string} src
  * @param {{ every?: number, headers?: object | (() => object), credentials?: RequestCredentials,
  *   parse?: "json" | "text", accept?: Record<number, any>, expose?: string[] }} [options]
  * @returns {{ src: string, data: () => any, error: () => unknown, at: () => number,
  *   meta: () => null | { status: number, headers: Record<string, string | null>, date: number | null, at: number },
- *   refresh: () => void }}
+ *   refresh: () => Promise<{ ok: boolean, status: number, data?: any, error?: unknown }>, put: (value: any) => void }}
  */
 export function feed(src, options = {}) {
   const { every = Infinity } = options;
