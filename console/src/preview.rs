@@ -213,7 +213,20 @@ enum By {
 /// that does not say is no answer at all, never an outsider's, because
 /// reading one as an outsider's would take a preview from a pull request that
 /// serves. The sweep keeps on the same answer.
-fn by_us(pull: &Value) -> Option<By> {
+///
+/// The factory's own App opens its cycles' pull requests as `<slug>[bot]`,
+/// which GitHub's association calls `NONE`: `bot`, the login the factory
+/// acts as (`state/github/login`), is ours too. Only that App can push a
+/// branch here and open a pull request under its name; any other bot is
+/// still an outsider. An empty `bot` matches nothing.
+fn by_us(pull: &Value, bot: &str) -> Option<By> {
+    let author = pull
+        .pointer("/user/login")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if tehas_core::accounts::factorys(author, bot) {
+        return Some(By::Ours);
+    }
     match pull.get("author_association") {
         Some(Value::String(who)) => Some(
             if matches!(who.as_str(), "OWNER" | "MEMBER" | "COLLABORATOR") {
@@ -276,7 +289,7 @@ pub fn read_pages(text: &str) -> Result<Vec<Value>, String> {
 
 /// The choice: which of these pull requests get a preview, and the two counts
 /// the run says out loud.
-pub fn choose(pulls: &[Value], repo: &str, max: u64) -> Choice {
+pub fn choose(pulls: &[Value], repo: &str, max: u64, bot: &str) -> Choice {
     // Before anything is said about the list: one with its head here whose
     // answer does not say who opened it makes the whole list unclear. A fork
     // that says nothing is still a fork, and a head that is nowhere leaves the
@@ -285,7 +298,7 @@ pub fn choose(pulls: &[Value], repo: &str, max: u64) -> Choice {
         number_of(pull).is_some()
             && sha_of(pull).is_some()
             && matches!(head_of(pull, repo), Head::Here)
-            && matches!(by_us(pull), None | Some(By::NotSaid))
+            && matches!(by_us(pull, bot), None | Some(By::NotSaid))
     });
     if unclear {
         return Choice::Incomplete;
@@ -304,7 +317,7 @@ pub fn choose(pulls: &[Value], repo: &str, max: u64) -> Choice {
             continue;
         }
         seen.push(n);
-        match (head_of(pull, repo), by_us(pull)) {
+        match (head_of(pull, repo), by_us(pull, bot)) {
             // A fork is counted as a fork whoever opened it, and an outsider
             // is counted for the line the run says: neither gets a row, which
             // is what takes them out of the count of previews.
@@ -411,7 +424,10 @@ pub fn choose_main(args: &[String]) -> u8 {
             return 0;
         }
     };
-    for line in lines_of(&choose(&pulls, repo, max)) {
+    let bot = std::env::var_os("TEHAS_HOME")
+        .and_then(|home| tehas_core::settings::bot_login(std::path::Path::new(&home)))
+        .unwrap_or_default();
+    for line in lines_of(&choose(&pulls, repo, max, &bot)) {
         tehas_core::outln!("{line}");
     }
     0
@@ -454,6 +470,64 @@ mod tests {
         (0..40).map(|_| format!("{byte:01x}")).collect()
     }
 
+    /// The factory's own App opens its cycles' pull requests as `<slug>[bot]`,
+    /// which GitHub's association calls NONE (tehas#2621).
+    fn by_app(n: u64, login: &str) -> Value {
+        let mut pull = ours(n);
+        pull["author_association"] = json!("NONE");
+        pull["user"] = json!({"login": login, "type": "Bot"});
+        pull
+    }
+
+    fn built(choice: &Choice) -> Vec<u64> {
+        match choice {
+            Choice::Chosen { chosen, .. } => chosen
+                .iter()
+                .filter_map(|v| match v {
+                    Verdict::Build { number, .. } => Some(*number),
+                    _ => None,
+                })
+                .collect(),
+            Choice::Incomplete => panic!("incomplete"),
+        }
+    }
+
+    fn outside(choice: &Choice) -> usize {
+        match choice {
+            Choice::Chosen { outside, .. } => *outside,
+            Choice::Incomplete => panic!("incomplete"),
+        }
+    }
+
+    #[test]
+    fn the_factorys_own_app_is_ours() {
+        let bot = "acme-app[bot]";
+        for login in ["acme-app[bot]", "acme-app", "app/acme-app"] {
+            let choice = choose(&[by_app(41, login)], REPO, 5, bot);
+            assert_eq!(built(&choice), vec![41], "{login}");
+            assert_eq!(outside(&choice), 0, "{login}");
+        }
+    }
+
+    #[test]
+    fn another_bot_or_no_recorded_login_is_still_outside() {
+        let choice = choose(&[by_app(42, "other-app[bot]")], REPO, 5, "acme-app[bot]");
+        assert!(built(&choice).is_empty());
+        assert_eq!(outside(&choice), 1);
+        // Before the App's login is recorded, nothing is the App's.
+        let choice = choose(&[by_app(43, "acme-app[bot]")], REPO, 5, "");
+        assert!(built(&choice).is_empty());
+        assert_eq!(outside(&choice), 1);
+    }
+
+    #[test]
+    fn the_factorys_app_from_a_fork_is_never_chosen() {
+        let mut pull = by_app(44, "acme-app[bot]");
+        pull["head"]["repo"]["full_name"] = json!("stranger/widget");
+        let choice = choose(&[pull], REPO, 5, "acme-app[bot]");
+        assert!(built(&choice).is_empty());
+    }
+
     #[test]
     fn a_fork_is_never_chosen_whatever_else_is_true() {
         let fork = |who: &str| {
@@ -469,7 +543,7 @@ mod tests {
             if who.is_empty() {
                 pull.as_object_mut().unwrap().remove("author_association");
             }
-            let choice = choose(&[pull], REPO, 5);
+            let choice = choose(&[pull], REPO, 5, "");
             assert_eq!(
                 choice,
                 Choice::Chosen {
@@ -487,7 +561,7 @@ mod tests {
     fn a_deleted_fork_is_elsewhere_and_not_unclear() {
         let mut pull = ours(32);
         pull["head"]["repo"] = json!(null);
-        let choice = choose(&[pull], REPO, 5);
+        let choice = choose(&[pull], REPO, 5, "");
         assert_eq!(
             lines_of(&choice),
             ["skip elsewhere 32"],
@@ -510,7 +584,7 @@ mod tests {
         ] {
             let mut pull = ours(33);
             pull["author_association"] = json!(who);
-            let choice = choose(&[pull], REPO, 5);
+            let choice = choose(&[pull], REPO, 5, "");
             assert_eq!(
                 choice,
                 Choice::Chosen {
@@ -529,7 +603,7 @@ mod tests {
         for who in ["OWNER", "MEMBER", "COLLABORATOR"] {
             let mut pull = ours(34);
             pull["author_association"] = json!(who);
-            let choice = choose(&[pull], REPO, 5);
+            let choice = choose(&[pull], REPO, 5, "");
             assert_eq!(
                 lines_of(&choice),
                 [format!("build 34 {:040x} 2026-10-11T09:00:00Z", 34u64)],
@@ -541,7 +615,7 @@ mod tests {
     #[test]
     fn the_newest_max_are_built_and_the_rest_are_over_limit() {
         let pulls: Vec<Value> = (21..=26).rev().map(ours).collect();
-        let choice = choose(&pulls, REPO, 2);
+        let choice = choose(&pulls, REPO, 2, "");
         let Choice::Chosen { chosen, .. } = &choice else {
             panic!("a clear list");
         };
@@ -576,7 +650,7 @@ mod tests {
             outsider(21, "FIRST_TIMER"),
             ours(20),
         ];
-        let choice = choose(&pulls, REPO, 2);
+        let choice = choose(&pulls, REPO, 2, "");
         let Choice::Chosen { chosen, .. } = &choice else {
             panic!("a clear list");
         };
@@ -629,7 +703,7 @@ mod tests {
             shape(&mut quiet);
             // An unclear answer about one of ours is not read as an
             // outsider's: it would take a preview from #12, which serves.
-            let choice = choose(&[ours(12), quiet], REPO, 5);
+            let choice = choose(&[ours(12), quiet], REPO, 5, "");
             assert_eq!(choice, Choice::Incomplete);
             assert_eq!(
                 lines_of(&choice),
@@ -644,7 +718,7 @@ mod tests {
         let mut fork = ours(26);
         fork["head"]["repo"]["full_name"] = json!("stranger/widget");
         fork.as_object_mut().unwrap().remove("author_association");
-        let choice = choose(&[ours(12), fork], REPO, 5);
+        let choice = choose(&[ours(12), fork], REPO, 5, "");
         let Choice::Chosen { chosen, .. } = &choice else {
             panic!("a clear list");
         };
@@ -659,7 +733,7 @@ mod tests {
         let mut head = ours(16);
         head["head"].as_object_mut().unwrap().remove("repo");
         head.as_object_mut().unwrap().remove("author_association");
-        let choice = choose(&[head], REPO, 5);
+        let choice = choose(&[head], REPO, 5, "");
         assert_eq!(
             choice,
             Choice::Chosen {
@@ -677,7 +751,7 @@ mod tests {
         for sha in ["main; id", "", "abc", &"z".repeat(40), &"a".repeat(39)] {
             let mut pull = ours(15);
             pull["head"]["sha"] = json!(sha);
-            let choice = choose(&[pull], REPO, 5);
+            let choice = choose(&[pull], REPO, 5, "");
             assert_eq!(
                 choice,
                 Choice::Chosen {
@@ -702,7 +776,7 @@ mod tests {
             let mut pull = ours(12);
             pull["number"] = number.clone();
             assert_eq!(
-                choose(&[pull], REPO, 5),
+                choose(&[pull], REPO, 5, ""),
                 Choice::Chosen {
                     chosen: Vec::new(),
                     elsewhere: 0,
@@ -719,7 +793,7 @@ mod tests {
             let mut pull = ours(12);
             pull["head"] = head.clone();
             assert_eq!(
-                choose(&[pull], REPO, 5),
+                choose(&[pull], REPO, 5, ""),
                 Choice::Chosen {
                     chosen: Vec::new(),
                     elsewhere: 0,
@@ -735,7 +809,7 @@ mod tests {
         let mut pull = ours(12);
         pull["head"]["repo"]["full_name"] = json!(12);
         assert_eq!(
-            choose(&[pull], REPO, 5),
+            choose(&[pull], REPO, 5, ""),
             Choice::Chosen {
                 chosen: Vec::new(),
                 elsewhere: 0,
@@ -750,17 +824,17 @@ mod tests {
         // takes a repository's name in any capitals.
         let pull = ours(12);
         assert!(matches!(
-            lines_of(&choose(std::slice::from_ref(&pull), "ACME/WIDGET", 5))[..],
+            lines_of(&choose(std::slice::from_ref(&pull), "ACME/WIDGET", 5, ""))[..],
             [_, ..]
         ));
-        assert!(lines_of(&choose(&[pull], "acme/widget", 5))[0].starts_with("build 12 "));
+        assert!(lines_of(&choose(&[pull], "acme/widget", 5, ""))[0].starts_with("build 12 "));
     }
 
     #[test]
     fn one_pull_request_on_two_pages_counts_once() {
         let twice = ours(12);
         let pulls = vec![twice.clone(), twice.clone(), ours(11)];
-        let choice = choose(&pulls, REPO, 2);
+        let choice = choose(&pulls, REPO, 2, "");
         let Choice::Chosen { chosen, .. } = &choice else {
             panic!("a clear list");
         };
@@ -774,7 +848,7 @@ mod tests {
         let mut pull = ours(12);
         pull["updated_at"] = json!(null);
         assert_eq!(
-            lines_of(&choose(&[pull], REPO, 5)),
+            lines_of(&choose(&[pull], REPO, 5, "")),
             [format!("build 12 {:040x} ", 12u64)],
             "an answer with no time is a description that changed"
         );
@@ -790,7 +864,7 @@ mod tests {
         let given = format!("{}\n{}\n", page(101, 2), page(11, 1));
         let pulls = read_pages(&given).unwrap();
         assert_eq!(pulls.len(), 3);
-        let choice = choose(&pulls, REPO, 5);
+        let choice = choose(&pulls, REPO, 5, "");
         let Choice::Chosen { chosen, .. } = &choice else {
             panic!("a clear list");
         };
@@ -814,7 +888,7 @@ mod tests {
 
     #[test]
     fn max_of_zero_leaves_everything_over_limit() {
-        let choice = choose(&[ours(12)], REPO, 0);
+        let choice = choose(&[ours(12)], REPO, 0, "");
         assert!(matches!(
             choice,
             Choice::Chosen { ref chosen, .. } if matches!(chosen[0], Verdict::OverLimit { number: 12, .. })
@@ -826,7 +900,7 @@ mod tests {
         let mut pull = ours(12);
         pull["head"]["sha"] = json!("ABCDEF0123456789ABCDEF0123456789ABCDEF01");
         assert_eq!(
-            lines_of(&choose(&[pull], REPO, 5)),
+            lines_of(&choose(&[pull], REPO, 5, "")),
             ["build 12 abcdef0123456789abcdef0123456789abcdef01 2026-10-11T09:00:00Z"]
         );
         assert_eq!(sha40(0).len(), 40);
