@@ -8,6 +8,8 @@
 //! `fun/business.html` and `docs/dashboard.frag` is named by the bytes it asks
 //! for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
 //! file, where `<hex>` is the first 12 hex digits of the sha256 of the bytes.
+//! A file in a subfolder is copied in that subfolder and named there:
+//! `/fun/factory/X.js` becomes `/fun/factory/X.<hex>.js`.
 //! The docs server answers such a name `immutable` (host/edge/docs.Caddyfile),
 //! so a browser keeps it and asks for the page every time instead.
 //!
@@ -24,7 +26,10 @@
 //! The same bytes give the same stage, which is what keeps `--check` quiet on
 //! the second run.
 //!
-//! Exit: 0 staged, 1 a file could not be read or written, 64 usage.
+//! A symbolic link under `host/fun` or `host/docs`, or either one a link, is
+//! refused: it would bring into the home what lies outside the checkout.
+//!
+//! Exit: 0 staged, 1 a file could not be read or written or is a link, 64 usage.
 
 use super::{fault, tell};
 use sha2::{Digest, Sha256};
@@ -216,12 +221,15 @@ fn page(stage: &Path, name: &str) -> io::Result<()> {
         let copy = source.parent().unwrap_or(Path::new("")).join(&hashed);
         fs::write(&copy, &bytes)?;
         fs::set_permissions(&copy, fs::Permissions::from_mode(0o644))?;
+        // The copy stands beside its source, so the address keeps the folder
+        // the tag named: /fun/factory/x.js becomes /fun/factory/x.<hex>.js.
+        let folder = &addr[..addr.rfind('/').map_or(0, |at| at + 1)];
         let quoted = format!("{attribute}\"{addr}\"");
         let at = text[start.0..start.1].find(&quoted).map(|at| start.0 + at);
         if let Some(at) = at {
             text.replace_range(
                 at..at + quoted.len(),
-                &format!("{attribute}\"/fun/{hashed}\""),
+                &format!("{attribute}\"{folder}{hashed}\""),
             );
         }
         rewrites += 1;
@@ -244,6 +252,13 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
         let source = entry.path();
+        // A link would bring into the home what lies outside the checkout.
+        if entry.file_type()?.is_symlink() {
+            return Err(io::Error::other(format!(
+                "{} is a symbolic link",
+                source.display()
+            )));
+        }
         if source.is_dir() {
             copy_dir(&source, &to.join(&name))?;
             continue;
@@ -277,10 +292,19 @@ pub fn verb(given: &[String]) -> u8 {
     }
 }
 
-/// `host/fun` and `host/docs`, whole, under the stage.
+/// `host/fun` and `host/docs`, whole, under the stage. Either one a link is
+/// refused as a link inside them is.
 fn copy_dirs(host: &Path, stage: &Path) -> io::Result<()> {
-    DIRS.iter()
-        .try_for_each(|name| copy_dir(&host.join(name), &stage.join(name)))
+    DIRS.iter().try_for_each(|name| {
+        let from = host.join(name);
+        if fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(io::Error::other(format!(
+                "{} is a symbolic link",
+                from.display()
+            )));
+        }
+        copy_dir(&from, &stage.join(name))
+    })
 }
 
 #[cfg(test)]
@@ -391,6 +415,206 @@ mod tests {
         let business = fs::read_to_string(staged(&d, "fun/business.html")).unwrap();
         assert!(business.contains(&format!("/fun/{js_name}")), "{business}");
         assert!(business.contains(&format!("/fun/{css_name}")), "{business}");
+    }
+
+    #[test]
+    fn the_kit_a_module_imports_by_a_relative_address_keeps_its_names() {
+        let d = host("assets-kit");
+        put(
+            &d,
+            "host/docs/dashboard.frag",
+            "<script type=\"module\" src=\"/fun/queue.js\"></script>\n",
+        );
+        let queue = "import { island } from \"./kit/island.js\";\n";
+        put(&d, "host/fun/queue.js", queue);
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/vendor/solid.js", "export{a as For};\n");
+        assert_eq!(run(&d), 0);
+        // The entry is hashed beside its plain name, so its relative imports
+        // still name the kit where it is.
+        let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
+        let entry = format!("queue.{}.js", hex(queue.as_bytes()));
+        assert!(frag.contains(&format!("/fun/{entry}")), "{frag}");
+        assert_eq!(
+            fs::read_to_string(staged(&d, &format!("fun/{entry}"))).unwrap(),
+            queue
+        );
+        assert_eq!(names(&staged(&d, "fun/kit")), ["island.js", "vendor"]);
+        assert_eq!(names(&staged(&d, "fun/kit/vendor")), ["solid.js"]);
+    }
+
+    #[test]
+    fn a_file_in_a_subfolder_is_hashed_and_named_in_its_subfolder() {
+        let d = host("assets-subfolder");
+        put(
+            &d,
+            "host/docs/dashboard.frag",
+            "<link rel=\"stylesheet\" href=\"/fun/kit/kit.css\">\n\
+             <script type=\"module\" src=\"/fun/factory/queue.js\"></script>\n",
+        );
+        let queue = "import { island } from \"../kit/island.js\";\n";
+        let css = ".kit { margin: 0 }\n";
+        put(&d, "host/fun/factory/queue.js", queue);
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/kit.css", css);
+        assert_eq!(run(&d), 0);
+        let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
+        let entry = format!("fun/factory/queue.{}.js", hex(queue.as_bytes()));
+        let sheet = format!("fun/kit/kit.{}.css", hex(css.as_bytes()));
+        // The address keeps the subfolder, and the copy is where it says.
+        assert!(frag.contains(&format!("src=\"/{entry}\"")), "{frag}");
+        assert!(frag.contains(&format!("href=\"/{sheet}\"")), "{frag}");
+        assert_eq!(fs::read_to_string(staged(&d, &entry)).unwrap(), queue);
+        assert_eq!(fs::read_to_string(staged(&d, &sheet)).unwrap(), css);
+        assert_eq!(unresolved(&d.0.join("stage")), Vec::<String>::new());
+    }
+
+    /// Every address under /fun/ that a staged page names, and every relative
+    /// import of a staged module, that names no staged file. An address that
+    /// holds a template is the server's to fill in, so it is not read.
+    fn unresolved(stage: &Path) -> Vec<String> {
+        let mut wrong = Vec::new();
+        for file in files(stage) {
+            let name = file
+                .strip_prefix(stage)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            let ext = file.extension().map(|e| e.to_string_lossy().into_owned());
+            let Ok(text) = fs::read_to_string(&file) else {
+                continue;
+            };
+            match ext.as_deref() {
+                Some("html" | "frag") => {
+                    for attribute in ["src=\"", "href=\""] {
+                        for (at, _) in text.match_indices(attribute) {
+                            let rest = &text[at + attribute.len()..];
+                            let addr = &rest[..rest.find('"').unwrap_or(rest.len())];
+                            if !addr.starts_with("/fun/") || addr.contains("{{") {
+                                continue;
+                            }
+                            if !stage.join(&addr[1..]).is_file() {
+                                wrong.push(format!("{name}: {addr}"));
+                            }
+                        }
+                    }
+                }
+                Some("js") => {
+                    for spec in specifiers(&text) {
+                        if !file.parent().unwrap().join(spec).is_file() {
+                            wrong.push(format!("{name}: {spec}"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        wrong
+    }
+
+    /// The relative addresses a module imports: `from "…"`, `import "…"` and
+    /// `import("…")`, in either quote. A line comment is not read: the kit's
+    /// own describe imports that are no file of theirs.
+    fn specifiers(text: &str) -> Vec<&str> {
+        let mut out = Vec::new();
+        for line in text.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for word in ["from ", "import ", "import("] {
+                for (at, _) in line.match_indices(word) {
+                    let rest = &line[at + word.len()..];
+                    let Some(quote) = rest.chars().next().filter(|c| matches!(c, '"' | '\''))
+                    else {
+                        continue;
+                    };
+                    let rest = &rest[1..];
+                    let spec = &rest[..rest.find(quote).unwrap_or(rest.len())];
+                    if spec.starts_with("./") || spec.starts_with("../") {
+                        out.push(spec);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_module_s_imports_are_read_in_every_form() {
+        let text = "import { a } from \"./a.js\";\nimport './b.css';\n\
+                    const c = () => import(\"./c.render.js\");\n\
+                    const d = () => import('../d.js');\n\
+                    // load: () => import(\"./in-a-comment.js\"),\n\
+                    import { e } from \"solid\";\n";
+        assert_eq!(
+            specifiers(text),
+            vec!["./a.js", "./b.css", "./c.render.js", "../d.js"]
+        );
+    }
+
+    #[test]
+    fn a_dynamic_import_of_no_file_is_found() {
+        let d = dir("assets-dynamic");
+        put(
+            &d,
+            "stage/fun/factory/x.js",
+            "load: () => import(\"./x.gone.js\"),\n",
+        );
+        put(
+            &d,
+            "stage/fun/factory/y.js",
+            "load: () => import('./y.render.js'),\n",
+        );
+        put(&d, "stage/fun/factory/y.render.js", "export {};\n");
+        assert_eq!(
+            unresolved(&d.0.join("stage")),
+            vec!["fun/factory/x.js: ./x.gone.js".to_string()]
+        );
+    }
+
+    /// Every file under `dir`, at any depth.
+    fn files(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for entry in fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(files(&path));
+            } else {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The real host directory, staged: each page asks only for files a home
+    /// gets, wherever in /fun/ they are.
+    #[test]
+    fn every_address_of_the_real_pages_names_a_staged_file() {
+        let d = dir("assets-real");
+        let host = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host");
+        let stage = d.0.join("stage");
+        let code = verb(&[
+            host.to_string_lossy().into_owned(),
+            stage.to_string_lossy().into_owned(),
+        ]);
+        assert_eq!(code, 0);
+        let wrong = unresolved(&stage);
+        assert!(
+            wrong.is_empty(),
+            "staged addresses that name no staged file:\n{}",
+            wrong.join("\n")
+        );
+        // The dashboard asks for its islands by hashed name, in their folder.
+        let frag = fs::read_to_string(stage.join("docs/dashboard.frag")).unwrap();
+        assert!(
+            !frag.contains("\"/fun/factory/tehas-factory-state.js\""),
+            "{frag}"
+        );
+        assert!(
+            frag.contains("\"/fun/factory/tehas-factory-state."),
+            "{frag}"
+        );
     }
 
     #[test]
@@ -537,6 +761,35 @@ mod tests {
         put(&d, "host/fun/panels.js", "// the panel\n");
         put(&d, "host/docs/host.md", "# The host\n");
         assert_eq!(run(&d), 1);
+    }
+
+    #[test]
+    fn a_symbolic_link_in_the_host_is_refused() {
+        let d = host("assets-link");
+        put(&d, "outside/secret.js", "// not for the home\n");
+        std::os::unix::fs::symlink(d.0.join("outside"), d.0.join("host/fun/kit")).unwrap();
+        assert_eq!(run(&d), 1);
+        assert!(!staged(&d, "fun/kit/secret.js").exists());
+        let d = host("assets-file-link");
+        put(&d, "outside/secret.js", "// not for the home\n");
+        std::os::unix::fs::symlink(d.0.join("outside/secret.js"), d.0.join("host/fun/x.js"))
+            .unwrap();
+        assert_eq!(run(&d), 1);
+        assert!(!staged(&d, "fun/x.js").exists());
+        // host/fun or host/docs itself a link is refused the same way.
+        for name in DIRS {
+            let d = host(&format!("assets-top-link-{name}"));
+            let real = d.0.join("host").join(name);
+            fs::create_dir_all(&real).unwrap();
+            fs::rename(&real, d.0.join("outside")).unwrap();
+            put(&d, "outside/secret.txt", "not for the home\n");
+            std::os::unix::fs::symlink(d.0.join("outside"), &real).unwrap();
+            assert_eq!(run(&d), 1, "{name}");
+            assert!(
+                !staged(&d, &format!("{name}/secret.txt")).exists(),
+                "{name}"
+            );
+        }
     }
 
     #[test]

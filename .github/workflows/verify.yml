@@ -73,7 +73,8 @@ jobs:
             -L host/npm/pi/package-lock.json \
             -L host/npm/ctx7/package-lock.json \
             -L host/npm/parallel-web-cli/package-lock.json \
-            -L host/sandbox/npm/playwright/package-lock.json
+            -L host/sandbox/npm/playwright/package-lock.json \
+            -L tools/vendor-solid/Cargo.lock
       - name: shellcheck at the pinned version
         run: |
           . host/versions.env

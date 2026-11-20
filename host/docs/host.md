@@ -503,27 +503,56 @@ The manual and the front page are not copied from `host/` as they stand.
 scratch directory and, for each `<script src="/fun/X.js">` and each
 `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
 `fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
-them under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
-of the sha256 of its bytes, and rewrites the tag to name it. The two syncs then
+it under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
+of the sha256 of its bytes, and rewrites the tag to name it. A file in a
+subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
+`/fun/factory/X.<hash>.js`. The two syncs then
 install the stage, so `~/tehas/fun` and `~/tehas/docs` hold exactly what the
 stage holds and a hashed name of older content is removed as stale with any page
-that went away. The pages keep their own names.
+that went away. The pages keep their own names, and they are copied after every
+other file, with the stale files removed last: an install that fails partway
+leaves the old pages, which still name files the home has.
+
+Every file in `~/tehas/fun` and `~/tehas/docs` belongs to tehas: a file the
+checkout does not have is removed, in a folder the checkout has too, such as
+`fun/kit/`. Keep your own files elsewhere. A directory there that the checkout
+does not have is kept, and the install says `tehas: kept <dir>` each time,
+since tehas keeps no record of the directories it made. When a release drops a
+folder, the install names it so; remove it by hand.
+
+A symbolic link in `~/tehas/fun` or `~/tehas/docs`, in the checkout's
+`host/fun` or `host/docs`, or either of those itself a link, stops the install
+before it installs anything, and so does a name that is a directory in the home
+where the checkout has a file, or the other way round. The install says which
+path it is, and nothing is written through it or removed behind it. Move it
+away, or replace the link with a directory or file of its own, and run the
+install again.
 
 The docs server caches the two kinds differently (`host/edge/docs.Caddyfile`):
-a name with 12 hex digits of its own in it is served
+a script or stylesheet whose name has 12 hex digits of its own in it, in
+`/fun/` or in a folder under it, is served
 `public, max-age=31536000, immutable`, because such a name can only ever hold
 the bytes it was named for, and every page is served `no-cache`, so a browser
 asks about the page each time and reuses what it already has of the files it
 names. `install.sh` gives a changed file a new name, so a new install is seen at
 once and nothing has to be waited out or forced.
 
-Three things keep the name they have and are revalidated. The theme stylesheet,
+Three things keep the name they have and are served `no-cache`, so a browser
+revalidates them on each load and never runs a cached old copy beside a new
+page. The theme stylesheet,
 which a page's template names at the request as
 `/fun/theme-<design>.css`, so no file of the checkout can be hashed for it. Any
 file that is not a script or a stylesheet: a font, a logo, a share card. And a
-module the page loads as `type="module"`, whose own `import "./x.js"` lines name
-its siblings by name: hashing the page is safe, hashing the module would make it
-ask for files none of them is named by.
+module that another module imports by a relative address, such as
+`import "./x.js"`: only the module a tag names is hashed, and the files it
+imports keep the names it asks for.
+
+The kit in `fun/kit/` is of the last kind: its modules and its Solid,
+`fun/kit/vendor/solid.js`, are imported by a relative address and keep their
+names. A module a tag names, such as an island's element file in
+`fun/factory/`, is hashed in its own folder and the tag names it there,
+`/fun/factory/<name>.<hash>.js`, so the relative addresses it imports, such as
+`../kit/island.js`, still find the kit.
 
 `/favicon.ico`, which browsers and crawlers ask for whatever a page links, is
 answered with the icon the pages link, `fun/favicon.svg`, sent as SVG and

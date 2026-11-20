@@ -67,6 +67,8 @@ mod files;
 mod findings;
 mod finish;
 mod host;
+#[cfg(test)]
+mod kit;
 mod lock;
 #[cfg(test)]
 mod pages;

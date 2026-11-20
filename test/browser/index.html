@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kit check</title>
+<link rel="stylesheet" href="/fun/kit/kit.css">
+<link rel="stylesheet" href="/demo/demo.css">
+<script type="module" src="/demo/check.js"></script>
+<script type="module" src="/demo/kit-demo-queue.js"></script>
+<script type="module" src="/demo/kit-demo-picked.js"></script>
+<script type="module" src="/demo/kit-demo-wire.js"></script>
+</head>
+<body>
+<main>
+  <kit-demo-queue id="queue" data-tehas-island src="/live/status.json">
+    <p class="server">Server HTML of the queue</p>
+  </kit-demo-queue>
+  <kit-demo-picked id="picked" data-tehas-island src="/live/status.json" hydrate="idle">
+    <p class="server">Server HTML of the picked</p>
+  </kit-demo-picked>
+  <kit-demo-picked id="seen" data-tehas-island="contents" src="/live/status.json" hydrate="visible">
+    <p class="server">Server HTML laid out as its children</p>
+  </kit-demo-picked>
+  <kit-demo-queue id="ticking" data-tehas-island src="/tick/status.json" every="1000"></kit-demo-queue>
+  <kit-demo-queue id="missing" data-tehas-island src="/live/missing.json"></kit-demo-queue>
+  <kit-demo-wire id="wire" data-tehas-island session="s-1"></kit-demo-wire>
+</main>
+<pre id="result"></pre>
+</body>
+</html>

@@ -1,0 +1,5 @@
+@layer page {
+  .is-picked {
+    font-weight: bold;
+  }
+}
