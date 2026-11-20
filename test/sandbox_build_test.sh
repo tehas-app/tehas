@@ -58,11 +58,15 @@ cp "$T_ROOT/test/fixtures/smoke-started.json" "$fx/smoke"
 # $fx/build-fails - the instance's own, by its path - fails. A case that builds
 # an instance layer calls fx_ids, which answers the inspects of that check.
 # Asked in the clone, git holds the commit unless $fx/no-commit exists; a fetch
-# brings it when $fx/fetch-brings exists, and archive prints a stand-in tree.
+# of the tags brings it when $fx/fetch-brings exists, a fetch of the commit by
+# id when $fx/fetch-id-brings does, and archive prints a stand-in tree.
 t_stub git 'if [ "$1" = -C ]; then
   case "$3" in
     cat-file) [ ! -e "$T/fx/no-commit" ] ;;
-    fetch) [ ! -e "$T/fx/fetch-brings" ] || rm -f "$T/fx/no-commit" ;;
+    fetch) case "$*" in
+        *--tags*) [ ! -e "$T/fx/fetch-brings" ] || rm -f "$T/fx/no-commit" ;;
+        *) [ ! -e "$T/fx/fetch-id-brings" ] || rm -f "$T/fx/no-commit" ;;
+      esac ;;
     archive) echo tree ;;
   esac
   exit
@@ -247,19 +251,31 @@ t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "--build-context=npm=$home/sandbox/../npm -"
 
-t_case "a clone without the commit fetches once, and one a fetch does not bring it to builds nothing"
+t_case "a clone without the commit fetches its tags, and one a fetch does not bring it to builds nothing"
 reset
 : >"$fx/no-commit"
 : >"$fx/fetch-brings"
 t_run "$build"
 t_eq "$t_rc" 0
-t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas fetch -q --tags origin"
+t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas fetch -q --tags --force origin"
+t_lacks "$(t_calls git)" "fetch -q origin $head"
 reset
 : >"$fx/no-commit"
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "does not hold $head, and a fetch did not bring it"
+t_contains "$t_out" "build: the pi-rukas clone in $T/home/tehas/repos/pi-rukas does not hold $head, and a fetch of its tags and of the commit by id did not bring it"
 t_eq "$(t_calls docker)" ""
+
+# A release pins a commit; upstream may re-point the tag it came from, and then
+# no tag or branch holds it. Upstream still serves it by its id.
+t_case "a commit on no tag or branch upstream is fetched by its id"
+reset
+: >"$fx/no-commit"
+: >"$fx/fetch-id-brings"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas fetch -q origin $head"
+t_contains "$(t_calls docker)" "-t $base"
 
 t_case "a base that does not build stops the build before the base is asked anything"
 reset

@@ -1905,7 +1905,8 @@ settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 
 One reading of these values serves the sandbox build, `bootstrap.sh`,
 `tehasbot clean` and the release script: the console's, `console rukas target
-<follow> <repo>` and `console rukas image <repo> <commit>`
+<follow> <repo>`, `console rukas image <repo> <commit>` and `console rukas
+fetch <clone> <commit>`
 (`console/core/src/rukas.rs`).
 
 What follows from it:
@@ -1915,7 +1916,10 @@ What follows from it:
   base is built on the host from `sandbox/base.Dockerfile` and the clone in
   `~/tehas/repos/pi-rukas` at that commit (`git archive`), tagged
   `tehas/pi-rukas-base:sha-<first 12 characters>-uid<uid>`: see [the lean
-  base](#the-lean-base). A clone that lacks the commit fetches once; one that
+  base](#the-lean-base). A clone that lacks the commit fetches upstream's
+  tags, then the commit by its id (`console rukas fetch <clone> <commit>`):
+  a release pins a commit, and once upstream re-points the tag it came from,
+  no tag or branch may hold it. GitHub still serves it by id. A clone that
   still lacks it fails the update with a message that says so. A release's
   `PI_RUKAS_IMAGE_DIGEST` no longer picks the base. `tehas update --check` says
   whether the commit moved.
