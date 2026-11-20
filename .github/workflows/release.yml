@@ -140,12 +140,20 @@ jobs:
           done
       - name: pack
         run: |
-          # No pi-rukas pin: a release follows the line its versions.env names.
+          # A release pins the pi-rukas commit the tag's PI_RUKAS_FOLLOW names
+          # now, so every install of it gets the same pi-rukas. No answer, no
+          # release.
           p=$RUNNER_TEMP/programs
+          . host/versions.env
+          rukas=$("$p/console" rukas target "$PI_RUKAS_FOLLOW" "$PI_RUKAS_REPO") || {
+            echo "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO; nothing was published" >&2
+            exit 1
+          }
+          echo "pi-rukas pinned at ${rukas%% *}, ${rukas#* }"
           TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
             --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" --attach "$p/attach" --dispatch "$p/tehas-dispatch" --cycle "$p/tehas-cycle" \
             --proxy "$p/tehas-proxy" --contractor "$p/tehas-contractor" \
-            --commit "$(git rev-parse HEAD)"
+            --commit "$(git rev-parse HEAD)" --rukas-commit "${rukas%% *}"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
       - name: sign, and check the signature with the key in the tree

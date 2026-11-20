@@ -17,7 +17,7 @@ thin wrapper around the same arguments:
 ```
 TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
   --analytics <path> --mcp <path> --store <path> --attach <path> --commit <40 hex> \
-  --rukas-commit <40 hex> --rukas-digest <64 hex>
+  --rukas-commit <40 hex>
 ```
 
 `--analytics`, `--mcp`, `--store` and `--attach` are the other four programs
@@ -38,8 +38,9 @@ tree with no git has no other way to say it, the store records it in the
 database, and `install.sh` refuses a tree whose commit it cannot read. It is
 optional to the pack script, and the workflow always gives it.
 
-The two pins are given together or not at all, so a release that does not pin
-pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
+`--rukas-commit` pins the pi-rukas commit the release builds its sandbox from.
+`--rukas-digest sha256:<64 hex>` may be given beside it and never without it.
+The release workflow gives the commit alone.
 
 The tree it packs is the working directory, or `TEHAS_PACK_ROOT` when that names
 one, so a workflow that checks a tag out into its own workspace points the
@@ -56,7 +57,7 @@ packed on what whoever ran the workflow believed.
 
 Usage, the list of what is packed and the exit statuses are the script's: run
 `scripts/pack-release.sh --help`. Three of them matter to the workflow that calls
-this one: half a pin is a bad argument (64), a pin whose value has the wrong
+this one: a digest without the commit is a bad argument (64), a pin whose value has the wrong
 shape is a failure (1), and the two are gated differently; so is a program built
 for the other architecture, a failure too (1), since the argument itself is
 never wrong. A pin of either shape
@@ -90,18 +91,28 @@ kept by the copy and followed by `tar`, so its target's content would reach the
 release from outside the tree. That is why the tree is a checkout of this
 repository and the command makes no other claim about where it came from.
 
-The two pins, the last two lines of the copy of `versions.env` inside the
-tarball, replace rather than repeat a key the tree already carried:
+The pins, the last lines of the copy of `versions.env` inside the tarball,
+replace rather than repeat a key the tree already carried:
 
 ```
 PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
 PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   upstream's image of that commit, no longer the base
 ```
 
-The rest of the file is the checkout's own. The release workflow packs no pins:
-a release follows the pi-rukas line its `versions.env` names, as a checkout
-does, so a new pi-rukas reaches a host at its next `tehas update`. The pins are
-for a person who packs a release that must keep one pi-rukas.
+The rest of the file is the checkout's own. A checkout follows the pi-rukas
+line its `versions.env` names (`PI_RUKAS_FOLLOW=release:0`), so an install from
+a checkout gets the newest pi-rukas release of that line. A release pins one
+commit, so every install of it gets the same pi-rukas: before it packs, the
+release workflow asks `console rukas target` for the commit the tag's own
+`PI_RUKAS_FOLLOW` and `PI_RUKAS_REPO` name, logs it with its version, and passes
+it as `--rukas-commit`. When upstream does not answer, the release stops and
+nothing is published. A new pi-rukas then reaches a host installed from
+releases with the next release of tehas. An instance that sets
+`PI_RUKAS_FOLLOW` in `instance.env` still wins over the pin.
+
+pi is exact in both: `PI_VERSION` in `versions.env` and the lockfile in
+`host/npm/pi/` name one version, and `scripts/tag-release.sh` moves them at a
+tag.
 
 ### Branches
 
@@ -248,8 +259,10 @@ with it: the publisher's checksum or the hash of the download, the lockfile
 of an npm tree (npm locks it again; a version younger than npm's
 `min-release-age` is not taken) and its `_LOCK_SHA256`, Caddy's digest in the
 three files that name it, and vipune's model at the revision the new vipune
-asks for, with its two hashes from Hugging Face. pi-rukas is not pinned and is
-left alone. OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
+asks for, with its two hashes from Hugging Face. pi, `PI_VERSION` and the tree
+in `host/npm/pi/`, moves with them, so a release names one pi. The script
+leaves pi-rukas's line alone: the release workflow pins its commit when it
+packs (see above). OSV-Scanner is the one pin `bootstrap.sh` does not install: the gate
 of `verify.yml` downloads it into the runner's own temporary directory.
 
 Under 0.x a minor release can break, so "same major" moves vipune from 0.15 to

@@ -2,9 +2,9 @@
 # Tests for .github/workflows/release.yml: its first step, that the tagged
 # commit is on main and the account that pushed the tag is an admin of the
 # repository, and the clean hosted runner it runs on, which gets every tool
-# from the job's own steps, and the notes its publish step takes. The steps'
-# own scripts run here against scratch repositories and trees, with curl
-# stubbed. Nothing here reaches the network.
+# from the job's own steps, the pi-rukas pin its pack step passes, and the
+# notes its publish step takes. The steps' own scripts run here against
+# scratch repositories and trees, with curl stubbed. Nothing here reaches the network.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -284,5 +284,44 @@ publish v1.0.0-rc.1
 t_eq "$t_rc" 0
 t_contains "$(cat "$T/curl.args")" '"body": "### Changes\n\n- the candidate"'
 t_lacks "$(cat "$T/curl.args")" "every change since the last release"
+
+# The pack step in a tree of its own: a console that answers `rukas target`
+# and a pack-release.sh that records what it is given.
+step 'pack' >"$T/pack.sh"
+mkdir -p "$T/pk/scripts" "$T/pk/host" "$T/pk/rt/programs" "$T/pk/dist"
+printf '%s\n' PI_RUKAS_REPO=https://example.invalid/pi-rukas.git PI_RUKAS_FOLLOW=release:0 >"$T/pk/host/versions.env"
+pin=$(printf 'c%.0s' {1..40})
+cat >"$T/pk/rt/programs/console" <<STUB
+#!$T_BASH
+echo "\$*" >>"$T/console.args"
+[ -z "\${CONSOLE_FAILS:-}" ] || exit 1
+echo "$pin release v0.14.94"
+STUB
+cat >"$T/pk/scripts/pack-release.sh" <<STUB
+#!$T_BASH
+echo "\$*" >"$T/pack.args"
+STUB
+chmod 755 "$T/pk/rt/programs/console" "$T/pk/scripts/pack-release.sh"
+packstep() {
+  rm -f "$T/console.args" "$T/pack.args"
+  t_stub git 'echo 1111111111111111111111111111111111111111'
+  t_stub sha256sum 'exit 0'
+  t_run "cd '$T/pk' && TAG=v1.2.3 DIST='$T/pk/dist' RUNNER_TEMP='$T/pk/rt' $1 bash -eo pipefail '$T/pack.sh'"
+}
+
+t_case "a release pins the pi-rukas commit the tag's own PI_RUKAS_FOLLOW names, and no digest"
+[ "$(pos pack)" -lt "$(pos 'publish the release')" ] || t_bad "the pack runs after the publish"
+packstep ''
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/console.args")" "rukas target release:0 https://example.invalid/pi-rukas.git"
+t_contains "$(cat "$T/pack.args")" "--rukas-commit $pin"
+t_lacks "$(cat "$T/pack.args")" "--rukas-digest"
+t_contains "$t_out" "pi-rukas pinned at $pin, release v0.14.94"
+
+t_case "a follow upstream does not answer stops the release before anything is packed"
+packstep 'CONSOLE_FAILS=1'
+t_eq "$t_rc" 1
+t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release:0 in https://example.invalid/pi-rukas.git; nothing was published"
+t_eq "$(cat "$T/pack.args" 2>/dev/null)" ""
 
 t_done
