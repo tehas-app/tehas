@@ -704,7 +704,12 @@ The budgets for new work:
   browser: `node test/browser/kit-check.mjs` serves `test/browser/` with the
   kit and `test/fixtures/live/` under a CSP with no inline script or style,
   loads it in headless Chromium and checks two islands that share one feed and
-  one store. It prints `skip` where no Chromium is found.
+  one store, and a third, `kit-demo-wire`, against a small API: a feed with a
+  request header, a chosen answer header and the server's `Date`, a 404 that
+  is accepted as an empty value, an SSE stream that resumes from
+  `Last-Event-ID` and an NDJSON stream feeding a page store, both closed by a
+  204, and a press whose optimistic value holds when it works and rolls back
+  when it fails. It prints `skip` where no Chromium is found.
   `node test/browser/dashboard-check.mjs` does the same for the plain
   dashboard: it renders the manual's layout around the fragment, serves the
   samples and a console that grows, and checks each section, the tabs, the

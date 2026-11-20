@@ -32,8 +32,62 @@ function chromium() {
   return { bin, env: existsSync(libs) ? { LD_LIBRARY_PATH: libs } : {} };
 }
 
+// The wire demo's server: a feed that echoes a request header, a deliberate
+// 404, a server-sent event stream that resumes from Last-Event-ID, an NDJSON
+// stream and a press that works once and then fails.
+const SERVER_DATE = "Thu, 19 Nov 2026 10:00:00 GMT";
+const wire = { events: 0, lines: 0, votes: 0, presses: 0, seen: {} };
+function api(req, res, path) {
+  const base = { "content-security-policy": CSP };
+  const json = (status, body, more = {}) =>
+    res.writeHead(status, { ...base, "content-type": "application/json", ...more }).end(JSON.stringify(body));
+  const session = req.headers["x-kit-session"] ?? null;
+  (wire.seen[path] ??= []).push(session);
+  if (path === "/api/echo") return json(200, { session }, { "x-kit-seen": "yes", date: SERVER_DATE });
+  if (path === "/api/plan") {
+    return res.writeHead(404, { ...base, "content-type": "text/plain" }).end("This factory plans no releases.");
+  }
+  if (path === "/api/events") {
+    wire.events += 1;
+    if (wire.events > 2) return res.writeHead(204, base).end();
+    res.writeHead(200, { ...base, "content-type": "text/event-stream", "cache-control": "no-store" });
+    if (wire.events === 1) {
+      res.write('id: 1\nevent: tick\ndata: {"n":1}\n\n');
+      setTimeout(() => res.end(': a comment\nid: 2\ndata: {"n":\ndata: 2}\n\n'), 100);
+    } else {
+      res.end(`id: 3\ndata: ${JSON.stringify({ n: 3, after: req.headers["last-event-id"] ?? "" })}\n\n`);
+    }
+    return;
+  }
+  if (path === "/api/lines") {
+    wire.lines += 1;
+    if (wire.lines > 1) return res.writeHead(204, base).end();
+    res.writeHead(200, { ...base, "content-type": "application/x-ndjson" });
+    res.write('{"n":1}\n{"n":');
+    setTimeout(() => res.end('2}\n{"n":3}\n'), 100);
+    return;
+  }
+  if (path === "/api/votes") return json(200, { count: wire.votes });
+  if (path === "/api/vote" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () =>
+      setTimeout(() => {
+        wire.presses += 1;
+        const ok = wire.presses === 1 && req.headers["content-type"] === "application/json" && JSON.parse(body).by === 1;
+        if (!ok) return json(500, { why: "the second press fails" });
+        wire.votes += 1;
+        json(200, { count: wire.votes });
+      }, 300),
+    );
+    return;
+  }
+  json(404, { why: "no such api" });
+}
+
 function serve(req, res) {
   const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+  if (path.startsWith("/api/")) return api(req, res, path);
   const mount = Object.keys(MOUNTS).find((m) => path.startsWith(m));
   const file = mount && normalize(join(ROOT, MOUNTS[mount], path.slice(mount.length) || "index.html"));
   if (!file || !file.startsWith(join(ROOT, MOUNTS[mount])) || !existsSync(file) || !statSync(file).isFile()) {
@@ -104,6 +158,16 @@ const checks = [
   ["the store outlives the island that wrote it", s.afterRemove === "#42 A search with no match says so", s.afterRemove],
   ["a new island gets the store as it was", s.againHighlighted === "42", s.againHighlighted],
   ["a pick after the removal reaches the island that stayed", s.pickedAfterRemove === "#41 Export the report as CSV", s.pickedAfterRemove],
+  ["a feed sends its request headers", wire.seen["/api/echo"]?.[0] === "s-1" && /^session s-1/.test(s.echo), [wire.seen["/api/echo"], s.echo]],
+  ["a feed's meta gives a chosen header and the server's Date", s.echo === `session s-1, seen yes, ${new Date(SERVER_DATE).toISOString()}`, s.echo],
+  ["an accepted 404 reads as an empty plan, not an error", s.plan === "No releases planned (404)", s.plan],
+  ["an SSE stream feeds a page store, sending headers", s.events?.includes("tick#1=1 message#2=2") && wire.seen["/api/events"]?.[0] === "s-1", [s.events, wire.seen["/api/events"]]],
+  ["the SSE stream reconnects with Last-Event-ID, and a 204 closes it", s.events === "closed: tick#1=1 message#2=2 message#3=3 after 2", s.events],
+  ["an NDJSON stream across chunks feeds a page store, and a 204 closes it", s.lines === "closed: 1 2 3" && wire.seen["/api/lines"]?.[0] === "s-1", [s.lines, wire.seen["/api/lines"]]],
+  ["a press shows its optimistic value before the answer", JSON.stringify(s.voteViews?.slice(0, 2)) === '["0@0","1@0"]', s.voteViews],
+  ["a press that works keeps the value with no step back", s.voteAfter === "1" && s.voteViews?.[2] === "2@1", [s.voteAfter, s.voteViews]],
+  ["a press that fails rolls its optimistic value back and says why", s.failAfter === "1" && /\/api\/vote: 500/.test(s.failText) && s.voteViews?.[3] === "1@2", [s.failAfter, s.failText, s.voteViews]],
+  ["the pressed value went 0, 1, 2 and back to 1, and no other way", s.voteViews?.length === 4, s.voteViews],
 ];
 let failed = 0;
 for (const [name, ok, got] of checks) {
