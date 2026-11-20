@@ -10,7 +10,8 @@
 //     on: board.actions.apply,               // (event) => void, event { type, data, id }
 //   });
 //   live.state()    "connecting", "open", "error" (a retry is due) or "closed"
-//   live.error()    the last error, or null
+//   live.error()    the last error, or null; a refused answer's is a StreamError
+//                   with its status and its body as data (JSON, or text)
 //   live.status()   the last answer's status, or 0
 //   live.reconnect()  drop the connection and connect now
 //
@@ -18,14 +19,73 @@
 // closes when the last root that asked for it is gone. While the page is
 // hidden an open connection stays, and a reconnect waits until it shows;
 // with `hidden: "close"` the connection closes and opens again when the page
-// shows. A 204 answer stops it, as it stops an EventSource.
+// shows; with `hidden: "live"` it asks again while hidden too. A 204 answer
+// stops it, as it stops an EventSource.
+//
+// Options a page moved onto the kit uses to keep the waits and the ends it
+// had (host/docs/frontend.md, "Streams"):
+//
+//   stream("/api/events", {
+//     end: (status, type) => status !== 200 || type !== "text/event-stream",  // or [401, 403]
+//     retry: 3000, grow: "fixed", ended: 3000,  // an EventSource's waits
+//     hidden: "live",
+//   });
 import { createSignal, getOwner, onCleanup } from "./vendor/solid.js";
 import { headersOf, keyOf } from "./request.js";
 import { release, shared } from "./state.js";
 
 const TIMEOUT = 30000;
-const KEYED = ["format", "headers", "credentials", "parse", "hidden", "retry", "max"];
+// The most of a refused answer's body that its error carries.
+const BODY = 65536;
+const KEYED = ["format", "headers", "credentials", "parse", "hidden", "retry", "max", "grow", "ended", "end"];
 const hidden = () => globalThis.document?.hidden === true;
+
+/** An answer the stream did not read: its status, and its body as data. */
+export class StreamError extends Error {
+  constructor(src, status, statusText, data) {
+    super(`${src}: ${status} ${statusText ?? ""}`.trim());
+    this.name = "StreamError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
+// At most BODY bytes of an answer, as JSON when it is JSON, else text.
+async function bodyOf(res) {
+  let text = "";
+  try {
+    const reader = res.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder();
+      let size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        text += decoder.decode(value.subarray(0, Math.max(0, value.byteLength - Math.max(0, size - BODY))), { stream: true });
+        if (size >= BODY) {
+          reader.cancel().catch(() => {});
+          break;
+        }
+      }
+      text += decoder.decode();
+    } else if (res.text) text = (await res.text()).slice(0, BODY);
+  } catch {
+    // What came before the failure is the body.
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+// Whether an answer ends the stream for good: `end` lists statuses or is a
+// function of the status and the content type.
+function ends(end, status, type) {
+  if (Array.isArray(end)) return end.includes(status);
+  return typeof end === "function" && end(status, type) === true;
+}
 
 // Reads text/event-stream lines into events (the WHATWG rules: data lines
 // joined by "\n", a blank line ends an event, an event with no data is
@@ -67,6 +127,9 @@ function make(src, opts) {
   const [status, setStatus] = createSignal(0);
   const min = Math.max(100, opts.retry ?? 1000);
   const max = Math.max(min, opts.max ?? 30000);
+  const fixed = opts.grow === "fixed";
+  const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
+  const live = opts.hidden === "live";
   const s = { listeners: new Map(), out: null, timer: 0, tries: 0, base: min, lastId: "", due: false, done: false, gone: false };
 
   const emit = (type, text, id) => {
@@ -89,12 +152,13 @@ function make(src, opts) {
     }
   };
 
-  const later = () => {
+  // `after` is the wait when the server ended the stream, when set.
+  const later = (after) => {
     if (s.gone || s.done) return;
-    const wait = Math.min(max, s.base * 2 ** s.tries);
+    const wait = after ?? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries);
     s.tries += 1;
     clearTimeout(s.timer);
-    s.timer = setTimeout(() => (hidden() ? (s.due = true) : connect()), wait);
+    s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), wait);
   };
 
   async function read(res, out) {
@@ -137,19 +201,33 @@ function make(src, opts) {
       const init = { headers, cache: "no-store", signal: out.signal };
       if (opts.credentials) init.credentials = opts.credentials;
       const res = await fetch(src, init);
-      clearTimeout(limit);
-      if (s.out !== out) return;
+      if (s.out !== out) {
+        clearTimeout(limit);
+        return;
+      }
       setStatus(res.status);
       if (res.status === 204) {
+        clearTimeout(limit);
         s.done = true;
         setState("closed");
         return;
       }
-      if (!res.ok) {
-        const e = new Error(`${src}: ${res.status} ${res.statusText ?? ""}`.trim());
-        e.status = res.status;
+      const type = (res.headers?.get?.("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      const end = ends(opts.end, res.status, type);
+      if (!res.ok || end) {
+        const e = new StreamError(src, res.status, res.statusText, await bodyOf(res));
+        clearTimeout(limit);
+        if (s.out !== out) return;
+        if (end) {
+          s.out = null;
+          s.done = true;
+          setError(e);
+          setState("closed");
+          return;
+        }
         throw e;
       }
+      clearTimeout(limit);
       s.tries = 0;
       setError(null);
       setState("open");
@@ -158,7 +236,7 @@ function make(src, opts) {
       // The server ended the stream: ask again.
       s.out = null;
       setState("connecting");
-      later();
+      later(ended ?? undefined);
     } catch (e) {
       clearTimeout(limit);
       if (s.out !== out) return;
@@ -221,13 +299,19 @@ function make(src, opts) {
  * the same options share one connection: `format` ("sse", the default, or
  * "ndjson"), `headers` (an object, or a function read on each connect),
  * `credentials`, `parse` ("json", the default, or "text": what an event's
- * `data` is), `hidden` ("keep", the default, or "close"), and `retry` and
- * `max`, the first and the longest wait before connecting again in ms (1000
- * and 30000). `on` gets each event `{ type, data, id }` while its reader
+ * `data` is), `hidden` ("keep", the default, "close" or "live"), and `retry`
+ * and `max`, the first and the longest wait before connecting again in ms
+ * (1000 and 30000). `grow` is "double", the default, or "fixed": the wait
+ * stays `retry`. `ended` is the wait in ms after the server ends a stream
+ * cleanly, 0 or more; by default the first wait. `end` ends the stream for
+ * good on an answer it lists, a status array or a function of the status
+ * and the content type that returns true: state "closed", with status() and
+ * error() kept. `on` gets each event `{ type, data, id }` while its reader
  * lives; the same function given by two readers gets each event once.
  * @param {string} src
  * @param {{ format?: "sse" | "ndjson", headers?: object | (() => object), credentials?: RequestCredentials,
- *   parse?: "json" | "text", hidden?: "keep" | "close", retry?: number, max?: number,
+ *   parse?: "json" | "text", hidden?: "keep" | "close" | "live", retry?: number, max?: number,
+ *   grow?: "double" | "fixed", ended?: number, end?: number[] | ((status: number, type: string) => boolean),
  *   on?: (event: { type: string, data: any, id: string | null }) => void }} [options]
  * @returns {{ src: string, state: () => "connecting" | "open" | "error" | "closed", error: () => unknown,
  *   status: () => number, reconnect: () => void }}
