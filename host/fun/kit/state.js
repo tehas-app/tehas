@@ -14,6 +14,7 @@
 import { createRoot, createStore, getOwner, runWithOwner } from "./vendor/solid.js";
 
 const owner = createRoot(() => getOwner());
+/** @type {Map<string, { value: any, dispose: () => void }>} */
 const made = new Map();
 
 /**
@@ -31,10 +32,13 @@ export function shared(key, make) {
       runWithOwner(owner, () => createRoot((dispose) => ({ value: make(), dispose }))),
     );
   }
-  return made.get(key).value;
+  return /** @type {{ value: T }} */ (made.get(key)).value;
 }
 
-/** Disposes the value of `key`; the next `shared(key)` makes it again. */
+/**
+ * Disposes the value of `key`; the next `shared(key)` makes it again.
+ * @param {string} key
+ */
 export function release(key) {
   made.get(key)?.dispose();
   made.delete(key);
@@ -45,6 +49,7 @@ export function resetPage() {
   for (const key of [...made.keys()]) release(key);
 }
 
+/** @param {object} actions */
 const names = (actions) => Object.keys(actions).sort().join();
 
 /**

@@ -34,6 +34,22 @@
 import { createSignal, getOwner, onCleanup } from "./vendor/solid.js";
 import { headersOf, keyOf } from "./request.js";
 import { release, shared } from "./state.js";
+/** @import { Headers, Parse } from "./request.js" */
+
+/**
+ * @typedef {{ readonly type: string, readonly data: any, readonly id: string | null }} StreamEvent
+ * @typedef {(status: number, type: string) => boolean} Ends
+ * @typedef {{ format?: "sse" | "ndjson", headers?: Headers, credentials?: RequestCredentials, parse?: Parse,
+ *   hidden?: "keep" | "close" | "live", retry?: number, max?: number, grow?: "double" | "fixed", ended?: number,
+ *   broken?: "fail" | "end", end?: number[] | Ends, on?: (event: StreamEvent) => void }} StreamOptions
+ * @typedef {"connecting" | "open" | "error" | "closed"} StreamState
+ * @typedef {{ readonly src: string, readonly state: () => StreamState, readonly error: () => unknown,
+ *   readonly status: () => number, readonly reconnect: () => void }} Stream
+ * @typedef {{ listeners: Map<(event: StreamEvent) => void, number>, out: AbortController | null, timer: number,
+ *   tries: number, base: number, lastId: string, due: boolean, done: boolean, gone: boolean, quiet: number,
+ *   heard?: boolean, served?: boolean, readers: number, api: Stream }} Source
+ * @typedef {(type: string, text: string, id: string | null) => void} Emit
+ */
 
 const TIMEOUT = 30000;
 // The most of a refused answer's body that its error carries, and the
@@ -45,6 +61,12 @@ const hidden = () => globalThis.document?.hidden === true;
 
 /** An answer the stream did not read: its status, and its body as data. */
 export class StreamError extends Error {
+  /**
+   * @param {string} src
+   * @param {number} status
+   * @param {string | undefined} statusText
+   * @param {any} data
+   */
   constructor(src, status, statusText, data) {
     super(`${src}: ${status} ${statusText ?? ""}`.trim());
     this.name = "StreamError";
@@ -55,12 +77,15 @@ export class StreamError extends Error {
 
 // At most BODY bytes of an answer, read for at most BODY_WAIT ms, as JSON
 // when it is JSON, else text. An answer with no body is "".
+/** @param {Response} res */
 async function bodyOf(res) {
   let text = "";
   const reader = res.body?.getReader?.();
   if (!reader) return text;
   const decoder = new TextDecoder();
+  /** @type {number | undefined} */
   let timer;
+  /** @type {Promise<null>} */
   const late = new Promise((r) => (timer = setTimeout(() => r(null), BODY_WAIT)));
   try {
     let size = 0;
@@ -90,6 +115,11 @@ async function bodyOf(res) {
 
 // Whether an answer ends the stream for good: `end` lists statuses or is a
 // function of the status and the content type.
+/**
+ * @param {StreamOptions["end"]} end
+ * @param {number} status
+ * @param {string} type
+ */
 function ends(end, status, type) {
   if (Array.isArray(end)) return end.includes(status);
   return typeof end === "function" && end(status, type) === true;
@@ -99,7 +129,14 @@ function ends(end, status, type) {
 // joined by "\n", a blank line ends an event, an event with no data is
 // dropped, an id counts for Last-Event-ID once its event is dispatched, retry
 // sets the wait, no shorter than the first wait the reader asked for).
+/**
+ * @param {Emit} emit
+ * @param {Source} s
+ * @param {number} min
+ * @returns {(line: string) => void}
+ */
 function sse(emit, s, min) {
+  /** @type {string | null} */
   let data = null;
   let type = "";
   let id = s.lastId;
@@ -126,29 +163,40 @@ function sse(emit, s, min) {
   };
 }
 
+/**
+ * @param {Emit} emit
+ * @returns {(line: string) => void}
+ */
 function ndjson(emit) {
   return (line) => {
     if (line.trim() !== "") emit("message", line, null);
   };
 }
 
+/**
+ * @param {string} src
+ * @param {StreamOptions} opts
+ * @returns {Source}
+ */
 function make(src, opts) {
-  const [state, setState] = createSignal("connecting");
-  const [error, setError] = createSignal(null);
+  const [state, setState] = createSignal(/** @type {StreamState} */ ("connecting"));
+  const [error, setError] = createSignal(/** @type {unknown} */ (null));
   const [status, setStatus] = createSignal(0);
   const min = Math.max(100, opts.retry ?? 1000);
   const max = Math.max(min, opts.max ?? 30000);
   const fixed = opts.grow === "fixed";
-  const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
+  const ended = Number.isFinite(opts.ended) ? Math.max(0, /** @type {number} */ (opts.ended)) : null;
   // An ended over the default max is kept when the caller set no max.
   const top = opts.max == null ? Math.max(max, ended ?? 0) : max;
   const live = opts.hidden === "live";
   const broke = opts.broken === "end";
   // heard: this connection brought an event; quiet: clean ends in a row
   // that brought none; served: the server sent a retry field.
-  const s = { listeners: new Map(), out: null, timer: 0, tries: 0, base: min, lastId: "", due: false, done: false, gone: false };
+  /** @type {Source} */
+  const s = /** @type {any} */ ({ listeners: new Map(), out: null, timer: 0, tries: 0, base: min, lastId: "", due: false, done: false, gone: false });
   s.quiet = 0;
 
+  /** @type {Emit} */
   const emit = (type, text, id) => {
     s.heard = true;
     let data = text;
@@ -156,7 +204,7 @@ function make(src, opts) {
       try {
         data = JSON.parse(text);
       } catch (e) {
-        setError(new Error(`${src}: an event that is not JSON: ${e.message}`));
+        setError(new Error(`${src}: an event that is not JSON: ${/** @type {Error} */ (e).message}`));
         return;
       }
     }
@@ -173,6 +221,7 @@ function make(src, opts) {
   // `after` is the wait when the server ended the stream, when set, `spent`
   // the time already gone since the answer came, and `fail` whether this
   // wait counts as a try.
+  /** @type {(after?: number, spent?: number, fail?: boolean) => void} */
   const later = (after, spent = 0, fail = true) => {
     if (s.gone || s.done) return;
     const wait = after === undefined ? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries) : Math.min(top, after);
@@ -185,18 +234,23 @@ function make(src, opts) {
   // replaces it, as it does for an EventSource. A second clean end in a row
   // with no event backs off, so a server that ends every stream at once is
   // not asked in a loop.
+  // Called only with `ended` set.
   const afterEnd = () => {
     if (s.served) return s.base;
     s.quiet = s.heard ? 0 : s.quiet + 1;
-    if (s.quiet < 2) return ended;
-    return Math.max(ended, fixed ? s.base : s.base * 2 ** (s.quiet - 2));
+    if (s.quiet < 2) return /** @type {number} */ (ended);
+    return Math.max(/** @type {number} */ (ended), fixed ? s.base : s.base * 2 ** (s.quiet - 2));
   };
 
+  /**
+   * @param {Response} res
+   * @param {AbortController} out
+   */
   async function read(res, out) {
     const nd = opts.format === "ndjson";
     const line = nd ? ndjson(emit) : sse(emit, s, min);
     const decoder = new TextDecoder();
-    const reader = res.body.getReader();
+    const reader = /** @type {ReadableStream<Uint8Array>} */ (res.body).getReader();
     out.signal.addEventListener("abort", () => reader.cancel().catch(() => {}));
     let rest = "";
     for (;;) {
@@ -205,7 +259,7 @@ function make(src, opts) {
       rest += done ? decoder.decode() : decoder.decode(value, { stream: true });
       // A "\r" at the end may be the first half of "\r\n".
       const lines = rest.split(/\r\n|\r(?!$)|\n/);
-      rest = lines.pop();
+      rest = /** @type {string} */ (lines.pop());
       for (const l of lines) line(l);
       if (done) {
         if (rest.endsWith("\r")) line(rest.slice(0, -1));
@@ -231,6 +285,7 @@ function make(src, opts) {
     try {
       const headers = { ...headersOf(opts.headers) };
       if (s.lastId) headers["Last-Event-ID"] = s.lastId;
+      /** @type {RequestInit} */
       const init = { headers, cache: "no-store", signal: out.signal };
       if (opts.credentials) init.credentials = opts.credentials;
       const res = await fetch(src, init);
@@ -351,12 +406,8 @@ function make(src, opts) {
  * with status() and error() kept. `on` gets each event `{ type, data, id }` while its reader
  * lives; the same function given by two readers gets each event once.
  * @param {string} src
- * @param {{ format?: "sse" | "ndjson", headers?: object | (() => object), credentials?: RequestCredentials,
- *   parse?: "json" | "text", hidden?: "keep" | "close" | "live", retry?: number, max?: number,
- *   grow?: "double" | "fixed", ended?: number, broken?: "fail" | "end", end?: number[] | ((status: number, type: string) => boolean),
- *   on?: (event: { type: string, data: any, id: string | null }) => void }} [options]
- * @returns {{ src: string, state: () => "connecting" | "open" | "error" | "closed", error: () => unknown,
- *   status: () => number, reconnect: () => void }}
+ * @param {StreamOptions} [options]
+ * @returns {Stream}
  */
 export function stream(src, options = {}) {
   if (!getOwner()) throw new Error(`stream ${src}: call it inside an island's root`);
@@ -367,7 +418,7 @@ export function stream(src, options = {}) {
   s.readers = (s.readers ?? 0) + 1;
   onCleanup(() => {
     if (on) {
-      const n = s.listeners.get(on) - 1;
+      const n = /** @type {number} */ (s.listeners.get(on)) - 1;
       if (n > 0) s.listeners.set(on, n);
       else s.listeners.delete(on);
     }
