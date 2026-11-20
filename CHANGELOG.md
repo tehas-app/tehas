@@ -19,6 +19,8 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+## v1.1.0 (2026-11-20)
+
 ### Changes
 
 - A `TEHAS_CYCLE_RESERVE` too large for the slice, such as `999999999g` with five or more containers, no longer overflows the memory the message says the host needs: it says the host needs more memory than any host has (#2446).
@@ -37,6 +39,10 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - An install no longer copies or sweeps through a symbolic link in `~/tehas/fun`, `~/tehas/docs` or the checkout's `host/fun` and `host/docs`, or over a name that is a directory on one side and a file on the other: it stops before it installs anything and names the path. A directory there that the checkout does not have is kept, and the install says `tehas: kept <dir>`. A file there that the checkout does not have is removed, as before, now in its folders too.
 - An install copies the dashboard's pages after the files they name, so one that fails partway leaves the old pages working.
 - `tools/vendor-solid` keeps the `kit <n>` line the kit's `MANIFEST` already has.
+- A stream of the front-end kit no longer waits longer than its `max` before it asks again. A server's `retry:` field or an `ended` above a `max` given made it wait that long after a clean end or, with `broken: "end"`, after a break.
+- A release now pins the pi-rukas commit its release gate built against. `scripts/tag-release.sh` names the commit before the gate and again after it, refuses to tag when upstream released in between, and writes the commit in the tag. The release workflow packs that commit, where it used to look the commit up again when it packed, after the approval.
+- `tehas status`, the factory API and the dashboard name the pi-rukas release a pinned commit is (`versions.rukas.latest`), where a host installed from a release showed nothing.
+- A stream of the front-end kit takes `broken: "end"`: a stream that breaks after it opened waits as after a clean end, and only failed connects make the wait grow. A page that read its own stream this way, such as a ticket page, keeps its old waits. A stream without it behaves as before.
 
 ### Adopter action
 
