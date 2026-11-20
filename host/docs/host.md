@@ -509,13 +509,24 @@ subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
 `/fun/factory/X.<hash>.js`. The two syncs then
 install the stage, so `~/tehas/fun` and `~/tehas/docs` hold exactly what the
 stage holds and a hashed name of older content is removed as stale with any page
-that went away. The pages keep their own names. A directory under `~/tehas/fun`
-or `~/tehas/docs` that the checkout does not have is kept, and the install says
-`tehas: kept <dir>` each time. A symbolic link there, or in the checkout's
-`host/fun` or `host/docs`, stops the install before it copies the manual or the
-front page: it says
-which path is a link, and nothing is written through it or removed behind it.
-Replace the link with a directory or file of its own and run the install again.
+that went away. The pages keep their own names, and they are copied after every
+other file, with the stale files removed last: an install that fails partway
+leaves the old pages, which still name files the home has.
+
+Every file in `~/tehas/fun` and `~/tehas/docs` belongs to tehas: a file the
+checkout does not have is removed, in a folder the checkout has too, such as
+`fun/kit/`. Keep your own files elsewhere. A directory there that the checkout
+does not have is kept, and the install says `tehas: kept <dir>` each time,
+since tehas keeps no record of the directories it made. When a release drops a
+folder, the install names it so; remove it by hand.
+
+A symbolic link in `~/tehas/fun` or `~/tehas/docs`, in the checkout's
+`host/fun` or `host/docs`, or either of those itself a link, stops the install
+before it installs anything, and so does a name that is a directory in the home
+where the checkout has a file, or the other way round. The install says which
+path it is, and nothing is written through it or removed behind it. Move it
+away, or replace the link with a directory or file of its own, and run the
+install again.
 
 The docs server caches the two kinds differently (`host/edge/docs.Caddyfile`):
 a script or stylesheet whose name has 12 hex digits of its own in it, in

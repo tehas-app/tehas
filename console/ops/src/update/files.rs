@@ -1,6 +1,6 @@
 //! The files install.sh copies, and the stale ones it sweeps.
 //!
-//!   console update files [--check] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host>
+//!   console update files [--check | --preflight] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host>
 //!   console update files write <path>
 //!
 //! The first form reads the file table on standard input, one `<source>|<path>|<mode>`
@@ -13,11 +13,18 @@
 //! `<path>.prev`. Each `--sync <name>` then copies every file of the directory
 //! `<name>` stands in for into `$TEHAS_HOME/<name>` as 644 and removes what is
 //! there that the directory no longer has, its subdirectories in the same way
-//! (the kit in `fun/kit/`). A subdirectory of the home that the directory does
-//! not have is kept and said so on standard error: it may be a person's own.
-//! A symbolic link on either side, where a sync would read, write or sweep, is
-//! refused before anything is copied: a link in the home would carry the copies
-//! and the sweep into the directory it points at. The directory is
+//! (the kit in `fun/kit/`). The pages that name hashed files
+//! (src/update/assets.rs) are copied after every other file and the sweep comes
+//! last, so a run that fails partway leaves pages that name files the home has.
+//! A file in these directories is tehas's: one the directory does not have is
+//! removed. A subdirectory of the home that the directory does not have is
+//! kept and said so on standard error, since no install has a record of having
+//! made it. A symbolic link on either side, where a sync would read, write or
+//! sweep, is refused before anything is copied: a link in the home would carry
+//! the copies and the sweep into the directory it points at. So is a name that
+//! is a directory on one side and a file on the other. `--preflight` makes that
+//! check alone and reads no table, which install.sh asks before it installs the
+//! programs, so a refusal leaves the host as it was. The directory is
 //! `<host>/<name>`, or
 //! `<dir>/<name>` with `--from <dir>`, which is how install.sh installs the
 //! dashboard's pages from the stage `console update assets` made (see
@@ -47,7 +54,7 @@ use tehas_core::file::{write_atomic, Temp};
 
 use super::{fault, say, steps, tell};
 
-const USAGE: &str = "console update files: usage: [--check] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host> | write <path>";
+const USAGE: &str = "console update files: usage: [--check | --preflight] [--no-steps <source>]... [--from <dir>] [--sync <name>]... <root> <host> | write <path>";
 
 /// One line of the file table.
 #[derive(Debug, PartialEq)]
@@ -137,14 +144,20 @@ fn is_link(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
-/// The symbolic links a sync of `from` into `to` would meet: the two
-/// directories, every name under `from`, and every name under `to` that the
-/// sweep reads. A link is not looked through.
-fn links(from: &Path, to: &Path, found: &mut Vec<PathBuf>) {
+fn is_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
+}
+
+/// What stops a sync of `from` into `to` before it copies anything: a symbolic
+/// link among the two directories, the names under `from` and the names under
+/// `to` that the sweep reads, and a name of the home that is a directory where
+/// the checkout has a file or the other way round. A link is not looked
+/// through.
+fn blockers(from: &Path, to: &Path, found: &mut Vec<String>) {
     let mut stop = false;
     for dir in [from, to] {
         if is_link(dir) {
-            found.push(dir.to_path_buf());
+            found.push(format!("{} is a symbolic link", dir.display()));
             stop = true;
         }
     }
@@ -153,18 +166,31 @@ fn links(from: &Path, to: &Path, found: &mut Vec<PathBuf>) {
     }
     for name in names(from).unwrap_or_default() {
         let (source, target) = (from.join(&name), to.join(&name));
-        if fs::symlink_metadata(&source).is_ok_and(|m| m.is_dir()) {
-            links(&source, &target, found);
+        let there = fs::symlink_metadata(&target).is_ok();
+        if is_dir(&source) {
+            if there && !is_dir(&target) && !is_link(&target) {
+                found.push(format!(
+                    "{} is a file and the checkout has a directory there",
+                    target.display()
+                ));
+            } else {
+                blockers(&source, &target, found);
+            }
         } else if is_link(&source) {
-            found.push(source);
+            found.push(format!("{} is a symbolic link", source.display()));
         } else if is_link(&target) {
-            found.push(target);
+            found.push(format!("{} is a symbolic link", target.display()));
+        } else if is_dir(&target) {
+            found.push(format!(
+                "{} is a directory and the checkout has a file there",
+                target.display()
+            ));
         }
     }
     for name in names(to).unwrap_or_default() {
         let target = to.join(&name);
         if !from.join(&name).exists() && is_link(&target) {
-            found.push(target);
+            found.push(format!("{} is a symbolic link", target.display()));
         }
     }
 }
@@ -271,17 +297,22 @@ impl Copier {
         Ok(())
     }
 
-    /// `<from>/<name>`/* into $TEHAS_HOME/<name>/, and what is there that the
-    /// directory no longer has taken away. Pages come and go, and so does a
-    /// hashed name whose content changed.
-    fn sync(&mut self, name: &str) -> Result<(), String> {
+    /// `<from>/<name>`/* into $TEHAS_HOME/<name>/: the pages that name hashed
+    /// files when `pages` is set, everything else when it is not. The pages go
+    /// last, so a run that fails partway leaves the old pages naming the old
+    /// files, which the sweep has not yet taken.
+    fn copy_tree(&mut self, name: &str, pages: bool) -> Result<(), String> {
         let from_dir = self.from.join(name);
         let to_dir = self.home.join(name);
         let sources = names(&from_dir)
             .map_err(|_| format!("{} is missing from this checkout", from_dir.display()))?;
         for file in &sources {
+            let src = format!("{name}/{file}");
             if from_dir.join(file).is_dir() {
-                self.sync(&format!("{name}/{file}"))?;
+                self.copy_tree(&src, pages)?;
+                continue;
+            }
+            if super::assets::PAGES.contains(&src.as_str()) != pages {
                 continue;
             }
             self.put_from(
@@ -294,8 +325,21 @@ impl Copier {
                 &from_dir.join(file),
             )?;
         }
+        Ok(())
+    }
+
+    /// What $TEHAS_HOME/<name>/ holds that `<from>/<name>` no longer has, taken
+    /// away. Pages come and go, and so does a hashed name whose content changed.
+    fn sweep(&mut self, name: &str) {
+        let from_dir = self.from.join(name);
+        let to_dir = self.home.join(name);
+        for file in names(&from_dir).unwrap_or_default() {
+            if from_dir.join(&file).is_dir() {
+                self.sweep(&format!("{name}/{file}"));
+            }
+        }
         if !to_dir.is_dir() {
-            return Ok(());
+            return;
         }
         for file in names(&to_dir).unwrap_or_default() {
             let to = to_dir.join(&file);
@@ -338,21 +382,31 @@ impl Copier {
                 Err(_) => fault(&format!("could not remove {}", to.display())),
             }
         }
-        Ok(())
+    }
+
+    /// The syncs' blockers as the refusal says them: before the programs with
+    /// `--preflight`, when nothing is installed yet, or else after them.
+    fn refuse(&self, syncs: &[String], preflight: bool) -> Result<(), String> {
+        let mut found = Vec::new();
+        for name in syncs {
+            blockers(&self.from.join(name), &self.home.join(name), &mut found);
+        }
+        if found.is_empty() {
+            return Ok(());
+        }
+        let done = if preflight {
+            "nothing was installed"
+        } else {
+            "the files of this step were not installed, and the programs an earlier step installed stay"
+        };
+        Err(format!(
+            "{}; {done}. An install does not copy through a symbolic link or over a file of the other kind: move each away, or replace a link with a file or directory of its own, and run again",
+            found.join(", ")
+        ))
     }
 
     fn run(&mut self, table: &str, syncs: &[String]) -> Result<(), String> {
-        let mut found = Vec::new();
-        for name in syncs {
-            links(&self.from.join(name), &self.home.join(name), &mut found);
-        }
-        if !found.is_empty() {
-            let paths: Vec<String> = found.iter().map(|p| p.display().to_string()).collect();
-            return Err(format!(
-                "{} is a symbolic link, and an install does not copy or sweep through one; nothing was installed. Replace it with a file or directory of its own and run again",
-                paths.join(", ")
-            ));
-        }
+        self.refuse(syncs, false)?;
         let entries = table
             .lines()
             .filter(|l| !l.is_empty())
@@ -362,8 +416,13 @@ impl Copier {
             let from = self.source_of(&e.src);
             self.put_from(e, &from)?;
         }
+        for pages in [false, true] {
+            for name in syncs {
+                self.copy_tree(name, pages)?;
+            }
+        }
         for name in syncs {
-            self.sync(name)?;
+            self.sweep(name);
         }
         Ok(())
     }
@@ -393,6 +452,7 @@ pub fn verb(given: &[String]) -> u8 {
         }
     }
     let mut check = false;
+    let mut preflight = false;
     let mut no_steps = Vec::new();
     let mut syncs = Vec::new();
     let mut from = None;
@@ -401,6 +461,7 @@ pub fn verb(given: &[String]) -> u8 {
     while let Some(word) = words.next() {
         match word.as_str() {
             "--check" => check = true,
+            "--preflight" => preflight = true,
             "--no-steps" | "--sync" | "--from" => {
                 let Some(value) = words.next() else {
                     tell(USAGE);
@@ -428,7 +489,7 @@ pub fn verb(given: &[String]) -> u8 {
         Err(rc) => return rc,
     };
     let mut table = String::new();
-    if io::stdin().read_to_string(&mut table).is_err() {
+    if !preflight && io::stdin().read_to_string(&mut table).is_err() {
         fault("could not read the file table");
         return 1;
     }
@@ -441,7 +502,11 @@ pub fn verb(given: &[String]) -> u8 {
         no_steps,
         lines: Vec::new(),
     };
-    let done = copier.run(&table, &syncs);
+    let done = if preflight {
+        copier.refuse(&syncs, true)
+    } else {
+        copier.run(&table, &syncs)
+    };
     for line in &copier.lines {
         say(line);
     }
@@ -756,9 +821,17 @@ mod tests {
             let mut c = copier(&d, check);
             let why = c.run("", &["fun".to_string()]).unwrap_err();
             assert!(why.contains("home/fun/kit is a symbolic link"), "{why}");
-            assert!(why.contains("nothing was installed"), "{why}");
+            // update.rs reads this phrase as an install that changed nothing,
+            // which a run after the programs is not.
+            assert!(!why.contains("nothing was installed"), "{why}");
             assert_eq!(c.lines, Vec::<String>::new());
         }
+        // The preflight install.sh asks before the programs says so.
+        let why = copier(&d, false)
+            .refuse(&["fun".to_string()], true)
+            .unwrap_err();
+        assert!(why.contains("home/fun/kit is a symbolic link"), "{why}");
+        assert!(why.contains("nothing was installed"), "{why}");
         assert_eq!(tree(&d.0.join("elsewhere")), before);
         assert!(is_link(&d.0.join("home/fun/kit")));
         // Nothing else was copied either: the refusal comes first.
@@ -813,6 +886,96 @@ mod tests {
         let mut c = copier(&d, false);
         assert!(c.run("", &["fun".to_string()]).is_err());
         assert!(!d.0.join("outside/index.html").exists());
+    }
+
+    #[test]
+    fn a_name_of_the_other_kind_in_the_home_is_refused_before_any_copy() {
+        let d = dir("files-kinds");
+        d.file("root/host/fun/index.html", "hi\n");
+        d.file("root/host/fun/extra/a.js", "// a\n");
+        d.file("root/host/fun/zz", "a file\n");
+        // The home has a file where the checkout has a directory, and a
+        // directory, holding a person's file, where it has a file.
+        d.file("home/fun/extra", "mine\n");
+        d.file("home/fun/zz/keep.txt", "keep me\n");
+        for check in [true, false] {
+            let mut c = copier(&d, check);
+            let why = c.run("", &["fun".to_string()]).unwrap_err();
+            assert!(
+                why.contains(&format!(
+                    "{} is a file and the checkout has a directory there",
+                    d.0.join("home/fun/extra").display()
+                )),
+                "{why}"
+            );
+            assert!(
+                why.contains(&format!(
+                    "{} is a directory and the checkout has a file there",
+                    d.0.join("home/fun/zz").display()
+                )),
+                "{why}"
+            );
+            assert!(why.contains("move each away"), "{why}");
+            assert_eq!(c.lines, Vec::<String>::new());
+        }
+        assert!(copier(&d, false)
+            .refuse(&["fun".to_string()], true)
+            .is_err());
+        assert!(!d.0.join("home/fun/index.html").exists());
+        assert_eq!(
+            fs::read_to_string(d.0.join("home/fun/zz/keep.txt")).unwrap(),
+            "keep me\n"
+        );
+        // Moved away, the next run installs.
+        fs::remove_file(d.0.join("home/fun/extra")).unwrap();
+        fs::remove_dir_all(d.0.join("home/fun/zz")).unwrap();
+        assert!(copier(&d, false).refuse(&["fun".to_string()], true).is_ok());
+        copier(&d, false).run("", &["fun".to_string()]).unwrap();
+        assert!(d.0.join("home/fun/extra/a.js").is_file());
+        assert!(d.0.join("home/fun/zz").is_file());
+    }
+
+    #[test]
+    fn the_pages_are_copied_after_the_files_they_name() {
+        // A copy that fails partway leaves the old pages, which name files the
+        // home still has, and sweeps nothing.
+        let d = dir("files-pages-last");
+        d.file("stage/docs/dashboard.frag", "names kit.bbb.css\n");
+        d.file("stage/docs/a.md", "a\n");
+        d.file("stage/fun/index.html", "names kit.bbb.css\n");
+        d.file("stage/fun/kit/kit.bbb.css", "new\n");
+        d.file("home/docs/dashboard.frag", "names kit.aaa.css\n");
+        d.file("home/fun/index.html", "names kit.aaa.css\n");
+        d.file("home/fun/kit/kit.aaa.css", "old\n");
+        let syncs = ["docs".to_string(), "fun".to_string()];
+        set_mode(&d.0.join("home/fun/kit"), 0o555);
+        let mut c = copier(&d, false);
+        c.from = d.0.join("stage");
+        let failed = c.run("", &syncs);
+        set_mode(&d.0.join("home/fun/kit"), 0o755);
+        assert!(failed.is_err());
+        assert!(d.0.join("home/docs/a.md").is_file());
+        for page in ["docs/dashboard.frag", "fun/index.html"] {
+            assert_eq!(
+                fs::read_to_string(d.0.join("home").join(page)).unwrap(),
+                "names kit.aaa.css\n",
+                "{page}"
+            );
+        }
+        assert!(d.0.join("home/fun/kit/kit.aaa.css").is_file());
+
+        let mut c = copier(&d, false);
+        c.from = d.0.join("stage");
+        c.run("", &syncs).unwrap();
+        let installed: Vec<&String> = c
+            .lines
+            .iter()
+            .filter(|l| l.starts_with("installed: "))
+            .collect();
+        let at = |name: &str| installed.iter().position(|l| l.ends_with(name)).unwrap();
+        assert!(at("kit.bbb.css") < at("dashboard.frag"), "{installed:?}");
+        assert!(at("kit.bbb.css") < at("index.html"), "{installed:?}");
+        assert!(!d.0.join("home/fun/kit/kit.aaa.css").exists());
     }
 
     #[test]

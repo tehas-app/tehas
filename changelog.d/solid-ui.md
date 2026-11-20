@@ -7,11 +7,12 @@
 - The byte ratchet counts the library once, on a `library solid` line of `host/fun/pages.max`, and in no page. It fails when the kit's `MANIFEST` does not match its files, on Solid 1.x names in `host/fun`, on a library import outside a `.render.js` file and the kit files that draw, and on `html` templates built from strings or with a `style=` attribute.
 - The docs server sends `Cache-Control: no-cache` for every file under `/fun/` whose name holds no content hash: the theme, fonts, images and the kit's modules. Before, those had no cache header and a browser could reuse an old copy after an update.
 - A script or stylesheet a page names in a folder under `/fun/`, such as the dashboard's islands in `fun/factory/` and `fun/kit/kit.css`, is installed under a hashed name in that folder and named there, and the docs server caches it for ever as it does the others.
-- An install no longer copies or sweeps through a symbolic link in `~/tehas/fun`, `~/tehas/docs` or the checkout's `host/fun` and `host/docs`: it stops before it copies the manual or the front page and names the link. A directory there that the checkout does not have is kept, and the install says `tehas: kept <dir>`.
+- An install no longer copies or sweeps through a symbolic link in `~/tehas/fun`, `~/tehas/docs` or the checkout's `host/fun` and `host/docs`, or over a name that is a directory on one side and a file on the other: it stops before it installs anything and names the path. A directory there that the checkout does not have is kept, and the install says `tehas: kept <dir>`. A file there that the checkout does not have is removed, as before, now in its folders too.
+- An install copies the dashboard's pages after the files they name, so one that fails partway leaves the old pages working.
 - `tools/vendor-solid` keeps the `kit <n>` line the kit's `MANIFEST` already has.
 
 ### Adopter action
 
-If `~/tehas/fun` or `~/tehas/docs`, or anything in them, is a symbolic link, replace it with a directory or file of its own before you update: the install refuses to go on while it is there.
+If `~/tehas/fun` or `~/tehas/docs`, or anything in them, is a symbolic link, replace it with a directory or file of its own before you update: the install refuses to go on while it is there. Move any file of your own out of `~/tehas/fun/kit/` and `~/tehas/fun/factory/` too: the install now syncs those folders and removes what the release does not have.
 
 A program that builds pages on the kit copies `host/fun/kit/` whole at the tehas tag it pins, checks every file against `kit/MANIFEST` (`file <sha256> <bytes> <name>`), and does not edit it. Its render modules import Solid by a relative address to `kit/vendor/solid.js`, with no import map, and only the names `host/docs/frontend.md` lists under "Solid 2 in tehas". When it updates the pin, it copies the kit again and checks the manifest.
