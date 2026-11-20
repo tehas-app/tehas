@@ -451,8 +451,8 @@ seconds: `tehas setup` and `tehas update` write it to the drop-in
 `~/.config/systemd/user/tehas-dispatch.timer.d/poll.conf`, which sets all three
 of the timer's times, and restart the timer. Back at 120, or unset, they remove
 the drop-in. Each poll costs GitHub API calls, so a quiet host can poll less
-often and let another program wake it with `tehas dispatch --soon` (see
-[tehas dispatch](/tools-dispatch#tehas-dispatch)). To see the factory's state,
+often and let another program wake it with `tehas wake` (see
+[the factory API](/api#tehas-wake)), the same ask as `tehas dispatch --soon`. To see the factory's state,
 or to see or force a poll by hand on the host:
 
 ```

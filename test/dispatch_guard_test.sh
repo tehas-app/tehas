@@ -483,6 +483,60 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "tehas dispatch: could not write $T/home/tehas/state/dispatch.again"
 t_eq "$(t_calls gh)" ""
 
+wake="$T/front/bin/tehas wake"
+
+t_case "tehas wake asks for a poll as --soon does, and polls nothing itself"
+reset
+mkdir -p "$T/home/tehas/state"
+rm -f "$T/home/tehas/state/dispatch.again"
+t_run "$wake"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas wake: a poll is asked for ($T/home/tehas/state/dispatch.again)"
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" asked
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+t_run "$wake --json"
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"api":1,"asked":true}'
+t_eq "$(jq -c . "$T_ROOT/api/wake.sample.json")" "$t_out"
+rm -f "$T/home/tehas/state/dispatch.again"
+
+t_case "tehas wake is taken while the factory is paused: the poll it asks for starts nothing"
+reset
+mkdir -p "$T/home/tehas/state"
+printf '{"at": "2026-10-17T14:00:00Z", "reason": "test"}\n' >"$T/home/tehas/state/pause.json"
+t_run "$wake --json"
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"api":1,"asked":true}'
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" asked
+rm -f "$T/home/tehas/state/dispatch.again" "$T/home/tehas/state/pause.json"
+
+t_case "tehas wake with no state directory says so, and --json says asked false"
+reset
+rm -rf "$T/home/tehas/state"
+t_run "$wake --json"
+t_eq "$t_rc" 1
+t_contains "$t_out" '{"api":1,"asked":false}'
+t_contains "$t_out" "tehas wake: could not write $T/home/tehas/state/dispatch.again"
+
+t_case "tehas wake refuses an argument it does not know, and writes nothing"
+reset
+mkdir -p "$T/home/tehas/state"
+rm -f "$T/home/tehas/state/dispatch.again"
+t_run "$wake --soon"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehas wake [--json]"
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" ""
+
+t_case "tehas wake stops with 78 on settings it cannot load, and writes nothing"
+reset
+mkdir -p "$T/home/tehas/state"
+rm -f "$T/home/tehas/state/dispatch.again"
+t_instance TEHAS_REPO=acme/widget
+t_run "$wake"
+t_eq "$t_rc" 78
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" ""
+
 t_case "two arguments are refused, not combined"
 reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
