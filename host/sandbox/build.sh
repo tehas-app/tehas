@@ -173,17 +173,16 @@ fi
 
 # The base, built here from the host's pi-rukas clone at the commit followed and
 # base.Dockerfile, which git archive adds at the root of that commit's tree. A
-# clone that lacks the commit fetches once. The arguments are written with their
+# clone that lacks the commit fetches its tags, then the commit by id (console
+# rukas fetch): a release's pin may be on no tag or branch upstream any more.
+# The arguments are written with their
 # values in front of them, like the instance layer's below, so they join neither
 # count of test/build_test.sh: test/sandbox_build_test.sh checks this recipe's.
 # The npm trees pinned beside versions.env are a second context, named npm.
 clone=${TEHAS_HOME:-$HOME/tehas}/repos/pi-rukas
 base=$base_repo:sha-${head:0:12}-uid$uid
-if ! git -C "$clone" cat-file -e "$head^{commit}" 2>/dev/null; then
-  timeout -k 10 300 git -C "$clone" fetch -q --tags origin >/dev/null 2>&1 || true
-fi
-if ! git -C "$clone" cat-file -e "$head^{commit}" 2>/dev/null; then
-  echo "build: the pi-rukas clone in $clone does not hold $head, and a fetch did not bring it" >&2
+if ! why=$("$console" rukas fetch "$clone" "$head" 2>&1); then
+  echo "build: $why" >&2
   exit 1
 fi
 if ! git -C "$clone" archive --add-file="$base_recipe" "$head" |

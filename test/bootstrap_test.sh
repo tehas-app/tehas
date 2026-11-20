@@ -520,6 +520,44 @@ t_contains "$t_out" "the remote did not answer"
 rm -rf "$T/home/tehas/repos"
 behind_head
 
+# A release pins a commit, and upstream may re-point the tag it came from: then
+# no tag or branch holds it and the fetch of the tags does not bring it. The
+# clone holds it here once a fetch has named it by its id.
+rukas_lost() {
+  t_stub git "case \"\$*\" in
+  *cat-file*) [ -e \"\$T/fetched-by-id\" ] ;;
+  *'fetch -q origin $rukas_head'*) [ -z \"\${BY_ID_FAILS:-}\" ] || { echo 'fatal: not our ref' >&2; exit 128; }; : >\"\$T/fetched-by-id\" ;;
+  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *checkout*) : >\"\$T/checked-out\" ;;
+  *rev-parse*) if [ -e \"\$T/checked-out\" ]; then echo $rukas_head; else echo $rukas_stub_behind; fi ;;
+  *) echo 'git version 2.53.0' ;;
+esac"
+  mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+  printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+  chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
+  rm -f "$T"/calls/* "$T/fetched-by-id" "$T/checked-out"
+}
+
+t_case "a pinned commit on no tag or branch upstream is fetched by its id"
+all_present
+rukas_lost
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_contains "$(t_calls git)" "fetch -q origin $rukas_head"
+t_contains "$(t_calls git)" "checkout -q $rukas_head"
+
+t_case "a pinned commit a fetch by id does not bring stops user before the checkout"
+all_present
+rukas_lost
+T_ENV+=(BY_ID_FAILS=1)
+t_run "$bootstrap user"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+t_eq "$t_rc" 1
+t_contains "$t_out" "bootstrap: the pi-rukas clone in $T/home/tehas/repos/pi-rukas does not hold $rukas_head, and a fetch of its tags and of the commit by id did not bring it: fatal: not our ref"
+t_lacks "$(t_calls git)" "checkout"
+rm -rf "$T/home/tehas/repos" "$T/fetched-by-id" "$T/checked-out"
+behind_head
+
 t_case "check reports a pi-rukas behind its newest release"
 all_present
 behind_head

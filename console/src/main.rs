@@ -69,10 +69,11 @@
 //!
 //! What tehasbot clean removes, see ops/src/clean.rs.
 //!
-//!   console rukas target <follow> <repo> | image <repo> <commit>
+//!   console rukas target <follow> <repo> | image <repo> <commit> | fetch <clone> <commit>
 //!
-//! Which pi-rukas commit a host follows and the image upstream publishes for
-//! it, for the sandbox build, bootstrap.sh and tag-release.sh, see ops/src/rukas.rs.
+//! Which pi-rukas commit a host follows, the image upstream publishes for it,
+//! and that commit fetched into the host's clone, for the sandbox build,
+//! bootstrap.sh and tag-release.sh, see ops/src/rukas.rs.
 //!
 //!   console sandbox recipe <dir> <mode> | stage <dir> | current ...
 //!
