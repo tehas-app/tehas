@@ -564,3 +564,21 @@ fn the_pull_request_that_collects_names_the_fragments() {
         "The Unreleased section of CHANGELOG.md, named v0.1.1 (2026-11-19) for the release's notes, with a new empty Unreleased above it.\n\nOpened by scripts/tag-release.sh, which tags v0.1.1 once this is merged."
     );
 }
+
+#[test]
+fn a_tag_pins_the_pi_rukas_the_gate_built_against() {
+    let at = |c: char, what: &str| Some(Some((c.to_string().repeat(40), what.to_string())));
+    assert_eq!(settle(None, None), Ok(None));
+    assert_eq!(
+        settle(at('a', "release v0.14.94"), at('a', "release v0.14.94")),
+        Ok(Some(("a".repeat(40), "release v0.14.94".to_string())))
+    );
+    assert_eq!(
+        settle(at('a', "release v0.14.94"), at('b', "release v0.14.95")),
+        Err("pi-rukas moved from aaaaaaa to bbbbbbb (release v0.14.95) while the gate ran; run again to gate it".to_string())
+    );
+    let unasked = "cannot ask which pi-rukas commit host/versions.env follows".to_string();
+    assert_eq!(settle(Some(None), at('a', "x")), Err(unasked.clone()));
+    assert_eq!(settle(at('a', "x"), Some(None)), Err(unasked.clone()));
+    assert_eq!(settle(None, at('a', "x")), Err(unasked));
+}

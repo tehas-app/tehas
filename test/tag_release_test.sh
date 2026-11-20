@@ -32,11 +32,11 @@ printf '[user]\n\tname = t\n\temail = t@example.com\n' >"$T/home/.gitconfig"
 # a release whose section is still Unreleased gets a pull request that names
 # it first (the cases after `named` below).
 fresh() {
-  rm -rf "$origin" "$work" "$T/up" "$T/calls/"* "$T/verify_rc"
+  rm -rf "$origin" "$work" "$T/up" "$T/calls/"* "$T/verify_rc" "$T/verify_hook"
   g init --quiet --bare "$origin"
   g clone --quiet "$origin" "$T/up" 2>/dev/null
   mkdir -p "$T/up/scripts"
-  printf '#!/usr/bin/env bash\necho ran >>"%s/calls/verify"\nexit "$(cat "%s/verify_rc" 2>/dev/null || echo 0)"\n' "$T" "$T" >"$T/up/scripts/verify.sh"
+  printf '#!/usr/bin/env bash\necho ran >>"%s/calls/verify"\n[ ! -f "%s/verify_hook" ] || . "%s/verify_hook"\nexit "$(cat "%s/verify_rc" 2>/dev/null || echo 0)"\n' "$T" "$T" "$T" "$T" >"$T/up/scripts/verify.sh"
   chmod +x "$T/up/scripts/verify.sh"
   {
     printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n'
@@ -266,6 +266,13 @@ polyfilled() {
   "pr create") echo https://github.com/acme/widget/pull/9 ;;
 esac'
   t_stub docker '[ "$1" != run ] || cat "$T/caps.json"'
+  # Upstream pi-rukas, local: one release, v0.14.0.
+  up_rukas=$T/up-rukas.git
+  rm -rf "$up_rukas"
+  g init --quiet --bare "$up_rukas"
+  rukas_commit=$(g -C "$T/up" rev-parse HEAD)
+  g -C "$T/up" push --quiet "$up_rukas" HEAD:refs/heads/main HEAD:refs/tags/v0.14.0
+  git config --file "$T/home/.gitconfig" "url.$up_rukas.insteadOf" https://github.com/up-owner/pi-rukas.git
 }
 
 t_case "a polyfill whose feature pi-rukas still lacks is kept, and the head is tagged"
@@ -278,6 +285,17 @@ t_contains "$(t_calls gh)" "pr view 78 -R up-owner/pi-rukas"
 t_lacks "$t_out" "is merged"
 t_eq "$(t_calls verify)" ran
 t_eq "$(t_calls docker)" ""
+t_eq "$(g -C "$origin" tag -l --format='%(contents)' v0.1.1 | grep '^pi-rukas ')" "pi-rukas $rukas_commit release v0.14.0"
+
+t_case "a pi-rukas release made while the gate runs tags nothing"
+polyfilled
+printf 'g() { git -c user.name=t -c user.email=t@example.invalid "$@"; }\ng -C "%s" commit --quiet --allow-empty -m next\ng -C "%s" push --quiet "%s" HEAD:refs/tags/v0.14.1\n' \
+  "$T/up" "$T/up" "$up_rukas" >"$T/verify_hook"
+t_run "$work/scripts/tag-release.sh --local-gate --rukas-caps '$T/caps.json'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "pi-rukas moved from ${rukas_commit:0:7} to"
+t_contains "$t_out" "(release v0.14.1) while the gate ran; run again to gate it; nothing was tagged"
+t_eq "$(tags)" "v0.1.0 "
 
 t_case "a polyfill whose upstream pull request is merged without the feature released is said, and kept"
 polyfilled
@@ -317,14 +335,7 @@ t_contains "$t_out" "pull/9 removes them"
 
 t_case "pi-rukas is asked through the image of the commit versions.env follows"
 polyfilled
-up_rukas=$T/up-rukas.git
-g init --quiet --bare "$up_rukas"
-rukas_commit=$(g -C "$T/up" rev-parse HEAD)
-g -C "$T/up" push --quiet "$up_rukas" HEAD:refs/heads/main
-g -C "$T/up" push --quiet "$up_rukas" HEAD:refs/tags/v0.14.0
-git config --file "$T/home/.gitconfig" "url.$up_rukas.insteadOf" https://github.com/up-owner/pi-rukas.git
 t_run "$work/scripts/tag-release.sh --local-gate"
-git config --file "$T/home/.gitconfig" --unset "url.$up_rukas.insteadOf"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-${rukas_commit:0:12}
 run --rm --init ghcr.io/up-owner/pi-rukas:sha-${rukas_commit:0:12} /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
