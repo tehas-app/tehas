@@ -6,7 +6,7 @@
 //   const board = useBoard();
 //   const live = stream("/api/events", {
 //     format: "sse",                         // or "ndjson"
-//     headers: () => ({ "X-Session": session() }),
+//     headers: sessionHeaders,               // one function per page
 //     on: board.actions.apply,               // (event) => void, event { type, data, id }
 //   });
 //   live.state()    "connecting", "open", "error" (a retry is due) or "closed"
