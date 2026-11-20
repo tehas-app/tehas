@@ -81,6 +81,8 @@ mod run;
 mod sandbox;
 mod sources;
 pub(crate) mod steps;
+#[cfg(test)]
+mod types;
 mod wait;
 
 use std::env;
