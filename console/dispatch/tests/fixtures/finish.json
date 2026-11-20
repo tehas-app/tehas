@@ -289,6 +289,40 @@
    }
   },
   {
+   "case": "a closed pull request of another issue's branch that says it fixes this issue stops nothing",
+   "snapshot": {
+    "ready": [],
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "CLOSED",
+      "body": "Fixes #8, #9",
+      "headRefName": "feature/issue-8-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "stop #9"
+    ],
+    "no_actions": [
+     {
+      "stop_done": 9
+     }
+    ],
+    "nothing": true
+   }
+  },
+  {
    "case": "a poll that cannot read the bot's pull requests stops nothing for a pull request and goes on",
    "snapshot": {
     "running": [
@@ -365,7 +399,7 @@
    }
   },
   {
-   "case": "a poll that cannot read the bot's pull requests still stops a cycle whose issue is closed",
+   "case": "a poll that cannot read the bot's pull requests still stops a cycle whose issue is closed, and fills its slot",
    "snapshot": {
     "running": [
      {
@@ -401,6 +435,9 @@
     ],
     "picked": [
      7
+    ],
+    "log_lacks": [
+     "its pull request https"
     ]
    }
   },
@@ -1057,6 +1094,11 @@
      {
       "park_retry": 7
      }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
     ]
    }
   },
@@ -1112,6 +1154,11 @@
      {
       "park_retry": 7
      }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
     ]
    }
   },
@@ -1158,6 +1205,11 @@
      {
       "park_retry": 7
      }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
     ]
    }
   },
@@ -1199,6 +1251,11 @@
     "actions": [
      {
       "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
      }
     ]
    }

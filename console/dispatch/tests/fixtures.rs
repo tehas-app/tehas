@@ -659,6 +659,15 @@ fn run_suite(name: &str) {
                 bad.push(format!("an action {x}"));
             }
         }
+        // action_count: how many actions carry each key.
+        if let Some(x) = e.get("action_count") {
+            for (k, n) in x.as_object().unwrap() {
+                let got = d.actions.iter().filter(|a| a.get(k).is_some()).count();
+                if json!(got) != *n {
+                    bad.push(format!("{got} actions with {k:?}, not {n}"));
+                }
+            }
+        }
         if e.get("nothing") == Some(&json!(true)) && !d.actions.is_empty() {
             bad.push(format!("actions {:?}", d.actions));
         }

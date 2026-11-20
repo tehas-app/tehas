@@ -281,15 +281,15 @@ fn a_crate_whose_tests_run_the_stores_program_selects_the_store_and_no_more() {
     let t = Tree::new();
     assert_eq!(
         t.pick_ws(&["console/dispatch/src/poll.rs"]),
-        "crate store\ncrate tehas-dispatch"
+        "crate console\ncrate store\ncrate tehas-dispatch"
     );
     assert_eq!(
         t.pick_ws(&["console/src/main.rs"]),
-        "crate console\ncrate store"
+        "crate console\ncrate store\ncrate tehas-dispatch"
     );
     assert_eq!(
         t.pick_ws(&["console/tests/console.rs"]),
-        "crate console\ncrate store"
+        "crate console\ncrate store\ncrate tehas-dispatch"
     );
 }
 
@@ -298,7 +298,7 @@ fn a_path_in_the_operations_crate_selects_it_the_console_that_takes_it_and_the_s
     let t = Tree::new();
     assert_eq!(
         t.pick_ws(&["console/ops/src/health.rs"]),
-        "crate console\ncrate store\ncrate tehas-ops"
+        "crate console\ncrate store\ncrate tehas-dispatch\ncrate tehas-ops"
     );
     let mut v: serde_json::Value = serde_json::from_str(WORKSPACE).unwrap();
     v["packages"][0]["dependencies"]

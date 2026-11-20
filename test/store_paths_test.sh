@@ -19,7 +19,7 @@
 # - state/refined.jsonl, the ledger the store does not hold (D9);
 # - state/dispatch.*: the poll's own lock and notes.
 # Every other record moved. A v0.30 install imported the old files, and this
-# release does not: the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
+# release does not: the poll stops at 78 while one is left (console/dispatch/tests/dispatch_guard.rs).
 # The export copy an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
 # nothing reads it.
 # shellcheck disable=SC2016  # the patterns and samples are code, not expanded

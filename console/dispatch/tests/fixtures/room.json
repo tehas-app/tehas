@@ -942,6 +942,7 @@
    ],
    "no_slice": true,
    "expect": {
+    "exit": 0,
     "picked": [],
     "nothing": true
    }
@@ -1088,6 +1089,7 @@
     9
    ],
    "expect": {
+    "nothing": true,
     "log": [
      "holding: the slice's use could not be read"
     ],
@@ -1249,6 +1251,9 @@
       "kind": "first",
       "label": "tehas:plan"
      }
+    ],
+    "log_lacks": [
+     "would start a planning session"
     ]
    }
   }
