@@ -218,6 +218,7 @@ mod state;
 mod status;
 mod tail;
 mod top;
+mod wake;
 
 use render::Entry;
 use std::collections::HashSet;

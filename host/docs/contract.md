@@ -632,6 +632,15 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | An argument it does not know; no poll |
 | 78 | The settings are missing or malformed, or the dispatcher or the state store is not installed or cannot be used |
 
+### tehas wake
+
+| Status | When |
+| --- | --- |
+| 0 | The poll is asked for |
+| 1 | `state/dispatch.again` could not be written |
+| 64 | An argument other than `--json`; nothing is written |
+| 78 | The settings are missing or malformed; nothing is written |
+
 ### tehas work
 
 `tehas work` passes on the runner's own status when the runner ran and wrote

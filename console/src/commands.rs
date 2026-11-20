@@ -19,6 +19,7 @@
 //!   console tehas stop <issue> [--keep-workspace]
 //!   console tehas freeze <issue> [--reason TEXT] [--json]
 //!   console tehas thaw <issue> [--json]
+//!   console tehas wake [--json]
 //!   console tehas dev <arguments>
 //!   console tehas dev-login "Name <email>" [-- <pi arguments>]
 //!   console tehas github writes
@@ -45,7 +46,7 @@
 
 use crate::{
     api, clean, dev, disk, export, freeze, github, health, history, holds, host_message, labels,
-    mcp, order, panel, queue, review, start, state, status, stop, top,
+    mcp, order, panel, queue, review, start, state, status, stop, top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -207,6 +208,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "github" => github_verb(rest),
         "outsource" => crate::outsource::main(rest),
         "prototype" => crate::prototype::main(rest),
+        "wake" => wake::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -320,6 +322,7 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
         ["tehas", "analytics"] => analytics_words(rest),
         ["tehas", "api"] => api::words(rest).map(|_| ()),
+        ["tehas", "wake"] => wake::words(rest).map(|_| ()),
         ["tehas", "labels"] => labels::words(rest),
         ["tehas", "outsource"] => match crate::outsource::words(rest) {
             Ok(None) => {
@@ -400,7 +403,7 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
         ["tehas", "resume"]
         | ["tehasbot", "status"]
         | ["tehas", "start" | "limit" | "order" | "panel" | "host-message" | "freeze" | "thaw" | "pause"
-        | "drain"] => &[
+        | "drain" | "wake"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -462,6 +465,7 @@ pub fn text(command: &str) -> Option<&'static str> {
         "thaw" => freeze::THAW_USAGE,
         "top" => include_str!("usage/top.txt"),
         "update" => include_str!("usage/update.txt"),
+        "wake" => include_str!("usage/wake.txt"),
         "work" => include_str!("usage/work.txt"),
         _ => return None,
     })
@@ -727,6 +731,7 @@ mod tests {
             "thaw",
             "pause",
             "drain",
+            "wake",
         ] {
             assert_eq!(
                 required(&words(&["tehas", writer])),

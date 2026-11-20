@@ -1438,6 +1438,7 @@ pinned=(
   'state-load	test/state_test.sh'
   'disk-cycles	test/disk_test.sh	own'
   'host-messages	test/host_message_test.sh'
+  'wake	console/src/wake.rs'
   'settings-rules	test/settings_rules_test.sh	own'
   'host-bridge	test/host_bridge_test.sh	open'
 )

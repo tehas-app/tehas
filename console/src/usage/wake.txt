@@ -1,0 +1,16 @@
+tehas wake: ask for a poll now, and return at once.
+
+The factory API's way for another program, such as a webhook receiver or a
+scheduler, to say the repository changed. It does what tehas dispatch --soon
+does: it writes $TEHAS_HOME/state/dispatch.again, and tehas-dispatch.path
+starts the poll as its unit. While a poll runs, the file waits, and one more
+poll starts when that one ends; asking again before then is the same one ask.
+A paused or drained factory takes the ask: the poll runs, cleans up as every
+poll does, and starts nothing new.
+
+Usage: tehas wake [--json], which prints one object: {"api": 1, "asked":
+true}, or asked false when the file could not be written.
+
+Exit: 0 the poll is asked for; 1 the file could not be written; 64 an
+argument other than --json, which writes nothing; 78 the instance settings
+are missing or malformed.
