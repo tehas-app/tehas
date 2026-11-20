@@ -3,7 +3,7 @@
 import { setHidden, listening } from "./kit_stub.mjs";
 import { test, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { createEffect, createRoot, flush, isPending } from "../host/fun/kit/vendor/solid.js";
+import { createEffect, createRoot, createSignal, flush, isPending } from "../host/fun/kit/vendor/solid.js";
 import { feed } from "../host/fun/kit/feed.js";
 import { resetPage } from "../host/fun/kit/state.js";
 
@@ -296,6 +296,25 @@ test("request headers go with every poll; a function is read on each one", async
   assert.deepEqual(calls.map((c) => c.init.headers), [{ "X-Session": "a" }, { "X-Session": "b" }]);
   assert.equal(calls[0].init.credentials, "include");
   assert.deepEqual(a.seen.at(-1), { n: 1, pending: false, error: null });
+});
+
+test("a headers function that reads a signal does not start a second fetch when it changes", async () => {
+  const [session, setSession] = createSignal("a");
+  const headers = () => ({ "X-Session": session() });
+  answer = { ...answer, hold: true };
+  island("/live/status.json", { every: 60000, headers });
+  await settle();
+  assert.equal(calls.length, 1);
+  setSession("b");
+  await settle();
+  assert.equal(calls.length, 1, "one fetch out at a time");
+  assert.equal(calls[0].init.signal.aborted, false);
+  answer = { ok: true, body: '{"n":1}' };
+  land();
+  await settle();
+  mock.timers.tick(60000);
+  await settle();
+  assert.deepEqual(calls.map((c) => c.init.headers), [{ "X-Session": "a" }, { "X-Session": "b" }]);
 });
 
 test("a feed with no options sends no headers and no credentials, as before", async () => {

@@ -23,7 +23,7 @@
 // owner (state.js) and stops when the last root that asked for it is gone.
 // One fetch is out at a time: the next poll falls due a period after the last
 // one lands, and a fetch with no answer in TIMEOUT ms is aborted.
-import { createMemo, createSignal, getOwner, onCleanup } from "./vendor/solid.js";
+import { createMemo, createSignal, getOwner, onCleanup, untrack } from "./vendor/solid.js";
 import { accepts, bodyOf, dateOf, headersOf, keyOf, pickHeaders } from "./request.js";
 import { release, shared } from "./state.js";
 
@@ -45,7 +45,8 @@ function make(src, opts) {
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
     try {
       const init = { cache: "no-store", signal: out.signal };
-      if (opts.headers) init.headers = headersOf(opts.headers);
+      // Untracked: a signal the function reads must not start a fetch of its own.
+      if (opts.headers) init.headers = untrack(() => headersOf(opts.headers));
       if (opts.credentials) init.credentials = opts.credentials;
       const res = await fetch(src, init);
       // Its own signal, so a new Date leaves the data's readers be. It lands
