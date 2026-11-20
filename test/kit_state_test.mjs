@@ -107,6 +107,34 @@ test("a second definition whose actions read the state while made gets the store
   createRoot(() => assert.throws(() => other(), /defined twice/));
 });
 
+test("a second definition used in a memo does not subscribe it to the state", () => {
+  // The comparison makes the second definition's actions against the store's
+  // state. Its reads there are not the memo's: a write must not rerun it.
+  const spec = () => ({
+    state: () => ({ items: [3] }),
+    actions: (set, state) => {
+      const start = state.items.length;
+      return { add() { set((d) => { d.items.push(start); }); } };
+    },
+  });
+  const one = pageStore("tracked", spec());
+  const two = pageStore("tracked", spec());
+  createRoot(() => {
+    const store = one();
+    let runs = 0;
+    const got = createMemo(() => {
+      runs++;
+      return two();
+    });
+    assert.equal(got(), store);
+    store.actions.add();
+    flush();
+    assert.equal(got(), store);
+    assert.deepEqual([...store.state.items], [3, 1]);
+    assert.equal(runs, 1);
+  });
+});
+
 test("shared() makes a value once per key, and resetPage() disposes it", () => {
   let made = 0;
   const one = shared("k", () => ++made);
