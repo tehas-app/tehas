@@ -97,9 +97,9 @@ const EXPORTS: [(&str, &[&str]); 3] = [
 /// majors of each engine when this pin was made.
 const TARGET: [&str; 4] = ["chrome142", "edge142", "firefox145", "safari26"];
 
-/// Text the output may not hold. The kit runs under a CSP without
-/// 'unsafe-eval', and a bundle that reaches for node or for another module
-/// did not bundle what it should.
+/// Text the output may not hold. The kit uses no eval, so it works under a
+/// CSP without 'unsafe-eval', and a bundle that reaches for node or for
+/// another module did not bundle what it should.
 const REFUSED: [&str; 5] = [
     "eval(",
     "new Function",
