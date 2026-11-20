@@ -12,7 +12,7 @@
 //   isPending(() => status.data())  true while any poll is out, even one that changes nothing
 //
 //   const plan = feed("/api/plan", {
-//     headers: () => ({ "X-Session": session() }),  // or an object; read on each poll
+//     headers: sessionHeaders,  // one function per page, or an object; read on each poll
 //     credentials: "same-origin",
 //     parse: "json",                                // or "text"
 //     accept: { 404: { releases: [] } },            // a status that is data, not an error

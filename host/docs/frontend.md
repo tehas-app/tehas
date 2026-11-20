@@ -213,8 +213,16 @@ evaluated, so they outlive the island that made them.
 Server data comes from `/live/` through `feed(src, { every })` of
 `kit/feed.js`. There is one source per address per page: every island that
 names the address reads the same async memo, and one poller asks for it.
-Readers that give other request options (below) get a source of their own:
-the source is one per address and options.
+
+Since `kit 1` the rule is one source per address and request options (below).
+A reader that gives other options gets a source and a poller of its own for
+the same address. This is a change to the rule, not only an addition to it,
+and it is kept only so a port can send another program's session header:
+islands that share an address give the same options. Objects count by their
+content, whatever the order of their keys. A function counts by its identity,
+so a `headers` function is defined once per page, at the top of a module
+(see [Request headers](#request-headers)); an arrow written inside an island
+makes a source per island and per mount.
 
 - The shortest `every` any reader asks for is the poll period while that
   reader lives; none means no poll, only `refresh()`. A period is at least
@@ -253,7 +261,7 @@ with no change to a feed that gives none:
 ```js
 const plan = feed("/api/plan", {
   every: 30000,
-  headers: () => ({ "X-Session": session() }),
+  headers: sessionHeaders,          // defined once per page, see below
   accept: { 404: { releases: [] } },
   expose: ["X-Session"],
 });
@@ -271,6 +279,24 @@ plan.meta(); // null before the first answer, then
   run since `meta().at`. The host island judges a snapshot's age so.
 - An error of a status that is not accepted carries it as `error.status`.
 
+### Request headers
+
+A header that changes, such as a session, lives in a page store, and one
+module of the page exports the function that reads it. Every feed, stream
+and press of that address passes that same function, so they share one
+source. The function is read untracked on each poll or connect: a change of
+the session is sent with the next one and starts no request of its own.
+
+```js
+// session.state.js
+import { pageStore } from "../kit/state.js";
+export const useSession = pageStore("session", {
+  state: () => ({ id: "" }),
+  actions: (set) => ({ set(id) { set((d) => { d.id = id; }); } }),
+});
+export const sessionHeaders = () => ({ "X-Session": useSession().state.id });
+```
+
 ## Streams
 
 A stream of events comes through `stream(src, options)` of `kit/stream.js`:
@@ -286,7 +312,7 @@ import { useTicket } from "./ticket.state.js";
 const ticket = useTicket();
 const live = stream("/api/tickets/41/events", {
   format: "sse",                                   // or "ndjson"
-  headers: () => ({ "X-Session": props.session }),
+  headers: sessionHeaders,                         // one function per page
   on: ticket.actions.apply,                        // each event, { type, data, id }
 });
 live.state();      // "connecting", "open", "error" or "closed"
@@ -316,7 +342,9 @@ live.reconnect();  // drop the connection and connect now
   falls due waits until the page shows. With `hidden: "close"` the connection
   closes while the page is hidden and opens again when it shows.
 - `headers` is an object or a function read on each connect, so a session
-  that changes is sent on the next one. `credentials` is passed to `fetch`.
+  that changes is sent on the next one. Define the function once per page
+  ([Request headers](#request-headers)): it is part of the connection's key.
+  `credentials` is passed to `fetch`.
 - The connection closes when the last root that asked for it is disposed.
 
 ## Presses
@@ -328,7 +356,7 @@ Solid's own `action()`; the kit does not wrap `action`, `createOptimistic` or
 
 ```js
 const answer = await press("/api/tickets", {
-  headers: () => ({ "X-Session": session() }),
+  headers: sessionHeaders,
   body: { title },               // a plain object: sent as JSON, with its content type
   accept: { 409: null },         // a status that resolves instead of rejecting
   expose: ["X-Session"],
@@ -398,7 +426,7 @@ For a page whose reads, streams and presses are a client of its own:
 | The client did | On the kit |
 | --- | --- |
 | A `fetch` on a timer, or a poll loop | `feed(src, { every })` |
-| A request header, such as a session | `headers: () => ({ … })`, on a feed, a stream or a press |
+| A request header, such as a session | `headers: sessionHeaders`, one function per page that reads a page store ([Request headers](#request-headers)), on a feed, a stream or a press |
 | A 404 or another status that means "nothing" | `accept: { 404: <empty value> }`: data, not an error, and not "down" |
 | Reading the answer's status, a header or the `Date` | `meta()`, with `expose` for the headers |
 | A text file, not JSON | `parse: "text"` |
@@ -410,7 +438,8 @@ For a page whose reads, streams and presses are a client of its own:
 - Keep the client's model pure: the shapes of its answers become the
   model's input, the render module wires the feed, the stream and the store.
 - One address and one set of options is one source per page. Two islands
-  that need the same stream give the same options and the same `on`.
+  that need the same feed or stream give the same options, the same
+  `headers` function and the same `on`.
 - A byte range read of a file that grows stays a plain element: see the
   console's tail in [The plain dashboard](#the-plain-dashboard).
 

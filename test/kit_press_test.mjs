@@ -114,6 +114,11 @@ test("keyOf names a source by the options that make it its own", () => {
   assert.equal(keyOf("feed", "/a", { every: 5 }, ["headers"]), "feed:/a");
   assert.equal(keyOf("feed", "/a", { headers: f }, ["headers"]), keyOf("feed", "/a", { headers: f }, ["headers"]));
   assert.notEqual(keyOf("feed", "/a", { headers: f }, ["headers"]), keyOf("feed", "/a", { headers: () => ({}) }, ["headers"]));
+  assert.equal(
+    keyOf("feed", "/a", { headers: { b: "2", a: "1" }, parse: "text" }, ["headers", "parse"]),
+    keyOf("feed", "/a", { parse: "text", headers: { a: "1", b: "2" } }, ["headers", "parse"]),
+  );
+  assert.equal(keyOf("feed", "/a", { expose: ["b", "a"] }, ["expose"]), 'feed:/a {"expose":["b","a"]}');
 });
 
 // The pattern of the manual: the guess shows at once, a failure reverts it,

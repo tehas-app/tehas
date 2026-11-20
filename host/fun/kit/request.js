@@ -14,15 +14,26 @@ const idOf = (fn) => {
   return `fn#${ids.get(fn)}`;
 };
 
+// An object's keys in order, so the same headers written in another order
+// are the same source.
+const canon = (_k, v) => {
+  if (typeof v === "function") return idOf(v);
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const out = {};
+  for (const k of Object.keys(v).sort()) out[k] = v[k];
+  return out;
+};
+
 /**
  * The page key of a source: `<kind>:<src>`, then the options named in
- * `fields` that are set, as JSON. A function counts by its identity.
+ * `fields` that are set, as JSON with each object's keys sorted. A function
+ * counts by its identity, so it is defined once per page, not in each island.
  */
 export function keyOf(kind, src, options, fields) {
   const picked = {};
   for (const f of fields) if (options[f] !== undefined) picked[f] = options[f];
   if (Object.keys(picked).length === 0) return `${kind}:${src}`;
-  return `${kind}:${src} ${JSON.stringify(picked, (_k, v) => (typeof v === "function" ? idOf(v) : v))}`;
+  return `${kind}:${src} ${JSON.stringify(picked, canon)}`;
 }
 
 /** The server's Date header of an answer as ms, or null. */

@@ -335,6 +335,31 @@ test("readers with other options get a source of their own", async () => {
   assert.equal(calls.length, 3);
 });
 
+test("the same headers in another order share one source", async () => {
+  const a = island("/live/status.json", { headers: { a: "1", b: "2" }, accept: { 404: { x: 1, y: 2 } } });
+  const b = island("/live/status.json", { accept: { 404: { y: 2, x: 1 } }, headers: { b: "2", a: "1" } });
+  await settle();
+  assert.equal(a.live, b.live);
+  assert.equal(calls.length, 1);
+});
+
+// What the manual asks of a headers function: one per page, so the islands
+// that give it share a source. An arrow written in each island is a source
+// per island.
+test("a headers function defined once is one source; an arrow per island is one each", async () => {
+  const [session] = createSignal("s");
+  const headers = () => ({ "X-Session": session() });
+  const a = island("/live/status.json", { headers });
+  const b = island("/live/status.json", { headers });
+  await settle();
+  assert.equal(a.live, b.live);
+  assert.equal(calls.length, 1);
+  const c = island("/live/status.json", { headers: () => ({ "X-Session": session() }) });
+  await settle();
+  assert.notEqual(c.live, a.live);
+  assert.equal(calls.length, 2);
+});
+
 test("an accepted status is data, not an error", async () => {
   answer = { ok: false, status: 404, statusText: "Not Found", body: "This factory plans no releases." };
   const plan = createRoot(() => feed("/api/plan", { accept: { 404: { n: 0 } } }));
