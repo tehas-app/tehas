@@ -26,8 +26,8 @@
 //! The same bytes give the same stage, which is what keeps `--check` quiet on
 //! the second run.
 //!
-//! A symbolic link under `host/fun` or `host/docs` is refused: it would bring
-//! into the home what lies outside the checkout.
+//! A symbolic link under `host/fun` or `host/docs`, or either one a link, is
+//! refused: it would bring into the home what lies outside the checkout.
 //!
 //! Exit: 0 staged, 1 a file could not be read or written or is a link, 64 usage.
 
@@ -292,10 +292,19 @@ pub fn verb(given: &[String]) -> u8 {
     }
 }
 
-/// `host/fun` and `host/docs`, whole, under the stage.
+/// `host/fun` and `host/docs`, whole, under the stage. Either one a link is
+/// refused as a link inside them is.
 fn copy_dirs(host: &Path, stage: &Path) -> io::Result<()> {
-    DIRS.iter()
-        .try_for_each(|name| copy_dir(&host.join(name), &stage.join(name)))
+    DIRS.iter().try_for_each(|name| {
+        let from = host.join(name);
+        if fs::symlink_metadata(&from).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(io::Error::other(format!(
+                "{} is a symbolic link",
+                from.display()
+            )));
+        }
+        copy_dir(&from, &stage.join(name))
+    })
 }
 
 #[cfg(test)]
@@ -714,6 +723,17 @@ mod tests {
             .unwrap();
         assert_eq!(run(&d), 1);
         assert!(!staged(&d, "fun/x.js").exists());
+        // host/fun or host/docs itself a link is refused the same way.
+        for name in DIRS {
+            let d = host(&format!("assets-top-link-{name}"));
+            let real = d.0.join("host").join(name);
+            fs::create_dir_all(&real).unwrap();
+            fs::rename(&real, d.0.join("outside")).unwrap();
+            put(&d, "outside/secret.txt", "not for the home\n");
+            std::os::unix::fs::symlink(d.0.join("outside"), &real).unwrap();
+            assert_eq!(run(&d), 1, "{name}");
+            assert!(!staged(&d, &format!("{name}/secret.txt")).exists(), "{name}");
+        }
     }
 
     #[test]
