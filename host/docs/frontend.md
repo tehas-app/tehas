@@ -208,6 +208,8 @@ evaluated, so they outlive the island that made them.
 Server data comes from `/live/` through `feed(src, { every })` of
 `kit/feed.js`. There is one source per address per page: every island that
 names the address reads the same async memo, and one poller asks for it.
+Readers that give other request options (below) get a source of their own:
+the source is one per address and options.
 
 - The shortest `every` any reader asks for is the poll period while that
   reader lives; none means no poll, only `refresh()`. A period is at least
@@ -231,6 +233,38 @@ names the address reads the same async memo, and one poller asks for it.
   own, so a file that fails does not hide what another file gave.
 - The feed stops, and its fetch is aborted, when the last root that asked for
   it is disposed.
+
+A feed of another program's API takes these options, each added in `kit 1`
+with no change to a feed that gives none:
+
+| Option | Does |
+| --- | --- |
+| `headers` | Request headers: an object, or a function read on each poll, so a session header can change |
+| `credentials` | The `fetch` credentials mode, such as `"same-origin"` or `"include"` |
+| `parse` | `"json"`, the default, or `"text"`: `data()` is then the body as text |
+| `accept` | A status that is data, not an error: `{ 404: { releases: [] } }` makes a deliberate 404 an empty value. The value may be a function of the body's text. A status not listed and not 2xx is an error, as before |
+| `expose` | The answer's headers that `meta()` gives, by name |
+
+```js
+const plan = feed("/api/plan", {
+  every: 30000,
+  headers: () => ({ "X-Session": session() }),
+  accept: { 404: { releases: [] } },
+  expose: ["X-Session"],
+});
+plan.meta(); // null before the first answer, then
+             // { status: 404, headers: { "x-session": "…" }, date: <ms>, at: <ms> }
+```
+
+- `meta()` is the last answer: its `status`, the `expose`d headers by
+  lower-case name (null where absent), `date`, the server's `Date` header in
+  ms (null without one), and `at`, the viewer's clock when it came. It is a
+  signal of its own: it never suspends, it moves on every answer, a failed
+  one too, and a new `Date` with the same bytes leaves `data()`'s readers be.
+  It lands a moment before `data()` does, while the poll is still pending.
+- The server's clock is `meta().date` moved on by what the viewer's clock has
+  run since `meta().at`. The host island judges a snapshot's age so.
+- An error of a status that is not accepted carries it as `error.status`.
 
 ## Styling
 
@@ -272,6 +306,7 @@ release that ships it:
 | `vendor/LICENSES` | The licences of the bundled packages |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
+| `request.js` | What the kit's modules that make requests share about a request and its answer. No library |
 | `state.js` | Page stores ([Page state](#page-state)), and `shared(key, make)`, one value per key per page under the page's owner |
 | `parts.js` | `view`, and shared pieces drawn in Solid: `TimeAgo`, `Empty`, `Busy`, `Failed` (an error with a retry) and `Guard` (`<Loading>` inside `<Errored>` with a retry) |
 | `kit.css` | The kit's rules in `@layer kit`: `[data-tehas-island]` is `display: block`, `[data-tehas-island="contents"]` is `display: contents` |
@@ -498,7 +533,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | None set yet: they hold 16518 bytes at `kit 1`, and a figure is a person's call | Review |
+| The kit's core modules | None set yet: they hold 20491 bytes at `kit 1` with the feed's request options, and a figure is a person's call | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
