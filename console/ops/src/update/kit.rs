@@ -176,6 +176,26 @@ pub(super) fn types(library: &str, dts: &str) -> Vec<String> {
     let exported = exports(library);
     let declared = declared(dts);
     let mut wrong = Vec::new();
+    for (n, line) in dts.lines().enumerate() {
+        let rest = line.trim_start();
+        let export = rest
+            .strip_prefix("export")
+            .is_some_and(|r| r.starts_with(|c: char| c.is_whitespace() || c == '{' || c == '*'));
+        let read = [
+            "export type ",
+            "export interface ",
+            "export function ",
+            "export const ",
+        ]
+        .iter()
+        .any(|form| line.starts_with(form));
+        if export && !read {
+            wrong.push(format!(
+                "{TYPES}:{}: an export the check cannot read; start the line with export function, export const, export type or export interface",
+                n + 1
+            ));
+        }
+    }
     for name in declared.iter().filter(|n| !exported.contains(n)) {
         wrong.push(format!(
             "{TYPES}: types {name:?}, which the library does not export"
@@ -553,6 +573,31 @@ mod tests {
                 "fun/kit/vendor/solid.d.ts: no type for \"untrack\", which the library exports",
             ]
         );
+    }
+
+    #[test]
+    fn an_export_in_another_form_is_refused() {
+        let library = "var a;export{a as For};";
+        for form in [
+            "export declare function For(): void;",
+            "export declare const For: any;",
+            "export let For: any;",
+            "export class For {}",
+            "  export function For(): void;",
+            "export { For };",
+            "export * from \"./x\";",
+            "export default For;",
+        ] {
+            let dts = format!("export const For: any;\n{form}\n");
+            assert_eq!(
+                types(library, &dts),
+                [format!("{TYPES}:2: an export the check cannot read; start the line with export function, export const, export type or export interface")],
+                "{form}"
+            );
+        }
+        let dts =
+            "export const For: any;\nexport interface P { a: 1 }\nexport type Q = 1;\nexported;\n";
+        assert_eq!(types(library, dts), Vec::<String>::new());
     }
 
     /// The kit's own type file against the kit's own library.

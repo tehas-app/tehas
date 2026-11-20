@@ -58,6 +58,15 @@ pub(super) fn served(name: &str) -> bool {
     !name.ends_with(".d.ts")
 }
 
+/// Whether byte `at` of `text` is inside a `/* */` comment, where JSDoc names
+/// a type file. A `/*` inside a string is taken as a comment's start.
+#[cfg(test)]
+pub(super) fn in_comment(text: &str, at: usize) -> bool {
+    text[..at]
+        .rfind("/*")
+        .is_some_and(|open| !text[open + 2..at].contains("*/"))
+}
+
 /// The name of an asset's copy: `<stem>.<hex>.<extension>`, `<hex>` the first
 /// 12 hex digits of the sha256 of its bytes. The stem is the whole name before
 /// the extension, so the hex sits between the name and its type.
@@ -478,6 +487,18 @@ mod tests {
                     /** @import { Accessor } from \"./vendor/solid.d.ts\" */\n\
                     import { a } from \"./a.js\";\n";
         assert_eq!(specifiers(text), vec!["./a.js"]);
+        // In code it is an import, which no staged file answers.
+        let text = "/** a */\nimport \"./kit.d.ts\";\nimport { b } from './b.d.ts';\n";
+        assert_eq!(specifiers(text), vec!["./kit.d.ts", "./b.d.ts"]);
+    }
+
+    #[test]
+    fn a_comment_is_open_from_its_start_to_its_end() {
+        let text = "a /** b */ c /* d";
+        assert!(!in_comment(text, 0));
+        assert!(in_comment(text, 6));
+        assert!(!in_comment(text, 11));
+        assert!(in_comment(text, 16));
     }
 
     #[test]
@@ -551,10 +572,14 @@ mod tests {
 
     /// The relative addresses a module imports: `from "…"`, `import "…"` and
     /// `import("…")`, in either quote. A line comment is not read: the kit's
-    /// own describe imports that are no file of theirs.
+    /// own describe imports that are no file of theirs. A type file's address
+    /// is read only outside a `/* */` comment.
     fn specifiers(text: &str) -> Vec<&str> {
         let mut out = Vec::new();
-        for line in text.lines() {
+        let mut start = 0;
+        for line in text.split_inclusive('\n') {
+            let offset = start;
+            start += line.len();
             if line.trim_start().starts_with("//") {
                 continue;
             }
@@ -567,7 +592,9 @@ mod tests {
                     };
                     let rest = &rest[1..];
                     let spec = &rest[..rest.find(quote).unwrap_or(rest.len())];
-                    if (spec.starts_with("./") || spec.starts_with("../")) && served(spec) {
+                    if (spec.starts_with("./") || spec.starts_with("../"))
+                        && (served(spec) || !in_comment(text, offset + at))
+                    {
                         out.push(spec);
                     }
                 }
