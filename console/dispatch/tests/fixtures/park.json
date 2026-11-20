@@ -4161,6 +4161,7 @@
     }
    },
    "expect": {
+    "exit": 0,
     "picked": [],
     "log": [
      "the fixer has started 2 cycles on it since alice approved it, the limit"
