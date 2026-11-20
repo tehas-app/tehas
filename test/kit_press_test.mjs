@@ -63,6 +63,26 @@ test("a string body goes as it is, with the caller's content type", async () => 
   assert.equal(calls[0].init.credentials, "include");
 });
 
+test("a form, a search, a blob or bytes go as they are, with no JSON content type", async () => {
+  const form = new FormData();
+  form.set("title", "a");
+  const bodies = [form, new URLSearchParams("a=1"), new Blob(["x"]), new Uint8Array([1]), new ArrayBuffer(1)];
+  for (const body of bodies) await press("/api/form", { body });
+  assert.deepEqual(calls.map((c) => c.init.body), bodies);
+  assert.deepEqual(calls.map((c) => c.init.headers), [{}, {}, {}, {}, {}]);
+});
+
+test("arrays and plain values go as JSON; another kind of object is refused", async () => {
+  await press("/api/a", { body: [1, 2] });
+  await press("/api/a", { body: Object.assign(Object.create(null), { a: 1 }) });
+  await press("/api/a", { body: 3 });
+  assert.deepEqual(calls.map((c) => c.init.body), ["[1,2]", '{"a":1}', "3"]);
+  for (const body of [new Map([["a", 1]]), () => 1, new ReadableStream()]) {
+    await assert.rejects(press("/api/a", { body }), /\/api\/a: a body press cannot send/);
+  }
+  assert.equal(calls.length, 3);
+});
+
 test("an empty answer is null; parse text gives the text", async () => {
   answer = () => ({ status: 204 });
   assert.equal((await press("/api/a")).data, null);

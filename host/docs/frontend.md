@@ -329,7 +329,7 @@ Solid's own `action()`; the kit does not wrap `action`, `createOptimistic` or
 ```js
 const answer = await press("/api/tickets", {
   headers: () => ({ "X-Session": session() }),
-  body: { title },               // not a string: sent as JSON, with its content type
+  body: { title },               // a plain object: sent as JSON, with its content type
   accept: { 409: null },         // a status that resolves instead of rejecting
   expose: ["X-Session"],
 });
@@ -337,7 +337,12 @@ const answer = await press("/api/tickets", {
 ```
 
 - `method`, `headers` (an object or a function), `credentials` and `signal`
-  go to `fetch`. A string `body` goes as it is.
+  go to `fetch`.
+- A `body` that is a string, `FormData`, `URLSearchParams`, a `Blob` or bytes
+  goes as it is, so a native form's `new FormData(form)` can be pressed. A
+  plain object, an array, a number, a boolean or `null` goes as JSON with
+  `Content-Type: application/json` unless one is given. Any other body is
+  refused with a `TypeError` before anything is sent.
 - `parse` reads the answer, `"json"` by default or `"text"`. An empty body is
   `null`.
 - A status that is neither 2xx nor in `accept` rejects with a `PressError`,
