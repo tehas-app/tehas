@@ -12,8 +12,8 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::events::{
     edit_history_unread, edit_holds, first_unallowed_rename, label_actor, label_state, pause_holds,
-    plan_credit, sole_application, standing_actor, Event, Events, LabelState, NOBODY,
-    UNKNOWN_ACTOR,
+    plan_credit, sole_application, standing_actor, standing_past_bot, Event, Events, LabelState,
+    NOBODY, UNKNOWN_ACTOR,
 };
 use tehas_core::hold::{Held, Report, Why, HELD_PARKED, HELD_TEXT_MAX};
 use tehas_core::kinds::Kind;
@@ -668,7 +668,7 @@ impl<'a> Poll<'a> {
                 Some(Events::Read(v)) => v,
                 _ => return Value::Null,
             };
-            let (by, at) = label_actor(ev, "tehas:ready");
+            let (by, at) = standing_actor(ev, "tehas:ready");
             if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
                 continue;
             }
@@ -1848,6 +1848,8 @@ impl<'a> Poll<'a> {
             return None;
         };
         let state = label_state(ev, label);
+        // The application before the removal, which `standing_actor` no
+        // longer names.
         (state.event() == "unlabeled"
             && !self.c.allowed(state.actor())
             && self.c.allowed(&label_actor(ev, label).0))
@@ -2311,7 +2313,7 @@ impl<'a> Poll<'a> {
     /// takes the sub-issues.
     fn epic_next(&self, n: u64, ask: &str) -> &'static str {
         let by = match self.s.issues.get(&n).map(|i| &i.events) {
-            Some(Events::Read(ev)) => label_actor(ev, ask).0,
+            Some(Events::Read(ev)) => standing_actor(ev, ask).0,
             _ => String::new(),
         };
         if ask == "tehas:ready"
@@ -2350,7 +2352,7 @@ impl<'a> Poll<'a> {
         let Events::Read(ev) = &i.events else {
             return None;
         };
-        let (by, at) = label_actor(ev, "tehas:ready");
+        let (by, at) = standing_past_bot(ev, "tehas:ready", &self.c.bot_login);
         (self.c.allowed(&by) && !at.is_empty()).then_some((by, at))
     }
 

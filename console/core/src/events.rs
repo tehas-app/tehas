@@ -242,6 +242,21 @@ pub fn standing_actor(events: &[Event], label: &str) -> (String, String) {
     }
 }
 
+/// `standing_actor`, but a removal by the factory's own account `bot`
+/// (`accounts::factorys`) does not take the label off. Tehas takes
+/// `tehas:ready` off an epic and the person's application still approves its
+/// sub-issues; a removal by anyone else ends it.
+pub fn standing_past_bot(events: &[Event], label: &str, bot: &str) -> (String, String) {
+    let v: Vec<&Event> = ordered(events, label)
+        .into_iter()
+        .filter(|e| !(e.event == "unlabeled" && crate::accounts::factorys(&e.actor, bot)))
+        .collect();
+    match grant::standing(&timeline(&v), &label).map(|i| v[i]) {
+        Some(e) => (e.actor.clone(), e.at.clone().unwrap_or_default()),
+        None => (String::new(), String::new()),
+    }
+}
+
 /// The labeled and unlabeled events of `label`, oldest first: of two sharing
 /// a stamp the removal comes last, and one with no stamp is older than any.
 fn ordered<'a>(events: &'a [Event], label: &str) -> Vec<&'a Event> {
@@ -589,7 +604,7 @@ mod plan_tests {
 
 #[cfg(test)]
 mod standing_tests {
-    use super::{label_actor, standing_actor, Event};
+    use super::{label_actor, standing_actor, standing_past_bot, Event};
 
     fn event(event: &str, actor: &str, at: Option<&str>) -> Event {
         Event {
@@ -668,6 +683,30 @@ mod standing_tests {
         ];
         assert_eq!(who(&two), label_actor(&two, "tehas:ready"));
         assert_eq!(who(&two).0, "bob");
+    }
+
+    /// #2605: tehas's own removal leaves the application standing; anyone
+    /// else's ends it, as `standing_actor` reads it.
+    #[test]
+    fn past_the_bot_only_the_factorys_removal_is_passed_over() {
+        let past = |ev: &[Event]| standing_past_bot(ev, "tehas:ready", "tehas-bot");
+        let by_bot = [
+            event("labeled", "alice", Some(T)),
+            event("unlabeled", "tehas-bot[bot]", Some(L)),
+        ];
+        assert_eq!(past(&by_bot), ("alice".into(), T.into()));
+        assert_eq!(who(&by_bot), none());
+        for by in ["alice", "mallory", ""] {
+            let ev = [
+                event("labeled", "alice", Some(T)),
+                event("unlabeled", "tehas-bot", Some(T)),
+                event("unlabeled", by, Some(L)),
+            ];
+            assert_eq!(past(&ev), none(), "{by}");
+        }
+        // With no bot named, no removal is passed over.
+        assert_eq!(standing_past_bot(&by_bot, "tehas:ready", ""), none());
+        assert_eq!(past(&[]), none());
     }
 
     #[test]
