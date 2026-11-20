@@ -456,3 +456,161 @@ test("a failed poll moves meta to its status and keeps the data", async () => {
   assert.equal(a.live.error().status, 502);
   assert.equal(a.seen.at(-1).n, 1);
 });
+
+test("refresh resolves with the answer it asked for: data, failure or timeout", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ok: true, body: '{"n":2}' };
+  const good = a.live.refresh();
+  await settle();
+  assert.deepEqual(await good, { ok: true, status: 200, data: { n: 2 } });
+  answer = { ok: true, body: '{"n":2}' };
+  const same = a.live.refresh();
+  await settle();
+  assert.deepEqual(await same, { ok: true, status: 200, data: { n: 2 } }, "the same bytes are an answer too");
+  answer = { ok: false, status: 502, statusText: "Bad Gateway" };
+  const bad = a.live.refresh();
+  await settle();
+  const b = await bad;
+  assert.equal(b.ok, false);
+  assert.equal(b.status, 502);
+  assert.match(b.error.message, /502/);
+  answer = { ok: true, body: '{"n":1}', hold: true };
+  const late = a.live.refresh();
+  await settle();
+  mock.timers.tick(30000);
+  await settle();
+  const t = await late;
+  assert.equal(t.ok, false);
+  assert.equal(t.status, 0);
+  assert.match(t.error.message, /no answer in 30000 ms/);
+});
+
+test("a refresh while a poll is out resolves with the poll after it", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ...answer, hold: true };
+  const first = a.live.refresh();
+  await settle();
+  const second = a.live.refresh();
+  let early = null;
+  second.then((r) => (early = r));
+  answer = { ok: true, body: '{"n":2}', hold: true };
+  land();
+  await settle();
+  assert.deepEqual(await first, { ok: true, status: 200, data: { n: 2 } });
+  assert.equal(early, null, "not the poll that was out");
+  answer = { ok: true, body: '{"n":3}' };
+  land();
+  await settle();
+  assert.deepEqual(await second, { ok: true, status: 200, data: { n: 3 } });
+});
+
+test("a refresh of the first answer that fails resolves with the error; nothing rejects", async () => {
+  answer = { ok: false, status: 401, statusText: "Unauthorized" };
+  const a = island("/live/status.json");
+  await settle();
+  const r = await (async () => {
+    const p = a.live.refresh();
+    await settle();
+    return p;
+  })();
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 401);
+});
+
+test("an accepted status resolves ok with its value", async () => {
+  answer = { ok: false, status: 404, body: "gone" };
+  const live = createRoot(() => feed("/api/plan", { accept: { 404: { releases: [] } } }));
+  const p = live.refresh();
+  await settle();
+  assert.deepEqual(await p, { ok: true, status: 404, data: { releases: [] } });
+});
+
+test("a refresh of a feed that is gone resolves at once, as is one out when it goes", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ...answer, hold: true };
+  const out = a.live.refresh();
+  const queued = (await settle(), a.live.refresh());
+  a.dispose();
+  await settle();
+  assert.equal((await out).ok, false);
+  assert.match((await queued).error.message, /gone/);
+  assert.match((await a.live.refresh()).error.message, /gone/);
+});
+
+test("put gives every reader the value with no fetch, and the poll goes on", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  const b = island("/live/status.json", { every: 1000 });
+  await settle();
+  assert.equal(calls.length, 1);
+  a.live.put({ n: 5 });
+  flush();
+  assert.deepEqual(a.seen.at(-1), { n: 5, pending: false, error: null });
+  assert.deepEqual(b.seen.at(-1), { n: 5, pending: false, error: null });
+  assert.equal(calls.length, 1);
+  answer = { ok: true, body: '{"n":6}' };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(a.seen.at(-1), { n: 6, pending: false, error: null });
+});
+
+test("a poll that brings the data a put gave leaves the readers be", async () => {
+  const live = createRoot(() => feed("/live/top.json", { every: 1000 }));
+  let runs = 0;
+  createRoot(() =>
+    createEffect(
+      () => live.data(),
+      () => {
+        runs += 1;
+      },
+    ),
+  );
+  await settle();
+  live.put({ n: 2, list: [1] });
+  flush();
+  assert.equal(runs, 2);
+  answer = { ok: true, body: '{ "n": 2, "list": [1] }' };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(runs, 2);
+  answer = { ok: true, body: '{ "n": 2, "list": [1] }' };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(runs, 2, "and the bytes after it are the same as the last poll's");
+});
+
+test("a put while a poll is out replaces that poll's answer when it lands, with no fetch more", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ok: true, body: '{"n":2}', hold: true };
+  const r = a.live.refresh();
+  await settle();
+  a.live.put({ n: 9 });
+  answer = { ok: true, body: '{"n":2}' };
+  land();
+  await settle();
+  await settle();
+  assert.equal(calls.length, 2);
+  assert.equal(a.seen.at(-1).n, 9);
+  assert.deepEqual(await r, { ok: true, status: 200, data: { n: 2 } }, "the refresh hears its own answer");
+  answer = { ok: true, body: '{"n":3}' };
+  a.live.refresh();
+  await settle();
+  assert.equal(a.seen.at(-1).n, 3, "and the next poll goes on as normal");
+});
+
+test("a put before the first answer is the data", async () => {
+  answer = { ok: true, body: '{"n":1}', hold: true };
+  const a = island("/live/status.json");
+  await settle();
+  a.live.put({ n: 4 });
+  flush();
+  land();
+  await settle();
+  await settle();
+  assert.equal(calls.length, 1);
+  assert.equal(a.seen.at(-1).n, 4);
+});

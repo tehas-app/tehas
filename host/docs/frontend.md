@@ -279,6 +279,36 @@ plan.meta(); // null before the first answer, then
   run since `meta().at`. The host island judges a snapshot's age so.
 - An error of a status that is not accepted carries it as `error.status`.
 
+Two more, added in `kit 1` with no change for a caller that does not use
+them:
+
+- `refresh()` returns a promise of the answer of the poll it asked for. It
+  never rejects: it resolves `{ ok: true, status, data }` when the answer is
+  data, a 2xx or a status in `accept`, the same bytes as before too, and
+  `{ ok: false, status, error }` when the poll failed, timed out or was
+  aborted, with `status` 0 when no answer came. A `refresh()` while a poll is
+  out resolves with the poll that follows it. A caller that ignores the
+  promise sees what it saw before. A refresh of a feed that is gone resolves
+  at once with `ok: false`.
+- `put(value)` makes `value` the data of every reader of that feed at once,
+  with no fetch, as if an answer had brought it: the answer of a press or an
+  event a stream pushed. The source stays one per address and options. The
+  poll goes on at its period, and a poll that then brings the same data
+  leaves the readers be. A put while a poll is out takes the place of that
+  poll's answer, which was asked before the value was known, and
+  `isPending` no longer counts that poll.
+
+```js
+// a press's answer, or a live event, into the feed: no second request
+const view = feed(`/api/t/${n}/view`, ASK);
+const pressed = await press(`/api/t/${n}/act`, { body });
+view.put(pressed.data);
+
+// wait for the answer a refresh asked for, the same as before or not
+const r = await tickets.refresh();
+if (!r.ok) say(r.status ? `The server answered ${r.status}.` : "No answer.");
+```
+
 ### Request headers
 
 A header that changes, such as a session, lives in a page store, and one
