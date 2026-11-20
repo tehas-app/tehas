@@ -580,7 +580,8 @@ The mode is a toggle a person sets, not the system setting. A page is light
 unless the viewer picks dark, and the choice is kept in that browser where
 storage allows (`fun/mode.js`, the key `tehas-mode`). Only a theme whose
 `--modes` token names `dark` offers it: today `beesknees26`, on the business
-page's mode button. The kit's mode element keeps this behaviour.
+page's mode button. The kit has no mode element: a page that offers the
+toggle loads `fun/mode.js`.
 
 ## The kit
 
