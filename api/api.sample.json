@@ -31,7 +31,8 @@
     "refresh-pr",
     "host-start",
     "flags",
-    "status-previews"
+    "status-previews",
+    "wake"
   ],
   "flags": {
     "outsource": false,

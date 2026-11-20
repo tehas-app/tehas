@@ -104,17 +104,14 @@ fn dispatch(bash: &str, libexec: &str, rest: &[String]) -> Result<u8, u8> {
     Ok(78)
 }
 
-/// `tehas dispatch --soon`: the file tehas-dispatch.path starts a poll on, and
-/// nothing else. While a poll runs the file waits, and the next poll starts
-/// when that one ends.
+/// `tehas dispatch --soon`: the ask of `tehas wake`, in the words of dispatch.
 fn dispatch_soon(home: &Path) -> u8 {
-    let again = home.join("state/dispatch.again");
-    match File::create(&again) {
-        Ok(_) => {
+    match crate::wake::ask(home) {
+        Ok(again) => {
             tehas_core::outln!("tehas dispatch: a poll is asked for ({})", again.display());
             0
         }
-        Err(e) => {
+        Err((again, e)) => {
             eprintln!("tehas dispatch: could not write {}: {e}", again.display());
             1
         }

@@ -22,7 +22,7 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehas order`](#tehas-order), [`tehas start`](#tehas-start),
 [`tehas refresh`](/tools-github#tehas-refresh) (`tehasbot refresh`, its old
 name, stays through 1.x),
-[`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
+[`tehas wake`](#tehas-wake), [`tehas drain`](#tehas-drain), [`tehas freeze`](#tehas-freeze-and-tehas-thaw),
 [`tehas thaw`](#tehas-freeze-and-tehas-thaw), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
 [`tehas state`](#tehas-state), [`tehas state check`](#tehas-state-check),
@@ -126,7 +126,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews"],
+  "features": ["status", "millwright-grant", "all-hands", "limit", "drain", "history", "export", "analytics", "state-move", "mcp-dashboard-keys", "clean", "disk", "panels", "state-check", "finish", "status-versions", "state-copy", "state-load", "freeze", "host-bridge", "cycle-writes", "settings-rules", "start-order", "host-message", "refresh-pr", "host-start", "flags", "status-previews", "wake"],
   "flags": {"outsource": false, "spec-pipe": false, "protolab-zip-url": false, "prototype-file": false, "lean": false, "review": false},
   "millwright": null,
   "poll": {
@@ -151,7 +151,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` or `v1.0.0-alpha.1` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there) and `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)). A shipped optional feature adds its name of `flags` here; a building one does not |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `analytics` ([`tehas analytics copy --json`](#tehas-analytics-copy)), `state-move` ([`tehas state`](#tehas-state)), `mcp-dashboard-keys` (the read-only MCP server answers a key of `TEHAS_MCP_DASHBOARD_KEYS` with only the four tools that copy from `live/`, [the MCP server](/mcp-server)), `clean` (the hourly cleaner runs on this host, [`tehasbot clean`](#tehasbot-clean)), `disk` ([`tehas disk`](#tehas-disk)), `panels` ([`tehas panel`](#tehas-panel)), `state-check` ([`tehas state check`](#tehas-state-check)), `finish` ([the finish ask](#the-finish-ask)), `status-versions` (`versions` in [`tehas status --json`](#tehas-status---json)), `state-copy` ([`tehas state copy`](#tehas-state-copy)), `state-load` ([`tehas state load`](#tehas-state-load)), `freeze` ([`tehas freeze` and `tehas thaw`](#tehas-freeze-and-tehas-thaw)), `host-bridge` ([the host bridge](#the-host-bridge)), `cycle-writes` ([`tehas disk --cycles`](#tehas-disk) names what each running cycle writes), `settings-rules` (the release carries [its settings rules](#settings-rules)), `start-order` ([`tehas order`](#tehas-order)), `host-message` ([`tehas host-message`](#tehas-host-message), shown by health, `tehas status`, the MCP server and the dashboard), `refresh-pr` ([`tehas refresh --pr N`](/tools-github#tehas-refresh) asks for the refresh of one pull request, `--json` prints what it asked as one object, and the dispatcher starts it in the refresh lane, not in a cycle slot, [refreshes](/operating#refreshes)), `host-start` ([`tehas start`](#tehas-start) approves an issue from the host), `flags` (the object below is there), `status-previews` (`previews` in [`tehas status --json`](#tehas-status---json)) and `wake` ([`tehas wake`](#tehas-wake) asks for a poll now). A shipped optional feature adds its name of `flags` here; a building one does not |
 | `flags` | Every optional feature of the release and whether this instance has it on, `true` or `false`. A feature still being built is always `false` and its switch set to `on` stops every command with exit 78. Only a shipped feature's key is contract: a building feature's key may change or go until the release that ships it, and `api/api.schema.json` requires only the keys of shipped features. Today `outsource` (`TEHAS_OUTSOURCE`, still being built: [outsource](/outsource)), `spec-pipe` (`TEHAS_SPEC_PIPE`, still being built: the `Spec:` line of an issue, [the feature list](/features)), `protolab-zip-url` (`TEHAS_PROTOLAB_ZIP_URL`, still being built: [a zip by address](/tools-protolab#a-zip-by-address)), `prototype-file` (`TEHAS_PROTOTYPE_FILE`, still being built: [`tehas prototype file`](/tools-protolab#tehas-prototype-file)) `lean` (`TEHAS_LEAN`, still being built: [choosing the driver](/operating#choosing-the-driver)) and `review` (`TEHAS_REVIEW`, still being built: [the review loop](/operating#the-review-loop)) |
 | `millwright` | The app's login, or `null` before it is known |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -449,6 +449,39 @@ Exit 0 recorded, taken back or nothing to take back; 1 GitHub did not answer,
 or the store refused; 3 GitHub has no open issue of that number (none, a pull
 request or a closed issue); 64 on a bad argument, which writes nothing; 78
 without an instance.
+
+## tehas wake
+
+```
+tehas wake [--json]
+```
+
+```json
+{"api": 1, "asked": true}
+```
+
+Asks for a poll now and returns at once, for a program that knows the
+repository changed: a webhook receiver, a scheduler, a script. It does what
+[`tehas dispatch --soon`](/tools-dispatch#tehas-dispatch) does: it writes
+`state/dispatch.again`, and `tehas-dispatch.path` starts the poll as its unit,
+as the factory's user. It makes no call to GitHub and does not wait for the
+poll. A factory whose `tehas api` lists the feature `wake` has it.
+
+- **A poll is running**: the ask waits, and one more poll starts when that one
+  ends. Asking again before then is the same one ask, so a caller may ask on
+  every event it gets.
+- **The factory is paused or drained**: the ask is taken and the poll runs. It
+  cleans up as every poll does and starts nothing new.
+
+`api/wake.schema.json` in the source says what the object holds, and
+`api/wake.sample.json` is the object.
+
+| Field | Meaning |
+| --- | --- |
+| `asked` | `true`: the poll is asked for. `false`: the file could not be written, and the exit status is 1 |
+
+Exit 0 the poll is asked for; 1 the file could not be written; 64 an argument
+other than `--json`, which writes nothing; 78 without an instance.
 
 ## tehas drain
 
