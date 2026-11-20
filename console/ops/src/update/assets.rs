@@ -456,7 +456,11 @@ mod tests {
     fn unresolved(stage: &Path) -> Vec<String> {
         let mut wrong = Vec::new();
         for file in files(stage) {
-            let name = file.strip_prefix(stage).unwrap().to_string_lossy().into_owned();
+            let name = file
+                .strip_prefix(stage)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
             let ext = file.extension().map(|e| e.to_string_lossy().into_owned());
             let Ok(text) = fs::read_to_string(&file) else {
                 continue;
@@ -531,8 +535,14 @@ mod tests {
         );
         // The dashboard asks for its islands by hashed name, in their folder.
         let frag = fs::read_to_string(stage.join("docs/dashboard.frag")).unwrap();
-        assert!(!frag.contains("\"/fun/factory/tehas-factory-state.js\""), "{frag}");
-        assert!(frag.contains("\"/fun/factory/tehas-factory-state."), "{frag}");
+        assert!(
+            !frag.contains("\"/fun/factory/tehas-factory-state.js\""),
+            "{frag}"
+        );
+        assert!(
+            frag.contains("\"/fun/factory/tehas-factory-state."),
+            "{frag}"
+        );
     }
 
     #[test]
