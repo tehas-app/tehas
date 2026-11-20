@@ -6,6 +6,9 @@
 #   page <name> <script bytes> <markup and style bytes>
 #   island <name> <bytes>
 #   library solid <bytes>    the kit's Solid, counted here and in no page
+#
+# Approved by the owner on 2026-11-20: library solid 123689 and
+# page dashboard 83939 53988.
 page business 99084 40524
 page floor 144291 68492
 page dashboard 83939 53988
