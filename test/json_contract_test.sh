@@ -45,10 +45,12 @@ surfaces=(
   'sample	expired'
   'sample	empty'
   'sample	unreadable'
+  'sample	starts'
   'state	ok'
   'state	expired'
   'state	none'
   'state	unreadable'
+  'state	ok'
   'check	del(.state) | .zz = 1 | .only = "yes"	.: state is missing'
   'check	del(.state) | .zz = 1 | .only = "yes"	.zz: not in the schema'
   'check	del(.state) | .zz = 1 | .only = "yes"	.only: string, not boolean'
@@ -554,6 +556,15 @@ panel_reading() { # <name>
 order_world() { # <name>
   t_store_home "$T/home/tehas"
   case $1 in
+    starts)
+      t_run "TEHAS_STORE_TEST_NOW=$limit_written '$T_CONSOLE' \
+        tehas order set --issues 12,8 --only --until 2026-10-17T15:00:20Z --reason held >/dev/null 2>&1" ||
+        t_bad "setting the order failed: $t_out"
+      # What the last poll decided of the two, as console/dispatch writes it.
+      mkdir -p "$T/home/tehas/state"
+      printf '%s\n' '{"at": "2026-10-17T14:00:00Z", "issues": [{"issue": 12, "start": true}, {"issue": 8, "start": false, "reason": {"code": "blocked", "text": "tehas:blocked holds it: #3 is open"}}], "edges": [{"issue": 8, "kind": "marker", "on": 3, "by": "alice"}], "holds": [{"issue": 3, "reason": {"code": "no-approval", "text": "it is open, and no allowed account made it ready"}}]}' \
+        >"$T/home/tehas/state/starts.json"
+      ;;
     sample | expired) t_run "TEHAS_STORE_TEST_NOW=$limit_written '$T_CONSOLE' \
         tehas order set --issues 12,8 --only --until 2026-10-17T15:00:20Z --reason held >/dev/null 2>&1" ||
       t_bad "setting the order failed: $t_out" ;;
@@ -1158,7 +1169,8 @@ while [ "$i" -lt "${#surfaces[@]}" ]; do
         esac
       done
     else
-      t_eq "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'sort')" \
+      # unique: two samples may print one state, as two readings of an order do.
+      t_eq "$(printf '%s\n' "${states[@]}" | jq -R . | jq -sc 'unique')" \
         "$(enum_of "$schema" "$state_path" | jq -c 'sort')"
     fi
   fi
@@ -1439,6 +1451,7 @@ pinned=(
   'disk-cycles	test/disk_test.sh	own'
   'host-messages	test/host_message_test.sh'
   'wake	console/src/wake.rs'
+  'blockers	console/src/blockers.rs'
   'settings-rules	test/settings_rules_test.sh	own'
   'host-bridge	test/host_bridge_test.sh	open'
 )

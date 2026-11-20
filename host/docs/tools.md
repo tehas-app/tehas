@@ -29,6 +29,7 @@ tehas api [--json]               # what this factory speaks, for a program
 tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas order [set ...|clear]      # the order ready issues start in
+tehas blockers [--json]          # which issues hold which, as the last poll read them
 tehas start <issue> [--clear]    # approve an issue for a start, from the host
 tehas refresh --pr N [--json]    # ask for the refresh of pull request N
 tehas wake [--json]              # ask for a poll now, return at once

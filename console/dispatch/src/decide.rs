@@ -23,6 +23,7 @@ mod epic;
 mod flow;
 mod plan;
 mod retry;
+mod starts;
 
 pub(crate) use clean::{iso, quiet_due, quiet_why, Due, QUIET_ASKS};
 pub(crate) use flow::in_flow;
@@ -229,6 +230,10 @@ pub struct Decision {
     /// before, as the bash does them there.
     pub swept_at: Option<(usize, usize)>,
     pub reported_at: Option<(usize, usize)>,
+    /// What the poll decided of each issue it could start, and the holds
+    /// between issues it read: state/starts.json, without its time. A dry run
+    /// writes none.
+    pub starts: tehas_core::starts::Record,
 }
 
 /// The poll ends here with this exit status.
@@ -316,6 +321,14 @@ struct Poll<'a> {
     cycle_mb: u64,
     /// The contractors this poll gave a start.
     taken: Vec<String>,
+    /// Where rules 6 and 7 began, as the line and the action, once they did.
+    cand_from: Option<(usize, usize)>,
+    /// The issues of rule 7's order, refreshes left out, and those of them the
+    /// rules came to before the room ran out.
+    cand_order: Vec<u64>,
+    cand_seen: Vec<u64>,
+    /// The hold of a poll with no room for a new cycle.
+    room_hold: String,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -339,11 +352,16 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         plan_closed: Vec::new(),
         cycle_mb: 0,
         taken: Vec::new(),
+        cand_from: None,
+        cand_order: Vec::new(),
+        cand_seen: Vec::new(),
+        room_hold: String::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
         Err(End(rc)) => rc,
     };
+    p.d.starts = p.starts_record();
     p.d
 }
 
@@ -575,6 +593,7 @@ impl<'a> Poll<'a> {
     fn start_work(&mut self, room: Room) -> Step {
         // With no room for new work, only a refresh may still have room.
         if room.want == 0 {
+            self.room_hold = room.hold.clone();
             if self.dry {
                 self.log(room.hold.clone());
             }
@@ -3005,6 +3024,7 @@ impl<'a> Poll<'a> {
             want_refresh,
             ..
         } = room;
+        self.cand_from = Some((self.d.log.len(), self.d.actions.len()));
         let ready = self.ready()?;
         let (ranked, only) = self.ranked(&ready);
         let mut order: Vec<(char, u64)> = Vec::new();
@@ -3019,6 +3039,11 @@ impl<'a> Poll<'a> {
         );
         let mut ready_picked = 0;
         let mut refresh_picked = 0;
+        self.cand_order = order
+            .iter()
+            .filter(|(k, _)| *k != 'r')
+            .map(|(_, n)| *n)
+            .collect();
         for (kind, n) in order {
             if self.d.picked.len() as i64 >= want_all {
                 break;
@@ -3046,6 +3071,7 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if kind == 'x' && only {
+                self.cand_seen.push(n);
                 if !self.running(n) && n != self.c.control {
                     self.log(format!("wait #{n}: not in the start order (--only)"));
                 }
@@ -3054,6 +3080,7 @@ impl<'a> Poll<'a> {
             if ready_picked >= want {
                 continue;
             }
+            self.cand_seen.push(n);
             let labels = ready
                 .iter()
                 .find(|i| i.number == Some(n))

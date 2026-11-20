@@ -1,0 +1,20 @@
+tehas blockers: which issues hold which, as the dispatcher's last poll read them.
+
+Each poll records the holds it reads between issues: the issues the newest
+<!-- tehas:blocked by=N --> comment of an allowed account names, while they
+are not closed, and the open blocked-by links of an issue, whose issues it
+does not name. This prints them, each cycle among them, and for each issue
+a chain holds, the issues at the chain's ends and what holds each: a
+question, no approval, an open pull request, a link. Freeing an end frees
+the chain. It reads state/starts.json and nothing else: no network, and it
+writes nothing.
+
+Usage: tehas blockers [--json]. With --json, one object: api 1, state ok,
+at (the poll's time), edges, cycles and chains. Reason codes are an open
+list: a program takes a code it does not know as a hold it cannot name.
+Before any poll has recorded its holds, state is none; a record that cannot
+be read is state unreadable.
+
+Exit: 0 shown; 1 the record cannot be read; 3 no poll has recorded one yet;
+64 an argument other than --json; 78 the instance settings are missing or
+malformed.

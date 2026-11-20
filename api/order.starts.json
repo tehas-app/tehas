@@ -1,0 +1,28 @@
+{
+  "api": 1,
+  "state": "ok",
+  "issues": [
+    12,
+    8
+  ],
+  "only": true,
+  "until": "2026-10-17T15:00:20Z",
+  "reason": "held",
+  "starts": {
+    "at": "2026-10-17T14:00:00Z",
+    "issues": [
+      {
+        "issue": 12,
+        "start": true
+      },
+      {
+        "issue": 8,
+        "reason": {
+          "code": "blocked",
+          "text": "tehas:blocked holds it: #3 is open"
+        },
+        "start": false
+      }
+    ]
+  }
+}
