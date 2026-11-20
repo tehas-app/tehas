@@ -1,12 +1,13 @@
-# GitHub polls toward v1.1.0: cheaper, checked, woken
+# GitHub polls toward v1.2.0: cheaper, checked, woken
 
 **Goal:** the dispatcher's poll asks GitHub only what changed, and asks it
 cheaply. A host, or a push that comes later, can start a poll at once, so the
 timer can run less often. A push is where this is going; the timer stays as
 the fallback.
 
-**Status:** planned, for the owner to place in milestones. Each item says
-whether it fits v1.1.0. Started 2026-11-19, at v1.0.0.
+**Status:** planned for v1.2.0 (the owner, 2026-11-20). Item 2 shipped in
+v1.0.1 (#2577). Each other item says whether it fits v1.2.0. Started
+2026-11-19, at v1.0.0.
 
 ## Why
 
@@ -50,7 +51,7 @@ measurable.
 
 ## Items
 
-### 1. The poll records its points (v1.1.0)
+### 1. The poll records its points (v1.2.0)
 
 **What.** Each GraphQL read of the poll also asks `rateLimit { cost }`, which
 adds nothing to its cost, and the poll adds the costs up. The poll's row in
@@ -67,7 +68,7 @@ costs" in `host/docs/operating.md` says what the figure counts.
 **Tests.** The sum over a poll's answers, an answer with no `rateLimit` that
 counts as unknown, not as 0, the fields in the samples.
 
-### 2. The comments chunk without the nested edits (v1.1.0)
+### 2. The comments chunk without the nested edits (shipped in v1.0.1, #2577)
 
 **What.** The comments chunk asks each comment's `lastEditedAt` and
 `editor`, as it does now, and no longer `userContentEdits`. A second query
@@ -89,7 +90,7 @@ gets its history from the second query, one without gets none. A failed
 second query holds as today. The answers the rules read are the same for an
 issue read either way.
 
-### 3. Comments only for issues that moved (v1.1.0 if the check below holds)
+### 3. Comments only for issues that moved (v1.2.0 if the check below holds)
 
 **What.** The queue's page asks each issue's `updatedAt`, which is measured
 to cost nothing more. The poll keeps the last comments answer of each issue
@@ -112,7 +113,7 @@ they are what an approval rests on.
 the ceiling, read again when either is not, read again after a failed read.
 Pure, with the times handed in.
 
-### 4. A free change check before a timer poll (v1.1.0)
+### 4. A free change check before a timer poll (v1.2.0)
 
 **What.** Before a poll started by the timer reads GitHub, it makes one REST
 conditional request:
@@ -164,7 +165,7 @@ answer, the last full poll's age and the ceiling, with a case for each line
 above. A 304 not counted as a failed call. A malformed `TEHAS_POLL_FULL_SECS`
 stops every command with 78.
 
-### 5. The wake in the factory API (v1.1.0, #2436)
+### 5. The wake in the factory API (v1.2.0, #2436)
 
 **What.** `tehas dispatch --soon` exists on main: it writes
 `state/dispatch.again`, and `tehas-dispatch.path` starts a poll now, or after
@@ -187,15 +188,15 @@ part is the word `wake`. A `--json` form is not needed: the exit status is
 the answer. If one is wanted, it is a flag added to `api/commands.txt` with a
 schema in `api/`.
 
-### 6. A longer interval where a wake is in place (after v1.1.0)
+### 6. A longer interval where a wake is in place (after v1.2.0)
 
 With items 4 and 5 in place, a host that wakes its factory can set
 `TEHAS_POLL_SECS` to 1800 and `TEHAS_POLL_FULL_SECS` to 1800, and the timer
-becomes a safety net. The defaults stay at 120 in v1.1.0. Raising them for
+becomes a safety net. The defaults stay at 120 in v1.2.0. Raising them for
 everyone waits for a release in which the wake has been seen working on
 hosts, and the release notes say so.
 
-### 7. A wake that names issues (later, not v1.1.0)
+### 7. A wake that names issues (later, not v1.2.0)
 
 A push knows which issue changed. A later wake could carry the numbers, so the
 poll reads comments only of those, on top of item 3's kept answers. It needs
