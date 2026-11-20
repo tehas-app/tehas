@@ -6,7 +6,7 @@
     "a cycle that does not start does not stop the next one, and the poll ends with 1: the start is #254's"
   ],
   "cases": [
-    {"case": "two slots: two issues are started in order",
+    {"case": "two slots: two issues are started in one poll, in order",
      "settings": {"TEHAS_MAX_CYCLES": 2}, "ready_n": [7, 8],
      "expect": {"exit": 0, "picked": [7, 8], "actions": [
        {"start": 7, "remove": ["tehas:ready"]}, {"start": 8, "remove": ["tehas:ready"]}]}},
