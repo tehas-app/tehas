@@ -26,6 +26,10 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 - `tehas labels` pins a label that was there with no pin when GitHub says it was created within a minute of a label already pinned, as one `tehas labels` run made them. So the update to 1.0 pins the `tehas:blocked` an older tehas made, and `tehas setup` no longer stops on it. A label renamed to a pinned name keeps its creation time and is still refused (#2581).
 - The poll's comment read costs a tenth of what it did. It no longer asks every comment for its edit history: it asks only the comments GitHub says were edited, by their ids, and puts each history back where the comment read gave it before. A chunk of ten issues' comments now costs GitHub 1 point instead of 10. What the rules read is unchanged: an edit by an account the start rules do not take still holds a start, every edit counting. When a history cannot be read, the rules that judge it hold or wait: a start held on an issue's edits stays held, and a box the millwright ticked in a planning question waits for the next poll without acting or writing a note. The finish asks no longer pay for a history read they do not use.
 
+### Held back
+
+- Node 26.13.1 is out, a new major version. `host/versions.env` keeps 22.23.5: the move is a person's call.
+
 ### Adopter action
 
 A host that stopped on `not pinned: the label tehas:blocked ... was there before with no pin` updates to this release, and its setup pins the label. If `tehas labels` still names it, the label was not made with the others: check it on GitHub and pin it by hand as the message says.
