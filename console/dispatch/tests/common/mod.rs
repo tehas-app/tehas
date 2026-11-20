@@ -1,5 +1,5 @@
 //! What the tests of the poll share, as test/dispatch_lib.sh and
-//! test/dispatch_procs_lib.sh did: `tehasbot dispatch` through the console,
+//! test/dispatch_procs_lib.sh once did: `tehasbot dispatch` through the console,
 //! with tehas-dispatch beside it, against a stub gh, the real store and a
 //! scratch checkout of acme/widget whose default branch is main.
 //!
