@@ -58,6 +58,27 @@ pub fn require(names: &[&str]) -> Result<(), u8> {
     }
 }
 
+/// What follows a name's first label on the edge: `.<domain>`, or with
+/// `one_level` (TEHAS_EDGE_ONE_LEVEL) `-<domain>` with the domain's first dot
+/// as the dash, so that a domain that is itself a subdomain keeps its names
+/// one level under its parent: `demo.example.org` gives `uat-12-demo.example.org`,
+/// which a certificate for `*.example.org` covers (host/docs/edge.md, "Why the
+/// names are one level deep"). Empty with no domain.
+pub fn edge_suffix(domain: &str, one_level: bool) -> String {
+    if domain.is_empty() {
+        String::new()
+    } else if one_level {
+        format!("-{domain}")
+    } else {
+        format!(".{domain}")
+    }
+}
+
+/// The public name of an edge label (`uat-12`, `uat-main`, `lab-7`, `lab`).
+pub fn edge_name(label: &str, domain: &str, one_level: bool) -> String {
+    format!("{label}{}", edge_suffix(domain, one_level))
+}
+
 /// The login in the text of state/github/login: one line, `<slug>[bot]`.
 pub fn login_of(text: &[u8]) -> Option<String> {
     let line = String::from_utf8_lossy(text);
@@ -183,6 +204,27 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::Instant;
+
+    #[test]
+    fn edge_names_stay_one_level_deep_when_asked() {
+        assert_eq!(
+            edge_name("uat-12", "example.org", false),
+            "uat-12.example.org"
+        );
+        assert_eq!(
+            edge_name("uat-12", "demo.example.org", true),
+            "uat-12-demo.example.org"
+        );
+        assert_eq!(
+            edge_name("lab", "demo.example.org", true),
+            "lab-demo.example.org"
+        );
+        assert_eq!(
+            edge_name("uat-main", "demo.example.org", false),
+            "uat-main.demo.example.org"
+        );
+        assert_eq!(edge_suffix("", true), "");
+    }
 
     fn given(name: &str) -> String {
         match name {

@@ -37,6 +37,8 @@ pub struct Preview {
     /// The login the factory acts as on GitHub, `<slug>[bot]` for an App,
     /// from `state/github/login`; empty when there is none.
     pub bot: String,
+    /// TEHAS_EDGE_ONE_LEVEL: names as uat-12-demo.example.org.
+    pub one_level: bool,
     pub root: PathBuf,
     pub bare: PathBuf,
     pub live: PathBuf,
@@ -172,6 +174,7 @@ impl Preview {
         preview.settle = settle_of(&get("TEHAS_PREVIEW_SETTLE"));
         preview.work_repo = PathBuf::from(work_repo);
         preview.bot = tehas_core::settings::bot_login(&preview.home).unwrap_or_default();
+        preview.one_level = get("TEHAS_EDGE_ONE_LEVEL") == "1";
         Ok(preview)
     }
 
@@ -179,6 +182,7 @@ impl Preview {
         let root = home.join("preview");
         Preview {
             bot: String::new(),
+            one_level: false,
             repo,
             domain,
             max: 0,
@@ -197,7 +201,10 @@ impl Preview {
 
     /// Where a preview answers. door in protolab.rs does the same for a ticket.
     pub(super) fn address(&self, name: &str) -> String {
-        format!("https://uat-{name}.{}/", self.domain)
+        format!(
+            "https://{}/",
+            tehas_core::settings::edge_name(&format!("uat-{name}"), &self.domain, self.one_level)
+        )
     }
 
     /// Set "free" and "low" for this run. Space that cannot be read is low:
