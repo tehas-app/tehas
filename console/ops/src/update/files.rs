@@ -13,8 +13,12 @@
 //! `<path>.prev`. Each `--sync <name>` then copies every file of the directory
 //! `<name>` stands in for into `$TEHAS_HOME/<name>` as 644 and removes what is
 //! there that the directory no longer has, its subdirectories in the same way
-//! (the kit in `fun/kit/`), and a subdirectory it no longer has removed whole.
-//! The directory is `<host>/<name>`, or
+//! (the kit in `fun/kit/`). A subdirectory of the home that the directory does
+//! not have is kept and said so on standard error: it may be a person's own.
+//! A symbolic link on either side, where a sync would read, write or sweep, is
+//! refused before anything is copied: a link in the home would carry the copies
+//! and the sweep into the directory it points at. The directory is
+//! `<host>/<name>`, or
 //! `<dir>/<name>` with `--from <dir>`, which is how install.sh installs the
 //! dashboard's pages from the stage `console update assets` made (see
 //! src/update/assets.rs): the sweep then takes back a hashed name of older
@@ -127,6 +131,42 @@ fn names(dir: &Path) -> io::Result<Vec<String>> {
         .collect();
     out.sort();
     Ok(out)
+}
+
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// The symbolic links a sync of `from` into `to` would meet: the two
+/// directories, every name under `from`, and every name under `to` that the
+/// sweep reads. A link is not looked through.
+fn links(from: &Path, to: &Path, found: &mut Vec<PathBuf>) {
+    let mut stop = false;
+    for dir in [from, to] {
+        if is_link(dir) {
+            found.push(dir.to_path_buf());
+            stop = true;
+        }
+    }
+    if stop {
+        return;
+    }
+    for name in names(from).unwrap_or_default() {
+        let (source, target) = (from.join(&name), to.join(&name));
+        if fs::symlink_metadata(&source).is_ok_and(|m| m.is_dir()) {
+            links(&source, &target, found);
+        } else if is_link(&source) {
+            found.push(source);
+        } else if is_link(&target) {
+            found.push(target);
+        }
+    }
+    for name in names(to).unwrap_or_default() {
+        let target = to.join(&name);
+        if !from.join(&name).exists() && is_link(&target) {
+            found.push(target);
+        }
+    }
 }
 
 /// `cp -p`: the bytes, the mode and the time of change.
@@ -264,14 +304,10 @@ impl Copier {
             }
             let is_dir = fs::symlink_metadata(&to).is_ok_and(|m| m.is_dir());
             if is_dir && !from_dir.join(&file).exists() {
-                self.changed(&format!("{name}/{file}"));
-                if self.check {
-                    self.say(format!("stale: {}", to.display()));
-                } else if fs::remove_dir_all(&to).is_ok() {
-                    self.say(format!("removed: {}", to.display()));
-                } else {
-                    fault(&format!("could not remove {}", to.display()));
-                }
+                fault(&format!(
+                    "kept {}: this checkout has no such directory, and a directory is never removed",
+                    to.display()
+                ));
                 continue;
             }
             // A file an earlier run left beside the pages and did not rename
@@ -306,6 +342,17 @@ impl Copier {
     }
 
     fn run(&mut self, table: &str, syncs: &[String]) -> Result<(), String> {
+        let mut found = Vec::new();
+        for name in syncs {
+            links(&self.from.join(name), &self.home.join(name), &mut found);
+        }
+        if !found.is_empty() {
+            let paths: Vec<String> = found.iter().map(|p| p.display().to_string()).collect();
+            return Err(format!(
+                "{} is a symbolic link, and an install does not copy or sweep through one; nothing was installed. Replace it with a file or directory of its own and run again",
+                paths.join(", ")
+            ));
+        }
         let entries = table
             .lines()
             .filter(|l| !l.is_empty())
@@ -656,7 +703,8 @@ mod tests {
         c.run("", &syncs).unwrap();
         assert_eq!(c.lines, Vec::<String>::new());
 
-        // A file and a directory the checkout no longer has are stale.
+        // A file the checkout no longer has is stale. A directory it does not
+        // have is kept: it may be a person's own, so it is never named stale.
         d.file("home/fun/kit/gone.js", "x\n");
         d.file("home/fun/old/a.js", "x\n");
         let mut c = copier(&d, true);
@@ -666,15 +714,105 @@ mod tests {
             vec![
                 "changed fun/kit/gone.js".to_string(),
                 format!("stale: {}", home.join("kit/gone.js").display()),
-                "changed fun/old".to_string(),
-                format!("stale: {}", home.join("old").display()),
             ]
         );
         let mut c = copier(&d, false);
         c.run("", &syncs).unwrap();
         assert!(!home.join("kit/gone.js").exists());
-        assert!(!home.join("old").exists());
+        assert_eq!(fs::read_to_string(home.join("old/a.js")).unwrap(), "x\n");
         assert!(home.join("kit/vendor/solid.js").is_file());
+        assert!(!c.lines.iter().any(|l| l.contains("old")), "{:?}", c.lines);
+    }
+
+    /// Every file under `dir` with its bytes, at any depth, links not followed.
+    fn tree(dir: &Path) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        for name in names(dir).unwrap() {
+            let path = dir.join(&name);
+            if fs::symlink_metadata(&path).unwrap().is_dir() {
+                for (inner, text) in tree(&path) {
+                    out.push((format!("{name}/{inner}"), text));
+                }
+            } else {
+                out.push((name, fs::read_to_string(&path).unwrap_or_default()));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_symlinked_directory_in_the_home_is_refused_and_its_target_left_alone() {
+        let d = dir("files-home-link");
+        d.file("root/host/fun/index.html", "hi\n");
+        d.file("root/host/fun/kit/island.js", "// island\n");
+        // fun/kit in the home points outside it, at a directory of a person's
+        // own: a file the checkout has, and one it lacks.
+        d.file("elsewhere/island.js", "mine\n");
+        d.file("elsewhere/notes.txt", "keep me\n");
+        fs::create_dir_all(d.0.join("home/fun")).unwrap();
+        std::os::unix::fs::symlink(d.0.join("elsewhere"), d.0.join("home/fun/kit")).unwrap();
+        let before = tree(&d.0.join("elsewhere"));
+        for check in [true, false] {
+            let mut c = copier(&d, check);
+            let why = c.run("", &["fun".to_string()]).unwrap_err();
+            assert!(why.contains("home/fun/kit is a symbolic link"), "{why}");
+            assert!(why.contains("nothing was installed"), "{why}");
+            assert_eq!(c.lines, Vec::<String>::new());
+        }
+        assert_eq!(tree(&d.0.join("elsewhere")), before);
+        assert!(is_link(&d.0.join("home/fun/kit")));
+        // Nothing else was copied either: the refusal comes first.
+        assert!(!d.0.join("home/fun/index.html").exists());
+    }
+
+    #[test]
+    fn a_symlink_in_the_checkout_or_the_stage_is_refused() {
+        let d = dir("files-source-link");
+        d.file("root/host/fun/index.html", "hi\n");
+        d.file("outside/secret.txt", "not for the home\n");
+        std::os::unix::fs::symlink(d.0.join("outside"), d.0.join("root/host/fun/kit")).unwrap();
+        std::os::unix::fs::symlink(
+            d.0.join("outside/secret.txt"),
+            d.0.join("root/host/fun/page.js"),
+        )
+        .unwrap();
+        let mut c = copier(&d, false);
+        let why = c.run("", &["fun".to_string()]).unwrap_err();
+        assert!(why.contains("root/host/fun/kit"), "{why}");
+        assert!(why.contains("root/host/fun/page.js"), "{why}");
+        assert!(!d.0.join("home/fun").exists());
+
+        // A file of the home that is a link, under a name the sync writes or
+        // sweeps, is refused too: neither is written through or removed.
+        let d = dir("files-file-link");
+        d.file("root/host/fun/index.html", "hi\n");
+        d.file("outside/a.txt", "a\n");
+        d.file("outside/b.txt", "b\n");
+        fs::create_dir_all(d.0.join("home/fun")).unwrap();
+        std::os::unix::fs::symlink(d.0.join("outside/a.txt"), d.0.join("home/fun/index.html"))
+            .unwrap();
+        std::os::unix::fs::symlink(d.0.join("outside/b.txt"), d.0.join("home/fun/gone.js"))
+            .unwrap();
+        let mut c = copier(&d, false);
+        let why = c.run("", &["fun".to_string()]).unwrap_err();
+        assert!(why.contains("home/fun/index.html"), "{why}");
+        assert!(why.contains("home/fun/gone.js"), "{why}");
+        assert!(is_link(&d.0.join("home/fun/index.html")));
+        assert!(is_link(&d.0.join("home/fun/gone.js")));
+        assert_eq!(
+            fs::read_to_string(d.0.join("outside/a.txt")).unwrap(),
+            "a\n"
+        );
+
+        // A home whose fun directory is itself a link is refused the same way.
+        let d = dir("files-top-link");
+        d.file("root/host/fun/index.html", "hi\n");
+        fs::create_dir_all(d.0.join("outside")).unwrap();
+        fs::create_dir_all(d.0.join("home")).unwrap();
+        std::os::unix::fs::symlink(d.0.join("outside"), d.0.join("home/fun")).unwrap();
+        let mut c = copier(&d, false);
+        assert!(c.run("", &["fun".to_string()]).is_err());
+        assert!(!d.0.join("outside/index.html").exists());
     }
 
     #[test]
