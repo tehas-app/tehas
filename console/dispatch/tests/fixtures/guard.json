@@ -1,14 +1,7 @@
 {
  "suite": "test/dispatch_guard_test.sh",
- "later": [
-  "a poll runs tidy once, after the cycles it starts, and the other cases of tidy: the poll's end, PR 4",
-  "a poll that stops before the bot's login runs no tidy: the poll's end, PR 4"
- ],
  "not_ported": [
-  "the checkout, the arguments, --help and the instance's settings: the command and lib/config.sh, which run before a snapshot is read",
-  "all-hands on the control issue starts nothing and holds nothing: the factory API's command, not the poll",
-  "when the labels cannot be changed nothing is said on the issue, and the poll goes on: the comment follows a label change that worked, which the caller does",
-  "an old record file stops the poll, and the files that do not: the store's import, read before the snapshot"
+  "the checkout, the arguments, --help, the instance's settings, tidy, a label change that fails and the old record files: what runs before a snapshot is read or around the decision, in tests/dispatch_guard.rs"
  ],
  "cases": [
   {
@@ -749,6 +742,13 @@
     ],
     "log_lacks": [
      "TEHAS_SIZE_MAX_FILES"
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
+     }
     ]
    }
   },
@@ -863,6 +863,9 @@
        "needs-human-attention"
       ]
      }
+    ],
+    "log": [
+     "start #7 (refresh by alice)"
     ]
    }
   },
@@ -921,8 +924,18 @@
       "label": "tehas:plan"
      }
     ],
+    "action_count": {
+     "plan_turn": 1
+    },
     "log_lacks": [
      "TEHAS_SIZE_MAX_FILES"
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
+     }
     ]
    }
   },

@@ -25,7 +25,7 @@ pub const RUNNING: &str = "tehas:running";
 /// items comes back with its timelines cut short and no error, so the size is
 /// load-bearing for correctness, and the page count rather than the points is
 /// what the poll pays in: each page is one `gh` process run before any
-/// decision. `test/dispatch_poll_test.sh` pins the number in the query, so a
+/// decision. `tests/dispatch_poll.rs` pins the number in the query, so a
 /// change has to be a deliberate one.
 const ISSUE_PAGE: usize = 25;
 

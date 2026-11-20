@@ -63,6 +63,7 @@ pub const RUNS: &[(&str, &str)] = &[
     ("console", "store"),
     ("tehas-cycle", "store"),
     ("tehas-dispatch", "store"),
+    ("tehas-dispatch", "console"),
 ];
 
 /// The crate of the settings every shell test loads, through the console
