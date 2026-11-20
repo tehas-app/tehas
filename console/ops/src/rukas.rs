@@ -316,7 +316,16 @@ fn target(
     if now - at < FETCH_EVERY && kept.is_some() && !image_moved {
         return kept_answer;
     }
-    let answer = rukas::target(&g.follow, &g.repo, |args| out.ls_remote(args)).or(kept_answer);
+    let answer = rukas::target(&g.follow, &g.repo, |args| out.ls_remote(args))
+        .map(|(c, what)| {
+            // A release pins a commit: which release it is, when upstream says.
+            let release = (what == "pinned")
+                .then(|| out.ls_remote(&["--tags", &g.repo]))
+                .flatten()
+                .and_then(|refs| rukas::release_of(&refs, &c));
+            (c, release.unwrap_or(what))
+        })
+        .or(kept_answer);
     let (commit, what) = match &answer {
         Some((c, w)) => (J::str(c.clone()), J::str(w.clone())),
         None => (J::Null, J::Null),
@@ -628,6 +637,22 @@ mod tests {
         assert_eq!(got.get("target").text(), hex('c'));
         assert!(got.get("targetVersion").is_null());
         assert_eq!(got.get("behind"), &J::Bool(true));
+    }
+
+    #[test]
+    fn a_pinned_commit_is_named_by_its_release() {
+        let d = TestDir::new("rukas-pinned");
+        let mut f = fake(&hex('b'));
+        let got = read(&d, &given(&format!("commit:{}", hex('b'))), &mut f, NOW).unwrap();
+        assert_eq!(got.get("target").text(), hex('b'));
+        assert_eq!(got.get("targetVersion").text(), "v0.14.54");
+        assert_eq!(got.get("behind"), &J::Bool(false));
+        // Upstream not answering leaves the pin, named by nothing.
+        let d = TestDir::new("rukas-pinned-quiet");
+        f.tags = None;
+        let got = read(&d, &given(&format!("commit:{}", hex('b'))), &mut f, NOW).unwrap();
+        assert_eq!(got.get("target").text(), hex('b'));
+        assert!(got.get("targetVersion").is_null());
     }
 
     #[test]
