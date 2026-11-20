@@ -500,16 +500,9 @@ mod tests {
                     }
                 }
                 Some("js") => {
-                    for quote in ["from \"", "import \""] {
-                        for (at, _) in text.match_indices(quote) {
-                            let rest = &text[at + quote.len()..];
-                            let spec = &rest[..rest.find('"').unwrap_or(rest.len())];
-                            if !(spec.starts_with("./") || spec.starts_with("../")) {
-                                continue;
-                            }
-                            if !file.parent().unwrap().join(spec).is_file() {
-                                wrong.push(format!("{name}: {spec}"));
-                            }
+                    for spec in specifiers(&text) {
+                        if !file.parent().unwrap().join(spec).is_file() {
+                            wrong.push(format!("{name}: {spec}"));
                         }
                     }
                 }
@@ -517,6 +510,66 @@ mod tests {
             }
         }
         wrong
+    }
+
+    /// The relative addresses a module imports: `from "…"`, `import "…"` and
+    /// `import("…")`, in either quote. A line comment is not read: the kit's
+    /// own describe imports that are no file of theirs.
+    fn specifiers(text: &str) -> Vec<&str> {
+        let mut out = Vec::new();
+        for line in text.lines() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            for word in ["from ", "import ", "import("] {
+                for (at, _) in line.match_indices(word) {
+                    let rest = &line[at + word.len()..];
+                    let Some(quote) = rest.chars().next().filter(|c| matches!(c, '"' | '\''))
+                    else {
+                        continue;
+                    };
+                    let rest = &rest[1..];
+                    let spec = &rest[..rest.find(quote).unwrap_or(rest.len())];
+                    if spec.starts_with("./") || spec.starts_with("../") {
+                        out.push(spec);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_module_s_imports_are_read_in_every_form() {
+        let text = "import { a } from \"./a.js\";\nimport './b.css';\n\
+                    const c = () => import(\"./c.render.js\");\n\
+                    const d = () => import('../d.js');\n\
+                    // load: () => import(\"./in-a-comment.js\"),\n\
+                    import { e } from \"solid\";\n";
+        assert_eq!(
+            specifiers(text),
+            vec!["./a.js", "./b.css", "./c.render.js", "../d.js"]
+        );
+    }
+
+    #[test]
+    fn a_dynamic_import_of_no_file_is_found() {
+        let d = dir("assets-dynamic");
+        put(
+            &d,
+            "stage/fun/factory/x.js",
+            "load: () => import(\"./x.gone.js\"),\n",
+        );
+        put(
+            &d,
+            "stage/fun/factory/y.js",
+            "load: () => import('./y.render.js'),\n",
+        );
+        put(&d, "stage/fun/factory/y.render.js", "export {};\n");
+        assert_eq!(
+            unresolved(&d.0.join("stage")),
+            vec!["fun/factory/x.js: ./x.gone.js".to_string()]
+        );
     }
 
     /// Every file under `dir`, at any depth.
