@@ -95,6 +95,23 @@ fn with_every_slot_taken_nothing_is_started_and_no_ready_issue_is_looked_at() {
     );
 }
 
+// The fixture of this name checks the dry run's decision; this one the
+// real poll's.
+#[test]
+fn at_the_cap_nothing_is_started_whatever_slots_are_free() {
+    let w = World::new("slots-cap");
+    w.slots(3, &["TEHAS_MAX_AWAITING=2"]);
+    w.ready(&[7, 8]);
+    w.fx("awaiting.json", r#"[{"number":5}]"#);
+    w.hold(9);
+    assert_eq!(w.poll().rc, 0);
+    assert_eq!(w.calls("fake-start"), "");
+    has(
+        &w.dispatch(&["--dry-run"]).out,
+        "holding: 1 issues await merge and 1 cycles are running (limit 2)",
+    );
+}
+
 #[test]
 fn the_index_is_not_refreshed_under_a_running_cycle() {
     let w = World::new("slots-index-held");
