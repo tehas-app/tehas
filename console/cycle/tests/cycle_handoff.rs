@@ -521,7 +521,7 @@ fn a_mark_that_cannot_be_taken_off_is_said_after_the_three_tries_not_taken_as_go
 fn a_404_from_a_mark_github_has_not_got_counts_as_the_mark_gone_and_is_not_tried_again() {
     // A 404 says the label is not on the pull request, which is what the
     // cycle wants (host/docs/operating.md). What the dispatcher does on a 404
-    // of its own is a case in test/dispatch_refresh_test.sh.
+    // of its own is tested in console/dispatch.
     let mut w = World::new("ho-404");
     refresh_started(&mut w);
     w.touch("label-missing");
