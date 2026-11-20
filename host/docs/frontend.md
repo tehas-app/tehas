@@ -108,7 +108,8 @@ An island is a custom element in the light DOM, made with the kit's
   (`limit="10"`); a child `<script type="application/json">`, read once when
   the element upgrades; `src="/live/<file>.json"` for a feed, read through the
   kit's feed store (`kit/feed.js`) and never by a `fetch` of its own; a stream
-  of events through `kit/stream.js` ([Streams](#streams)). A console that grows is read by a plain element
+  of events through `kit/stream.js` ([Streams](#streams)). A request that
+  changes something is a press (`kit/press.js`, [Presses](#presses)). A console that grows is read by a plain element
   instead ([The plain dashboard](#the-plain-dashboard)).
 - **State between islands** only through page stores (`kit/state.js`), see
   [Page state](#page-state). An island never calls another island's methods
@@ -160,11 +161,12 @@ Rules that keep the drawing swappable:
    library or a kit file that draws (`feed.js`, `parts.js`, `state.js`,
    `stream.js`), other than through a `.render.js` file: an element would load
    the library before its hydrate trigger fires. `stream.js` holds Solid state
-   and so counts as a kit file that draws; `request.js` holds no library, and
-   an element or a model may import it.
+   and so counts as a kit file that draws; `press.js` and `request.js` hold no
+   library, and an element or a model may import them.
 2. The model is plain data. No Solid type crosses into it.
 3. The render module reads server data only through `kit/feed.js` and
-   `kit/stream.js`, and reads its attributes only through `props`.
+   `kit/stream.js`, sends it only through `kit/press.js`, and reads its
+   attributes only through `props`.
 4. Replacing how an island draws changes its `.render.js` file only. Element
    names, attributes, events and feeds stay.
 
@@ -317,6 +319,96 @@ live.reconnect();  // drop the connection and connect now
   that changes is sent on the next one. `credentials` is passed to `fetch`.
 - The connection closes when the last root that asked for it is disposed.
 
+## Presses
+
+A request that changes something is a press: `press(src, options)` of
+`kit/press.js`, a `POST` by default. It has no library, so it runs inside
+Solid's own `action()`; the kit does not wrap `action`, `createOptimistic` or
+`createOptimisticStore`.
+
+```js
+const answer = await press("/api/tickets", {
+  headers: () => ({ "X-Session": session() }),
+  body: { title },               // not a string: sent as JSON, with its content type
+  accept: { 409: null },         // a status that resolves instead of rejecting
+  expose: ["X-Session"],
+});
+// { status, ok, data, headers, date }
+```
+
+- `method`, `headers` (an object or a function), `credentials` and `signal`
+  go to `fetch`. A string `body` goes as it is.
+- `parse` reads the answer, `"json"` by default or `"text"`. An empty body is
+  `null`.
+- A status that is neither 2xx nor in `accept` rejects with a `PressError`,
+  which carries `status` and the body as `data` (parsed when it is JSON).
+
+The pattern: an optimistic value shows at once, a failed press rolls it
+back, and a press that works holds it until the truth comes.
+
+```js
+import { action, createOptimistic } from "../kit/vendor/solid.js";
+import { feed } from "../kit/feed.js";
+import { press } from "../kit/press.js";
+
+const votes = feed("/api/votes");
+const [shown, setShown] = createOptimistic(() => votes.data().count);
+const vote = action(function* () {
+  setShown((n) => n + 1);                 // shows at once
+  yield press("/api/vote", { body: {} }); // a rejection ends the action: the guess reverts
+  votes.refresh();                        // held with the action: no step back
+});
+// onClick=${(e) => vote().catch((err) => setFailed(message(err)))}
+```
+
+- Every write inside the action is held until it ends, and an optimistic
+  write reverts when it ends. So the truth must come in the action: write it
+  after the `yield`, or refresh the feed it comes from. A feed's `refresh()`
+  inside the action is held with it, unless a poll of that feed was out:
+  then the guess reverts and the truth shows when that poll lands.
+- Put a bare `yield` before any write that follows an `await`: code after an
+  `await` runs outside the action.
+- For a list, `createOptimisticStore(() => truth, seed)` with a draft write:
+  push a guess before the press, and write what the press answered into the
+  page store after the `yield`.
+
+```js
+const [shown, setShown] = createOptimisticStore(() => ({ items: list.state.items }), { items: [] });
+const add = action(function* (title) {
+  setShown((d) => {
+    d.items.push({ title, pending: true });
+  });
+  const saved = yield press("/api/items", { body: { title } });
+  list.actions.add(saved.data);           // the page store: the truth
+});
+```
+
+- The action's promise rejects with the press's error; catch it where the
+  island says what went wrong.
+
+## Moving a hand-written client onto the kit
+
+For a page whose reads, streams and presses are a client of its own:
+
+| The client did | On the kit |
+| --- | --- |
+| A `fetch` on a timer, or a poll loop | `feed(src, { every })` |
+| A request header, such as a session | `headers: () => ({ … })`, on a feed, a stream or a press |
+| A 404 or another status that means "nothing" | `accept: { 404: <empty value> }`: data, not an error, and not "down" |
+| Reading the answer's status, a header or the `Date` | `meta()`, with `expose` for the headers |
+| A text file, not JSON | `parse: "text"` |
+| `EventSource`, or a reader of SSE or NDJSON over `fetch` | `stream(src, { format, headers, on })` |
+| Its own reconnect and backoff | `stream` connects again; `state()` says where it is |
+| An event handler that writes state | `on: store.actions.<verb>`, a page store's action |
+| A post with its own pending and rollback | `action()` with `press()` and `createOptimistic` or `createOptimisticStore` |
+
+- Keep the client's model pure: the shapes of its answers become the
+  model's input, the render module wires the feed, the stream and the store.
+- One address and one set of options is one source per page. Two islands
+  that need the same stream give the same options and the same `on`.
+- A byte range read of a file that grows stays a plain element: see the
+  console's tail in [The plain dashboard](#the-plain-dashboard).
+
 ## Styling
 
 - No shadow DOM. The themes are global custom properties and global rules, and
@@ -358,6 +450,7 @@ release that ships it:
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
+| `press.js` | Presses ([Presses](#presses)). No library |
 | `request.js` | What the kit's modules that make requests share about a request and its answer. No library |
 | `state.js` | Page stores ([Page state](#page-state)), and `shared(key, make)`, one value per key per page under the page's owner |
 | `parts.js` | `view`, and shared pieces drawn in Solid: `TimeAgo`, `Empty`, `Busy`, `Failed` (an error with a retry) and `Guard` (`<Loading>` inside `<Errored>` with a retry) |
@@ -585,7 +678,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams: 20491 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js`, 8463 more, loads only on a page that imports it | Review |
+| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams and presses: 20491 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js` and `press.js`, 11289 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
@@ -594,8 +687,9 @@ The budgets for new work:
 - Pure parts, a model or a view's data function, are tested with `node --test`
   in `test/*_test.mjs`, with no document. The gate runs them where node is
   there.
-- The kit's page stores and feeds are tested in node too
-  (`test/kit_state_test.mjs`, `test/kit_feed_test.mjs`). The library needs two
+- The kit's page stores, feeds, streams and presses are tested in node too
+  (`test/kit_state_test.mjs`, `test/kit_feed_test.mjs`,
+  `test/kit_stream_test.mjs`, `test/kit_press_test.mjs`). The library needs two
   methods of a document when it loads, which `test/kit_stub.mjs` gives; with
   it, signals, stores, async memos and `isPending` run in node. Drawing does
   not.
