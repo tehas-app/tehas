@@ -1386,6 +1386,7 @@
     "exit": 0
    }
   },
+  {"case": "the issue-alone tick does not approve text changed after it", "world": "parked", "park_q": [" ", "x", " ", "alice"], "snapshot": {"issues": {"7": {"edit": {"lastEditedAt": "2026-01-01T03:00:00Z", "editor": {"login": "mallory"}}}}}, "expect": {"picked": [], "log": ["its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"], "exit": 0}},
   {
    "case": "a retry waits while too many pull requests await a merge",
    "world": "parked",
@@ -1437,6 +1438,7 @@
     "exit": 0
    }
   },
+  {"case": "the pause label stops an issue-alone tick too", "world": "parked", "park_q": [" ", "x", " ", "alice"], "snapshot": {"control": {"labels": [{"name": "tehas:pause"}]}}, "expect": {"picked": [], "exit": 0}},
   {
    "case": "a marker in somebody else's comment is not a question",
    "world": "parked",
