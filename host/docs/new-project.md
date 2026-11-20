@@ -332,6 +332,25 @@ After a change to the file, rebuild and check the gates again:
 tehas check-product --sandbox
 ```
 
+#### The product's Node
+
+The image's Node is tehas's own, the `NODE_VERSION` of `versions.env`, so a
+tehas update that moves it moves the Node your tests run on. To keep your own,
+install it in the instance layer, in a prefix of its own, and put it first on
+PATH. `instances/example/product-node.Dockerfile` does this: copy it to
+`sandbox.Dockerfile` (or add its lines to the one you have), set
+`PRODUCT_NODE_VERSION` and its `PRODUCT_NODE_SHA256` from the release's
+`SHASUMS256.txt`, then rebuild and check the gates as above. A version or a
+sum left empty fails the layer.
+
+The product's install, its gates and the agents' shell commands then find
+your `node` and `npm`. Pi and the npm tools tehas ships (`pi`, `ctx7`,
+`parallel-cli`) do not: tehas's Node lives in `/opt/tehas-node`, and they are
+started by it by its path, so a product's Node does not run them. Do not
+unpack your Node over `/usr/local` or `/opt/tehas-node`. tehas does not read
+the product's `.nvmrc` or `engines`: a change to the product does not change
+the image.
+
 `tehas index` builds the code index the agents search, which needs the image.
 `install.sh` does it too, as long as there is no index yet. See
 [tehas index](/tools).
