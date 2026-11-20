@@ -186,6 +186,59 @@ test("a dropped connection is asked again with a growing wait, sending Last-Even
   assert.equal(calls[3].init.headers["Last-Event-ID"], "9");
 });
 
+test("an id counts only once its event is dispatched, so a drop in mid-event loses nothing", async () => {
+  const r = reader("/api/events", { parse: "text" });
+  await settle();
+  calls[0].a.push("id: 7\ndata: seven\n\nid: 8\ndata: eig");
+  calls[0].a.end();
+  await settle();
+  assert.deepEqual(r.events.map((e) => [e.id, e.data]), [["7", "seven"]]);
+  await after(1000);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].init.headers["Last-Event-ID"], "7");
+});
+
+test("an event with no closing blank line at the end of the stream is dropped", async () => {
+  const r = reader("/api/events", { parse: "text" });
+  await settle();
+  calls[0].a.push("data: complete\n\ndata: partial\n");
+  calls[0].a.end();
+  await settle();
+  assert.deepEqual(r.events.map((e) => e.data), ["complete"]);
+});
+
+test("a server retry field cannot make the wait shorter than the first wait", async () => {
+  // Each connection says retry: 0 and ends at once.
+  answer = () => {
+    const p = pipe();
+    p.push("retry: 0\n\n");
+    p.end();
+    return p;
+  };
+  reader("/api/events");
+  await settle();
+  assert.equal(calls.length, 1);
+  for (let i = 0; i < 5; i++) await after(0);
+  assert.equal(calls.length, 1, "no reconnect storm");
+  await after(1000);
+  assert.equal(calls.length, 2);
+});
+
+test("a server retry field can make the wait longer, up to max", async () => {
+  answer = () => {
+    const p = pipe();
+    p.push("retry: 60000\n\n");
+    p.end();
+    return p;
+  };
+  reader("/api/events", { max: 5000 });
+  await settle();
+  await after(4999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2);
+});
+
 test("the wait stops growing at max", async () => {
   answer = () => new Error("offline");
   reader("/api/events", { retry: 1000, max: 3000 });

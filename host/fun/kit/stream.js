@@ -29,13 +29,16 @@ const hidden = () => globalThis.document?.hidden === true;
 
 // Reads text/event-stream lines into events (the WHATWG rules: data lines
 // joined by "\n", a blank line ends an event, an event with no data is
-// dropped, the id is kept for Last-Event-ID, retry sets the delay).
-function sse(emit, s) {
+// dropped, an id counts for Last-Event-ID once its event is dispatched, retry
+// sets the wait, no shorter than the first wait the reader asked for).
+function sse(emit, s, min) {
   let data = null;
   let type = "";
+  let id = s.lastId;
   return (line) => {
     if (line === "") {
-      if (data !== null) emit(type || "message", data, s.lastId);
+      s.lastId = id;
+      if (data !== null) emit(type || "message", data, id);
       data = null;
       type = "";
       return;
@@ -47,8 +50,8 @@ function sse(emit, s) {
     if (value.startsWith(" ")) value = value.slice(1);
     if (field === "data") data = data === null ? value : `${data}\n${value}`;
     else if (field === "event") type = value;
-    else if (field === "id" && !value.includes("\0")) s.lastId = value;
-    else if (field === "retry" && /^\d+$/.test(value)) s.base = Number(value);
+    else if (field === "id" && !value.includes("\0")) id = value;
+    else if (field === "retry" && /^\d+$/.test(value)) s.base = Math.max(min, Number(value));
   };
 }
 
@@ -95,7 +98,8 @@ function make(src, opts) {
   };
 
   async function read(res, out) {
-    const line = opts.format === "ndjson" ? ndjson(emit) : sse(emit, s);
+    const nd = opts.format === "ndjson";
+    const line = nd ? ndjson(emit) : sse(emit, s, min);
     const decoder = new TextDecoder();
     const reader = res.body.getReader();
     out.signal.addEventListener("abort", () => reader.cancel().catch(() => {}));
@@ -104,12 +108,17 @@ function make(src, opts) {
       const { done, value } = await reader.read();
       if (s.out !== out) return;
       rest += done ? decoder.decode() : decoder.decode(value, { stream: true });
-      // A "\r" at the end may be the first half of "\r\n". At the end of the
-      // stream the last line counts, which only NDJSON reads.
+      // A "\r" at the end may be the first half of "\r\n".
       const lines = rest.split(/\r\n|\r(?!$)|\n/);
-      rest = done ? "" : lines.pop();
+      rest = lines.pop();
       for (const l of lines) line(l);
-      if (done) return;
+      if (done) {
+        if (rest.endsWith("\r")) line(rest.slice(0, -1));
+        // NDJSON counts a last line with no newline; an SSE event not yet
+        // ended by a blank line is dropped, as EventSource drops it.
+        else if (nd) line(rest);
+        return;
+      }
     }
   }
 
