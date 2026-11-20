@@ -840,7 +840,7 @@ The budgets for new work:
 | A plain element | 2 KB | Review |
 | The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24493 bytes, under it. `stream.js` and `press.js`, 17651 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
-| A page with no island | No script beyond the mode element | Review |
+| A page with no island | No script beyond `fun/mode.js` | Review |
 
 ## Tests
 
