@@ -211,6 +211,7 @@ pub fn continues() -> bool {
         "docker",
         &[
             "run".into(),
+            tehas_core::sandbox::NEVER_PULL.into(),
             "--rm".into(),
             "--init".into(),
             env("PI_ENSEMBLE_IMAGE"),

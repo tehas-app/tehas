@@ -6,8 +6,8 @@
 //!
 //!   console flags limit show [--json]
 //!   console flags limit set --cycles N [--plan on|off]
-//!       [--for SECONDS | --until TIME] [--reason TEXT] [--json]
-//!   console flags limit clear [--json]
+//!       [--for SECONDS | --until TIME] [--reason TEXT]
+//!   console flags limit clear
 //!   console flags limit read [--now <epoch seconds>] [--line]
 //!
 //!   console flags pause set [--reason TEXT]
@@ -359,18 +359,17 @@ fn limit(given: &[String]) -> u8 {
             tehas_core::outln!("{}", if line { out.said() } else { out.text() });
             0
         }
-        // --json prints the object with api first, the answer tehas limit
-        // --json has always printed; set and clear print the limit as it then
-        // is, or that object when asked for it.
+        // set and clear print the limit as it then is, in words: the object is
+        // `tehas limit --json`'s.
         "set" => match set_args(rest) {
             Ok(want) => set(&file, &want),
             Err(bad) => usage(bad),
         },
         "clear" => {
-            if rest.len() > 1 || rest.first().is_some_and(|a| a != "--json") {
-                return usage("--json, once, after clear");
+            if !rest.is_empty() {
+                return usage("nothing after clear");
             }
-            clear(&file, !rest.is_empty())
+            clear(&file)
         }
         _ => usage("show, set, clear or read, not a word this command knows"),
     }
@@ -887,7 +886,6 @@ struct Wanted {
     for_: Option<String>,
     until: Option<String>,
     reason: Option<String>,
-    json: bool,
 }
 
 fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
@@ -932,10 +930,9 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
                 }
             }
             "--reason" => take(&mut want.reason, value)?,
-            "--json" if !want.json => want.json = true,
             _ => return Err("an option set does not know"),
         }
-        i += if rest[i] == "--json" { 1 } else { 2 };
+        i += 2;
     }
     if want.cycles.is_none() {
         return Err("--cycles is required");
@@ -966,7 +963,7 @@ fn set(file: &Path, want: &Wanted) -> u8 {
     match write_limit(file, want) {
         Ok(()) => {
             let out = read(file, now());
-            tehas_core::outln!("{}", if want.json { api(out) } else { out.said() });
+            tehas_core::outln!("{}", out.said());
             0
         }
         Err(rc) => rc,
@@ -1019,15 +1016,14 @@ fn write_limit(file: &Path, want: &Wanted) -> Result<(), u8> {
     Ok(())
 }
 
-fn clear(file: &Path, json: bool) -> u8 {
+fn clear(file: &Path) -> u8 {
     if file.symlink_metadata().is_ok() {
         if let Err(e) = fs::remove_file(file) {
             eprintln!("tehas limit: could not remove {}: {e}", file.display());
             return 1;
         }
     }
-    let out = read(file, now());
-    tehas_core::outln!("{}", if json { api(out) } else { out.said() });
+    tehas_core::outln!("{}", read(file, now()).said());
     0
 }
 
@@ -1264,6 +1260,8 @@ mod tests {
             args(&["--cycles", "1", "extra", "x"]),
             args(&["--cycles", "1", "--reason"]),
             args(&["--reason", "said without a limit"]),
+            args(&["--json", "--cycles", "2"]),
+            args(&["--cycles", "2", "--json"]),
         ] {
             assert!(set_args(&bad).is_err(), "{bad:?} was taken");
         }
@@ -1560,9 +1558,9 @@ mod tests {
         let d = dir("clear");
         set_in(&d, &["--cycles", "1"]);
         let file = written(&d);
-        assert_eq!(clear(&file, false), 0);
+        assert_eq!(clear(&file), 0);
         assert!(!file.exists());
-        assert_eq!(clear(&file, false), 0);
+        assert_eq!(clear(&file), 0);
     }
 
     #[test]

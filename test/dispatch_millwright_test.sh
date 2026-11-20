@@ -408,4 +408,27 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "boxes ticked by 'tehas-bot' are no answer (stranger)"
 
+t_case "a tick the fixer saved after alice edited the question is held, its history read by the comment's id"
+fixer_planning
+comments 7 "$(plan_body ' ' x ' ')" tehas-bot "$(freply "$fmark"$'\nAdopt all.')"
+# The comment read as GitHub now answers it: an id and no history, which the
+# poll reads by the id.
+jq '.data.repository.issue.comments.nodes[0] |= (.id = "IC_q7" | del(.userContentEdits))' \
+  "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
+echo '{"data":{"nodes":[{"id":"IC_q7","userContentEdits":{"totalCount":2,"nodes":[{"editor":{"login":"alice"}},{"editor":{"login":"tehas-bot"}}]}}]}}' >"$fx/comment-edits.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" 'nodes(ids: ["IC_q7"])'
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "skip #7: the fixer saved the question after another account did, so who ticked it is not known"
+
+t_case "a tick the fixer saved whose history cannot be read waits, with no note"
+rm -f "$T"/calls/*
+touch "$fx/comment-edits-fail"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "skip #7: the edit history of its question could not be read; it waits for the next poll"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+rm -f "$fx/comment-edits-fail" "$fx/comment-edits.json"
+
 t_done

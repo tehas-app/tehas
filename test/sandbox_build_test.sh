@@ -112,15 +112,21 @@ t_stub docker 'case "$1" in
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run)
     # The vipune check of a smoke run is the run with a cpuset. It answers
-    # $fx/vipune when there is one and the quiet line otherwise.
-    if [[ $* == "run --rm --init --network none "*" --cpuset-cpus "*" --entrypoint bash "* ]]; then
+    # $fx/vipune when there is one and the quiet line otherwise. $fx/vipune.first
+    # answers the first such run alone, as dockerd refuses a CPU, and exits 125.
+    if [[ $* == "run --pull=never --rm --init --network none "*" --cpuset-cpus "*" --entrypoint bash "* ]]; then
+      if [ -e "$T/fx/vipune.first" ]; then
+        cat "$T/fx/vipune.first"
+        rm -f "$T/fx/vipune.first"
+        exit 125
+      fi
       if [ -e "$T/fx/vipune" ]; then cat "$T/fx/vipune"; else echo quiet; fi
       exit 0
     fi
     # A smoke run asked of bash stands apart from the ask of --capabilities: the
     # layer above the image answers from a file of its own,
     # so one case can let the image below it start a step and refuse the layer.
-    if [[ $* == "run --rm --init --network none "*" --entrypoint bash "*"pi-rukas-headless work 1 --json"* ]]; then
+    if [[ $* == "run --pull=never --rm --init --network none "*" --entrypoint bash "*"pi-rukas-headless work 1 --json"* ]]; then
       answer=$T/fx/smoke
       if [[ $* == *"-product "* && -e $T/fx/smoke-product ]]; then
         answer=$T/fx/smoke-product
@@ -176,7 +182,7 @@ t_contains "$(t_calls git)" "-C $T/home/tehas/repos/pi-rukas archive --add-file=
 t_eq "$(cat "$fx/base-context")" "tree"
 t_contains "$(t_calls docker)" "build -f base.Dockerfile -t $base --build-arg=TEHAS_UID=$uid --build-arg=GITHUB_SHA=$head"
 t_contains "$(t_calls docker)" "--build-arg=OO_VERSION=$(sed -n 's/^OO_VERSION=//p' "$home/versions.env") -"
-t_lacks "$(t_calls docker)" "pull"
+t_lacks "$(t_calls docker | sed 's/ --pull=never / /')" "pull"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=$base --build-arg PI_RUKAS_COMMIT=$head"
 t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
 t_contains "$t_out" "with pi-rukas $head (release v0.12.80), issue images: 1, also tagged tehas/pi-rukas:uid$uid"
@@ -188,7 +194,7 @@ t_lacks "$(t_calls git)" "fetch"
 t_contains "$(t_calls docker)" "image ls --format {{.Tag}} tehas/pi-rukas-base"
 
 t_case "the base is asked for its capabilities, and whether it reads issue images is its answer"
-t_contains "$(t_calls docker)" "run --rm --init $base /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
+t_contains "$(t_calls docker)" "run --pull=never --rm --init $base /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=1"
 t_contains "$t_out" "issue images: 1"
 reset
@@ -427,7 +433,7 @@ pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
 t_run "$build"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "@sha256:"
-t_lacks "$(t_calls docker)" "pull"
+t_lacks "$(t_calls docker | sed 's/ --pull=never / /')" "pull"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=tehas/pi-rukas-base:sha-eeeeeeeeeeee-uid$uid --build-arg PI_RUKAS_COMMIT=$commit40"
 sed -i '/^PI_RUKAS_FOLLOW=commit:/d; /^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
 
@@ -516,10 +522,10 @@ t_run "$build"
 t_eq "$t_rc" 0
 # The run is asked of bash in the image this build made, with no network, and
 # it is asked before the tag moves.
-t_contains "$(t_calls docker)" "run --rm --init --network none --memory 2g --pids-limit 512 --entrypoint bash tehas/pi-rukas:"
+t_contains "$(t_calls docker)" "run --pull=never --rm --init --network none --memory 2g --pids-limit 512 --entrypoint bash tehas/pi-rukas:"
 t_contains "$(t_calls docker)" "timeout 20 /opt/pi-rukas/bin/pi-rukas-headless work 1 --json 2>&1 | sed "
 t_contains "$t_out" "smoke-ran tehas/pi-rukas:"
-smoke_at=$(t_calls docker | grep -n -m1 '^run --rm --init --network none ' | cut -d: -f1)
+smoke_at=$(t_calls docker | grep -n -m1 '^run --pull=never --rm --init --network none ' | cut -d: -f1)
 tag_at=$(t_calls docker | grep -n -m1 '^tag ' | cut -d: -f1)
 t_eq "$([ -n "$smoke_at" ] && [ -n "$tag_at" ] && [ "$smoke_at" -lt "$tag_at" ] && echo before)" before
 
@@ -585,6 +591,35 @@ t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "failed its smoke run (noisy)"
 t_contains "$t_out" "pthread_setaffinity_np failed"
+t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
+
+# The CPUs this test may run on, as the build reads its own: dockerd's answer
+# below names CPUs from this list, so the retry finds one to take on any host.
+cpus=$(sed -n 's/^Cpus_allowed_list:[[:space:]]*//p' /proc/self/status)
+low=${cpus%%[-,]*}
+refused() {
+  printf 'docker: Error response from daemon: Requested CPUs are not available - requested 999, available: %s\n\nRun %s for more information\n' "$1" "'docker run --help'" >"$fx/vipune.first"
+}
+
+t_case "a smoke run whose vipune CPU dockerd refuses runs it again on a CPU dockerd takes"
+reset
+refused "$low"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the vipune check runs on CPU $low"
+t_eq "$(t_calls docker | grep -c -e ' --cpuset-cpus ')" 2
+t_eq "$(t_calls docker | grep -e ' --cpuset-cpus ' | tail -n 1 | sed -n 's/.* --cpuset-cpus \([0-9]*\) .*/\1/p')" "$low"
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
+
+t_case "a smoke run whose CPUs dockerd takes none of says to restart docker, leaves the tag and ends 1"
+reset
+# A CPU past any list a host has: dockerd's start saw none of this process's.
+refused 4095
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docker takes none of the CPUs this process may run on; restart docker"
+t_eq "$(t_calls docker | grep -c -e ' --cpuset-cpus ')" 1
 t_contains "$t_out" "tehas/pi-rukas:uid$uid is left as it was"
 t_eq "$(t_calls docker | grep -c -e '^tag ')" 0
 

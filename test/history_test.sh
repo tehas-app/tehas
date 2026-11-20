@@ -288,6 +288,15 @@ t_run "$history"
 t_eq "$t_rc" 0
 t_eq "$t_out" "1760699940-12-1  plan  #12  finished  turn 1
 1760700000-12-2  work  #12  handoff  rc 10  step review  parked  pr https://github.com/acme/widget/pull/9"
+t_case "a reader that goes away is exit 141, with nothing on standard error, as JSON and as text"
+reset
+work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+for flag in --json ""; do
+  t_run "{ sleep 0.3; $history $flag 2>'$T/err'; } | true; exit \${PIPESTATUS[0]}"
+  t_eq "$t_rc" 141
+  t_eq "$(cat "$T/err")" ""
+done
+
 t_case "a factory with no history of its own says nothing and exits 0"
 reset
 t_run "$history"

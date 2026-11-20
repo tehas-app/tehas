@@ -8,14 +8,15 @@
 //! the head's scripts/collect-changelog.sh are still the programs that do
 //! the work; what moved here is what decides between them: the next version, the remote's head, the changelog's
 //! section and its Adopter action with the head's changelog fragments
-//! counted (src/changelog.rs), which polyfills still stand in for work
-//! upstream is doing, and the pull requests' text.
+//! counted (src/changelog.rs), the name of a release's section, which
+//! polyfills still stand in for work upstream is doing, and the pull
+//! requests' text.
 //!
 //! Every command runs in the checkout the script lives in, as the script ran
 //! them after its `cd`; the gate and the commits of a pull request run in a
 //! worktree of the head, removed when the task ends.
 
-use crate::changelog::{collect, order, Refusal};
+use crate::changelog::{collect, name_release, order, Refusal};
 use crate::pack::{is_exec, logical, Stage};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -625,6 +626,19 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         eprintln!("tag-release: the {name} section of CHANGELOG.md lists no changes: it needs a \"### Changes\" heading with a line under it; nothing was tagged");
         return 1;
     }
+    // A release's notes are its own section: Unreleased is named for it in
+    // the changelog pull request. A prerelease's are what is new since the
+    // tag before it, which needs that tag's Unreleased.
+    let rename = a.pre.is_none() && name == "Unreleased";
+    if a.pre.is_some() && name == "Unreleased" {
+        if let Err(m) = tag_before(root, &head, &next) {
+            eprintln!(
+                "tag-release: the release notes of {next} cannot be made: {m}; nothing was tagged"
+            );
+            return 1;
+        }
+    }
+    let date = tehas_core::time::iso(tehas_core::time::now())[..10].to_string();
 
     let range = match &latest {
         Some(l) => format!("{l}..{head}"),
@@ -641,6 +655,9 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             for line in text.split('\n') {
                 eprintln!("    {line}");
             }
+        }
+        if rename {
+            eprintln!("tag-release: would name the Unreleased section of CHANGELOG.md {next} ({date}) in a pull request, with a new empty Unreleased above it");
         }
         eprintln!(
             "tag-release: would tag {branch} at {} as {next} ({count} commits since {since})",
@@ -681,8 +698,9 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     if let Some(code) = polyfills(&ctx, a, &scratch.dir.0, &head, &next) {
         return code;
     }
-    if !fragments.is_empty() {
-        return fragments_pr(&ctx, name, &next, &head);
+    if !fragments.is_empty() || rename {
+        let named = rename.then_some(date.as_str());
+        return fragments_pr(&ctx, name, &next, &head, !fragments.is_empty(), named);
     }
     if a.pins && is_exec(&tree.join("scripts/pins.sh")) {
         if let Some(code) = pins(&ctx, &next) {
@@ -975,35 +993,94 @@ pub fn head_fragments(root: &Path, commit: &str) -> Option<Vec<(String, String)>
     Some(out)
 }
 
-/// The head's changelog fragments moved into the `name` section of its
-/// CHANGELOG.md by the head's own scripts/collect-changelog.sh, in a pull
-/// request; nothing is tagged. The status the task ends with.
-fn fragments_pr(ctx: &Ctx, name: &str, next: &str, head: &str) -> u8 {
+/// The tag before the prerelease `next` among the tags `head` reaches, and
+/// the Unreleased section of its CHANGELOG.md, which the release notes of
+/// `next` are read against: Ok when there is none, or when it can be read.
+fn tag_before(root: &Path, head: &str, next: &str) -> Result<(), String> {
+    let git = || {
+        let mut c = Command::new("git");
+        c.current_dir(root)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        c
+    };
+    let merged = git()
+        .args(["tag", "--list", "v*", "--merged", head])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .ok_or("cannot list the tags of the head")?;
+    let merged = String::from_utf8_lossy(&merged.stdout).into_owned();
+    let tags: Vec<&str> = merged.lines().collect();
+    let Some(prev) = crate::notes::previous(next, &tags) else {
+        return Ok(());
+    };
+    let shown = git()
+        .args(["show", &format!("{prev}:CHANGELOG.md")])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    match shown.and_then(|t| section(&t, "Unreleased")) {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "CHANGELOG.md at {prev}, the tag before it, has no Unreleased section"
+        )),
+    }
+}
+
+/// The pull request that readies CHANGELOG.md for the tag; nothing is
+/// tagged. The head's changelog fragments, when it has some, are moved into
+/// the `name` section by the head's own scripts/collect-changelog.sh. For a
+/// release, `named` is the date: Unreleased becomes "## <next> (<date>)",
+/// with a new empty Unreleased above it. The status the task ends with.
+fn fragments_pr(
+    ctx: &Ctx,
+    name: &str,
+    next: &str,
+    head: &str,
+    has_fragments: bool,
+    named: Option<&str>,
+) -> u8 {
     let Some(open) = ctx.open_pr("changelog-") else {
         eprintln!("tag-release: cannot list the open pull requests");
         return 1;
     };
     if !open.is_empty() {
-        eprintln!("tag-release: {open} collects the changelog fragments; merge it, then tag. Nothing was tagged");
+        eprintln!("tag-release: {open} readies CHANGELOG.md for the release; merge it, then tag. Nothing was tagged");
         return 2;
     }
-    if !is_exec(&ctx.tree.join("scripts/collect-changelog.sh")) {
-        eprintln!("tag-release: {} has changelog fragments but no scripts/collect-changelog.sh to collect them; nothing was tagged", short(head));
-        return 1;
-    }
-    let (collected, ok) = capture(
-        ctx.script("collect-changelog.sh")
-            .args(["--section", name])
-            .arg(ctx.tree.join("CHANGELOG.md")),
-    );
-    if !ok {
-        eprintln!(
-            "tag-release: the changelog fragments could not be collected; nothing was tagged"
+    let mut collected = String::new();
+    if has_fragments {
+        if !is_exec(&ctx.tree.join("scripts/collect-changelog.sh")) {
+            eprintln!("tag-release: {} has changelog fragments but no scripts/collect-changelog.sh to collect them; nothing was tagged", short(head));
+            return 1;
+        }
+        let (out, ok) = capture(
+            ctx.script("collect-changelog.sh")
+                .args(["--section", name])
+                .arg(ctx.tree.join("CHANGELOG.md")),
         );
-        return 1;
+        if !ok {
+            eprintln!(
+                "tag-release: the changelog fragments could not be collected; nothing was tagged"
+            );
+            return 1;
+        }
+        collected = out;
+    }
+    if let Some(date) = named {
+        let path = ctx.tree.join("CHANGELOG.md");
+        let renamed = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| name_release(&t, next, date));
+        if !renamed.is_some_and(|t| std::fs::write(&path, t).is_ok()) {
+            eprintln!("tag-release: cannot name the Unreleased section of CHANGELOG.md {next}; nothing was tagged");
+            return 1;
+        }
     }
     if ctx.verify && !ctx.gate() {
-        eprintln!("tag-release: the gate failed with the changelog fragments collected; nothing was pushed or tagged");
+        eprintln!("tag-release: the gate failed with CHANGELOG.md readied for the release; nothing was pushed or tagged");
         return 1;
     }
     let tree = format!("{}/", ctx.tree.display());
@@ -1011,22 +1088,32 @@ fn fragments_pr(ctx: &Ctx, name: &str, next: &str, head: &str) -> u8 {
         .lines()
         .map(|p| p.strip_prefix(&tree).unwrap_or(p))
         .collect();
-    let body = fragments_body(name, &paths, next);
-    let title = "Collect the changelog fragments into CHANGELOG.md";
-    let Some(url) = ctx.propose(&format!("changelog-{next}"), title, &body) else {
+    let body = fragments_body(name, &paths, next, named);
+    let title = match named {
+        Some(_) => format!("Name the {next} section of CHANGELOG.md"),
+        None => "Collect the changelog fragments into CHANGELOG.md".to_string(),
+    };
+    let Some(url) = ctx.propose(&format!("changelog-{next}"), &title, &body) else {
         return 1;
     };
-    eprintln!("tag-release: {url} collects them; merge it, then tag. Nothing was tagged");
+    eprintln!("tag-release: {url} readies CHANGELOG.md for {next}; merge it, then tag. Nothing was tagged");
     2
 }
 
-/// The body of the pull request that collects the changelog fragments.
-pub fn fragments_body(name: &str, paths: &[&str], next: &str) -> String {
+/// The body of the changelog pull request.
+pub fn fragments_body(name: &str, paths: &[&str], next: &str, named: Option<&str>) -> String {
     let lines: Vec<String> = paths.iter().map(|p| format!("- {p}")).collect();
-    format!(
-        "The lines of the changelog fragments, moved into the {name} section of CHANGELOG.md, and the fragments deleted:\n\n{}\n\nOpened by scripts/tag-release.sh, which tags {next} once this is merged.",
-        lines.join("\n")
-    )
+    let mut body = String::new();
+    if let Some(date) = named {
+        body += &format!("The {name} section of CHANGELOG.md, named {next} ({date}) for the release's notes, with a new empty Unreleased above it.\n\n");
+    }
+    if !paths.is_empty() {
+        body += &format!(
+            "The lines of the changelog fragments, moved into the {name} section of CHANGELOG.md, and the fragments deleted:\n\n{}\n\n",
+            lines.join("\n")
+        );
+    }
+    body + &format!("Opened by scripts/tag-release.sh, which tags {next} once this is merged.")
 }
 
 /// The polyfills the head carries: kept while upstream works on them, removed

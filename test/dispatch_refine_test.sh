@@ -198,7 +198,7 @@ t_eq "$(spent)" 0
 
 # --- A refine that files --------------------------------------------------------
 # Issue 7 carries alice's tehas:refine, and the session's first turn files
-# issue 12 (and whatever else is named), as libexec/plan reports a confirm.
+# issue 12 (and whatever else is named), as tehas plan reports a confirm.
 filed_by_refine() { # <body of #12> <url>...
   to_refine
   jq -cn --arg b "$1" '{body: $b}' >"$fx/issue-12.json"

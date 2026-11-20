@@ -31,7 +31,9 @@ root of the clone, then, in a worktree of the clone as pi-rukas makes one,
 .pi/worktree-setup when there is one, the first command of
 .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one, of
 .pi/smoke-cmd. An install that fails, or a tool the image lacks, fails the
-install check and runs no gate. All of it is removed afterwards.
+install check and runs no gate. The gates may run for TEHAS_VERIFY_TIMEOUT
+seconds; a container still running then is killed and fails the sandbox
+check. All of it is removed afterwards.
 
 It changes nothing in the product. The result is written to
 $TEHAS_HOME/state/check-product.json, which tehas status reads.
@@ -41,4 +43,4 @@ failed; 64 a wrong argument; 78 the instance settings are missing or
 malformed.
 
 Instance settings (lib/config.sh): TEHAS_REPO, required; TEHAS_WORK_REPO,
-derived. --sandbox also uses PI_ENSEMBLE_IMAGE.
+derived. --sandbox also uses PI_ENSEMBLE_IMAGE and TEHAS_VERIFY_TIMEOUT.

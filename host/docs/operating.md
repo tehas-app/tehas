@@ -256,7 +256,7 @@ compute on the issue.
   label by its current name, so a renamed label would carry its old
   applications with it. The dispatcher keeps the GitHub id of each granting
   label (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-  `tehas:lean`, `tehas:classic`) in `~/tehas/state/labels`,
+  `tehas:blocked`, `tehas:lean`, `tehas:classic`) in `~/tehas/state/labels`,
   written by `tehas labels` when it makes the labels, and an application of a
   label with another id, or of a granting label with no pin, counts as
   nobody's. The poll logs each refusal with the
@@ -343,7 +343,7 @@ An issue with an open native blocked-by link is not started, whatever label asks
 
 To keep two issues that change the same files apart, hold one of them out of the start order: `tehas order set --only --issues 12,15` lets only #12 and #15 start and holds every other ready issue, #14 among them, so a host that runs the factory leaves #14 out until #12's pull request is merged and then names it again.
 
-The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
+The marked comment of `tehas:blocked` keeps working for one release, then the links replace it. An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does, and only while the label is the one the factory pinned (see [label pins](/github-app#label-pins)). A `tehas:blocked` the millwright applies holds an issue but does not start one, and so does one the pins refuse. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
 ```
 Blocked by #12 and #34.
@@ -1307,15 +1307,15 @@ is, in order: the lock, the
 snapshot of the queue (one GraphQL query in pages of 25;
 GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
-disagree — one it carries whose newest event in the timeline is not an
-application, or that has no event at all — has its events read on their own;
+disagree (one it carries whose newest event in the timeline is not an
+application, or that has no event at all) has its events read on their own;
 so does a candidate whose newest `tehas:ready` or `tehas:blocked` on the page is
 no newer than the approval its last cycle started on, since that start took the
 label off and a timeline cut right after it still ends on an application;
 an issue the page gave no timeline at all is always
 read again, and the only label the queue does not ask about is `tehas:running`,
 which the bot applies itself and whose park rests on the lock file rather than
-the timeline — the control issue is asked about with no label exempt, because
+the timeline; the control issue is asked about with no label exempt, because
 its `tehas:pause` history holds the whole factory), the decision, the actions,
 and the end every
 poll that held the lock has. Each write to GitHub goes through the state
@@ -1500,7 +1500,7 @@ With `TEHAS_READ_ONLY=on` in `instance.env` the instance reads its product's iss
 
 One guard decides every write. On the host each `gh` goes through the shim in `~/tehas/shim`, which `env.sh` puts first on `PATH` for a read-only instance whether or not it names a GitHub App, and its console runs no call that writes. It prints `read-only: would gh issue edit acme/widget#7` instead, exits 0 so the command goes on as if the write was made, and keeps the line in `state/read-only.log`. A read goes to GitHub as before. A shim with no console to ask runs nothing at all. `tehas-cycle finish` and `tehas init-product` say what they would have pushed and push nothing. The line in `state/github-writes.log` is only for a write that reached GitHub, so none is written.
 
-A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on.
+A cycle's container is told so too (`TEHAS_READ_ONLY=1` in its environment). Its git pushes to `origin` land in the workspace's own repository, so the push check before a cycle and the cycle's own pushes succeed and the branch stays in `~/tehas/work/<name>-<issue>`; a push that names a URL of github.com fails. The image's `gh` refuses every call that may write, by the same rule: what reads is a short list (`issue view`, `pr list`, `api` with no method and no field, a graphql query that names no mutation, and a few more), and anything else is a write. A `gh pr create` it refuses leaves the title, the branch and the body in `.git/tehas-read-only-pr.md` of the workspace. The image's `gh` has this only from the release that brought the setting: rebuild the image with `install.sh` before you turn it on. The token the container is given writes nothing either: its Contents, Pull requests and Issues are read, so a request that passes neither guard, a `curl` to the API or a push to a URL with a user name in it, is refused by GitHub. A token kept from before the instance turned read-only is not handed on: the next ask makes a new one. `tehas update` makes the cycle token and asks it for no push, and says `Cycle token:  OK (read-only: ...)`.
 
 The labels that hold the queue are never written, so `tehas:ready` stays on an issue after its cycle starts. The dispatcher keeps each start that worked in `state/read-only/<issue>.json` instead, and starts nothing more on an issue that has one, a cycle or a planning session: a dry run says `skip #7: read-only, and this host started it before`. Remove the file to start the issue again.
 

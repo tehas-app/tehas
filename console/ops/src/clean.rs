@@ -470,13 +470,15 @@ pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
             Ok(locked) if made(&target) && own_dir(&target, me) => return Ok(locked),
             Ok(_) => return refused(),
             Err(why) => {
+                // Said before the deadline is read: naming the holders can take
+                // longer than a short wait.
+                if !said && wait > 0 {
+                    eprintln!("tehas clean: {shown} is held{why}, waiting {wait} seconds for it");
+                    said = true;
+                }
                 if Instant::now() >= deadline {
                     eprintln!("tehas clean: {shown} is held{why}");
                     return Err(());
-                }
-                if !said {
-                    eprintln!("tehas clean: {shown} is held{why}, waiting {wait} seconds for it");
-                    said = true;
                 }
                 std::thread::sleep(Duration::from_millis(200));
             }

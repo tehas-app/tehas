@@ -96,6 +96,7 @@ count_of() { # <flag> (reads the arguments on standard input)
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"
+    NR == 2 && $0 == "--pull=never" { next } # the image is built on the host
     skip { skip = 0; next }
     $0 == image { exit }
     { t = index($0, "=") ? substr($0, 1, index($0, "=") - 1) : $0 }
