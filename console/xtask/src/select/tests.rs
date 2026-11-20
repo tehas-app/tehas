@@ -62,6 +62,8 @@ const WORKSPACE: &str = r#"{"workspace_root": "/w", "packages": [
   {"name": "store", "manifest_path": "/w/store/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-core", "manifest_path": "/w/core/Cargo.toml", "dependencies": []},
+  {"name": "tehas-cycle", "manifest_path": "/w/cycle/Cargo.toml", "dependencies": [
+    {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-dispatch", "manifest_path": "/w/dispatch/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
@@ -270,7 +272,7 @@ fn a_change_in_the_store_selects_what_depends_on_it_at_any_depth_of_any_kind() {
     let t = Tree::new();
     assert_eq!(
         t.pick_ws(&["console/store/src/db.rs"]),
-        "crate console\ncrate report\ncrate store\ncrate summary\ncrate tehas-dispatch\ncrate tehas-ops"
+        "crate console\ncrate report\ncrate store\ncrate summary\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-ops"
     );
 }
 
