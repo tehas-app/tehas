@@ -53,6 +53,15 @@ fn with_no_container_left_the_removal_says_nothing() {
 }
 
 #[test]
+fn a_closed_issues_left_container_goes_too() {
+    let w = World::new("sc-closed-orphan");
+    w.fx("marked.json", r#"[{"number":9,"state":"CLOSED"}]"#);
+    w.touch("orphan-tehas-work-9");
+    let r = w.poll();
+    has(&r.out, "removed the container tehas-work-9");
+}
+
+#[test]
 fn the_container_of_a_cycle_that_holds_its_lock_is_not_touched() {
     let w = World::new("sc-held");
     w.slots(2, &[]);
@@ -446,4 +455,20 @@ fn an_attempt_on_record_that_cannot_be_read_before_the_label_changes_no_label_d2
     lacks(&w.gh(), "--add-label tehas:running");
     assert_eq!(w.started(), "");
     assert_eq!(approval_current(&w), json!([null, null]));
+}
+
+#[test]
+fn a_running_list_that_cannot_be_read_ends_the_poll_before_it_acts_on_any_cycle_d2() {
+    let w = World::new("sc-d2-running");
+    w.hold(9);
+    w.store_answers("cycle-show", 1, "store: busy #0: the database is locked", 0);
+    let r = w.poll();
+    w.release();
+    assert_eq!(r.rc, 1, "{}", r.out);
+    has(
+        &r.out,
+        "ERROR: the state store could not list the running cycles (busy)",
+    );
+    lacks(&w.gh(), "issue edit");
+    assert_eq!(w.started(), "");
 }
