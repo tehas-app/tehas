@@ -593,7 +593,7 @@ reads "loading", the lists are empty and the optional sections are hidden.
 | `tehas-factory-readonly` | `status.json` | What a read-only factory's starts left |
 | `tehas-factory-days` | `analytics.json` | Last 10 days |
 | `tehas-factory-previews` | `previews.json` | The previews |
-| `tehas-factory-host` | `top.json` | The host and its units |
+| `tehas-factory-host` | `top.json` | The host and its units, the snapshot's age by the server's clock |
 
 - Seven islands read `status.json` through one feed, polled every ten seconds;
   `running.json` the same. `analytics.json` is read once a minute. `top.json`
@@ -608,12 +608,19 @@ reads "loading", the lists are empty and the optional sections are hidden.
 - What more than one island draws, the space between two elements and the
   host's notes on a ticket, is in `factory/parts.render.js`. It is a render
   module with no element, so `pages.max` gives it an island line of its own.
+- The host island judges the snapshot's age by the server's clock: the
+  `Date` of the feed's last answer (`meta()`), moved on by what the viewer's
+  clock has run since. A viewer whose clock is off from the host's sees the
+  same age as one whose clock is right.
 - The console is a plain element inside the console island,
   `<tehas-factory-tail file live>` (`factory/tehas-factory-tail.js`). A
-  console is text that grows and is read by byte range, which `kit/feed.js`
-  does not do, so the element reads it itself, every two seconds, and follows
-  the output while its checkbox is checked. It is the one fetch of the page
-  outside a feed.
+  console is text that grows and is read by byte range, so the element reads
+  it itself, every two seconds, and follows the output while its checkbox is
+  checked. It is the one fetch of the page outside a feed. A text feed with a
+  `Range` header would not do: the tail appends each answer where a feed
+  replaces its data, two equal answers in a row are one to a feed, the
+  offset counts bytes where a text feed gives characters, and a 206, a 200
+  and a 416 each mean something else to it.
 - A bar's length in "Last 10 days" is the custom property
   `--tehas-factory-share`, which `factory/factory.css` reads.
 

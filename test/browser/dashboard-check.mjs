@@ -190,6 +190,8 @@ try {
     ["three previews", s.previews === 3 && s.previewsHidden === false, [s.previews, s.previewsHidden]],
     ["a preview that does not serve says why", s.notServing === "unable to create: the build failed", s.notServing],
     ["the host section", s.hostRows === 3 && s.units === 2 && s.hostHidden === false, [s.hostRows, s.units, s.hostHidden]],
+    // The server's Date is the sample's time, days behind the viewer's clock.
+    ["the snapshot's age is by the server's clock", /, snapshot written just now\.$/.test(s.hostNote ?? ""), s.hostNote],
     ["the ten days", s.analyticsHidden === false && s.figures >= 8 && s.days === 10 && s.line === true, [s.analyticsHidden, s.figures, s.days, s.line]],
     ["bar heights set as custom properties", s.barHeight === true, s.barHeight],
     ["the versions table", s.versions === 2, s.versions],

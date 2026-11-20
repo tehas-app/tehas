@@ -3,6 +3,14 @@
 // uses too; here it becomes the lines of a plain list. Pure: the clock is nowMs.
 import { agoText, layout } from "../host-data.js";
 
+// The present by the server's clock: the Date of the feed's last answer, moved
+// on by what the viewer's clock has run since. With no Date, the viewer's.
+// A host whose clock runs behind would else read its own dead file as new.
+export function serverNow(meta, nowMs) {
+  if (meta?.date == null) return nowMs;
+  return meta.date + Math.max(0, nowMs - meta.at);
+}
+
 export function hostModel(top, nowMs) {
   const view = layout(top, nowMs);
   if (!view.present) return { present: false, note: "", n: "", rows: [], nUnits: "", units: [] };

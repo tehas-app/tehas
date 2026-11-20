@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { consoleModel, duration } from "../host/fun/factory/tehas-factory-console.model.js";
 import { daysModel } from "../host/fun/factory/tehas-factory-days.model.js";
-import { hostModel } from "../host/fun/factory/tehas-factory-host.model.js";
+import { hostModel, serverNow } from "../host/fun/factory/tehas-factory-host.model.js";
 import { MAX, chips, emptyText, issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewWhy, previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
@@ -67,6 +67,22 @@ test("the host is a list of its processes and units, with a note of its readings
   ]);
   assert.deepEqual([m.n, m.nUnits], ["(3)", "(2)"]);
   assert.equal(m.note, "4 CPUs, load 0.10 0.20 0.30, 12.5% of the cpus in use, memory 1600 of 6400 MB, snapshot written just now.");
+});
+
+test("the snapshot's age is judged by the server's clock, not the viewer's", () => {
+  // The viewer's clock runs two hours ahead of the host's; the file is new.
+  const viewer = NOW + 7200 * 1000;
+  const meta = { status: 200, headers: {}, date: NOW, at: viewer };
+  assert.equal(serverNow(meta, viewer), NOW);
+  assert.match(hostModel(top(), serverNow(meta, viewer)).note, /, snapshot written just now\.$/);
+  assert.match(hostModel(top(), viewer).note, /, snapshot is 2 h ago\.$/, "by the viewer's clock it would be stale");
+  // The clock moves on from the answer by the time the viewer's has run.
+  assert.equal(serverNow(meta, viewer + 40000), NOW + 40000);
+  // A clock read older than the answer does not take the present back.
+  assert.equal(serverNow(meta, viewer - 30000), NOW);
+  // No Date header, no answer yet: the viewer's clock.
+  assert.equal(serverNow({ status: 200, headers: {}, date: null, at: viewer }, viewer), viewer);
+  assert.equal(serverNow(undefined, viewer), viewer);
 });
 
 test("an old snapshot is said to be old, and a host with no file has no section", () => {
