@@ -334,6 +334,11 @@ changes, and "released" once when it ends; a dry run prints it every time.
 Every real poll that gets past the bot's login, a paused one too, writes
 $TEHAS_HOME/live/demand.json, how many issues wait for room (report_demand),
 and refreshes the health file with it.
+Every real poll that ends with 0 writes $TEHAS_HOME/state/starts.json: for
+each issue of the start order and each ready issue, whether it chose to
+start it and, from the line it logged, why not; and the tehas:blocked
+markers and open blocked-by links it read. tehas order --json and tehas
+blockers read it. Nothing it decides depends on the file.
 
 The factory's analytics, state/analytics.db, unless TEHAS_ANALYTICS=off: a
 start records the events ready, at the approval record's time, and started

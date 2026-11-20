@@ -548,6 +548,16 @@ error, when its reader goes away, as in `tehas status | head -1`.
 | 64 | A bad argument; nothing is written |
 | 78 | The settings are missing or malformed, or the state store is not installed or cannot be used; nothing is written |
 
+### tehas blockers
+
+| Status | When |
+| --- | --- |
+| 0 | Shown |
+| 1 | The record of the last poll is there and cannot be read |
+| 3 | No poll has recorded its holds yet |
+| 64 | An argument other than `--json` |
+| 78 | The settings are missing or malformed |
+
 ### tehas start
 
 | Status | When |

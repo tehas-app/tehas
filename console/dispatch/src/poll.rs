@@ -897,6 +897,9 @@ fn body(
         }
     }
     lines_to(d.log.len(), &mut next);
+    if d.exit == 0 && d.tidy && !dry {
+        write_starts(home, &d);
+    }
     if d.exit == 0 && d.tidy && !d.paused && !dry {
         finish_step(home, settings, &mut src, w, &snap, &d);
         auto_finish_step(home, settings, &mut src, w, &snap, &d);
@@ -1197,6 +1200,24 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
                 crate::apply::start::named(&w.host.health_cmd, &w.host.health_args)
             ));
         }
+    }
+}
+
+/// state/starts.json, what the poll decided of each issue it could start,
+/// for `tehas order --json` and `tehas blockers`. A poll that failed leaves
+/// the last one.
+fn write_starts(home: &Path, d: &crate::Decision) {
+    let file = tehas_core::starts::path(home);
+    let v = d.starts.to_value(&iso_now());
+    if tehas_core::file::write_atomic(
+        &file,
+        format!("{v}\n").as_bytes(),
+        0o600,
+        &tehas_core::file::Temp::Unique,
+    )
+    .is_err()
+    {
+        say(&format!("WARN: could not write {}", file.display()));
     }
 }
 

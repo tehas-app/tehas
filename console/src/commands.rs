@@ -5,6 +5,7 @@
 //!   console tehas disk [...]
 //!   console tehas state pack|unpack ... | check [--json]
 //!   console tehas limit [--json] | set ... | clear
+//!   console tehas blockers [--json]
 //!   console tehas pause [--reason TEXT]
 //!   console tehas analytics report | copy --to <file> [--json]
 //!   console tehas top [--once | --json] [--every <seconds>]
@@ -45,8 +46,8 @@
 //! Exit: the status of the command; 64 usage.
 
 use crate::{
-    api, clean, dev, disk, export, freeze, github, health, history, holds, host_message, labels,
-    mcp, order, panel, queue, review, start, state, status, stop, top, wake,
+    api, blockers, clean, dev, disk, export, freeze, github, health, history, holds, host_message,
+    labels, mcp, order, panel, queue, review, start, state, status, stop, top, wake,
 };
 use std::env;
 use std::os::unix::fs::PermissionsExt;
@@ -187,6 +188,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "state" => state::main(rest),
         "limit" => flag(limit_words(rest)),
         "order" => order::main(rest),
+        "blockers" => blockers::main(rest),
         "start" => start::main(rest),
         "pause" => flag(pause_words(rest)),
         "analytics" => analytics(rest),
@@ -317,6 +319,7 @@ pub fn check(given: &[String]) -> u8 {
     let said = match words[..] {
         ["tehas", "limit"] => limit_words(rest).map(|_| ()),
         ["tehas", "order"] => order::words(rest).map(|_| ()),
+        ["tehas", "blockers"] => blockers::words(rest).map(|_| ()),
         ["tehas" | "tehasbot", "mcp"] => mcp::words(rest).map(|_| ()),
         ["tehas", "start"] => start::words(rest).map(|_| ()),
         ["tehas", "pause"] => pause_words(rest).map(|_| ()),
@@ -402,8 +405,8 @@ pub fn required(given: &[String]) -> &'static [&'static str] {
         // What writes or calls GitHub stops on the three before it does.
         ["tehas", "resume"]
         | ["tehasbot", "status"]
-        | ["tehas", "start" | "limit" | "order" | "panel" | "host-message" | "freeze" | "thaw" | "pause"
-        | "drain" | "wake"] => &[
+        | ["tehas", "start" | "limit" | "order" | "blockers" | "panel" | "host-message" | "freeze" | "thaw"
+        | "pause" | "drain" | "wake"] => &[
             "TEHAS_REPO",
             "TEHAS_CONTROL_ISSUE",
             "TEHAS_ALLOWED_LABELERS",
@@ -432,6 +435,7 @@ pub fn text(command: &str) -> Option<&'static str> {
     Some(match command {
         "analytics" => include_str!("usage/analytics.txt"),
         "api" => include_str!("usage/api.txt"),
+        "blockers" => include_str!("usage/blockers.txt"),
         "check-product" => include_str!("usage/check-product.txt"),
         "disk" => include_str!("usage/disk.txt"),
         "dispatch" => DISPATCH,

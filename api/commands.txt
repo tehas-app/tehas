@@ -12,6 +12,7 @@ analytics
 analytics copy --json --to
 analytics report
 api --json
+blockers --json
 check-product --sandbox
 dev --author --issue
 disk --cycles --full --json --publish internal=--publish
