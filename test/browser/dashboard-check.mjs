@@ -3,11 +3,13 @@
 // with host/fun and the samples of test/fixtures/live under a strict CSP,
 // loads it in headless Chromium and checks what the islands drew.
 //
-//   node test/browser/dashboard-check.mjs [--shot <png>] [--root <dir>] [--no-check]
+//   node test/browser/dashboard-check.mjs [--shot <png>] [--root <dir>] [--no-check] [--staged]
 //
 // --shot saves a full-page screenshot, --root serves another tree's host/ and
 // test/fixtures/ (an older checkout, to compare), and --no-check only loads
-// the page. The layout's template is stood in for: every condition is false,
+// the page. --staged first stages host/ with `console update assets`, as
+// install.sh does, and serves the stage: the hashed names a home gets. It
+// builds the console with cargo unless TEHAS_CONSOLE names one. The layout's template is stood in for: every condition is false,
 // so the else branches are drawn, and the page is the fragment's.
 //
 // A second load checks a host whose dispatcher has not written status.json
@@ -19,9 +21,9 @@
 //
 // Exit: 0 passed or skipped, 1 a check failed, 2 a usage error.
 import { createServer } from "node:http";
-import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { execFile, execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -29,19 +31,35 @@ const option = (name) => {
   const at = args.indexOf(name);
   return at < 0 ? null : args[at + 1] ?? null;
 };
-if (args.some((a, i) => a.startsWith("--") && !["--shot", "--root", "--no-check"].includes(a) && args[i - 1] !== "--shot" && args[i - 1] !== "--root")) {
-  console.error("usage: dashboard-check.mjs [--shot <png>] [--root <dir>] [--no-check]");
+if (args.some((a, i) => a.startsWith("--") && !["--shot", "--root", "--no-check", "--staged"].includes(a) && args[i - 1] !== "--shot" && args[i - 1] !== "--root")) {
+  console.error("usage: dashboard-check.mjs [--shot <png>] [--root <dir>] [--no-check] [--staged]");
   process.exit(2);
 }
 const ROOT = option("--root") ? resolve(option("--root")) + "/" : new URL("../..", import.meta.url).pathname;
 const SHOT = option("--shot") && resolve(option("--shot"));
 const CHECK = !args.includes("--no-check");
 const HERE = new URL(".", import.meta.url).pathname;
-const MOUNTS = { "/fun/": join(ROOT, "host/fun/"), "/live/": join(ROOT, "test/fixtures/live/"), "/check/": HERE };
+// The tree the page and /fun/ come from: host/ itself, or a stage of it.
+const STAGE = args.includes("--staged") ? stage() : null;
+const HOST = STAGE ?? join(ROOT, "host/");
+const MOUNTS = { "/fun/": join(HOST, "fun/"), "/live/": join(ROOT, "test/fixtures/live/"), "/check/": HERE };
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png", ".txt": "text/plain" };
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'";
 // The samples' time, 2026-11-17T12:00:00Z: the bridge's answer is dated by it.
 const T = Date.parse("2026-11-17T12:00:00Z");
+
+function stage() {
+  const dir = mkdtempSync(join(tmpdir(), "dashboard-stage-")) + "/";
+  process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+  const host = join(ROOT, "host");
+  if (process.env.TEHAS_CONSOLE) execFileSync(process.env.TEHAS_CONSOLE, ["update", "assets", host, dir], { stdio: "inherit" });
+  else {
+    const manifest = join(ROOT, "console/Cargo.toml");
+    execFileSync("cargo", ["run", "--quiet", "--locked", "--manifest-path", manifest, "-p", "console", "--", "update", "assets", host, dir], { stdio: "inherit" });
+  }
+  console.log(`note  serving the stage of ${host}`);
+  return dir;
+}
 
 function chromium() {
   if (process.env.TEHAS_CHROMIUM) return { bin: process.env.TEHAS_CHROMIUM, env: {} };
@@ -58,8 +76,8 @@ function chromium() {
 // is false, so only else branches are drawn; $body is the fragment and
 // $design the default theme. Enough for this page, not a template engine.
 function page(probe) {
-  const layout = readFileSync(join(ROOT, "host/docs/_layout.html"), "utf8");
-  let body = readFileSync(join(ROOT, "host/docs/dashboard.frag"), "utf8");
+  const layout = readFileSync(join(HOST, "docs/_layout.html"), "utf8");
+  let body = readFileSync(join(HOST, "docs/dashboard.frag"), "utf8");
   if (probe) body += `\n<script type="module" src="/check/${probe}"></script>\n`;
   const values = { "$body": body, "$design": "beesknees26", "$title": "Dashboard", "$description": "" };
   const out = [];
@@ -88,6 +106,9 @@ function page(probe) {
 // grows on each read; /host/bridge.json is a host's answer with one note.
 // failing counts the 404s a /live/ address still answers before its file.
 let failing = {};
+// The /fun/ addresses the server had no file for, and the hashed ones it served.
+const missing = [];
+const hashed = new Set();
 function serve(req, res) {
   const url = new URL(req.url, "http://x");
   const path = decodeURIComponent(url.pathname);
@@ -118,9 +139,11 @@ function serve(req, res) {
   const mount = Object.keys(MOUNTS).find((m) => path.startsWith(m));
   const file = mount && normalize(join(MOUNTS[mount], path.slice(mount.length)));
   if (!file || !file.startsWith(MOUNTS[mount]) || !existsSync(file) || !statSync(file).isFile()) {
+    if (path.startsWith("/fun/")) missing.push(path);
     res.writeHead(404, head).end("not found");
     return;
   }
+  if (/\.[0-9a-f]{12}\.(js|css)$/.test(path)) hashed.add(path);
   const headers = { ...head, "content-type": TYPES[extname(file)] ?? "application/octet-stream" };
   if (mount === "/live/") headers.date = new Date(T).toUTCString();
   res.writeHead(200, headers).end(readFileSync(file));
@@ -164,6 +187,7 @@ try {
   const late = await probe("dashboard-recover-probe.js");
   if (!found || !late) {
     console.log("FAIL  the dashboard in a browser: the page wrote no result");
+    if (missing.length) console.log(`FAIL  no file for ${[...new Set(missing)].join(" ")}`);
     process.exit(1);
   }
   const s = found.steps;
@@ -171,6 +195,8 @@ try {
   const checks = [
     ["no error in the check", !found.error, found.error],
     ["no CSP violation", found.violations.length === 0, found.violations],
+    ["every /fun/ address has a file", missing.length === 0, missing],
+    ...(STAGE ? [["the islands, the kit and the sheets by hashed name", [...hashed].filter((p) => /^\/fun\/(factory|kit)\//.test(p)).length >= 9, [...hashed]]] : []),
     ["every island mounted", s.unmounted?.length === 0, s.unmounted],
     ["the server HTML stood first", s.firstPill === "loading", s.firstPill],
     ["the state says the factory is working", s.pill === "working" && s.pillClass === "pill run", [s.pill, s.pillClass]],
