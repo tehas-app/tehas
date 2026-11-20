@@ -503,8 +503,10 @@ The manual and the front page are not copied from `host/` as they stand.
 scratch directory and, for each `<script src="/fun/X.js">` and each
 `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
 `fun/business.html` and `docs/dashboard.frag`, puts a copy of that file beside
-them under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
-of the sha256 of its bytes, and rewrites the tag to name it. The two syncs then
+it under the name `X.<hash>.<ext>`, where `<hash>` is the first 12 hex digits
+of the sha256 of its bytes, and rewrites the tag to name it. A file in a
+subfolder is copied and named in that subfolder: `/fun/factory/X.js` becomes
+`/fun/factory/X.<hash>.js`. The two syncs then
 install the stage, so `~/tehas/fun` and `~/tehas/docs` hold exactly what the
 stage holds and a hashed name of older content is removed as stale with any page
 that went away. The pages keep their own names.
@@ -523,14 +525,16 @@ page. The theme stylesheet,
 which a page's template names at the request as
 `/fun/theme-<design>.css`, so no file of the checkout can be hashed for it. Any
 file that is not a script or a stylesheet: a font, a logo, a share card. And a
-module the page loads as `type="module"`, whose own `import "./x.js"` lines name
-its siblings by name: hashing the page is safe, hashing the module would make it
-ask for files none of them is named by.
+module that another module imports by a relative address, such as
+`import "./x.js"`: only the module a tag names is hashed, and the files it
+imports keep the names it asks for.
 
 The kit in `fun/kit/` is of the last kind: its modules and its Solid,
 `fun/kit/vendor/solid.js`, are imported by a relative address and keep their
-names. A module a tag names, such as an island's element file, is hashed beside
-its plain name, so the relative addresses it imports still find the kit.
+names. A module a tag names, such as an island's element file in
+`fun/factory/`, is hashed in its own folder and the tag names it there,
+`/fun/factory/<name>.<hash>.js`, so the relative addresses it imports, such as
+`../kit/island.js`, still find the kit.
 
 `/favicon.ico`, which browsers and crawlers ask for whatever a page links, is
 answered with the icon the pages link, `fun/favicon.svg`, sent as SVG and

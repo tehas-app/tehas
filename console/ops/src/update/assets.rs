@@ -8,6 +8,8 @@
 //! `fun/business.html` and `docs/dashboard.frag` is named by the bytes it asks
 //! for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
 //! file, where `<hex>` is the first 12 hex digits of the sha256 of the bytes.
+//! A file in a subfolder is copied in that subfolder and named there:
+//! `/fun/factory/X.js` becomes `/fun/factory/X.<hex>.js`.
 //! The docs server answers such a name `immutable` (host/edge/docs.Caddyfile),
 //! so a browser keeps it and asks for the page every time instead.
 //!
@@ -216,12 +218,15 @@ fn page(stage: &Path, name: &str) -> io::Result<()> {
         let copy = source.parent().unwrap_or(Path::new("")).join(&hashed);
         fs::write(&copy, &bytes)?;
         fs::set_permissions(&copy, fs::Permissions::from_mode(0o644))?;
+        // The copy stands beside its source, so the address keeps the folder
+        // the tag named: /fun/factory/x.js becomes /fun/factory/x.<hex>.js.
+        let folder = &addr[..addr.rfind('/').map_or(0, |at| at + 1)];
         let quoted = format!("{attribute}\"{addr}\"");
         let at = text[start.0..start.1].find(&quoted).map(|at| start.0 + at);
         if let Some(at) = at {
             text.replace_range(
                 at..at + quoted.len(),
-                &format!("{attribute}\"/fun/{hashed}\""),
+                &format!("{attribute}\"{folder}{hashed}\""),
             );
         }
         rewrites += 1;
@@ -417,6 +422,117 @@ mod tests {
         );
         assert_eq!(names(&staged(&d, "fun/kit")), ["island.js", "vendor"]);
         assert_eq!(names(&staged(&d, "fun/kit/vendor")), ["solid.js"]);
+    }
+
+    #[test]
+    fn a_file_in_a_subfolder_is_hashed_and_named_in_its_subfolder() {
+        let d = host("assets-subfolder");
+        put(
+            &d,
+            "host/docs/dashboard.frag",
+            "<link rel=\"stylesheet\" href=\"/fun/kit/kit.css\">\n\
+             <script type=\"module\" src=\"/fun/factory/queue.js\"></script>\n",
+        );
+        let queue = "import { island } from \"../kit/island.js\";\n";
+        let css = ".kit { margin: 0 }\n";
+        put(&d, "host/fun/factory/queue.js", queue);
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/kit.css", css);
+        assert_eq!(run(&d), 0);
+        let frag = fs::read_to_string(staged(&d, "docs/dashboard.frag")).unwrap();
+        let entry = format!("fun/factory/queue.{}.js", hex(queue.as_bytes()));
+        let sheet = format!("fun/kit/kit.{}.css", hex(css.as_bytes()));
+        // The address keeps the subfolder, and the copy is where it says.
+        assert!(frag.contains(&format!("src=\"/{entry}\"")), "{frag}");
+        assert!(frag.contains(&format!("href=\"/{sheet}\"")), "{frag}");
+        assert_eq!(fs::read_to_string(staged(&d, &entry)).unwrap(), queue);
+        assert_eq!(fs::read_to_string(staged(&d, &sheet)).unwrap(), css);
+        assert_eq!(unresolved(&d.0.join("stage")), Vec::<String>::new());
+    }
+
+    /// Every address under /fun/ that a staged page names, and every relative
+    /// import of a staged module, that names no staged file. An address that
+    /// holds a template is the server's to fill in, so it is not read.
+    fn unresolved(stage: &Path) -> Vec<String> {
+        let mut wrong = Vec::new();
+        for file in files(stage) {
+            let name = file.strip_prefix(stage).unwrap().to_string_lossy().into_owned();
+            let ext = file.extension().map(|e| e.to_string_lossy().into_owned());
+            let Ok(text) = fs::read_to_string(&file) else {
+                continue;
+            };
+            match ext.as_deref() {
+                Some("html" | "frag") => {
+                    for attribute in ["src=\"", "href=\""] {
+                        for (at, _) in text.match_indices(attribute) {
+                            let rest = &text[at + attribute.len()..];
+                            let addr = &rest[..rest.find('"').unwrap_or(rest.len())];
+                            if !addr.starts_with("/fun/") || addr.contains("{{") {
+                                continue;
+                            }
+                            if !stage.join(&addr[1..]).is_file() {
+                                wrong.push(format!("{name}: {addr}"));
+                            }
+                        }
+                    }
+                }
+                Some("js") => {
+                    for quote in ["from \"", "import \""] {
+                        for (at, _) in text.match_indices(quote) {
+                            let rest = &text[at + quote.len()..];
+                            let spec = &rest[..rest.find('"').unwrap_or(rest.len())];
+                            if !(spec.starts_with("./") || spec.starts_with("../")) {
+                                continue;
+                            }
+                            if !file.parent().unwrap().join(spec).is_file() {
+                                wrong.push(format!("{name}: {spec}"));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        wrong
+    }
+
+    /// Every file under `dir`, at any depth.
+    fn files(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for entry in fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(files(&path));
+            } else {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The real host directory, staged: each page asks only for files a home
+    /// gets, wherever in /fun/ they are.
+    #[test]
+    fn every_address_of_the_real_pages_names_a_staged_file() {
+        let d = dir("assets-real");
+        let host = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host");
+        let stage = d.0.join("stage");
+        let code = verb(&[
+            host.to_string_lossy().into_owned(),
+            stage.to_string_lossy().into_owned(),
+        ]);
+        assert_eq!(code, 0);
+        let wrong = unresolved(&stage);
+        assert!(
+            wrong.is_empty(),
+            "staged addresses that name no staged file:\n{}",
+            wrong.join("\n")
+        );
+        // The dashboard asks for its islands by hashed name, in their folder.
+        let frag = fs::read_to_string(stage.join("docs/dashboard.frag")).unwrap();
+        assert!(!frag.contains("\"/fun/factory/tehas-factory-state.js\""), "{frag}");
+        assert!(frag.contains("\"/fun/factory/tehas-factory-state."), "{frag}");
     }
 
     #[test]
