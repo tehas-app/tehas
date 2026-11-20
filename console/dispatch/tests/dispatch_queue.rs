@@ -384,6 +384,42 @@ fn demand_the_fixers_label_waits_like_a_persons() {
     );
 }
 
+#[test]
+fn a_fresh_push_fault_starts_no_cycle_and_the_log_says_why_once() {
+    let w = World::new("queue-fault-fresh");
+    w.slots(3, &[]);
+    w.ready(&[7, 8]);
+    push_fault(&w, &iso_ago("-1 minute"));
+    let r = w.poll();
+    assert_eq!(r.rc, 0);
+    assert_eq!(w.calls("fake-start"), "");
+    has(
+        &r.out,
+        &format!("holding: the sandbox cannot push: {DENIED} (tehas-bot)"),
+    );
+    assert_eq!(
+        r.out.matches("the sandbox cannot push").count(),
+        1,
+        "{}",
+        r.out
+    );
+    assert_eq!(why(&w), json!("lane"));
+}
+
+#[test]
+fn a_fault_that_cannot_be_read_still_holds_with_a_line_of_the_hosts_own() {
+    let w = World::new("queue-fault-unread");
+    w.ready(&[7]);
+    w.home_file("state/push-fault.json", "not json\n");
+    let r = w.poll();
+    assert_eq!(r.rc, 0);
+    assert_eq!(w.calls("fake-start"), "");
+    has(
+        &r.out,
+        "holding: the sandbox cannot push: the sandbox cannot push to origin",
+    );
+}
+
 // The fault of a minute ago is well inside the ten minutes the poll holds
 // on; one of an hour ago is past the wait, so the poll asks the sandbox
 // again.

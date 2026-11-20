@@ -164,6 +164,24 @@ fn unbase64(text: &str) -> Vec<u8> {
         .collect()
 }
 
+// The whole poll, the read layer's image probe included, never names the
+// endpoint it asked.
+#[test]
+fn an_issue_that_links_an_image_waits_while_the_model_does_not_answer_an_image() {
+    let w = world("images-unanswered");
+    imaging(&w, json!(["text", "image"]));
+    pictured(&w, 7);
+    let r = w.poll();
+    assert_eq!(r.rc, 0);
+    assert_eq!(started(&w), "");
+    lacks(&w.gh(), "issue edit");
+    has(
+        &r.out,
+        "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image",
+    );
+    lacks(&r.out, "mesh.test");
+}
+
 #[test]
 fn without_images_for_a_cycle_the_model_is_not_asked_to_read_one() {
     let w = world("images-off");
