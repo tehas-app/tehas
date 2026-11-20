@@ -22,8 +22,13 @@ use std::path::{Path, PathBuf};
 /// The library, relative to `host`.
 pub(super) const LIBRARY: &str = "fun/kit/vendor/solid.js";
 
-/// The kit files that draw, and so may import the library.
-pub(super) const DRAWS: [&str; 3] = ["fun/kit/feed.js", "fun/kit/parts.js", "fun/kit/state.js"];
+/// The kit files that draw or hold Solid state, and so may import the library.
+pub(super) const DRAWS: [&str; 4] = [
+    "fun/kit/feed.js",
+    "fun/kit/parts.js",
+    "fun/kit/state.js",
+    "fun/kit/stream.js",
+];
 
 /// Solid 1.x names that do not exist in 2.0, or are not to be used in tehas.
 /// A word ending in `(` matches only as a call.
@@ -586,6 +591,10 @@ mod tests {
         d.file(
             "host/fun/kit/parts.js",
             "import { html } from \"solid-js\";",
+        );
+        d.file(
+            "host/fun/kit/stream.js",
+            "import { For } from \"./vendor/solid.js\";",
         );
         // pages.rs refuses this one: it is no file that draws.
         d.file(

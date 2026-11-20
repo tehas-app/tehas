@@ -588,8 +588,14 @@ mod tests {
             "host/fun/board/board.state.js",
             "import \"../kit/state.js\";",
         );
+        // The stream holds Solid state; a press does not.
+        d.file(
+            "host/fun/board/wire.js",
+            "import \"../kit/press.js\";\nimport \"../kit/stream.js\";",
+        );
+        d.file("host/fun/board/wire.render.js", "export const w = 1;");
         let max = format!(
-            "{}library solid {}\nisland board/log 1000\n",
+            "{}library solid {}\nisland board/log 1000\nisland board/wire 1000\n",
             exact(&d),
             len(&d, "fun/kit/vendor/solid.js")
         );
@@ -598,8 +604,10 @@ mod tests {
             [
                 "fun/board/log.js: reaches fun/kit/state.js by its imports; an element or model file loads nothing that draws",
                 "fun/board/log.model.js: reaches fun/kit/parts.js by its imports; an element or model file loads nothing that draws",
+                "fun/board/wire.js: reaches fun/kit/stream.js by its imports; an element or model file loads nothing that draws",
             ]
         );
+        d.file("host/fun/board/wire.js", "import \"../kit/press.js\";");
         d.file(
             "host/fun/board/log.js",
             "import { island } from \"../kit/island.js\";\nisland(\"log\", { load: () => import(\"./log.render.js\") });",
