@@ -107,7 +107,8 @@ An island is a custom element in the light DOM, made with the kit's
 - **Data in**, in this order of preference: attributes for scalars
   (`limit="10"`); a child `<script type="application/json">`, read once when
   the element upgrades; `src="/live/<file>.json"` for a feed, read through the
-  kit's feed store (`kit/feed.js`) and never by a `fetch` of its own. A console that grows is read by a plain element
+  kit's feed store (`kit/feed.js`) and never by a `fetch` of its own; a stream
+  of events through `kit/stream.js` ([Streams](#streams)). A console that grows is read by a plain element
   instead ([The plain dashboard](#the-plain-dashboard)).
 - **State between islands** only through page stores (`kit/state.js`), see
   [Page state](#page-state). An island never calls another island's methods
@@ -156,12 +157,14 @@ Rules that keep the drawing swappable:
    fails on a library import, a bare address or one through a `vendor/`
    directory, in any file but a `.render.js` and the kit files that draw. It
    also fails on an element or model file whose relative imports reach the
-   library or a kit file that draws (`feed.js`, `parts.js`, `state.js`), other
-   than through a `.render.js` file: an element would load the library before
-   its hydrate trigger fires.
+   library or a kit file that draws (`feed.js`, `parts.js`, `state.js`,
+   `stream.js`), other than through a `.render.js` file: an element would load
+   the library before its hydrate trigger fires. `stream.js` holds Solid state
+   and so counts as a kit file that draws; `request.js` holds no library, and
+   an element or a model may import it.
 2. The model is plain data. No Solid type crosses into it.
-3. The render module reads server data only through `kit/feed.js` and its
-   attributes only through `props`.
+3. The render module reads server data only through `kit/feed.js` and
+   `kit/stream.js`, and reads its attributes only through `props`.
 4. Replacing how an island draws changes its `.render.js` file only. Element
    names, attributes, events and feeds stay.
 
@@ -266,6 +269,54 @@ plan.meta(); // null before the first answer, then
   run since `meta().at`. The host island judges a snapshot's age so.
 - An error of a status that is not accepted carries it as `error.status`.
 
+## Streams
+
+A stream of events comes through `stream(src, options)` of `kit/stream.js`:
+`text/event-stream` or NDJSON read over `fetch`, so it can send headers,
+which an `EventSource` cannot. There is one connection per address and
+options per page.
+
+```js
+// in a render module
+import { stream } from "../kit/stream.js";
+import { useTicket } from "./ticket.state.js";
+
+const ticket = useTicket();
+const live = stream("/api/tickets/41/events", {
+  format: "sse",                                   // or "ndjson"
+  headers: () => ({ "X-Session": props.session }),
+  on: ticket.actions.apply,                        // each event, { type, data, id }
+});
+live.state();      // "connecting", "open", "error" or "closed"
+live.error();      // the last error, or null
+live.status();     // the last answer's status, or 0
+live.reconnect();  // drop the connection and connect now
+```
+
+- `on` is called with each event, `{ type, data, id }`. An SSE event's
+  `type` is its `event:` field or `"message"`, `id` the last `id:`; an NDJSON
+  line is `{ type: "message", data, id: null }`. `data` is parsed as JSON;
+  `parse: "text"` leaves it a string. An event that does not parse is
+  skipped and said in `error()`, and the stream stays open.
+- Wire `on` to a page store's action. The events then land in the store and
+  every island reads them there. Two readers that give the same function,
+  such as the same store's action, get each event once.
+- `state()`, `error()` and `status()` are signals. A dropped connection, a
+  status that is not 2xx and an answer that does not come in 30 s are
+  errors: the state is `"error"` and it connects again after a wait that
+  starts at `retry` (1000 ms; an SSE `retry:` field sets it) and doubles up to
+  `max` (30000 ms). An answer that opens resets the wait. A stream the server
+  ends is asked for again. An SSE stream sends `Last-Event-ID` when it
+  connects again.
+- A 204 answer stops it, as it stops an `EventSource`: the state is
+  `"closed"` until `reconnect()`.
+- While the page is hidden an open connection stays, and a reconnect that
+  falls due waits until the page shows. With `hidden: "close"` the connection
+  closes while the page is hidden and opens again when it shows.
+- `headers` is an object or a function read on each connect, so a session
+  that changes is sent on the next one. `credentials` is passed to `fetch`.
+- The connection closes when the last root that asked for it is disposed.
+
 ## Styling
 
 - No shadow DOM. The themes are global custom properties and global rules, and
@@ -306,6 +357,7 @@ release that ships it:
 | `vendor/LICENSES` | The licences of the bundled packages |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
+| `stream.js` | The stream source ([Streams](#streams)) |
 | `request.js` | What the kit's modules that make requests share about a request and its answer. No library |
 | `state.js` | Page stores ([Page state](#page-state)), and `shared(key, make)`, one value per key per page under the page's owner |
 | `parts.js` | `view`, and shared pieces drawn in Solid: `TimeAgo`, `Empty`, `Busy`, `Failed` (an error with a retry) and `Guard` (`<Loading>` inside `<Errored>` with a retry) |
@@ -316,7 +368,7 @@ The kit is `kit 1`, first shipped with tehas v1.1.0. A module imports the
 library by a relative address, `./kit/vendor/solid.js` from a file in `fun/`:
 the pages allow no inline script, so there is no import map. Only a
 `.render.js` file and the kit files that draw (`feed.js`, `state.js`,
-`parts.js`) import it.
+`parts.js`, `stream.js`) import it.
 
 Within one `kit <n>`, element names, attributes, events, the class names of the
 kit's patterns and the exports of its modules are only added, never renamed or
@@ -533,7 +585,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | None set yet: they hold 20491 bytes at `kit 1` with the feed's request options, and a figure is a person's call | Review |
+| The kit's core modules | None set yet, and a figure is a person's call. At `kit 1` with streams: 20491 bytes for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads; `stream.js`, 8463 more, loads only on a page that imports it | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 
