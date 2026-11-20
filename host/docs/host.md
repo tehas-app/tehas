@@ -512,7 +512,8 @@ stage holds and a hashed name of older content is removed as stale with any page
 that went away. The pages keep their own names.
 
 The docs server caches the two kinds differently (`host/edge/docs.Caddyfile`):
-a name with 12 hex digits of its own in it is served
+a script or stylesheet whose name has 12 hex digits of its own in it, in
+`/fun/` or in a folder under it, is served
 `public, max-age=31536000, immutable`, because such a name can only ever hold
 the bytes it was named for, and every page is served `no-cache`, so a browser
 asks about the page each time and reuses what it already has of the files it
