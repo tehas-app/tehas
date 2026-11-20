@@ -1531,7 +1531,14 @@ impl World {
     pub fn hold(&self, n: u64) {
         fs::create_dir_all(self.cycles_dir()).unwrap();
         let f = File::create(self.cycles_dir().join(format!("{n}.lock"))).unwrap();
-        let _ = f.try_lock();
+        // A child another test forks can still hold a lock this test just let
+        // go, until it execs.
+        for _ in 0..200 {
+            if f.try_lock().is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         self.held.borrow_mut().push(f);
     }
 
