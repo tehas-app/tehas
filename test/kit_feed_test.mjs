@@ -614,3 +614,87 @@ test("a put before the first answer is the data", async () => {
   assert.equal(calls.length, 1);
   assert.equal(a.seen.at(-1).n, 4);
 });
+
+test("a put and a poll asked in the same flush: the put shows, then the poll goes out with it as the last data", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ok: true, body: '{"n":7}' };
+  a.live.put({ n: 5 });
+  const r = a.live.refresh();
+  await settle();
+  await settle();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(await r, { ok: true, status: 200, data: { n: 7 } });
+  assert.deepEqual(a.seen.map((s) => `${s.n}${s.pending ? " pending" : ""}`), ["1", "5", "5 pending", "7"]);
+});
+
+test("a refresh and then a put in the same flush: the refresh still hears its poll", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ok: true, body: '{"n":7}' };
+  const r = a.live.refresh();
+  a.live.put({ n: 5 });
+  await settle();
+  await settle();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(await r, { ok: true, status: 200, data: { n: 7 } });
+  assert.equal(a.seen.at(-1).n, 7);
+});
+
+test("a put in the same flush as the period's poll does not stop the poller", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  await settle();
+  answer = { ok: true, body: '{"n":7}' };
+  mock.timers.tick(1000);
+  a.live.put({ n: 5 });
+  await settle();
+  await settle();
+  assert.equal(calls.length, 2);
+  for (let i = 0; i < 3; i++) {
+    mock.timers.tick(1000);
+    await settle();
+  }
+  assert.equal(calls.length, 5, "the poll goes on at its period");
+});
+
+test("a put before the feed asked at all still polls", async () => {
+  let live;
+  createRoot(() => {
+    live = feed("/live/status.json");
+    live.put({ n: 3 });
+  });
+  await settle();
+  await settle();
+  assert.equal(calls.length, 1);
+});
+
+test("after await refresh() the answer is in data() and the readers have seen it", async () => {
+  const a = island("/live/status.json");
+  await settle();
+  answer = { ok: true, body: '{"n":8}' };
+  const r = await a.live.refresh();
+  assert.equal(r.data.n, 8);
+  assert.equal(a.live.data().n, 8);
+  assert.equal(a.seen.at(-1).n, 8);
+});
+
+test("a put of the data the readers have leaves them be, but clears an error", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  await settle();
+  const before = a.seen.length;
+  a.live.put({ n: 1 });
+  flush();
+  a.live.put({ n: 2 });
+  flush();
+  a.live.put({ n: 2 });
+  flush();
+  assert.equal(a.seen.length, before + 1);
+  assert.equal(calls.length, 1);
+  answer = { ok: false, status: 502, statusText: "Bad Gateway" };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(a.live.error().status, 502);
+  a.live.put({ n: 2 });
+  flush();
+  assert.equal(a.live.error(), null);
+});

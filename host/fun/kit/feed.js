@@ -24,7 +24,7 @@
 // owner (state.js) and stops when the last root that asked for it is gone.
 // One fetch is out at a time: the next poll falls due a period after the last
 // one lands, and a fetch with no answer in TIMEOUT ms is aborted.
-import { createMemo, createSignal, getOwner, onCleanup, untrack } from "./vendor/solid.js";
+import { createMemo, createSignal, flush, getOwner, onCleanup, untrack } from "./vendor/solid.js";
 import { accepts, bodyOf, dateOf, headersOf, keyOf, pickHeaders } from "./request.js";
 import { release, shared } from "./state.js";
 
@@ -51,26 +51,39 @@ function make(src, opts) {
   const [meta, setMeta] = createSignal(null);
   const [given, give] = createSignal(null, { equals: false });
   const f = { periods: [], every: Infinity, timer: 0, due: false, out: undefined, again: false, gone: false, waiting: [], giving: false };
+  // f.asked is the tick the memo last asked for, f.run counts its runs and
+  // f.cur is the entry it holds, which a put compares itself with.
   // A put takes the place of a poll out, whose answer was asked before it.
   const entry = createMemo((prev) => {
-    tick();
+    const t = tick();
     const g = given();
+    f.run = (f.run ?? 0) + 1;
     if (f.giving) {
       f.giving = false;
+      f.cur = g;
+      // A poll asked in the same flush as the put goes out after it.
+      if (t !== f.asked) {
+        f.asked = t;
+        queueMicrotask(poll);
+      }
       return g;
     }
+    f.asked = t;
     return ask(prev);
   });
   async function ask(prev) {
     const out = new AbortController();
     f.out = out;
+    const run = f.run;
     // The refresh calls that asked for this poll hear its answer.
     const waiting = f.waiting;
     f.waiting = [];
     let status = 0;
     let heard;
-    const tell = () => {
-      for (const done of waiting) done(Object.freeze(heard));
+    // Unless a put has taken its place, the entry this poll gives.
+    const hold = (e) => {
+      if (f.run === run) f.cur = e;
+      return e;
     };
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
     try {
@@ -92,7 +105,7 @@ function make(src, opts) {
       const token = `${res.status} ${text}`;
       if (prev?.token === token) {
         heard = { ok: true, status, data: prev.data };
-        return prev.error ? { ...prev, error: null } : prev;
+        return hold(prev.error ? { ...prev, error: null } : prev);
       }
       const data = bodyOf(res.status, text, opts);
       heard = { ok: true, status, data };
@@ -100,21 +113,28 @@ function make(src, opts) {
       if (prev?.put !== undefined && same(prev.put, data)) {
         prev.token = token;
         prev.put = undefined;
-        return prev.error ? { ...prev, error: null } : prev;
+        return hold(prev.error ? { ...prev, error: null } : prev);
       }
-      return { token, data, at: Date.now(), error: null };
+      return hold({ token, data, at: Date.now(), error: null });
     } catch (error) {
       heard = { ok: false, status, error };
       if (!prev) throw error;
-      return { ...prev, error };
+      return hold({ ...prev, error });
     } finally {
       clearTimeout(limit);
-      tell();
-      // After the memo has its value: a tick now would replace it.
-      queueMicrotask(() => landed(out));
+      queueMicrotask(() => landed(out, waiting, Object.freeze(heard)));
     }
   }
-  const landed = (out) => {
+  const landed = (out, waiting, heard) => {
+    // A step later the memo has taken the answer, so a refresh that hears it
+    // finds it in data() and its effects have run.
+    queueMicrotask(() => {
+      try {
+        flush();
+      } finally {
+        for (const done of waiting) done(heard);
+      }
+    });
     if (f.out !== out) return;
     f.out = null;
     if (f.gone) return;
@@ -174,6 +194,12 @@ function make(src, opts) {
       }),
     put: (data) => {
       if (f.gone) return;
+      // The same data as the readers have, with no poll out and no error:
+      // nothing to tell.
+      if (!f.out && !f.giving && f.cur && !f.cur.error) {
+        const j = json(data);
+        if (j !== null && j === (f.cur.put ?? json(f.cur.data))) return;
+      }
       f.giving = true;
       give({ token: null, data, put: json(data), at: Date.now(), error: null });
     },
