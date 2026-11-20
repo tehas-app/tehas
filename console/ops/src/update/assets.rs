@@ -732,7 +732,10 @@ mod tests {
             put(&d, "outside/secret.txt", "not for the home\n");
             std::os::unix::fs::symlink(d.0.join("outside"), &real).unwrap();
             assert_eq!(run(&d), 1, "{name}");
-            assert!(!staged(&d, &format!("{name}/secret.txt")).exists(), "{name}");
+            assert!(
+                !staged(&d, &format!("{name}/secret.txt")).exists(),
+                "{name}"
+            );
         }
     }
 
