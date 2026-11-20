@@ -11,8 +11,8 @@
 //! - No file of `host/fun` names a Solid 1.x API (`OLD`).
 //! - A file that imports the library builds no `html` template by `+`, by a
 //!   call of `html(…)` or with an untagged template literal inside it, and
-//!   writes no `style=` attribute into one: the pages run under a CSP with no
-//!   inline style.
+//!   writes no `style=` attribute into one: the pages use no inline style, so
+//!   they work under a CSP without it.
 
 use super::pages::{imports, library, normal};
 use sha2::{Digest, Sha256};

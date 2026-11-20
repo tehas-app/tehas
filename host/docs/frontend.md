@@ -567,10 +567,12 @@ const said = live.error()?.data?.error;
   CSS, so an element that has not upgraded lays out as its children do.
 - A render module sets classes and `--tehas-…` properties, never colours.
   Canvas code reads the tokens through `fun/theme.js`.
-- The pages run under a CSP with `style-src 'self'` and no inline style: no
-  `style="…"` in a template (the ratchet refuses it) and no
-  `setAttribute("style")`. A value that must vary goes through a class, or
-  `element.style.setProperty("--tehas-…", value)`, which the CSP allows.
+- The kit and the pages use no inline style, so they work under a CSP with
+  `style-src 'self'`: no `style="…"` in a template (the ratchet refuses it)
+  and no `setAttribute("style")`. A value that must vary goes through a
+  class, or `element.style.setProperty("--tehas-…", value)`, which such a
+  CSP allows. The edge sends no CSP for the pages today; the browser checks
+  run them under one.
 
 ## Light and dark
 
@@ -601,7 +603,8 @@ release that ships it:
 
 The kit is `kit 1`, first shipped with tehas v1.1.0. A module imports the
 library by a relative address, `./kit/vendor/solid.js` from a file in `fun/`:
-the pages allow no inline script, so there is no import map. Only a
+the pages use no inline script, so they work under a CSP without
+`'unsafe-inline'`, and there is no import map. Only a
 `.render.js` file and the kit files that draw (`feed.js`, `state.js`,
 `parts.js`, `stream.js`) import it.
 
