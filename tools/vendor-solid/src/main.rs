@@ -303,9 +303,26 @@ fn licences(scratch: &Path) -> String {
     out
 }
 
-/// The kit's manifest: `kit 1`, then `file <sha256> <bytes> <name>` for each
-/// file under `kit` but the manifest, by name, with `changed` standing in for
-/// the files on disk at those names.
+/// The first line of the kit's manifest as it stands: `kit <n>`, the contract
+/// number a person sets. A kit with no manifest yet starts at `kit 1`. Bundling
+/// Solid is no reason to change the number, so a line of another shape stops
+/// the tool rather than being replaced.
+fn kit_line(kit: &Path) -> Result<String, String> {
+    let Ok(text) = fs::read_to_string(kit.join("MANIFEST")) else {
+        return Ok("kit 1".to_string());
+    };
+    let first = text.lines().next().unwrap_or("");
+    match first.strip_prefix("kit ") {
+        Some(n) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => Ok(first.to_string()),
+        _ => Err(format!(
+            "host/fun/kit/MANIFEST begins {first:?}, not kit <number>"
+        )),
+    }
+}
+
+/// The kit's manifest: its `kit <n>` line, kept, then
+/// `file <sha256> <bytes> <name>` for each file under `kit` but the manifest,
+/// by name, with `changed` standing in for the files on disk at those names.
 fn manifest(kit: &Path, changed: &[(&str, &[u8])]) -> String {
     let mut files = Vec::new();
     walk(kit, Path::new(""), &mut files);
@@ -314,7 +331,8 @@ fn manifest(kit: &Path, changed: &[(&str, &[u8])]) -> String {
     }
     files.sort();
     files.dedup();
-    let mut out = String::from("kit 1\n");
+    let mut out = kit_line(kit).unwrap_or_else(|e| fail(e));
+    out.push('\n');
     for f in files {
         let name = f.to_string_lossy().into_owned();
         if name == "MANIFEST" {
@@ -412,4 +430,55 @@ async fn main() {
         fs::write(kit.join(name), bytes).unwrap_or_else(|e| fail(e));
     }
     eprintln!("vendor-solid: wrote host/fun/kit/vendor and MANIFEST");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A kit directory of a test's own, removed when it ends.
+    struct Kit(PathBuf);
+
+    impl Kit {
+        fn new(name: &str) -> Kit {
+            let dir = std::env::temp_dir()
+                .join(format!("vendor-solid-test-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("island.js"), "export const island = 1;\n").unwrap();
+            Kit(dir)
+        }
+    }
+
+    impl Drop for Kit {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_manifest_keeps_the_kit_number_it_has() {
+        let kit = Kit::new("keep");
+        fs::write(kit.0.join("MANIFEST"), "kit 3\nfile 00 1 old.js\n").unwrap();
+        let out = manifest(&kit.0, &[("vendor/solid.js", b"x")]);
+        assert!(out.starts_with("kit 3\nfile "), "{out}");
+        assert!(out.contains(" island.js\n"), "{out}");
+        assert!(out.contains(" vendor/solid.js\n"), "{out}");
+        assert!(!out.contains("old.js"), "{out}");
+    }
+
+    #[test]
+    fn a_kit_with_no_manifest_starts_at_1() {
+        let kit = Kit::new("new");
+        assert_eq!(kit_line(&kit.0).unwrap(), "kit 1");
+    }
+
+    #[test]
+    fn a_first_line_of_another_shape_is_refused() {
+        let kit = Kit::new("bad");
+        for first in ["kit", "kit x", "kit 2 extra", "file 00 1 a.js", ""] {
+            fs::write(kit.0.join("MANIFEST"), format!("{first}\n")).unwrap();
+            assert!(kit_line(&kit.0).is_err(), "{first:?}");
+        }
+    }
 }
