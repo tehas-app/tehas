@@ -13,7 +13,8 @@ table=$T/home/tehas/lib/labels.tsv
 # With GH_MADE set, a label exists only once a label create made it there.
 t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;;
   "label create "*) [ -z "${GH_MADE:-}" ] || touch "$GH_MADE/$3" ;;
-  "api repos/"*/labels/*) n=${2##*/}; [ -z "${GH_MADE:-}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${n#tehas:}" ;; esac'
+  "api repos/"*/labels/*) n=${2##*/}; [ -z "${GH_MADE:-}" ] || [ -e "$GH_MADE/$n" ] || exit 1; echo "LA_${n#tehas:}" ;;
+  "api graphql "*) [ -z "${GH_CREATED:-}" ] || cat "$GH_CREATED" ;; esac'
 reset() {
   rm -f "$T"/calls/*
   T_ENV=()
@@ -65,6 +66,31 @@ t_run "$labels"
 t_eq "$t_rc" 0
 t_contains "$t_out" "pinned the label tehas:plan as LA_plan in state/labels"
 t_eq "$(wc -l <"$pins")" 8
+T_ENV=()
+rm -f "$pins"
+
+t_case "a label there with no pin is pinned when GitHub says it was made with a pinned one"
+for name in ready plan refine finish lean classic prototype; do
+  printf 'tehas:%s\tLA_%s\n' "$name" "$name"
+done >"$pins"
+printf 'LA_ready\t2026-10-19T18:16:01Z\nLA_blocked\t2026-10-19T18:16:09Z\n' >"$T/created"
+T_ENV=(GH_CREATED="$T/created")
+rm -f "$T"/calls/*
+t_run "$labels"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "api graphql -f query="
+t_contains "$(t_calls gh)" "-f owner=acme -f name=widget"
+t_contains "$t_out" "pinned the label tehas:blocked as LA_blocked in state/labels: it was made with the pinned labels"
+t_eq "$(wc -l <"$pins")" 8
+
+t_case "one made long after the pinned ones is still refused, exit 1"
+grep -v '^tehas:blocked' "$pins" >"$pins.new" && mv "$pins.new" "$pins"
+printf 'LA_ready\t2026-10-19T18:16:01Z\nLA_blocked\t2026-11-19T09:00:00Z\n' >"$T/created"
+rm -f "$T"/calls/*
+t_run "$labels"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not pinned: the label tehas:blocked (LA_blocked) was there before with no pin"
+t_lacks "$(cat "$pins")" "tehas:blocked"
 T_ENV=()
 rm -f "$pins"
 
