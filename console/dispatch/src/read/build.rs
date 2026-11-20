@@ -2508,7 +2508,7 @@ esac"#,
     /// comment the batch read, so the hold lets the issue start.
     ///
     /// The count is the contract, not the snapshot's shape: a read that went back
-    /// to one `github::comments` call per lifted park pays one gh process for
+    /// to one comment read of a single issue per lifted park pays one gh process for
     /// each, and `calls.gh_count` moves with the number of issues.
     #[test]
     fn the_lifted_parks_read_their_comments_in_the_one_batched_call() {

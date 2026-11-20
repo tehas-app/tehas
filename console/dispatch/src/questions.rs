@@ -26,7 +26,9 @@ fn login(v: &Value, path: &str) -> String {
 /// A tick the fixer saved has the status "fixer", or "held" when anyone but
 /// the bot and the fixer edited the question too, or the edits read are not
 /// all of them: GitHub names who saved a comment, not who ticked which box,
-/// so the tick may be a person's. The fixer's newest reply, edited by nobody
+/// so the tick may be a person's. It is "unread" when the question's edit
+/// history could not be read this poll: the rules wait for the next poll
+/// without acting. The fixer's newest reply, edited by nobody
 /// else, is fixer_reply, and only a comment whose first line is
 /// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the fixer is
 /// the bot, so every note the host writes is the fixer's comment too, and none
@@ -126,8 +128,8 @@ pub fn answer(
     } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
         let h = qv.get("userContentEdits").cloned().unwrap_or(json!({}));
         // A history whose read failed says nothing of who saved the question:
-        // the tick is "unread", and the rules wait for a poll that reads it,
-        // as they did when the whole comment read failed. The poll's read
+        // the tick is "unread", and the rules wait for the next poll without
+        // acting. The poll's read
         // gives every comment a history: read, none for an unedited one, or
         // failed.
         let failed = h.get("failed") == Some(&Value::Bool(true));
