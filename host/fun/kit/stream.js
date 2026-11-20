@@ -140,6 +140,8 @@ function make(src, opts) {
   const max = Math.max(min, opts.max ?? 30000);
   const fixed = opts.grow === "fixed";
   const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
+  // An ended over the default max is kept when the caller set no max.
+  const top = opts.max == null ? Math.max(max, ended ?? 0) : max;
   const live = opts.hidden === "live";
   const broke = opts.broken === "end";
   // heard: this connection brought an event; quiet: clean ends in a row
@@ -170,10 +172,10 @@ function make(src, opts) {
 
   // `after` is the wait when the server ended the stream, when set, `spent`
   // the time already gone since the answer came, and `fail` whether this
-  // wait counts as a try. No wait is longer than max.
+  // wait counts as a try.
   const later = (after, spent = 0, fail = true) => {
     if (s.gone || s.done) return;
-    const wait = Math.min(max, after ?? (fixed ? s.base : s.base * 2 ** s.tries));
+    const wait = after === undefined ? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries) : Math.min(top, after);
     if (fail) s.tries += 1;
     clearTimeout(s.timer);
     s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), Math.max(0, wait - spent));

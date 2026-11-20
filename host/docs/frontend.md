@@ -369,10 +369,13 @@ live.reconnect();  // drop the connection and connect now
   `retry:` field sets the first wait, no shorter than `retry` and no longer
   than `max`. An answer that opens resets the wait. A stream the server ends
   is asked for again. No wait is longer than `max`, after a failure, an end
-  or a break, with a server's `retry:` field or `ended` set. An SSE stream sends `Last-Event-ID` when it connects
-  again: the `id:` of the last event it dispatched, so an event cut off
-  before its blank line is asked for again. An event the stream ends in the
-  middle of is dropped, as an `EventSource` drops it.
+  or a break, with a server's `retry:` field or `ended` set. The one
+  exception is an `ended` over 30000 with no `max` given: that wait is kept,
+  and caps the waits after an end or a break in place of `max`. An SSE
+  stream sends `Last-Event-ID` when it connects again: the `id:` of the last
+  event it dispatched, so an event cut off before its blank line is asked
+  for again. An event the stream ends in the middle of is dropped, as an
+  `EventSource` drops it.
 - A 204 answer stops it, as it stops an `EventSource`: the state is
   `"closed"` until `reconnect()`.
 - The error of an answer the stream did not read is a `StreamError` with
@@ -399,7 +402,7 @@ is said above. Each is part of the connection's key.
 | --- | --- |
 | `end` | Ends the stream for good on an answer it names: a list of statuses, or a function `(status, type)` of the status and the content type, without its parameters, that returns `true`. The state is `"closed"`, `status()` and `error()` stay, with the body on the error, until `reconnect()` |
 | `grow` | `"double"`, the default, or `"fixed"`: every wait after a failure is `retry`, up to `max` |
-| `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A server's `retry:` field replaces it, as an `EventSource` waits that field after an end too. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did. A second clean end in a row that brought no event waits `retry`, then the backoff grows as after a failure, so a server that ends every stream at once is not asked in a loop |
+| `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A `max` given caps it; with no `max`, an `ended` over 30000 is kept. A server's `retry:` field replaces it, as an `EventSource` waits that field after an end too. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did. A second clean end in a row that brought no event waits `retry`, then the backoff grows as after a failure, so a server that ends every stream at once is not asked in a loop |
 | `broken` | `"fail"`, the default, or `"end"`: a stream that breaks after it opened waits as a clean end does, `ended` or the first wait, and an end or a break starts the backoff again, so only failed connects grow it. A server's `retry:` field replaces the wait after a break as after an end, and a break counts with the clean ends: a second end or break in a row that brought no event backs off as `ended` says. A client that read the stream with `fetch` often did both, and often waited the same after every end or break, with an event or not |
 | `hidden` | `"live"`, above |
 
@@ -835,7 +838,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24493 bytes, under it. `stream.js` and `press.js`, 17493 more, load only on a page that imports them | Review |
+| The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24493 bytes, under it. `stream.js` and `press.js`, 17651 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond the mode element | Review |
 

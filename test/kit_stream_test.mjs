@@ -775,3 +775,30 @@ test("ended over max waits max, after an end and in the quiet backoff", async ()
     assert.equal(calls.length, n, `end ${n - 1} waits max`);
   }
 });
+
+test("ended over 30 s with no max keeps its wait, and caps a served retry field", async () => {
+  answer = () => {
+    const p = pipe();
+    p.push("data: 1\n\n");
+    p.end();
+    return p;
+  };
+  reader("/api/events", { ended: 60000 });
+  await settle();
+  await after(59999);
+  assert.equal(calls.length, 1, "not the default max of 30 s");
+  await after(1);
+  assert.equal(calls.length, 2);
+  answer = () => {
+    const p = pipe();
+    p.push("retry: 600000\ndata: 1\n\n");
+    p.end();
+    return p;
+  };
+  await after(60000);
+  assert.equal(calls.length, 3);
+  await after(59999);
+  assert.equal(calls.length, 3);
+  await after(1);
+  assert.equal(calls.length, 4, "ended, not the served 600 s");
+});
