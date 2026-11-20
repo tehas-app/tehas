@@ -590,12 +590,16 @@ mod proofs {
         }
     }
 
-    /// The poll's steps (the application that stands, then whether its
-    /// account is allowed) decide as `grant` does, on every timeline: a
-    /// removal the issue's labels do not show yet included.
+    /// The helpers `grant` shares with the poll (`standing`, then
+    /// `account_of` with an allowed check) decide as `grant` does, on every
+    /// timeline of symbolic actors: a removal the issue's labels do not show
+    /// yet included. The poll's own path is text and does not call `grant`:
+    /// vouch's renamed name and the pins' empty login are held by the unit
+    /// tests `a_doubted_name_is_on_no_list_of_logins` and
+    /// `nobody_is_on_no_list_of_logins`.
     #[kani::proof]
     #[kani::unwind(8)]
-    fn the_polls_steps_agree_with_grant() {
+    fn the_shared_helpers_agree_with_grant() {
         let w = world();
         let (tl, n) = timeline(&w);
         let tl = &tl[..n];
