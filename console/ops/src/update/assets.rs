@@ -3,7 +3,8 @@
 //!   console update assets <host dir> <stage dir>
 //!
 //! `host/fun` and `host/docs` are copied to `<stage dir>/fun` and
-//! `<stage dir>/docs` as 644. Then each `<script src="/fun/X.js">` and each
+//! `<stage dir>/docs` as 644, but for the `.d.ts` type files, which no page
+//! loads. Then each `<script src="/fun/X.js">` and each
 //! `<link rel="stylesheet" href="/fun/X.css">` of `fun/index.html`,
 //! `fun/business.html` and `docs/dashboard.frag` is named by the bytes it asks
 //! for: `fun/X.<hex>.js` holds a copy of `fun/X.js` and the tag names that
@@ -48,6 +49,14 @@ pub(super) const PAGES: [&str; 3] = ["fun/index.html", "fun/business.html", "doc
 /// Nothing else is given a hashed name: an image, a font or a document keeps
 /// its name and is revalidated, as the theme file does.
 const HASHED: [&str; 2] = ["js", "css"];
+
+/// Whether a file of `host/fun` or `host/docs` goes to a home, by its name or
+/// address. A `.d.ts` file holds types for a checker, which a browser never
+/// loads, so it is not staged, and an address of one in a JSDoc comment names
+/// no file a page loads.
+pub(super) fn served(name: &str) -> bool {
+    !name.ends_with(".d.ts")
+}
 
 /// The name of an asset's copy: `<stem>.<hex>.<extension>`, `<hex>` the first
 /// 12 hex digits of the sha256 of its bytes. The stem is the whole name before
@@ -241,7 +250,8 @@ fn page(stage: &Path, name: &str) -> io::Result<()> {
 }
 
 /// One directory of the host, whole, into the stage as 644. A name that begins
-/// with a dot is no page and no asset, so it is not copied.
+/// with a dot is no page and no asset, so it is not copied, and neither is a
+/// file that is not `served`.
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     let mut entries: Vec<_> = fs::read_dir(from)?
         .filter_map(Result::ok)
@@ -261,6 +271,9 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
         }
         if source.is_dir() {
             copy_dir(&source, &to.join(&name))?;
+            continue;
+        }
+        if !served(&name) {
             continue;
         }
         let bytes = fs::read(&source)?;
@@ -444,6 +457,30 @@ mod tests {
     }
 
     #[test]
+    fn a_type_file_is_not_staged() {
+        let d = host("assets-types");
+        put(&d, "host/fun/kit/island.js", "export const island = 1;\n");
+        put(&d, "host/fun/kit/kit.d.ts", "export type A = 1;\n");
+        put(&d, "host/fun/kit/vendor/solid.js", "export{a as For};\n");
+        put(
+            &d,
+            "host/fun/kit/vendor/solid.d.ts",
+            "export const For: 1;\n",
+        );
+        assert_eq!(run(&d), 0);
+        assert_eq!(names(&staged(&d, "fun/kit")), ["island.js", "vendor"]);
+        assert_eq!(names(&staged(&d, "fun/kit/vendor")), ["solid.js"]);
+    }
+
+    #[test]
+    fn a_type_address_in_a_module_is_not_read() {
+        let text = "/** @typedef {import(\"./kit.d.ts\").Feed} Feed */\n\
+                    /** @import { Accessor } from \"./vendor/solid.d.ts\" */\n\
+                    import { a } from \"./a.js\";\n";
+        assert_eq!(specifiers(text), vec!["./a.js"]);
+    }
+
+    #[test]
     fn a_file_in_a_subfolder_is_hashed_and_named_in_its_subfolder() {
         let d = host("assets-subfolder");
         put(
@@ -530,7 +567,7 @@ mod tests {
                     };
                     let rest = &rest[1..];
                     let spec = &rest[..rest.find(quote).unwrap_or(rest.len())];
-                    if spec.starts_with("./") || spec.starts_with("../") {
+                    if (spec.starts_with("./") || spec.starts_with("../")) && served(spec) {
                         out.push(spec);
                     }
                 }

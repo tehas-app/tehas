@@ -618,6 +618,11 @@ removed. A break raises `n`, and the changelog says so under "Adopter action".
 A program that builds on the kit copies `host/fun/kit/` whole at a pinned tehas
 tag, checks each file against the manifest, and does not edit it.
 
+A `.d.ts` file under `host/fun` is for a type checker. An install does not
+copy it into the home, and the sweep removes one there. An address of one in a
+JSDoc comment, such as `import("./vendor/solid.d.ts")`, is no import: the asset
+checks and `pages.max` do not read it.
+
 The kit holds generic parts only. The `tehas-factory-*` islands that read the
 files under `/live/` are not in it.
 

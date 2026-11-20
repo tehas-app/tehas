@@ -470,6 +470,29 @@ mod tests {
     }
 
     #[test]
+    fn the_manifest_names_the_type_files() {
+        let d = host("kit-types");
+        let types = "export function createMemo<T>(f: () => T): () => T;\n";
+        d.file("host/fun/kit/vendor/solid.d.ts", types);
+        d.file("host/fun/kit/kit.d.ts", "export type N = number;\n");
+        let kit = d.0.join("host/fun/kit");
+        let solid = fs::read(kit.join("vendor/solid.js")).unwrap();
+        d.file(
+            "host/fun/kit/MANIFEST",
+            &format!(
+                "kit 1\nfile {} 24 kit.d.ts\nfile {} {} vendor/solid.d.ts\nfile {} {} vendor/solid.js\n",
+                hex(b"export type N = number;\n"),
+                hex(types.as_bytes()),
+                types.len(),
+                hex(&solid),
+                solid.len()
+            ),
+        );
+        assert_eq!(manifest(&kit), Vec::<String>::new());
+        assert_eq!(run(&d), Vec::<String>::new());
+    }
+
+    #[test]
     fn the_exports_are_the_closing_export_list() {
         assert_eq!(
             exports("var a=1;export{Fd as Errored,jd as For,ap as html,B as untrack};"),

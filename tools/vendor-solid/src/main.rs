@@ -500,6 +500,24 @@ mod tests {
     }
 
     #[test]
+    fn the_manifest_keeps_the_type_file_beside_the_bundle() {
+        let kit = Kit::new("types");
+        fs::create_dir_all(kit.0.join("vendor")).unwrap();
+        fs::write(kit.0.join("vendor/solid.d.ts"), "export {};\n").unwrap();
+        fs::write(kit.0.join("vendor/solid.js"), "old").unwrap();
+        let out = manifest(&kit.0, &[("vendor/solid.js", b"x")]);
+        let hex: String = Sha256::digest(b"export {};\n")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert!(
+            out.contains(&format!("file {hex} 11 vendor/solid.d.ts\nfile ")),
+            "{out}"
+        );
+        assert!(out.ends_with(" 1 vendor/solid.js\n"), "{out}");
+    }
+
+    #[test]
     fn a_kit_with_no_manifest_starts_at_1() {
         let kit = Kit::new("new");
         assert_eq!(kit_line(&kit.0).unwrap(), "kit 1");
