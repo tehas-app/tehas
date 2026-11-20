@@ -412,6 +412,31 @@ fn a_stale_tehas_refreshing_is_cleared_while_a_pr_request_waits() {
 }
 
 #[test]
+fn an_image_without_continue_pr_holds_refreshes_said_once_and_in_tehas_status_s_demand() {
+    let w = refresh_world("no-continue", &[]);
+    caps(&w, false);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    has(&r.out, "hold refreshes: the pi-rukas in the sandbox image");
+    let d = demand(&w);
+    has(
+        d["refreshHold"].as_str().unwrap_or(""),
+        "does not take --continue-pr",
+    );
+    assert_eq!(d["waiting"], 0);
+    assert_eq!(requests(&w), 1);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    lacks(&r.out, "hold refreshes");
+    has(
+        demand(&w)["refreshHold"].as_str().unwrap_or(""),
+        "does not take --continue-pr",
+    );
+    assert_eq!(requests(&w), 1);
+}
+
+#[test]
 fn the_flag_alone_is_not_enough_an_answer_without_features_continue_pr_holds_refreshes() {
     let w = refresh_world("flag-alone", &[]);
     caps(&w, true);
