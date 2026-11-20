@@ -664,6 +664,55 @@ t_run "$bootstrap user"
 t_eq "$t_rc" 0
 t_eq "$(test -e "$T/build-calls" && echo there)" ""
 
+# The sandbox build takes the instance's PI_RUKAS_FOLLOW over versions.env's,
+# and the clone follows the same pi-rukas: otherwise every tehas update asks
+# for a bootstrap.sh user that never moves the clone to the image's commit.
+rukas_pin=$(printf '1%.0s' {1..40})
+t_case "the instance's PI_RUKAS_FOLLOW wins over versions.env for the clone"
+all_present
+behind_head
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$rukas_pin"
+mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_contains "$t_out" "installing pi-rukas $rukas_pin"
+t_contains "$(t_calls git)" "checkout -q $rukas_pin"
+# A pinned commit asks upstream nothing.
+t_lacks "$(t_calls git)" "ls-remote"
+t_run "$bootstrap check"
+t_contains "$(grep '^pi-rukas ' <<<"$t_out")" "$rukas_pin"
+
+t_case "an instance that sets no PI_RUKAS_FOLLOW leaves the clone on versions.env's"
+t_instance "${T_MINIMAL[@]}"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_contains "$t_out" "installing pi-rukas $rukas_head"
+t_contains "$(t_calls git)" "checkout -q $rukas_head"
+
+t_case "an instance whose settings do not load stops user and check with 78 before anything is installed"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=main"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+t_lacks "$t_out" "is present"
+t_eq "$(t_calls git)" ""
+t_run "$bootstrap check"
+t_eq "$t_rc" 78
+t_lacks "$t_out" "TOOL"
+
+t_case "with no console yet the instance is not loaded and pi-rukas waits for install.sh"
+rm "$T/home/tehas/libexec/console"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_contains "$t_out" "pi-rukas waits for install.sh, then run ./bootstrap.sh user again"
+t_no_instance
+rm -rf "$T/home/tehas/repos/pi-rukas"
+all_present
+behind_head
+
 t_case "check reports a jq at another version than versions.env pins"
 all_present
 t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""

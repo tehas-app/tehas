@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prepare a fresh host for tehas: everything tehas and pi-rukas need, at the
-# versions in host/versions.env, and pi-rukas at the commit versions.env
-# follows (console rukas target). Safe to run again: a tool already at its version is skipped, one at
+# versions in host/versions.env, and pi-rukas at the commit PI_RUKAS_FOLLOW
+# names (console rukas target): the instance's, as the sandbox image follows it,
+# else the one in versions.env. Safe to run again: a tool already at its version is skipped, one at
 # another version is replaced. An npm tool counts as present only when its
 # pinned tree is installed too.
 #
@@ -42,12 +43,13 @@
 # Pi, ctx7 and parallel-cli from the npm trees pinned in host/npm; Rust, vipune
 # and oo; codebase-memory-mcp; the pi-rukas clone, moved to the commit
 # PI_RUKAS_FOLLOW names (the newest tag of the line in versions.env by default)
-# on every run. System packages are not
+# on every run; an instance's PI_RUKAS_FOLLOW in instance.env wins. System packages are not
 # pinned: `root` installs what the distribution offers and `check` only requires
 # them to be present.
 #
 # Exit: 0 done, or check found everything; 1 something failed or check found
-# a tool missing or at another version; 64 usage, or slice not run as root.
+# a tool missing or at another version; 64 usage, or slice not run as root;
+# 78 user or check, and the instance's settings do not load.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -453,13 +455,26 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
+# The instance's PI_RUKAS_FOLLOW and PI_RUKAS_REPO win over versions.env's, as
+# in sandbox/build.sh, so the clone follows the pi-rukas the image does. The
+# settings are loaded as every command loads them, which takes a console: with
+# none yet, pi-rukas waits for install.sh anyway. Returns 78 when they do not load.
+instance_rukas() {
+  local loaded
+  [ -x "$root/libexec/console" ] || [ -x "$TEHAS_HOME/libexec/console" ] || return 0
+  # shellcheck source=lib/config.sh
+  . "$root/lib/config.sh"
+  [ -f "$(tehas_instance_dir)/instance.env" ] || return 0
+  loaded=$(tehas_load >/dev/null && printf '%s\n%s\n' "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}") || return 78
+  { read -r PI_RUKAS_FOLLOW; read -r PI_RUKAS_REPO; } <<<"$loaded"
+}
 # The console of the release, or the installed one.
 console_of() {
   local console=$root/libexec/console
   [ -x "$console" ] || console=$TEHAS_HOME/libexec/console
   printf '%s\n' "$console"
 }
-# What is expected is the commit versions.env names now, a release's pin or
+# What is expected is the commit PI_RUKAS_FOLLOW names now, a release's pin or
 # the newest tag of a checkout's line, as the console names it. Otherwise why
 # not, and 2 when there is no console yet.
 rukas_head() {
@@ -487,6 +502,7 @@ found_parallel_tree() { found_npm parallel-web-cli found_parallel "$PARALLEL_CLI
 do_check() {
   local rc=0 name want found tool part
   home_paths
+  instance_rukas || exit 78
   line() { # name found expected
     local mark=ok
     [ "$2" = "$3" ] || { mark=DIFFERS; [ -n "$2" ] || mark=MISSING; rc=1; }
@@ -790,6 +806,7 @@ do_user() {
   [ "$(id -u)" != 0 ] || die "the user part must not run as root"
   supported
   home_paths
+  instance_rukas || exit 78
   for tool in docker git jq curl unzip; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is missing: run 'sudo ./bootstrap.sh root $(id -un)' first"
   done
