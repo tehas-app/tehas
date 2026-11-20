@@ -9,10 +9,11 @@
 #
 # Approved by the owner on 2026-11-20: library solid 123689 and
 # page dashboard 83939 53988. Approved by the owner on 2026-11-20 with the
-# kit's JSDoc types: page dashboard 88935 53988.
+# kit's JSDoc types: page dashboard 88935 53988, and under the same approval
+# page dashboard 88967 53988 for the untracked comparison in state.js.
 page business 99086 40524
 page floor 144293 68492
-page dashboard 88935 53988
+page dashboard 88967 53988
 page manual 0 49838
 island factory/tehas-factory-console 4156
 island factory/tehas-factory-days 4686
