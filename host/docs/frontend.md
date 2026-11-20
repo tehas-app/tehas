@@ -625,6 +625,18 @@ JSDoc comment, such as `import("./vendor/solid.d.ts")`, is no import: the asset
 checks and `pages.max` do not read it. An address of one in code is an import
 of a file no home has, and the checks refuse it.
 
+The kit's modules carry their types as JSDoc comments: what each export takes
+and returns, and the types a caller names. `request.js` has `Headers`, `Accept`
+and `Parse`; `island.js` has `Ctx`, `Handle`, `RenderModule` and `IslandSpec`;
+`feed.js` has `FeedOptions`, `FeedAnswer` and `Feed`; `press.js` has
+`PressOptions` and `PressAnswer`; `stream.js` has `StreamOptions`,
+`StreamEvent` and `Stream`. A file names one with
+`/** @import { Feed } from "../kit/feed.js" */`. The comments are served and
+counted like any other bytes; they change no code. `tsc --checkJs --strict`
+reads the kit with no error. A program that copies the kit and checks its own
+code with `tsc --checkJs` gets the kit's types from the modules and
+`vendor/solid.d.ts`, and needs no copy of its own.
+
 The kit holds generic parts only. The `tehas-factory-*` islands that read the
 files under `/live/` are not in it.
 
@@ -850,7 +862,7 @@ The budgets for new work:
 | The library | Its `library solid` line | The test |
 | An existing page | Its line in `pages.max` | The test |
 | A plain element | 2 KB | Review |
-| The kit's core modules | 24 KB (24576 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, set by the owner on 2026-11-20, not a gate. At `kit 1` they are 24493 bytes, under it. `stream.js` and `press.js`, 17651 more, load only on a page that imports them | Review |
+| The kit's core modules | 30 KB (30720 bytes) for `island.js`, `feed.js`, `request.js`, `state.js` and `parts.js`, which a page that polls loads: a review figure, not a gate. It was 24 KB until the owner approved the growth of the kit's JSDoc types on 2026-11-20. At `kit 1` with the types they are 29584 bytes, under it. `stream.js` and `press.js`, 19843 more, load only on a page that imports them | Review |
 | A new page | 40 KB of script, 30 KB of CSS beside the theme and the kit | Review, and its line in `pages.max` |
 | A page with no island | No script beyond `fun/mode.js` | Review |
 
