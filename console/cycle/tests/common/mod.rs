@@ -180,6 +180,10 @@ const SETTINGS: &[(&str, &str)] = &[
     ("TEHAS_ANALYTICS", "on"),
     ("TEHAS_BOT_LOGIN", "tehas-bot[bot]"),
     ("TEHAS_CHILD_TIMEOUT", "7200"),
+    (
+        "TEHAS_CLEAN_DIRS",
+        "target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle",
+    ),
     ("TEHAS_CLONE_DEPTH", "100"),
     ("TEHAS_CONSOLE_CMD", "fake-console"),
     ("TEHAS_CONTROL_ISSUE", "1"),
