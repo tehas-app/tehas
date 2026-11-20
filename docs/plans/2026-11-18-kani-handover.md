@@ -24,7 +24,7 @@ details. The issues are still open; close them when the train lands.
 | #2446 slice arithmetic | `console/core/src/slice.rs` | Found and fixed two overflows: the memory a reserve needs (reachable with valid settings, `changelog.d/2446.md`) and the CPU share and pids limit (unreachable) |
 | #2447 zip and path rule | `console/attach/src/zip.rs`, `unpack.rs` | Refactored for the solver (index-based split, byte cleaning, directory read in its own function). No behaviour change |
 | #2448 placement | `console/dispatch/src/place.rs` | `fits` and `choose` split out. No behaviour change |
-| #2449 grant decision | `console/core/src/grant.rs` | **Security change.** The poll's steps call `grant`; 465 label shell-test runs gave identical output before and after |
+| #2449 grant decision | `console/core/src/grant.rs` | **Security change.** The poll does not call `grant`: its steps share `standing` and `account_of` with it, and a proof shows those agree with `grant`; 465 label shell-test runs gave identical output before and after |
 
 ## The proofs job
 
