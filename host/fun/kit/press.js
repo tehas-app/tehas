@@ -1,6 +1,6 @@
 // A press (host/docs/frontend.md, "Presses"): one request, a post by default,
-// with headers, a JSON body and a rule for its status. No library: a press
-// runs inside Solid's action().
+// with headers, a JSON or form body and a rule for its status. No library: a
+// press runs inside Solid's action().
 //
 //   const save = action(function* (n) {
 //     setPicked(n);                                  // createOptimistic: shows at once
@@ -22,10 +22,19 @@ export class PressError extends Error {
   }
 }
 
+// What fetch sends as it is, with its own content type: a form's data among them.
+const NATIVE = ["FormData", "URLSearchParams", "Blob", "ArrayBuffer"];
+const native = (b) => ArrayBuffer.isView(b) || NATIVE.some((n) => globalThis[n] && b instanceof globalThis[n]);
+const plain = (b) =>
+  ["number", "boolean"].includes(typeof b) ||
+  (typeof b === "object" && (b === null || Array.isArray(b) || [Object.prototype, null].includes(Object.getPrototypeOf(b))));
+
 /**
- * Sends one request. `body` that is not a string goes as JSON with its
- * content type; `parse` reads the answer ("json", the default, or "text"; an
- * empty body is null). A status in `accept` resolves with its value instead
+ * Sends one request. `body` that is a string, FormData, URLSearchParams, a
+ * Blob or bytes goes as it is; a plain object, an array, a number, a boolean
+ * or null goes as JSON with its content type; anything else is refused.
+ * `parse` reads the answer ("json", the default, or "text"; an empty body is
+ * null). A status in `accept` resolves with its value instead
  * of rejecting. `signal` aborts it.
  * @param {string} src
  * @param {{ method?: string, headers?: object | (() => object), body?: any, credentials?: RequestCredentials,
@@ -39,13 +48,13 @@ export async function press(src, options = {}) {
   if (credentials) init.credentials = credentials;
   if (signal) init.signal = signal;
   if (body !== undefined) {
-    if (typeof body === "string") init.body = body;
-    else {
+    if (typeof body === "string" || native(body)) init.body = body;
+    else if (plain(body)) {
       init.body = JSON.stringify(body);
       if (!Object.keys(headers).some((k) => k.toLowerCase() === "content-type")) {
         headers["Content-Type"] = "application/json";
       }
-    }
+    } else throw new TypeError(`${src}: a body press cannot send`);
   }
   const res = await fetch(src, init);
   const text = await res.text();
