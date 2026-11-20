@@ -25,9 +25,10 @@ beforeEach(() => {
         init.signal.addEventListener("abort", () => reject(init.signal.reason));
       });
     }
-    const { ok, body } = answer;
-    if (!ok) return { ok: false, status: 503, statusText: "Service Unavailable" };
-    return { ok: true, status: 200, text: async () => body };
+    const { ok, body, status = ok ? 200 : 503, statusText = "Service Unavailable" } = answer;
+    const headers = new Headers(answer.headers ?? {});
+    if (!ok) return { ok: false, status, statusText, headers, text: async () => body ?? "" };
+    return { ok: true, status, headers, text: async () => body };
   };
   mock.timers.enable({ apis: ["setTimeout"] });
 });
@@ -279,4 +280,135 @@ test("isPending is true during any poll, also one that brings the same bytes", a
 
 test("a feed outside an island's root is refused", () => {
   assert.throws(() => feed("/live/status.json"), /inside an island's root/);
+});
+
+// The options a port needs: request headers, credentials, text, a status
+// that is data, and what the answer said.
+const DATE = "Thu, 19 Nov 2026 10:00:00 GMT";
+
+test("request headers go with every poll; a function is read on each one", async () => {
+  let session = "a";
+  const a = island("/live/status.json", { every: 1000, headers: () => ({ "X-Session": session }), credentials: "include" });
+  await settle();
+  session = "b";
+  mock.timers.tick(1000);
+  await settle();
+  assert.deepEqual(calls.map((c) => c.init.headers), [{ "X-Session": "a" }, { "X-Session": "b" }]);
+  assert.equal(calls[0].init.credentials, "include");
+  assert.deepEqual(a.seen.at(-1), { n: 1, pending: false, error: null });
+});
+
+test("a feed with no options sends no headers and no credentials, as before", async () => {
+  island("/live/status.json");
+  await settle();
+  assert.deepEqual(Object.keys(calls[0].init).sort(), ["cache", "signal"]);
+});
+
+test("readers with other options get a source of their own", async () => {
+  const plain = island("/live/status.json");
+  const a = island("/live/status.json", { headers: { "X-Session": "a" } });
+  const b = island("/live/status.json", { headers: { "X-Session": "a" } });
+  const c = island("/live/status.json", { headers: { "X-Session": "c" } });
+  await settle();
+  assert.equal(a.live, b.live);
+  assert.notEqual(a.live, plain.live);
+  assert.notEqual(a.live, c.live);
+  assert.equal(calls.length, 3);
+});
+
+test("an accepted status is data, not an error", async () => {
+  answer = { ok: false, status: 404, statusText: "Not Found", body: "This factory plans no releases." };
+  const plan = createRoot(() => feed("/api/plan", { accept: { 404: { n: 0 } } }));
+  const other = createRoot(() => feed("/api/other", { accept: { 404: (text) => ({ n: text.length }) } }));
+  const seen = [];
+  createRoot(() =>
+    createEffect(
+      () => [plan.data().n, other.data().n, plan.error(), plan.meta().status],
+      (v) => {
+        seen.push(v);
+      },
+    ),
+  );
+  await settle();
+  assert.deepEqual(seen.at(-1), [0, 31, null, 404]);
+});
+
+test("a status that is not accepted is still an error, with its status", async () => {
+  answer = { ok: false, status: 500, statusText: "Internal Server Error" };
+  const a = island("/api/plan", { accept: { 404: [] } });
+  await settle();
+  assert.match(a.seen.at(-1).thrown, /\/api\/plan: 500 Internal Server Error/);
+});
+
+test("parse text gives the body as it came", async () => {
+  answer = { ok: true, body: "plain words" };
+  const live = createRoot(() => feed("/live/note.txt", { parse: "text" }));
+  let got;
+  createRoot(() =>
+    createEffect(
+      () => live.data(),
+      (v) => {
+        got = v;
+      },
+    ),
+  );
+  await settle();
+  assert.equal(got, "plain words");
+});
+
+test("meta gives the status, the headers asked for and the server's Date", async () => {
+  answer = { ok: true, body: '{"n":1}', headers: { Date: DATE, "X-Session": "s1", "X-Other": "no" } };
+  const live = createRoot(() => feed("/live/top.json", { expose: ["X-Session", "X-Missing"] }));
+  let got;
+  createRoot(() =>
+    createEffect(
+      () => live.meta(),
+      (v) => {
+        got = v;
+      },
+    ),
+  );
+  await settle();
+  assert.equal(got.status, 200);
+  assert.deepEqual(got.headers, { "x-session": "s1", "x-missing": null });
+  assert.equal(got.date, Date.parse(DATE));
+  assert.equal(typeof got.at, "number");
+});
+
+test("a new Date with the same bytes moves meta and leaves the data's readers be", async () => {
+  answer = { ok: true, body: '{"n":1}', headers: { Date: DATE } };
+  const live = createRoot(() => feed("/live/top.json", { every: 1000 }));
+  let dataRuns = 0;
+  const dates = [];
+  createRoot(() => {
+    createEffect(
+      () => live.data(),
+      () => {
+        dataRuns += 1;
+      },
+    );
+    createEffect(
+      () => live.meta().date,
+      (d) => {
+        dates.push(d);
+      },
+    );
+  });
+  await settle();
+  answer = { ok: true, body: '{"n":1}', headers: { Date: "Thu, 19 Nov 2026 10:00:10 GMT" } };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(dataRuns, 1);
+  assert.deepEqual(dates, [Date.parse(DATE), Date.parse(DATE) + 10000]);
+});
+
+test("a failed poll moves meta to its status and keeps the data", async () => {
+  const a = island("/live/status.json", { every: 1000 });
+  await settle();
+  answer = { ok: false, status: 502, statusText: "Bad Gateway" };
+  mock.timers.tick(1000);
+  await settle();
+  assert.equal(a.live.meta().status, 502);
+  assert.equal(a.live.error().status, 502);
+  assert.equal(a.seen.at(-1).n, 1);
 });
