@@ -26,7 +26,9 @@ fn login(v: &Value, path: &str) -> String {
 /// A tick the fixer saved has the status "fixer", or "held" when anyone but
 /// the bot and the fixer edited the question too, or the edits read are not
 /// all of them: GitHub names who saved a comment, not who ticked which box,
-/// so the tick may be a person's. The fixer's newest reply, edited by nobody
+/// so the tick may be a person's. It is "unread" when the question's edit
+/// history could not be read this poll: the rules wait for the next poll
+/// without acting. The fixer's newest reply, edited by nobody
 /// else, is fixer_reply, and only a comment whose first line is
 /// <!-- tehas:millwright issue=<n> action=answer --> is a reply: the fixer is
 /// the bot, so every note the host writes is the fixer's comment too, and none
@@ -125,13 +127,21 @@ pub fn answer(
         json!({"status": "none"})
     } else if !fixer.is_empty() && ed == fixer && ticks.len() == 1 {
         let h = qv.get("userContentEdits").cloned().unwrap_or(json!({}));
+        // A history whose read failed says nothing of who saved the question:
+        // the tick is "unread", and the rules wait for the next poll without
+        // acting. The poll's read
+        // gives every comment a history: read, none for an unedited one, or
+        // failed.
+        let failed = h.get("failed") == Some(&Value::Bool(true));
         let nodes = h
             .get("nodes")
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
         let total = h.get("totalCount").and_then(Value::as_f64).unwrap_or(0.0);
-        if total > nodes.len() as f64
+        if failed {
+            json!({"status": "unread", "by": ed})
+        } else if total > nodes.len() as f64
             || nodes
                 .iter()
                 .any(|x| login(x, "/editor/login") != fixer && !bots(x, "/editor"))
@@ -235,7 +245,7 @@ mod tests {
                 "createdAt": "2026-01-01T00:00:00Z", "lastEditedAt": null, "editor": null,
                 "body": "- [x] Adopt all\n<!-- tehas:question kind=plan issue=7 turn=9 -->"}),
             json!({"databaseId": 5, "author": {"login": BOT}, "body": body,
-                "createdAt": "2026-01-01T01:00:00Z", "lastEditedAt": at, "editor": ed}),
+            "createdAt": "2026-01-01T01:00:00Z", "lastEditedAt": at, "editor": ed}),
         ];
         list.extend(after.as_array().cloned().unwrap_or_default());
         nodes(json!(list))
@@ -580,6 +590,22 @@ mod tests {
             read_with_fixer(&c)["tick"],
             json!({"status": "held", "by": FIXER})
         );
+    }
+
+    #[test]
+    fn a_tick_the_fixer_saved_whose_history_read_failed_is_unread() {
+        // A history whose read failed says neither that only the fixer saved
+        // the question nor that someone else did: the tick waits, unread.
+        let mut c = asked(&ticked("Change some"), FIXER, json!([]));
+        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
+            json!({"failed": true, "line": "ERROR: gh api graphql failed"});
+        assert_eq!(
+            read_with_fixer(&c)["tick"],
+            json!({"status": "unread", "by": FIXER})
+        );
+        c["data"]["repository"]["issue"]["comments"]["nodes"][1]["userContentEdits"] =
+            json!({"failed": true});
+        assert_eq!(read_with_fixer(&c)["tick"]["status"], "unread");
     }
 
     #[test]

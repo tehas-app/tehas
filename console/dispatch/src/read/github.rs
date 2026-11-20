@@ -135,12 +135,166 @@ fn page_query_typed(first: bool, types: bool) -> String {
 }
 
 /// What a comment read asks of one issue: the one-issue query and the chunked
-/// one ask the same fields, so an issue's answer is the same either way.
+/// one ask the same fields, so an issue's answer is the same either way. A
+/// comment's edit history is not asked here: nested under every comment it
+/// was nearly all of the read's cost, and only an edited comment has one.
+/// `with_comment_edits` reads it for the comments GitHub says were edited
+/// and puts it back where it was, so a rule reads the same answer.
 macro_rules! comment_fields {
     () => {
-        r#"comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
-          userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } } } }"#
+        r#"comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } } } }"#
     };
+}
+
+/// A comment's edit history, as the comment read asked it before.
+macro_rules! comment_edit_fields {
+    () => {
+        r#"userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } }"#
+    };
+}
+
+/// The most comments one edit history query asks of.
+pub const COMMENT_EDIT_CHUNK: usize = 20;
+
+/// One query for the edit histories of a chunk of comments, by node id.
+fn comment_edits_query(ids: &[String]) -> String {
+    let list: Vec<String> = ids.iter().map(|id| format!("\"{id}\"")).collect();
+    format!(
+        "query {{ nodes(ids: [{}]) {{ ... on IssueComment {{ id {} }} }} }}",
+        list.join(", "),
+        comment_edit_fields!()
+    )
+}
+
+/// Whether `id` is a node id as GitHub writes them, so it can go into a
+/// query as it is.
+fn is_node_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 100
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'=')
+}
+
+/// The comment nodes of one issue's comment read, as `comments_of` gives it.
+fn comment_nodes(answer: &mut Value) -> Option<&mut Vec<Value>> {
+    answer
+        .pointer_mut("/data/repository/issue/comments/nodes")
+        .and_then(Value::as_array_mut)
+}
+
+/// Whether GitHub says the comment was edited: a stamped `lastEditedAt`, as
+/// `edit_holds` reads it. GitHub stamps every edit it saves.
+fn was_edited(comment: &Value) -> bool {
+    comment
+        .get("lastEditedAt")
+        .and_then(Value::as_str)
+        .is_some_and(|at| !at.is_empty())
+}
+
+/// The history a comment already carries, when its answer holds one.
+fn carried(comment: &Value) -> Option<&Value> {
+    comment
+        .get("userContentEdits")
+        .filter(|h| h.get("totalCount").is_some() || h.get("failed").is_some())
+}
+
+/// The ids of the edited comments in `answers`, each once. An edited comment
+/// with no id usable in a query is left out: `fill_comment_edits` gives it a
+/// history that failed, which holds.
+pub fn edited_comment_ids(answers: &mut [Value]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for a in answers.iter_mut() {
+        for c in comment_nodes(a).into_iter().flatten() {
+            let Some(id) = c.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if was_edited(c)
+                && carried(c).is_none()
+                && is_node_id(id)
+                && !ids.iter().any(|x| x == id)
+            {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
+/// Puts each comment's edit history back on it, as the comment read asked it
+/// before: the history read by its id for an edited comment, the one its
+/// answer already carries if any, none for a comment GitHub says was not
+/// edited, and a read that failed (the read's own marker, or `{"failed":
+/// true}` when the answer left the comment out) otherwise, so
+/// `edit_holds` holds and `edit_history_unread` ends the poll as it did when
+/// the comment read itself failed. Pure.
+pub fn fill_comment_edits(answers: &mut [Value], edits: &Map<String, Value>) {
+    for a in answers.iter_mut() {
+        for c in comment_nodes(a).into_iter().flatten() {
+            let read = c
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| edits.get(id))
+                .cloned();
+            let history = match (read, carried(c)) {
+                (Some(h), _) => h,
+                (None, Some(h)) => h.clone(),
+                (None, None) if !was_edited(c) => json!({"totalCount": 0, "nodes": []}),
+                (None, None) => json!({"failed": true}),
+            };
+            if let Some(o) = c.as_object_mut() {
+                o.insert("userContentEdits".into(), history);
+            }
+        }
+    }
+}
+
+/// Reads the edit histories of the edited comments in `answers` and puts
+/// every comment's history back on it (`fill_comment_edits`). A chunk that
+/// failed gives each of its comments that failed read.
+fn with_comment_edits(calls: &mut Calls, answers: &mut [Value]) {
+    let ids = edited_comment_ids(answers);
+    let mut edits = Map::new();
+    if !ids.is_empty() {
+        let list: Vec<Vec<String>> = ids
+            .chunks(COMMENT_EDIT_CHUNK)
+            .map(|chunk| {
+                vec![
+                    "api".to_string(),
+                    "graphql".to_string(),
+                    "-f".to_string(),
+                    format!("query={}", comment_edits_query(chunk)),
+                ]
+            })
+            .collect();
+        let answers = calls.gh_all(&list);
+        for (chunk, answer) in ids.chunks(COMMENT_EDIT_CHUNK).zip(answers) {
+            match answer {
+                Ok(v) => {
+                    for node in v
+                        .pointer("/data/nodes")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let id = node.get("id").and_then(Value::as_str);
+                        let h = node.get("userContentEdits").filter(|h| h.is_object());
+                        if let (Some(id), Some(h)) = (id, h) {
+                            if chunk.iter().any(|c| c == id) {
+                                edits.insert(id.to_string(), h.clone());
+                            }
+                        }
+                    }
+                }
+                Err(f) => {
+                    for id in chunk {
+                        edits.insert(id.clone(), failed_read(&f));
+                    }
+                }
+            }
+        }
+    }
+    fill_comment_edits(answers, &edits);
 }
 
 const COMMENTS: &str = concat!(
@@ -151,8 +305,8 @@ const COMMENTS: &str = concat!(
     " } } }"
 );
 
-/// The most issues one comment query asks of. Each asks up to 100 comments of
-/// 100 edits, so ten issues stay well under GitHub's 500,000 nodes a query.
+/// The most issues one comment query asks of. Each asks up to 100 comments,
+/// so ten issues stay well under GitHub's 500,000 nodes a query.
 pub const COMMENT_CHUNK: usize = 10;
 
 /// One aliased query for the comments of a chunk of issues: `i{n}` answers #n.
@@ -598,7 +752,7 @@ pub fn issue(o: &Open) -> Map<String, Value> {
 
 /// The comments of several issues, one aliased query per chunk of
 /// `COMMENT_CHUNK`, the chunks side by side. Each issue's answer has the shape
-/// `comments` gives, so a rule cannot tell the two reads apart. A chunk that
+/// the one-issue query `COMMENTS` gives, so a rule cannot tell the two reads apart. A chunk that
 /// failed reads every issue of it as `failed_read`, as a failed `comments`
 /// does, so a hold stays a hold; an alias the answer left out or null is that
 /// one issue's failed read, with no line: no gh call failed.
@@ -621,7 +775,7 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
         })
         .collect();
     let answers = calls.gh_all(&list);
-    numbers
+    let mut out: Vec<Value> = numbers
         .chunks(COMMENT_CHUNK)
         .zip(answers)
         .flat_map(|(chunk, answer)| {
@@ -638,12 +792,16 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
                 })
                 .collect::<Vec<Value>>()
         })
-        .collect()
+        .collect();
+    with_comment_edits(calls, &mut out);
+    out
 }
 
-/// The comments of one issue, as the bash's question and blocker reads have
-/// them; `failed_read` when the call failed.
-pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
+/// The comments of one issue, with no edit history read: for a reader that
+/// reads no comment's edit history (the finish asks, which read only
+/// `lastEditedAt` and the editor), which so pays no history read.
+/// `failed_read` when the call failed.
+pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
     let (owner, name) = split(repo);
     let num = format!("number={n}");
     let query = format!("query={COMMENTS}");
@@ -781,6 +939,7 @@ mod tests {
             page_query(true),
             COMMENTS.to_string(),
             comments_query(&[7, 8]),
+            comment_edits_query(&["IC_a".to_string()]),
             PULL.to_string(),
             MORE_OPEN_PULLS.to_string(),
         ] {
@@ -791,6 +950,97 @@ mod tests {
             );
             assert!(q.contains(with_id), "{q}");
         }
+    }
+
+    #[test]
+    fn a_comment_read_asks_no_history_and_the_history_read_asks_it_as_before() {
+        assert!(!COMMENTS.contains("userContentEdits"), "{COMMENTS}");
+        assert!(!comments_query(&[7]).contains("userContentEdits"));
+        let q = comment_edits_query(&["IC_a".to_string(), "IC_b".to_string()]);
+        assert!(q.contains(r#"nodes(ids: ["IC_a", "IC_b"])"#), "{q}");
+        assert!(q.contains(comment_edit_fields!()), "{q}");
+    }
+
+    #[test]
+    fn only_edited_comments_with_a_plain_id_are_asked_for_once() {
+        let answer = |nodes: Value| json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
+        let mut answers = vec![
+            answer(json!([
+                {"id": "IC_a", "lastEditedAt": "2026-10-04T00:00:00Z"},
+                {"id": "IC_b", "lastEditedAt": null},
+                {"id": "IC_c", "lastEditedAt": ""},
+                {"id": "IC_\" x", "lastEditedAt": "2026-10-04T00:00:00Z"}
+            ])),
+            answer(json!([{"id": "IC_a", "lastEditedAt": "2026-10-04T00:00:00Z"}])),
+            json!({"failed": true}),
+        ];
+        assert_eq!(edited_comment_ids(&mut answers), vec!["IC_a".to_string()]);
+        let mut edits = Map::new();
+        edits.insert(
+            "IC_a".into(),
+            json!({"totalCount": 1, "nodes": [{"editor": {"login": "mallory"}}]}),
+        );
+        fill_comment_edits(&mut answers, &edits);
+        let nodes = &answers[0]["data"]["repository"]["issue"]["comments"]["nodes"];
+        assert_eq!(nodes[0]["userContentEdits"]["totalCount"], json!(1));
+        assert_eq!(
+            nodes[1]["userContentEdits"],
+            json!({"totalCount": 0, "nodes": []})
+        );
+        assert_eq!(
+            nodes[2]["userContentEdits"],
+            json!({"totalCount": 0, "nodes": []})
+        );
+        // An id that cannot go into a query is never asked, and holds.
+        assert_eq!(nodes[3]["userContentEdits"], json!({"failed": true}));
+        // A read that failed whole is left as it was.
+        assert_eq!(answers[2], json!({"failed": true}));
+    }
+
+    #[test]
+    fn an_outside_edit_of_a_marker_comment_still_holds_after_the_history_is_put_back() {
+        let ours = |w: &str| w == "tehas-bot";
+        let marker = json!({"id": "IC_m", "body": "<!-- tehas:retry -->",
+            "author": {"login": "tehas-bot"},
+            "lastEditedAt": "2026-10-04T00:00:00Z", "editor": {"login": "tehas-bot"}});
+        let mut answers =
+            vec![json!({"data": {"repository": {"issue": {"comments": {"nodes": [marker]}}}}})];
+        let mut edits = Map::new();
+        edits.insert(
+            "IC_m".into(),
+            json!({"totalCount": 2, "nodes": [
+            {"editor": {"login": "mallory"}}, {"editor": {"login": "tehas-bot"}}]}),
+        );
+        fill_comment_edits(&mut answers, &edits);
+        let c = &answers[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
+        assert_eq!(
+            tehas_core::events::edit_holds(c, "", "", &ours).as_deref(),
+            Some("mallory")
+        );
+        // A history cut short holds too, as before.
+        let mut cut = vec![answers[0].clone()];
+        let mut edits = Map::new();
+        edits.insert(
+            "IC_m".into(),
+            json!({"totalCount": 101, "nodes": [{"editor": {"login": "tehas-bot"}}]}),
+        );
+        fill_comment_edits(&mut cut, &edits);
+        let c = &cut[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
+        assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
+        // A history read that failed holds, and ends the poll as unread.
+        let mut failed = vec![answers[0].clone()];
+        let mut edits = Map::new();
+        edits.insert(
+            "IC_m".into(),
+            failed_read(&GhFail {
+                line: "ERROR: gh api graphql failed".into(),
+                ran: None,
+            }),
+        );
+        fill_comment_edits(&mut failed, &edits);
+        let c = &failed[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
+        assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
+        assert!(tehas_core::events::edit_history_unread(c, &ours));
     }
 
     #[test]
