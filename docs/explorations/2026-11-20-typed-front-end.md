@@ -19,9 +19,9 @@ kit and vendor is 5,990 lines.
 
 ## Research facts
 
-- The TC39 type annotations proposal is still Stage 1. It has not been
-  presented in plenary since September 2023. Browsers will not run type
-  syntax within any horizon worth planning for.
+- The TC39 type annotations proposal is still Stage 1. The plenary notes
+  in tc39/notes, read up to July 2026, last discuss it in September 2023.
+  Do not plan on browsers running type syntax.
 - Node strips erasable types by default since 23.6 and 22.18, but the
   Ubuntu apt Node 22.22.1 here is built without it. None of it reaches the
   browser.
@@ -47,8 +47,8 @@ annotating `feed.js` and `island.js` and writing a 105-line `kit.d.ts`.
   that number.
 - Real bugs found: none. Every non-implicit-any error was read.
 - A probe with 5 deliberate consumer mistakes: 2 caught before, 5 after.
-- Runtime unchanged: whitespace-minified output is byte-identical, and 140
-  of 140 node tests pass.
+- Runtime unchanged: the annotated `feed.js` and `island.js` minify to
+  the same bytes as the originals, and 140 of 140 node tests pass.
 - The native Go binary, with no Node on PATH: 0.39 s for the kit, under
   0.5 s for the dashboard.
 
@@ -62,9 +62,9 @@ Costs:
   as an address. Writing `./kit.d.ts` passes both the scanner and tsc.
 - Obeya can drop its copies only once all 7 modules check strict-clean.
   checkJs reports errors in every imported `.js`.
-- The gate is offline, so `npx` is out. A pinned binary found on PATH,
-  skipped in the fast gate and required in `--full`, follows industry's
-  model. `scripts/verify.sh` is a person's file.
+- The gate is offline, so `npx` is out. A pinned binary named by a
+  variable or found on PATH, skipped in the fast gate and required in
+  `--full`, follows industry's model. `scripts/verify.sh` is a person's file.
 
 ## Option 2: erasable .ts, stripped by oxc
 
@@ -76,11 +76,12 @@ to spaces, and oxc's transformer plus codegen.
   semantically identical program, and 119 of 119 node tests passed.
 - Blanking keeps lines and columns and returned 50 of 50 plain `host/fun`
   files unchanged. Codegen reflows code, drops a header comment, and would
-  re-hash the kit on every oxc change.
+  re-hash the kit whenever oxc's printer changes.
 - About 2 ms per file. The blank-only binary adds about 0.84 MB and 65
   crates.
-- oxc compiled an enum and a parameter property silently. Only tsc's
-  `--erasableSyntaxOnly` refused them.
+- oxc compiled an enum and a parameter property silently. tsc's
+  `--erasableSyntaxOnly` refused them, so oxc alone does not enforce
+  erasable syntax.
 - The prototype blanker produced a SyntaxError on a `declare` field and on a
   multi-line arrow return type.
 - The type check found one TS2345 in `state.ts`: `actionNames`
@@ -92,8 +93,9 @@ to spaces, and oxc's transformer plus codegen.
 Costs: stripping at install or pack time breaks "no build step" and the
 copy-at-a-tag contract with Obeya and industry. Committing both `.ts` and
 `.js`, as `tools/vendor-solid` does, keeps them, but needs a gate check that
-`.js` equals the stripped `.ts`, with its 65 crates. The check itself still
-needs tsc.
+`.js` equals the stripped `.ts`, with its 65 crates. Type checking still
+needs tsc on top of that. The MANIFEST walk would also take in the `.ts`
+files, and `kit::lint` does not read `.ts`.
 
 ## Option 3: tsrs
 
@@ -105,8 +107,8 @@ needs tsc.
   alone with no Node.
 - Every release is a prerelease against a TypeScript beta.
 
-tsrs unlocks nothing that tsc 7's own Go binary does not, and the gate
-still needs Node for `node --test`.
+tsrs is faster, but tsc 7's own Go binary also runs without Node in under
+0.5 s here, and the gate still needs Node for `node --test`.
 
 ## Recommendation
 
@@ -114,7 +116,8 @@ Take option 1, scoped to the kit. Annotate all 7 kit modules with JSDoc,
 ship `kit.d.ts` and `vendor/solid.d.ts` in the MANIFEST, and check the kit
 strict with a pinned tsc 7 binary from a Rust test. Do not check the
 dashboard yet. The value is an accurate kit API for Obeya, industry and
-agents, not bug finding: no real bug was found. Skip option 2: it adds a
+agents, not bug finding: no live bug was found, only the latent edge in
+`state.js`. Skip option 2: it adds a
 second file per module and a strip check for nicer syntax. Revisit tsrs
 when it ships against a stable TypeScript.
 
@@ -125,6 +128,10 @@ A person has to decide:
    no JSDoc, but then the kit's JS is not checked against them.
 2. Whether to add the step to `scripts/verify.sh`.
 
-Smallest next step: a pull request that adds `vendor/solid.d.ts` and
-`kit.d.ts` to the kit and its MANIFEST, with no JSDoc in the `.js`, so
-Obeya can test them against its copies. It changes no served page.
+Smallest next step: a pull request that adds `vendor/solid.d.ts` (Obeya's,
+with the `createMemo` fix) to the kit and its MANIFEST. It changes no
+served page and gives Obeya and industry one Solid type file. `kit.d.ts`
+alone does not let Obeya drop its copies: a checkJs consumer reads the
+kit's `.js`, so the types reach it only through JSDoc in the modules. That
+part waits on decision 1, and Obeya can switch once all 7 modules check
+strict-clean.
