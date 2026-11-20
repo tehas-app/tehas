@@ -960,6 +960,10 @@ dispatch_release() {
   dispatch_held=0
 }
 if [ "$check" != 1 ]; then
+  # A link or a name of the other kind under docs/ or fun/ stops the syncs
+  # below. It is looked for here, before the programs, so it stops a run that
+  # has installed nothing.
+  copy_files --preflight --sync docs --sync fun </dev/null
   dispatch_hold
   for i in "${!program_puts[@]}"; do
     copy_files <<<"${program_puts[$i]}"

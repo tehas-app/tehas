@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for install.sh: the home it refuses before its first write, and the
-# marker it leaves in a home it installs into.
+# Tests for install.sh: the home it refuses before its first write, the
+# marker it leaves in a home it installs into, and a link under fun/ that
+# stops it before the programs.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
@@ -222,5 +223,27 @@ t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Shell:        MISSING ($home/.bashrc does not source $th/env.sh; ./install.sh puts the line at its top)"
 t_eq "$(cat "$home/.bashrc")" 'alias ll="ls -l"'
+
+t_case "a link under fun/ stops the install before it installs a program"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+# A v1.0.x home may hold its front page as a link; the syncs would copy and
+# sweep through it, so it is refused, and while nothing is installed yet.
+mv "$th/fun" "$T/away-fun"
+ln -s "$T/away-fun" "$th/fun"
+echo "an older console" >"$th/libexec/console"
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$th/fun is a symbolic link"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(cat "$th/libexec/console")" "an older console"
+t_eq "$([ -L "$th/fun" ] && echo link)" "link"
+rm "$th/fun"
+mv "$T/away-fun" "$th/fun"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
 
 t_done

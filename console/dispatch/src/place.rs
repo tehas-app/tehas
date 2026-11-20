@@ -192,32 +192,47 @@ pub fn place(rules: &Rules, o: &Outsourcing, need: &Need, taken: &[String]) -> P
     let (Some(all), Some(busy)) = (&o.contractors, &o.busy) else {
         return here("the contractors could not be read".into());
     };
-    let fits = |c: &&Contractor| {
-        let fresh = c
-            .last_seen_at
-            .is_some_and(|at| at <= need.now && need.now - at <= rules.timeout);
-        let free = !c.revoked && !c.draining && !c.resting;
-        let idle = !busy.contains(&c.name) && !taken.contains(&c.name);
-        let room = c.report.as_ref().is_some_and(|r| {
-            let current =
-                r.at.is_none_or(|at| at <= need.now && need.now - at <= rules.timeout);
-            current
-                && !o.digest.is_empty()
-                && r.digest == o.digest
-                && r.mem_mb >= need.mem_mb
-                && r.disk_kb >= need.disk_kb
-        });
-        fresh && free && idle && room
-    };
-    let best = all.iter().filter(fits).max_by(|a, b| {
-        let (ra, rb) = (a.report.as_ref(), b.report.as_ref());
-        let key = |r: Option<&Report>| r.map(|r| (r.mem_mb, r.disk_kb)).unwrap_or_default();
-        key(ra).cmp(&key(rb)).then_with(|| b.name.cmp(&a.name))
-    });
-    match best {
+    let fits = |c: &Contractor| fits(c, &o.digest, busy, taken, need, rules.timeout);
+    match choose(all, fits) {
         Some(c) => Place::Out(c.name.clone()),
         None => here("no contractor fits".into()),
     }
+}
+
+/// Whether `c` fits, by the rule of the module docs.
+fn fits(
+    c: &Contractor,
+    digest: &str,
+    busy: &[String],
+    taken: &[String],
+    need: &Need,
+    timeout: u64,
+) -> bool {
+    let fresh = c
+        .last_seen_at
+        .is_some_and(|at| at <= need.now && need.now - at <= timeout);
+    let free = !c.revoked && !c.draining && !c.resting;
+    let idle = !busy.contains(&c.name) && !taken.contains(&c.name);
+    let room = c.report.as_ref().is_some_and(|r| {
+        let current =
+            r.at.is_none_or(|at| at <= need.now && need.now - at <= timeout);
+        current
+            && !digest.is_empty()
+            && r.digest == digest
+            && r.mem_mb >= need.mem_mb
+            && r.disk_kb >= need.disk_kb
+    });
+    fresh && free && idle && room
+}
+
+/// Of the contractors that fit, the one with the most memory free, then the
+/// most disk, then the first name.
+fn choose(all: &[Contractor], fits: impl Fn(&Contractor) -> bool) -> Option<&Contractor> {
+    all.iter().filter(|c| fits(c)).max_by(|a, b| {
+        let (ra, rb) = (a.report.as_ref(), b.report.as_ref());
+        let key = |r: Option<&Report>| r.map(|r| (r.mem_mb, r.disk_kb)).unwrap_or_default();
+        key(ra).cmp(&key(rb)).then_with(|| b.name.cmp(&a.name))
+    })
 }
 
 #[cfg(test)]
@@ -448,5 +463,190 @@ mod tests {
             inhouse(&Outsourcing::parse(&json!({})), &need()),
             "its outsourced attempts could not be read"
         );
+    }
+}
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    const N: usize = 3;
+
+    /// One letter of `a..=last`.
+    fn letter(last: u8) -> String {
+        let b: u8 = kani::any();
+        kani::assume((b'a'..=last).contains(&b));
+        match b {
+            b'a' => "a",
+            b'b' => "b",
+            b'c' => "c",
+            _ => "d",
+        }
+        .to_string()
+    }
+
+    fn any_name() -> String {
+        letter(b'c')
+    }
+
+    /// Empty, as when the image could not be read, or one of two.
+    fn any_digest() -> String {
+        if kani::any() {
+            String::new()
+        } else {
+            letter(b'b')
+        }
+    }
+
+    fn any_contractor() -> Contractor {
+        Contractor {
+            name: any_name(),
+            revoked: kani::any(),
+            draining: kani::any(),
+            resting: kani::any(),
+            last_seen_at: kani::any(),
+            report: kani::any::<bool>().then(|| Report {
+                digest: any_digest(),
+                mem_mb: kani::any(),
+                disk_kb: kani::any(),
+                at: kani::any(),
+            }),
+        }
+    }
+
+    fn any_need() -> Need {
+        Need {
+            mem_mb: kani::any(),
+            disk_kb: kani::any(),
+            now: kani::any(),
+            ..Need::default()
+        }
+    }
+
+    /// Heard from or reported within the timeout, never in the future.
+    fn current(at: u64, now: u64, timeout: u64) -> bool {
+        at <= now && now - at <= timeout
+    }
+
+    /// The rule of the module docs, said again apart from `fits`.
+    fn rule(
+        c: &Contractor,
+        digest: &str,
+        busy: &[String],
+        taken: &[String],
+        need: &Need,
+        timeout: u64,
+    ) -> bool {
+        let (Some(seen), Some(r)) = (c.last_seen_at, &c.report) else {
+            return false;
+        };
+        current(seen, need.now, timeout)
+            && r.at.is_none_or(|at| current(at, need.now, timeout))
+            && !c.revoked
+            && !c.draining
+            && !c.resting
+            && !busy.iter().any(|b| *b == c.name)
+            && !taken.iter().any(|t| *t == c.name)
+            && !digest.is_empty()
+            && r.digest == digest
+            && r.mem_mb >= need.mem_mb
+            && r.disk_kb >= need.disk_kb
+    }
+
+    /// Every field free, up to two busy and two taken; a `d` there stands for
+    /// none. Kani's overflow checks prove the time subtractions safe.
+    #[kani::proof]
+    #[kani::unwind(3)]
+    fn a_contractor_fits_exactly_by_the_rule() {
+        let c = any_contractor();
+        let busy = [letter(b'd'), letter(b'd')];
+        let taken = [letter(b'd'), letter(b'd')];
+        let digest = any_digest();
+        let need = any_need();
+        let timeout: u64 = kani::any();
+        let fit = fits(&c, &digest, &busy, &taken, &need, timeout);
+        assert_eq!(fit, rule(&c, &digest, &busy, &taken, &need, timeout));
+        kani::cover!(
+            fit && busy[1] != "d" && taken[1] != "d" && c.report.as_ref().unwrap().at.is_some(),
+            "fits past busy and taken"
+        );
+        kani::cover!(
+            !fit && !c.revoked && !c.draining && !c.resting && c.name == busy[1],
+            "free but busy"
+        );
+    }
+
+    /// A contractor whose fit is given by its own `revoked`, so any set of
+    /// them may fit; one that does not fit stands for one that is not there.
+    /// One that fits has a report, as by the rule.
+    fn any_rival() -> Contractor {
+        Contractor {
+            name: any_name(),
+            revoked: kani::any(),
+            draining: false,
+            resting: false,
+            last_seen_at: None,
+            report: Some(Report {
+                digest: String::new(),
+                mem_mb: kani::any(),
+                disk_kb: kani::any(),
+                at: None,
+            }),
+        }
+    }
+
+    fn room(c: &Contractor) -> (u64, u64) {
+        let r = c.report.as_ref().unwrap();
+        (r.mem_mb, r.disk_kb)
+    }
+
+    fn fit(c: &Contractor) -> bool {
+        !c.revoked
+    }
+
+    /// With `fits` the rule, as the proof above shows, this is the claim that
+    /// `place` keeps a start here for no fit exactly when none fits.
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn the_pick_fits_and_there_is_none_only_when_none_fits() {
+        let all: [Contractor; N] = [any_rival(), any_rival(), any_rival()];
+        let fitting = all.iter().filter(|c| fit(c)).count();
+        let got = choose(&all, fit);
+        assert_eq!(got.is_none(), fitting == 0);
+        if let Some(p) = got {
+            assert!(fit(p));
+        }
+        kani::cover!(fitting == 0, "none fits");
+        kani::cover!(fitting == N, "all fit");
+    }
+
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn the_pick_has_the_most_room_then_the_first_name() {
+        let all: [Contractor; N] = [any_rival(), any_rival(), any_rival()];
+        // A winner fits, and no other that fits has more room, or as much
+        // and an earlier name. Names may repeat, so winners may too.
+        let wins: [bool; N] = std::array::from_fn(|i| {
+            fit(&all[i])
+                && (0..N).all(|j| {
+                    !fit(&all[j])
+                        || room(&all[j]) < room(&all[i])
+                        || (room(&all[j]) == room(&all[i]) && all[i].name <= all[j].name)
+                })
+        });
+        if let Some(p) = choose(&all, fit) {
+            assert!((0..N).any(|i| wins[i] && std::ptr::eq(p, &all[i])));
+            kani::cover!(
+                std::ptr::eq(p, &all[1])
+                    && fit(&all[0])
+                    && room(&all[0]) == room(&all[1])
+                    && all[0].name > all[1].name,
+                "a tie of room won by the later one's first name"
+            );
+            kani::cover!(
+                std::ptr::eq(p, &all[0]) && fit(&all[2]) && room(&all[0]) > room(&all[2]),
+                "the first wins on room"
+            );
+        }
     }
 }

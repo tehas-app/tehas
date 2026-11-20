@@ -52,16 +52,25 @@ pub fn kind(ext: &str) -> Option<&'static str> {
 /// One part of a path as protolab cleans a name: every byte but A-Z a-z 0-9
 /// . _ - made '-', leading dots and dashes dropped, at most 80 bytes.
 pub fn clean_part(part: &[u8]) -> String {
-    let mapped: String = part
+    clean_bytes(part).into_iter().map(char::from).collect()
+}
+
+// clean_part as ASCII bytes. Bytes, not chars: the Kani proof below cannot
+// afford decoding.
+fn clean_bytes(part: &[u8]) -> Vec<u8> {
+    let mapped: Vec<u8> = part
         .iter()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => *b as char,
-            _ => '-',
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-' => *b,
+            _ => b'-',
         })
         .collect();
-    let mut kept = mapped.trim_start_matches(['.', '-']).to_string();
-    kept.truncate(80);
-    kept
+    let lead = mapped
+        .iter()
+        .take_while(|b| matches!(b, b'.' | b'-'))
+        .count();
+    let end = mapped.len().min(lead + 80);
+    mapped[lead..end].to_vec()
 }
 
 /// The name of an entry as it is said: the archive's own, cut at 200
@@ -74,26 +83,45 @@ fn skip(name: &str, reason: &str) -> Value {
     json!({"skip": name, "reason": reason})
 }
 
+// The first `n` spans of the array, as (start, end) in the name.
+type Parts = ([(usize, usize); 6], usize);
+
 /// The parts of a name, as bash reads them split on '/': one slash at the end
-/// ends the last part, and two in a row hold an empty one.
-fn parts(name: &[u8]) -> Vec<&[u8]> {
-    let name = name.strip_suffix(b"/").unwrap_or(name);
-    name.split(|b| *b == b'/').collect()
+/// ends the last part, and two in a row hold an empty one. OUTSIDE for a name
+/// that leaves the destination. By index, not slice::split, which the Kani
+/// proof below cannot afford.
+fn parts(name: &[u8]) -> Result<Parts, &'static str> {
+    if name.starts_with(b"/") || name.contains(&b'\\') {
+        return Err(OUTSIDE);
+    }
+    let body = name.strip_suffix(b"/").unwrap_or(name);
+    let mut parts = [(0, 0); 6];
+    let mut n = 0;
+    for (i, b) in body.iter().enumerate() {
+        if *b == b'/' {
+            // A seventh part.
+            if n == parts.len() - 1 {
+                return Err(OUTSIDE);
+            }
+            parts[n].1 = i;
+            n += 1;
+            parts[n].0 = i + 1;
+        }
+    }
+    parts[n].1 = body.len();
+    n += 1;
+    if parts[..n].iter().any(|&(s, e)| &body[s..e] == b"..") {
+        return Err(OUTSIDE);
+    }
+    Ok((parts, n))
 }
 
 /// Why the path of an entry is not taken, or its cleaned path.
 fn clean_path(name: &[u8]) -> Result<String, &'static str> {
-    let parts = parts(name);
-    if name.starts_with(b"/")
-        || name.contains(&b'\\')
-        || parts.iter().any(|p| *p == b"..")
-        || parts.len() > 6
-    {
-        return Err(OUTSIDE);
-    }
-    let mut rel = Vec::with_capacity(parts.len());
-    for part in parts {
-        let clean = clean_part(part);
+    let (parts, n) = parts(name)?;
+    let mut rel = Vec::with_capacity(n);
+    for &(start, end) in &parts[..n] {
+        let clean = clean_part(&name[start..end]);
         if clean.is_empty() {
             return Err(UNUSABLE);
         }
@@ -298,4 +326,84 @@ pub fn unpack(
         ));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_path_reads_parts_as_bash_does() {
+        assert_eq!(clean_path(b"a b/c.txt"), Ok("a-b/c.txt".into()));
+        assert_eq!(clean_path(b"1/2/3/4/5/6/"), Ok("1/2/3/4/5/6".into()));
+        assert_eq!(clean_path(b"1/2/3/4/5/6/7"), Err(OUTSIDE));
+        assert_eq!(clean_path(b"a///////"), Err(OUTSIDE));
+        // Outside wins over an empty part, wherever each is.
+        assert_eq!(clean_path(b"a//../x"), Err(OUTSIDE));
+        assert_eq!(clean_path(b"../a//"), Err(OUTSIDE));
+        assert_eq!(clean_path(b"a/.."), Err(OUTSIDE));
+        assert_eq!(clean_path(b"a/../"), Err(OUTSIDE));
+        assert_eq!(clean_path(b"a/.../b"), Err(UNUSABLE));
+        assert_eq!(clean_path(b"a//b"), Err(UNUSABLE));
+        assert_eq!(clean_path(b""), Err(UNUSABLE));
+        assert_eq!(clean_path(b"a//"), Err(UNUSABLE));
+    }
+}
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    // A cleaned part holds only A-Z a-z 0-9 . _ - and starts with neither a
+    // dot nor a dash: no slash, no backslash, never "..". With clean_path's
+    // check that no part comes out empty and parts_stay_inside, every path
+    // clean_path takes stays under the destination. A fixed 16 bytes, which
+    // the solver takes far faster than a length it picks: a shorter part
+    // cleans to the start of what it cleans to with any bytes after it, so
+    // the proof holds for it too.
+    #[kani::proof]
+    #[kani::unwind(18)]
+    fn clean_part_keeps_safe_bytes() {
+        let buf: [u8; 16] = kani::any();
+        let len = buf.len();
+        let b = clean_bytes(&buf);
+        assert!(b.len() <= len);
+        assert!(b
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')));
+        assert!(!b.starts_with(b".") && !b.starts_with(b"-"));
+        kani::cover!(b.len() == 16);
+        kani::cover!(!b.is_empty() && b.len() < len);
+    }
+
+    // A name taken has 1 to 6 parts, in order, each inside the name, none
+    // holding a slash or a backslash, none "..", and no slash before the
+    // first. Names of up to 10 bytes, which reach 6 parts and a seventh;
+    // 16 take the solver minutes.
+    #[kani::proof]
+    #[kani::unwind(12)]
+    fn parts_stay_inside() {
+        let buf: [u8; 10] = kani::any();
+        let len: usize = kani::any();
+        kani::assume(len <= buf.len());
+        let name = &buf[..len];
+        if let Ok((parts, n)) = parts(name) {
+            assert!((1..=6).contains(&n));
+            assert!(parts[0].0 == 0 && name.first() != Some(&b'/'));
+            let k: usize = kani::any();
+            kani::assume(k < n);
+            let (start, end) = parts[k];
+            assert!(start <= end && end <= name.len());
+            if k + 1 < n {
+                assert!(name[end] == b'/' && parts[k + 1].0 == end + 1);
+            }
+            let i: usize = kani::any();
+            if start <= i && i < end {
+                assert!(name[i] != b'/' && name[i] != b'\\');
+            }
+            assert!(&name[start..end] != b"..");
+            kani::cover!(n == 6);
+            kani::cover!(n == 2 && name.ends_with(b"/"));
+        }
+    }
 }

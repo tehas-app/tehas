@@ -12,12 +12,11 @@
 # their ELF headers rather than from what it was told to believe.
 #
 # The pins name what this release builds the sandbox from: PI_RUKAS_FOLLOW and
-# PI_RUKAS_IMAGE_DIGEST, one line each at the end of versions.env. A release
-# with no pins keeps pi-rukas's newest tag, as the checkout does today: passing
-# none is allowed. Neither key has a reader yet: host/sandbox/build.sh derives
-# the base image from the commit it follows, and the console once knew only
-# release and branch:<name>, so a host that is given commit:<sha> stops on the
-# setting until #463 teaches it that form and gives the digest a reader.
+# PI_RUKAS_IMAGE_DIGEST, one line each at the end of versions.env. The release
+# workflow pins the commit alone, the one the tag's PI_RUKAS_FOLLOW resolves to,
+# so every install of a release gets the same pi-rukas. A pack with no pins
+# keeps the checkout's line. The digest no longer picks the base:
+# host/sandbox/build.sh builds it from the commit.
 #
 # The stage is a copy of the packed tree plus the console, in TMPDIR, taken
 # down when the script ends.
@@ -85,8 +84,8 @@
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z or a prerelease, --arch names neither
 #       architecture, --console is missing, is not a file or is the tree's own
-#       build, --analytics, --mcp, --store, --attach, --dispatch, --cycle, --proxy or --contractor names no program, only one of the
-#       two pins is given, the tree does not answer to TEHAS_PACK_ROOT, or an
+#       build, --analytics, --mcp, --store, --attach, --dispatch, --cycle, --proxy or --contractor names no program,
+#       --rukas-digest is given without --rukas-commit, the tree does not answer to TEHAS_PACK_ROOT, or an
 #       out dir cannot be made or already holds that tarball); 1 the tree is
 #       missing something install.sh reads, one of the programs given is no ELF
 #       for the architecture named, a pin's or --commit's value has the wrong

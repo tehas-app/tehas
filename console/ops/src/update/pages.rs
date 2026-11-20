@@ -14,13 +14,22 @@
 //! `<name>.model.js` and `<name>.render.js`, found by its `.render.js` file
 //! under `host/fun`; its line may not pass the island budget.
 //!
+//! The library, `fun/kit/vendor/solid.js`, is counted once, on its own line,
+//! and in no page's script bytes:
+//!
+//!   library solid <bytes>
+//!
 //! A page or island over its line fails, and so does one with no line or a
 //! line with nothing to measure. A change that grows a page raises its line in
 //! the same change; a change that shrinks one may lower it. A library import,
 //! a bare address or one through a `vendor/` directory, is allowed only in a
-//! `.render.js` file.
+//! `.render.js` file and the kit files that draw, and an element or model file
+//! may not reach one of those by its relative imports, other than through a
+//! `.render.js` file. The kit's manifest and the
+//! lints of the code that draws with Solid are in `kit.rs`.
 
 use super::assets::{address, spans, PAGES as STAGED};
+use super::kit::{self, DRAWS, LIBRARY};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -51,7 +60,7 @@ fn bytes(path: &Path) -> Result<u64, String> {
 
 /// `path` with `.` and `..` taken out by name. Nothing when it climbs out of
 /// its root.
-fn normal(path: &Path) -> Option<PathBuf> {
+pub(super) fn normal(path: &Path) -> Option<PathBuf> {
     let mut out = PathBuf::new();
     for c in path.components() {
         match c {
@@ -69,7 +78,7 @@ fn normal(path: &Path) -> Option<PathBuf> {
 
 /// The addresses a module imports: `import … from "x"`, `export … from "x"`,
 /// `import "x"` and `import("x")`, in the order they stand.
-fn imports(text: &str) -> Vec<String> {
+pub(super) fn imports(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for word in ["import", "from"] {
         let mut at = 0;
@@ -103,7 +112,7 @@ fn relative(spec: &str) -> bool {
 
 /// Whether an import address names a library: a bare name, or a file in a
 /// `vendor/` directory.
-fn library(spec: &str) -> bool {
+pub(super) fn library(spec: &str) -> bool {
     !(relative(spec) || spec.starts_with('/')) || spec.split('/').any(|part| part == "vendor")
 }
 
@@ -124,6 +133,37 @@ fn follow(host: &Path, file: PathBuf, seen: &mut BTreeSet<PathBuf>) -> Result<()
         }
     }
     Ok(())
+}
+
+/// The library or kit file that draws which `file` reaches by its relative
+/// imports, not counting the way through a `.render.js` file. Nothing when it
+/// reaches neither.
+fn draws_through(host: &Path, file: &Path) -> Option<PathBuf> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![file.to_path_buf()];
+    while let Some(at) = todo.pop() {
+        if !seen.insert(at.clone()) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(host.join(&at)) else {
+            continue;
+        };
+        let dir = at.parent().unwrap_or(Path::new(""));
+        for spec in imports(&text).into_iter().filter(|s| relative(s)) {
+            let Some(next) = normal(&dir.join(&spec)) else {
+                continue;
+            };
+            let name = next.to_string_lossy();
+            if name.ends_with(".render.js") {
+                continue;
+            }
+            if name == LIBRARY || DRAWS.contains(&name.as_ref()) {
+                return Some(next);
+            }
+            todo.push(next);
+        }
+    }
+    None
 }
 
 /// The size of the page that `files` of `host` make.
@@ -154,6 +194,7 @@ fn measure(host: &Path, files: &[&str]) -> Result<Size, String> {
             }
         }
     }
+    scripts.remove(Path::new(LIBRARY));
     let mut script = 0;
     for f in &scripts {
         script += bytes(&host.join(f))?;
@@ -208,6 +249,7 @@ fn check(host: &Path, max: &str) -> Vec<String> {
     let mut wrong = Vec::new();
     let mut pages: Vec<(String, Size)> = Vec::new();
     let mut island_lines: Vec<(String, u64)> = Vec::new();
+    let mut library_line: Option<u64> = None;
     for (n, line) in max.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -225,6 +267,9 @@ fn check(host: &Path, max: &str) -> Vec<String> {
             )),
             ["island", name, b] if num(b).is_some() => {
                 island_lines.push((name.to_string(), num(b).unwrap_or(0)))
+            }
+            ["library", "solid", b] if num(b).is_some() && library_line.is_none() => {
+                library_line = num(b)
             }
             _ => wrong.push(format!("pages.max line {}: cannot read {line:?}", n + 1)),
         }
@@ -259,6 +304,22 @@ fn check(host: &Path, max: &str) -> Vec<String> {
         }
     }
 
+    match (host.join(LIBRARY).is_file(), library_line) {
+        (false, None) => {}
+        (false, Some(_)) => wrong.push(format!("library solid: in pages.max but no {LIBRARY}")),
+        (true, None) => wrong.push("library solid: no line in pages.max".to_string()),
+        (true, Some(ceiling)) => match bytes(&host.join(LIBRARY)) {
+            Err(e) => wrong.push(format!("library solid: {e}")),
+            Ok(size) if size > ceiling => wrong.push(format!(
+                "library solid: {size} bytes, the ceiling is {ceiling}"
+            )),
+            Ok(_) => {}
+        },
+    }
+    if host.join("fun/kit").is_dir() {
+        wrong.extend(kit::manifest(&host.join("fun/kit")));
+    }
+
     let mut files = Vec::new();
     modules(host, Path::new("fun"), &mut files);
     match islands(host, &files) {
@@ -286,8 +347,10 @@ fn check(host: &Path, max: &str) -> Vec<String> {
         }
     }
 
+    wrong.extend(kit::lint(host, &files));
     for f in &files {
-        if f.to_string_lossy().ends_with(".render.js") {
+        let name = f.to_string_lossy();
+        if name.ends_with(".render.js") || DRAWS.contains(&name.as_ref()) {
             continue;
         }
         let Ok(text) = fs::read_to_string(host.join(f)) else {
@@ -296,9 +359,23 @@ fn check(host: &Path, max: &str) -> Vec<String> {
         };
         for spec in imports(&text).into_iter().filter(|s| library(s)) {
             wrong.push(format!(
-                "{}: imports the library {spec:?}; only a .render.js file may",
+                "{}: imports the library {spec:?}; only a .render.js file or a kit file that draws may",
                 f.display()
             ));
+        }
+        // An element or a model loads nothing that draws: an element would
+        // load the library before its hydrate trigger fires.
+        let element = name
+            .strip_suffix(".js")
+            .is_some_and(|stem| host.join(format!("{stem}.render.js")).is_file());
+        if element || name.ends_with(".model.js") {
+            if let Some(draws) = draws_through(host, f) {
+                wrong.push(format!(
+                    "{}: reaches {} by its imports; an element or model file loads nothing that draws",
+                    f.display(),
+                    draws.display()
+                ));
+            }
         }
     }
     wrong
@@ -308,6 +385,7 @@ fn check(host: &Path, max: &str) -> Vec<String> {
 mod tests {
     use super::super::testing::{dir, Dir};
     use super::*;
+    use sha2::Digest;
 
     fn host_of(d: &Dir) -> PathBuf {
         d.0.join("host")
@@ -436,22 +514,22 @@ mod tests {
     fn an_island_needs_a_line_under_the_budget_and_stays_under_it() {
         let d = small("pages-island");
         let host = host_of(&d);
-        d.file("host/fun/kit/log.js", "aaaa");
-        d.file("host/fun/kit/log.model.js", "bb");
-        d.file("host/fun/kit/log.render.js", "c");
+        d.file("host/fun/board/log.js", "aaaa");
+        d.file("host/fun/board/log.model.js", "bb");
+        d.file("host/fun/board/log.render.js", "c");
         let wrong = check(&host, &exact(&d));
-        assert_eq!(wrong, ["island kit/log: no line in pages.max"]);
-        assert!(check(&host, &format!("{}island kit/log 7\n", exact(&d))).is_empty());
-        let wrong = check(&host, &format!("{}island kit/log 6\n", exact(&d)));
-        assert_eq!(wrong, ["island kit/log: 7 bytes, the ceiling is 6"]);
-        let wrong = check(&host, &format!("{}island kit/log 12289\n", exact(&d)));
+        assert_eq!(wrong, ["island board/log: no line in pages.max"]);
+        assert!(check(&host, &format!("{}island board/log 7\n", exact(&d))).is_empty());
+        let wrong = check(&host, &format!("{}island board/log 6\n", exact(&d)));
+        assert_eq!(wrong, ["island board/log: 7 bytes, the ceiling is 6"]);
+        let wrong = check(&host, &format!("{}island board/log 12289\n", exact(&d)));
         assert_eq!(
             wrong,
-            ["island kit/log: the ceiling 12289 is over the budget of 12288"]
+            ["island board/log: the ceiling 12289 is over the budget of 12288"]
         );
         let wrong = check(
             &host,
-            &format!("{}island kit/log 7\nisland gone 1\n", exact(&d)),
+            &format!("{}island board/log 7\nisland gone 1\n", exact(&d)),
         );
         assert_eq!(wrong, ["island gone: in pages.max but no such island"]);
     }
@@ -461,21 +539,175 @@ mod tests {
         let d = small("pages-library");
         let host = host_of(&d);
         d.file(
-            "host/fun/kit/log.js",
+            "host/fun/board/log.js",
             "import { h } from \"./vendor/preact.js\";",
         );
-        d.file("host/fun/kit/log.model.js", "import x from \"lib\";");
+        d.file("host/fun/board/log.model.js", "import x from \"lib\";");
         d.file(
-            "host/fun/kit/log.render.js",
+            "host/fun/board/log.render.js",
             "import { h } from \"./vendor/preact.js\";",
         );
-        let max = format!("{}island kit/log 1000\n", exact(&d));
+        let max = format!("{}island board/log 1000\n", exact(&d));
         assert_eq!(
             check(&host, &max),
             [
-                "fun/kit/log.js: imports the library \"./vendor/preact.js\"; only a .render.js file may",
-                "fun/kit/log.model.js: imports the library \"lib\"; only a .render.js file may",
+                "fun/board/log.render.js: imports \"./vendor/preact.js\"; the one library is fun/kit/vendor/solid.js",
+                "fun/board/log.js: imports the library \"./vendor/preact.js\"; only a .render.js file or a kit file that draws may",
+                "fun/board/log.model.js: imports the library \"lib\"; only a .render.js file or a kit file that draws may",
             ]
+        );
+    }
+
+    #[test]
+    fn an_element_or_model_file_reaches_nothing_that_draws() {
+        let d = with_kit("pages-reach");
+        let host = host_of(&d);
+        d.file(
+            "host/fun/view.js",
+            "import { x } from \"./data.js\";\nimport \"./one.js\";",
+        );
+        d.file(
+            "host/fun/board/log.js",
+            "import { island } from \"../kit/island.js\";\nimport { useBoard } from \"../kit/state.js\";\n\
+             island(\"log\", { load: () => import(\"./log.render.js\") });",
+        );
+        d.file(
+            "host/fun/board/log.model.js",
+            "import { f } from \"./help.js\";",
+        );
+        d.file(
+            "host/fun/board/help.js",
+            "export { feed } from \"../kit/parts.js\";",
+        );
+        d.file(
+            "host/fun/board/log.render.js",
+            "import { html } from \"../kit/vendor/solid.js\";\nimport \"../kit/parts.js\";",
+        );
+        // A store module may import the kit's state: it is no element or model.
+        d.file(
+            "host/fun/board/board.state.js",
+            "import \"../kit/state.js\";",
+        );
+        // The stream holds Solid state; a press does not.
+        d.file(
+            "host/fun/board/wire.js",
+            "import \"../kit/press.js\";\nimport \"../kit/stream.js\";",
+        );
+        d.file("host/fun/board/wire.render.js", "export const w = 1;");
+        let max = format!(
+            "{}library solid {}\nisland board/log 1000\nisland board/wire 1000\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        assert_eq!(
+            check(&host, &max),
+            [
+                "fun/board/log.js: reaches fun/kit/state.js by its imports; an element or model file loads nothing that draws",
+                "fun/board/log.model.js: reaches fun/kit/parts.js by its imports; an element or model file loads nothing that draws",
+                "fun/board/wire.js: reaches fun/kit/stream.js by its imports; an element or model file loads nothing that draws",
+            ]
+        );
+        d.file("host/fun/board/wire.js", "import \"../kit/press.js\";");
+        d.file(
+            "host/fun/board/log.js",
+            "import { island } from \"../kit/island.js\";\nisland(\"log\", { load: () => import(\"./log.render.js\") });",
+        );
+        d.file("host/fun/board/log.model.js", "export const m = 1;");
+        assert_eq!(check(&host, &max), Vec::<String>::new());
+    }
+
+    /// `small` with the kit: its library, a kit file that draws with it, a
+    /// manifest of both, and a view of the business page that imports both.
+    fn with_kit(name: &str) -> Dir {
+        let d = small(name);
+        d.file(
+            "host/fun/kit/vendor/solid.js",
+            "var a;export{a as For,b as html};",
+        );
+        d.file(
+            "host/fun/kit/parts.js",
+            "import { html } from \"./vendor/solid.js\";",
+        );
+        d.file(
+            "host/fun/view.js",
+            "import { x } from \"./data.js\";\nimport \"./one.js\";\n\
+             import { For } from \"./kit/vendor/solid.js\";\nimport \"./kit/parts.js\";",
+        );
+        let kit = d.0.join("host/fun/kit");
+        let line = |f: &str| {
+            let bytes = fs::read(kit.join(f)).unwrap();
+            let hex: String = sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!("file {hex} {} {f}\n", bytes.len())
+        };
+        d.file(
+            "host/fun/kit/MANIFEST",
+            &format!("kit 1\n{}{}", line("parts.js"), line("vendor/solid.js")),
+        );
+        d
+    }
+
+    #[test]
+    fn the_library_is_counted_once_on_its_own_line_and_in_no_page() {
+        let d = with_kit("pages-library-line");
+        let host = host_of(&d);
+        let s = size(&d, &["fun/business.html"]);
+        let script: u64 = [
+            "fun/one.js",
+            "fun/view.js",
+            "fun/data.js",
+            "fun/kit/parts.js",
+        ]
+        .iter()
+        .map(|f| len(&d, f))
+        .sum();
+        assert_eq!(s.script, script, "the library is not in the page");
+        let lib = len(&d, "fun/kit/vendor/solid.js");
+        // view.js imports the library from a file that is no .render.js.
+        let refused = "fun/view.js: imports the library \"./kit/vendor/solid.js\"; only a .render.js file or a kit file that draws may";
+        assert_eq!(
+            check(&host, &exact(&d)),
+            ["library solid: no line in pages.max", refused]
+        );
+        let max = format!("{}library solid {lib}\n", exact(&d));
+        assert_eq!(check(&host, &max), [refused]);
+        let max = format!("{}library solid {}\n", exact(&d), lib - 1);
+        assert_eq!(
+            check(&host, &max)[0],
+            format!("library solid: {lib} bytes, the ceiling is {}", lib - 1)
+        );
+        fs::remove_file(host.join("fun/kit/vendor/solid.js")).unwrap();
+        let max = format!("{}library solid {lib}\n", exact(&d));
+        assert!(check(&host, &max)
+            .contains(&"library solid: in pages.max but no fun/kit/vendor/solid.js".to_string()));
+    }
+
+    #[test]
+    fn a_kit_file_changed_without_its_manifest_fails() {
+        let d = with_kit("pages-kit-manifest");
+        let host = host_of(&d);
+        d.file(
+            "host/fun/view.js",
+            "import { x } from \"./data.js\";\nimport \"./one.js\";\nimport \"./kit/parts.js\";",
+        );
+        let max = format!(
+            "{}library solid {}\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        assert_eq!(check(&host, &max), Vec::<String>::new());
+        d.file(
+            "host/fun/kit/parts.js",
+            "import { html } from \"./vendor/solid.js\"; // edited",
+        );
+        let wrong = check(&host, &max);
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.starts_with("fun/kit/MANIFEST: no line")),
+            "{wrong:?}"
         );
     }
 

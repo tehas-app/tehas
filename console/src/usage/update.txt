@@ -55,10 +55,9 @@ A record that exists but cannot be read stops the run too: answering "nothing
 is owed" for a file this account cannot open would let the next write replace
 steps somebody else recorded.
 
-pi-rukas is not pinned. Last, the sandbox image is moved to the commit
-`PI_RUKAS_FOLLOW` names (the newest tag of the line in `versions.env` by default)
-when that commit is not
-the one the image was built on, also when no file of tehas changed. A run
+Last, the sandbox image is moved to the commit `PI_RUKAS_FOLLOW` names (from
+a checkout the newest tag of the line in `versions.env`, from a release the
+commit it pinned) when that commit is not the one the image was built on, also when no file of tehas changed. A run
 that built the image already, or whose steps failed, skips this. --check only
 says whether the commit moved. The host's clone of pi-rukas follows only when
 bootstrap.sh user runs, so a run that left the image on a commit the clone is

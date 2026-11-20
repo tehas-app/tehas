@@ -314,8 +314,8 @@ and one row per tehas and pi-rukas version pair. Every figure says its count as
 `n=`: ten days make small numbers. A pair with fewer than three runs shows its
 count only. The section is hidden where there is no file, and the page reads it
 at most once a minute. What the file means is worked out by one module,
-`host/fun/analytics-data.js`; the plain dashboard's module,
-`host/fun/dashboard-view.js`, draws it.
+`host/fun/analytics-data.js`; the plain dashboard's island,
+`host/fun/factory/tehas-factory-days`, draws it.
 
 Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
@@ -2613,12 +2613,17 @@ Two things run there:
   builds the sandbox base image and the sandbox image with
   `host/sandbox/build.sh`, as a host builds them, and runs vipune, jq and
   codebase-memory-mcp in the image offline. A second job checks the names
-  list on a GitHub-hosted runner, so the list never reaches the lane. The
-  run's title is `release-gate <commit>`.
+  list on a GitHub-hosted runner, so the list never reaches the lane. A
+  third runs the Kani proofs beside the code (`#[cfg(kani)]` modules), with
+  Kani at the version it pins, on a runner of its own,
+  `[self-hosted, kani]`. The proofs run only here, not in
+  `scripts/verify.sh` or on pull requests. With no `kani` runner online the
+  job waits, and the run is not green until it has run. The run's title is
+  `release-gate <commit>`.
 - **Express batches.** `verify.yml` runs a pull request whose title starts
   with `Express Lane` on `[self-hosted, speedlane]`. Every other pull request
-  into main and every push to main runs where it always has. A pull request
-  onto another branch runs no gate.
+  into main or a `release/` branch, and every push to them, runs where it
+  always has. A pull request onto another branch runs no gate.
 
 ### How a release is gated and tagged
 
@@ -2654,6 +2659,31 @@ bash, git, curl) and Docker:
 
 The lane keeps its cargo build in `~/.cache/tehas-target/<runner name>` and
 its pi-rukas clone in `~/.cache/tehas-speedlane/repos/pi-rukas` between runs.
+
+### Registering a kani runner
+
+The release gate's proofs job asks for `[self-hosted, kani]`. Give it a
+machine with plenty of memory and network access to GitHub and the Rust
+toolchain servers, and an account of its own that holds nothing else: no
+tehas settings, no SSH keys, no gh login. The job runs the gated commit's
+code as that account.
+
+1. Make the account and give it rustup and cargo at the `RUST_VERSION` of
+   `host/versions.env`.
+2. Take a registration token: the organization's or the repository's
+   settings, Actions, Runners, New self-hosted runner, or
+   `gh api -X POST repos/<org>/<repo>/actions/runners/registration-token`.
+3. As the account, unpack the runner and run `./config.sh --url
+   https://github.com/<org>/<repo> --token <token> --labels kani`. It
+   carries `self-hosted` and `kani`, and not `tehas` or `speedlane`, so no
+   other job takes it. Write the account's cargo directory first in the
+   runner's `.path` file, since a service does not read a login shell.
+4. Run one runner on the machine and start it as a service
+   (`sudo ./svc.sh install <account> && sudo ./svc.sh start`).
+
+The first run installs Kani at the job's `KANI_VERSION` into the account's
+`~/.cargo/bin` and `~/.kani`, from a bundle checked against
+`KANI_BUNDLE_SHA256`; later runs reuse it until the pin moves.
 
 ## Run one issue by hand
 

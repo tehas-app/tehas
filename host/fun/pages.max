@@ -5,7 +5,20 @@
 #
 #   page <name> <script bytes> <markup and style bytes>
 #   island <name> <bytes>
-page business 99122 40524
-page floor 144329 68492
-page dashboard 49343 53168
+#   library solid <bytes>    the kit's Solid, counted here and in no page
+#
+# Approved by the owner on 2026-11-20: library solid 123689 and
+# page dashboard 83939 53988.
+page business 99084 40524
+page floor 144291 68492
+page dashboard 83844 53988
 page manual 0 49838
+island factory/tehas-factory-console 4156
+island factory/tehas-factory-days 4686
+island factory/parts 847
+island factory/tehas-factory-host 4410
+island factory/tehas-factory-issues 3728
+island factory/tehas-factory-previews 4071
+island factory/tehas-factory-readonly 2877
+island factory/tehas-factory-state 3261
+library solid 123689

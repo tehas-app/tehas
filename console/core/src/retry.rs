@@ -1035,3 +1035,109 @@ mod tests {
         }
     }
 }
+
+/// The bounds of `retry_with` over every sequence of answers and clock
+/// readings. An answer is a `Ran` whose `unread` is chosen freely: the real
+/// `owed_a_retry` returns that flag before it reads any words, so each answer
+/// is owed a retry or not at the solver's choice. That stands in for a stub of
+/// `owed_a_retry`, which would need Kani's unstable stubbing.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Up to this many calls share one `Budget`: more than the budget pays
+    /// for, since each call may want one retry.
+    const CALLS: u32 = 8;
+
+    fn answer() -> Ran {
+        Ran {
+            status: Some(0),
+            out: String::new(),
+            err: String::new(),
+            truncated: false,
+            unread: kani::any(),
+        }
+    }
+
+    fn any_clock() -> Option<u64> {
+        kani::any()
+    }
+
+    /// One call, from a budget with any number of retries left: every
+    /// promise of its `Outcome`.
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn one_call_keeps_its_promises() {
+        let left: u32 = kani::any();
+        kani::assume(left <= RETRIES_PER_CALLS);
+        let mut budget = Budget { left };
+        let mut made = 0u32;
+        let mut slept: Vec<u64> = Vec::new();
+        let o = retry_with(
+            &mut || {
+                made += 1;
+                answer()
+            },
+            &mut budget,
+            any_clock,
+            &mut |secs| slept.push(secs),
+        );
+        assert!(o.attempts >= 1 && o.attempts <= ATTEMPTS_PER_CALL);
+        assert_eq!(made, o.attempts);
+        let retries = o.attempts - 1;
+        assert_eq!(o.waits.len() as u32, retries);
+        // At most one retry, so the first entry is the whole of each.
+        assert_eq!(slept.len(), o.waits.len());
+        assert_eq!(slept.first(), o.waits.first());
+        assert!(o.waits.first().is_none_or(|&w| w == WAITS[0]));
+        assert_eq!(budget.left(), left - retries);
+        assert_eq!(o.stopped == Stopped::Answered, !owed_a_retry(&o.ran));
+        assert_eq!(o.stopped == Stopped::Answered, !o.ran.unread);
+        assert_eq!(o.gave_up(), o.stopped != Stopped::Answered);
+        assert_eq!(o.at_cap(), o.stopped == Stopped::AtCap);
+        assert_eq!(o.first_err.is_some(), o.attempts > 1);
+        kani::cover!(o.stopped == Stopped::Answered && o.attempts == 2);
+        kani::cover!(o.stopped == Stopped::AtCap);
+        kani::cover!(o.stopped == Stopped::NoClock);
+        kani::cover!(o.stopped == Stopped::NoBudget);
+    }
+
+    /// Up to `CALLS` calls on one budget: no call passes its cap, a retry is
+    /// slept once, and all of them together pay no more than the budget.
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn calls_sharing_a_budget_stay_inside_the_bounds() {
+        let calls: u32 = kani::any();
+        kani::assume(calls <= CALLS);
+        let mut budget = Budget::new();
+        let mut total = 0u32;
+        let mut i = 0;
+        while i < calls {
+            let mut sleeps = 0u32;
+            let o = retry_with(&mut answer, &mut budget, any_clock, &mut |_| sleeps += 1);
+            assert!(o.attempts >= 1 && o.attempts <= ATTEMPTS_PER_CALL);
+            let retries = o.attempts - 1;
+            assert_eq!(o.waits.len() as u32, retries);
+            assert_eq!(sleeps, retries);
+            total += retries;
+            assert!(total <= RETRIES_PER_CALLS);
+            assert_eq!(budget.left(), RETRIES_PER_CALLS - total);
+            kani::cover!(o.stopped == Stopped::NoBudget);
+            i += 1;
+        }
+        kani::cover!(total == RETRIES_PER_CALLS);
+    }
+
+    /// A budget with any number left neither underflows nor pays more than
+    /// it holds.
+    #[kani::proof]
+    fn spend_takes_one_retry_or_refuses() {
+        let left: u32 = kani::any();
+        let mut b = Budget { left };
+        let paid = b.spend();
+        assert_eq!(paid, left > 0);
+        assert_eq!(b.left(), if paid { left - 1 } else { 0 });
+        kani::cover!(paid);
+        kani::cover!(!paid);
+    }
+}

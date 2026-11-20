@@ -169,7 +169,8 @@ test("how long ago, in the words both pages use", () => {
   assert.deepEqual(layout(file({ generatedAt: undefined }), NOW).ageSeconds, null);
 });
 
-// When a page asks for the file again. Both pages ask with this one rule.
+// When the floor asks for the file again. The plain dashboard asks through
+// the kit's feed (test/dashboard_feeds_test.mjs).
 test("a read is not asked for while the page is hidden or just after a miss", () => {
   assert.deepEqual(dueToRead({ hidden: false, missedAt: 0 }, NOW), true);
   // Nothing on screen wants a fresh answer while the page is behind another one.

@@ -34,7 +34,9 @@
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+#[cfg(test)]
 use tehas_core::events::NOBODY;
+use tehas_core::grant::{account_of, Actor, Change, LabelEvent};
 use tehas_core::label_pins::{granting, save};
 pub use tehas_core::label_pins::{load, pin_made, Pins, FILE, GRANTING};
 
@@ -192,7 +194,15 @@ fn judge_event(
         }
     };
     if refuse {
-        e["actor"] = json!({"login": NOBODY});
+        let login = e.pointer("/actor/login").and_then(Value::as_str);
+        let refused = LabelEvent {
+            actor: Actor::vouched(login.unwrap_or("")),
+            label: name.as_str(),
+            pinned: false,
+            change: Change::Applied,
+        };
+        let who = account_of(&refused, false).text().into_owned();
+        e["actor"] = json!({ "login": who });
     }
 }
 
