@@ -20,6 +20,12 @@ document.addEventListener("kit-demo-queue:pick", (e) => {
   found.events.push({ type: e.type, bubbles: e.bubbles, detail: e.detail });
 });
 
+// The first failure the flaky stream shows, before it is asked again.
+new MutationObserver(() => {
+  const t = document.querySelector("#wire .flaky")?.textContent ?? "";
+  if (!found.flakyFirst && t.startsWith("error")) found.flakyFirst = t.split(" |")[0];
+}).observe(document.body, { childList: true, subtree: true, characterData: true });
+
 // Every text an island shows, in order, from the server HTML on.
 for (const id of ["queue", "picked", "missing"]) {
   const el = document.getElementById(id);
@@ -115,6 +121,22 @@ async function run() {
   await new Promise((r) => setTimeout(r, 50));
   s.failAfter = votes.textContent;
   s.failText = text("#wire .failed");
+  // The options for keeping a page's old behaviour.
+  await wait(() => /^closed/.test(text("#wire .refused") ?? "") && /^closed/.test(text("#wire .wrong") ?? ""));
+  s.refused = text("#wire .refused");
+  s.wrong = text("#wire .wrong");
+  s.flakyFirst = found.flakyFirst;
+  await wait(() => /^closed/.test(text("#wire .flaky") ?? ""));
+  s.flaky = text("#wire .flaky");
+  await wait(() => text("#wire .count") === "1");
+  document.querySelector("#wire .ask").click();
+  await wait(() => text("#wire .heard") !== "");
+  s.heard = text("#wire .heard");
+  s.countAfterAsk = `${text("#wire .count")}/${text("#wire .count2")}`;
+  document.querySelector("#wire .give").click();
+  await new Promise((r) => setTimeout(r, 100));
+  s.countAfterPut = `${text("#wire .count")}/${text("#wire .count2")}`;
+  s.countFetchesAfterPut = found.fetches["/api/count"];
   // A native form's data is pressed as it is, not as JSON.
   const { press } = await import("../fun/kit/press.js");
   const form = new FormData();

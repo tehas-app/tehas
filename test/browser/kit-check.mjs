@@ -36,7 +36,7 @@ function chromium() {
 // 404, a server-sent event stream that resumes from Last-Event-ID, an NDJSON
 // stream, a press that works once and then fails, and a form press.
 const SERVER_DATE = "Thu, 19 Nov 2026 10:00:00 GMT";
-const wire = { events: 0, lines: 0, votes: 0, presses: 0, seen: {} };
+const wire = { events: 0, lines: 0, votes: 0, presses: 0, seen: {}, refused: 0, wrongtype: 0, flaky: 0, count: 0 };
 function api(req, res, path) {
   const base = { "content-security-policy": CSP };
   const json = (status, body, more = {}) =>
@@ -74,6 +74,27 @@ function api(req, res, path) {
     req.on("data", (c) => (body += c));
     req.on("end", () => json(200, { type: req.headers["content-type"]?.split(";")[0], title: /name="title"\r\n\r\n([^\r]*)/.exec(body)?.[1] }));
     return;
+  }
+  if (path === "/api/refused") {
+    wire.refused += 1;
+    return json(401, { error: "Sign in to follow this board." });
+  }
+  if (path === "/api/wrongtype") {
+    wire.wrongtype += 1;
+    return res.writeHead(200, { ...base, "content-type": "text/html" }).end("<p>A sign-in page</p>");
+  }
+  if (path === "/api/flaky") {
+    // A 503 with a sentence, a stream the server ends cleanly, then one more
+    // event and the end.
+    wire.flaky += 1;
+    if (wire.flaky === 1) return json(503, { error: "Resting." });
+    if (wire.flaky > 3) return res.writeHead(204, base).end();
+    res.writeHead(200, { ...base, "content-type": "text/event-stream" });
+    return res.end(`data: part${wire.flaky - 1}\n\n`);
+  }
+  if (path === "/api/count") {
+    wire.count += 1;
+    return json(200, { count: wire.count });
   }
   if (path === "/api/votes") return json(200, { count: wire.votes });
   if (path === "/api/vote" && req.method === "POST") {
@@ -176,6 +197,11 @@ const checks = [
   ["a press that works keeps the value with no step back", s.voteAfter === "1" && s.voteViews?.[2] === "2@1", [s.voteAfter, s.voteViews]],
   ["a press that fails rolls its optimistic value back and says why", s.failAfter === "1" && /\/api\/vote: 500/.test(s.failText) && s.voteViews?.[3] === "1@2", [s.failAfter, s.failText, s.voteViews]],
   ["the pressed value went 0, 1, 2 and back to 1, and no other way", s.voteViews?.length === 4, s.voteViews],
+  ["a stream ends for good on a status it lists, keeping the status and the server's words", s.refused === "closed 401: Sign in to follow this board." && wire.refused === 1, [s.refused, wire.refused]],
+  ["a stream ends on a content type an EventSource would not read, with the body on its error", s.wrong === "closed 200: <p>A sign-in page</p>" && wire.wrongtype === 1, [s.wrong, wire.wrongtype]],
+  ["a refused answer's body is on the error while the stream asks again, and a clean end is asked again", s.flakyFirst === "error 503: Resting." && s.flaky === "closed 204 | part1 part2" && wire.flaky === 4, [s.flakyFirst, s.flaky, wire.flaky]],
+  ["a refresh resolves with the answer it asked for", s.heard === "ok 200 2" && s.countAfterAsk === "2/2", [s.heard, s.countAfterAsk]],
+  ["a put reaches every reader of the feed with no fetch", s.countAfterPut === "99/99" && s.countFetchesAfterPut === 2, [s.countAfterPut, s.countFetchesAfterPut]],
   ["a press sends a native form's data as it is", s.formAnswer?.type === "multipart/form-data" && s.formAnswer?.title === "a form", s.formAnswer],
 ];
 let failed = 0;
