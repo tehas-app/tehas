@@ -59,7 +59,11 @@ use std::process::Command;
 /// they run a stale one. A crate already named as a dependency of the other is
 /// left out. test/select_test.sh holds this list to the crates that look beside
 /// their own executable for a program.
-pub const RUNS: &[(&str, &str)] = &[("console", "store"), ("tehas-dispatch", "store")];
+pub const RUNS: &[(&str, &str)] = &[
+    ("console", "store"),
+    ("tehas-cycle", "store"),
+    ("tehas-dispatch", "store"),
+];
 
 /// The crate of the settings every shell test loads, through the console
 /// beside it (test/lib.sh). A path in it, or in a crate it reaches, is a change
