@@ -27,7 +27,7 @@
 //
 //   stream("/api/events", {
 //     end: (status, type) => status !== 200 || type !== "text/event-stream",  // or [401, 403]
-//     retry: 3000, grow: "fixed", ended: 3000,  // an EventSource's waits
+//     retry: 3000, grow: "fixed", ended: 3000,  // an EventSource's waits; a server retry field sets both
 //     hidden: "live",
 //   });
 import { createSignal, getOwner, onCleanup } from "./vendor/solid.js";
@@ -35,8 +35,10 @@ import { headersOf, keyOf } from "./request.js";
 import { release, shared } from "./state.js";
 
 const TIMEOUT = 30000;
-// The most of a refused answer's body that its error carries.
+// The most of a refused answer's body that its error carries, and the
+// longest wait for it.
 const BODY = 65536;
+const BODY_WAIT = 2000;
 const KEYED = ["format", "headers", "credentials", "parse", "hidden", "retry", "max", "grow", "ended", "end"];
 const hidden = () => globalThis.document?.hidden === true;
 
@@ -50,29 +52,34 @@ export class StreamError extends Error {
   }
 }
 
-// At most BODY bytes of an answer, as JSON when it is JSON, else text.
+// At most BODY bytes of an answer, read for at most BODY_WAIT ms, as JSON
+// when it is JSON, else text. An answer with no body is "".
 async function bodyOf(res) {
   let text = "";
+  const reader = res.body?.getReader?.();
+  if (!reader) return text;
+  const decoder = new TextDecoder();
+  let timer;
+  const late = new Promise((r) => (timer = setTimeout(() => r(null), BODY_WAIT)));
   try {
-    const reader = res.body?.getReader?.();
-    if (reader) {
-      const decoder = new TextDecoder();
-      let size = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        text += decoder.decode(value.subarray(0, Math.max(0, value.byteLength - Math.max(0, size - BODY))), { stream: true });
-        if (size >= BODY) {
-          reader.cancel().catch(() => {});
-          break;
-        }
+    let size = 0;
+    for (;;) {
+      const next = await Promise.race([reader.read(), late]);
+      if (next === null || size >= BODY) {
+        reader.cancel().catch(() => {});
+        break;
       }
-      text += decoder.decode();
-    } else if (res.text) text = (await res.text()).slice(0, BODY);
+      if (next.done) break;
+      const { value } = next;
+      size += value.byteLength;
+      text += decoder.decode(value.subarray(0, Math.max(0, value.byteLength - Math.max(0, size - BODY))), { stream: true });
+    }
   } catch {
     // What came before the failure is the body.
+  } finally {
+    clearTimeout(timer);
   }
+  text += decoder.decode();
   try {
     return JSON.parse(text);
   } catch {
@@ -111,7 +118,10 @@ function sse(emit, s, min) {
     if (field === "data") data = data === null ? value : `${data}\n${value}`;
     else if (field === "event") type = value;
     else if (field === "id" && !value.includes("\0")) id = value;
-    else if (field === "retry" && /^\d+$/.test(value)) s.base = Math.max(min, Number(value));
+    else if (field === "retry" && /^\d+$/.test(value)) {
+      s.base = Math.max(min, Number(value));
+      s.served = true;
+    }
   };
 }
 
@@ -130,9 +140,13 @@ function make(src, opts) {
   const fixed = opts.grow === "fixed";
   const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
   const live = opts.hidden === "live";
+  // heard: this connection brought an event; quiet: clean ends in a row
+  // that brought none; served: the server sent a retry field.
   const s = { listeners: new Map(), out: null, timer: 0, tries: 0, base: min, lastId: "", due: false, done: false, gone: false };
+  s.quiet = 0;
 
   const emit = (type, text, id) => {
+    s.heard = true;
     let data = text;
     if (opts.parse !== "text") {
       try {
@@ -152,13 +166,25 @@ function make(src, opts) {
     }
   };
 
-  // `after` is the wait when the server ended the stream, when set.
-  const later = (after) => {
+  // `after` is the wait when the server ended the stream, when set, and
+  // `spent` the time already gone since the answer came.
+  const later = (after, spent = 0) => {
     if (s.gone || s.done) return;
     const wait = after ?? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries);
     s.tries += 1;
     clearTimeout(s.timer);
-    s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), wait);
+    s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), Math.max(0, wait - spent));
+  };
+
+  // The wait after a clean end with `ended` set. A server retry field
+  // replaces it, as it does for an EventSource. A second clean end in a row
+  // with no event backs off, so a server that ends every stream at once is
+  // not asked in a loop.
+  const afterEnd = () => {
+    if (s.served) return s.base;
+    s.quiet = s.heard ? 0 : s.quiet + 1;
+    if (s.quiet < 2) return ended;
+    return Math.max(ended, Math.min(max, fixed ? s.base : s.base * 2 ** (s.quiet - 2)));
   };
 
   async function read(res, out) {
@@ -195,6 +221,7 @@ function make(src, opts) {
     s.out = out;
     setState("connecting");
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
+    let spent = 0;
     try {
       const headers = { ...headersOf(opts.headers) };
       if (s.lastId) headers["Last-Event-ID"] = s.lastId;
@@ -215,8 +242,10 @@ function make(src, opts) {
       const type = (res.headers?.get?.("content-type") ?? "").split(";")[0].trim().toLowerCase();
       const end = ends(opts.end, res.status, type);
       if (!res.ok || end) {
-        const e = new StreamError(src, res.status, res.statusText, await bodyOf(res));
         clearTimeout(limit);
+        const came = Date.now();
+        const e = new StreamError(src, res.status, res.statusText, await bodyOf(res));
+        spent = Date.now() - came;
         if (s.out !== out) return;
         if (end) {
           s.out = null;
@@ -229,6 +258,7 @@ function make(src, opts) {
       }
       clearTimeout(limit);
       s.tries = 0;
+      s.heard = false;
       setError(null);
       setState("open");
       await read(res, out);
@@ -236,14 +266,14 @@ function make(src, opts) {
       // The server ended the stream: ask again.
       s.out = null;
       setState("connecting");
-      later(ended ?? undefined);
+      later(ended === null ? undefined : afterEnd());
     } catch (e) {
       clearTimeout(limit);
       if (s.out !== out) return;
       s.out = null;
       setError(out.signal.aborted ? out.signal.reason : e);
       setState("error");
-      later();
+      later(undefined, spent);
     }
   }
 
@@ -303,7 +333,9 @@ function make(src, opts) {
  * and `max`, the first and the longest wait before connecting again in ms
  * (1000 and 30000). `grow` is "double", the default, or "fixed": the wait
  * stays `retry`. `ended` is the wait in ms after the server ends a stream
- * cleanly, 0 or more; by default the first wait. `end` ends the stream for
+ * cleanly, 0 or more; by default the first wait. A server `retry:` field
+ * replaces it, and a second clean end in a row with no event backs off as
+ * a failure does. `end` ends the stream for
  * good on an answer it lists, a status array or a function of the status
  * and the content type that returns true: state "closed", with status() and
  * error() kept. `on` gets each event `{ type, data, id }` while its reader
