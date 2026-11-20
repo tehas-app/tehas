@@ -376,7 +376,9 @@ live.reconnect();  // drop the connection and connect now
   `"closed"` until `reconnect()`.
 - The error of an answer the stream did not read is a `StreamError` with
   `status` and the body as `data`: parsed when it is JSON, else text, cut at
-  64 KiB. A `PressError` carries a body the same way.
+  64 KiB. The body is read for at most 2 s; a body that stalls gives what
+  came by then. The wait before asking again counts from the answer, not
+  from the end of the body. A `PressError` carries a body the same way.
 - While the page is hidden an open connection stays, and a reconnect that
   falls due waits until the page shows. With `hidden: "close"` the connection
   closes while the page is hidden and opens again when it shows. With
@@ -396,7 +398,7 @@ is said above. Each is part of the connection's key.
 | --- | --- |
 | `end` | Ends the stream for good on an answer it names: a list of statuses, or a function `(status, type)` of the status and the content type, without its parameters, that returns `true`. The state is `"closed"`, `status()` and `error()` stay, with the body on the error, until `reconnect()` |
 | `grow` | `"double"`, the default, or `"fixed"`: every wait after a failure is `retry`, up to `max` |
-| `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did; a server that ends every stream at once is then asked in a loop |
+| `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A server's `retry:` field replaces it, as an `EventSource` waits that field after an end too. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did. A second clean end in a row that brought no event waits `retry`, then the backoff grows as after a failure, so a server that ends every stream at once is not asked in a loop |
 | `hidden` | `"live"`, above |
 
 ```js

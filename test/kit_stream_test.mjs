@@ -66,7 +66,7 @@ beforeEach(() => {
     }
     return { ok: a.status < 300, status: a.status, statusText: a.statusText ?? "" };
   };
-  mock.timers.enable({ apis: ["setTimeout"] });
+  mock.timers.enable({ apis: ["setTimeout", "Date"] });
 });
 
 afterEach(() => {
@@ -460,11 +460,13 @@ test("the waits a page had: 2 s, then 4 s, and 1 s after a clean end", async () 
 test("ended 0 asks again at once after a clean end, and a failure still backs off", async () => {
   reader("/api/events", { ended: 0 });
   await settle();
+  calls[0].a.push("data: 1\n\n");
   calls[0].a.end();
   await settle();
   await after(0);
   assert.equal(calls.length, 2);
   answer = () => ({ status: 503 });
+  calls[1].a.push("data: 2\n\n");
   calls[1].a.end();
   await settle();
   await after(0);
@@ -502,4 +504,78 @@ test("the new options make a connection of their own", async () => {
   const d = reader("/api/events", { ended: 0 });
   await settle();
   assert.equal(new Set([a.live, b.live, c.live, d.live]).size, 4);
+});
+
+test("clean ends in a row with no event back off, even with ended 0", async () => {
+  answer = () => {
+    const p = pipe();
+    p.end();
+    return p;
+  };
+  reader("/api/events", { ended: 0 });
+  await settle();
+  await after(0);
+  assert.equal(calls.length, 2, "the first quiet end is asked again at once");
+  for (let i = 0; i < 5; i++) await after(0);
+  assert.equal(calls.length, 2, "no loop");
+  await after(1000);
+  assert.equal(calls.length, 3);
+  await after(1999);
+  assert.equal(calls.length, 3);
+  await after(1);
+  assert.equal(calls.length, 4, "and the wait grows");
+  answer = () => {
+    const p = pipe();
+    p.push("data: 1\n\n");
+    p.end();
+    return p;
+  };
+  await after(4000);
+  assert.equal(calls.length, 5);
+  await after(0);
+  assert.equal(calls.length, 6, "an end that brought an event waits ended again");
+});
+
+test("a server retry field replaces ended, as an EventSource waits it after an end", async () => {
+  answer = () => {
+    const p = pipe();
+    p.push("retry: 5000\ndata: 1\n\n");
+    p.end();
+    return p;
+  };
+  reader("/api/events", { retry: 3000, grow: "fixed", ended: 3000 });
+  await settle();
+  await after(4999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2);
+});
+
+test("a refused body that stalls is read for 2 s; the error keeps what came and the wait counts from the answer", async () => {
+  let p;
+  answer = () => {
+    p = pipe();
+    p.push('{"error":"Rest');
+    return { status: 503, statusText: "", body: p.body, type: "application/json" };
+  };
+  const r = reader("/api/events", { retry: 3000 });
+  await settle();
+  assert.equal(r.live.state(), "connecting");
+  await after(2000);
+  assert.equal(r.live.state(), "error");
+  assert.equal(r.live.error().name, "StreamError");
+  assert.equal(r.live.error().status, 503);
+  assert.equal(r.live.error().data, '{"error":"Rest');
+  assert.ok(p.cancelled);
+  await after(999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2, "3 s after the answer came");
+});
+
+test("a refused body is cut at 64 KiB in bytes, not characters", async () => {
+  answer = () => refused(500, "\u00e9".repeat(40000), "text/plain");
+  const r = reader("/api/events");
+  await settle();
+  assert.equal(r.live.error().data.length, 32768);
 });
