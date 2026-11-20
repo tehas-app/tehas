@@ -5,7 +5,6 @@
 //   html`<${TimeAgo} at=${() => item.updatedAt} />`
 //   html`<${Empty} text="Nothing in line" />`
 //   html`<${Busy} when=${() => isPending(() => live.data())} />`
-//   html`<${Guard} retry=${() => live.refresh} fallback=${html`<p>…</p>`}>${() => …}<//>`
 import {
   Errored,
   Loading,
