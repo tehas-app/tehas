@@ -2153,6 +2153,14 @@
      },
      {
       "plan_turn": 7
+     },
+     {
+      "issue": 7
+     },
+     {
+      "remove": [
+       "tehas:plan"
+      ]
      }
     ]
    }
@@ -2291,7 +2299,11 @@
      {
       "plan_note": 7
      }
-    ]
+    ],
+    "log_lacks": [
+     "the fixer's answer runs no turn"
+    ],
+    "nothing": true
    }
   },
   {
