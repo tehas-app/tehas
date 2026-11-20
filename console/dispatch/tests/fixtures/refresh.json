@@ -1982,7 +1982,12 @@
     "demand_is": {
      "waiting": 1,
      "oldest": "2026-10-17T09:00:00Z"
-    }
+    },
+    "no_actions": [
+     {
+      "refresh_drop": 7
+     }
+    ]
    }
   },
   {
