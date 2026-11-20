@@ -595,7 +595,7 @@ release that ships it:
 | --- | --- |
 | `vendor/solid.js` | Solid 2, one minified ES module made by `tools/vendor-solid`. Do not edit it |
 | `vendor/LICENSES` | The licences of the bundled packages |
-| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other. A checker such as `tsc --checkJs` reads it in place of the bundle. It is never staged or served and counts in no page |
+| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other. A checker such as `tsc --checkJs` reads it in place of the bundle. An install never stages it or copies it into a home, and it counts in no page. A pull request's preview copies `host/fun` whole, so the preview serves it |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
