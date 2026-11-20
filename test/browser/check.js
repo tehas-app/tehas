@@ -115,6 +115,11 @@ async function run() {
   await new Promise((r) => setTimeout(r, 50));
   s.failAfter = votes.textContent;
   s.failText = text("#wire .failed");
+  // A native form's data is pressed as it is, not as JSON.
+  const { press } = await import("../fun/kit/press.js");
+  const form = new FormData();
+  form.set("title", "a form");
+  s.formAnswer = (await press("/api/form", { body: form })).data;
 }
 
 run()

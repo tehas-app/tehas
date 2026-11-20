@@ -34,7 +34,7 @@ function chromium() {
 
 // The wire demo's server: a feed that echoes a request header, a deliberate
 // 404, a server-sent event stream that resumes from Last-Event-ID, an NDJSON
-// stream and a press that works once and then fails.
+// stream, a press that works once and then fails, and a form press.
 const SERVER_DATE = "Thu, 19 Nov 2026 10:00:00 GMT";
 const wire = { events: 0, lines: 0, votes: 0, presses: 0, seen: {} };
 function api(req, res, path) {
@@ -53,7 +53,9 @@ function api(req, res, path) {
     res.writeHead(200, { ...base, "content-type": "text/event-stream", "cache-control": "no-store" });
     if (wire.events === 1) {
       res.write('id: 1\nevent: tick\ndata: {"n":1}\n\n');
-      setTimeout(() => res.end(': a comment\nid: 2\ndata: {"n":\ndata: 2}\n\n'), 100);
+      // The last event is cut off before its blank line: it is dropped, and
+      // the reconnect asks from id 2.
+      setTimeout(() => res.end(': a comment\nid: 2\ndata: {"n":\ndata: 2}\n\nid: 9\ndata: {"n":9}\n'), 100);
     } else {
       res.end(`id: 3\ndata: ${JSON.stringify({ n: 3, after: req.headers["last-event-id"] ?? "" })}\n\n`);
     }
@@ -65,6 +67,12 @@ function api(req, res, path) {
     res.writeHead(200, { ...base, "content-type": "application/x-ndjson" });
     res.write('{"n":1}\n{"n":');
     setTimeout(() => res.end('2}\n{"n":3}\n'), 100);
+    return;
+  }
+  if (path === "/api/form" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => json(200, { type: req.headers["content-type"]?.split(";")[0], title: /name="title"\r\n\r\n([^\r]*)/.exec(body)?.[1] }));
     return;
   }
   if (path === "/api/votes") return json(200, { count: wire.votes });
@@ -168,6 +176,7 @@ const checks = [
   ["a press that works keeps the value with no step back", s.voteAfter === "1" && s.voteViews?.[2] === "2@1", [s.voteAfter, s.voteViews]],
   ["a press that fails rolls its optimistic value back and says why", s.failAfter === "1" && /\/api\/vote: 500/.test(s.failText) && s.voteViews?.[3] === "1@2", [s.failAfter, s.failText, s.voteViews]],
   ["the pressed value went 0, 1, 2 and back to 1, and no other way", s.voteViews?.length === 4, s.voteViews],
+  ["a press sends a native form's data as it is", s.formAnswer?.type === "multipart/form-data" && s.formAnswer?.title === "a form", s.formAnswer],
 ];
 let failed = 0;
 for (const [name, ok, got] of checks) {
