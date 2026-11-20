@@ -171,6 +171,37 @@ fn release(refs: &str, line: &str) -> Option<(String, String)> {
     Some((one(commits)?, format!("release {newest}")))
 }
 
+/// "release vX.Y.Z" when a release tag in the lines of `git ls-remote --tags`
+/// names `commit`, the newest of them; None when none does. What a pinned
+/// commit is, for the status: `target` does not ask.
+pub fn release_of(refs: &str, commit: &str) -> Option<String> {
+    let mut tagged: Vec<(&str, &str)> = Vec::new();
+    for l in refs.lines() {
+        let mut f = l.split_whitespace();
+        let (c, name) = (f.next().unwrap_or(""), f.next().unwrap_or(""));
+        let Some(tag) = name.strip_prefix("refs/tags/") else {
+            continue;
+        };
+        match tag.strip_suffix("^{}") {
+            // An annotated tag's ^{} line is its commit, and replaces the
+            // tag object's line.
+            Some(tag) => {
+                tagged.retain(|(t, _)| *t != tag);
+                tagged.push((tag, c));
+            }
+            None if !tagged.iter().any(|(t, _)| *t == tag) => tagged.push((tag, c)),
+            None => {}
+        }
+    }
+    let newest = tagged
+        .into_iter()
+        .filter(|(_, c)| *c == commit)
+        .filter_map(|(tag, _)| Some((version(tag)?, tag)))
+        .max()?
+        .1;
+    Some(format!("release {newest}"))
+}
+
 /// The one commit of a listing. Two of them are no answer.
 fn one(commits: Vec<&str>) -> Option<String> {
     match commits[..] {
@@ -385,6 +416,20 @@ mod tests {
         let a = hex('a');
         let got = silent(&format!("commit:{a}"));
         assert_eq!(got, Some((a, "pinned".to_string())));
+    }
+
+    #[test]
+    fn a_pinned_commit_is_named_by_the_newest_release_tag_at_it() {
+        let (a, b, o) = (hex('a'), hex('b'), hex('0'));
+        let refs = format!(
+            "{a}\trefs/tags/v0.14.93\n{o}\trefs/tags/v0.14.94\n{a}\trefs/tags/v0.14.94^{{}}\n{a}\trefs/tags/v0.14.94-rc1\n{b}\trefs/tags/v0.14.95\n"
+        );
+        assert_eq!(release_of(&refs, &a), Some("release v0.14.94".to_string()));
+        assert_eq!(release_of(&refs, &b), Some("release v0.14.95".to_string()));
+        // The tag object of an annotated tag is not the commit.
+        assert_eq!(release_of(&refs, &o), None);
+        assert_eq!(release_of(&refs, &hex('c')), None);
+        assert_eq!(release_of("", &a), None);
     }
 
     #[test]

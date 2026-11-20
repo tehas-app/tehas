@@ -708,6 +708,11 @@ pub fn run(a: &Args, root: &Path) -> u8 {
         }
     }
 
+    // The pi-rukas a release pins is the one the gate built against: named
+    // before the gate starts, asked again after it, and written in the tag,
+    // where the release workflow reads it.
+    let rukas_before = ctx.rukas_pin();
+
     if a.verify && a.local_gate {
         eprintln!("tag-release: running the gate on {}", short(&head));
         if !ctx.gate() {
@@ -726,7 +731,17 @@ pub fn run(a: &Args, root: &Path) -> u8 {
     } else {
         a.message.clone()
     };
-    let note = format!("Release {next} - {message}");
+    let pin = match settle(rukas_before, ctx.rukas_pin()) {
+        Ok(pin) => pin,
+        Err(m) => {
+            eprintln!("tag-release: {m}; nothing was tagged");
+            return 1;
+        }
+    };
+    let note = match &pin {
+        Some((commit, what)) => format!("Release {next} - {message}\n\npi-rukas {commit} {what}"),
+        None => format!("Release {next} - {message}"),
+    };
     if !runs(git().args(["tag", "-a", &next, "-m", &note, &head]), false) {
         eprintln!("tag-release: cannot create {next}");
         return 1;
@@ -933,6 +948,20 @@ impl Ctx<'_> {
         ok_out(c.arg("rukas").args(args))
     }
 
+    /// The commit of the pi-rukas host/versions.env follows, and what it is:
+    /// None when the file names no follow, Some(None) when there is no answer.
+    fn rukas_pin(&self) -> Option<Option<(String, String)>> {
+        let env = std::fs::read_to_string(self.tree.join("host/versions.env")).ok()?;
+        let follow = tehas_core::env_file::value(&env, "PI_RUKAS_FOLLOW")?;
+        let repo = tehas_core::env_file::value(&env, "PI_RUKAS_REPO").unwrap_or_default();
+        let target = self.rukas(&["target", &follow, &repo]);
+        Some(target.and_then(|t| {
+            let line = t.lines().next()?.to_string();
+            let (commit, what) = line.split_once(' ')?;
+            tehas_core::grammar::commit_id(commit).then(|| (commit.to_string(), what.to_string()))
+        }))
+    }
+
     /// The image of the pi-rukas host/versions.env follows, and what that
     /// commit is, as the console names them.
     fn followed(&self) -> Option<(String, String)> {
@@ -945,6 +974,26 @@ impl Ctx<'_> {
         let image = self.rukas(&["image", &repo, commit])?;
         let what = what.lines().next().unwrap_or_default().to_string();
         Some((image.lines().next().unwrap_or_default().to_string(), what))
+    }
+}
+
+/// The pi-rukas a tag pins, from what PI_RUKAS_FOLLOW named before the gate
+/// and after it: the same commit both times, or nothing when versions.env
+/// names no follow. Err says why there is no tag.
+fn settle(
+    before: Option<Option<(String, String)>>,
+    after: Option<Option<(String, String)>>,
+) -> Result<Option<(String, String)>, String> {
+    match (before, after) {
+        (None, None) => Ok(None),
+        (Some(Some(b)), Some(Some(a))) if b.0 == a.0 => Ok(Some(a)),
+        (Some(Some(b)), Some(Some(a))) => Err(format!(
+            "pi-rukas moved from {} to {} ({}) while the gate ran; run again to gate it",
+            short(&b.0),
+            short(&a.0),
+            a.1
+        )),
+        _ => Err("cannot ask which pi-rukas commit host/versions.env follows".to_string()),
     }
 }
 

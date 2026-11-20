@@ -102,13 +102,19 @@ PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   upstream's image of that commit, no longer 
 The rest of the file is the checkout's own. A checkout follows the pi-rukas
 line its `versions.env` names (`PI_RUKAS_FOLLOW=release:0`), so an install from
 a checkout gets the newest pi-rukas release of that line. A release pins one
-commit, so every install of it gets the same pi-rukas: before it packs, the
-release workflow asks `console rukas target` for the commit the tag's own
-`PI_RUKAS_FOLLOW` and `PI_RUKAS_REPO` name, logs it with its version, and passes
-it as `--rukas-commit`. When upstream does not answer, the release stops and
-nothing is published. A new pi-rukas then reaches a host installed from
-releases with the next release of tehas. An instance that sets
-`PI_RUKAS_FOLLOW` in `instance.env` still wins over the pin.
+commit, so every install of it gets the same pi-rukas: the one the release
+gate built against. `scripts/tag-release.sh` asks `console rukas target` for
+the commit the tag's own `PI_RUKAS_FOLLOW` and `PI_RUKAS_REPO` name before the
+gate starts and again after it passes, and writes it in the tag's message as
+`pi-rukas <sha> <what it is>`. When the answers differ, upstream released
+while the gate ran, and nothing is tagged: run it again to gate the new one.
+The release workflow reads that line from the tag, logs it and passes the
+commit as `--rukas-commit`; a tag without one is not published. A new
+pi-rukas then reaches a host installed from releases with the next release of
+tehas. An instance that sets `PI_RUKAS_FOLLOW` in `instance.env` still wins
+over the pin for the sandbox image; `bootstrap.sh` keeps the host's clone on
+the release's pin, so `tehas update` then prints its `bootstrap.sh user` line
+each run.
 
 pi is exact in both: `PI_VERSION` in `versions.env` and the lockfile in
 `host/npm/pi/` name one version, and `scripts/tag-release.sh` moves them at a

@@ -319,9 +319,10 @@ again` and finishes, and `check` reports pi-rukas as `after install.sh`. Run
 
 pi-rukas comes from the repository named in `versions.env`, at the commit
 `PI_RUKAS_FOLLOW` names: from a checkout, the newest tag of the line
-`versions.env` gives; from a release, the commit the release pinned; a branch's
-head or one pinned commit when the instance names one. Each run moves the clone
-to that commit,
+`versions.env` gives; from a release, the commit the release pinned. An
+instance's `PI_RUKAS_FOLLOW` in `instance.env` is not read here: it picks the
+sandbox image's pi-rukas, not the clone's. Each run moves the clone to that
+commit,
 and `check` reports a clone behind it as `DIFFERS`. A clone already on the
 host is pointed at that repository before it is fetched. The clone is only a
 copy of upstream, so its tags follow upstream and the fetch takes them by force:

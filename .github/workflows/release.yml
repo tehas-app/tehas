@@ -140,13 +140,16 @@ jobs:
           done
       - name: pack
         run: |
-          # A release pins the pi-rukas commit the tag's PI_RUKAS_FOLLOW names
-          # now, so every install of it gets the same pi-rukas. No answer, no
-          # release.
+          # A release pins the pi-rukas commit its tag names: the one the
+          # release gate built against, written there by scripts/tag-release.sh.
+          # The tag is fetched again because the checkout may keep only the
+          # commit it points at. No commit in the tag, no release.
           p=$RUNNER_TEMP/programs
-          . host/versions.env
-          rukas=$("$p/console" rukas target "$PI_RUKAS_FOLLOW" "$PI_RUKAS_REPO") || {
-            echo "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO; nothing was published" >&2
+          git fetch --quiet --force origin "+refs/tags/$TAG:refs/tags/$TAG"
+          rukas=$(git for-each-ref --format='%(contents)' "refs/tags/$TAG" |
+            sed -n 's/^pi-rukas \([0-9a-f]\{40\}\) \(.*\)$/\1 \2/p' | tail -n 1)
+          [ -n "$rukas" ] || {
+            echo "the tag $TAG names no pi-rukas commit: tag with scripts/tag-release.sh; nothing was published" >&2
             exit 1
           }
           echo "pi-rukas pinned at ${rukas%% *}, ${rukas#* }"
