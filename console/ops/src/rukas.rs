@@ -40,6 +40,11 @@
 //!     ghcr.io/<owner>/<name>:sha-<first 12>, lower case. Exit 1 with nothing
 //!     printed when the repository is not on GitHub or the commit is not 40
 //!     hex digits.
+//!   console rukas fetch <clone> <commit>
+//!     Nothing when the clone holds the commit. Otherwise it fetches the tags,
+//!     then the commit by its id: a release pins a commit, and once upstream
+//!     re-points the tag it came from no tag or branch may hold it. Exit 1
+//!     with one line on stderr when neither brings it.
 //!
 //! Exit 64 for any other words.
 
@@ -47,7 +52,7 @@ use crate::store::bounded;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 use tehas_core::call;
 use tehas_core::file::{write_atomic, Temp};
@@ -400,9 +405,70 @@ fn put(to: &Path, file: &J) {
     let _ = write_atomic(to, text.as_bytes(), 0o644, &Temp::Pid);
 }
 
-const USAGE: &str = "usage: console rukas target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>\n       console rukas image <PI_RUKAS_REPO> <commit>";
+const USAGE: &str = "usage: console rukas target <PI_RUKAS_FOLLOW> <PI_RUKAS_REPO>\n       console rukas image <PI_RUKAS_REPO> <commit>\n       console rukas fetch <clone> <commit>";
+
+/// The fetches are bounded as build.sh bounded its own: five minutes each.
+const FETCH_LIMIT: &str = "300";
+
+/// Bring `commit` into the clone in `dir`, or say why it is not there.
+pub fn fetch(dir: &Path, commit: &str) -> Result<(), String> {
+    if !tehas_core::grammar::commit_id(commit) {
+        return Err(format!("{commit} is not a commit id"));
+    }
+    let want = format!("{commit}^{{commit}}");
+    let holds = || {
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["cat-file", "-e", &want])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    if holds() {
+        return Ok(());
+    }
+    // --force: a tag upstream re-pointed is taken, not refused.
+    let mut why = String::new();
+    for args in [
+        &["fetch", "-q", "--tags", "--force", "origin"][..],
+        &["fetch", "-q", "origin", commit],
+    ] {
+        why = match bounded("10", FETCH_LIMIT, "git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+        {
+            Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_string(),
+            Err(e) => e.to_string(),
+        };
+        if holds() {
+            return Ok(());
+        }
+    }
+    let why = why.lines().last().unwrap_or("").to_string();
+    Err(format!(
+        "the pi-rukas clone in {} does not hold {commit}, and a fetch of its tags and of the commit by id did not bring it{}",
+        dir.display(),
+        if why.is_empty() { String::new() } else { format!(": {why}") }
+    ))
+}
 
 pub fn main(given: &[String]) -> u8 {
+    if let [verb, dir, commit] = given {
+        if verb == "fetch" {
+            return match fetch(Path::new(dir), commit) {
+                Ok(()) => 0,
+                Err(why) => {
+                    eprintln!("{why}");
+                    1
+                }
+            };
+        }
+    }
     let said = match given {
         [verb, follow, repo] if verb == "target" => {
             rukas::target(follow, repo, ls_remote).map(|(commit, what)| format!("{commit} {what}"))
@@ -446,6 +512,84 @@ mod tests {
 
     fn hex(c: char) -> String {
         c.to_string().repeat(40)
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let o = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("git runs");
+        assert!(
+            o.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    }
+
+    /// An upstream that holds a commit no tag or branch reaches, served by id
+    /// as GitHub serves it, and a clone of it made before.
+    fn upstream_with_lost_commit(t: &TestDir) -> (PathBuf, String) {
+        let work = t.join("work");
+        let up = t.join("up.git");
+        fs::create_dir_all(&work).unwrap();
+        git(&work, &["init", "-q", "-b", "main"]);
+        git(&work, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        git(&work, &["tag", "v0.1.0"]);
+        git(&work, &["commit", "-q", "--allow-empty", "-m", "two"]);
+        let lost = git(&work, &["rev-parse", "HEAD"]);
+        git(t.path(), &["init", "-q", "--bare", "up.git"]);
+        git(&up, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+        let url = format!("file://{}", up.display());
+        git(&work, &["push", "-q", &url, "main", "v0.1.0"]);
+        git(&up, &["update-ref", "refs/heads/main", "refs/tags/v0.1.0"]);
+        git(t.path(), &["clone", "-q", &url, "clone"]);
+        (t.join("clone"), lost)
+    }
+
+    #[test]
+    fn a_commit_on_no_tag_or_branch_is_fetched_by_its_id() {
+        let t = TestDir::new("rukas-fetch");
+        let (clone, lost) = upstream_with_lost_commit(&t);
+        let has = |c: &str| {
+            Command::new("git")
+                .arg("-C")
+                .arg(&clone)
+                .args(["cat-file", "-e", &format!("{c}^{{commit}}")])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(!has(&lost), "the clone starts without the commit");
+        assert_eq!(fetch(&clone, &lost), Ok(()));
+        assert!(has(&lost));
+        // Held already: nothing to fetch, and still no error.
+        assert_eq!(fetch(&clone, &lost), Ok(()));
+    }
+
+    #[test]
+    fn a_commit_upstream_does_not_hold_is_refused_with_why() {
+        let t = TestDir::new("rukas-fetch-none");
+        let (clone, _) = upstream_with_lost_commit(&t);
+        let why = fetch(&clone, &hex('d')).unwrap_err();
+        assert!(
+            why.starts_with(&format!(
+                "the pi-rukas clone in {} does not hold {}, and a fetch",
+                clone.display(),
+                hex('d')
+            )),
+            "{why}"
+        );
+        assert_eq!(
+            fetch(&clone, "main"),
+            Err("main is not a commit id".to_string())
+        );
     }
 
     #[derive(Default)]

@@ -453,13 +453,18 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
-# What is expected is the commit versions.env names now, a release's pin or
-# the newest tag of a checkout's line, as the console of the release or the
-# installed one names it. Otherwise why not, and
-# 2 when there is no console yet.
-rukas_head() {
-  local console=$root/libexec/console target
+# The console of the release, or the installed one.
+console_of() {
+  local console=$root/libexec/console
   [ -x "$console" ] || console=$TEHAS_HOME/libexec/console
+  printf '%s\n' "$console"
+}
+# What is expected is the commit versions.env names now, a release's pin or
+# the newest tag of a checkout's line, as the console names it. Otherwise why
+# not, and 2 when there is no console yet.
+rukas_head() {
+  local console target
+  console=$(console_of)
   [ -x "$console" ] || { echo "after install.sh: no console names the commit"; return 2; }
   target=$("$console" rukas target "${PI_RUKAS_FOLLOW:-}" "${PI_RUKAS_REPO:-}") ||
     { echo "no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in ${PI_RUKAS_REPO:-}"; return 1; }
@@ -749,6 +754,8 @@ install_rukas() {
     why=$(git clone --tags "$PI_RUKAS_REPO" "$dir" 2>&1) ||
       die "git clone failed for $PI_RUKAS_REPO in $dir: ${why:-git gave no reason}"
   fi
+  # A release's pin may be on no tag or branch upstream any more.
+  why=$("$(console_of)" rukas fetch "$dir" "$rukas_want" 2>&1) || die "$why"
   why=$(git -C "$dir" checkout -q "$rukas_want" 2>&1) ||
     die "git checkout of $rukas_want failed in the pi-rukas clone in $dir: ${why:-git gave no reason}"
   # A login shell exports PI_ENSEMBLE_IMAGE as the tehas sandbox image. The
