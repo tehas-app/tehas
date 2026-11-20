@@ -286,7 +286,8 @@ them:
   never rejects: it resolves `{ ok: true, status, data }` when the answer is
   data, a 2xx or a status in `accept`, the same bytes as before too, and
   `{ ok: false, status, error }` when the poll failed, timed out or was
-  aborted, with `status` 0 when no answer came. A `refresh()` while a poll is
+  aborted, with `status` 0 when no answer came. When it resolves, the answer
+  is in `data()` and the readers have drawn it. A `refresh()` while a poll is
   out resolves with the poll that follows it. A caller that ignores the
   promise sees what it saw before. A refresh of a feed that is gone resolves
   at once with `ok: false`.
@@ -294,9 +295,11 @@ them:
   with no fetch, as if an answer had brought it: the answer of a press or an
   event a stream pushed. The source stays one per address and options. The
   poll goes on at its period, and a poll that then brings the same data
-  leaves the readers be. A put while a poll is out takes the place of that
-  poll's answer, which was asked before the value was known, and
-  `isPending` no longer counts that poll.
+  leaves the readers be, as does a put of the data they already have. A put
+  while a poll is out takes the place of that poll's answer, which was asked
+  before the value was known, and `isPending` no longer counts that poll. A
+  poll asked in the same step as a put, by `refresh()` or by the period, goes
+  out after it: the readers have the value at once, then that poll's answer.
 
 ```js
 // a press's answer, or a live event, into the feed: no second request
