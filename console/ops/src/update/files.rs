@@ -385,7 +385,8 @@ impl Copier {
     }
 
     /// The syncs' blockers as the refusal says them: before the programs with
-    /// `--preflight`, when nothing is installed yet, or else after them.
+    /// `--preflight`, when nothing is installed yet, in a check, which
+    /// installs nothing, or else after the programs.
     fn refuse(&self, syncs: &[String], preflight: bool) -> Result<(), String> {
         let mut found = Vec::new();
         for name in syncs {
@@ -396,6 +397,8 @@ impl Copier {
         }
         let done = if preflight {
             "nothing was installed"
+        } else if self.check {
+            "this is a check, which changes nothing"
         } else {
             "the files of this step were not installed, and the programs an earlier step installed stay"
         };
@@ -824,6 +827,16 @@ mod tests {
             // update.rs reads this phrase as an install that changed nothing,
             // which a run after the programs is not.
             assert!(!why.contains("nothing was installed"), "{why}");
+            // install.sh --check skips the preflight and installs no program.
+            let stay = "the programs an earlier step installed stay";
+            let checked = "this is a check, which changes nothing";
+            if check {
+                assert!(why.contains(checked), "{why}");
+                assert!(!why.contains(stay), "{why}");
+            } else {
+                assert!(why.contains(stay), "{why}");
+                assert!(!why.contains(checked), "{why}");
+            }
             assert_eq!(c.lines, Vec::<String>::new());
         }
         // The preflight install.sh asks before the programs says so.

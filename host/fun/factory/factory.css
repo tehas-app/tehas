@@ -1,6 +1,6 @@
 /* The plain dashboard's islands (host/docs/dashboard.frag), beside the rules
    of manual.css. A bar's length is a custom property the island sets: the
-   pages allow no inline style. */
+   pages use no inline style. */
 @layer page {
   .an-spark span, .an-bars span { height: var(--tehas-factory-share, 0%); }
   .an-yield span { width: var(--tehas-factory-share, 0%); }
