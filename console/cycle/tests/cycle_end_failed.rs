@@ -1,6 +1,6 @@
 //! The record of a cycle whose last GitHub step failed,
 //! state/cycles/<issue>.end-failed.json: the step and whether the failure was
-//! GitHub's. The poll that finishes it is test/dispatch_auto_finish_test.sh.
+//! GitHub's. The poll that finishes it is console/dispatch/tests/dispatch_auto_finish.rs.
 
 mod common;
 
