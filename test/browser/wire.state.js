@@ -3,11 +3,16 @@
 import { pageStore } from "../fun/kit/state.js";
 
 export const useWire = pageStore("demo-wire", {
-  state: () => ({ events: [], lines: [] }),
+  state: () => ({ events: [], lines: [], flaky: [] }),
   actions: (set) => ({
     event(e) {
       set((d) => {
         d.events.push({ type: e.type, id: e.id, ...e.data });
+      });
+    },
+    flaky(e) {
+      set((d) => {
+        d.flaky.push(e.data);
       });
     },
     line(e) {

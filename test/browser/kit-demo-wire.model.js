@@ -17,3 +17,14 @@ export function eventsText(events, state) {
 export function linesText(lines, state) {
   return `${state}: ${lines.join(" ")}`;
 }
+
+// A stream that ended or failed: its state, status and the server's words.
+export function endText(state, status, error) {
+  const said = typeof error?.data === "object" ? error?.data?.error : error?.data;
+  return `${state} ${status}${said ? `: ${said}` : ""}`;
+}
+
+// What a refresh's promise resolved with.
+export function heardText(r) {
+  return r.ok ? `ok ${r.status} ${r.data.count}` : `failed ${r.status}`;
+}
