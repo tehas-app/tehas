@@ -50,6 +50,8 @@ workspace() {
   {"name": "store", "manifest_path": "/w/store/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-core", "manifest_path": "/w/core/Cargo.toml", "dependencies": []},
+  {"name": "tehas-cycle", "manifest_path": "/w/cycle/Cargo.toml", "dependencies": [
+    {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-dispatch", "manifest_path": "/w/dispatch/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
@@ -88,6 +90,7 @@ t_case "the real workspace: a store change selects the crates that run the store
 t_eq "$(real_pick console/store/src/db.rs)" "crate console
 crate store
 crate tehas-contractor
+crate tehas-cycle
 crate tehas-dispatch
 crate tehas-ops
 crate tehas-proxy"
@@ -112,7 +115,7 @@ t_contains "$picked" "test test/sandbox_argv_test.sh"
 t_case "the real workspace: a core change selects every shell test"
 picked=$(bash "$T_ROOT/scripts/select-tests.sh" console/core/src/settings/load.rs 2>&1)
 for f in headless_test.sh describe_test.sh refresh_test.sh labels_test.sh login_test.sh \
-  config_test.sh cycle_handoff_test.sh energy_test.sh tidy_test.sh sandbox_argv_test.sh \
+  config_test.sh cycle_front_test.sh energy_test.sh tidy_test.sh sandbox_argv_test.sh \
   shim_writes_test.sh mcp_test.sh; do
   t_contains "$picked" "est test/$f"
 done
@@ -147,7 +150,7 @@ called=$(grep -rl --include='*.rs' --exclude-dir=target current_exe "$T_ROOT/con
   name=$(awk -F'\t' -v d="${rel%%/*}" '$1 == d { print $2 }' <<<"$dirs")
   echo "${name:-console}"
 done | LC_ALL=C sort -u)
-listed=$(grep '^pub const RUNS' "$T_ROOT/console/xtask/src/select.rs" | grep -o '"[a-z-]*"' | tr -d '"' | LC_ALL=C sort -u)
+listed=$(sed -n '/^pub const RUNS/,/;$/p' "$T_ROOT/console/xtask/src/select.rs" | grep -o '"[a-z-]*"' | tr -d '"' | LC_ALL=C sort -u)
 t_eq "$called" "$listed"
 
 t_case "the real workspace: a change to the selector asks for the full gate"
