@@ -763,6 +763,13 @@ fn together(vars: &Vars, file: &str) -> Result<(), String> {
             "TEHAS_PLAN_TIMEOUT ({plan}) is more than {max}: a planning turn may take at most two hours, and while one runs no other planning turn starts (see {file})"
         ));
     }
+    // One level under the domain's parent needs a parent: example.org has
+    // none that is a name of ours.
+    if on("TEHAS_EDGE_ONE_LEVEL") && vars.text("TEHAS_DOMAIN").matches('.').count() < 2 {
+        return Err(format!(
+            "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain such as demo.example.org: its names are already one level deep (see {file})"
+        ));
+    }
     if on("TEHAS_PREVIEWS") && !some("TEHAS_DOMAIN") {
         return Err(format!(
             "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set: a preview has no address without it (see {file})"
@@ -799,7 +806,11 @@ fn last(vars: &mut Vars) {
         vars.set(&format!("{name}_MB"), mb);
     }
     if has(vars, "TEHAS_DOMAIN") && !has(vars, "TEHAS_PROTOLAB_URL") {
-        let lab = format!("https://lab.{}", vars.text("TEHAS_DOMAIN"));
+        let one_level = vars.text("TEHAS_EDGE_ONE_LEVEL") == "1";
+        let lab = format!(
+            "https://{}",
+            crate::settings::edge_name("lab", &vars.text("TEHAS_DOMAIN"), one_level)
+        );
         vars.set("TEHAS_PROTOLAB_URL", lab);
     }
 }
@@ -1926,6 +1937,10 @@ mod tests {
                 "TEHAS_PREVIEWS is on and TEHAS_DOMAIN is not set",
             ),
             (
+                &["TEHAS_DOMAIN=example.org", "TEHAS_EDGE_ONE_LEVEL=1"][..],
+                "TEHAS_EDGE_ONE_LEVEL is on and TEHAS_DOMAIN is not a subdomain",
+            ),
+            (
                 &["TEHAS_OUTSOURCE=1", "TEHAS_OUTSOURCE_PROXY_IDLE=600"][..],
                 "TEHAS_OUTSOURCE_PROXY_IDLE (600) is not longer than TEHAS_OUTSOURCE_TIMEOUT (600)",
             ),
@@ -2152,6 +2167,12 @@ mod tests {
             "TEHAS_PROTOLAB_URL=https://p.example",
         ]);
         assert_eq!(vars.text("TEHAS_PROTOLAB_URL"), "https://p.example");
+        // One level deep: the list's name is lab-<domain>.
+        let vars = loads(&["TEHAS_DOMAIN=demo.example.org", "TEHAS_EDGE_ONE_LEVEL=on"]);
+        assert_eq!(
+            vars.text("TEHAS_PROTOLAB_URL"),
+            "https://lab-demo.example.org"
+        );
     }
 
     #[test]

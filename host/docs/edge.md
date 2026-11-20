@@ -63,6 +63,37 @@ curl -sI https://uat-1.tehas.app    # gets an answer
 Two levels need Cloudflare's paid certificates, or a DNS token on the host and
 the host's address made public. `uat-12.tehas.app` needs neither.
 
+### A domain that is itself a subdomain
+
+An instance whose `TEHAS_DOMAIN` is a subdomain, say `demo.example.org` beside
+another instance on `example.org`, would get names two levels down:
+`uat-12.demo.example.org`. With `TEHAS_EDGE_ONE_LEVEL=on` its names keep to one
+level by joining the label with a dash:
+
+| Name | What answers |
+| --- | --- |
+| `uat-<pr>-demo.example.org` | The preview of that pull request |
+| `uat-main-demo.example.org` | The preview of the default branch's head |
+| `lab-<issue>-demo.example.org` | That ticket's page in the Protolab |
+| `lab-demo.example.org` | The Protolab's list |
+
+These are the names the pull request's notice, the dashboard's Previews and
+the Protolab's links say. The router still picks by `<label>.<domain>`, so the
+proxy sends each name on with that `Host`. In a Caddy that already serves
+`*.example.org`:
+
+```
+@demo header_regexp demo Host ^(uat-[0-9]+|uat-main|lab|lab-[0-9]+)-demo\.example\.org$
+handle @demo {
+    reverse_proxy <host>:8081 {
+        header_up Host {re.demo.1}.demo.example.org
+    }
+}
+```
+
+`TEHAS_EDGE_ONE_LEVEL` is refused with a domain of two labels: its names are
+one level deep already.
+
 ## The proxy needs a certificate too
 
 Cloudflare speaks HTTPS to the proxy in front of the host. A Caddy that gets a
