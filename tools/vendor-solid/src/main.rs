@@ -368,6 +368,25 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// A new directory under `parent` that only this user can open, with a name
+/// another process cannot guess ahead. It is never one that existed.
+fn private_dir(parent: &Path) -> std::io::Result<PathBuf> {
+    use std::hash::BuildHasher;
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    let mut tries = 0;
+    loop {
+        // RandomState is seeded from the OS's random source.
+        let n = std::hash::RandomState::new().hash_one(std::process::id());
+        let dir = parent.join(format!("vendor-solid-{n:016x}"));
+        match builder.create(&dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries < 8 => tries += 1,
+            r => return r.map(|()| dir),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -381,8 +400,7 @@ async fn main() {
     };
     let kit = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host/fun/kit");
 
-    let scratch = std::env::temp_dir().join(format!("vendor-solid-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&scratch);
+    let scratch = private_dir(&std::env::temp_dir()).unwrap_or_else(|e| fail(e));
     for pin in &PINS {
         let tgz = download(pin);
         unpack(pin, &tgz, &scratch.join("node_modules").join(pin.name));
@@ -453,6 +471,20 @@ mod tests {
     impl Drop for Kit {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn the_scratch_is_a_new_private_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = Kit::new("scratch");
+        let a = private_dir(&parent.0).unwrap();
+        let b = private_dir(&parent.0).unwrap();
+        assert_ne!(a, b);
+        for dir in [&a, &b] {
+            let mode = fs::metadata(dir).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
+            assert!(fs::read_dir(dir).unwrap().next().is_none());
         }
     }
 
