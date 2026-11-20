@@ -617,6 +617,14 @@ can come from, since a file the change grew is where they went in. Without a
 merge base it lists the largest files instead. Exit 0 at or under the ceiling,
 1 over it or when `scripts/bash-lines.max` holds no number.
 
+`scripts/check-test-lines.sh` is the ceiling on the shell of `test/`: the lines
+of its shell scripts, subdirectories included, may not grow past the number in
+`scripts/test-lines.max`. A behaviour of Rust code is tested in Rust. Every run
+prints one line that begins `check-test-lines:` with the count, the ceiling and
+the room left; under the ceiling a second line says the number to lower it to.
+Over it the run names the five largest files. Exit 0 at or under the ceiling,
+1 over it or when `scripts/test-lines.max` holds no number.
+
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and the names of particular installations out of every file,
 `docs/` included. The names come from `scripts/check-generic.names`, a list
