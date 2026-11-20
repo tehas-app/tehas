@@ -651,12 +651,16 @@ test("broken end with no ended set waits the first step after an end or a break,
   await settle();
   calls[0].a.fail(new TypeError("network error"));
   await settle();
-  await after(1000);
+  await after(999);
+  assert.equal(calls.length, 1, "no reconnect before the first step");
+  await after(1);
   assert.equal(calls.length, 2);
   answer = () => new Error("offline");
   calls[1].a.end();
   await settle();
-  await after(1000);
+  await after(999);
+  assert.equal(calls.length, 2, "no reconnect before the first step");
+  await after(1);
   assert.equal(calls.length, 3);
   await after(999);
   assert.equal(calls.length, 3);
@@ -669,4 +673,62 @@ test("broken makes a connection of its own", async () => {
   const b = reader("/api/events", { broken: "end" });
   await settle();
   assert.notEqual(a.live, b.live);
+});
+
+test("broken end: a break counts no try, so a failure after it waits the first step", async () => {
+  reader("/api/events", { retry: 2000, ended: 1000, broken: "end" });
+  await settle();
+  answer = () => new Error("offline");
+  calls[0].a.push("data: 1\n\n");
+  calls[0].a.fail(new TypeError("network error"));
+  await settle();
+  await after(999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2, "1 s after a break");
+  await after(1999);
+  assert.equal(calls.length, 2);
+  await after(1);
+  assert.equal(calls.length, 3, "2 s after the first failure, not 4 s");
+  await after(3999);
+  assert.equal(calls.length, 3);
+  await after(1);
+  assert.equal(calls.length, 4, "4 s after the second");
+});
+
+test("broken end: a server's retry field sets the wait after a break", async () => {
+  reader("/api/events", { retry: 2000, ended: 1000, broken: "end" });
+  await settle();
+  calls[0].a.push("retry: 5000\ndata: 1\n\n");
+  calls[0].a.fail(new TypeError("network error"));
+  await settle();
+  await after(4999);
+  assert.equal(calls.length, 1);
+  await after(1);
+  assert.equal(calls.length, 2, "the served 5 s");
+});
+
+test("broken end: breaks in a row that bring no event back off, and an event starts over", async () => {
+  reader("/api/events", { retry: 2000, ended: 1000, broken: "end" });
+  await settle();
+  const breaks = async (event) => {
+    const p = calls.at(-1).a;
+    if (event) p.push("data: 1\n\n");
+    p.fail(new TypeError("network error"));
+    await settle();
+  };
+  const waits = async (ms, n) => {
+    await after(ms - 1);
+    assert.equal(calls.length, n - 1, `not before ${ms} ms`);
+    await after(1);
+    assert.equal(calls.length, n, `${ms} ms`);
+  };
+  await breaks(false);
+  await waits(1000, 2);
+  await breaks(false);
+  await waits(2000, 3);
+  await breaks(false);
+  await waits(4000, 4);
+  await breaks(true);
+  await waits(1000, 5);
 });
