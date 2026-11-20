@@ -11,6 +11,10 @@
 //! order as it then is. Setting the same order twice leaves the row as it
 //! was, so a program that sets it on every poll changes nothing.
 //!
+//! `tehas order --json` adds `starts`: what the dispatcher's last poll decided
+//! of each ranked issue, from state/starts.json (tehas_core::starts). It is
+//! left out when no poll has written one, or it cannot be read.
+//!
 //! The clock is the host's, or `TEHAS_STORE_TEST_NOW` when that names whole
 //! seconds, the store's own test clock.
 //!
@@ -23,6 +27,7 @@ use std::env;
 use std::path::PathBuf;
 use tehas_core::limit::{epoch, oneline};
 use tehas_core::order::{list, Order, Reading};
+use tehas_core::starts::{self, code, Reason, Record};
 use tehas_core::time;
 
 const USAGE: &str = "usage: tehas order [--json] | set --issues N[,N...] [--only] [--for SECONDS | --until TIME] [--reason TEXT] [--json] | clear [--json]";
@@ -152,6 +157,39 @@ fn answer(r: &Reading, json: bool) -> String {
     r.said()
 }
 
+/// `starts` for the ranked issues of `r`, in their order, from the record
+/// of the last poll and its time.
+fn starts_of(r: &Reading, record: &(String, Record)) -> Option<serde_json::Value> {
+    let Reading::Ok(o) = r else {
+        return None;
+    };
+    let (at, record) = record;
+    let unseen = Reason::new(
+        code::UNSEEN,
+        "the last poll did not decide on it: it was ranked after that poll",
+    );
+    let issues: Vec<serde_json::Value> = o
+        .issues
+        .iter()
+        .map(|n| match record.verdict(*n) {
+            Some(None) => serde_json::json!({"issue": n, "start": true}),
+            Some(Some(why)) => {
+                serde_json::json!({"issue": n, "start": false, "reason": why.to_value()})
+            }
+            None => serde_json::json!({"issue": n, "start": false, "reason": unseen.to_value()}),
+        })
+        .collect();
+    Some(serde_json::json!({"at": at, "issues": issues}))
+}
+
+/// The JSON answer with `starts` after the order's own fields.
+fn with_starts(answer: String, starts: Option<serde_json::Value>) -> String {
+    match starts {
+        Some(v) => format!("{},\"starts\":{v}}}", &answer[..answer.len() - 1]),
+        None => answer,
+    }
+}
+
 pub fn main(given: &[String]) -> u8 {
     let asked = match words(given) {
         Ok(a) => a,
@@ -194,6 +232,7 @@ pub fn main(given: &[String]) -> u8 {
             json
         }
     };
+    let show = args[0] == "order-show";
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match store::call(&here, &words) {
         Ok(v) => {
@@ -201,7 +240,12 @@ pub fn main(given: &[String]) -> u8 {
                 .get("order")
                 .map(Reading::of)
                 .unwrap_or(Reading::Unreadable);
-            tehas_core::outln!("{}", answer(&r, json));
+            let mut said = answer(&r, json);
+            if json && show {
+                let record = starts::read(&here).ok().flatten();
+                said = with_starts(said, record.as_ref().and_then(|rec| starts_of(&r, rec)));
+            }
+            tehas_core::outln!("{said}");
             0
         }
         Err(refused) => {
@@ -284,6 +328,47 @@ mod tests {
         }
         let many: Vec<String> = (1..=201).map(|n| n.to_string()).collect();
         assert_eq!(words(&w(&["set", "--issues", &many.join(",")])), Err(64));
+    }
+
+    #[test]
+    fn starts_names_each_ranked_issue_in_order() {
+        let r = Reading::Ok(Order {
+            issues: vec![12, 8, 5],
+            only: true,
+            ..Order::default()
+        });
+        let record = Record {
+            issues: vec![
+                (
+                    8,
+                    Some(Reason::new(
+                        code::BLOCKED,
+                        "tehas:blocked holds it: #3 is open",
+                    )),
+                ),
+                (12, None),
+            ],
+            ..Record::default()
+        };
+        let v = starts_of(&r, &("2026-11-20T10:00:00Z".to_string(), record.clone())).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"at": "2026-11-20T10:00:00Z", "issues": [
+                {"issue": 12, "start": true},
+                {"issue": 8, "start": false, "reason": {"code": "blocked", "text": "tehas:blocked holds it: #3 is open"}},
+                {"issue": 5, "start": false, "reason": {"code": "unseen", "text": "the last poll did not decide on it: it was ranked after that poll"}},
+            ]})
+        );
+        let said = with_starts(answer(&r, true), Some(v));
+        assert!(said.starts_with(
+            "{\"api\":1,\"state\":\"ok\",\"issues\":[12,8,5],\"only\":true,\"starts\":{\"at\":"
+        ));
+        assert!(serde_json::from_str::<serde_json::Value>(&said).is_ok());
+        assert_eq!(starts_of(&Reading::None, &(String::new(), record)), None);
+        assert_eq!(
+            with_starts(answer(&Reading::None, true), None),
+            "{\"api\":1,\"state\":\"none\"}"
+        );
     }
 
     #[test]

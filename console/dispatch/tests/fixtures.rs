@@ -714,6 +714,36 @@ fn run_suite(name: &str) {
                 bad.push(format!("demand {:?} not {x}", d.demand));
             }
         }
+        // starts: each issue of the record as "<n> start" or "<n> <code>";
+        // edges: the record's edges whole; holds: "<n> <code>".
+        let record = d.starts.to_value("");
+        let words = |k: &str, of: &dyn Fn(&Value) -> String| -> Value {
+            json!(record[k]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(of)
+                .collect::<Vec<_>>())
+        };
+        let code = |v: &Value| v["reason"]["code"].as_str().unwrap_or("start").to_string();
+        let got = [
+            (
+                "starts",
+                words("issues", &|v| format!("{} {}", v["issue"], code(v))),
+            ),
+            ("edges", record["edges"].clone()),
+            (
+                "holds",
+                words("holds", &|v| format!("{} {}", v["issue"], code(v))),
+            ),
+        ];
+        for (k, v) in got {
+            if let Some(x) = e.get(k) {
+                if *x != v {
+                    bad.push(format!("{k} {v} not {x}"));
+                }
+            }
+        }
         let needs = e.get("needs").cloned().unwrap_or_else(|| json!([]));
         if needs != json!(d.needs) {
             bad.push(format!("needs {:?} not {needs}", d.needs));
@@ -808,6 +838,11 @@ fn refresh() {
 #[test]
 fn start() {
     run_suite("start");
+}
+
+#[test]
+fn starts() {
+    run_suite("starts");
 }
 
 #[test]

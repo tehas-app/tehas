@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// brings it, and taken out only with the feature itself. The shipped features
 /// of the registry (core/src/features.rs) follow these; a building one is not
 /// a word of `features`.
-const FEATURES: [&str; 29] = [
+const FEATURES: [&str; 31] = [
     "status",
     "millwright-grant",
     "all-hands",
@@ -43,6 +43,8 @@ const FEATURES: [&str; 29] = [
     "flags",
     "status-previews",
     "wake",
+    "start-reasons",
+    "blockers",
 ];
 
 /// The longest version text read, which `head -c` kept it to.
@@ -235,7 +237,7 @@ mod tests {
             r#"{"api":1,"tehas":"v1.2.3","commit":null,"repo":"acme/widget","features":["status","#
         ));
         assert!(printed.ends_with(
-            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
+            r#""disk","panels","state-check","finish","status-versions","state-copy","state-load","freeze","host-bridge","cycle-writes","settings-rules","start-order","host-message","refresh-pr","host-start","flags","status-previews","wake","start-reasons","blockers"],"flags":{"outsource":false,"other":true},"millwright":"mill","poll":{"z":1,"a":2}}"#
         ));
     }
 

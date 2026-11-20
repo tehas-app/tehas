@@ -569,3 +569,32 @@ command wake
 flag wake --json
 field wake.api
 field wake.asked
+command blockers
+field blockers.api
+field blockers.at
+field blockers.chains
+field blockers.chains[].cycle
+field blockers.chains[].ends
+field blockers.chains[].ends[].issue
+field blockers.chains[].ends[].reason
+field blockers.chains[].ends[].reason.code
+field blockers.chains[].ends[].reason.text
+field blockers.chains[].ends[].start
+field blockers.chains[].issue
+field blockers.cycles
+field blockers.edges
+field blockers.edges[].by
+field blockers.edges[].issue
+field blockers.edges[].kind
+field blockers.edges[].on
+field blockers.edges[].open
+field blockers.state
+field order.starts
+field order.starts.at
+field order.starts.issues
+field order.starts.issues[].issue
+field order.starts.issues[].reason
+field order.starts.issues[].reason.code
+field order.starts.issues[].reason.text
+field order.starts.issues[].start
+flag blockers --json
