@@ -118,6 +118,30 @@ jobs:
           dir=$HOME/.cache/tehas-target/$RUNNER_NAME/$toolchain
           mkdir -p "$dir"
           echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+      - name: the type checker the kit passes
+        env:
+          # A new version: the same as TSC_VERSION in
+          # console/ops/src/update/types.rs, and the sha256 of npm's
+          # @typescript/typescript-linux-x64 tarball of it, which holds the
+          # native tsc and the lib files it reads.
+          TSC_VERSION: 7.0.2
+          TSC_SHA256: 7ecad6f67377e831856367ab062ef394f21506a611405bf8ac0ff039348637d3
+        run: |
+          # Kept between runs, checked against its sum when it is fetched.
+          # Named in TEHAS_TSC, so the kit's type check must run: under CI a
+          # missing or other tsc fails the gate.
+          dir=$HOME/.cache/tehas-tsc/$TSC_VERSION
+          bin=$dir/package/lib/tsc
+          if [ ! -x "$bin" ]; then
+            rm -rf "$dir" && mkdir -p "$dir"
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dir/tsc.tgz" \
+              "https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-$TSC_VERSION.tgz"
+            echo "$TSC_SHA256  $dir/tsc.tgz" | sha256sum -c -
+            tar -xzf "$dir/tsc.tgz" -C "$dir"
+            rm -f "$dir/tsc.tgz"
+          fi
+          test "$("$bin" --version)" = "Version $TSC_VERSION"
+          echo "TEHAS_TSC=$bin" >> "$GITHUB_ENV"
       - name: the toolchain the gate builds with
         run: |
           # Without cargo every Rust test fails on its own line and the red
