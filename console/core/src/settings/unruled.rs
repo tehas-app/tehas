@@ -170,6 +170,10 @@ pub const UNRULED: &[(&str, &str)] = &[
         "TEHAS_LAB_BUILD",
         "set by install.sh while cargo builds, read when tehas-core is compiled",
     ),
+    (
+        "TEHAS_TSC",
+        "the pinned tsc of the kit's type check, a workspace test",
+    ),
 ];
 
 /// Every name that starts with one of these.

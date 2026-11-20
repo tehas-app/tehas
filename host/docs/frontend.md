@@ -895,6 +895,21 @@ The budgets for new work:
   `install.sh` does, and serves the stage, so the page is checked with the
   hashed names a home gets; it also fails when an address under `/fun/` has
   no file.
+- The kit's types are checked by the workspace test `update::types` in
+  `console/ops/src/update/types.rs`. It runs TypeScript's native `tsc` 7.0.2
+  with `--checkJs --strict --noEmit` over the kit's seven modules and
+  `test/fixtures/kit-types/uses.js`, which uses the kit as this page says,
+  and fails on any error. Each `misuse-*.js` beside it makes one mistake, on
+  the line marked `// rejected: TS<code>`: an option spelt wrong, the data of
+  a refresh's answer read without asking whether it is ok, a method a feed
+  does not have, `load` spelt wrong, and a `mount` that returns no handle.
+  `tsc` must reject each there with that code and nowhere else.
+  `TEHAS_TSC` names the `tsc`; otherwise one on `PATH` of that version is
+  used. With neither the test says `SKIPPED` on stderr and passes, except
+  under CI (`CI` set), where it fails. The gate's workflows install npm's
+  `@typescript/typescript-linux-x64` 7.0.2, checked by its sha256, and name
+  it. By hand, in `console/`:
+  `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
 - The markup and the CSS of today's pages are pinned as text by
   `test/front_page_test.sh` and `test/theme_test.sh`. A change to a page
   changes them in the same commit.
