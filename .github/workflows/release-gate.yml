@@ -108,19 +108,22 @@ jobs:
           TSC_VERSION: 7.0.2
           TSC_SHA256: 7ecad6f67377e831856367ab062ef394f21506a611405bf8ac0ff039348637d3
         run: |
-          # Kept between runs, checked against its sum when it is fetched.
-          # Named in TEHAS_TSC, so the kit's type check must run: under CI a
-          # missing or other tsc fails the gate.
+          # The tarball is kept between runs and checked against its sum on
+          # every run, before tsc is unpacked from it into this job's
+          # temporary directory. Named in TEHAS_TSC, so the kit's type check
+          # must run: under CI a missing or other tsc fails the gate.
           dir=$HOME/.cache/tehas-tsc/$TSC_VERSION
-          bin=$dir/package/lib/tsc
-          if [ ! -x "$bin" ]; then
-            rm -rf "$dir" && mkdir -p "$dir"
-            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dir/tsc.tgz" \
+          tgz=$dir/tsc.tgz
+          mkdir -p "$dir"
+          if ! echo "$TSC_SHA256  $tgz" | sha256sum -c --status - >/dev/null 2>&1; then
+            rm -f "$tgz"
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$tgz" --proto '=https' --tlsv1.2 \
               "https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-$TSC_VERSION.tgz"
-            echo "$TSC_SHA256  $dir/tsc.tgz" | sha256sum -c -
-            tar -xzf "$dir/tsc.tgz" -C "$dir"
-            rm -f "$dir/tsc.tgz"
           fi
+          echo "$TSC_SHA256  $tgz" | sha256sum -c -
+          rm -rf "$RUNNER_TEMP/tsc" && mkdir -p "$RUNNER_TEMP/tsc"
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/tsc"
+          bin=$RUNNER_TEMP/tsc/package/lib/tsc
           test "$("$bin" --version)" = "Version $TSC_VERSION"
           echo "TEHAS_TSC=$bin" >> "$GITHUB_ENV"
       - name: the toolchain the gate builds with
