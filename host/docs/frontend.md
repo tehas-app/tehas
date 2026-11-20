@@ -399,6 +399,7 @@ is said above. Each is part of the connection's key.
 | `end` | Ends the stream for good on an answer it names: a list of statuses, or a function `(status, type)` of the status and the content type, without its parameters, that returns `true`. The state is `"closed"`, `status()` and `error()` stay, with the body on the error, until `reconnect()` |
 | `grow` | `"double"`, the default, or `"fixed"`: every wait after a failure is `retry`, up to `max` |
 | `ended` | The wait in ms after the server ends a stream cleanly, 0 or more. By default it is the first wait, `retry` or the server's `retry:` field. A server's `retry:` field replaces it, as an `EventSource` waits that field after an end too. A failure after it waits the backoff's next step. 0 asks again at once, as some clients did. A second clean end in a row that brought no event waits `retry`, then the backoff grows as after a failure, so a server that ends every stream at once is not asked in a loop |
+| `broken` | `"fail"`, the default, or `"end"`: a stream that breaks after it opened waits as a clean end does, `ended` or the first wait, and an end or a break starts the backoff again, so only failed connects grow it. A client that read the stream with `fetch` often did both |
 | `hidden` | `"live"`, above |
 
 ```js
@@ -411,8 +412,9 @@ stream(src, { end: eventSource, retry: 3000, grow: "fixed", ended: 3000, hidden:
 const live = stream(src, { end: [401, 403], on });
 live.error()?.data?.error;   // "Sign in to see this ticket."
 
-// 2 s after a failure, then 4 s, and so on; 1 s after a clean end.
-stream(src, { retry: 2000, ended: 1000, on });
+// 2 s after a failure, then 4 s, and so on; 1 s after a clean end or a
+// break, and the next failure waits 2 s again.
+stream(src, { retry: 2000, ended: 1000, broken: "end", on });
 
 // Ask again at once after a clean end.
 stream(src, { format: "ndjson", ended: 0, on });
@@ -510,7 +512,7 @@ For a page whose reads, streams and presses are a client of its own:
 | A post with its own pending and rollback | `action()` with `press()` and `createOptimistic` or `createOptimisticStore` |
 | An `EventSource` that gave up on a refusal or a wrong content type | `end: (status, type) => status !== 200 \|\| type !== "text/event-stream"`, or a list such as `end: [401]` |
 | The server's sentence of a refused stream | `error().data`, the refused answer's body |
-| Its own waits before asking again | `retry`, `grow: "fixed"`, `max`, and `ended` for the wait after a clean end |
+| Its own waits before asking again | `retry`, `grow: "fixed"`, `max`, `ended` for the wait after a clean end, and `broken: "end"` when a break after the open waited as an end and the backoff grew only on failed connects |
 | Asking again while the tab is hidden | `hidden: "live"` |
 | A wait for the answer of a read it asked again | `await f.refresh()`: `{ ok, status, data }` or `{ ok: false, status, error }` |
 | Taking the answer of a press or a pushed event as the data, with no second read | `f.put(value)` |
@@ -538,6 +540,11 @@ const r = await tickets().refresh();
 // The page's EventSource gave up for good on a 401 or a 5xx, waited 3 s,
 // and asked again while hidden.
 const live = stream(src, { end: eventSource, retry: 3000, grow: "fixed", ended: 3000, hidden: "live", on });
+
+// The page read the stream with fetch: 1 s after an end or a break, and
+// after a failed connect 2 s, then 4 s, up to 30 s, from 2 s again after
+// the next stream that opened.
+stream(src, { retry: 2000, ended: 1000, broken: "end", on });
 
 // The page asked again for the server's sentence after a refused stream.
 const said = live.error()?.data?.error;

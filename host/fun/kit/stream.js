@@ -28,6 +28,7 @@
 //   stream("/api/events", {
 //     end: (status, type) => status !== 200 || type !== "text/event-stream",  // or [401, 403]
 //     retry: 3000, grow: "fixed", ended: 3000,  // an EventSource's waits; a server retry field sets both
+//     broken: "end",  // a break after the open waits as an end, and only failed connects back off
 //     hidden: "live",
 //   });
 import { createSignal, getOwner, onCleanup } from "./vendor/solid.js";
@@ -39,7 +40,7 @@ const TIMEOUT = 30000;
 // longest wait for it.
 const BODY = 65536;
 const BODY_WAIT = 2000;
-const KEYED = ["format", "headers", "credentials", "parse", "hidden", "retry", "max", "grow", "ended", "end"];
+const KEYED = ["format", "headers", "credentials", "parse", "hidden", "retry", "max", "grow", "ended", "end", "broken"];
 const hidden = () => globalThis.document?.hidden === true;
 
 /** An answer the stream did not read: its status, and its body as data. */
@@ -140,6 +141,7 @@ function make(src, opts) {
   const fixed = opts.grow === "fixed";
   const ended = Number.isFinite(opts.ended) ? Math.max(0, opts.ended) : null;
   const live = opts.hidden === "live";
+  const broke = opts.broken === "end";
   // heard: this connection brought an event; quiet: clean ends in a row
   // that brought none; served: the server sent a retry field.
   const s = { listeners: new Map(), out: null, timer: 0, tries: 0, base: min, lastId: "", due: false, done: false, gone: false };
@@ -166,12 +168,13 @@ function make(src, opts) {
     }
   };
 
-  // `after` is the wait when the server ended the stream, when set, and
-  // `spent` the time already gone since the answer came.
-  const later = (after, spent = 0) => {
+  // `after` is the wait when the server ended the stream, when set, `spent`
+  // the time already gone since the answer came, and `fail` whether this
+  // wait counts as a try.
+  const later = (after, spent = 0, fail = true) => {
     if (s.gone || s.done) return;
     const wait = after ?? Math.min(max, fixed ? s.base : s.base * 2 ** s.tries);
-    s.tries += 1;
+    if (fail) s.tries += 1;
     clearTimeout(s.timer);
     s.timer = setTimeout(() => (hidden() && !live ? (s.due = true) : connect()), Math.max(0, wait - spent));
   };
@@ -222,6 +225,7 @@ function make(src, opts) {
     setState("connecting");
     const limit = setTimeout(() => out.abort(new Error(`${src}: no answer in ${TIMEOUT} ms`)), TIMEOUT);
     let spent = 0;
+    let opened = false;
     try {
       const headers = { ...headersOf(opts.headers) };
       if (s.lastId) headers["Last-Event-ID"] = s.lastId;
@@ -261,19 +265,21 @@ function make(src, opts) {
       s.heard = false;
       setError(null);
       setState("open");
+      opened = true;
       await read(res, out);
       if (s.out !== out) return;
       // The server ended the stream: ask again.
       s.out = null;
       setState("connecting");
-      later(ended === null ? undefined : afterEnd());
+      later(ended === null ? undefined : afterEnd(), 0, !broke);
     } catch (e) {
       clearTimeout(limit);
       if (s.out !== out) return;
       s.out = null;
       setError(out.signal.aborted ? out.signal.reason : e);
       setState("error");
-      later(undefined, spent);
+      if (opened && broke) later(ended === null ? undefined : afterEnd(), 0, false);
+      else later(undefined, spent);
     }
   }
 
@@ -335,15 +341,17 @@ function make(src, opts) {
  * stays `retry`. `ended` is the wait in ms after the server ends a stream
  * cleanly, 0 or more; by default the first wait. A server `retry:` field
  * replaces it, and a second clean end in a row with no event backs off as
- * a failure does. `end` ends the stream for
- * good on an answer it lists, a status array or a function of the status
- * and the content type that returns true: state "closed", with status() and
- * error() kept. `on` gets each event `{ type, data, id }` while its reader
+ * a failure does. `broken` is "fail", the default, or "end": a stream that
+ * breaks after it opened waits as a clean end does, and an end or a break
+ * starts the backoff again, so only failed connects grow it. `end` ends
+ * the stream for good on an answer it lists, a status array or a function
+ * of the status and the content type that returns true: state "closed",
+ * with status() and error() kept. `on` gets each event `{ type, data, id }` while its reader
  * lives; the same function given by two readers gets each event once.
  * @param {string} src
  * @param {{ format?: "sse" | "ndjson", headers?: object | (() => object), credentials?: RequestCredentials,
  *   parse?: "json" | "text", hidden?: "keep" | "close" | "live", retry?: number, max?: number,
- *   grow?: "double" | "fixed", ended?: number, end?: number[] | ((status: number, type: string) => boolean),
+ *   grow?: "double" | "fixed", ended?: number, broken?: "fail" | "end", end?: number[] | ((status: number, type: string) => boolean),
  *   on?: (event: { type: string, data: any, id: string | null }) => void }} [options]
  * @returns {{ src: string, state: () => "connecting" | "open" | "error" | "closed", error: () => unknown,
  *   status: () => number, reconnect: () => void }}
