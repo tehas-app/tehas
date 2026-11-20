@@ -500,7 +500,23 @@ mod tests {
                 text.contains(&format!("TSC_VERSION: {TSC_VERSION}\n")),
                 "{workflow} installs another tsc than {TSC_VERSION}"
             );
-            assert!(text.contains("TSC_SHA256: "), "{workflow} checks its sum");
+            let at = text.find("TSC_SHA256: ");
+            assert!(at.is_some(), "{workflow} checks its sum");
+            // The step, up to the next one.
+            let step = &text[at.unwrap()..];
+            let step = &step[..step.find("\n      - name:").unwrap_or(step.len())];
+            assert!(
+                step.contains("-o \"$tgz\" --proto '=https' --tlsv1.2 "),
+                "{workflow} fetches it over HTTPS only, TLS 1.2 or later"
+            );
+            // The kept tarball's sum is checked on every run, before tsc is
+            // unpacked from it into the job's own temporary directory.
+            let check = step.rfind("sha256sum -c").unwrap_or(usize::MAX);
+            let unpack = step.find("tar -xzf \"$tgz\" -C \"$RUNNER_TEMP/tsc\"");
+            assert!(
+                unpack.is_some_and(|u| check < u),
+                "{workflow} unpacks tsc each run from a checked tarball"
+            );
             assert!(
                 text.contains(&format!("{TSC_VAR}=$bin")),
                 "{workflow} names it in {TSC_VAR}"
