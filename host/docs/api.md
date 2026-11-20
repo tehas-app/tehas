@@ -433,24 +433,26 @@ logged that no code names, with its line in `text`.
 | `unseen` | Was ranked after the last poll |
 | `running` | Has a cycle running |
 | `planning` | Has a planning session open |
+| `question` | Waits for an answer to its question, or a tick on the question cannot be read as an answer |
 | `blocked` | Is held by `tehas:blocked`: [`tehas blockers`](#tehas-blockers) shows the chain |
 | `blocked-link` | Is held by an open blocked-by link |
 | `open-pr` | Has an open pull request that closes it |
 | `epic` | Is an epic, which never starts |
-| `parked` | Parked, and its body has not changed since |
+| `parked` | Parked, and its body has not changed since; or a retry was ticked on an issue that is not parked, or its retry after a provider outage waits for a person |
 | `too-large` | Names more files than `TEHAS_SIZE_MAX_FILES` |
 | `text-changed` | Its title or text changed since its approval |
 | `not-allowed` | Its label was applied by an account that may not authorise work |
 | `label-off` | Its label was taken off since it was applied |
 | `millwright` | Is held by a rule of the millwright's grant |
-| `driver` | Is held by the choice of driver |
-| `attachment` | Is held by an attachment its text links or names |
+| `driver` | Is held by the choice of driver, a retry of a lean park included |
+| `attachment` | Is held by an attachment its text links, or by text that says a file goes there and links none |
 | `spec` | Is held by its spec block or `Spec:` line |
 | `read-only` | A read-only host started it before |
-| `refresh-lane` | Waits for the refresh lane |
+| `refresh-lane` | Waits for the refresh lane, or its pull request carries `tehas:refreshing` |
 | `control-issue` | Is the control issue |
 | `closed`, `not-issue` | Is closed, or is a pull request |
-| `unreadable` | Something the rule needs could not be read this poll |
+| `unreadable` | Something the rule needs could not be read this poll, or GitHub has not said it yet |
+| `no-approval` | Is open and nobody made it ready (an end of a chain in [`tehas blockers`](#tehas-blockers)) |
 | `other` | Any other hold the poll logged |
 
 ## tehas blockers

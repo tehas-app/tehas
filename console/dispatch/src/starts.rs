@@ -27,6 +27,27 @@ pub fn code_of(text: &str) -> &'static str {
         ("is open and closes it", code::OPEN_PR),
         ("an epic is never started", code::EPIC),
         ("TEHAS_SIZE_MAX_FILES", code::TOO_LARGE),
+        // Rule 4: a tick on the bot's question, and the question itself.
+        (
+            "a box was ticked in a question this host has no record of",
+            code::QUESTION,
+        ),
+        ("are no answer", code::QUESTION),
+        ("its question is not among", code::QUESTION),
+        ("its question was written by", code::QUESTION),
+        ("the question on record does not belong", code::QUESTION),
+        (
+            "the park of a lean start this tehas cannot run",
+            code::DRIVER,
+        ),
+        (
+            "a retry was ticked but the issue is not parked",
+            code::PARKED,
+        ),
+        (
+            "its retry after a provider outage is not started",
+            code::PARKED,
+        ),
         ("its last cycle parked", code::PARKED),
         ("its park on record", code::PARKED),
         ("changed since the host approved it", code::TEXT_CHANGED),
@@ -37,13 +58,19 @@ pub fn code_of(text: &str) -> &'static str {
         ("from the fixer", code::MILLWRIGHT),
         ("TEHAS_MILLWRIGHT_MAX_FEEDS", code::MILLWRIGHT),
         ("from the bot starts nothing", code::NOT_ALLOWED),
+        ("tehas:ready was applied by", code::NOT_ALLOWED),
+        ("it carries both", code::DRIVER),
         ("block for the lean driver to read", code::SPEC),
         ("the lean driver", code::DRIVER),
         ("tehas does not guess the driver", code::DRIVER),
         ("TEHAS_DRIVER=lean", code::DRIVER),
         ("attachment", code::ATTACHMENT),
+        // The rule of a text that says a file goes there (rule 6).
+        ("its text says", code::ATTACHMENT),
         ("read-only, and this host started it", code::READ_ONLY),
         ("the refresh lane is full", code::REFRESH_LANE),
+        ("carries tehas:refreshing", code::REFRESH_LANE),
+        ("GitHub has not said yet", code::UNREADABLE),
         ("Spec:", code::SPEC),
         ("could not be read", code::UNREADABLE),
     ];
