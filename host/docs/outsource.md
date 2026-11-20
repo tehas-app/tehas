@@ -439,6 +439,8 @@ and `x-tehas-uid` (the uid the image was built for) on the image,
 `x-tehas-tip` and `x-tehas-image` on the index, `x-tehas-tip` and
 `x-tehas-branch` on the bundle. A `Range: bytes=<from>-` resumes a broken
 download with 206. At most two image downloads run at once; a third waits.
+A `docker save` that takes more than 30 minutes is killed and the download
+is 503, so a save that hangs gives its place back.
 
 | Status | Word | When |
 | --- | --- | --- |
@@ -451,6 +453,7 @@ download with 206. At most two image downloads run at once; a third waits.
 | 404 | `no downloads here` | the listener has no downloads |
 | 409 | the fetch's own words | the issue's files could not be fetched or checked: an in-house start would stop on it |
 | 416 | `a range of no bytes` | a range past the end of the file |
+| 503 | `the image was not saved: <why>` | `docker save` failed or ran past 30 minutes |
 
 The issue's files are made with the dispatcher's latest record of the issue
 and the instance's own settings (`TEHAS_WORK_IMAGES`, `TEHAS_WORK_FILES`,
