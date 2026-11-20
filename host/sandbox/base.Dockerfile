@@ -14,6 +14,8 @@
 #     its sha256 there before it runs, and each npm tool is installed from its
 #     tree in host/npm, as bootstrap.sh installs them on the host. Nothing is
 #     piped from the network into a shell, and nothing is taken at latest.
+#   - node in /opt/tehas-node, and the npm tools started by it by its path,
+#     so an instance layer may put a product's own node first on PATH.
 #   - vipune and double-o are built in a stage of their own; only the binaries
 #     reach the image. That stage is ubuntu:24.04 too: vipune's embeddings link
 #     the onnxruntime that ort-sys downloads, which needs the glibc (2.38 or
@@ -125,10 +127,17 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
  && rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_amd64" \
  && gh --version
 
-# node with the npm it ships.
+# node with the npm it ships, in a prefix of its own and linked into
+# /usr/local/bin. An instance layer may put a product's node ahead of it on
+# PATH; pi and the npm tools below still run this one (new-project.md, The
+# product's Node).
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz \
  && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
- && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+ && mkdir -p /opt/tehas-node \
+ && tar -xJf /tmp/node.tar.xz -C /opt/tehas-node --strip-components=1 --no-same-owner \
+ && for b in node npm npx; do ln -sf "/opt/tehas-node/bin/$b" "/usr/local/bin/$b"; done \
+ && mkdir -p /opt/tehas-node/etc && printf 'prefix=/usr/local\n' >/opt/tehas-node/etc/npmrc \
+ && test "$(npm prefix -g)" = /usr/local \
  && rm -f /tmp/node.tar.xz \
  && node --version && npm --version
 
@@ -170,12 +179,20 @@ RUN --mount=type=bind,source=.devcontainer/Dockerfile,target=/tmp/upstream.Docke
       && pkg=$2 && shift 4 && npm ci --no-fund --no-audit "$@" \
       && bins=$(node -p 'const p = process.argv[1], b = require("./node_modules/" + p + "/package.json").bin; typeof b === "string" ? p.split("/").pop() : Object.keys(b || {}).join(" ")' "$pkg") \
       && test -n "$bins" \
-      && for bin in $bins; do test -x "node_modules/.bin/$bin" && ln -sf "$PWD/node_modules/.bin/$bin" "/usr/local/bin/$bin" || exit 1; done; \
+      && for bin in $bins; do \
+           real=$(readlink -f "node_modules/.bin/$bin") && test -x "$real" || exit 1; \
+           if head -n 1 "$real" | grep -q '^#!.*node'; then \
+             printf '#!/bin/sh\nexec /opt/tehas-node/bin/node %s "$@"\n' "$real" >"/usr/local/bin/$bin" && chmod 755 "/usr/local/bin/$bin" || exit 1; \
+           else ln -sf "$real" "/usr/local/bin/$bin" || exit 1; fi; \
+         done; \
     } \
  && pin pi @earendil-works/pi-coding-agent "$PI_VERSION" "$PI_LOCK_SHA256" --ignore-scripts \
  && pin ctx7 ctx7 "$CTX7_VERSION" "$CTX7_LOCK_SHA256" --ignore-scripts \
  && pin parallel-web-cli parallel-web-cli "$PARALLEL_CLI_VERSION" "$PARALLEL_CLI_LOCK_SHA256" \
  && command -v pi >/dev/null && command -v ctx7 >/dev/null && command -v parallel-cli >/dev/null \
+ && mkdir /tmp/no-node && printf '#!/bin/sh\nexit 97\n' >/tmp/no-node/node && chmod 755 /tmp/no-node/node \
+ && { PATH=/tmp/no-node:$PATH pi --version >/dev/null || { echo "base: pi does not start with another node first on PATH" >&2; exit 1; }; } \
+ && rm -rf /tmp/no-node \
  && rm -rf /root/.npm
 
 ENV PI_ENSEMBLE_DIR=/opt/pi-rukas

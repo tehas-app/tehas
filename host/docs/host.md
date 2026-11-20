@@ -1583,7 +1583,10 @@ checksums, and the build stops when a pin there does not match the file beside
 the Dockerfile. A product whose gates need another toolchain adds it to the
 instance's own `sandbox.Dockerfile`, which `build.sh` builds on top of this
 image and gives the tag cycles run: see
-[the sandbox image](/new-project#5-the-sandbox-image). The platform's file stays
+[the sandbox image](/new-project#5-the-sandbox-image). tehas's Node is in
+`/opt/tehas-node`, linked into `/usr/local/bin`, and pi and the npm tools run
+it by its path, so a layer can put the product's own Node first on PATH
+([The product's Node](/new-project#the-products-node)). The platform's file stays
 as this checkout has it, because a changed one makes `tehas update` refuse.
 
 Three things the base carries are changed on purpose.
