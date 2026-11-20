@@ -160,9 +160,16 @@ struct Session<'a> {
 
 impl Session<'_> {
     fn words(&self) -> Vec<String> {
-        let mut w: Vec<String> = ["run", "--rm", "-it", "--init", "--name"]
-            .map(String::from)
-            .to_vec();
+        let mut w: Vec<String> = [
+            "run",
+            sandbox::NEVER_PULL,
+            "--rm",
+            "-it",
+            "--init",
+            "--name",
+        ]
+        .map(String::from)
+        .to_vec();
         w.push(format!("tehas-dev-{}", self.name));
         w.extend_from_slice(self.limits);
         w.extend_from_slice(self.security);
@@ -801,7 +808,7 @@ mod tests {
         .words();
         assert_eq!(
             w.join(" "),
-            "run --rm -it --init --name tehas-dev-zed --memory 2048m --cap-drop ALL \
+            "run --pull=never --rm -it --init --name tehas-dev-zed --memory 2048m --cap-drop ALL \
              --user 1:2 -w /t -v /a:/b -v /i:/i:ro -e PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/i \
              -e GH_TOKEN -e TERM -e COLORTERM --add-host=m:1.2.3.4 img pi -r"
         );

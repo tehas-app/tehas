@@ -776,7 +776,7 @@ impl Writer {
             // and does not let the poll read it as anything but its reason, so
             // that is the one whose line is said: the pre-check asked the same
             // function of the same draft, and the rule is said once either way
-            // — masked as every other planner-authored string that reaches
+            // and masked as every other planner-authored string that reaches
             // GitHub is, since it quotes the title the planner wrote.
             // An operational reason (`plan_clear` gives a few of them) is for
             // the log, as it was before this check.

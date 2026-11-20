@@ -510,20 +510,21 @@ fn a_token_forgotten_is_refused_from_then_on() {
     );
     let (status, _) = proxy.ask(&token, "/v1/chat/completions", "{}");
     assert_eq!(status, 401, "a forgotten token was answered");
-    // Each of the two leaves one line, and the second says why. The second
-    // request is answered before the case opens a third connection, so the two
-    // lines are there when the order of them is read.
+    // Each of the two leaves one line, and the refusal's says why. A handler
+    // logs after it answers, so on a loaded machine the two lines can come in
+    // either order: each is found by what it says.
     let lines = proxy.waited_for(2);
+    assert_eq!(lines.len(), 2, "two requests, two lines: {lines:?}");
     assert!(
-        lines[0].starts_with("POST "),
-        "the line of the answered request: {}\n",
-        lines[0]
+        lines.iter().any(|l| l.starts_with("POST ")),
+        "no line of the answered request: {lines:?}"
     );
     assert!(
-        lines[1].starts_with("refused ")
-            && lines[1].contains("a token this factory issued for no job"),
-        "{}\n",
-        lines[1]
+        lines
+            .iter()
+            .any(|l| l.starts_with("refused ")
+                && l.contains("a token this factory issued for no job")),
+        "no line of the refusal: {lines:?}"
     );
     // The other job of the same contractor is untouched.
     let (status, _) = proxy.job(8, "/v1/chat/completions", "{}");

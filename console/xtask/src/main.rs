@@ -4,6 +4,7 @@
 //! Usage:
 //!   xtask select-tests --root <dir> <path>...
 //!   xtask collect-changelog --script <path> <argument>...
+//!   xtask release-notes --script <path> <argument>...
 //!   xtask pack-release --script <path> <argument>...
 //!   xtask tag-release --script <path> <argument>...
 //!   xtask tag-deploy --script <path> <argument>...
@@ -30,6 +31,7 @@ use std::process::ExitCode;
 
 mod changelog;
 mod deploy;
+mod notes;
 mod pack;
 mod polyfills;
 mod run;
@@ -49,6 +51,7 @@ fn main() -> ExitCode {
         Some("tag-release") => tag_release(&args[1..]),
         Some("tag-deploy") => tag_deploy(&args[1..]),
         Some("collect-changelog") => collect_changelog(&args[1..]),
+        Some("release-notes") => release_notes(&args[1..]),
         Some("polyfills") => polyfills(&args[1..]),
         Some("test") => test(&args[1..]),
         _ => {
@@ -57,6 +60,7 @@ fn main() -> ExitCode {
             eprintln!("       xtask tag-release --script <path> <argument>...");
             eprintln!("       xtask tag-deploy --script <path> <argument>...");
             eprintln!("       xtask collect-changelog --script <path> <argument>...");
+            eprintln!("       xtask release-notes --script <path> <argument>...");
             eprintln!("       xtask polyfills --script <path> <argument>...");
             eprintln!("       xtask test --root <dir> [path...]");
             ExitCode::from(64)
@@ -185,6 +189,30 @@ fn collect_changelog(args: &[String]) -> ExitCode {
     };
     let default = pack::logical(&pwd(), &script.join("../../CHANGELOG.md"));
     ExitCode::from(changelog::run(&a, &default))
+}
+
+fn release_notes(args: &[String]) -> ExitCode {
+    let (script, rest) = match args {
+        [flag, script, rest @ ..] if flag == "--script" => (PathBuf::from(script), rest),
+        _ => {
+            eprintln!("xtask: release-notes needs --script <path>");
+            return ExitCode::from(64);
+        }
+    };
+    let a = match notes::parse(rest) {
+        Ok(notes::Parsed::Run(a)) => a,
+        Ok(notes::Parsed::Help) => {
+            let text = std::fs::read_to_string(&script).unwrap_or_default();
+            tehas_core::out!("{}", pack::help(&text));
+            return ExitCode::SUCCESS;
+        }
+        Err(msg) => {
+            eprintln!("release-notes: {msg}");
+            return ExitCode::from(64);
+        }
+    };
+    let default = pack::logical(&pwd(), &script.join("../../CHANGELOG.md"));
+    ExitCode::from(notes::run(&a, &default))
 }
 
 fn polyfills(args: &[String]) -> ExitCode {

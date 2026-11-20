@@ -674,6 +674,7 @@ fn run_args(r: &Run, limits: &[String], user: &str, tree: &Path) -> Vec<String> 
     let mut args: Vec<String> = [
         "docker",
         "run",
+        sandbox::NEVER_PULL,
         "--rm",
         "--init",
         "--name",

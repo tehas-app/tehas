@@ -352,8 +352,8 @@ fn a_head_that_carries_the_newest_tag_is_left_as_it_is() {
 #[test]
 fn a_new_head_is_tagged_and_pushed_and_the_worktree_removed() {
     let r = Remote::new();
-    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nSet X.\n");
-    assert_eq!(r.run(&["--dry-run"]), 0);
+    r.changelog("## Unreleased\n\n## v0.2.0 (2026-11-19)\n\n### Changes\n\n- x\n\n### Adopter action\n\nSet X.\n");
+    assert_eq!(r.run(&["--minor", "--dry-run"]), 0);
     assert_eq!(r.tags(), "v0.1.0");
     assert_eq!(r.run(&["--minor", "--message", "by hand"]), 0);
     assert_eq!(r.tags(), "v0.1.0 v0.2.0");
@@ -399,6 +399,7 @@ fn a_prerelease_is_tagged_on_the_next_version_and_counted_on() {
     r.changelog("## Unreleased\n\n### Changes\n\n- z\n\n### Adopter action\n\nNone.\n");
     assert_eq!(r.run(&["--major", "--pre", "alpha"]), 1);
     // The release itself still follows the newest release, not a prerelease.
+    r.changelog("## Unreleased\n\n## v1.0.0 (2026-11-19)\n\n### Changes\n\n- z\n\n### Adopter action\n\nNone.\n");
     assert_eq!(r.run(&["--major"]), 0);
     assert_eq!(
         r.tags(),
@@ -409,10 +410,36 @@ fn a_prerelease_is_tagged_on_the_next_version_and_counted_on() {
 #[test]
 fn a_prerelease_is_tagged_on_a_head_that_carries_the_newest_release() {
     let r = Remote::new();
-    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n\n## v0.2.0 (2026-11-19)\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
     assert_eq!(r.run(&["--minor"]), 0);
     assert_eq!(r.run(&["--major", "--pre", "alpha"]), 0);
     assert_eq!(r.tags(), "v0.1.0 v0.2.0 v1.0.0-alpha.1");
+}
+
+#[test]
+fn a_release_without_its_own_section_is_not_tagged_but_named_first() {
+    let r = Remote::new();
+    r.changelog("## Unreleased\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
+    // The dry run says what the pull request would do, and tags nothing.
+    assert_eq!(r.run(&["--dry-run"]), 0);
+    assert_eq!(r.tags(), "v0.1.0");
+    // A prerelease needs no section of its own.
+    assert_eq!(r.run(&["--pre", "rc"]), 0);
+    assert_eq!(r.tags(), "v0.1.0 v0.1.1-rc.1");
+}
+
+#[test]
+fn a_prerelease_whose_tag_before_has_no_unreleased_is_not_tagged() {
+    let r = Remote::new();
+    r.changelog("## v0.2.0\n\n### Changes\n\n- x\n\n### Adopter action\n\nNone.\n");
+    r.git(&["-C", "up", "tag", "v0.2.0"]);
+    r.git(&["-C", "up", "push", "--quiet", "origin", "v0.2.0"]);
+    r.changelog(
+        "## Unreleased\n\n### Changes\n\n- y\n\n### Adopter action\n\nNone.\n\n## v0.2.0\n",
+    );
+    assert_eq!(r.run(&["--pre", "beta"]), 1);
+    assert_eq!(r.run(&["--pre", "beta", "--dry-run"]), 1);
+    assert_eq!(r.tags(), "v0.1.0 v0.2.0");
 }
 
 #[test]
@@ -525,7 +552,15 @@ fn the_fragments_adopter_action_counts_and_a_bad_fragment_stops_it() {
 #[test]
 fn the_pull_request_that_collects_names_the_fragments() {
     assert_eq!(
-        fragments_body("Unreleased", &["changelog.d/3.md", "changelog.d/12.md"], "v0.1.1"),
-        "The lines of the changelog fragments, moved into the Unreleased section of CHANGELOG.md, and the fragments deleted:\n\n- changelog.d/3.md\n- changelog.d/12.md\n\nOpened by scripts/tag-release.sh, which tags v0.1.1 once this is merged."
+        fragments_body("Unreleased", &["changelog.d/3.md", "changelog.d/12.md"], "v0.1.1-rc.1", None),
+        "The lines of the changelog fragments, moved into the Unreleased section of CHANGELOG.md, and the fragments deleted:\n\n- changelog.d/3.md\n- changelog.d/12.md\n\nOpened by scripts/tag-release.sh, which tags v0.1.1-rc.1 once this is merged."
+    );
+    assert_eq!(
+        fragments_body("Unreleased", &["changelog.d/3.md"], "v0.1.1", Some("2026-11-19")),
+        "The Unreleased section of CHANGELOG.md, named v0.1.1 (2026-11-19) for the release's notes, with a new empty Unreleased above it.\n\nThe lines of the changelog fragments, moved into the Unreleased section of CHANGELOG.md, and the fragments deleted:\n\n- changelog.d/3.md\n\nOpened by scripts/tag-release.sh, which tags v0.1.1 once this is merged."
+    );
+    assert_eq!(
+        fragments_body("Unreleased", &[], "v0.1.1", Some("2026-11-19")),
+        "The Unreleased section of CHANGELOG.md, named v0.1.1 (2026-11-19) for the release's notes, with a new empty Unreleased above it.\n\nOpened by scripts/tag-release.sh, which tags v0.1.1 once this is merged."
     );
 }

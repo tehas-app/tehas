@@ -434,7 +434,7 @@ pub(crate) fn report(a: &Asked, o: &mut impl Outside) -> (Vec<String>, bool) {
     // The app's to fix, not an update's.
     if let Some(tree) = &a.product {
         let proof = o.push(&a.home, tree);
-        found |= !proof.pushes();
+        found |= !proof.starts();
         lines.extend(push::lines(&proof, &a.repo));
     }
 

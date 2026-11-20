@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/work: what the spec pipe hands a cycle of what was
+# Tests for tehas work: what the spec pipe hands a cycle of what was
 # approved, the spec its approval pinned and the approved title and body, and
 # the runner it needs for that. The feature is still being built, so a case
 # turns it on with TEHAS_TEST_FEATURES, as a test build may.

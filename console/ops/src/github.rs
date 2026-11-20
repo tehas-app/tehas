@@ -50,7 +50,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::{settings, time};
+use tehas_core::{read_only, settings, time};
 use tehas_cycle::renew;
 
 const USAGE: &str = "usage: tehasbot github-token [--cycle | --session] [--check] [--login]";
@@ -419,8 +419,17 @@ fn text(file: &Path) -> Option<String> {
     Some(read.trim_end_matches('\n').to_string())
 }
 
-/// The kept token, when it lasts until `by`.
-fn kept(dir: &Path, by: i64) -> Option<String> {
+/// Beside a narrowed token made on a read-only instance. A token kept without
+/// it may write, so a read-only instance does not hand it on.
+const READ_ONLY_MARK: &str = "token.read-only";
+
+/// The kept token, when it lasts until `by`. `read_only` is the instance's
+/// setting for a narrowed token, None for the app's own: a narrowed token is
+/// handed on only when it was made under the same setting.
+fn kept(dir: &Path, by: i64, read_only: Option<bool>) -> Option<String> {
+    if read_only.is_some_and(|on| on != dir.join(READ_ONLY_MARK).exists()) {
+        return None;
+    }
     let until = text(&dir.join("token.expires"))?;
     if until.is_empty() || until.len() > 12 || !until.bytes().all(|c| c.is_ascii_digit()) {
         return None;
@@ -492,13 +501,23 @@ fn renamed(old: &str, new: &str) {
 
 /// Written beside the old one and moved over it: a reader sees the old token
 /// or the new one, never half of one.
-fn keep(dir: &Path, token: &str, until: i64) -> bool {
+///
+/// The read-only mark goes before a token that may write and comes after one
+/// that may not, so a read-only reader between the steps finds no mark and
+/// makes its own under the lock: it never sees the mark beside a token that
+/// writes.
+fn keep(dir: &Path, token: &str, until: i64, read_only: Option<bool>) -> bool {
+    let mark = dir.join(READ_ONLY_MARK);
+    if read_only != Some(true) && fs::remove_file(&mark).is_err() && mark.exists() {
+        return false;
+    }
     let token_new = dir.join("token.new");
     let until_new = dir.join("token.expires.new");
     let kept = write_new(&token_new, token)
         && write_new(&until_new, &until.to_string())
         && fs::rename(&token_new, dir.join("token")).is_ok()
-        && fs::rename(&until_new, dir.join("token.expires")).is_ok();
+        && fs::rename(&until_new, dir.join("token.expires")).is_ok()
+        && (read_only != Some(true) || write_new(&mark, "1"));
     if !kept {
         let _ = fs::remove_file(&token_new);
         let _ = fs::remove_file(&until_new);
@@ -521,16 +540,21 @@ fn wait_for(lock: &File, wait: Duration) -> bool {
 
 /// The body that narrows a cycle's token: the product repository alone, and
 /// what a cycle writes. It reads issues and never writes them or their labels. None when TEHAS_REPO is not `<owner>/<name>`.
-fn narrowed(repo: &str) -> Option<String> {
+///
+/// On a read-only instance it writes nothing: the container's gh and git
+/// configuration stop the writes a cycle means to make, and the token stops
+/// any other request made with it.
+fn narrowed(repo: &str, read_only: bool) -> Option<String> {
     let (owner, name) = repo.split_once('/')?;
     let word = |w: &str| {
         !w.is_empty()
             && w.bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
     };
+    let write = if read_only { "read" } else { "write" };
     (word(owner) && word(name)).then(|| {
         format!(
-            r#"{{"repositories":["{name}"],"permissions":{{"contents":"write","pull_requests":"write","issues":"read"}}}}"#
+            r#"{{"repositories":["{name}"],"permissions":{{"contents":"{write}","pull_requests":"{write}","issues":"read"}}}}"#
         )
     })
 }
@@ -541,7 +565,8 @@ fn narrowed(repo: &str) -> Option<String> {
 /// `lookup` is where the app's installation and login are kept; the cycle's
 /// token shares the app's, state/github.
 fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>) -> Option<String> {
-    if let Some(token) = kept(dir, time::now() + LEFT) {
+    let read_only = narrow.map(|_| read_only::on());
+    if let Some(token) = kept(dir, time::now() + LEFT, read_only) {
         return Some(token);
     }
     if !app.readable() {
@@ -568,7 +593,7 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
         return None;
     }
     // Another command may have made one while this one waited.
-    if let Some(token) = kept(dir, time::now() + LEFT) {
+    if let Some(token) = kept(dir, time::now() + LEFT, read_only) {
         return Some(token);
     }
     let had_one = lookup.join("installation").exists();
@@ -587,7 +612,7 @@ fn token(app: &App, dir: &Path, lookup: &Path, repo: &str, narrow: Option<&str>)
         eprintln!("tehas: GitHub's answer for the app's token held no token and expiry");
         return None;
     };
-    if !keep(dir, &token, until) {
+    if !keep(dir, &token, until, read_only) {
         eprintln!(
             "tehas: the app's token could not be kept in {}",
             dir.display()
@@ -742,7 +767,7 @@ pub fn token_env() -> Result<String, u8> {
 pub fn session_token_env() -> Result<String, u8> {
     settings::require(&NEEDS)?;
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
-    let Some(body) = narrowed(&repo) else {
+    let Some(body) = narrowed(&repo, read_only::on()) else {
         eprintln!("tehas: TEHAS_REPO ({repo}) is not <owner>/<name>");
         return Err(78);
     };
@@ -793,7 +818,7 @@ pub fn main(given: &[String]) -> u8 {
     }
     let repo = env::var("TEHAS_REPO").unwrap_or_default();
     let narrow = if ask.cycle || ask.session {
-        let Some(body) = narrowed(&repo) else {
+        let Some(body) = narrowed(&repo, read_only::on()) else {
             eprintln!("tehas github-token: TEHAS_REPO ({repo}) is not <owner>/<name>");
             return 78;
         };
@@ -915,10 +940,10 @@ mod tests {
     #[test]
     fn a_kept_token_lasts_until_the_time_asked_for() {
         let d = dir("kept");
-        assert_eq!(kept(d.path(), 100), None);
+        assert_eq!(kept(d.path(), 100, None), None);
         put(&d, "ghs_kept\n", "100\n");
-        assert_eq!(kept(d.path(), 100).as_deref(), Some("ghs_kept"));
-        assert_eq!(kept(d.path(), 101), None);
+        assert_eq!(kept(d.path(), 100, None).as_deref(), Some("ghs_kept"));
+        assert_eq!(kept(d.path(), 101, None), None);
     }
 
     #[test]
@@ -932,11 +957,11 @@ mod tests {
             ("\n", "100\n"),
         ] {
             put(&d, token, until);
-            assert_eq!(kept(d.path(), 0), None, "{token:?} {until:?}");
+            assert_eq!(kept(d.path(), 0, None), None, "{token:?} {until:?}");
         }
         fs::remove_file(d.join("token")).unwrap();
         fs::write(d.join("token.expires"), "100\n").unwrap();
-        assert_eq!(kept(d.path(), 0), None);
+        assert_eq!(kept(d.path(), 0, None), None);
     }
 
     #[test]
@@ -944,7 +969,7 @@ mod tests {
         let d = dir("keep");
         put(&d, "ghs_old\n", "1\n");
         let old = fs::metadata(d.join("token")).unwrap().ino();
-        assert!(keep(d.path(), "ghs_new", 2_000_000_000));
+        assert!(keep(d.path(), "ghs_new", 2_000_000_000, None));
         assert_eq!(fs::read_to_string(d.join("token")).unwrap(), "ghs_new\n");
         assert_eq!(
             fs::read_to_string(d.join("token.expires")).unwrap(),
@@ -963,7 +988,7 @@ mod tests {
     fn a_token_that_cannot_be_moved_leaves_nothing_beside_it() {
         let d = dir("nomove");
         fs::create_dir(d.join("token")).unwrap();
-        assert!(!keep(d.path(), "ghs_new", 2_000_000_000));
+        assert!(!keep(d.path(), "ghs_new", 2_000_000_000, None));
         assert!(!d.join("token.new").exists());
         assert!(!d.join("token.expires.new").exists());
         assert!(!d.join("token.expires").exists());
@@ -1055,7 +1080,7 @@ mod tests {
 
     #[test]
     fn a_cycles_token_is_narrowed_to_the_product_and_what_a_cycle_writes() {
-        let body: Value = serde_json::from_str(&narrowed("acme/widget").unwrap()).unwrap();
+        let body: Value = serde_json::from_str(&narrowed("acme/widget", false).unwrap()).unwrap();
         assert_eq!(body["repositories"], serde_json::json!(["widget"]));
         assert_eq!(
             body["permissions"],
@@ -1069,16 +1094,52 @@ mod tests {
             "acme/wid\"get",
             "acme/a b",
         ] {
-            assert_eq!(narrowed(bad), None, "{bad}");
+            assert_eq!(narrowed(bad, false), None, "{bad}");
         }
     }
 
     #[test]
     fn a_cycles_token_leaves_issues_and_their_labels_alone() {
-        let body = narrowed("acme/widget").unwrap();
+        let body = narrowed("acme/widget", false).unwrap();
         assert_eq!(
             body,
             r#"{"repositories":["widget"],"permissions":{"contents":"write","pull_requests":"write","issues":"read"}}"#
+        );
+    }
+
+    #[test]
+    fn a_read_only_instances_cycle_token_writes_nothing() {
+        let body: Value = serde_json::from_str(&narrowed("acme/widget", true).unwrap()).unwrap();
+        assert_eq!(body["repositories"], serde_json::json!(["widget"]));
+        assert_eq!(
+            body["permissions"],
+            serde_json::json!({"contents": "read", "pull_requests": "read", "issues": "read"})
+        );
+        assert_eq!(narrowed("widget", true), None);
+    }
+
+    #[test]
+    fn a_narrowed_token_is_handed_on_only_under_the_setting_it_was_made_under() {
+        let d = dir("mark");
+        put(&d, "ghs_writes\n", "100\n");
+        assert_eq!(
+            kept(d.path(), 0, Some(false)).as_deref(),
+            Some("ghs_writes")
+        );
+        assert_eq!(kept(d.path(), 0, Some(true)), None);
+        assert_eq!(kept(d.path(), 0, None).as_deref(), Some("ghs_writes"));
+
+        assert!(keep(d.path(), "ghs_reads", 2_000_000_000, Some(true)));
+        assert!(d.join(READ_ONLY_MARK).exists());
+        assert_eq!(kept(d.path(), 0, Some(true)).as_deref(), Some("ghs_reads"));
+        assert_eq!(kept(d.path(), 0, Some(false)), None);
+
+        assert!(keep(d.path(), "ghs_writes", 2_000_000_000, Some(false)));
+        assert!(!d.join(READ_ONLY_MARK).exists());
+        assert_eq!(kept(d.path(), 0, Some(true)), None);
+        assert_eq!(
+            kept(d.path(), 0, Some(false)).as_deref(),
+            Some("ghs_writes")
         );
     }
 

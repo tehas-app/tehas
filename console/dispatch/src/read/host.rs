@@ -754,6 +754,20 @@ mod tests {
             let mut p = fs::metadata(&stub).unwrap().permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut p, 0o755);
             fs::set_permissions(&stub, p).unwrap();
+            // Another test's fork can still hold the stub open for writing, and
+            // then exec fails with ETXTBSY, which turn() reads as no answer.
+            for _ in 0..500 {
+                match std::process::Command::new(&stub)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10))
+                    }
+                    _ => break,
+                }
+            }
             turn(&h, 7, stub.to_str().unwrap())
         };
         assert_eq!(answer("echo active"), (true, false));

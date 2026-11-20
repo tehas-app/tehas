@@ -14,7 +14,7 @@
 //!   why: the one word of the hold, empty when nothing holds. cycle_limit is
 //!   the cycles allowed at once: count plus free (TEHAS_MAX_CYCLES,
 //!   or the count the poll derived from the host when that setting is
-//!   `auto` — the dispatcher writes the count it decided by into free), or
+//!   `auto`: the dispatcher writes the count it decided by into free), or
 //!   count plus limitRoom where the limit of tehas limit is lower.
 //! - live/energy.json (console energy): {generatedAt, totals: {watts}}.
 //!   watts is the mesh's draw, where it reports one.

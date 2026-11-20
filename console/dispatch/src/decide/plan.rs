@@ -249,6 +249,14 @@ impl Poll<'_> {
                 self.fixer_held(n, &shape(row), ans);
             }
             return Ok(());
+        } else if tick == "unread" {
+            // The question's edit history could not be read this poll: who
+            // saved it is not known, so nothing is said or done, and the next
+            // poll reads it again.
+            self.log(format!(
+                "skip #{n}: the edit history of its question could not be read; it waits for the next poll"
+            ));
+            return Ok(());
         } else if !ans["fixer_reply"].is_null() {
             fixer_said = "reply";
         } else if tick == "fixer" {

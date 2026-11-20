@@ -185,7 +185,9 @@ line that sets one stops every command with exit 78; take them out too.
   that runs past 60 seconds is stopped, with what it started, and counts as a
   failed one, so a hung call to GitHub neither stops the renewals nor holds
   the end of the cycle. The renewer is
-  `tehas-cycle renew` (`console/cycle/src/renew.rs`).
+  `tehas-cycle renew` (`console/cycle/src/renew.rs`). It ends within a second
+  of a `tehas work` that was killed outright, so it does not keep the issue's
+  lock after its cycle is gone.
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `~/tehas/state/github/login`, because an installation token cannot ask
   GitHub who it is. The millwright is that same login (see
@@ -245,7 +247,7 @@ granting label, as the next section says.
 
 The dispatcher keeps the GitHub node id of each label whose application
 grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
-`tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
+`tehas:blocked`, `tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
 one `<name><tab><id>` line each. The first page of each poll reads the
 repository's `tehas:` labels with their ids, and the label events read from
 GraphQL carry the id of their label:
@@ -257,7 +259,12 @@ GraphQL carry the id of their label:
   the file exists it pins only a label it made itself, one that did not exist
   before it ran: a label that was already there with no pin could be another
   label renamed to the name, so it is named (`not pinned: ... was there before
-  with no pin`) and the command exits 1.
+  with no pin`) and the command exits 1. The one exception is a label GitHub
+  says was created within a minute of a label that is pinned and still that
+  label: the same `tehas labels` run made both, so it is pinned (`pinned the
+  label <name> as <id> in state/labels: it was made with the pinned labels`).
+  A renamed label keeps its creation time, so this does not take one. This is
+  how `tehas:blocked`, pinned from 1.0, gets its pin on a host from before.
 - A host with no file, one from before the pins, is pinned by its first poll
   that reads the labels: each granting label it finds, and the file is written
   even when it finds none. A dry run says what it would pin and writes
@@ -282,6 +289,10 @@ GraphQL carry the id of their label:
   pinned label when the labels could not be read, grants nothing that poll:
   label events read from REST carry no label id, so they could not be told
   from another label renamed to the name.
+- A refused `tehas:blocked` starts nothing, but it still holds: an issue
+  that carries it waits as it would for an allowed account's, on the marked
+  comment or on the label alone. A refused pin never lets an issue start
+  sooner.
 
 `tehas labels` pins `tehas:prototype` the same way, and the
 [Protolab](/tools-protolab#tehasbot-protolab) publishes no ticket while the
