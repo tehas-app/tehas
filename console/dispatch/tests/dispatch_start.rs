@@ -256,6 +256,85 @@ fn when_its_label_cannot_be_changed_nothing_is_said_on_it_and_the_poll_goes_on_t
 }
 
 #[test]
+fn an_issue_with_open_sub_issues_is_not_started_its_tehas_ready_comes_off_and_the_issue_says_why_once(
+) {
+    let w = World::new("st-epic");
+    epic(&w, 13, 0);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    has(
+        &r.out,
+        "skip #7: it is an epic with 13 sub-issues open, and an epic is never started",
+    );
+    let gh = w.gh();
+    has(
+        &gh,
+        "issue edit 7 --repo acme/widget --remove-label tehas:ready",
+    );
+    has(
+        &gh,
+        "issue comment 7 --repo acme/widget --body Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open",
+    );
+    has(
+        &gh,
+        "An epic is never started. Apply `tehas:ready` to one of its sub-issues instead.",
+    );
+    assert_eq!(count_lines(&gh, "issue comment 7 "), 1, "{gh}");
+}
+
+#[test]
+fn an_issue_whose_sub_issues_are_all_closed_starts_as_any_other() {
+    let w = World::new("st-epic-done");
+    epic(&w, 13, 13);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "7 ");
+    lacks(&w.gh(), "An epic is never started");
+    lacks(&r.out, "it is an epic");
+}
+
+#[test]
+fn while_a_cycle_is_running_nothing_is_started() {
+    let w = World::new("st-holding");
+    w.hold(9);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    lacks(&w.gh(), "issue edit");
+    let r = w.dispatch(&["--dry-run"]);
+    has(&r.out, "holding: 1 cycles are running (limit 1)");
+    w.release();
+}
+
+#[test]
+fn the_issue_is_read_again_before_it_is_parked_and_a_failed_read_ends_the_poll() {
+    let w = World::new("st-marked-read-fails");
+    w.fx("marked.json", r#"[{"number":9}]"#);
+    w.touch("work-fails");
+    let r = w.poll();
+    assert_eq!(r.rc, 1, "{}", r.out);
+    lacks(&w.gh(), "issue edit");
+    assert_eq!(w.started(), "");
+}
+
+#[test]
+fn a_closed_issue_marked_as_running_with_no_cycle_loses_the_mark_and_is_not_parked() {
+    let w = World::new("st-marked-closed");
+    w.fx("marked.json", r#"[{"number":9,"state":"CLOSED"}]"#);
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let gh = w.gh();
+    let edit = "issue edit 9 --repo acme/widget --remove-label tehas:running";
+    assert_eq!(gh.lines().filter(|l| *l == edit).count(), 1, "{gh}");
+    lacks(&gh, "issue comment 9");
+    has(
+        &r.out,
+        "clear #9: it is closed, marked tehas:running, and no cycle holds its lock",
+    );
+}
+
+#[test]
 fn a_lock_file_nobody_holds_does_not_make_it_a_running_cycle() {
     let w = World::new("st-lock-file");
     w.fx("marked.json", r#"[{"number":9}]"#);

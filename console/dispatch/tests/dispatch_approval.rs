@@ -845,3 +845,76 @@ fn the_account_unknown_on_the_list_grants_with_the_pinned_label() {
     assert_eq!(w.started(), "7 ");
     lacks(&r.out, "refused");
 }
+
+fn count_exact(text: &str, line: &str) -> usize {
+    text.lines().filter(|l| *l == line).count()
+}
+
+#[test]
+fn a_tehas_ready_applied_by_mallory_is_taken_off_the_issue_and_said_once() {
+    let w = World::new("ap-outsider");
+    ready_by(&w, json!({"login": "mallory"}));
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    has(
+        &r.out,
+        "skip #7: tehas:ready was applied by 'mallory', not an allowed account",
+    );
+    has(
+        &r.out,
+        "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here",
+    );
+    let gh = w.gh();
+    assert_eq!(
+        count_exact(
+            &gh,
+            "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+        ),
+        1,
+        "{gh}"
+    );
+    has(&gh, "issue comment 7 --repo acme/widget --body Tehas took");
+    has(
+        &gh,
+        "It was applied by `mallory`, an account that may not authorise work in this factory",
+    );
+    assert_eq!(count_lines(&gh, "issue comment "), 1, "{gh}");
+}
+
+#[test]
+fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
+    let w = World::new("ap-outsider-dry");
+    ready_by(&w, json!({"login": "mallory"}));
+    let r = w.dispatch(&["--dry-run"]);
+    has(
+        &r.out,
+        "would take tehas:ready off #7: it was applied by 'mallory'",
+    );
+    lacks(&w.gh(), "issue edit");
+    lacks(&w.gh(), "issue comment");
+}
+
+#[test]
+fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_still_list_it() {
+    let w = World::new("ap-taken-off");
+    w.fx_json(
+        "events-7.json",
+        &json!([
+            {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "alice"},
+                "created_at": "2026-10-01T00:00:00Z"},
+            {"event": "unlabeled", "label": {"name": "tehas:ready"}, "actor": {"login": "alice"},
+                "created_at": "2026-10-01T00:01:00Z"}
+        ]),
+    );
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    has(
+        &r.out,
+        "skip #7: tehas:ready was taken off by 'alice' since it was applied",
+    );
+    lacks(&r.out, "not an allowed account");
+    lacks(&w.gh(), "issue edit 7");
+    lacks(&w.gh(), "issue comment 7");
+}
