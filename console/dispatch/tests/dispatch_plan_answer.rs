@@ -459,3 +459,23 @@ fn an_outcome_that_could_not_be_posted_is_posted_by_the_next_poll_before_anythin
     );
     assert_eq!(w.rec()["pending"], json!(false));
 }
+
+#[test]
+fn a_ticked_option_passes_no_comment() {
+    let w = World::new("plan-answer");
+    w.planning();
+    w.comments(7, &plan_body(" ", "x", " ", 1, ""), "alice", json!([]));
+    w.poll();
+    has(&w.plan_calls(), &turn_line(&w));
+    lacks(&w.plan_calls(), "--comment");
+}
+
+#[test]
+fn the_record_of_a_session_whose_issue_no_longer_asks_is_removed() {
+    let w = World::new("plan-answer");
+    w.planning();
+    w.fx("asking.json", "[]");
+    w.poll();
+    assert_eq!(w.rec_open(), "none");
+    lacks(&w.gh(), "issue comment");
+}
