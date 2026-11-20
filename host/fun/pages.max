@@ -9,8 +9,8 @@
 #
 # Approved by the owner on 2026-11-20: library solid 123689 and
 # page dashboard 83939 53988.
-page business 99084 40524
-page floor 144291 68492
+page business 99086 40524
+page floor 144293 68492
 page dashboard 83844 53988
 page manual 0 49838
 island factory/tehas-factory-console 4156
@@ -18,7 +18,7 @@ island factory/tehas-factory-days 4686
 island factory/parts 847
 island factory/tehas-factory-host 4410
 island factory/tehas-factory-issues 3728
-island factory/tehas-factory-previews 4071
+island factory/tehas-factory-previews 4073
 island factory/tehas-factory-readonly 2877
 island factory/tehas-factory-state 3261
 library solid 123689
