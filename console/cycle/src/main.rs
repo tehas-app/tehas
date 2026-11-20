@@ -105,6 +105,7 @@
 //!                                     `--private` and the name, for a command
 //!                                     to read into its arguments
 //!   tehas-cycle renew --cmd <path> [--arg <word>]... --every <s> --retry <s>
+//!                     [--parent <pid>]
 //!                                     the renewer of a cycle's GitHub token:
 //!                                     run <path> with the words of --arg, in
 //!                                     their order, with its output discarded,
@@ -116,7 +117,9 @@
 //!                                     stopped after 60 seconds, its group
 //!                                     sent TERM and then KILL, and counted
 //!                                     a failure. It ends 0 on TERM, at once
-//!                                     even while <path> runs.
+//!                                     even while <path> runs, and within a
+//!                                     second once its parent is not <pid>
+//!                                     (its parent at start when not given).
 //!   tehas-cycle finish <issue> --home <dir> --repo <owner/name> --default <branch>
 //!       --reason <text>
 //!                                     the factory opens the draft pull
@@ -389,6 +392,7 @@ fn main() {
             let mut words = Vec::new();
             let mut every = None;
             let mut retry = None;
+            let mut parent = None;
             let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(&args));
             let mut it = rest.iter();
             while let Some(flag) = it.next() {
@@ -398,13 +402,15 @@ fn main() {
                     "--arg" => words.push(v.to_string()),
                     "--every" => every = Some(secs(v)),
                     "--retry" => retry = Some(secs(v)),
+                    "--parent" => parent = Some(v.parse::<u32>().unwrap_or_else(|_| wrong(&args))),
                     _ => wrong(&args),
                 }
             }
             let (Some(cmd), Some(every), Some(retry)) = (cmd, every, retry) else {
                 wrong(&args)
             };
-            renew_verb(&cmd, &words, every, retry);
+            let parent = parent.unwrap_or_else(std::os::unix::process::parent_id);
+            renew_verb(&cmd, &words, every, retry, parent);
         }
         ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["caps", rest @ ..] => caps_verb(rest, &args),
@@ -712,7 +718,7 @@ fn outcome_verb(result: &str, n: &str) {
 /// The kept workspace is `TEHAS_WORK_DIR` with the issue's number on the end,
 /// the name `tehas work` gave the tree the cycle worked in and the name the poll
 /// keeps when the cycle stops. The rest are given, so the command reads no
-/// setting but that one, and it is refused when the host has none — the poll
+/// setting but that one, and it is refused when the host has none. The poll
 /// step of part 2 has it, as every command that works on a workspace has. The
 /// poll's environment also gives `TEHAS_BOT_LOGIN` and `TEHAS_ALLOWED_LABELERS`,
 /// whose open pull requests count; a run with no allowed account is refused.
@@ -781,13 +787,14 @@ fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
 /// The renewer of a cycle's GitHub token: it runs to the end of the cycle and
 /// ends 0 when a signal asks it to stop. The flag is what `renew` counts its
 /// waits against, as `console`'s review does.
-fn renew_verb(cmd: &Path, words: &[String], every: u64, retry: u64) -> ! {
+fn renew_verb(cmd: &Path, words: &[String], every: u64, retry: u64, parent: u32) -> ! {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if signal_hook::flag::register(signal, Arc::clone(&stop)).is_err() {
             fail(format!("cannot listen for signal {signal}"));
         }
     }
+    renew::stop_when_orphaned(parent, Arc::clone(&stop));
     renew::renew(cmd, words, every, retry, &stop, renew::epoch_seconds);
     std::process::exit(0);
 }

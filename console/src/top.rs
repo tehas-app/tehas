@@ -42,13 +42,14 @@ use crate::jq::J;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Read};
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::file::Temp;
+use tehas_core::out::print as printed;
 use tehas_core::time;
 
 // How many processes the section keeps.
@@ -363,16 +364,6 @@ fn lines(snapshot: &str, cols: usize, rows: usize) -> Option<Vec<String>> {
 
 fn put(text: &str) -> bool {
     printed(text) == 0
-}
-
-/// The status of a print: 141 when the reader has gone, 1 another failure.
-fn printed(text: &str) -> u8 {
-    let mut out = std::io::stdout().lock();
-    match out.write_all(text.as_bytes()).and(out.flush()) {
-        Ok(()) => 0,
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => tehas_core::exit::CLOSED,
-        Err(_) => 1,
-    }
 }
 
 fn tty(args: &[&str]) -> Option<String> {

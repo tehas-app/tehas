@@ -509,7 +509,9 @@ thaw it turns false on the next look. A frozen cycle still holds its slot, so
 freezing makes no room for another. The runner reads its own deadline,
 `PI_ENSEMBLE_CYCLE_DEADLINE`, on the wall clock, so a long freeze can bring the
 cycle to that deadline sooner: it then parks at a step boundary with a
-handoff. A stop of the cycle or of the factory still works on a frozen cycle,
+handoff. `tehas-cycle@.service` still stops the cycle 8 hours after it
+started, frozen or not, so a freeze of hours late in a cycle can end it while
+it is paused, as a cycle that stopped. A stop of the cycle or of the factory still works on a frozen cycle,
 and a freeze ends with its cycle.
 
 | Field | Meaning |
@@ -766,7 +768,7 @@ ssh <source> '. ~/tehas/env.sh && tehas state pack -' |
 ```
 
 The tar holds `tehas-state.json` first,
-`{"api": 1, "tag": "v0.17.0", "schema": 9}`, then `state/`, `repos/`, `live/`
+`{"api": 1, "tag": "v1.0.0", "schema": 18}`, then `state/`, `repos/`, `live/`
 and `mcp/` of the home. The tag is the release in use, read as `tehas api`
 reads it, and the schema is the state store's. The store is not copied as a
 file: `state/tehas.db` in the tar is a copy the store made of itself, so what
@@ -842,7 +844,7 @@ moves a factory and compares the two sides. With `--json` it prints the
 store's own answer to `store check`, whole and in its order:
 
 ```json
-{"api": 1, "verb": "check", "ok": true, "schema": 9, "integrity": "ok", "rows": {"cycles": 412, "...": 0}}
+{"api": 1, "verb": "check", "ok": true, "schema": 18, "integrity": "ok", "rows": {"cycles": 412, "...": 0}}
 ```
 
 | Field | Meaning |
@@ -873,7 +875,7 @@ tehas state copy --to <file> [--json]
 ```
 
 ```json
-{"api": 1, "target": "/home/tehas/copies/tehas-before-deploy.db", "schema": 10, "rows": 4182, "ms": 37}
+{"api": 1, "target": "/home/tehas/copies/tehas-before-deploy.db", "schema": 18, "rows": 4182, "ms": 37}
 ```
 
 Writes a copy of the state store, as it is at one moment, to `<file>`, mode
@@ -912,7 +914,7 @@ tehas state load --from <file> [--json]
 ```
 
 ```json
-{"api": 1, "source": "/home/tehas/copies/tehas-before-deploy.db", "schema": 10, "rows": 4182, "ms": 52}
+{"api": 1, "source": "/home/tehas/copies/tehas-before-deploy.db", "schema": 18, "rows": 4182, "ms": 52}
 ```
 
 The inverse of [`tehas state copy`](#tehas-state-copy): fills the factory's
@@ -931,10 +933,12 @@ It refuses, in one line on standard error and with the store as it was:
   the store's;
 - a copy that is not there, is not a store or fails SQLite's
   `PRAGMA integrity_check`;
-- a copy of a newer schema than this release reads, naming both numbers.
+- a copy of a newer schema than this release reads, naming both numbers;
+- a copy older than v0.30.0 wrote, below schema 12: load it into a v0.30
+  release first.
 
-A copy of an older schema is brought forward by the same steps an update runs
-on the store. The copy is read from a file of its own beside the store, so
+A copy of an older schema, 12 or later, is brought forward by the same steps
+an update runs on the store. The copy is read from a file of its own beside the store, so
 the copy itself is not changed. The rows then replace the store's in one
 transaction, the outsource tables and whether the feature is on with them: the store's file is not replaced, because the readers of a
 drained factory, the dashboard and the poll, hold it open. A failure rolls the
@@ -964,7 +968,7 @@ tehas analytics copy --to <file> [--json]
 ```
 
 ```json
-{"api": 1, "schema": 1, "from": 1792022400, "to": 1792800000, "runs": 42}
+{"api": 1, "schema": 4, "from": 1792022400, "to": 1792800000, "runs": 42}
 ```
 
 Writes a consistent copy of the factory's analytics database to `<file>`, mode

@@ -212,7 +212,7 @@ fn readable(text: &str) -> String {
 
 /// `c` as one letter of a word or one character of one of the brief's marks:
 /// lower case, and with the punctuation a model swaps for another read as the
-/// character it stands for — the fullwidth colon is the colon of `Descriptor:`,
+/// character it stands for: the fullwidth colon is the colon of `Descriptor:`,
 /// which is the one a model has used to hide the field.
 fn shape(c: char) -> char {
     match c {
@@ -446,8 +446,8 @@ pub fn check_body(body: &str) -> Result<(), Refusal> {
     // blanks of the form gone, what is left is either words of the issue or
     // nothing. The marker `[context param]` is a marker however it is padded
     // with characters no reader sees, and a body of one character written over
-    // and over — `a` repeated a thousand times is what a model that ran out of
-    // what to say emits — holds no word of an issue.
+    // and over (`a` repeated a thousand times is what a model that ran out of
+    // what to say emits) holds no word of an issue.
     let left: Vec<String> = said
         .split(['\n', '\r'])
         .map(|l| l.trim().to_owned())

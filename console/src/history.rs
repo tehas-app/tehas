@@ -11,7 +11,6 @@ use crate::snapshot;
 use crate::store;
 use std::collections::HashMap;
 use std::env;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use tehas_core::grammar;
 use tehas_core::time;
@@ -173,12 +172,7 @@ pub fn main(given: &[String]) -> u8 {
     } else {
         listing.text()
     };
-    let mut out = io::stdout();
-    u8::from(
-        out.write_all(printed.as_bytes())
-            .and_then(|()| out.flush())
-            .is_err(),
-    )
+    tehas_core::out::print(&printed)
 }
 
 /// The fields that hold a value, as jq's `with_entries(select(...))` keeps them.

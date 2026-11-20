@@ -1807,7 +1807,7 @@ pub(crate) fn issue_arg(v: &Value) -> Result<u32, ToolError> {
 /// The shape a version, a failure kind or a park reason may be: one word of
 /// the published vocabularies, matched exactly. The tools that filter by one
 /// ask for it, and their schemas name it as their pattern, so the alphabet is
-/// stated once — the pattern of the readers of the two private files, named by
+/// stated once: the pattern of the readers of the two private files, named by
 /// their schemas.
 pub static WORD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());

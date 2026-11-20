@@ -27,7 +27,10 @@ printf '[user]\n\tname = t\n\temail = t@example.com\n' >"$T/home/.gitconfig"
 
 # A remote with one commit tagged v0.1.0, a clone that runs the scripts, and a
 # second clone that adds commits to the remote. The remote's gate records that
-# it ran and exits with the status in $T/verify_rc.
+# it ran and exits with the status in $T/verify_rc. Its CHANGELOG.md has a
+# section of its own for each release the cases tag, as a release needs one:
+# a release whose section is still Unreleased gets a pull request that names
+# it first (the cases after `named` below).
 fresh() {
   rm -rf "$origin" "$work" "$T/up" "$T/calls/"* "$T/verify_rc"
   g init --quiet --bare "$origin"
@@ -35,7 +38,12 @@ fresh() {
   mkdir -p "$T/up/scripts"
   printf '#!/usr/bin/env bash\necho ran >>"%s/calls/verify"\nexit "$(cat "%s/verify_rc" 2>/dev/null || echo 0)"\n' "$T" "$T" >"$T/up/scripts/verify.sh"
   chmod +x "$T/up/scripts/verify.sh"
-  printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n' >"$T/up/CHANGELOG.md"
+  {
+    printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n'
+    for v in v1.0.1 v1.0.0 v0.2.0 v0.1.3 v0.1.2 v0.1.1; do
+      printf '\n## %s (2026-01-01)\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n' "$v"
+    done
+  } >"$T/up/CHANGELOG.md"
   g -C "$T/up" add scripts/verify.sh CHANGELOG.md
   commit first
   g -C "$T/up" tag v0.1.0
@@ -500,6 +508,7 @@ t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_contains "$t_out" "would collect 2 changelog fragments into the Unreleased section of CHANGELOG.md:"
 t_contains "$t_out" "$(printf '%s\n' '    ### Changes' '    ' '    - in the file' '    - from three' '    - from twelve' '    ' '    ### Adopter action' '    ' '    Set TEHAS_TWELVE.')"
+t_contains "$t_out" "would name the Unreleased section of CHANGELOG.md v0.1.1 ($(date -u +%F)) in a pull request"
 t_eq "$(git -C "$origin" show HEAD:changelog.d/3.md | head -n 1)" "### Changes"
 t_eq "$(t_calls collect)" ""
 
@@ -525,14 +534,16 @@ t_case "fragments are collected by the head's own script in a pull request, and 
 fragmented
 t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
-t_contains "$t_out" "pull/14 collects them; merge it, then tag. Nothing was tagged"
+t_contains "$t_out" "pull/14 readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged"
 t_eq "$(tags)" "v0.1.0 "
 t_eq "$(t_calls verify)" ran
 t_contains "$(t_calls collect)" "head --section Unreleased "
 t_lacks "$(t_calls collect)" operator
-t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Collect the changelog fragments into CHANGELOG.md"
+t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Name the v0.1.1 section of CHANGELOG.md"
 t_contains "$(t_calls gh)" "$(printf '%s\n' '- changelog.d/3.md' '- changelog.d/12.md')"
-t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
+# A release: the section the fragments went into is named for it, and a new
+# empty Unreleased goes above it.
+t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(date -u +%F))" '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
 t_eq "$(git -C "$origin" ls-tree --name-only changelog-v0.1.1 changelog.d/)" ""
 t_eq "$(git -C "$origin" rev-parse changelog-v0.1.1^)" "$(head_of)"
 t_eq "$(git -C "$work" worktree list | wc -l)" 1
@@ -542,7 +553,7 @@ echo https://github.com/acme/widget/pull/14 >"$T/open_prs"
 rm -f "$T/calls/gh" "$T/calls/collect"
 t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 2
-t_contains "$t_out" "pull/14 collects the changelog fragments; merge it, then tag"
+t_contains "$t_out" "pull/14 readies CHANGELOG.md for the release; merge it, then tag"
 t_lacks "$(t_calls gh)" "pr create"
 t_eq "$(t_calls collect)" ""
 t_eq "$(tags)" "v0.1.0 "
@@ -556,6 +567,19 @@ t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
 t_eq "$(tags)" "v0.1.0 v0.1.1 "
+# The release's notes are its own section.
+g -C "$T/up" fetch --quiet --tags origin
+t_run "'$T_ROOT/scripts/release-notes.sh' v0.1.1 '$T/up/CHANGELOG.md'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(printf '%s\n' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.')"
+
+t_case "a prerelease's fragments go into Unreleased, which keeps its name"
+fragmented
+t_run "$work/scripts/tag-release.sh --local-gate --pre rc"
+t_eq "$t_rc" 2
+t_contains "$t_out" "pull/14 readies CHANGELOG.md for v0.1.1-rc.1; merge it, then tag. Nothing was tagged"
+t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1-rc.1 --title Collect the changelog fragments into CHANGELOG.md"
+t_eq "$(git -C "$origin" show changelog-v0.1.1-rc.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Changes' '' '- in the file' '- from three' '- from twelve' '' '### Adopter action' '' 'Set TEHAS_TWELVE.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
 
 t_case "a gate that fails with the fragments collected pushes nothing"
 fragmented
@@ -563,7 +587,7 @@ echo 1 >"$T/verify_rc"
 t_run "$work/scripts/tag-release.sh --local-gate"
 rm -f "$T/verify_rc"
 t_eq "$t_rc" 1
-t_contains "$t_out" "the gate failed with the changelog fragments collected"
+t_contains "$t_out" "the gate failed with CHANGELOG.md readied for the release"
 t_eq "$(git -C "$origin" branch --list 'changelog-*')" ""
 t_lacks "$(t_calls gh)" "pr create"
 
@@ -575,6 +599,65 @@ t_run "$work/scripts/tag-release.sh --local-gate"
 t_eq "$t_rc" 1
 t_contains "$t_out" "has changelog fragments but no scripts/collect-changelog.sh"
 t_eq "$(t_calls collect)" ""
+t_eq "$(tags)" "v0.1.0 "
+
+# A head whose changes are under Unreleased only, no fragments: a release
+# names the section in a pull request first, a prerelease does not. The stub
+# gh lists the open pull requests from $T/open_prs and opens #15.
+named() {
+  fresh
+  changelog '# Changelog\n\n## Unreleased\n\n### Changes\n\n- one\n\n### Adopter action\n\nNone.\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n'
+  rm -f "$T/open_prs" "$T/calls/gh" "$T/calls/verify"
+  t_stub gh 'case "$1 $2" in
+  "pr list") cat "$T/open_prs" 2>/dev/null || true ;;
+  "pr create") echo https://github.com/acme/widget/pull/15 ;;
+esac'
+}
+
+t_case "a release without a section of its own gets one in a pull request, with no fragments, and is not tagged"
+named
+t_run "$work/scripts/tag-release.sh --local-gate"
+t_eq "$t_rc" 2
+t_contains "$t_out" "pull/15 readies CHANGELOG.md for v0.1.1; merge it, then tag. Nothing was tagged"
+t_eq "$(tags)" "v0.1.0 "
+t_eq "$(t_calls verify)" ran
+t_contains "$(t_calls gh)" "pr create --base main --head changelog-v0.1.1 --title Name the v0.1.1 section of CHANGELOG.md"
+t_lacks "$(t_calls gh)" "changelog.d/"
+t_eq "$(git -C "$origin" show changelog-v0.1.1:CHANGELOG.md)" "$(printf '%s\n' '# Changelog' '' '## Unreleased' '' "## v0.1.1 ($(date -u +%F))" '' '### Changes' '' '- one' '' '### Adopter action' '' 'None.' '' '## v0.1.0 (2026-01-01)' '' '### Adopter action' '' 'None.')"
+
+t_case "the named head is tagged, and a prerelease after it publishes only what is new"
+g -C "$T/up" fetch --quiet origin changelog-v0.1.1
+g -C "$T/up" merge --quiet --ff-only FETCH_HEAD
+g -C "$T/up" push --quiet origin main
+t_run "$work/scripts/tag-release.sh --local-gate"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.1
+# The new Unreleased is empty: nothing to tag a prerelease of yet.
+t_run "$work/scripts/tag-release.sh --local-gate --pre rc"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no section for v0.1.2-rc.1 or Unreleased"
+sed -i 's/^## Unreleased$/## Unreleased\n\n### Changes\n\n- two\n\n### Adopter action\n\nRun two./' "$T/up/CHANGELOG.md"
+g -C "$T/up" commit --quiet -am two && g -C "$T/up" push --quiet origin main
+t_run "$work/scripts/tag-release.sh --local-gate --pre rc"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" v0.1.2-rc.1
+t_lacks "$(t_calls gh)" "changelog-v0.1.2"
+g -C "$T/up" fetch --quiet --tags origin
+t_run "'$T_ROOT/scripts/release-notes.sh' v0.1.2-rc.1 '$T/up/CHANGELOG.md'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(printf '%s\n' 'New since v0.1.1.' '' '### Changes' '' '- two' '' '### Adopter action' '' 'Run two.')"
+t_run "'$T_ROOT/scripts/release-notes.sh' v0.1.1 '$T/up/CHANGELOG.md'"
+t_eq "$t_out" "$(printf '%s\n' '### Changes' '' '- one' '' '### Adopter action' '' 'None.')"
+
+t_case "a prerelease whose tag before has no Unreleased section is not tagged"
+named
+changelog '# Changelog\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n'
+g -C "$T/up" tag --force v0.1.0 >/dev/null
+g -C "$T/up" push --quiet --force origin v0.1.0
+changelog '# Changelog\n\n## Unreleased\n\n### Changes\n\n- one\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --local-gate --pre beta"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the release notes of v0.1.1-beta.1 cannot be made: CHANGELOG.md at v0.1.0, the tag before it, has no Unreleased section"
 t_eq "$(tags)" "v0.1.0 "
 
 # The release gate on the speed lane. The stub gh lists the runs of

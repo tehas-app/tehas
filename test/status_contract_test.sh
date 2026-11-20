@@ -76,6 +76,23 @@ for name in "${samples[@]}"; do
     "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' "$api/status.$name.json")"
 done
 
+t_case "tehas status --json gives a preview's address only while it serves"
+cp "$fixtures/busy.health.json" "$T/home/tehas/live/health.json"
+rm -f "$T/home/tehas/live/protolab.json" "$T/home/tehas/live/contractors.json"
+# A preview whose build failed keeps the address it served at before. The
+# address is where a person tries the change, so a stale one is not given.
+cat >"$T/home/tehas/live/previews.json" <<'JSON'
+{"generatedAt":"2026-10-17T13:58:00Z","previews":[
+ {"number":31,"state":"serving","address":"https://uat-31.example.org/"},
+ {"number":26,"state":"build-failed","address":"https://uat-26.example.org/"},
+ {"number":25,"state":"removing","address":"https://uat-25.example.org/"}]}
+JSON
+t_run "$T_ROOT/bin/tehas status --json"
+t_eq "$t_rc" 3
+t_eq "$(jq -c '.previews' <<<"$t_out")" \
+  '[{"number":31,"state":"serving","url":"https://uat-31.example.org/"},{"number":26,"state":"build-failed"},{"number":25,"state":"removing"}]'
+rm -f "$T/home/tehas/live/previews.json"
+
 t_case "the samples between them hold every field of the schema"
 held=$(for name in "${samples[@]}"; do
   jq -r 'paths | map(strings) | join(".") | select(. != "")' "$api/status.$name.json"

@@ -58,6 +58,25 @@ t_lacks "$t_out" "sandbox.Dockerfile"
 # The file is not copied onto the host: the build reads it from here.
 t_eq "$([ -e "$th/sandbox/sandbox.Dockerfile" ] && echo copied)" ""
 
+t_case "an unreadable instance sandbox.Dockerfile stops a real run before the first copy"
+fresh
+instance
+sandbox_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$sandbox_file"
+chmod 0200 "$sandbox_file"
+# A fresh home owes every program, so a copy made before the refusal shows here.
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "$sandbox_file cannot be read (check its permissions)"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(ls -A "$th/libexec" 2>/dev/null)" ""
+t_eq "$([ -e "$th/.tehas-home" ] && echo there)" ""
+# --check reports it and changes nothing.
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "unreadable: $sandbox_file (check its permissions)"
+chmod 0600 "$sandbox_file"
+
 # Installing a factory unattended: `bootstrap.sh` then `install.sh` run on a
 # machine nobody has prepared by hand, with nothing to answer, and again
 # afterwards. `--check` exits 0 on a machine installed as the instance says.

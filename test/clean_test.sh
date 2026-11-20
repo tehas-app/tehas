@@ -881,7 +881,7 @@ t_contains "$t_out" "removed $beta/console/target: build output of #7"
 
 t_case "the build output of the tree a retry moved aside goes, and what it holds stays"
 reset
-# The shape libexec/work leaves behind when an issue is retried: the workspace
+# The shape tehas work leaves behind when an issue is retried: the workspace
 # of the cycle before the retry, moved aside under a suffix of its own, with its
 # clone, its build output and the state of the agents that wrote in it. The
 # workspace beside it, the one the cycle after the retry made, was removed when

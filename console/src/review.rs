@@ -100,9 +100,17 @@ pub fn words(given: &[String], usage: &str) -> Result<(), u8> {
 
 // The docker line of a review, in order.
 fn docker_words(image: &str, c: &Container, since: &str) -> Vec<String> {
-    let mut words: Vec<String> = ["docker", "run", "--rm", "--init", "--name", NAME]
-        .map(String::from)
-        .to_vec();
+    let mut words: Vec<String> = [
+        "docker",
+        "run",
+        sandbox::NEVER_PULL,
+        "--rm",
+        "--init",
+        "--name",
+        NAME,
+    ]
+    .map(String::from)
+    .to_vec();
     words.extend_from_slice(&c.limits);
     words.extend_from_slice(&c.security);
     words.extend(["--user".to_string(), c.user.clone(), "-w".to_string()]);
@@ -159,7 +167,16 @@ pub(crate) fn capabilities(image: &str) -> Result<String, i32> {
         && wait.bytes().all(|b| b.is_ascii_digit());
     let wait = if shape { wait.as_str() } else { "120" };
     let out = Command::new("timeout")
-        .args(["-k", "10", wait, "docker", "run", "--rm", "--init"])
+        .args([
+            "-k",
+            "10",
+            wait,
+            "docker",
+            "run",
+            sandbox::NEVER_PULL,
+            "--rm",
+            "--init",
+        ])
         .args([image, RUNNER, "--capabilities"])
         .stderr(Stdio::null())
         .output();

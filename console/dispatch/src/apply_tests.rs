@@ -606,7 +606,7 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
         "the host's checkout is given to no container: {seen}"
     );
     // Every word, in order, as a cycle's push check has them, the poll's own
-    // docker and --pull=never aside.
+    // docker aside.
     let tree = t.w.home.join("state/push-probe");
     let tree = tree.to_string_lossy();
     let user = tehas_core::sandbox::user();
@@ -3944,7 +3944,7 @@ fn chosen_draft_asked(t: &World, title: &str, spec: &str, question: &Value) {
     .unwrap();
 }
 
-/// The boxes of a refused draft's question: they ask, and hold no tick —
+/// The boxes of a refused draft's question: they ask, and hold no tick:
 /// writing the drafted plan is the answer this refusal stopped, so the answer
 /// that moves the session on is a reply.
 fn asks_without_the_tick(t: &World) {
