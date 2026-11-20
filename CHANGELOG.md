@@ -19,6 +19,24 @@ a pull request before it tags, with the head's `scripts/collect-changelog.sh`.
 
 ## Unreleased
 
+### Changes
+
+- `tehas wake [--json]` asks the factory for a poll now and returns at once, the same ask as `tehas dispatch --soon`, for a webhook receiver or a scheduler. `tehas api` lists the feature `wake` (#2436).
+- `tehas order --json` adds `starts`: for each ranked issue, whether the dispatcher's last poll started it, or a reason code and text for why not, taken from the poll's own decision. `tehas blockers [--json]` is new. It shows the holds between issues the last poll read, any cycles among them, and the issue at the end of each chain with what holds it. `tehas api` lists `start-reasons` and `blockers`. Which issues start does not change (#2442).
+- With outsource on, a factory kills a `docker save` of its sandbox image that runs past 30 minutes and answers 503, so one hung save no longer stalls every contractor's image download (#2536).
+- `bootstrap.sh user` and `check` read the instance's `PI_RUKAS_FOLLOW` from `instance.env`, as the sandbox build does, so the host's pi-rukas clone follows the same commit as the image. `tehas update` no longer prints its `bootstrap.sh user` line on every run for an instance that sets its own `PI_RUKAS_FOLLOW`. Instance settings that do not load stop `user` and `check` with 78 (#2603).
+- A release's pinned pi-rukas commit is fetched by its id when no tag or branch upstream holds it any more, so `bootstrap.sh user` and the sandbox build still find it. One that cannot be had stops with a message that names it (#2604).
+- With `TEHAS_MILLWRIGHT_EPICS=on`, a `tehas:ready` on an epic that a person or an outsider took off no longer approves the epic's sub-issues for the millwright. Tehas's own removal still keeps the approval. The count of waiting work and the epic's comment read the label the same way the starts do (#2605).
+- A product can pin its own Node in the sandbox: an instance layer puts it first on PATH, and a tehas Node bump no longer moves the Node its tests run on. The image keeps tehas's Node in `/opt/tehas-node`, and pi and the npm tools tehas ships run it by its path. `instances/example/product-node.Dockerfile` is the example (#2607).
+- `TEHAS_EDGE_ONE_LEVEL=on` keeps the edge's names one level under the parent of a `TEHAS_DOMAIN` that is itself a subdomain, where Cloudflare's free certificate covers them: with `demo.example.org`, a preview is `uat-12-demo.example.org`, a ticket `lab-7-demo.example.org` and the list `lab-demo.example.org`. The pull request's notice, the dashboard's Previews and the Protolab's links say these names; the proxy in front maps each onto the router's `<label>.<domain>` (`edge.md`, "A domain that is itself a subdomain"). Off by default, and refused with a domain of two labels (#2618).
+- A factory that acts as a GitHub App now gets previews of its own cycles' pull requests. They are opened as `<slug>[bot]`, which GitHub's `author_association` calls `NONE`, so `tehasbot preview` counted them as opened by someone outside the repository and built none. The App's login, from `state/github/login`, now counts as the repository's own, for a branch in the repository only; any other bot still does not (#2621).
+
+### Adopter action
+
+On a host whose instance sets `PI_RUKAS_FOLLOW`, run `./bootstrap.sh user` once after updating to move the clone to the image's commit.
+
+Nothing is required. To keep a product's tests on its own Node, copy `instances/example/product-node.Dockerfile` to `sandbox.Dockerfile` in the instance directory (or add its lines to yours), set the version and its sum, run `~/tehas/sandbox/build.sh` and `tehas check-product --sandbox`. A layer that unpacks a Node over `/usr/local` should move it to a prefix of its own.
+
 ## v1.1.0 (2026-11-20)
 
 ### Highlights
