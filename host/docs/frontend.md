@@ -595,6 +595,7 @@ release that ships it:
 | --- | --- |
 | `vendor/solid.js` | Solid 2, one minified ES module made by `tools/vendor-solid`. Do not edit it |
 | `vendor/LICENSES` | The licences of the bundled packages |
+| `vendor/solid.d.ts` | Types for `vendor/solid.js`, written by hand from the packages' own `.d.ts` files, for each name it exports and no other. A checker such as `tsc --checkJs` reads it in place of the bundle. It is never staged or served and counts in no page |
 | `island.js` | The island base: attributes, the hydrate trigger, the mount and the disposal, the events. No library |
 | `feed.js` | The feed store ([Feeds](#feeds)) |
 | `stream.js` | The stream source ([Streams](#streams)) |
@@ -826,7 +827,8 @@ the pages against the file with the rest of the workspace's tests. It fails
 when a page, an island or the library is over its line, when one has no line,
 when a line names nothing, when an island's line is over the island budget, on
 a library import outside a `.render.js` file and the kit files that draw, when
-the kit's `MANIFEST` does not match its files, and on the Solid rules of
+the kit's `MANIFEST` does not match its files, when `vendor/solid.d.ts` does
+not type exactly the names the library exports, and on the Solid rules of
 [Solid 2 in tehas](#solid-2-in-tehas). A change may lower a line. A change
 that grows a page raises its line in the same change, and that raise is a
 person's call, said in the pull request, as with the bash ceiling.

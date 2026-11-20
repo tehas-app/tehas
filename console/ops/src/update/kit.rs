@@ -8,6 +8,8 @@
 //!   file and the kit files that draw (`DRAWS`) import it, by a relative
 //!   address, and only by the names it exports, `export … from` too. `html`
 //!   keeps its name, so the template checks find it.
+//! - The library's types, `fun/kit/vendor/solid.d.ts`, declare a value for
+//!   each name it exports and for no other name.
 //! - No file of `host/fun` names a Solid 1.x API (`OLD`).
 //! - A file that imports the library builds no `html` template by `+`, by a
 //!   call of `html(…)` or with an untagged template literal inside it, and
@@ -21,6 +23,10 @@ use std::path::{Path, PathBuf};
 
 /// The library, relative to `host`.
 pub(super) const LIBRARY: &str = "fun/kit/vendor/solid.js";
+
+/// The library's types, relative to `host`: a checker reads them in place of
+/// the bundle.
+pub(super) const TYPES: &str = "fun/kit/vendor/solid.d.ts";
 
 /// The kit files that draw or hold Solid state, and so may import the library.
 pub(super) const DRAWS: [&str; 4] = [
@@ -142,6 +148,45 @@ pub(super) fn exports(library: &str) -> Vec<String> {
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
         .collect()
+}
+
+/// The values a `.d.ts` file declares: its `export function` and
+/// `export const` names, each once, in order.
+fn declared(dts: &str) -> Vec<String> {
+    let mut out: Vec<String> = dts
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("export function ")
+                .or_else(|| l.strip_prefix("export const "))
+        })
+        .map(|rest| {
+            rest.chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                .collect::<String>()
+        })
+        .filter(|n| !n.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// What is wrong with the types `dts` of the library `library`, one line each.
+pub(super) fn types(library: &str, dts: &str) -> Vec<String> {
+    let exported = exports(library);
+    let declared = declared(dts);
+    let mut wrong = Vec::new();
+    for name in declared.iter().filter(|n| !exported.contains(n)) {
+        wrong.push(format!(
+            "{TYPES}: types {name:?}, which the library does not export"
+        ));
+    }
+    for name in exported.iter().filter(|n| !declared.contains(n)) {
+        wrong.push(format!(
+            "{TYPES}: no type for {name:?}, which the library exports"
+        ));
+    }
+    wrong
 }
 
 /// The names that `import { a, b as c } from "<spec>"` and
@@ -490,6 +535,34 @@ mod tests {
         );
         assert_eq!(manifest(&kit), Vec::<String>::new());
         assert_eq!(run(&d), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_types_name_the_values_the_library_exports() {
+        let dts = "declare const OWNER: unique symbol;\nexport type Accessor<T> = () => T;\n\
+                   export function createSignal<T>(v: T): T;\nexport function createSignal<T>(): T;\n\
+                   export const For: Component;\nexport function html(s: TemplateStringsArray): any;\n";
+        assert_eq!(declared(dts), ["For", "createSignal", "html"]);
+        let library = "var a;export{a as For,b as html,c as createSignal};";
+        assert_eq!(types(library, dts), Vec::<String>::new());
+        let wrong = types("var a;export{a as For,b as html,c as untrack};", dts);
+        assert_eq!(
+            wrong,
+            [
+                "fun/kit/vendor/solid.d.ts: types \"createSignal\", which the library does not export",
+                "fun/kit/vendor/solid.d.ts: no type for \"untrack\", which the library exports",
+            ]
+        );
+    }
+
+    /// The kit's own type file against the kit's own library.
+    #[test]
+    fn the_real_types_name_the_real_library_s_exports() {
+        let host = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../host");
+        let library = fs::read_to_string(host.join(LIBRARY)).unwrap();
+        let dts = fs::read_to_string(host.join(TYPES)).unwrap();
+        assert_eq!(types(&library, &dts), Vec::<String>::new());
+        assert_eq!(declared(&dts).len(), 27);
     }
 
     #[test]

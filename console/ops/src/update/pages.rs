@@ -29,7 +29,7 @@
 //! lints of the code that draws with Solid are in `kit.rs`.
 
 use super::assets::{address, served, spans, PAGES as STAGED};
-use super::kit::{self, DRAWS, LIBRARY};
+use super::kit::{self, DRAWS, LIBRARY, TYPES};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -320,6 +320,12 @@ fn check(host: &Path, max: &str) -> Vec<String> {
     }
     if host.join("fun/kit").is_dir() {
         wrong.extend(kit::manifest(&host.join("fun/kit")));
+    }
+    if let (Ok(library), Ok(dts)) = (
+        fs::read_to_string(host.join(LIBRARY)),
+        fs::read_to_string(host.join(TYPES)),
+    ) {
+        wrong.extend(kit::types(&library, &dts));
     }
 
     let mut files = Vec::new();
