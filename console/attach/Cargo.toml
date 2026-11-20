@@ -22,3 +22,8 @@ sha2 = "0.11"
 # The `mask` feature is what carries `tehas_core::call`: the bounded calls of
 # take are gated behind it, so the feature is needed for them and not for a mask.
 tehas-core = { path = "../core", features = ["mask"] }
+
+# Kani proofs sit in #[cfg(kani)] modules; the Kani job of
+# the release gate (.github/workflows/release-gate.yml) runs them.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

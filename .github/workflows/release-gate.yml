@@ -173,3 +173,56 @@ jobs:
           rm -f scripts/check-generic.names
           printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
           bash scripts/check-generic.sh --names-only
+  proofs:
+    # The Kani proofs beside the code (#[cfg(kani)] modules). Kani installs
+    # from the network and builds with its own pinned nightly, so
+    # scripts/verify.sh does not run them. A failed proof makes the run red,
+    # and tag-release tags only a green run. A crate that gains a
+    # #[cfg(kani)] module joins KANI_CRATES; test/kani_workflow_test.sh
+    # checks it.
+    # [self-hosted, kani]: a runner of its own, since the proofs are long and
+    # heavy on memory and should not hold the speed lane. It keeps Kani
+    # between runs (host/docs/operating.md, Registering a kani runner).
+    runs-on: [self-hosted, kani]
+    timeout-minutes: 60
+    env:
+      COMMIT: ${{ inputs.commit }}
+      KANI_VERSION: 0.68.0
+      # The sha256 of kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz, as
+      # the release lists it. Change both together.
+      KANI_BUNDLE_SHA256: 32e2b484d73ede0bbf64a2cf0879c4259422497d8aec4ee67d448de9ae7843d3
+      KANI_CRATES: tehas-core attach tehas-dispatch
+    steps:
+      - name: the commit is a full commit id
+        run: |
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || { echo "not a full commit id: $COMMIT" >&2; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      - name: the checkout is the commit
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - name: Kani at the pinned version
+        run: |
+          # Kept on the runner; installed again only when the pin moves.
+          if ! cargo kani --version 2>/dev/null | grep -qx "Kani Rust Verifier $KANI_VERSION (cargo plugin)"; then
+            cargo install --locked kani-verifier --version "$KANI_VERSION"
+            # The bundle is large and a dropped download is common, so it is
+            # fetched with retries and checked before setup takes it.
+            bundle=$RUNNER_TEMP/kani-$KANI_VERSION.tar.gz
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$bundle" \
+              "https://github.com/model-checking/kani/releases/download/kani-$KANI_VERSION/kani-$KANI_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+            echo "$KANI_BUNDLE_SHA256  $bundle" | sha256sum -c -
+            rm -rf "$HOME/.kani"
+            cargo kani setup --use-local-bundle "$bundle"
+          fi
+          cargo kani --version
+      - name: the proofs
+        working-directory: console
+        run: |
+          # cargo kani takes no --locked; the build still reads Cargo.lock.
+          # --all-features: modules such as tehas-core's retry build only with
+          # a feature, and a harness not built is a harness not run.
+          args=(--all-features)
+          for crate in $KANI_CRATES; do args+=(-p "$crate"); done
+          cargo kani "${args[@]}"

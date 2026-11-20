@@ -23,3 +23,8 @@ mask = ["dep:regex", "dep:sha2"]
 regex = { version = "1", optional = true }
 serde_json = "1"
 sha2 = { version = "0.10", optional = true }
+
+# Kani proofs sit in #[cfg(kani)] modules; the Kani job of
+# the release gate (.github/workflows/release-gate.yml) runs them.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

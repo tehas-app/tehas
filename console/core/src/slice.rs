@@ -397,16 +397,13 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
     };
     let ceiling = max / n / MIB;
     if reserve_b > ceiling * MIB {
-        // The slice is three quarters of the host and a container 1/n of the
-        // slice, so the reserve needs a host of 4n/3 times its size.
-        let need = reserve_b * 4 * n / 3;
-        let need = if need >= GIB {
-            format!("{} GiB", (need + 536_870_912) / GIB)
-        } else {
-            format!("{} MiB", need / MIB + 1)
+        let need = match need(reserve_b, n) {
+            Some(b) if b >= GIB => format!("about {} GiB of memory", (b + 536_870_912) / GIB),
+            Some(b) => format!("about {} MiB of memory", b / MIB + 1),
+            None => "more memory than any host has".into(),
         };
         return Err(format!(
-            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs about {need} of memory for this reserve"
+            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs {need} for this reserve"
         ));
     }
     let nproc = match r.cpus().as_deref().and_then(num) {
@@ -430,6 +427,16 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
     })
 }
 
+/// The bytes of memory a host needs for a reserve of `b` bytes in each of
+/// `n` containers, None past u64. The slice is three quarters of the host and
+/// a container 1/n of the slice, so 4n/3 times the reserve.
+fn need(b: u64, n: u64) -> Option<u64> {
+    // Checked, not left to settings/rules.rs: its 2 to 16 containers do not
+    // bound it, 999999999g overflows from 5 on, and this module holds its own
+    // rule.
+    Some(b.checked_mul(4)?.checked_mul(n)? / 3)
+}
+
 /// The CPUs a container may use: all but one, never below one, one being left
 /// to the host's own services and the model backends.
 fn spare(cpus: u64) -> u64 {
@@ -447,7 +454,8 @@ fn share(spare: u64, load: &Load) -> Option<u64> {
     let cycles = num(&load.cycles).filter(|n| *n > 0)?;
     let cycles = cycles + num(&load.slots).unwrap_or(0);
     let cycles = cycles.min(num(&load.containers).filter(|n| *n > 0)?);
-    Some((spare * 100 / cycles).max(100))
+    // None past u64: a count of CPUs no host has makes no limits.
+    Some((spare.checked_mul(100)? / cycles).max(100))
 }
 
 /// The CPU quota and the pids limit of one container. The quota is a ceiling,
@@ -461,7 +469,8 @@ pub fn cpus(host: u64, load: &Load) -> Option<(String, u64)> {
         return None;
     }
     let spare = spare(host);
-    let pids = share(spare, load)?.div_ceil(100) * 1024;
+    // Capped at 4 CPUs before the multiply, which the clamp would cap anyway.
+    let pids = share(spare, load)?.div_ceil(100).min(4) * 1024;
     Some((format!("{spare}.00"), pids.clamp(2048, 4096)))
 }
 
@@ -843,6 +852,42 @@ mod tests {
         assert!(usable(&host(), "2g", "4").is_ok());
     }
 
+    /// The memory a reserve needs is 4n/3 times its size. A reserve the
+    /// settings take, up to 999999999g, overflowed it with 5 containers or
+    /// more, and any reserve did with a count past the 2 to 16 they take.
+    /// Every reserve that did not overflow reads as before.
+    #[test]
+    fn the_memory_a_reserve_needs_does_not_overflow() {
+        let answer = |reserve: &str, n: &str| {
+            let mut r = host();
+            let show = r.show.as_mut().unwrap();
+            show.insert("MemoryMax".into(), Value::from("4194304"));
+            let why = usable(&r, reserve, n).unwrap_err();
+            let (_, need) = why.split_once("the host needs ").unwrap();
+            need.strip_suffix(" for this reserve").unwrap().to_string()
+        };
+        let more = "more memory than any host has";
+        assert_eq!(answer("6m", "999999999999999999"), more);
+        assert_eq!(answer("999999999g", "5"), more);
+        assert_eq!(answer("999999999g", "4"), "about 5333333328 GiB of memory");
+        for n in 2..=16u64 {
+            for reserve in ["6m", "700m", "2g", "3g", "1000000g", "999999999g"] {
+                let before = bytes(reserve)
+                    .unwrap()
+                    .checked_mul(4 * n)
+                    .map(|b| b / 3)
+                    .map_or(more.to_string(), |b| {
+                        if b >= GIB {
+                            format!("about {} GiB of memory", (b + 536_870_912) / GIB)
+                        } else {
+                            format!("about {} MiB of memory", b / MIB + 1)
+                        }
+                    });
+                assert_eq!(answer(reserve, &n.to_string()), before, "{reserve} {n}");
+            }
+        }
+    }
+
     /// A Docker daemon started before the host was given more CPUs counts
     /// fewer than nproc, and refuses a --cpus above its count: the containers
     /// are sized for its count, one CPU left free as always, and the line
@@ -1164,6 +1209,22 @@ mod tests {
         }
     }
 
+    /// A count of CPUs past what u64 hundredths hold made no limits instead of
+    /// overflowing, and one past 4 CPUs a cycle gets the most pids, however
+    /// large.
+    #[test]
+    fn a_count_of_cpus_no_host_has_does_not_overflow() {
+        let huge = 100_000_000_000_000_000;
+        assert_eq!(
+            cpus(huge, &load(1)),
+            Some(("99999999999999999.00".to_string(), 4096))
+        );
+        assert_eq!(cpus(999_999_999_999_999_999, &load(1)), None);
+        assert_eq!(cpus(u64::MAX, &load(1)), None);
+        let words = ["--cpus", "999999999999999998.00", "--memory", "1048576m"].map(String::from);
+        assert_eq!(verify(&words, &load(1)), Some(512));
+    }
+
     // From test/slice_test.sh: <host CPUs> <TEHAS_MAX_CYCLES> <slice
     // max in GiB> <gate runs at once>.
     #[test]
@@ -1261,5 +1322,181 @@ mod tests {
         assert_eq!(names, ["docker-a.scope", "docker-b.scope"]);
         assert!(listed[0].stat.is_some() && listed[0].low.is_none());
         assert_eq!(scopes(dir).map(|s| s.len()), None);
+    }
+}
+
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Any text of at most N bytes. Kani's cost grows fast with the length
+    /// of a symbolic string, so the parsers are proved on short ones and the
+    /// arithmetic on the full range of what they give.
+    fn text<const N: usize>(b: &[u8; N]) -> Option<&str> {
+        let len: usize = kani::any_where(|l| *l <= N);
+        std::str::from_utf8(&b[..len]).ok()
+    }
+
+    fn digits(s: &str) -> bool {
+        !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+    }
+
+    fn value(s: &str) -> u64 {
+        s.bytes().fold(0, |v, b| v * 10 + u64::from(b - b'0'))
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn num_is_some_exactly_for_a_number_and_gives_its_value() {
+        let b: [u8; 4] = kani::any();
+        let Some(s) = text(&b) else { return };
+        let ok = s == "0" || (digits(s) && !s.starts_with('0'));
+        let got = num(s);
+        match got {
+            Some(v) => assert!(ok && v == value(s)),
+            None => assert!(!ok),
+        }
+        kani::cover!(s.len() == 4 && got.is_some());
+        kani::cover!(!s.is_ascii());
+    }
+
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn bytes_is_some_exactly_for_a_size_and_never_zero() {
+        let b: [u8; 3] = kani::any();
+        let Some(s) = text(&b) else { return };
+        // The unit as a shift: Kani multiplies two symbolic numbers slowly.
+        let (n, shift) = match s.as_bytes().last() {
+            Some(b'k' | b'K') => (&s[..s.len() - 1], 10),
+            Some(b'm' | b'M') => (&s[..s.len() - 1], 20),
+            Some(b'g' | b'G') => (&s[..s.len() - 1], 30),
+            Some(b'b' | b'B') => (&s[..s.len() - 1], 0),
+            _ => (s, 0),
+        };
+        let ok = digits(n) && !n.starts_with('0');
+        let got = bytes(s);
+        match got {
+            Some(v) => assert!(ok && v > 0 && v == value(n) << shift),
+            None => assert!(!ok),
+        }
+        kani::cover!(shift == 30 && got.is_some());
+        kani::cover!(!s.is_ascii());
+    }
+
+    /// Every reserve and count, far past what num and bytes can give, with
+    /// room for the rounding to GiB in usable.
+    #[kani::proof]
+    fn the_memory_a_reserve_needs_never_overflows() {
+        let (b, n) = (kani::any(), kani::any());
+        match need(b, n) {
+            Some(need) => {
+                assert!(need.checked_add(536_870_912).is_some());
+                kani::cover!(need >= GIB);
+                kani::cover!(need < GIB);
+            }
+            None => kani::cover!(n <= 16),
+        }
+    }
+
+    /// systemctl with no answer. The calls after it are never made.
+    struct Stub;
+
+    impl Probe for Stub {
+        fn show(&self) -> Option<Map<String, Value>> {
+            None
+        }
+        fn docker(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn controllers(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn cpus(&self) -> Option<String> {
+            unreachable!()
+        }
+        fn root(&self) -> &str {
+            unreachable!()
+        }
+    }
+
+    /// The one path of usable Kani can afford: past it are systemctl's map
+    /// and the text of the messages.
+    #[kani::proof]
+    fn usable_without_an_answer_of_systemctl_is_refused() {
+        assert!(usable(&Stub, "2g", "4") == Err("systemctl gave no answer".into()));
+    }
+
+    /// The two lines of usable that size a container, for every MemoryMax
+    /// and count of containers.
+    #[kani::proof]
+    fn the_ceiling_never_overflows() {
+        let max: u64 = kani::any();
+        let n = kani::any_where(|n: &u64| *n > 0);
+        let ceiling = max / n / MIB;
+        assert!(ceiling * MIB <= max);
+        kani::cover!(ceiling > 0 && n > 1);
+    }
+
+    /// Cycles, refresh slots and containers: one cycle alone, the most a
+    /// host takes, the largest num gives, and counts that are refused.
+    const LOADS: [(&str, &str, &str); 5] = [
+        ("1", "", "4"),
+        ("4", "1", "16"),
+        (
+            "999999999999999999",
+            "999999999999999999",
+            "999999999999999999",
+        ),
+        ("0", "", "4"),
+        ("1", "", "auto"),
+    ];
+
+    fn load(i: usize) -> Load {
+        let (cycles, slots, containers) = LOADS[i];
+        Load {
+            reserve: "6m".into(),
+            containers: containers.into(),
+            cycles: cycles.into(),
+            slots: slots.into(),
+        }
+    }
+
+    /// Every count of spare CPUs, not only what nproc can give.
+    #[kani::proof]
+    #[kani::unwind(20)]
+    fn the_share_is_at_least_one_cpu() {
+        for i in 0..LOADS.len() {
+            if let Some(s) = share(kani::any(), &load(i)) {
+                assert!(s >= 100);
+                kani::cover!(s > 100);
+            }
+        }
+    }
+
+    /// One load a harness: the quota's text of a symbolic count costs Kani
+    /// about half a minute each.
+    fn pids_hold(i: usize) {
+        let host = kani::any();
+        match cpus(host, &load(i)) {
+            Some((_, pids)) => {
+                assert!((2048..=4096).contains(&pids));
+                kani::cover!(pids == 2048);
+                kani::cover!(pids == 3072);
+                kani::cover!(pids == 4096);
+            }
+            None => kani::cover!(host > 0),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(22)]
+    fn the_pids_limit_is_2048_to_4096_for_one_cycle() {
+        pids_hold(0);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(22)]
+    fn the_pids_limit_is_2048_to_4096_for_four_cycles_and_the_lane() {
+        pids_hold(1);
     }
 }

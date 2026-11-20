@@ -19,7 +19,7 @@
     # where the browser speaks it and gzip elsewhere. The files under /live/ and
     # the two health addresses are left alone, because the dashboard's console
     # reads them with Range requests, whose offsets count the file's own bytes,
-    # and an encoded body has none of those (host/fun/dashboard-view.js).
+    # and an encoded body has none of those (host/fun/factory/tehas-factory-tail.js).
     @compress not path /live/* /health /healthz
     encode @compress zstd gzip
     # route keeps this order: the 404 has to see the path before the rewrite.
@@ -132,9 +132,15 @@
             # a name with the first 12 hex digits of its content in it, so a
             # name always holds the same bytes and may be cached for ever. The
             # theme file, which a template names at the request, stays as it is
-            # and is revalidated.
-            @hashed path_regexp ^/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
+            # and is revalidated, as is every other file that keeps its name:
+            # the kit's modules, which import each other by name, must not run
+            # a cached old copy beside a new entry file. A hashed copy stands
+            # in the folder of its source, so the name may have folders before
+            # it: /fun/factory/x.<hex>.js.
+            @hashed path_regexp ^/([A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
             header @hashed Cache-Control "public, max-age=31536000, immutable"
+            @plain not path_regexp ^/([A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)$
+            header @plain Cache-Control "no-cache"
             file_server
         }
         # For agents: the entry point. A template, so its links are absolute
