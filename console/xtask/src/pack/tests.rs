@@ -350,6 +350,17 @@ fn the_pins_are_the_last_lines_in_lower_case() {
 }
 
 #[test]
+fn the_commit_pin_alone_is_the_last_line() {
+    // What the release workflow packs: the commit, and no digest.
+    let t = Tree::new();
+    let p = t.pack(&["--rukas-commit", &COMMIT.to_uppercase()]).unwrap();
+    assert_eq!(
+        t.unpacked(&p.tarball, "host/versions.env"),
+        format!("A=1\nB=2\nPI_RUKAS_FOLLOW=commit:{COMMIT}\n")
+    );
+}
+
+#[test]
 fn bad_values_are_refused_before_anything_is_written() {
     let t = Tree::new();
     let digest = format!("sha256:{}", "a".repeat(64));
@@ -370,14 +381,9 @@ fn bad_values_are_refused_before_anything_is_written() {
             "sha256: and 64 hex",
         ),
         (
-            vec!["--rukas-commit", COMMIT],
-            64,
-            "name both pins or neither",
-        ),
-        (
             vec!["--rukas-digest", &digest],
             64,
-            "name both pins or neither",
+            "--rukas-digest needs --rukas-commit",
         ),
         (
             vec!["--arch", "riscv"],

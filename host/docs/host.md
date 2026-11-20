@@ -1853,8 +1853,13 @@ commit a host follows:
   line, by version. `release:0` takes the newest `v0.Y.Z`, `release:2` the
   newest `v2.Y.Z`, `release:0.14` the newest `v0.14.Z`. `versions.env` names the
   major version this tehas works with, `release:0` while pi-rukas is before 1.0,
-  so a new pi-rukas reaches a host at its next `tehas update`. A new major
-  version waits for a tehas release that moves the line.
+  so a new pi-rukas reaches a host installed from a checkout at its next
+  `tehas update`. A new major version waits for a tehas release that moves the
+  line. A release archive pins: its `versions.env` ends with
+  `PI_RUKAS_FOLLOW=commit:<sha>`, the commit the line resolved to when the
+  release was packed, so a host installed from releases gets a new pi-rukas
+  with the next release of tehas
+  ([the pins](/tools-releases#releases)).
 - `release`: the newest `vX.Y.Z` tag of any line.
   A tag with a suffix, such as `v1.0.0-rc1`, does not count.
   Upstream marks its releases as pre-releases; tehas reads the tags, not that mark.

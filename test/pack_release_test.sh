@@ -580,14 +580,21 @@ t_run "\"$pack\" v9.9.9 '$dist' --console '$build/plain'"
 t_eq "$t_rc" 64
 t_contains "$t_out" "not executable"
 
-t_case "half a pin is a bad argument, a pin of the wrong shape is a failure"
+t_case "the commit pin alone is the last line, with no digest"
+# What the release workflow packs: the commit its PI_RUKAS_FOLLOW resolved to.
 t_pack_reset
 t_pack --rukas-commit "$commit"
-t_eq "$t_rc" 64
-t_contains "$t_out" "name both pins or neither"
+t_eq "$t_rc" 0
+packed=$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/host/versions.env)
+t_eq "$(grep -c '^PI_RUKAS_FOLLOW=' <<<"$packed")" 1
+t_eq "$(tail -n 1 <<<"$packed")" "PI_RUKAS_FOLLOW=commit:$commit"
+t_lacks "$packed" "PI_RUKAS_IMAGE_DIGEST="
+
+t_case "a digest without a commit is a bad argument, a pin of the wrong shape is a failure"
+t_pack_reset
 t_pack --rukas-digest "$digest"
 t_eq "$t_rc" 64
-t_contains "$t_out" "name both pins or neither"
+t_contains "$t_out" "--rukas-digest needs --rukas-commit"
 t_pack --rukas-commit deadbeef --rukas-digest "$digest"
 t_eq "$t_rc" 1
 t_contains "$t_out" "40 hex digits"
@@ -805,9 +812,11 @@ end=$(awk -v n="$start" 'NR > n && /^```$/ { print NR; exit }' "$manual")
 args=$(sed -n "${start},$((end - 1))p" "$manual" | tr -d '\\\n' | tr -s ' ')
 [ -n "$args" ] || t_bad "the manual names no pack command to run"
 # The arguments themselves, before their placeholders are filled: a manual that
-# dropped --rukas-digest or renamed a placeholder would still run otherwise, and
-# the workflow is written from exactly these names.
-for want in '--console <path>' '--rukas-commit <40 hex>' '--rukas-digest <64 hex>'; do
+# dropped --rukas-commit or renamed a placeholder would still run otherwise, and
+# the workflow is written from exactly these names. The workflow pins the commit
+# alone, so the command names no digest.
+t_lacks "$(sed -n "${start},$((end - 1))p" "$manual")" '--rukas-digest'
+for want in '--console <path>' '--rukas-commit <40 hex>'; do
   case $args in
     *"$want"*) ;;
     *) t_bad "the manual's command does not name $want" ;;
@@ -817,7 +826,6 @@ args=${args#*'<tag>'}
 args=${args//'<out dir>'/"'$dist'"}
 args=${args//'<path>'/"'$stub'"}
 args=${args//'<40 hex>'/"$commit"}
-args=${args//'<64 hex>'/"$digest"}
 t_pack_reset
 t_run "TEHAS_PACK_ROOT='$T_ROOT' \"$pack\" v9.9.9 $args"
 t_eq "$t_rc" 0
@@ -825,25 +833,26 @@ t_eq "$(head -n 1 <<<"$t_out")" "$dist/$tar_gz"
 # The values the manual's placeholders were filled with are the ones the tarball
 # carries, so the command above is the workflow's and not merely a working one.
 packed=$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/host/versions.env)
-t_eq "$(tail -n 2 <<<"$packed")" \
-  "$(printf 'PI_RUKAS_FOLLOW=commit:%s\nPI_RUKAS_IMAGE_DIGEST=%s' "$commit" "$digest")"
+t_eq "$(tail -n 1 <<<"$packed")" "PI_RUKAS_FOLLOW=commit:$commit"
 
 t_case "the statuses the manual says the workflow branches on are the two it gives"
 # Both halves of the manual's sentence about exit statuses, from the manual's own
-# command: only one pin named is a bad argument, a value of the wrong shape is a
-# failure, and neither wrote a tarball for the next run to be refused against.
+# command: a digest without the commit is a bad argument, a value of the wrong
+# shape is a failure, and neither wrote a tarball for the next run to be
+# refused against.
 bad=$T/manual-args
 sed -n "${start},$((end - 1))p" "$manual" | tr -d '\\\n' | tr -s ' ' >"$bad"
-half=$(sed 's/ --rukas-digest <64 hex>//' "$bad")
+half=$(sed 's/ --rukas-commit <40 hex>/ --rukas-digest <64 hex>/' "$bad")
 half=${half#*'<tag>'}
 half=${half//'<out dir>'/"'$dist'"}
 half=${half//'<path>'/"'$stub'"}
 half=${half//'<40 hex>'/"$commit"}
+half=${half//'<64 hex>'/"$digest"}
 t_pack_reset
 t_run "TEHAS_PACK_ROOT='$T_ROOT' \"$pack\" v9.9.9 $half"
 t_eq "$t_rc" 64
-t_contains "$t_out" "name both pins or neither"
-wrong=${half//"$commit"/deadbeef}
+t_contains "$t_out" "--rukas-digest needs --rukas-commit"
+wrong=${args//"$commit"/deadbeef}
 t_pack_reset
 t_run "TEHAS_PACK_ROOT='$T_ROOT' \"$pack\" v9.9.9 $wrong"
 t_eq "$t_rc" 1

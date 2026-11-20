@@ -276,7 +276,7 @@ group. What a member can and cannot do is on [The host](/host).
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
 | `codebase-memory-mcp`             | `~/.local/bin`                         | Its installer, pinned release |
-| pi-rukas                          | `~/tehas/repos/pi-rukas`, the commit `PI_RUKAS_FOLLOW` names (the newest tag of the line in `versions.env` by default) | Its repository, then its `install.sh` |
+| pi-rukas                          | `~/tehas/repos/pi-rukas`, the commit `PI_RUKAS_FOLLOW` names (from a checkout the newest tag of the line in `versions.env`, from a release the commit it pinned) | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The directories it makes under the home are `bin/`, `tools/`,
@@ -318,9 +318,10 @@ again` and finishes, and `check` reports pi-rukas as `after install.sh`. Run
 `./bootstrap.sh user` once more after the first `install.sh`.
 
 pi-rukas comes from the repository named in `versions.env`, at the commit
-`PI_RUKAS_FOLLOW` names: the newest tag of the line `versions.env` gives (a
-branch's head or one pinned commit when the instance names one). It is not
-pinned: each run moves the clone to that commit,
+`PI_RUKAS_FOLLOW` names: from a checkout, the newest tag of the line
+`versions.env` gives; from a release, the commit the release pinned; a branch's
+head or one pinned commit when the instance names one. Each run moves the clone
+to that commit,
 and `check` reports a clone behind it as `DIFFERS`. A clone already on the
 host is pointed at that repository before it is fetched. The clone is only a
 copy of upstream, so its tags follow upstream and the fetch takes them by force:
