@@ -251,6 +251,54 @@ t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "--build-context=npm=$home/sandbox/../npm -"
 
+t_case "tehas's node has a prefix of its own, and pi and the npm tools run it whatever node is first on PATH (#2607)"
+recipe=$(cat "$T_ROOT/host/sandbox/base.Dockerfile")
+t_contains "$recipe" 'tar -xJf /tmp/node.tar.xz -C /opt/tehas-node --strip-components=1 --no-same-owner'
+t_lacks "$recipe" 'tar -xJf /tmp/node.tar.xz -C /usr/local '
+t_contains "$recipe" 'for b in node npm npx; do ln -sf "/opt/tehas-node/bin/$b" "/usr/local/bin/$b"; done'
+# A global npm install still lands in /usr/local, on PATH, as before the move.
+t_contains "$recipe" "printf 'prefix=/usr/local\n' >/opt/tehas-node/etc/npmrc"
+t_contains "$recipe" 'test "$(npm prefix -g)" = /usr/local'
+# A bin that is a node script is started by tehas's node by its path, so
+# a product's node earlier on PATH does not run pi.
+t_contains "$recipe" 'exec /opt/tehas-node/bin/node %s "$@"'
+t_lacks "$recipe" 'ln -sf "$PWD/node_modules/.bin/$bin" "/usr/local/bin/$bin"'
+# The build proves it: a node first on PATH that only fails.
+t_contains "$recipe" 'printf '"'"'#!/bin/sh\nexit 97\n'"'"' >/tmp/no-node/node'
+t_contains "$recipe" 'PATH=/tmp/no-node:$PATH pi --version'
+
+t_case "the recipe's links run a node script on tehas's node and link anything else (#2607)"
+# The loop of the recipe, run by sh against a scratch tree with its two fixed
+# paths moved into it.
+w=$T/links
+mkdir -p "$w/tree/node_modules/js/bin" "$w/tree/node_modules/.bin" "$w/bin" "$w/tehas-node/bin" "$w/product"
+printf '#!/usr/bin/env node\n' >"$w/tree/node_modules/js/bin/cli.js"
+printf '\177ELF' >"$w/tree/node_modules/js/bin/native"
+chmod 755 "$w/tree/node_modules/js/bin/cli.js" "$w/tree/node_modules/js/bin/native"
+ln -s ../js/bin/cli.js "$w/tree/node_modules/.bin/js"
+ln -s ../js/bin/native "$w/tree/node_modules/.bin/native"
+printf '#!/bin/sh\necho tehas "$@"\n' >"$w/tehas-node/bin/node"
+printf '#!/bin/sh\necho product "$@"\n' >"$w/product/node"
+chmod 755 "$w/tehas-node/bin/node" "$w/product/node"
+sed -n '/&& for bin in \$bins; do \\$/,/^ *done; \\$/p' "$T_ROOT/host/sandbox/base.Dockerfile" |
+  sed 's/^ *&& //; s/ *\\$//; s#/opt/tehas-node#'"$w"'/tehas-node#g; s#/usr/local/bin#'"$w"'/bin#g' >"$w/loop.sh"
+t_eq "$(grep -c . "$w/loop.sh")" 6
+bins="js native" sh -c 'cd "$1" && . "$2"' sh "$w/tree" "$w/loop.sh" || t_bad "the loop failed"
+t_eq "$(PATH=$w/product:$PATH "$w/bin/js" a b)" "tehas $w/tree/node_modules/js/bin/cli.js a b"
+t_eq "$(readlink "$w/bin/native")" "$w/tree/node_modules/js/bin/native"
+
+t_case "the example layer pins the product's node in its own prefix, ahead of tehas's on PATH (#2607)"
+layer=$T_ROOT/instances/example/product-node.Dockerfile
+t_eq "$(grep -vE '^(#|$)' "$layer" | head -n 2)" $'ARG TEHAS_BASE\nFROM $TEHAS_BASE'
+layer=$(grep -v '^#' "$layer")
+t_contains "$layer" 'echo "${PRODUCT_NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c -'
+t_contains "$layer" '-C /opt/product-node --strip-components=1'
+t_contains "$layer" 'ENV PATH=/opt/product-node/bin:$PATH'
+t_lacks "$layer" '-C /usr/local'
+t_lacks "$layer" '/opt/tehas-node'
+# A version or a sum left empty fails the layer, and the tag stays on the image without it.
+t_contains "$layer" 'test -n "$PRODUCT_NODE_VERSION" && test -n "$PRODUCT_NODE_SHA256"'
+
 t_case "a clone without the commit fetches its tags, and one a fetch does not bring it to builds nothing"
 reset
 : >"$fx/no-commit"
