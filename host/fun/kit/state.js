@@ -11,7 +11,7 @@
 //   const board = useBoard();   // the same object in every island
 //   board.state.picked          // a reactive read
 //   board.actions.pick(42)      // the only way to write; lands on the next microtask
-import { createRoot, createStore, getOwner, runWithOwner } from "./vendor/solid.js";
+import { createRoot, createStore, getOwner, runWithOwner, untrack } from "./vendor/solid.js";
 
 const owner = createRoot(() => getOwner());
 /** @type {Map<string, { value: any, dispose: () => void }>} */
@@ -70,8 +70,8 @@ export function pageStore(name, spec) {
       const actions = Object.freeze(spec.actions(set, state));
       return { spec, store: Object.freeze({ state, actions }) };
     });
-    // Made against the store's state, which actions may read as they are made.
-    if (entry.spec !== spec && names(entry.store.actions) !== names(spec.actions(() => {}, entry.store.state))) {
+    // Made against the store's state, untracked: actions may read it as they are made.
+    if (entry.spec !== spec && names(entry.store.actions) !== names(untrack(() => spec.actions(() => {}, entry.store.state)))) {
       throw new Error(`page store ${name} is defined twice with other actions`);
     }
     return entry.store;
