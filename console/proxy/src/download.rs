@@ -25,6 +25,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
@@ -74,6 +75,10 @@ pub trait Downloads {
 
 /// How many image downloads run at once. A third waits for one to end.
 pub const IMAGES_AT_ONCE: usize = 2;
+
+/// How long a `docker save` of the image may take. It holds a place among
+/// the image downloads, so one that hangs is killed rather than holding it.
+pub const SAVE_WAIT: Duration = Duration::from_secs(30 * 60);
 
 /// A count of places, taken by blocking.
 pub struct Gate {
@@ -178,6 +183,8 @@ pub struct OfHome {
     pub image: String,
     /// The docker program.
     pub docker: PathBuf,
+    /// How long a `docker save` may take ([`SAVE_WAIT`] on a host).
+    pub save_wait: Duration,
     /// Whether files are compressed with zstd. Off, a tar is served as it is.
     pub zstd: bool,
     /// Whether the instance gives a cycle the issue's images or files
@@ -378,8 +385,11 @@ impl Downloads for OfHome {
             fs::create_dir_all(self.images())
                 .map_err(|_| Miss::new(503, "the images directory could not be made"))?;
             let new = file.with_extension("new");
-            let mut save = Command::new(&self.docker);
-            save.args(["save", &self.image]).stdin(Stdio::null());
+            let mut save = Command::new("timeout");
+            save.args(["-k", "10", &self.save_wait.as_secs().max(1).to_string()])
+                .arg(&self.docker)
+                .args(["save", &self.image])
+                .stdin(Stdio::null());
             if let Err(why) = self.compressed(save, &new) {
                 let _ = fs::remove_file(&new);
                 return Err(Miss::new(503, &format!("the image was not saved: {why}")));
