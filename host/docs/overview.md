@@ -86,6 +86,8 @@ the factory works the same without it.
 
 ## Start here
 
+- [Start](/start): what to tell your coding agent to set tehas up for
+  your repository, and what you will be asked.
 - [Factory floor](/floor): the factory as a game view: the live queue, the
   selected work order, the running cycle's console. The front page with
   `TEHAS_DESIGN=pixel`; the business page is the front page otherwise.
