@@ -33,6 +33,8 @@ pub enum Part {
 #[derive(Debug, PartialEq)]
 pub struct Args {
     pub part: Part,
+    /// The release to make, named by --version, instead of a raised part.
+    pub version: Option<String>,
     /// A prerelease of the next version, at this stage, instead of the release.
     pub pre: Option<Pre>,
     pub dry: bool,
@@ -53,6 +55,7 @@ impl Default for Args {
     fn default() -> Args {
         Args {
             part: Part::Patch,
+            version: None,
             pre: None,
             dry: false,
             verify: true,
@@ -83,6 +86,14 @@ pub fn parse(args: &[String], pwd: &Path) -> Result<Parsed, String> {
             "--patch" => a.part = Part::Patch,
             "--minor" => a.part = Part::Minor,
             "--major" => a.part = Part::Major,
+            "--version" => {
+                a.version = Some(
+                    it.next()
+                        .filter(|v| version::is_release(v))
+                        .ok_or("--version needs a release, vX.Y.Z")?
+                        .clone(),
+                )
+            }
             "--pre" => {
                 a.pre = Some(
                     it.next()
@@ -213,6 +224,29 @@ pub fn next_version(latest: Option<&str>, part: Part) -> String {
         Part::Major => format!("v{}.0.0", major + 1),
         Part::Minor => format!("v{major}.{}.0", minor + 1),
         Part::Patch => format!("v{major}.{minor}.{}", patch + 1),
+    }
+}
+
+/// The release to make: `exact` when it comes after `latest`, else the tag
+/// after `latest` with `part` raised. A version may skip releases, never go
+/// back or repeat one.
+pub fn chosen_version(
+    latest: Option<&str>,
+    part: Part,
+    exact: Option<&str>,
+) -> Result<String, String> {
+    let Some(v) = exact else {
+        return Ok(next_version(latest, part));
+    };
+    let key = |t: &str| -> Vec<u64> {
+        t.trim_start_matches('v')
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    match latest {
+        Some(l) if key(v) <= key(l) => Err(format!("{v} does not come after {l}")),
+        _ => Ok(v.to_string()),
     }
 }
 
@@ -558,7 +592,13 @@ pub fn run(a: &Args, root: &Path) -> u8 {
             return 1;
         }
     }
-    let mut next = next_version(latest.as_deref(), a.part);
+    let mut next = match chosen_version(latest.as_deref(), a.part, a.version.as_deref()) {
+        Ok(v) => v,
+        Err(m) => {
+            eprintln!("tag-release: {m}; nothing was tagged");
+            return 1;
+        }
+    };
     if let Some(stage) = a.pre {
         let (pre, same) = match next_prerelease(&tags, &next, stage) {
             Ok(found) => found,

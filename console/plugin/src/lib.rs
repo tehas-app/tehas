@@ -7,5 +7,6 @@ pub mod gate;
 pub mod host;
 pub mod model;
 pub mod run;
+pub mod status;
 pub mod tick;
 pub mod upstream;

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tehas-app/tehas/api/plugin.schema.json",
   "title": "tehas plugin --json",
-  "description": "What tehas plugin --json prints, version 1: each plugin of TEHAS_PLUGINS, its pin, what is granted at the pin and its state. Plugins are a feature still being built, so this is not contract until the release that ships them, and a later step of the feature adds fields. Every object is closed, so a field tehas adds must be added here too. unbuilt is a plugin that is set and granted and not yet fetched or built at its pin; building, one tehas update is building; ready, one that may run; refused says why in refusal. image is the local image's id, a local fact: null before a build and for a plugin with no build. last_run is the newest run in the state store, null before the first: its kind, trigger, start and end in seconds since the epoch (end null while it runs), result (done, failed, timeout or lost, null while it runs) and the model tokens it used. tokens_today is the model tokens of its runs that started today, UTC. manifest_sha256 is the sha256 of the pin's tehas-plugin.json and bases the Dockerfile's base images by digest, which two hosts that build one commit share. The tests of console/ops/src/plugin.rs hold what the command prints to the samples beside this file, and those of console/core/src/plugin/schema.rs hold the samples to this schema.",
+  "description": "What tehas plugin --json prints, version 1: each plugin of TEHAS_PLUGINS, its pin, what is granted at the pin and its state. Plugins are a feature still being built, so this is not contract until the release that ships them, and a later step of the feature adds fields. Every object is closed, so a field tehas adds must be added here too. unbuilt is a plugin that is set and granted and not yet fetched or built at its pin; building, one tehas update is building; ready, one that may run; refused says why in refusal. image is the local image's id, a local fact: null before a build and for a plugin with no build. last_run is the newest run in the state store, null before the first: its kind, trigger, start and end in seconds since the epoch (end null while it runs), result (done, failed, timeout or lost, null while it runs) and the model tokens it used. tokens_today is the model tokens of its runs that started today, UTC. status_unwritten says why the last commit status of its hook could not be written, as when the App lacks Commit statuses: Read and write; null when it was written or none was tried. manifest_sha256 is the sha256 of the pin's tehas-plugin.json and bases the Dockerfile's base images by digest, which two hosts that build one commit share. The tests of console/ops/src/plugin.rs hold what the command prints to the samples beside this file, and those of console/core/src/plugin/schema.rs hold the samples to this schema.",
   "type": "object",
   "required": [
     "api",
@@ -29,7 +29,8 @@
           "manifest_sha256",
           "bases",
           "last_run",
-          "tokens_today"
+          "tokens_today",
+          "status_unwritten"
         ],
         "additionalProperties": false,
         "properties": {
@@ -145,6 +146,12 @@
           "tokens_today": {
             "type": "integer",
             "minimum": 0
+          },
+          "status_unwritten": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

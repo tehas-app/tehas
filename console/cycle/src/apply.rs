@@ -919,6 +919,21 @@ fn keep_end_fault(
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
 /// or the record of its failed end is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
+    reported(home, s).rc
+}
+
+/// What a report leaves for the hooks that follow it.
+pub struct Reported {
+    /// The exit status of the cycle, as [`run`] gives it.
+    pub rc: i32,
+    /// The pull request the report names, open or merged.
+    pub pr: Option<u64>,
+    /// tehas work refused the start before its runner ran.
+    pub refused: bool,
+}
+
+/// [`run`], and what the hooks need of the report.
+pub fn reported(home: &Path, s: &Start) -> Reported {
     let issue = s.issue;
     let workdir = host::workdir(s);
     let now = s.now.unwrap_or_else(tehas_core::time::now);
@@ -934,7 +949,11 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         Ok(f) => f,
         Err(e) => {
             log(&format!("ERROR: the end of #{issue} cannot be read: {e}"));
-            return 70;
+            return Reported {
+                rc: 70,
+                pr: None,
+                refused: false,
+            };
         }
     };
     let built = crate::stamp::built(home, s);
@@ -1039,10 +1058,10 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         .unwrap_or_default()
         .to_string();
     after::after(home, &a);
-    if on_record && fault_kept {
-        0
-    } else {
-        70
+    Reported {
+        rc: if on_record && fault_kept { 0 } else { 70 },
+        pr: crate::stamp::pull_number(&r.after.ended.pr),
+        refused: !r.refused_why.is_empty(),
     }
 }
 

@@ -6,16 +6,21 @@
 //! read-only, or while `tehas update` runs, and the log says why. Each
 //! refresh is its own unit, asked for and not waited for. The tick also
 //! removes what runs that died left: their containers, volumes and
-//! directories, and ends their rows as lost.
+//! directories, and ends their rows as lost, and the hook verdicts of pull
+//! requests merged or left for 30 days.
 
 use crate::host::Host;
 use crate::run::{clean, default_head, Setup};
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
+use tehas_core::grammar::commit_id;
 use tehas_core::lock::{probe, Probe};
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, is_name};
 use tehas_core::{features, pause};
+use tehas_ops::plugin::exec::{Cmd, Exec, Git};
 use tehas_ops::plugin::prepare;
 use tehas_ops::plugin::runs::{self, Asked};
 
@@ -110,6 +115,86 @@ pub fn sweep(h: &mut dyn Host, s: &Setup) {
     }
 }
 
+/// Days a verdict is kept when its head is not merged: a pull request closed
+/// or left that long is not asked about.
+pub const VERDICT_DAYS: u64 = 30;
+
+/// Why the verdict at `file` goes, if it does: its head is in the default
+/// branch of the mirror, or it is older than [`VERDICT_DAYS`]. The verdict's
+/// `head` is the commit it was posted on.
+fn stale(x: &mut dyn Exec, get: &dyn Fn(&str) -> String, file: &Path) -> Option<String> {
+    let head = fs::read(file)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["head"].as_str().map(str::to_string))
+        .filter(|c| commit_id(c));
+    if let Some(head) = head {
+        let args = [
+            "-C".to_string(),
+            get("TEHAS_WORK_REPO"),
+            "merge-base".to_string(),
+            "--is-ancestor".to_string(),
+            head.clone(),
+            format!("refs/remotes/origin/{}", get("TEHAS_BRANCH")),
+        ];
+        if x.run(&Cmd::git(Git::Local, args.to_vec())).ok {
+            return Some(format!("its head {head} is in the default branch"));
+        }
+    }
+    let age = fs::metadata(file)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| SystemTime::now().duration_since(t).ok())?;
+    (age > Duration::from_secs(VERDICT_DAYS * 86_400))
+        .then(|| format!("it is older than {VERDICT_DAYS} days"))
+}
+
+/// The verdicts of pull requests merged or long left, removed, and the
+/// request of each whose hook does not run. GitHub is not asked.
+pub fn forget(h: &mut dyn Host, s: &Setup) {
+    let Ok(dirs) = fs::read_dir(prepare::root(s.home)) else {
+        return;
+    };
+    for d in dirs.flatten() {
+        let name = d.file_name().to_string_lossy().into_owned();
+        if !is_name(&name) {
+            continue;
+        }
+        for e in fs::read_dir(runs::hooks(s.home, &name))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let f = e.file_name().to_string_lossy().into_owned();
+            let pr = f
+                .strip_suffix(".verdict.json")
+                .filter(|n| !n.starts_with('0'))
+                .and_then(|n| n.parse::<u64>().ok());
+            let Some(pr) = pr else {
+                continue;
+            };
+            let Some(why) = stale(h.exec(), s.get, &e.path()) else {
+                continue;
+            };
+            if let Err(err) = fs::remove_file(e.path()) {
+                say(&format!(
+                    "plugin {name}: the verdict of #{pr} could not be removed: {err}"
+                ));
+                continue;
+            }
+            let request = if runs::held(&runs::hook_lock(s.home, &name, pr)) {
+                ", its request kept while its hook runs"
+            } else {
+                let _ = fs::remove_file(runs::hook_request(s.home, &name, pr));
+                ""
+            };
+            say(&format!(
+                "plugin {name}: the verdict of #{pr} is removed: {why}{request}"
+            ));
+        }
+    }
+}
+
 /// The tick: always 0, and one line for each thing it did or did not do.
 pub fn tick(h: &mut dyn Host, s: &Setup) -> u8 {
     let get = s.get;
@@ -131,6 +216,7 @@ pub fn tick(h: &mut dyn Host, s: &Setup) -> u8 {
             return 0;
         }
     };
+    forget(h, s);
     for pin in plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default() {
         let name = &pin.name;
         let state = prepare::read_state(s.home, name).filter(|st| st.commit == pin.commit);
@@ -171,9 +257,9 @@ pub fn tick(h: &mut dyn Host, s: &Setup) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run::tests::{world, Fake, World, H};
-    use std::time::Duration;
-    use tehas_ops::plugin::exec::fake::ok;
+    use crate::run::tests::{world, Fake, World, H, H2};
+    use std::path::PathBuf;
+    use tehas_ops::plugin::exec::fake::{fails, ok};
 
     fn go(h: &mut Fake, w: &World) -> u8 {
         let get = w.get();
@@ -272,11 +358,86 @@ mod tests {
         .unwrap();
         assert!(held(&w.home, &w.get()).unwrap().contains("drained"));
         fs::remove_file(w.home.join("state/limit.json")).unwrap();
-        assert_eq!(held(&w.home, &w.get()), None);
+        // The update's lock, given back above, may still be held a moment by
+        // another test's child between its fork and its exec.
+        let mut free = held(&w.home, &w.get());
+        for _ in 0..40 {
+            if free.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            free = held(&w.home, &w.get());
+        }
+        assert_eq!(free, None);
         w.set("TEHAS_PLUGIN", "off");
         h.x.ran.clear();
         assert_eq!(go(&mut h, &w), 0);
         assert!(h.x.ran.is_empty());
+    }
+
+    /// A verdict and a request of #42 on `head`, the verdict `days` old.
+    fn left(w: &World, head: &str, days: u64) -> PathBuf {
+        fs::create_dir_all(runs::hooks(&w.home, "demo")).unwrap();
+        let v = runs::verdict(&w.home, "demo", 42);
+        let body = format!(
+            r#"{{"api": 1, "pr": 42, "head": "{head}", "result": "done", "verdict": null}}"#
+        );
+        fs::write(&v, body).unwrap();
+        fs::write(runs::hook_request(&w.home, "demo", 42), "{}").unwrap();
+        let at = SystemTime::now() - Duration::from_secs(days * 86_400);
+        fs::File::options()
+            .write(true)
+            .open(&v)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+        v
+    }
+
+    #[test]
+    fn a_verdict_whose_head_is_merged_goes_with_its_request() {
+        let mut h = Fake::new();
+        let w = world("plugin-tick-merged", &mut h, "", "hook:after:work");
+        let v = left(&w, H2, 0);
+        assert_eq!(go(&mut h, &w), 0);
+        assert!(h.x.ran_any(&format!(
+            "git -C /m/product merge-base --is-ancestor {H2} refs/remotes/origin/main"
+        )));
+        assert!(!v.exists());
+        assert!(!runs::hook_request(&w.home, "demo", 42).exists());
+    }
+
+    #[test]
+    fn a_verdict_older_than_its_days_goes_and_a_newer_one_stays() {
+        let mut h = Fake::new();
+        let w = world("plugin-tick-old", &mut h, "", "hook:after:work");
+        h.x.on("merge-base", fails(""));
+        let v = left(&w, H2, VERDICT_DAYS - 1);
+        assert_eq!(go(&mut h, &w), 0);
+        assert!(v.exists());
+        assert!(runs::hook_request(&w.home, "demo", 42).exists());
+        let v = left(&w, H2, VERDICT_DAYS + 1);
+        // A hook that runs keeps its request.
+        let lock = fs::File::create(runs::hook_lock(&w.home, "demo", 42)).unwrap();
+        lock.lock().unwrap();
+        assert_eq!(go(&mut h, &w), 0);
+        assert!(!v.exists());
+        assert!(runs::hook_request(&w.home, "demo", 42).exists());
+        drop(lock);
+        // Another test's child may hold the lock's file a moment between its
+        // fork and its exec, so the tick may see the hook running once more;
+        // each try lays the old verdict down again.
+        let mut v = left(&w, H2, VERDICT_DAYS + 1);
+        for _ in 0..40 {
+            assert_eq!(go(&mut h, &w), 0);
+            if !runs::hook_request(&w.home, "demo", 42).exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            v = left(&w, H2, VERDICT_DAYS + 1);
+        }
+        assert!(!v.exists());
+        assert!(!runs::hook_request(&w.home, "demo", 42).exists());
     }
 
     #[test]

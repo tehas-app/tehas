@@ -10,10 +10,9 @@ use super::runs::{self, Asked, HookAsk, DISK_REFUSAL};
 use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
-use tehas_core::accounts::factorys;
 use tehas_core::exit;
 use tehas_core::forge::GhRunner;
-use tehas_core::grammar::commit_id;
+use tehas_core::plugin::hook::open_bot_pull;
 use tehas_core::plugin::run::Trigger;
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, Cap, Grants, Pin};
@@ -87,19 +86,6 @@ pub fn run(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String, name: &s
             exit::FAILED
         }
     }
-}
-
-/// The pull request as GitHub gives it, when it is open, the bot's and of
-/// the repository itself: its head and its base.
-pub fn open_bot_pull(pull: &Value, repo: &str, bot: &str) -> Option<(String, String)> {
-    let s = |ptr: &str| pull.pointer(ptr).and_then(Value::as_str).unwrap_or("");
-    let ok = s("/state") == "open"
-        && pull.get("merged").and_then(Value::as_bool) != Some(true)
-        && factorys(s("/user/login"), bot)
-        && s("/head/repo/full_name").eq_ignore_ascii_case(repo)
-        && commit_id(s("/head/sha"))
-        && commit_id(s("/base/sha"));
-    ok.then(|| (s("/head/sha").to_string(), s("/base/sha").to_string()))
 }
 
 pub fn hook(
