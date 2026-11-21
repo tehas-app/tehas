@@ -58,7 +58,8 @@ each given to it read only:
   `/health`;
 - `~/tehas/mcp/`, the two files `tehasbot status` asks `analytics` to write on
   each poll: the sessions snapshot `sessions.jsonl` and the outcomes counts
-  `outcomes.jsonl`, each with a `.stamp` line beside it. Both are private to the
+  `outcomes.jsonl`, each with a `.stamp` line beside it, and the
+  [tickets](#tickets) the status run reads from GitHub. All are private to the
   tehas user and never published;
 - `~/tehas/logs/`, where each cycle and planning turn leaves its logs, and
   where the dispatcher and refresh write `dispatch.log` and `refresh.log`.
@@ -231,6 +232,24 @@ address.
 On a private repository, a full key gives its holder the repository's code and
 history through these tools. Give one only to someone who may read it.
 
+## Tickets
+
+While the server is on, each run of `tehasbot status` also reads the
+repository's issues and pull requests changed since its last read, and writes
+one file for each under `~/tehas/mcp/tickets/`: its title, state, author,
+labels, body and comments (the first 50), the epic it is part of and its
+sub-issues, and for a pull request the commit it merged as and the issues it
+closes. It reads with GitHub's search, oldest change first, at most four pages
+of 50 a poll, so the first read of a long history is spread over polls, and
+`.cursor.json` in the same directory says how far it has come. A read that
+fails keeps what it wrote. With the server off it reads nothing.
+
+A full key is served `factory_ticket` and `factory_tickets` from those files.
+The server asks GitHub nothing, and the directory is part of `~/tehas/mcp`, so
+the container is given nothing new. Bodies, comments and titles are masked as
+a log is, and a search matches the masked text, so a secret the mask hides is
+not found by its value either. A dashboard key is served neither.
+
 ## How an agent connects
 
 | | |
@@ -322,6 +341,8 @@ one; another number is a tool error that says so.
 | `factory_git_log` | all optional: `path` (a path in the repository, relative to its top), `grep` (text the message holds, as given, 1 to 200 characters), `limit` from 1 to 200 (50 without it), `after` (a commit id, from `next`) | Only with a [shared checkout](#the-shared-checkout). The history from `HEAD`, newest first: `commits`, each with `commit`, `parents`, `author` (the name only), `time`, `subject` (cut to 200 characters) and `body` (cut to 4000) when it has one. With `path`, only the commits that changed it; a merge is listed only when it differs from every parent there. `more` is true when there is more, and `next` is the commit to pass as `after`. A walk stops after 20,000 commits, and `next` then says where to go on. `head` and `untrusted` |
 | `factory_git_show` | `commit`, 7 to 40 lowercase hex digits | Only with a shared checkout. One commit: its fields as `factory_git_log` gives them, `files` (each `path` and `change`: `added`, `modified`, `deleted` or `renamed`, at most 500) against its first parent, and `diff`, the unified diff with three lines of context, masked and cut at 64 KiB with `cut: true`. A binary file is `Binary files differ`. An id that names no commit, or more than one, is a tool error; a name such as `HEAD~1` is refused. `head` and `untrusted` |
 | `factory_git_blame` | `path`, and optional `start` and `end` (line numbers from 1) | Only with a shared checkout. Which commit last changed each line of the file at `HEAD`, at most 400 lines from `start`: `lines`, each with `line`, `commit` and `text` (cut to 400 characters), `commits`, each commit once with its `subject`, `author` and `time`, and `total`, the file's lines. A file of more than 2 MiB, a binary file or a path that is no file is a tool error. `head` and `untrusted` |
+| `factory_ticket` | `number`, an integer from 1 to 999999999 | One issue or pull request as the last read left it ([tickets](#tickets)): `number`, `kind` (`issue` or `pull`), `title`, `url`, `state` (`open`, `closed` or `merged`), `stateReason`, `author`, `labels`, `createdAt`, `updatedAt`, `closedAt`, `mergedAt`, `body` (masked, cut to 20,000 characters with `bodyCut: true`), `comments` (at most 50, each `author`, `createdAt` and `body` cut to 4000), `commentsTotal`, for an issue `parent` (its epic) and `subIssues` (`number`, `title`, `state`), for a pull request `mergeCommit` and `closes`, and `readAt`. `readUpTo`, the last change the reads have reached, and `untrusted`. A number not read yet is a tool error that says so |
+| `factory_tickets` | `grep` (2 to 200 characters, any case), and optional `kind` (`issue` or `pull`), `state` (`open`, `closed` or `merged`) and `limit` from 1 to 50 (20 without it) | The tickets whose title, body or comments hold the text, newest change first: `tickets`, each with `number`, `kind`, `state`, `title`, `updatedAt` and `in` (`title`, `body`, `comments`). `more` when there are more, `read`, how many tickets were searched, `readUpTo` and `untrusted` |
 | `factory_contractors` | none | Only while [outsource](/outsource) is on: `tehasbot mcp serve` starts the server with `--outsource` then, and without it the tool is not listed and a call of it is an unknown tool. The contractors as `live/contractors.json` has them: `time` (when the factory wrote the list, at a poll), `stale` (more than ten minutes old, or no time that can be read), `counts` (how many contractors are `idle`, `working`, `stopping`, `silent`, `resting`, `draining` and `revoked`, and `outsourced`, how many cycles are on a contractor now) and `contractors`, each with `name`, `status`, `issue` (the issue of the job in its hand), `lastSeenAt`, `jobsDone` and `jobsLost`, and from its last report `image` (the sandbox image's id), `rukas` (the pi-rukas version the image is labelled with), `memMb`, `diskKb` (its free memory and disk) and `reportedAt`, each left out when it did not say. No address and no key. A dashboard key is served it. No file is a tool error that says so |
 
 The links are built from the `repo` the dashboard publishes, and only when it
