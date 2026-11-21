@@ -12,7 +12,7 @@ import { test } from "node:test";
 const FRAG = readFileSync(new URL("../host/docs/dashboard.frag", import.meta.url), "utf8");
 const FACTORY = new URL("../host/fun/factory/", import.meta.url);
 const read = (name) => readFileSync(new URL(name, FACTORY), "utf8");
-const ISLANDS = ["state", "console", "issues", "readonly", "days", "previews", "host"];
+const ISLANDS = ["state", "console", "issues", "readonly", "days", "previews", "host", "wikilink"];
 
 test("the fragment loads the host bridge, then each island's element, and holds no script of its own", () => {
   const tags = FRAG.split("\n").filter((l) => l.includes("<script"));

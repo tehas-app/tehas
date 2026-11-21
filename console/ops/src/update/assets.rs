@@ -43,7 +43,12 @@ use std::path::{Path, PathBuf};
 const DIRS: [&str; 2] = ["fun", "docs"];
 
 /// The pages that name a script or a stylesheet by tag, from the stage.
-pub(super) const PAGES: [&str; 3] = ["fun/index.html", "fun/business.html", "docs/dashboard.frag"];
+pub(super) const PAGES: [&str; 4] = [
+    "fun/index.html",
+    "fun/business.html",
+    "docs/dashboard.frag",
+    "docs/wiki.frag",
+];
 
 /// The extensions a page may name by tag and the server may cache for ever.
 /// Nothing else is given a hashed name: an image, a font or a document keeps
@@ -363,6 +368,7 @@ mod tests {
             "<script src=\"/fun/panels.js\"></script>\n",
         );
         put(&d, "host/docs/host.md", "# The host\n");
+        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         d
     }
 
@@ -764,6 +770,7 @@ mod tests {
         put(&d, "host/fun/manual.css", "body { margin: 0 }\n");
         put(&d, "host/docs/dashboard.frag", "<p>nothing</p>\n");
         put(&d, "host/docs/host.md", "# The host\n");
+        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 0);
         let page = fs::read_to_string(staged(&d, "fun/index.html")).unwrap();
         // A file the stage does not hold, and a relative address a module names
@@ -820,10 +827,12 @@ mod tests {
     fn a_missing_directory_or_page_is_refused_with_1() {
         let d = dir("assets-nofun");
         put(&d, "host/docs/host.md", "# The host\n");
+        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 1);
         let d = dir("assets-nopage");
         put(&d, "host/fun/panels.js", "// the panel\n");
         put(&d, "host/docs/host.md", "# The host\n");
+        put(&d, "host/docs/wiki.frag", "<p>wiki</p>\n");
         assert_eq!(run(&d), 1);
     }
 

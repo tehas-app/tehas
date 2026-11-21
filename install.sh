@@ -415,7 +415,7 @@ home_marker=.tehas-home
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current run)
+  state tmp tools work target .cargo versions current run wiki)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest

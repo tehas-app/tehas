@@ -36,10 +36,11 @@ use std::path::{Component, Path, PathBuf};
 
 /// The pages, each with the files of `host` that make it. The dashboard is a
 /// fragment the manual's layout renders.
-const PAGES: [(&str, &[&str]); 4] = [
+const PAGES: [(&str, &[&str]); 5] = [
     ("business", &["fun/business.html"]),
     ("floor", &["fun/index.html"]),
     ("dashboard", &["docs/_layout.html", "docs/dashboard.frag"]),
+    ("wiki", &["docs/_layout.html", "docs/wiki.frag"]),
     ("manual", &["docs/_layout.html"]),
 ];
 
@@ -430,6 +431,7 @@ mod tests {
             "host/docs/dashboard.frag",
             "<script src=\"/fun/one.js\"></script>",
         );
+        d.file("host/docs/wiki.frag", "<p>wiki</p>");
         d.file("host/fun/a.css", "a{}");
         d.file("host/fun/theme-pixel.css", "/* a theme */");
         d.file("host/fun/one.js", "1;");
@@ -526,7 +528,7 @@ mod tests {
         assert!(wrong.contains(&"page flour: in pages.max but no such page".to_string()));
         let wrong = check(&host, &format!("{}page floor 1\n", exact(&d)));
         assert!(
-            wrong[0].starts_with("pages.max line 5: cannot read"),
+            wrong[0].starts_with("pages.max line 6: cannot read"),
             "{wrong:?}"
         );
     }

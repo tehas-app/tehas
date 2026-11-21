@@ -25,6 +25,7 @@ import { issuesModel } from "../host/fun/factory/tehas-factory-issues.model.js";
 import { previewsModel } from "../host/fun/factory/tehas-factory-previews.model.js";
 import { readonlyModel } from "../host/fun/factory/tehas-factory-readonly.model.js";
 import { stateModel } from "../host/fun/factory/tehas-factory-state.model.js";
+import { wikiLink, wikiModel } from "../host/fun/factory/tehas-factory-wiki.model.js";
 
 const FIXTURES = new URL("./fixtures/live/", import.meta.url);
 const FUN = new URL("../host/fun/", import.meta.url);
@@ -45,6 +46,12 @@ test("every file under /live/ a page fetches has a sample, and every sample is f
   for (const m of frag.matchAll(/ (?:src|running|status)="\/live\/([a-z0-9-]+\.json)"/g)) fetched.add(m[1]);
   const samples = readdirSync(FIXTURES).filter((n) => n.endsWith(".json")).sort();
   assert.deepEqual(samples, [...fetched].sort());
+});
+
+test("wiki.json draws the wiki page and the dashboard's link", () => {
+  const m = wikiModel(read("wiki.json"), NOW);
+  assert.deepEqual([m.href, m.behind], ["/wiki/2026-11-17-68ffab1d/", "4 commits and 1 day behind main."]);
+  assert.deepEqual(wikiLink(read("wiki.json")), { href: m.href, title: "2026-11-17-68ffab1d" });
 });
 
 test("the samples are written at one time and name no real repository", () => {
