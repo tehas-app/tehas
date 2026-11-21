@@ -126,7 +126,8 @@ mod tests {
 
     #[test]
     fn links_between_pages_point_at_the_html() {
-        let out = body("[d](modules/dispatch.md) [p](a.md#part) [w](https://example.org/x) [h](#top)\n");
+        let out =
+            body("[d](modules/dispatch.md) [p](a.md#part) [w](https://example.org/x) [h](#top)\n");
         for want in [
             "href=\"modules/dispatch.html\"",
             "href=\"a.html#part\"",
@@ -163,8 +164,14 @@ mod tests {
             out,
             "<title>&lt;i&gt;T&lt;/i&gt; &amp; &quot;q&quot;</title><a href=\"../index.html\">2026-11-21-68ffab1d 68ffab1d</a><p>b</p>"
         );
-        let f = Fill { title: "{{body}}", ..f };
-        assert_eq!(page("{{title}}|{{body}}|{{other}}", &f), "{{body}}|<p>b</p>|{{other}}");
+        let f = Fill {
+            title: "{{body}}",
+            ..f
+        };
+        assert_eq!(
+            page("{{title}}|{{body}}|{{other}}", &f),
+            "{{body}}|<p>b</p>|{{other}}"
+        );
         assert_eq!(up("index.md"), "");
         assert_eq!(up("a/b/c.md"), "../../");
         assert_eq!(html_name("a/b.md"), "a/b.html");

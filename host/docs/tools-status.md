@@ -164,7 +164,9 @@ settings are missing or malformed.
 
 ```
 tehas wiki [--json]
+tehas wiki build [--full] [--json]
 tehasbot wiki
+tehasbot wiki build [--full]
 ```
 
 ```
@@ -179,6 +181,24 @@ no build yet it says `wiki: no build yet`. It reads `~/tehas/wiki/current/build.
 and the product checkout; no model, no GitHub call, and it writes nothing.
 `tehasbot wiki` writes the same object to `~/tehas/live/wiki.json`, and
 `tehas-wiki-status.timer` runs it every five minutes.
+
+`tehas wiki build` asks for a build and returns at once: it writes
+`~/tehas/state/wiki.ask`, and `tehas-wiki.path` starts `tehasbot wiki build`.
+`tehas-wiki.timer` asks every night at 03:00. A build of a commit already
+built does nothing; `--full` builds it again and lets every page change.
+
+A build runs pi-rukas's `wiki` verb ([trail-openers/pi-rukas#2456](https://github.com/trail-openers/pi-rukas/issues/2456))
+in a container of its own kind: the code at the head of the default branch
+and the raw sources read-only, the pages it writes, no GitHub token, no relay,
+and a CPU weight of 64 against a cycle's 1024. The model has no time limit.
+The host then checks the pages (front matter, every changed page checked at
+this commit, links that land, every page in `index.md`, one new entry in
+`log.md`, sizes, credentials), renders them to HTML with any HTML in them
+shown as text, and moves the build into place under
+`~/tehas/wiki/<date>-<8 hex>/`. A build that fails changes nothing that is
+served and says why in `~/tehas/wiki/failure.json`. The last ten builds and
+the last of each release are kept. An image whose `--capabilities` lists no
+`wiki` verb is refused with 78.
 
 The wiki is still being built: with `TEHAS_WIKI` off, or in a release, it
 exits 78 and says so. Exit 0, 64 on an argument but `--json`, 78 when the

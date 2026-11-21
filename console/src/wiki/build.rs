@@ -33,7 +33,10 @@ pub struct Work<'a> {
 pub enum Done {
     /// Main has not moved since the current build.
     UpToDate(String),
-    Built { id: String, changed: usize },
+    Built {
+        id: String,
+        changed: usize,
+    },
 }
 
 fn current(wiki: &Path) -> (Option<String>, Pages) {
@@ -56,12 +59,14 @@ pub fn run(ask: &Ask, write: impl FnOnce(&Work) -> Result<(), String>) -> Result
     let wiki = ask.home.join("wiki");
     fs::create_dir_all(&wiki).map_err(|e| format!("{}: {e}", wiki.display()))?;
     let main = format!("refs/remotes/origin/{}", ask.branch);
-    let head = collect::head(ask.checkout, &main).ok_or_else(|| format!("no {main} in {}", ask.checkout.display()))?;
+    let head = collect::head(ask.checkout, &main)
+        .ok_or_else(|| format!("no {main} in {}", ask.checkout.display()))?;
     let (built, before) = current(&wiki);
     if built.as_deref() == Some(head.commit.as_str()) && !ask.full {
         return Ok(Done::UpToDate(head.commit));
     }
-    let id = super::id(ask.date, &head.commit).ok_or("the date or the commit is not of its form")?;
+    let id =
+        super::id(ask.date, &head.commit).ok_or("the date or the commit is not of its form")?;
     let after = built
         .as_deref()
         .filter(|b| !ask.full && collect::follows(ask.checkout, b, &head.commit));
@@ -72,7 +77,9 @@ pub fn run(ask: &Ask, write: impl FnOnce(&Work) -> Result<(), String>) -> Result
     let io = |e: std::io::Error| fail(&wiki, ask.now, &id, &[e.to_string()]);
     fs::create_dir_all(&stage).map_err(io)?;
     let mut start = before.clone();
-    start.entry("SCHEMA.md".into()).or_insert_with(|| publish::SCHEMA.to_string());
+    start
+        .entry("SCHEMA.md".into())
+        .or_insert_with(|| publish::SCHEMA.to_string());
     publish::seed(&stage, &start).map_err(io)?;
     let dropped = collect::write(ask.checkout, &raw, &head, after, &before).map_err(io)?;
     for hash in &dropped {
@@ -157,10 +164,14 @@ mod tests {
             fs::write(w.stage.join("modules/a.md"), page("A", text)).unwrap();
             fs::write(
                 w.stage.join("index.md"),
-                page("Index", "- [schema](SCHEMA.md)\n- [log](log.md)\n- [a](modules/a.md)\n"),
+                page(
+                    "Index",
+                    "- [schema](SCHEMA.md)\n- [log](log.md)\n- [a](modules/a.md)\n",
+                ),
             )
             .unwrap();
-            let log = fs::read_to_string(w.stage.join("log.md")).unwrap_or_else(|_| "# Log\n".into());
+            let log =
+                fs::read_to_string(w.stage.join("log.md")).unwrap_or_else(|_| "# Log\n".into());
             fs::write(w.stage.join("log.md"), format!("{log}\n## build {v}\n")).unwrap();
             fs::write(w.stage.join("SCHEMA.md"), page("Schema", "Kept.\n")).unwrap();
             assert!(w.raw.join("log.jsonl").exists());
@@ -186,13 +197,25 @@ mod tests {
         let home = d.join("home");
         let got = run(&ask(&home, &r, "2026-11-21"), writer("First.\n")).unwrap();
         let id = format!("2026-11-21-{}", head8(&r));
-        assert_eq!(got, Done::Built { id: id.clone(), changed: 4 });
+        assert_eq!(
+            got,
+            Done::Built {
+                id: id.clone(),
+                changed: 4
+            }
+        );
         let index = fs::read_to_string(home.join("wiki/current/index.html")).unwrap();
         assert!(index.contains("href=\"modules/a.html\""), "{index}");
-        let rec: serde_json::Value = serde_json::from_str(&fs::read_to_string(home.join("wiki/current/build.json")).unwrap()).unwrap();
+        let rec: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(home.join("wiki/current/build.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(rec["url"], format!("/wiki/{id}/"));
         assert!(super::super::build_of(&rec.to_string()).is_some());
-        assert!(matches!(run(&ask(&home, &r, "2026-11-22"), writer("x")).unwrap(), Done::UpToDate(_)));
+        assert!(matches!(
+            run(&ask(&home, &r, "2026-11-22"), writer("x")).unwrap(),
+            Done::UpToDate(_)
+        ));
     }
 
     #[test]
@@ -211,8 +234,12 @@ mod tests {
         assert!(why.contains("stray.md"), "{why}");
         let still = fs::read_link(home.join("wiki/current")).unwrap();
         assert!(still.to_string_lossy().starts_with("2026-11-21-"));
-        assert!(fs::read_to_string(home.join("wiki/failure.json")).unwrap().contains("stray.md"));
-        assert!(!home.join(format!("wiki/2026-11-22-{}.new", head8(&r))).exists());
+        assert!(fs::read_to_string(home.join("wiki/failure.json"))
+            .unwrap()
+            .contains("stray.md"));
+        assert!(!home
+            .join(format!("wiki/2026-11-22-{}.new", head8(&r)))
+            .exists());
         let next = run(&ask(&home, &r, "2026-11-22"), writer("Second.\n")).unwrap();
         assert!(matches!(next, Done::Built { changed: 4, .. }), "{next:?}");
         assert!(!home.join("wiki/failure.json").exists());
@@ -223,7 +250,10 @@ mod tests {
         let d = TestDir::new("wiki-writer");
         let r = repo(&d);
         let home = d.join("home");
-        let why = run(&ask(&home, &r, "2026-11-21"), |_: &Work| Err("the model stopped".to_string())).unwrap_err();
+        let why = run(&ask(&home, &r, "2026-11-21"), |_: &Work| {
+            Err("the model stopped".to_string())
+        })
+        .unwrap_err();
         assert_eq!(why, "the model stopped");
         assert!(!home.join("wiki/current").exists());
     }

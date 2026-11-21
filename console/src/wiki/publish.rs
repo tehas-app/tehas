@@ -61,12 +61,17 @@ fn walk(
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let path = if at.is_empty() { name.clone() } else { format!("{at}/{name}") };
+        let path = if at.is_empty() {
+            name.clone()
+        } else {
+            format!("{at}/{name}")
+        };
         let Ok(kind) = entry.file_type() else {
             why.push(format!("{path}: cannot be read"));
             continue;
         };
-        let added = built && (name.ends_with(".html") || path == "wiki.css" || path == "build.json");
+        let added =
+            built && (name.ends_with(".html") || path == "wiki.css" || path == "build.json");
         if added && kind.is_file() {
             continue;
         }
@@ -76,9 +81,11 @@ fn walk(
             walk(&entry.path(), &path, depth + 1, built, pages, why, total);
         } else if kind.is_file() && check::name_ok(&path) {
             match fs::read(entry.path()) {
-                Ok(bytes) if bytes.len() > check::MAX_PAGE => {
-                    why.push(format!("{path}: {} bytes, more than {}", bytes.len(), check::MAX_PAGE))
-                }
+                Ok(bytes) if bytes.len() > check::MAX_PAGE => why.push(format!(
+                    "{path}: {} bytes, more than {}",
+                    bytes.len(),
+                    check::MAX_PAGE
+                )),
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(text) => {
                         *total += text.len();
@@ -127,7 +134,11 @@ pub fn record(id: &str, head: &Head, built_at: &str, pages: usize, changed: usiz
 /// The pages a build changed against the build before.
 pub fn changed(pages: &Pages, before: &Pages) -> usize {
     let gone = before.keys().filter(|k| !pages.contains_key(*k)).count();
-    pages.iter().filter(|(k, v)| before.get(*k) != Some(*v)).count() + gone
+    pages
+        .iter()
+        .filter(|(k, v)| before.get(*k) != Some(*v))
+        .count()
+        + gone
 }
 
 /// Renders every page into `dir`, beside its Markdown, with the stylesheet.
@@ -235,7 +246,10 @@ mod tests {
         fs::write(dir.join("run.sh"), "z").unwrap();
         symlink("/etc/passwd", dir.join("modules/b.md")).unwrap();
         let why = read(&dir).unwrap_err();
-        assert!(why.contains(&"run.sh: not a page of the wiki".to_string()), "{why:?}");
+        assert!(
+            why.contains(&"run.sh: not a page of the wiki".to_string()),
+            "{why:?}"
+        );
         assert!(why.contains(&"modules/b.md: a link".to_string()), "{why:?}");
     }
 
@@ -244,7 +258,11 @@ mod tests {
         let mut builds = Vec::new();
         for day in 1..=14 {
             let id = format!("2026-11-{day:02}-0000000{}", day % 10);
-            let describe = if day <= 3 { format!("v1.0.0-{day}-gabc") } else { format!("v1.1.0-{day}-gabc") };
+            let describe = if day <= 3 {
+                format!("v1.0.0-{day}-gabc")
+            } else {
+                format!("v1.1.0-{day}-gabc")
+            };
             builds.push((id, format!("2026-11-{day:02}T03:00:00Z"), describe));
         }
         let kept = keep(&builds);
@@ -269,7 +287,10 @@ mod tests {
             fs::create_dir_all(&stage).unwrap();
             fs::write(stage.join("index.html"), format!("round {round}")).unwrap();
             put(&wiki, &stage, id).unwrap();
-            assert_eq!(fs::read_to_string(wiki.join("current/index.html")).unwrap(), format!("round {round}"));
+            assert_eq!(
+                fs::read_to_string(wiki.join("current/index.html")).unwrap(),
+                format!("round {round}")
+            );
             assert!(!stage.exists());
         }
         assert_eq!(fs::read_link(wiki.join("current")).unwrap(), Path::new(id));
@@ -281,8 +302,14 @@ mod tests {
         let dir = d.join("b");
         fs::create_dir_all(dir.join("modules")).unwrap();
         let mut pages = Pages::new();
-        pages.insert("index.md".into(), "---\ntitle: Index\nverified_at: 68ffab1d\n---\n[d](modules/d.md)\n".into());
-        pages.insert("modules/d.md".into(), "---\ntitle: <D>\nverified_at: 68ffab1d\n---\nText\n".into());
+        pages.insert(
+            "index.md".into(),
+            "---\ntitle: Index\nverified_at: 68ffab1d\n---\n[d](modules/d.md)\n".into(),
+        );
+        pages.insert(
+            "modules/d.md".into(),
+            "---\ntitle: <D>\nverified_at: 68ffab1d\n---\nText\n".into(),
+        );
         pages.insert("log.md".into(), "# Log\n".into());
         render_all(&dir, "2026-11-21-68ffab1d", &pages).unwrap();
         let index = fs::read_to_string(dir.join("index.html")).unwrap();

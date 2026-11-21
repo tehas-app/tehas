@@ -637,7 +637,11 @@ fn since(repo: &str, branch: &str, record: &str) -> Result<(String, String, Stri
 /// inputs of a cycle or a planning turn, which a container of the review kind
 /// is not given. A name a polyfill of the image declares passes, as it does for
 /// a cycle; `labels` gives the image's labels and is asked only then.
-fn refused(caps: &str, names: &[String], labels: impl FnOnce() -> String) -> Vec<String> {
+pub(crate) fn refused(
+    caps: &str,
+    names: &[String],
+    labels: impl FnOnce() -> String,
+) -> Vec<String> {
     let wanted = wanted();
     let asked: Vec<&str> = names
         .iter()
@@ -682,7 +686,7 @@ struct RunArgs {
 }
 
 /// The directories of a run, removed on every way out of it.
-struct Workspace(Vec<String>);
+pub(crate) struct Workspace(pub(crate) Vec<String>);
 
 impl Drop for Workspace {
     fn drop(&mut self) {
@@ -693,7 +697,7 @@ impl Drop for Workspace {
 }
 
 /// The exit status of a run a signal ended, as a shell gives it.
-fn ended(signalled: &AtomicUsize) -> Option<u8> {
+pub(crate) fn ended(signalled: &AtomicUsize) -> Option<u8> {
     match signalled.load(Ordering::Relaxed) {
         0 => None,
         signal => Some(128 + signal as u8),
@@ -702,7 +706,7 @@ fn ended(signalled: &AtomicUsize) -> Option<u8> {
 
 /// A docker call that may not answer: None when it was still going after
 /// `wait` seconds, and then it is killed.
-fn bounded(args: &[&str], wait: u64) -> Option<ExitStatus> {
+pub(crate) fn bounded(args: &[&str], wait: u64) -> Option<ExitStatus> {
     let mut child = Command::new("docker")
         .args(args)
         .stdin(Stdio::null())
@@ -720,7 +724,7 @@ fn bounded(args: &[&str], wait: u64) -> Option<ExitStatus> {
     }
 }
 
-fn wait_for(child: &mut Child, wait: Duration) -> Option<ExitStatus> {
+pub(crate) fn wait_for(child: &mut Child, wait: Duration) -> Option<ExitStatus> {
     let until = Instant::now() + wait;
     loop {
         if let Ok(Some(status)) = child.try_wait() {
@@ -770,7 +774,7 @@ fn reap(child: &mut Child, args: &RunArgs) -> ExitStatus {
     child.wait().unwrap_or_else(|_| ExitStatus::from_raw(9))
 }
 
-fn exit_of(status: ExitStatus) -> i32 {
+pub(crate) fn exit_of(status: ExitStatus) -> i32 {
     status
         .code()
         .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
@@ -778,7 +782,7 @@ fn exit_of(status: ExitStatus) -> i32 {
 
 /// A file an agent wrote, masked in place. An empty mask keeps the file as
 /// it was, as tehas export does.
-fn mask_file(path: &str) {
+pub(crate) fn mask_file(path: &str) {
     let Ok(bytes) = fs::read(path) else { return };
     if bytes.is_empty() {
         return;

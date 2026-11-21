@@ -16,8 +16,15 @@ pub const MAX_CHANGELOG: usize = 1024 * 1024;
 const MAX_TAGS: usize = 1000;
 
 pub fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The commit a build reads and what it says of itself.
@@ -58,7 +65,9 @@ pub fn untrailed(body: &str) -> String {
     let (head, last) = body.rsplit_once("\n\n").unwrap_or(("", body));
     let trailer = |l: &str| {
         l.split_once(": ").is_some_and(|(k, _)| {
-            !k.is_empty() && k.len() <= 40 && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            !k.is_empty()
+                && k.len() <= 40
+                && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
         })
     };
     if !last.is_empty() && last.lines().all(trailer) {
@@ -72,12 +81,24 @@ pub fn untrailed(body: &str) -> String {
 /// commits left out for their text.
 pub fn log(dir: &Path, range: &str) -> (Vec<Value>, Vec<String>) {
     let limit = format!("--max-count={MAX_COMMITS}");
-    let text = git(dir, &["log", &limit, "--format=%H%x00%cI%x00%s%x00%b%x1e", range, "--"]).unwrap_or_default();
+    let text = git(
+        dir,
+        &[
+            "log",
+            &limit,
+            "--format=%H%x00%cI%x00%s%x00%b%x1e",
+            range,
+            "--",
+        ],
+    )
+    .unwrap_or_default();
     let mut lines = Vec::new();
     let mut dropped = Vec::new();
     for record in text.split('\x1e') {
         let mut f = record.trim_start_matches('\n').splitn(4, '\0');
-        let (Some(hash), Some(date), Some(subject), Some(body)) = (f.next(), f.next(), f.next(), f.next()) else {
+        let (Some(hash), Some(date), Some(subject), Some(body)) =
+            (f.next(), f.next(), f.next(), f.next())
+        else {
             continue;
         };
         let body = untrailed(body);
@@ -106,7 +127,9 @@ pub fn tags(dir: &Path) -> Vec<Value> {
     let mut before: Option<String> = None;
     for line in text.lines().take(MAX_TAGS) {
         let f: Vec<&str> = line.split('\0').collect();
-        let [name, date, object, peeled] = f[..] else { continue };
+        let [name, date, object, peeled] = f[..] else {
+            continue;
+        };
         let commit = if peeled.is_empty() { object } else { peeled };
         let since = match &before {
             Some(b) => git(dir, &["rev-list", "--count", &format!("{b}..{commit}")]),
@@ -129,10 +152,14 @@ pub fn changed(dir: &Path, before: &str, head: &str, pages: &Pages) -> Value {
         .collect();
     let mut touched = Vec::new();
     for (name, text) in pages {
-        let Ok((front, _)) = check::front(text) else { continue };
+        let Ok((front, _)) = check::front(text) else {
+            continue;
+        };
         let hit = front.sources.iter().any(|s| {
             let s = s.trim_end_matches('/');
-            paths.iter().any(|p| p == s || p.starts_with(&format!("{s}/")))
+            paths
+                .iter()
+                .any(|p| p == s || p.starts_with(&format!("{s}/")))
         });
         if hit {
             touched.push(name.clone());
@@ -144,7 +171,13 @@ pub fn changed(dir: &Path, before: &str, head: &str, pages: &Pages) -> Value {
 /// Writes the raw sources for `head` into `raw`. `before` is the commit of the
 /// build before, when this build reads only what came after it. Returns the
 /// commits left out for their text.
-pub fn write(dir: &Path, raw: &Path, head: &Head, before: Option<&str>, pages: &Pages) -> std::io::Result<Vec<String>> {
+pub fn write(
+    dir: &Path,
+    raw: &Path,
+    head: &Head,
+    before: Option<&str>,
+    pages: &Pages,
+) -> std::io::Result<Vec<String>> {
     fs::create_dir_all(raw)?;
     fs::write(
         raw.join("head.json"),
@@ -207,7 +240,15 @@ mod tests {
         fs::write(r.join("console/dispatch/a.rs"), "1").unwrap();
         fs::write(r.join("CHANGELOG.md"), "# Changelog\n").unwrap();
         run(&r, &["add", "."]);
-        run(&r, &["commit", "-q", "-m", "First\n\nWhy it is.\n\nCo-Authored-By: someone <x@example.invalid>"]);
+        run(
+            &r,
+            &[
+                "commit",
+                "-q",
+                "-m",
+                "First\n\nWhy it is.\n\nCo-Authored-By: someone <x@example.invalid>",
+            ],
+        );
         run(&r, &["tag", "v1.0.0"]);
         fs::write(r.join("console/dispatch/a.rs"), "2").unwrap();
         run(&r, &["commit", "-qam", "Second"]);
@@ -220,9 +261,15 @@ mod tests {
 
     #[test]
     fn trailers_go_and_the_rest_stays() {
-        assert_eq!(untrailed("Why.\n\nCo-Authored-By: a <b>\nSigned-off-by: c"), "Why.");
+        assert_eq!(
+            untrailed("Why.\n\nCo-Authored-By: a <b>\nSigned-off-by: c"),
+            "Why."
+        );
         assert_eq!(untrailed("Why.\n\nMore: words that are prose"), "Why.");
-        assert_eq!(untrailed("Why.\n\nA paragraph\nof prose."), "Why.\n\nA paragraph\nof prose.");
+        assert_eq!(
+            untrailed("Why.\n\nA paragraph\nof prose."),
+            "Why.\n\nA paragraph\nof prose."
+        );
         assert_eq!(untrailed(""), "");
     }
 
@@ -238,29 +285,51 @@ mod tests {
         let log = fs::read_to_string(raw.join("log.jsonl")).unwrap();
         assert_eq!(log.lines().count(), 2);
         assert!(log.contains("\"body\":\"Why it is.\""), "{log}");
-        assert!(!log.contains("Co-Authored-By") && !log.contains("ghp_"), "{log}");
-        let tags: Value = serde_json::from_str(&fs::read_to_string(raw.join("tags.json")).unwrap()).unwrap();
+        assert!(
+            !log.contains("Co-Authored-By") && !log.contains("ghp_"),
+            "{log}"
+        );
+        let tags: Value =
+            serde_json::from_str(&fs::read_to_string(raw.join("tags.json")).unwrap()).unwrap();
         assert_eq!(tags[0]["name"], "v1.0.0");
         assert_eq!(tags[0]["commits"], 1);
-        assert_eq!(fs::read_to_string(raw.join("changelog.md")).unwrap(), "# Changelog\n");
+        assert_eq!(
+            fs::read_to_string(raw.join("changelog.md")).unwrap(),
+            "# Changelog\n"
+        );
     }
 
     #[test]
     fn a_build_after_another_reads_what_changed_and_the_pages_it_touches() {
         let d = TestDir::new("wiki-changed");
         let r = repo(&d);
-        let first = git(&r, &["rev-list", "--max-parents=0", "HEAD"]).unwrap().trim().to_string();
+        let first = git(&r, &["rev-list", "--max-parents=0", "HEAD"])
+            .unwrap()
+            .trim()
+            .to_string();
         let h = head(&r, "HEAD").unwrap();
         assert!(follows(&r, &first, &h.commit));
         assert!(!follows(&r, &h.commit, &first));
         let mut pages = Pages::new();
-        pages.insert("modules/dispatch.md".into(), "---\ntitle: D\nsources: [console/dispatch/]\nverified_at: 00000000\n---\n".into());
-        pages.insert("modules/other.md".into(), "---\ntitle: O\nsources: [console/other]\nverified_at: 00000000\n---\n".into());
+        pages.insert(
+            "modules/dispatch.md".into(),
+            "---\ntitle: D\nsources: [console/dispatch/]\nverified_at: 00000000\n---\n".into(),
+        );
+        pages.insert(
+            "modules/other.md".into(),
+            "---\ntitle: O\nsources: [console/other]\nverified_at: 00000000\n---\n".into(),
+        );
         let v = changed(&r, &first, &h.commit, &pages);
         assert_eq!(v["pages"], json!(["modules/dispatch.md"]));
         assert_eq!(v["paths"], json!(["README", "console/dispatch/a.rs"]));
         let raw = d.join("raw2");
         write(&r, &raw, &h, Some(&first), &pages).unwrap();
-        assert_eq!(fs::read_to_string(raw.join("log.jsonl")).unwrap().lines().count(), 1);
+        assert_eq!(
+            fs::read_to_string(raw.join("log.jsonl"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
     }
 }

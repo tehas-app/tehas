@@ -79,7 +79,15 @@ pub enum Kind {
     Turn,
     Session,
     Review,
+    /// A build of the product wiki (docs/specs/2026-11-21-wiki.md): the code
+    /// read-only, the raw sources read-only, and the pages it writes.
+    Wiki,
 }
+
+/// Where a wiki build's container has its raw sources and its pages: under
+/// its own state directory on the host, `raw` and `out`.
+pub const WIKI_RAW: &str = "/run/tehas/wiki/raw";
+pub const WIKI_OUT: &str = "/run/tehas/wiki/out";
 
 impl Kind {
     pub fn parse(word: &str) -> Option<Kind> {
@@ -88,6 +96,7 @@ impl Kind {
             "turn" => Some(Kind::Turn),
             "session" => Some(Kind::Session),
             "review" => Some(Kind::Review),
+            "wiki" => Some(Kind::Wiki),
             _ => None,
         }
     }
@@ -96,7 +105,7 @@ impl Kind {
     // with: its name is not among the variables at all, and the GitHub App's
     // token directory is not mounted. This is the one place that decides it.
     fn token(self) -> bool {
-        self != Kind::Review
+        !matches!(self, Kind::Review | Kind::Wiki)
     }
 
     // The directory under $TEHAS_HOME of the app token a container reads. A
@@ -107,7 +116,7 @@ impl Kind {
         match self {
             Kind::Turn | Kind::Session => Some("state/github-session"),
             Kind::Cycle => Some("state/github-cycle"),
-            Kind::Review => None,
+            Kind::Review | Kind::Wiki => None,
         }
     }
 }
@@ -484,7 +493,10 @@ pub fn ensemble(kind: Kind) -> Vec<String> {
                     | "PI_ENSEMBLE_NO_SSH"
             )
         })
-        .filter(|name| kind != Kind::Review || !REVIEW_LEAVES_OUT.contains(&name.as_str()))
+        .filter(|name| {
+            !matches!(kind, Kind::Review | Kind::Wiki)
+                || !REVIEW_LEAVES_OUT.contains(&name.as_str())
+        })
         .filter(|name| kind != Kind::Session || name != "PI_ENSEMBLE_EXTRA_IMAGE_DIRS")
         .filter(|name| kind != Kind::Cycle || !CYCLE_LEAVES_OUT.contains(&name.as_str()))
         .collect()
@@ -906,8 +918,14 @@ pub struct Paths<'a> {
 pub fn mount_options(kind: Kind, p: &Paths, agent: &str, app: Option<&str>) -> Vec<String> {
     let (tree, host, state, runs) = (p.tree, p.host, p.state, p.runs);
     let pi = "/home/vscode/.pi/agent";
+    // A wiki build reads the code and writes only its pages.
+    let code = if kind == Kind::Wiki {
+        format!("{host}:{tree}:ro")
+    } else {
+        format!("{host}:{tree}")
+    };
     let mut mounts = vec![
-        format!("{host}:{tree}"),
+        code,
         format!("{state}/cache:{CACHE_DIR}"),
         format!("{state}/memory:/home/vscode/.vipune"),
         format!("{state}/sessions:{pi}/sessions"),
@@ -924,6 +942,10 @@ pub fn mount_options(kind: Kind, p: &Paths, agent: &str, app: Option<&str>) -> V
     // state, so no cycle sees another's requests.
     if kind == Kind::Cycle {
         mounts.push(format!("{state}/relay:{RELAY_DIR}"));
+    }
+    if kind == Kind::Wiki {
+        mounts.push(format!("{state}/raw:{WIKI_RAW}:ro"));
+        mounts.push(format!("{state}/out:{WIKI_OUT}"));
     }
     // After the shared list, so this is the one build output the session has.
     if kind == Kind::Session {
@@ -1756,6 +1778,27 @@ mod tests {
     }
 
     #[test]
+    fn a_wiki_build_has_no_token_in_any_form() {
+        let env = env_of(Kind::Wiki);
+        assert_eq!(env, shared_env());
+        assert!(!env.iter().any(|w| w.starts_with("GH_TOKEN")));
+        assert_eq!(Kind::Wiki.app_dir(), None);
+        assert_eq!(Kind::parse("wiki"), Some(Kind::Wiki));
+    }
+
+    #[test]
+    fn a_wiki_build_reads_the_code_and_its_sources_and_writes_only_its_pages() {
+        let want = format!(
+            "{} -v /s/raw:/run/tehas/wiki/raw:ro -v /s/out:/run/tehas/wiki/out",
+            EIGHT.replacen("-v /out:/in", "-v /out:/in:ro", 1)
+        );
+        assert_eq!(
+            mount_options(Kind::Wiki, &PATHS, "/a", Some("/g")),
+            words(&want)
+        );
+    }
+
+    #[test]
     fn a_session_is_given_its_build_output_last() {
         let mut want = words("-e GH_TOKEN");
         want.extend(shared_env());
@@ -1790,7 +1833,7 @@ mod tests {
             mount_options(Kind::Cycle, &PATHS, "/a", None),
             words(&format!("{EIGHT} -v /s/relay:/run/tehas/relay"))
         );
-        for kind in [Kind::Turn, Kind::Session, Kind::Review] {
+        for kind in [Kind::Turn, Kind::Session, Kind::Review, Kind::Wiki] {
             let all = mount_options(kind, &PATHS, "/a", Some("/g")).join(" ");
             assert!(!all.contains("relay"), "{kind:?}");
         }
@@ -1833,7 +1876,13 @@ mod tests {
 
     #[test]
     fn nothing_that_controls_the_host_is_in_any_list() {
-        for kind in [Kind::Cycle, Kind::Turn, Kind::Session, Kind::Review] {
+        for kind in [
+            Kind::Cycle,
+            Kind::Turn,
+            Kind::Session,
+            Kind::Review,
+            Kind::Wiki,
+        ] {
             let mut all = env_of(kind);
             all.extend(mount_options(kind, &PATHS, "/a", Some("/g")));
             let all = all.join(" ");

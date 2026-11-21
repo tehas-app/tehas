@@ -54,7 +54,8 @@ cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 jq '. + {contract: "0.14.0"}
   | .features.planTurns = true
   | .verbs.plan.flags = ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]
-  | .verbs["lens-review"].flags = ["--base", "--head", "--since", "--full", "--context", "--pr", "--json"]' \
+  | .verbs["lens-review"].flags = ["--base", "--head", "--since", "--full", "--context", "--pr", "--json"]
+  | .verbs.wiki.flags = ["--raw", "--out", "--full", "--json"]' \
   "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 echo sha256:1111111111111111111111111111111111111111111111111111111111111111 >"$T/image.inspect"
 reads_image 1
@@ -96,6 +97,11 @@ case " $* " in
     cat "$T/fx/turn.json"
     exit 11 ;;
   *" lens-review "*) cat "$T/fx/review.json" | tee "${doc:-/dev/null}" ;;
+  *" wiki --raw "*)
+    out=$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/out\$##p")
+    v=$(jq -r ".commit[0:8]" "$(printf "%s\n" "$@" | sed -n "s#:/run/tehas/wiki/raw:ro\$##p")/head.json")
+    for p in index SCHEMA; do printf -- "---\ntitle: %s\nverified_at: %s\n---\n[s](SCHEMA.md) [l](log.md)\n" $p "$v" >"$out/$p.md"; done
+    printf "# Log\n\n## %s\n" "$v" >"$out/log.md" && echo "{}" ;;
   *" index_repository "*)
     echo index >"$written/widget.db"
     echo "{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7}" ;;
@@ -114,10 +120,10 @@ echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":
 
 # The instance of every case, and the tokens of the host's environment: all a
 # container can be given by name. A container that takes no token shows it too.
-all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1)
-# review is still being built: the review's container is pinned as a test
-# turns the feature on.
-T_ENV_ALWAYS+=(TEHAS_TEST_FEATURES=review)
+all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_WIKI=1)
+# review and wiki are still being built: their containers are pinned as a test
+# turns the features on.
+T_ENV_ALWAYS+=("TEHAS_TEST_FEATURES=review wiki")
 clean() {
   fresh
   rm -f "$T/docker.n"
@@ -205,6 +211,12 @@ clean
 t_run "$shim/bin/tehasbot review"
 t_eq "$t_rc" 0
 compare review
+
+t_case "a wiki build"
+clean
+t_run "$shim/bin/tehasbot wiki build"
+t_eq "$t_rc" 0
+compare wiki
 
 t_case "the indexer"
 clean

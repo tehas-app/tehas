@@ -22,6 +22,7 @@ pub mod check;
 pub mod collect;
 pub mod publish;
 pub mod render;
+pub mod runner;
 
 use serde_json::{json, Value};
 use std::env;
@@ -30,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tehas_core::file::{write_atomic, Temp};
 
-const USAGE: &str = "usage: tehas wiki [--json]";
+const USAGE: &str = "usage: tehas wiki [--json] | tehas wiki build [--full] [--json]";
 
 /// The most bytes of a build's build.json that are read.
 const BUILD_BOUND: u64 = 64 * 1024;
@@ -38,16 +39,68 @@ const BUILD_BOUND: u64 = 64 * 1024;
 /// From this many days on, the age is said in months.
 const MONTHS_FROM: i64 = 60;
 
-/// Whether the arguments ask for `--json`, or 64 with the usage.
-pub fn words(given: &[String]) -> Result<bool, u8> {
-    match given {
-        [] => Ok(false),
-        [flag] if flag == "--json" => Ok(true),
-        _ => {
-            eprintln!("{USAGE}");
-            Err(64)
+/// What `tehas wiki` was asked.
+#[derive(Debug, PartialEq)]
+pub struct Words {
+    pub build: bool,
+    pub full: bool,
+    pub json: bool,
+}
+
+/// The arguments of `tehas wiki`, or 64 with the usage.
+pub fn words(given: &[String]) -> Result<Words, u8> {
+    let (build, rest) = match given.split_first() {
+        Some((b, rest)) if b == "build" => (true, rest),
+        _ => (false, given),
+    };
+    let mut w = Words {
+        build,
+        full: false,
+        json: false,
+    };
+    for word in rest {
+        match word.as_str() {
+            "--json" if !w.json => w.json = true,
+            "--full" if build && !w.full => w.full = true,
+            _ => {
+                eprintln!("{USAGE}");
+                return Err(64);
+            }
         }
     }
+    Ok(w)
+}
+
+/// The ask a build takes: `<home>/state/wiki.ask`, `full` or empty.
+fn ask_file(home: &Path) -> PathBuf {
+    home.join("state/wiki.ask")
+}
+
+/// Writes the ask, which tehas-wiki.path starts a build on. A full ask is not
+/// made a plain one by a second plain ask.
+pub fn ask(home: &Path, full: bool) -> std::io::Result<()> {
+    let file = ask_file(home);
+    let was = fs::read_to_string(&file).unwrap_or_default();
+    let word = if full || was.trim() == "full" {
+        "full"
+    } else {
+        ""
+    };
+    fs::create_dir_all(home.join("state"))?;
+    write_atomic(&file, format!("{word}\n").as_bytes(), 0o644, &Temp::Pid)
+}
+
+/// Takes the ask away and says what it was: `full`, ``, or None.
+pub fn take_ask(home: &Path) -> Option<String> {
+    let file = ask_file(home);
+    let text = fs::read_to_string(&file).ok()?;
+    let _ = fs::remove_file(&file);
+    Some(text.trim().to_string())
+}
+
+/// Whether a build holds the lock now.
+fn building(home: &Path) -> bool {
+    fs::File::open(home.join("state/wiki.lock")).is_ok_and(|f| f.try_lock().is_err())
 }
 
 /// A build's id: its date and the first eight hex of its commit,
@@ -109,6 +162,12 @@ pub struct Commit {
 /// What the state is made from.
 #[derive(Debug, Default)]
 pub struct Read {
+    /// A build holds the lock.
+    pub building: bool,
+    /// An ask waits.
+    pub asked: bool,
+    /// The last build that failed, while no build since has passed.
+    pub failure: Option<Value>,
     /// The current build's build.json, when there is one that reads.
     pub current: Option<Value>,
     pub main: Option<Commit>,
@@ -131,9 +190,17 @@ pub fn object(r: &Read) -> Value {
         }
         _ => Value::Null,
     };
+    let state = if r.building {
+        "building"
+    } else if r.asked {
+        "asked"
+    } else {
+        "idle"
+    };
     json!({
         "api": 1,
-        "state": "idle",
+        "state": state,
+        "lastFailure": r.failure.clone().unwrap_or(Value::Null),
         "current": r.current.clone().unwrap_or(Value::Null),
         "main": main.unwrap_or(Value::Null),
         "behind": behind,
@@ -200,7 +267,14 @@ pub fn read(home: &Path, checkout: &Path, branch: &str) -> Read {
         .and_then(|n| n.parse().ok()),
         _ => None,
     };
+    let failure = fs::read_to_string(home.join("wiki/failure.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .filter(Value::is_object);
     Read {
+        building: building(home),
+        asked: ask_file(home).is_file(),
+        failure,
         current,
         main,
         commits,
@@ -236,18 +310,52 @@ pub fn lines(state: &Value) -> Vec<String> {
     if let Some(line) = state["behind"]["line"].as_str() {
         out.push(format!("wiki: {line}"));
     }
+    match state["state"].as_str() {
+        Some("building") => out.push("wiki: a build is going".to_string()),
+        Some("asked") => out.push("wiki: a build is asked for".to_string()),
+        _ => {}
+    }
+    if let Some(f) = state["lastFailure"].as_object() {
+        let at = f.get("at").and_then(Value::as_str).unwrap_or("?");
+        out.push(format!(
+            "wiki: the build of {at} failed, see ~/tehas/wiki/failure.json"
+        ));
+    }
     out
 }
 
 pub fn main(given: &[String]) -> u8 {
-    let json = match words(given) {
-        Ok(j) => j,
+    let asked = match words(given) {
+        Ok(w) => w,
         Err(rc) => return rc,
     };
+    let json = asked.json;
     let get = |name: &str| env::var(name).unwrap_or_default();
     if let Err(why) = tehas_core::features::needs("wiki", "tehas wiki", &get) {
         eprintln!("tehas wiki: {why}");
         return tehas_core::exit::SETTINGS;
+    }
+    if asked.build {
+        let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
+        let written = ask(&home, asked.full);
+        if json {
+            tehas_core::outln!(
+                "{}",
+                json!({"api": 1, "asked": written.is_ok(), "full": asked.full})
+            );
+        } else if written.is_ok() {
+            tehas_core::outln!("tehas wiki: a build is asked for; tehas wiki says when it is done");
+        }
+        return match written {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!(
+                    "tehas wiki: could not write {}: {e}",
+                    ask_file(&home).display()
+                );
+                1
+            }
+        };
     }
     let (_, read) = here();
     let state = object(&read);
@@ -295,11 +403,45 @@ mod tests {
 
     #[test]
     fn it_takes_json_alone() {
-        assert_eq!(words(&[]), Ok(false));
-        assert_eq!(words(&w(&["--json"])), Ok(true));
-        for bad in [&["build"][..], &["--json", "--json"], &[""]] {
+        let plain = Words {
+            build: false,
+            full: false,
+            json: false,
+        };
+        assert_eq!(words(&[]), Ok(plain));
+        assert_eq!(words(&w(&["--json"])).map(|w| w.json), Ok(true));
+        assert_eq!(
+            words(&w(&["build", "--full", "--json"])),
+            Ok(Words {
+                build: true,
+                full: true,
+                json: true
+            })
+        );
+        assert_eq!(words(&w(&["--full"])), Err(64));
+        for bad in [
+            &["build", "--json", "--json"][..],
+            &["--json", "--json"],
+            &[""],
+            &["rebuild"],
+        ] {
             assert_eq!(words(&w(bad)), Err(64), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn an_ask_is_taken_once_and_a_full_one_stays_full() {
+        let d = tehas_core::testdir::TestDir::new("wiki-ask");
+        let home = d.join("home");
+        assert_eq!(take_ask(&home), None);
+        ask(&home, true).unwrap();
+        ask(&home, false).unwrap();
+        let r = read(&home, &d.join("none"), "main");
+        assert_eq!(object(&r)["state"], "asked");
+        assert_eq!(take_ask(&home).as_deref(), Some("full"));
+        assert_eq!(take_ask(&home), None);
+        ask(&home, false).unwrap();
+        assert_eq!(take_ask(&home).as_deref(), Some(""));
     }
 
     #[test]
@@ -392,6 +534,7 @@ mod tests {
             main: Some(c("b", 10 * 86_400 + 5)),
             commits: Some(5),
             built: Some(c(A, 8 * 86_400)),
+            ..Read::default()
         };
         let v = object(&r);
         assert_eq!(
