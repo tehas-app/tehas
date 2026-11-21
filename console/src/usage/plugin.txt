@@ -1,0 +1,27 @@
+tehas plugin: the plugins of this factory, as its settings set them.
+
+Still being built in this release: TEHAS_PLUGIN=on, or a line of a plugin
+setting, stops every command with 78, and with the feature off this command
+exits 78.
+
+Usage: tehas plugin [--json]
+       tehas plugin -h|--help    print this text and exit 0
+
+A plugin is a program from a git repository, pinned by commit. Each one is a
+line of TEHAS_PLUGINS, <name>=<url>@<commit>, and its grants are the line
+TEHAS_PLUGIN_GRANTS_<NAME>: the same commit, then what it may have. Grants
+for another commit grant nothing.
+
+For each plugin it prints its name, its pin, its state and what is granted:
+
+  floorplan  https://github.com/tehas-app/tehas-plugin-floorplan@0123...  unbuilt  grants: view product
+
+  unbuilt  set and granted; this release neither fetches nor builds it yet
+  refused  it may not run, and the line says why
+
+  {"api":1,"plugins":[{"name":"floorplan","url":"https://github.com/tehas-app/tehas-plugin-floorplan","commit":"0123...","grants":["view","product"],"state":"unbuilt","refusal":null}]}
+
+It reads the settings and nothing else: no network, no git, no write.
+
+Exit: 0 listed; 64 a bad argument; 78 the feature is off, or the instance
+settings are missing or malformed.
