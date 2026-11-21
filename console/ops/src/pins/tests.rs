@@ -777,6 +777,24 @@ fn keeping_a_later_solid_pin_can_keep_an_earlier_one() {
 }
 
 #[test]
+fn a_solid_pin_that_stays_keeps_a_move_it_does_not_meet() {
+    // No newer web is out, and web 2.0.3 asks for solid-js ~2.0.3.
+    let world = with_solid(vec![
+        (
+            "solid-js",
+            solid_doc("solid-js", &[("2.0.3", json!({})), ("2.1.0", json!({}))]),
+        ),
+        (
+            "@solidjs/web",
+            solid_doc("@solidjs/web", &[("2.0.3", json!({"solid-js": "~2.0.3"}))]),
+        ),
+    ]);
+    let lines = check(&tree(), &world).unwrap();
+    let want = "solid-js 2.0.3 2.0.3 kept: @solidjs/web 2.0.3 asks for solid-js ~2.0.3, which 2.1.0 does not meet";
+    assert!(lines.contains(&want.to_string()), "{lines:?}");
+}
+
+#[test]
 fn a_solid_release_younger_than_npms_min_release_age_is_not_taken() {
     // 2.0.3 is from the 1st of October, 2.0.4 from the 2nd.
     let docs = || {

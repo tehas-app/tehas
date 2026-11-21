@@ -257,9 +257,47 @@ impl Choice {
     }
 }
 
+/// The first pin to keep and why: a moved pin whose own ranges another
+/// pin does not meet, or a moved pin that a pin which stays does not accept.
+fn unmet(out: &[Choice]) -> Option<(usize, String)> {
+    out.iter().enumerate().find_map(|(i, c)| {
+        let entry = &c.doc["versions"][c.pin.to_string()];
+        ["peerDependencies", "dependencies"]
+            .iter()
+            .flat_map(|k| entry[k].as_object().into_iter().flatten())
+            .find_map(|(dep, range)| {
+                let j = out.iter().position(|o| o.name == *dep)?;
+                let other = &out[j];
+                let range = range.as_str().unwrap_or("?");
+                if satisfies(range, other.pin) {
+                    None
+                } else if c.pin != c.current {
+                    Some((
+                        i,
+                        format!(
+                            "{} asks for {dep} {range}, and {dep} would be {}",
+                            c.pin, other.pin
+                        ),
+                    ))
+                } else if other.pin != other.current {
+                    Some((
+                        j,
+                        format!(
+                            "{} {} asks for {dep} {range}, which {} does not meet",
+                            c.name, c.pin, other.pin
+                        ),
+                    ))
+                } else {
+                    None
+                }
+            })
+    })
+}
+
 /// Each pin of main.rs and the newest release of its major that npm would
 /// install, kept where that release asks, in its peer dependencies or its
-/// dependencies, for a Solid package at a version the others do not move to.
+/// dependencies, for a Solid package at a version the others do not move to,
+/// or where a pin that stays does not accept it.
 pub fn plan(text: &str, world: &dyn World) -> Result<Vec<Choice>, String> {
     let mut out = Vec::new();
     for p in pins(text)? {
@@ -280,36 +318,11 @@ pub fn plan(text: &str, world: &dyn World) -> Result<Vec<Choice>, String> {
             doc,
         });
     }
-    // Keeping one pin can leave another unmet: until nothing changes.
-    loop {
-        let mut changed = false;
-        for i in 0..out.len() {
-            let c = &out[i];
-            if c.pin == c.current {
-                continue;
-            }
-            let entry = &c.doc["versions"][c.pin.to_string()];
-            let unmet = ["peerDependencies", "dependencies"]
-                .iter()
-                .flat_map(|k| entry[k].as_object().into_iter().flatten())
-                .find_map(|(dep, range)| {
-                    let other = out.iter().find(|o| o.name == *dep)?;
-                    let range = range.as_str().unwrap_or("?");
-                    (!satisfies(range, other.pin)).then(|| {
-                        format!(
-                            "{} asks for {dep} {range}, and {dep} would be {}",
-                            c.pin, other.pin
-                        )
-                    })
-                });
-            if let Some(why) = unmet {
-                out[i].kept = Some(why);
-                out[i].pin = out[i].current;
-                changed = true;
-            }
-        }
-        if !changed {
-            return Ok(out);
-        }
+    // Keeping one pin can leave another unmet: one at a time, until each
+    // pin's ranges are met.
+    while let Some((i, why)) = unmet(&out) {
+        out[i].kept = Some(why);
+        out[i].pin = out[i].current;
     }
+    Ok(out)
 }

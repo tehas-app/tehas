@@ -275,8 +275,9 @@ The kit's Solid moves too: `PINS` in `tools/vendor-solid/src/main.rs`
 newest release of its major on npm, with the tarball and sha512 integrity
 the registry gives for it, under the same `min-release-age`. A release whose
 peer dependencies or dependencies on another of the four are not met by what
-that one moves to is not taken: the pin stays and the script prints
-`kept <package> <version>: <why>`. When a Solid pin moved, the script runs
+that one moves to is not taken, and neither is a release that a pin which
+stays does not accept. The pin stays at the version it has, and the script
+prints `kept <package> <version>: <why>`. When a Solid pin moved, the script runs
 `tools/vendor-solid`, which rebuilds `host/fun/kit/vendor/solid.js`, its
 `LICENSES` and the kit's `MANIFEST`. It does not change `vendor/solid.d.ts`
 or the `library solid` line of `host/fun/pages.max`: when the new bundle

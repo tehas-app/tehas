@@ -744,7 +744,9 @@ The release moves it within 2.x. `scripts/tag-release.sh` runs
 with the tarball and integrity the registry gives, and runs `tools/vendor-solid`
 to rebuild `vendor/solid.js`, `vendor/LICENSES` and the kit's `MANIFEST`. A
 release that needs a version of another of the four packages that the move
-does not take stays out, and a 3.x is held back
+does not take stays out, and so does one that a package which stays does not
+accept. Such a package stays at the version it has, even when an older 2.x
+would do. A 3.x is held back
 ([Pinned tools move with the release](/tools-releases#pinned-tools-move-with-the-release)).
 The move changes nothing else. When the new bundle breaks the gate, the pins
 pull request fails its gate, and a person makes the steps below in it.
