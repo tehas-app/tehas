@@ -107,13 +107,17 @@ pin changed or whose image is gone.
   -c protocol.https.allow=always -c http.followRedirects=false`, no
   submodules, no LFS, as the host's user. A private repository works only if
   the factory's GitHub App is installed on it, since the host's git helper
-  gives the App's token for github.com.
+  gives the App's token for github.com. A fetch that fails refuses the
+  plugin, naming the reason. Commits that `review` fetched are kept under
+  `refs/tehas/<commit>`; each `tehas update` prunes those that are not the
+  pin.
 - **The context** is `git archive <commit>`, piped to `docker build -`. No
   `.git`, no file outside the commit.
 - **The Dockerfile's rules**, read by tehas with BuildKit's own grammar
   (continuations, heredocs, `ARG`) before the build:
   - every `FROM` names an image by `@sha256:` digest, with no `ARG` in it,
-    except a `FROM` of an earlier stage and `FROM scratch`;
+    except a `FROM` of an earlier stage and `FROM scratch`; an image name
+    starting with `-` is refused;
   - no `# syntax=` line;
   - `COPY --from` and `RUN --mount=from=` name a stage of the file, never an
     image;
@@ -125,9 +129,10 @@ pin changed or whose image is gone.
   steps would run outside the rules above.
 - **The build itself** uses BuildKit (`DOCKER_BUILDKIT=1`); the classic
   builder reads a heredoc's body as instructions. It is `timeout 1800 docker build --network none
-  --cgroup-parent tehas.slice --memory 4g --no-cache --pull=false
+  --cgroup-parent tehas.slice --no-cache --pull=false -f <build>
   -t tehas-plugin-<name>:<commit> -`, as the preview build is
-  `--network none`. A plugin that needs packages carries them in its
+  `--network none`. BuildKit ignores `--memory`, so `tehas.slice` bounds
+  the build. A plugin that needs packages carries them in its
   repository.
 
 So the code that runs is the commit and the named base images, and nothing a
@@ -201,7 +206,8 @@ What it answers:
   replaces the reserve; an answer without `usage` keeps it. A request that
   would pass either total is 429 and is not sent.
 - One request at a time per run. A second waits.
-- The request goes to the endpoint and key of `models.json`'s provider, over
+- The request goes to the endpoint and key of the product model's provider in
+  `models.json`, the one the cycle's main role uses, over
   `http://` or `https://` (through `curl`, as `models.rs` reaches the
   endpoint), with a 300-second bound. The answer is passed back as JSON, at
   most 4 MiB.
