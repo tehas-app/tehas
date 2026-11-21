@@ -33,3 +33,14 @@ the line of this table. Read it before you write the grant.
 | `tool:<id>` | The chats it names may call it: each call is a run with the caller's arguments and the plugin's /state read only, and its answer goes to the model |
 
 A grant of anything not in this table is refused when the settings load.
+
+## The plugins menu
+
+A plugin granted `menu` takes no panel in the dock. `tehas update` lists it
+in `live/plugins.json` instead: its name, its label, and each of its views it
+is granted, with the view's label, its address and whether it opens in the
+dock or a new tab. Both front pages read the file and show each plugin's
+label in the menu, after the person's panels, with its views as links under
+it. `live/` is public, so a plugin's name and labels are, as a panel's are;
+what a view shows is behind the sign-in. A plugin without `menu` keeps the
+one panel of its `view`, as before.
