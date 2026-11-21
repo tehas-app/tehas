@@ -18,7 +18,8 @@
       "manifest_sha256": null,
       "bases": [],
       "last_run": null,
-      "tokens_today": 0
+      "tokens_today": 0,
+      "status_unwritten": null
     }
   ]
 }

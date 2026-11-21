@@ -24,7 +24,7 @@ pub fn json(name: &str, owner_url: &str, redirect: &str) -> String {
             "metadata": "read",
             "actions": "read",
             "checks": "read",
-            "statuses": "read"
+            "statuses": "write"
         }
     })
     .to_string()
@@ -270,7 +270,7 @@ mod tests {
                 "metadata": "read",
                 "actions": "read",
                 "checks": "read",
-                "statuses": "read"
+                "statuses": "write"
             })
         );
         assert!(m["default_permissions"].get("workflows").is_none());

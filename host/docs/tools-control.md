@@ -299,7 +299,8 @@ tehas plugin check <dir> [--json]
 The plugins of this factory, as its settings set them: each one's pin, what
 is granted at the pin, its state: `unbuilt`, `building`, `ready` or
 `refused` with why, as the last `tehas update` left it, its last run and the
-model tokens its runs used today, from the state store. With the feature on,
+model tokens its runs used today, from the state store, and why its hook's
+last commit status could not be written, when it could not. With the feature on,
 `tehas update` fetches each pin into `~/tehas/plugins/<name>/repo.git`,
 checks its manifest, skills and Dockerfile, pulls its base images by digest
 and builds its image with no network, then prunes the repository to the pin's
@@ -343,6 +344,33 @@ ends `done`, `failed`, `timeout` or `lost`, with the model's tokens. A hook
 waits for a refresh of the same plugin to end, at most one hook of a plugin
 and two in all run at once, and a newer request for the same pull request
 runs after the one that runs.
+
+A cycle asks for the hooks itself. After its report, a cycle that was not
+stopped by a signal, was not refused at its start and left an open pull
+request of the bot's, a refresh's too, reads that pull request from GitHub.
+For each plugin granted `hook:after:work` and ready at its pin it writes
+`~/tehas/plugins/<name>/hooks/<pr>.json` (the pull request, its head as
+GitHub gave it, its base and the issue) and starts
+`tehas-plugin-hook@<name>-<pr>.service`. It waits for none of them. A hook
+holds no slot, lock or label. A merged or closed pull request gets no hook.
+
+When a hook ends, `tehas-plugin` asks GitHub for the pull request's head and
+posts one commit status on the head the hook read, and nothing else, never
+a comment: context `tehas/plugin/<name>`; `success` for a `pass` or `note`
+verdict; `error` with "the plugin's hook did not finish" for a hook that
+failed, ran out of time or left a verdict that breaks its schema. The
+description is the verdict's summary, cleaned as a question comment is
+(check boxes, `<!--` markers and `@` mentions disarmed, secret-looking text
+masked) and cut at 140 characters. With `view` granted the status links to
+`https://plugin-<name>.<TEHAS_DOMAIN>/_hooks/<pr>`, or the one-level name
+when `TEHAS_EDGE_ONE_LEVEL` is on, where the gate shows the findings,
+which nothing installs yet. A post that fails is tried once more. GitHub
+refuses a status with 403 when the App lacks "Commit statuses: Read and
+write" ([the App's permissions](/github-app)): the refusal is kept in
+`~/tehas/plugins/<name>/status-unwritten`, and `tehas plugin` says "the
+status could not be written" (`status_unwritten` in `--json`) until a status
+is written. A head that moved while the hook ran gets the status on the
+commit the hook read, then a new request for the new head, which runs next.
 
 `tehas-plugin.timer` runs `tehasbot plugin tick` every 10 minutes. It reads
 the head the poll fetched into the product's mirror, asks GitHub nothing,

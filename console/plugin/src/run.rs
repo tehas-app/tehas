@@ -8,11 +8,13 @@
 //! killed at its timeout; its log; `/out`, read through the tar reader, swapped
 //! into the view or read as a hook's verdict; the volumes measured against
 //! the disk limit; then the container, its `/work` and `/out` and the run's
-//! directory removed, and the row ended with its result and tokens.
+//! directory removed, and the row ended with its result and tokens. A hook's
+//! end then posts its commit status (src/status.rs).
 
 use crate::day::{self, FileDay};
 use crate::host::{Ended, Host};
 use crate::model::{self, Content, Server};
+use crate::status;
 use crate::upstream;
 use serde_json::{json, Value};
 use std::fs::{self, File};
@@ -868,7 +870,9 @@ fn hook(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
             break;
         }
         ran = Some(req.head.clone());
-        rc = match hook_once(h, s, &p, ask, &req) {
+        let (came, read) = hook_once(h, s, &p, ask, &req);
+        status::after(h, s, name, p.has(Cap::View), &req, &read);
+        rc = match came {
             Came::Done => exit::OK,
             _ => exit::FAILED,
         };
@@ -882,15 +886,19 @@ fn hook(h: &mut dyn Host, s: &Setup, ask: &Ask) -> u8 {
     rc
 }
 
-fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) -> Came {
+/// One hook on `req`: what it came to and the head it read.
+fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) -> (Came, String) {
     let name = &p.pin.name;
     let trigger = ask.trigger.unwrap_or(req.trigger);
     let mut head = req.head.clone();
+    // The verdict of an earlier head goes, so a hook that ends with none is
+    // not posted with the last one's.
+    let _ = fs::remove_file(runs::verdict(s.home, name, req.pr));
     let mirrored = p.has(Cap::Product);
     if mirrored {
         let (repo, _) = match mirror(s.get) {
             Ok(m) => m,
-            Err(why) => return Came::Failed(why),
+            Err(why) => return (Came::Failed(why), head),
         };
         let want = format!("+refs/pull/{}/head:{}", req.pr, pr_ref(req.pr));
         let fetched = git(
@@ -911,7 +919,8 @@ fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) 
                 head = c;
             }
             Err(why) => {
-                return Came::Failed(format!("the head of #{} was not fetched: {why}", req.pr))
+                let why = format!("the head of #{} was not fetched: {why}", req.pr);
+                return (Came::Failed(why), head);
             }
         }
     }
@@ -923,7 +932,7 @@ fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) 
         pr: Some(Pr {
             number: req.pr,
             base: req.base.clone(),
-            head,
+            head: head.clone(),
         }),
     };
     let came = one_run(h, s, &st, &by_of(trigger, None));
@@ -937,7 +946,7 @@ fn hook_once(h: &mut dyn Host, s: &Setup, p: &Plugin, ask: &Ask, req: &HookAsk) 
             );
         }
     }
-    came
+    (came, head)
 }
 
 /// The words of `tehas-plugin run`: `<name> --kind refresh|hook [--pr N]
