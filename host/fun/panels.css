@@ -14,6 +14,10 @@
   .panel-dock { width: 100vw; border-left: 0; box-shadow: none; }
 }
 
+/* The label of a plugin before its views in the menu (panels.js), quieter
+   than a link, which it is not. */
+.panel-group { color: var(--text-quiet); font-size: var(--type-small); white-space: nowrap; }
+
 /* The host messages at the top of the page (versions.js), in the look of
    the floor's doors when they need a person (.door.is-alert). */
 /* Its width is the floor's; a page that sets its own (.wrap) keeps that. */

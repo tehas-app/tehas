@@ -1,0 +1,13 @@
+{
+  "api": 1,
+  "plugins": [
+    {
+      "name": "floorplan",
+      "label": "Floorplan",
+      "views": [
+        { "id": "map", "label": "Map", "url": "https://plugin-floorplan.example.org/", "open": "dock" },
+        { "id": "health", "label": "Health", "url": "https://plugin-floorplan.example.org/health/", "open": "page" }
+      ]
+    }
+  ]
+}

@@ -17,9 +17,10 @@ pub struct Row {
 /// release, one manifest"). `tehas plugin review` prints from it, and the
 /// manual's page `host/docs/plugins.md` holds it as [`markdown`] writes it.
 /// A new capability is a new row here.
-pub const TABLE: [Row; 10] = [
+pub const TABLE: [Row; 11] = [
     Row { word: "view", does: "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it" },
     Row { word: "view:<id>", does: "one of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it" },
+    Row { word: "menu", does: "its granted views are listed in the plugins menu of both front pages, by its name and their labels, in place of a panel in the dock: names and labels are public, as live/ is" },
     Row { word: "product", does: "reads all of the product's code, read only, in every run" },
     Row { word: "model:<tokens>", does: "chat completions through a socket, up to the tokens of the grant a run" },
     Row { word: "model:images", does: "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model" },
@@ -35,14 +36,15 @@ pub fn row(cap: &Cap) -> &'static Row {
     let at = match cap {
         Cap::View => 0,
         Cap::ViewOf(_) => 1,
-        Cap::Product => 2,
-        Cap::Model => 3,
-        Cap::ModelImages => 4,
-        Cap::Action(_) => 5,
-        Cap::HookAfterWork => 6,
-        Cap::Skill(_) => 7,
-        Cap::Needs(_) => 8,
-        Cap::Tool(_) => 9,
+        Cap::Menu => 2,
+        Cap::Product => 3,
+        Cap::Model => 4,
+        Cap::ModelImages => 5,
+        Cap::Action(_) => 6,
+        Cap::HookAfterWork => 7,
+        Cap::Skill(_) => 8,
+        Cap::Needs(_) => 9,
+        Cap::Tool(_) => 10,
     };
     &TABLE[at]
 }
@@ -192,6 +194,7 @@ mod tests {
         let caps = [
             Cap::View,
             Cap::ViewOf("map".into()),
+            Cap::Menu,
             Cap::Product,
             Cap::Model,
             Cap::ModelImages,
