@@ -16,6 +16,7 @@ use super::exec::{Called, Cmd, Exec};
 use super::prepare;
 use super::ready::{ready, Ready};
 use super::runs;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
@@ -270,7 +271,8 @@ fn run_in(
         Called::Out(b) => {
             let v = std::str::from_utf8(&b)
                 .ok()
-                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .and_then(|s| serde_json::from_str::<Strict>(s).ok())
+                .map(|v| v.0)
                 .filter(Value::is_object);
             match v {
                 Some(v) => (Ok(v), "done", Some(b.len())),
@@ -292,6 +294,60 @@ fn run_in(
             None,
         ),
         Called::NotRun(why) => failed(format!("the tool did not start: {why}")),
+    }
+}
+
+/// A JSON value with no key twice in an object at any depth: serde_json
+/// keeps the last, and a host's parser may keep another.
+struct Strict(Value);
+
+impl<'de> Deserialize<'de> for Strict {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Strict, D::Error> {
+        d.deserialize_any(Strict(Value::Null))
+    }
+}
+
+impl<'de> Visitor<'de> for Strict {
+    type Value = Strict;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("JSON")
+    }
+    fn visit_unit<E>(self) -> Result<Strict, E> {
+        Ok(Strict(Value::Null))
+    }
+    fn visit_bool<E>(self, b: bool) -> Result<Strict, E> {
+        Ok(Strict(b.into()))
+    }
+    fn visit_i64<E>(self, n: i64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_u64<E>(self, n: u64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_f64<E>(self, n: f64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_str<E>(self, s: &str) -> Result<Strict, E> {
+        Ok(Strict(s.into()))
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut a: A) -> Result<Strict, A::Error> {
+        let mut v = Vec::new();
+        while let Some(Strict(e)) = a.next_element()? {
+            v.push(e);
+        }
+        Ok(Strict(v.into()))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Strict, A::Error> {
+        let mut m = serde_json::Map::new();
+        while let Some(k) = a.next_key::<String>()? {
+            if m.contains_key(&k) {
+                return Err(de::Error::custom(format!("{k} twice")));
+            }
+            let Strict(v) = a.next_value()?;
+            m.insert(k, v);
+        }
+        Ok(Strict(m.into()))
     }
 }
 

@@ -196,6 +196,16 @@ fn an_answer_that_is_not_one_object_over_the_cap_late_or_failed_is_the_tools_fai
             "failed",
         ),
         (out("[1]"), "the answer is not one JSON object", "failed"),
+        (
+            out(r#"{"a":1,"a":2}"#),
+            "the answer is not one JSON object",
+            "failed",
+        ),
+        (
+            out(r#"{"a": [{"b": {"c": 1, "c": 1}}]}"#),
+            "the answer is not one JSON object",
+            "failed",
+        ),
         (out(""), "the answer is not one JSON object", "failed"),
         (
             Called::Out(b"{\"a\": \"\xff\"}".to_vec()),
@@ -263,6 +273,13 @@ fn a_row_the_store_did_not_end_keeps_its_directory() {
     );
     assert!(dir.join("call.json").exists());
     assert_eq!(rows(&home)[0]["result"], Value::Null);
+}
+
+#[test]
+fn an_answer_without_a_key_twice_reads_as_serde_json_reads_it() {
+    let s = r#"{"a": [1, -2, 3.5, 18446744073709551615, null, true, "\u00e9"], "b": {"c": {}}}"#;
+    let v: Value = serde_json::from_str(s).unwrap();
+    assert_eq!(serde_json::from_str::<Strict>(s).unwrap().0, v);
 }
 
 #[test]
