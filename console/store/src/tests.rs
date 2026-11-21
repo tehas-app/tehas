@@ -1065,9 +1065,9 @@ fn open_listening_to_sqlite(file: &Path, purpose: db::Purpose) -> Vec<String> {
     // with it the busy handler, the pragmas and the version of the store are its own to run.
     // rusqlite's `from_handle` is how the crate takes a connection made outside it, and it is
     // unsafe because the caller promises the handle is a connection no one else holds.
-    let conn = unsafe { rusqlite::Connection::from_handle(db) }
+    let mut conn = unsafe { rusqlite::Connection::from_handle(db) }
         .expect("the connection of the store's file");
-    crate::db::prepare_of_the_store(&conn, purpose).expect("the store prepares its connection");
+    crate::db::prepare_of_the_store(&mut conn, purpose).expect("the store prepares its connection");
     conn.execute_batch(PROBE)
         .expect("the connection answers its own probe");
     let ran = SEEN.with(|v| {

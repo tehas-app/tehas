@@ -7,6 +7,7 @@
 
 pub mod dockerfile;
 pub mod manifest;
+pub mod needs;
 pub mod out;
 pub mod run;
 #[cfg(test)]
