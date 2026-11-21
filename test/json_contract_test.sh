@@ -7,7 +7,7 @@
 #
 # The diff, the schema check, the field-path walk and the rewrite are written
 # once and loop over the table, so a later surface is one more row. See
-# test/status_contract_test.sh for one surface's contract written out in full.
+# console/tests/status_contract.rs for one surface's contract written out in full.
 #
 # To write the samples again after a change to an object:
 #   TEHAS_SAMPLES_WRITE=1 test/json_contract_test.sh
@@ -1443,7 +1443,7 @@ done
 # serves rather than a --json object, which the schema leaves open; `own` is
 # an object whose own test walks its fields and the manual's names for them.
 pinned=(
-  'status	test/status_contract_test.sh	own'
+  'status	console/tests/status_contract.rs	own'
   'refresh	test/refresh_test.sh'
   'analytics-copy	console/analytics/tests/command.rs'
   'state-copy	test/state_test.sh'
