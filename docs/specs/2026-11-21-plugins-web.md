@@ -1,176 +1,214 @@
-# Spec: plugins, views on the web
+# Spec: plugins v1, views on the web
 
-**Status**: Draft 2026-11-21. Part of the plugins spec, `2026-11-21-plugins.md`, which holds the terms, the settings and the manifest. The sign-in, the browser's policy and the proxy, the views' widgets and actions. Nothing is built.
+**Status**: Draft 2026-11-21. Part of `2026-11-21-plugins.md`. Nothing is
+built.
 
-## How a view is shown
+A plugin's view is served at a name of its own, only to a person GitHub says
+has access to the factory's repository. One program, `tehas-plugin-gate`,
+answers every request for every plugin name. No other program answers them.
 
-After a good run, tehas swaps `/out` into
-`~/tehas/plugins/<name>/view/` in one rename. A failed run leaves the last
-good view in place.
+## Names
 
-The edge router serves each view under a name one level deep, as the
-previews and the Protolab do: `plugin-<name>.<domain>`, or
-`plugin-<name>-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`. It serves
-files only: no plugin program answers a request in v1. The one route that is not a file, `/_actions/`, goes to tehas's own gate (see "Actions").
+| Name | What answers |
+| --- | --- |
+| `plugin-<name>.<domain>` | A plugin's view, its kit and its actions |
+| `plugins.<domain>` | The sign-in: GitHub's callback, the hand-off, sign-out |
 
-Each view becomes a menu item through `tehas panel set
-plugin-<name>-<view id> --label <label> --url https://<view name><path>`,
-written by `tehas update` and taken out when the plugin goes. A panel is on
-another origin than the dashboard, as `tehas panel` requires. Panels are at
-most 4 in all, a person's and the plugins' together; a plugin that would make
-a fifth is refused with 78 at `tehas update`. A factory fronted by
-tehas-industry may show the same item through the host bridge's `menu`
-instead; that is industry's choice and needs nothing more from tehas.
+With `TEHAS_EDGE_ONE_LEVEL=on` they are `plugin-<name>-<sub>.<domain>` and
+`plugins-<sub>.<domain>`, as for previews (`host/docs/edge.md`). A plugin name
+that would make the same name as another's under that rule is refused at load.
 
-**A view is never public.** Every address under a plugin's name is behind
-the sign-in below.
+- `view` and `action:` need `TEHAS_DOMAIN` and https in front: the session's
+  `__Host-` cookie cannot exist on plain http. Without `TEHAS_DOMAIN`, a
+  grant of either is refused at load with 78.
+- **The router.** In `host/edge/router.Caddyfile`, `plugin-*` and `plugins*`
+  are matched first in `route`, before `@look`, the previews and the
+  Protolab, and go only to the gate with `reverse_proxy`. A name of a plugin
+  that is not set is 404, as `@odd` is. The gate down is a page of its own
+  text, never the Protolab's or a preview's. `test/edge_test.sh` pins all
+  three.
+- The proxy in front, `host/docs/edge.md`'s matcher, lists names by hand: the
+  two names are an adopter action, and so is a Cloudflare cache rule that
+  bypasses the cache for both.
+- The gate checks the whole `Host` against the names its settings make, not
+  the first label. Any other `Host`: 404.
 
-## Sign-in: GitHub is the gate
+## The gate
 
-Every request to a plugin needs a signed-in person who has access to the
-factory's repository, `TEHAS_REPO`, on GitHub. There is no other way in.
+`tehas-plugin-gate`, a Rust program of the workspace, its own unit
+`tehas-plugin-gate.service`, listening on the host's private address and a
+port of `TEHAS_PLUGIN_GATE_ADDR`, never the dashboard's. It is installed only
+with the feature on.
 
-- **One gate for every address.** The edge sends every request for a
-  plugin's name to `tehas-plugin-gate`, which answers all of them: the
-  view's files, `/_kit/`, `/_actions/`. No file server answers a plugin's
-  name directly. A request without a good session gets the sign-in, never
-  a file.
-- **No stray address.** No signed or secret URL, no token in a query
-  string, no share link, no export link, no address of the view's files
-  on another name. A plugin's view has nothing that works when copied out
-  of a signed-in browser.
-- **GitHub's web flow, through the factory's GitHub App.** The App's client
-  id and secret are kept as its key is, in `~/.config/tehas`, and never reach
-  a plugin. A factory without `TEHAS_GITHUB_APP_ID` cannot grant `view` or an
-  `action:`: `tehas update` refuses them with 78. There is no token fallback.
-- **One place to sign in.** GitHub calls back to one name,
-  `plugins.<domain>` (`plugins-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`).
-  It hands each plugin's name a one-use code, which that name trades for a
-  session of its own, as industry's landing site hands sessions to its host
-  sites.
-- **Who gets in.** The person's permission on `TEHAS_REPO`, asked of GitHub
-  with the installation token, must be at least `TEHAS_PLUGIN_ACCESS`:
-  `read`, `triage`, `write`, `maintain` or `admin`. The setting has no
-  default: with any plugin that has `view`, an `action:`, a `skill:` or a
-  `tool:` granted and no `TEHAS_PLUGIN_ACCESS`, `tehas update` exits 78.
-- **Checked again.** At sign-in, every 10 minutes, and on every action. A
-  person who lost access is signed out on the next check.
-- **The session.** The person's GitHub token stays in the gate's memory
-  only, never on disk and never given to a plugin. The browser holds a
-  random id in a `__Host-` cookie, `HttpOnly`, `Secure`, `SameSite=Lax`,
-  one per plugin name. A session lasts at most 12 hours, and a restart of
-  the gate signs everyone out.
-- **In the dashboard's dock.** A view that is not signed in shows a sign-in
-  button, which opens the sign-in in a pop-up, as industry's wizard does in
-  its frame. GitHub's pages cannot be framed.
-- **Actions.** A press needs the session, an `Origin` of the plugin's own
-  name, and the permission checked on that press. The run records the login
-  that pressed it.
-- **Chats.** `tehas plugin skills` and `tehas plugin call` take
-  `--login <login>`, the person the chat asks for. tehas checks that login's
-  permission the same way before it lists or calls anything. Industry signed
-  the person in; the factory still checks.
-- **Hooks** run for tehas itself, at a stage, and no person reaches them.
-
-## Talking to the outside: the factory is the proxy
-
-A view's page reaches nothing but its own name. What it needs from
-elsewhere, the factory fetches for it. So a plugin author cannot put a
-script, a style, a font or a tracker of a third party into a person's
-browser, and a page cannot send what it shows anywhere.
-
-### What the browser is told
-
-The gate sends every answer of a plugin's name with this policy, made by
-tehas, never by the plugin:
+Every answer, a file, an error, the sign-in page and a redirect, carries:
 
 ```
-Content-Security-Policy: default-src 'none'; script-src 'self' <hashes>;
-  style-src 'self' <hashes>; img-src 'self' data:; font-src 'self';
-  connect-src 'self'; frame-src 'self'; form-action 'self';
-  base-uri 'none'; object-src 'none'; frame-ancestors <dashboard origin>
+Cache-Control: private, no-store
+Vary: Cookie
+Cross-Origin-Resource-Policy: same-origin
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
 ```
 
-with `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and
-`Cross-Origin-Opener-Policy: same-origin`. Nothing but `'self'`: no CDN, no
-`unsafe-inline`, no `unsafe-eval`, no `blob:` script.
+and never an `Access-Control-*` header. `OPTIONS` is 403 with no session
+lookup. A test asserts no answer lacks these.
 
-- **Inline code by hash.** A page that holds its scripts and styles inline,
-  as Floorplan's one-file export does, gets each block's sha256 in the
-  policy. tehas reads the blocks when it swaps a good run's `/out` into the
-  view and works out the hashes itself; the plugin cannot name one. An
-  inline event handler (`onclick=`) does not run.
-- **A page that names another site** in a `<script src>`, a `<link>` or an
-  `@import` still loads nothing from it, and the swap logs each such address
-  so the author sees why.
+### Requests across sites
 
-### The proxy
+A preview, `uat-<pr>.<domain>`, is the same site as a plugin's name, so
+`SameSite` alone does not keep a preview's script out.
 
-A view that needs outside data asks its own name:
-`GET` or `POST /_proxy/<host id>/<path>`. The gate makes the request
-itself, server side, after the sign-in.
+- A request that is not a top-level navigation (`Sec-Fetch-Mode` other than
+  `navigate`) needs `Sec-Fetch-Site: same-origin`.
+- Every request but `GET` and `HEAD` needs `Origin` equal to the plugin's own
+  name, and a missing `Sec-Fetch-Site` is refused.
+- A navigation from another site gets the page, never runs an action.
 
-- **Only granted hosts.** The manifest names each in `net`, with an id, an
-  `https://` origin and the path prefixes it may use. A person grants each
-  one, `net:<host id>`. Any other host, any other path: 403.
-- **Nothing of the person goes out.** The gate sends no cookie, no
-  `Authorization`, no `Referer` and no login. It adds only `User-Agent:
-  tehas-plugin/<name>`. A host that needs a key gets it from the factory's
-  secrets, `TEHAS_PLUGIN_NET_KEY_<NAME>_<HOST ID>`, which the gate adds, and
-  which the page and the plugin never see.
-- **Nothing that runs comes back.** An answer is passed on only as JSON,
-  plain text, or an image of PNG, JPEG, GIF or WebP, by its content type
-  and its first bytes. HTML, script, CSS, SVG and anything else is
-  refused with 502. Every answer goes back with
-  `Content-Security-Policy: sandbox; default-src 'none'`, no `Set-Cookie`,
-  and the type the gate checked.
-- **No way into the host's network.** The host's name is resolved by the
-  gate, and an address that is loopback, private, link-local or the
-  factory's own is refused, after each redirect too. At most 3 redirects,
-  each to a granted origin.
-- **Bounded.** 10 seconds, 2 MiB an answer, 64 KiB a request body,
-  `TEHAS_PLUGIN_NET_MINUTE` requests a minute for a plugin. Each request is
-  a crossing (see "Crossings"): logged with the login, the host id and the
-  status, and its body only when the instance keeps them.
+### Paths
 
-### Runs
+| Path | What it is |
+| --- | --- |
+| `/_kit/<file>` | A file of the installed tehas's `host/fun/kit/MANIFEST`, when the manifest has `ui.kit` |
+| `/_actions/<id>` | A press, see "Actions" |
+| `/_hooks/<pr>` | The findings of the plugin's last hook on that pull request, as plain text in a page the gate makes |
+| `/_session` | `GET`: 200 `{"signed": true}` or 401, for a frame to poll |
+| `/_signout` | `POST`, see "The session" |
+| anything else | A file of `view/`, `index.html` for a directory |
 
-A run's container keeps `--network none`, with only the model proxy when
-`model` is granted. A run that reaches another host through the same proxy
-is reserved for a later release, under the same `net:` grants.
+Paths starting `/_` are the gate's, whatever `/out` holds. A path is
+normalised (`..`, `%2e`, `//`, encoded slashes) before it is matched, and a
+path that leaves `view/` is 404.
 
-## Widgets in Solid
+A request without a good session: a navigation gets the sign-in page; any
+other request 401 with no body. Never a file.
 
-The dashboard draws its widgets in Solid 2 on the tehas kit, `kit 1` in
-`host/fun/kit/` (the island contract is in `host/docs/frontend.md`). A
-plugin's view may use the same framework, so its widgets behave as the
-dashboard's do. With `"ui": {"kit": 1}`:
+## The sign-in
 
-- The edge serves the installed tehas's kit, read only, at `/_kit/` under
-  the plugin's view name: the files the kit's `MANIFEST` lists, nothing
-  else. The view imports `/_kit/vendor/solid.js`, `/_kit/island.js` and the
-  rest from there.
-- The view keeps the island contract: `.model.js` pure, `.render.js` the
-  only file that imports Solid, Solid 2 APIs only.
-- `tehas update` refuses a plugin, with 78, whose `ui.kit` the installed
-  tehas does not serve.
+GitHub's web flow, through the factory's GitHub App.
 
-The plugin ships no copy of the kit or of Solid. For `checkJs` types, its
-build reads `vendor/solid.d.ts` from a tehas release tag.
+- **The App.** It needs a callback URL, `https://plugins.<domain>/_auth/callback`,
+  and a client secret. `tehas setup --new-app` sets the callback in its
+  manifest and keeps the client id and secret beside the key in
+  `~/.config/tehas/` (mode 600). For an App made before, an adopter action:
+  add the callback and generate a secret, then `tehas setup --app-secret-file`.
+  A factory without the App, or without the secret, cannot grant `view` or
+  `action:`: refused at load with 78. No token fallback.
+- **One callback.** GitHub calls back to `plugins.<domain>`. That name hands
+  each plugin name its session by a one-use code, as tehas-industry's landing
+  site does (`crates/workshop/src/auth.rs`), with these rules:
+  - The plugin name that asks is one of the settings' names, taken from the
+    settings, never from `Host` or the address.
+  - The plugin name sets a nonce in a `__Host-` cookie and sends the browser
+    to `plugins.<domain>/_auth/pass?state=<nonce hash>&back=<path>`.
+  - `back` is a path only, normalised, under the plugin name.
+  - The code lives 60 seconds, works once, and only for the name and nonce it
+    was made for. It is the one value in an address; it opens nothing alone.
+- **Who gets in.** After GitHub's callback the gate asks `GET /user` with the
+  person's token, keeps the user id and login, and drops the token. It then
+  asks `GET /repos/{TEHAS_REPO}/collaborators/{login}/permission` with the
+  installation token and reads `user.permissions` (`pull`, `triage`, `push`,
+  `maintain`, `admin`); `role_name` is shown in logs only, since a custom role
+  has its own name. The person gets in when the permission is at least
+  `TEHAS_PLUGIN_ACCESS`. A 404 is no access. A GitHub error is a refusal, said
+  as such on the page.
+- **A public repository.** GitHub gives `pull` on a public repository to every
+  account. So `tehas update` reads the repository's visibility and refuses
+  `TEHAS_PLUGIN_ACCESS=read` or `triage` while it is public, with 78 and the
+  reason.
+- **Checked again** every 10 minutes for a session, and on every press. A
+  person who lost access is signed out at the next check. People are compared
+  by user id, since logins are renamed and reused.
 
-Widgets inside the dashboard's own pages are not in v1: a plugin's code
-would run on the dashboard's origin.
+### The session
+
+- A random id in a `__Host-tehas-plugin` cookie, `HttpOnly`, `Secure`,
+  `SameSite=Lax`, `Path=/`, one per name. The gate holds the session in
+  memory: user id, login, the time of the last check. No token.
+- It ends after 2 hours unused or 12 hours in all. A restart of the gate
+  signs everyone out.
+- `POST /_signout`, with the `Origin` rule, ends that person's sessions on
+  every plugin name and `plugins.<domain>`, and clears the cookie.
+
+### In the dashboard's dock
+
+A view is a panel: the dock's frame of `host/fun/panels.js`, which has
+`allow-popups`. A frame that is not signed in shows a page with a plain link,
+`<a href="https://plugins.<domain>/_auth/start?for=<name>" target="_blank">`,
+and polls `/_session` every 3 seconds. The person signs in in that tab; the
+frame sees the session and reloads. GitHub's pages cannot be framed, so the
+sign-in never runs in the frame. The frame is the same site as the dashboard,
+so its `SameSite=Lax` cookie is sent; a domain that is a public suffix would
+make it cross-site, and then the dock's "Open in a new tab" link is the way.
+
+Panels have no `open` in v1: a plugin's view always docks, and the dock's
+link opens it in a tab.
+
+## The browser's policy
+
+Every page of a plugin's name has a `Content-Security-Policy` that tehas makes
+for that document:
+
+```
+default-src 'none'; script-src 'self' <script hashes>;
+style-src 'self' <style hashes>; style-src-attr 'unsafe-inline';
+img-src 'self' data:; font-src 'self' data:; connect-src 'self';
+frame-src 'self'; frame-ancestors 'self' <dashboard origin>;
+form-action 'self'; base-uri 'none'; object-src 'none';
+worker-src 'none'; manifest-src 'none'
+```
+
+with `Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=(),
+payment=(), clipboard-read=()` and `Cross-Origin-Opener-Policy:
+same-origin-allow-popups`.
+
+- **Hashes.** When a good refresh is swapped in, tehas reads each HTML file's
+  inline `<script>` and `<style>` blocks and works out their sha256. Each
+  document's policy names its own. The plugin cannot name one. A hash says
+  tehas saw the block, not that it is safe.
+- **Style attributes** are allowed (`style-src-attr 'unsafe-inline'`):
+  Floorplan colours its cards with them, with computed values that cannot be
+  hashed. A style cannot run code; what it could load, `img-src` and
+  `font-src` bound to the view's own files and `data:`.
+- **`frame-ancestors 'self'`** lets the view frame its own pages, as the
+  reference plugin frames its map.
+- **The export's own policy.** A page that also carries a `<meta>` policy
+  gets both; the browser applies the stricter.
+- **A page that names another site** in a `<script src>`, `<link>` or
+  `@import` loads nothing from it. The swap logs each such address.
+  `<meta http-equiv="refresh">` and inline event handlers (`onclick=`) are
+  refused at the swap, failing the run.
+
+What the policy does not stop: a page can navigate the frame or open a tab
+with data in the address. So `view` with `product` means a plugin's page can
+send what it shows to a site of its author's choosing when a signed-in person
+opens it. `tehas plugin review` says so for that pair.
+
+## The kit
+
+With `"ui": {"kit": 1}`, the gate answers `/_kit/<file>` for each file the
+installed tehas's `host/fun/kit/MANIFEST` lists, read from the installed
+`~/tehas/docs/fun/kit/`, behind the same sign-in and with the same headers.
+The view follows the island contract of `host/docs/frontend.md`. A tehas whose
+kit is not `kit 1` refuses the plugin at update.
 
 ## Actions
 
-A view may show a button for each of its manifest's `actions`, pressed with
-the kit's `press()`: `POST /_actions/<id>` on the view's name. The edge
-passes it to `tehas-plugin-gate`, a small Rust program on the host whose
-only work, past the sign-in, is to ask for a run, as `tehas plugin run`
-does. An action whose
-`action:<id>` is not granted answers 403, and the view hides its button. It answers 202
-when it asked, 409 while a run is going, and 429 within 10 minutes of the
-last ask. It takes no body and runs nothing itself.
+A press is `POST /_actions/<id>` from the view, with the kit's `press()`.
 
-Only a signed-in person with access can press, and a press costs at most
-one run, one at a time.
+- It needs a session, the `Origin` and `Sec-Fetch-Site` rules, the person's
+  access checked on that press, and `action:<id>` granted.
+- It asks for a refresh, as `tehas plugin run` does, and records the login.
+- 202 asked; 409 a refresh is running; 429 within 10 minutes of the plugin's
+  last press; 403 not granted or no access; 401 no session.
+- `GET /_actions` answers the ids granted, so a view shows only those buttons.
+
+## The panel
+
+`tehas update` writes, for each plugin with `view` granted and ready,
+`tehas panel set p-<name> --label <view.label> --url https://plugin-<name>.<domain>/`,
+and clears it when the plugin goes or is refused. Ids starting `p-` are
+reserved: a person's `tehas panel set p-...` is refused with 64. A fifth panel
+refuses the plugin's view, not the update.
+
+`live/panels.json` is public, so a plugin's name and label are too. Its view
+is not.
