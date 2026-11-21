@@ -294,9 +294,10 @@ fn a_manifest_path_that_is_a_link_is_not_written_through_and_the_cycle_starts() 
     let r = w.work7();
     assert_eq!(r.rc, 2, "{}", r.out);
     lacks(&r.out, "gives a cycle none");
-    let got: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&elsewhere).unwrap()).unwrap();
-    assert_eq!(got.to_string(), r#"{"images":[],"leftOut":[]}"#);
+    assert_eq!(
+        fs::read_to_string(&elsewhere).unwrap(),
+        r#"{"images": [], "leftOut": []}"#
+    );
     let mut new = w.kept.clone().into_os_string();
     new.push(".new");
     assert!(!there(Path::new(&new)));

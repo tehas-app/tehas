@@ -760,9 +760,13 @@ fn a_refresh_that_conflicts_in_one_file_starts_no_container_on_an_image_that_can
         "pull request #50 conflicts with origin/main in 1 file(s)",
     );
     has(&r.out, "    conflict.txt");
-    let got: Value = serde_json::from_str(&fs::read_to_string(note7(&w)).unwrap()).unwrap();
+    let out = Command::new("jq")
+        .args(["-c", "."])
+        .arg(note7(&w))
+        .output()
+        .unwrap();
     assert_eq!(
-        got.to_string(),
+        String::from_utf8_lossy(&out.stdout).trim_end(),
         r#"{"branch":"main","more":0,"paths":["conflict.txt"],"pr":50}"#
     );
     // The workspace is left as it was made: main's tip, no merge in it.
