@@ -21,6 +21,19 @@ fn lockf(w: &World) -> PathBuf {
     w.home.join("state/cycles/7.lock")
 }
 
+/// Every path under `dir`, at any depth; none when it is missing.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(files_under(&p));
+        }
+        out.push(p);
+    }
+    out
+}
+
 fn ran(w: &World) -> usize {
     fs::read_dir(w.t())
         .unwrap()
@@ -372,22 +385,16 @@ mv "$now.new" "$now""#,
 
 #[test]
 fn no_command_writes_to_pi_through_a_fifo() {
-    fn walk(dir: &Path, hits: &mut Vec<PathBuf>) {
-        for e in fs::read_dir(dir).unwrap().flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                walk(&p, hits);
-            } else if fs::read(&p)
-                .unwrap()
-                .windows(3)
-                .any(|w| w == b">&4".as_slice())
-            {
-                hits.push(p);
-            }
-        }
-    }
-    let mut hits = vec![];
-    walk(&root().join("libexec"), &mut hits);
+    let hits: Vec<PathBuf> = files_under(&root().join("libexec"))
+        .into_iter()
+        .filter(|p| {
+            p.is_file()
+                && fs::read(p)
+                    .unwrap()
+                    .windows(3)
+                    .any(|w| w == b">&4".as_slice())
+        })
+        .collect();
     assert!(hits.is_empty(), "{hits:?}");
 }
 
@@ -422,6 +429,19 @@ fn without_a_console_the_command_stops_with_78_and_publishes_nothing_of_the_cycl
 #[test]
 fn a_console_that_writes_no_now_file_leaves_the_status_line_empty() {
     let w = World::new("host-no-now");
+    // The driver has a notice and the console a line to give: the status is
+    // empty only for want of a now file.
+    w.fs(
+        "container.sh",
+        r#"cat >&2 <<'LINES'
+{"v":1,"kind":"step-started","event":{"step":"develop"}}
+{"v":1,"kind":"log","message":"step 3 of the cycle"}
+{"v":1,"kind":"log","unstable":true,"message":"not this"}
+LINES
+"#,
+    );
+    w.fs("now.step", "develop");
+    w.fs("now.text", "step 3 of the cycle");
     w.touch("now.off");
     w.under_cycle();
     w.work7();
@@ -716,14 +736,14 @@ fn what_the_container_is_given_of_the_settings_is_on_record_before_it_starts_wit
     lacks(&f, "GH_TOKEN");
     lacks(&f, "ghs_app");
     // The file it was handed in is gone.
-    let left = fs::read_dir(w.home.join("tmp"))
-        .map(|d| {
-            d.flatten()
-                .filter(|e| e.file_name().to_string_lossy().starts_with("settings."))
-                .count()
+    let left: Vec<PathBuf> = files_under(&w.home.join("tmp"))
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("settings."))
         })
-        .unwrap_or(0);
-    assert_eq!(left, 0);
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
 }
 
 // --- The container's counts -----------------------------------------------------
