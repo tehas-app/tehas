@@ -155,6 +155,16 @@ impl Exec for X {
     fn pipe(&mut self, from: &Cmd, to: &Cmd) -> tehas_ops::plugin::exec::Done {
         self.0.pipe(from, to)
     }
+
+    fn attached(
+        &mut self,
+        argv: &[String],
+        limit: std::time::Duration,
+        max: usize,
+        cidfile: &std::path::Path,
+    ) -> tehas_ops::plugin::exec::Called {
+        self.0.attached(argv, limit, max, cidfile)
+    }
 }
 
 pub struct World {
