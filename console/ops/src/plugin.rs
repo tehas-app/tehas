@@ -2,14 +2,18 @@
 //! Plugins are a feature still being built: with it off the command says so
 //! and exits 78. `tehas plugin` reads the settings and what `tehas update`
 //! left in `~/tehas/plugins/<name>/state.json`; `tehas plugin review`
-//! fetches a commit and reads it for a person to grant.
+//! fetches a commit and reads it for a person to grant. `run` and `hook` ask
+//! for a run, which a unit makes (runs.rs); `log` prints the last one's log.
 
-mod exec;
-mod prepare;
+mod ask;
+pub mod exec;
+pub mod prepare;
 mod review;
+pub mod runs;
 mod skills;
 pub mod update;
 
+use serde_json::Value;
 use std::env;
 use std::path::{Path, PathBuf};
 use tehas_core::jq::{obj, J};
@@ -17,7 +21,7 @@ use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{self, Pin};
 use tehas_core::{exit, features, outln};
 
-const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json]";
+const USAGE: &str = "usage: tehas plugin [--json] | tehas plugin review <name> [<commit>] [--json] | tehas plugin skills [--chat obeya|wizard|assistant] [--json] | tehas plugin run <name> | tehas plugin hook <name> <pr> | tehas plugin log <name> [--hook <pr>]";
 
 /// What the arguments ask for.
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +38,23 @@ pub enum Words {
         chat: Option<String>,
         json: bool,
     },
+    Run {
+        name: String,
+    },
+    Hook {
+        name: String,
+        pr: u64,
+    },
+    Log {
+        name: String,
+        hook: Option<u64>,
+    },
+}
+
+fn pr_number(s: &str) -> Option<u64> {
+    (s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()) && !s.starts_with('0'))
+        .then(|| s.parse().ok())
+        .flatten()
 }
 
 /// What the arguments ask for, or 64 with the usage.
@@ -72,6 +93,33 @@ pub fn words(given: &[String]) -> Result<Words, u8> {
                 json,
             })
         }
+        [verb, name] if !json && *verb == "run" && plugin::is_name(name) => Ok(Words::Run {
+            name: name.to_string(),
+        }),
+        [verb, name, pr] if !json && *verb == "hook" && plugin::is_name(name) => {
+            match pr_number(pr) {
+                Some(pr) => Ok(Words::Hook {
+                    name: name.to_string(),
+                    pr,
+                }),
+                None => Err(usage()),
+            }
+        }
+        [verb, name] if !json && *verb == "log" && plugin::is_name(name) => Ok(Words::Log {
+            name: name.to_string(),
+            hook: None,
+        }),
+        [verb, name, flag, pr]
+            if !json && *verb == "log" && *flag == "--hook" && plugin::is_name(name) =>
+        {
+            match pr_number(pr) {
+                Some(pr) => Ok(Words::Log {
+                    name: name.to_string(),
+                    hook: Some(pr),
+                }),
+                None => Err(usage()),
+            }
+        }
         _ => Err(usage()),
     }
 }
@@ -85,21 +133,35 @@ pub struct Row {
     pub grants: Vec<String>,
     /// What `tehas update` left for the pin's commit.
     pub state: State,
+    /// The newest run in the state store, as `runs::last_and_today` gives it.
+    pub last: Option<Value>,
+    /// The model tokens of its runs that started today, UTC.
+    pub tokens_today: u64,
 }
 
-/// The plugins of the settings `get` gives, which the load has checked, and
-/// the state `state` reads of each.
-pub fn rows(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<State>) -> Vec<Row> {
+/// What the store's runs of a plugin come to: its last run and today's tokens.
+pub type Runs<'a> = &'a dyn Fn(&str) -> (Option<Value>, u64);
+
+/// The plugins of the settings `get` gives, which the load has checked, the
+/// state `state` reads of each and what `runs` reads of its runs.
+pub fn rows(
+    get: &dyn Fn(&str) -> String,
+    state: &dyn Fn(&str) -> Option<State>,
+    runs: Runs,
+) -> Vec<Row> {
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
     pins.into_iter()
         .map(|pin| {
             let line = get(&plugin::grants_setting(&pin.name));
             let grants = plugin::grants(&line).ok();
+            let (last, tokens_today) = runs(&pin.name);
             match grants {
                 Some(g) if g.commit != pin.commit => Row {
                     state: State::refused(&pin.commit, "the grants are for another commit"),
                     pin,
                     grants: Vec::new(),
+                    last,
+                    tokens_today,
                 },
                 g => Row {
                     state: state(&pin.name)
@@ -107,14 +169,41 @@ pub fn rows(get: &dyn Fn(&str) -> String, state: &dyn Fn(&str) -> Option<State>)
                         .unwrap_or_else(|| State::new(Word::Unbuilt, &pin.commit)),
                     pin,
                     grants: g.map(|g| g.words).unwrap_or_default(),
+                    last,
+                    tokens_today,
                 },
             }
         })
         .collect()
 }
 
+/// The runs of a plugin in the home's store; none when it cannot be read.
+fn store_runs(home: &Path, name: &str) -> (Option<Value>, u64) {
+    let since = tehas_core::time::now().div_euclid(86_400) * 86_400;
+    match crate::store::call(home, &["plugin-runs", "--plugin", name]) {
+        Ok(v) => {
+            let runs = v["runs"].as_array().cloned().unwrap_or_default();
+            runs::last_and_today(&runs, since)
+        }
+        Err(_) => (None, 0),
+    }
+}
+
 fn text_or_null(s: &Option<String>) -> J {
     s.as_deref().map_or(J::Null, J::str)
+}
+
+fn last_json(l: &Value) -> J {
+    let n = |k: &str| l[k].as_i64().map_or(J::Null, J::int);
+    let s = |k: &str| l[k].as_str().map_or(J::Null, J::str);
+    obj(vec![
+        ("kind", s("kind")),
+        ("trigger", s("trigger")),
+        ("start", n("start")),
+        ("end", n("end")),
+        ("result", s("result")),
+        ("tokens", n("tokens")),
+    ])
 }
 
 /// The object of `--json`, api/plugin.schema.json.
@@ -138,6 +227,8 @@ pub fn json(rows: &[Row]) -> J {
                     "bases",
                     J::Arr(r.state.bases.iter().map(|b| J::str(b.as_str())).collect()),
                 ),
+                ("last_run", r.last.as_ref().map_or(J::Null, last_json)),
+                ("tokens_today", J::int(r.tokens_today as i64)),
             ])
         })
         .collect();
@@ -160,9 +251,18 @@ pub fn text(rows: &[Row]) -> Vec<String> {
                 Some(why) => format!("{}: {why}", r.state.state.word()),
                 None => r.state.state.word().to_string(),
             };
+            let last = match &r.last {
+                None => "last run: none".to_string(),
+                Some(l) => format!(
+                    "last run: {} {}, {}",
+                    l["kind"].as_str().unwrap_or("?"),
+                    l["trigger"].as_str().unwrap_or("?"),
+                    l["result"].as_str().unwrap_or("running")
+                ),
+            };
             format!(
-                "{}\t{}@{}\t{state}\tgrants: {grants}",
-                r.pin.name, r.pin.url, r.pin.commit
+                "{}\t{}@{}\t{state}\tgrants: {grants}\t{last}\ttokens today: {}",
+                r.pin.name, r.pin.url, r.pin.commit, r.tokens_today
             )
         })
         .collect()
@@ -240,6 +340,9 @@ pub fn main(given: &[String]) -> u8 {
         Words::List { .. } => "tehas plugin",
         Words::Review { .. } => "tehas plugin review",
         Words::Skills { .. } => "tehas plugin skills",
+        Words::Run { .. } => "tehas plugin run",
+        Words::Hook { .. } => "tehas plugin hook",
+        Words::Log { .. } => "tehas plugin log",
     };
     if let Err(why) = features::needs("plugins", what, &get) {
         eprintln!("{what}: {why}");
@@ -251,7 +354,9 @@ pub fn main(given: &[String]) -> u8 {
     };
     match asked {
         Words::List { json: json_out } => {
-            let rows = rows(&get, &|name| prepare::read_state(&home, name));
+            let rows = rows(&get, &|name| prepare::read_state(&home, name), &|name| {
+                store_runs(&home, name)
+            });
             if json_out {
                 outln!("{}", json(&rows).dump());
             } else {
@@ -278,6 +383,17 @@ pub fn main(given: &[String]) -> u8 {
             }
             exit::OK
         }
+        Words::Run { name } => ask::run(&mut exec::Host, &home, &get, &name),
+        Words::Hook { name, pr } => {
+            let program = crate::forge::gh_program(Some(&home.display().to_string()), &get("PATH"));
+            let Some(program) = program else {
+                eprintln!("tehas plugin hook: no gh to ask GitHub with");
+                return exit::FAILED;
+            };
+            let mut gh = tehas_core::forge::Bounded::new(program, crate::forge::CALL_BOUND);
+            ask::hook(&mut exec::Host, &mut gh, &home, &get, &name, pr)
+        }
+        Words::Log { name, hook } => ask::log(&home, &get, &name, hook),
     }
 }
 
@@ -319,6 +435,10 @@ mod tests {
         None
     }
 
+    fn never(_: &str) -> (Option<Value>, u64) {
+        (None, 0)
+    }
+
     fn words_of(given: &[&str]) -> Result<Words, u8> {
         words(&given.iter().map(|s| s.to_string()).collect::<Vec<_>>())
     }
@@ -348,7 +468,49 @@ mod tests {
         assert_eq!(words_of(&["review", "Floor"]), Err(64));
         assert_eq!(words_of(&["review", "floorplan", "0123abc"]), Err(64));
         assert_eq!(words_of(&["review", "floorplan", PIN, "x"]), Err(64));
-        assert_eq!(words_of(&["run", "floorplan"]), Err(64));
+        assert_eq!(words_of(&["run"]), Err(64));
+        assert_eq!(words_of(&["run", "floorplan", "--json"]), Err(64));
+    }
+
+    #[test]
+    fn the_words_of_run_hook_and_log() {
+        let name = || "floorplan".to_string();
+        assert_eq!(
+            words_of(&["run", "floorplan"]),
+            Ok(Words::Run { name: name() })
+        );
+        assert_eq!(
+            words_of(&["hook", "floorplan", "42"]),
+            Ok(Words::Hook {
+                name: name(),
+                pr: 42
+            })
+        );
+        assert_eq!(
+            words_of(&["log", "floorplan"]),
+            Ok(Words::Log {
+                name: name(),
+                hook: None
+            })
+        );
+        assert_eq!(
+            words_of(&["log", "floorplan", "--hook", "42"]),
+            Ok(Words::Log {
+                name: name(),
+                hook: Some(42)
+            })
+        );
+        for bad in [
+            &["hook", "floorplan"][..],
+            &["hook", "floorplan", "042"],
+            &["hook", "floorplan", "x"],
+            &["hook", "floorplan", "0"],
+            &["log", "floorplan", "--hook"],
+            &["log", "floorplan", "42"],
+            &["log", "floorplan", "--json"],
+        ] {
+            assert_eq!(words_of(bad), Err(64), "{bad:?}");
+        }
     }
 
     #[test]
@@ -374,7 +536,7 @@ mod tests {
 
     #[test]
     fn no_plugin_is_the_empty_sample() {
-        let rows = rows(&vars(&[]), &none);
+        let rows = rows(&vars(&[]), &none, &never);
         assert_eq!(json(&rows), sample("empty"));
         assert_eq!(text(&rows), ["no plugins: TEHAS_PLUGINS names none"]);
     }
@@ -386,11 +548,11 @@ mod tests {
             ("TEHAS_PLUGINS", &floorplan()),
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &line),
         ]);
-        let rows = rows(&get, &none);
+        let rows = rows(&get, &none, &never);
         assert_eq!(json(&rows), sample("sample"));
         assert_eq!(
             text(&rows),
-            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:work")]
+            [format!("floorplan\t{URL}@{PIN}\tunbuilt\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")]
         );
     }
 
@@ -408,14 +570,20 @@ mod tests {
             s.bases = vec![format!("node@sha256:{}", "a".repeat(64))];
             Some(s)
         };
-        assert_eq!(json(&rows(&get, &ready)), sample("ready"));
+        let ran = |_: &str| {
+            let last = serde_json::json!({"kind": "refresh", "trigger": "timer", "start": 1763700000, "end": 1763700600, "result": "done", "tokens": 120000});
+            (Some(last), 120000)
+        };
+        assert_eq!(json(&rows(&get, &ready, &ran)), sample("ready"));
+        assert!(text(&rows(&get, &ready, &ran))[0]
+            .ends_with("\tlast run: refresh timer, done\ttokens today: 120000"));
         let refused = |_: &str| Some(State::refused(PIN, "view is asked and not granted"));
         assert_eq!(
-            text(&rows(&get, &refused))[0],
-            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:work")
+            text(&rows(&get, &refused, &never))[0],
+            format!("floorplan\t{URL}@{PIN}\trefused: view is asked and not granted\tgrants: view product model:2000000 action:refresh hook:after:work\tlast run: none\ttokens today: 0")
         );
         let old = |_: &str| Some(State::new(Word::Ready, &"f".repeat(40)));
-        assert_eq!(rows(&get, &old)[0].state.state, Word::Unbuilt);
+        assert_eq!(rows(&get, &old, &never)[0].state.state, Word::Unbuilt);
     }
 
     #[test]
@@ -426,21 +594,21 @@ mod tests {
             ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", &other),
         ]);
         let ready = |_: &str| Some(State::new(Word::Ready, PIN));
-        let rows = rows(&get, &ready);
+        let rows = rows(&get, &ready, &never);
         assert_eq!(rows[0].state.state, Word::Refused);
         assert!(rows[0].grants.is_empty());
         assert_eq!(json(&rows), sample("refused"));
         assert_eq!(
             text(&rows),
             [format!(
-                "floorplan\t{URL}@{PIN}\trefused: the grants are for another commit\tgrants: none"
+                "floorplan\t{URL}@{PIN}\trefused: the grants are for another commit\tgrants: none\tlast run: none\ttokens today: 0"
             )]
         );
     }
 
     #[test]
     fn a_plugin_with_no_grants_line_grants_nothing() {
-        let rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none);
+        let rows = rows(&vars(&[("TEHAS_PLUGINS", &floorplan())]), &none, &never);
         assert_eq!(rows[0].state.state, Word::Unbuilt);
         assert!(rows[0].grants.is_empty());
     }

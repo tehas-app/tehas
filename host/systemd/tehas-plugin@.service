@@ -1,0 +1,20 @@
+[Unit]
+Description=Tehas: one refresh of the plugin %i
+
+[Service]
+NoNewPrivileges=yes
+Type=exec
+# Installed only while TEHAS_PLUGIN is on. tehasbot plugin tick, tehas plugin
+# run and a press of the view's button start it, and the request they left in
+# ~/tehas/plugins/%i/refresh.json says which. tehas-plugin runs one container
+# and waits for it; the manifest's timeout bounds the run, and docker kill
+# ends a container that outlives it.
+# The instance is the shell's first argument, not part of its script.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot plugin run \"$$1\" --kind refresh >> %h/tehas/logs/plugins.log 2>&1" tehas-plugin %i
+# A stop reaches the runner only. A container it leaves is removed by the
+# next tick, and its run is ended as lost.
+KillMode=mixed
+TimeoutStopSec=60
+# Above the longest timeout a manifest may ask, 4 hours, with time for the
+# clone, /out and the clean-up.
+RuntimeMaxSec=5h
