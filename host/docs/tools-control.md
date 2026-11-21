@@ -385,9 +385,10 @@ each caller; one past that is refused as busy and leaves no row. The row,
 kind `call`, keeps the time, the result and the answer's size, and no
 login, and the run's files are removed. A call with `--login` is refused
 until the gate's access check is in core. `tehas plugin` leaves calls out
-of its last run. Exit 0 answered; 1 the tool did not answer, with why (in
-`--json` as `{"api":1,"error":"..."}`); 3 refused, with why; 64 arguments
-the tool's `params` refuse; 78.
+of its last run, in the store's query. With `--json` every outcome but
+78 is one object on stdout: the answer, or `{"api":1,"error":"..."}` with
+why. Exit 0 answered; 1 the tool did not answer; 3 refused, busy among
+them; 64 arguments the tool's `params` refuse; 78.
 
 `tehas-plugin.timer` runs `tehasbot plugin tick` every 10 minutes. It reads
 the head the poll fetched into the product's mirror, asks GitHub nothing,

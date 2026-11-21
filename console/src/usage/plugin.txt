@@ -80,9 +80,10 @@ at most 16 KiB, and its stderr is dropped. At most two calls of a plugin
 run at once, and one of each caller: a call past that is refused as busy.
 Its run row keeps the time, the result and the answer's size, and no
 login. A call with --login is refused until the gate's access check
-is in core. Exit 0 answered; 1 the tool did not answer, with why, in
---json as {"api":1,"error":"..."}; 3 refused, with why; 64 arguments the
-tool's params refuse.
+is in core. With --json every outcome but the feature off is one object:
+the answer, or {"api":1,"error":"..."} with why. Exit 0 answered; 1 the
+tool did not answer; 3 refused, busy among them; 64 arguments the tool's
+params refuse.
 
 Exit: 0 listed, asked, printed, checked, or reviewed and not refused; 1 the fetch,
 the read, GitHub or systemd failed; 3 refused, with why: for run and hook,

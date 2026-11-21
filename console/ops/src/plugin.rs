@@ -250,7 +250,7 @@ pub fn rows(
 /// The runs of a plugin in the home's store; none when it cannot be read.
 fn store_runs(home: &Path, name: &str) -> (Option<Value>, u64) {
     let since = tehas_core::time::now().div_euclid(86_400) * 86_400;
-    match crate::store::call(home, &["plugin-runs", "--plugin", name]) {
+    match crate::store::call(home, &["plugin-runs", "--plugin", name, "--no-calls"]) {
         Ok(v) => {
             let runs = v["runs"].as_array().cloned().unwrap_or_default();
             runs::last_and_today(&runs, since)
@@ -500,38 +500,50 @@ fn call_main(
     login: Option<String>,
     json_out: bool,
 ) -> u8 {
-    let what = "tehas plugin call";
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
-    if !pins.iter().any(|p| p.name == name) {
-        eprintln!("{what}: TEHAS_PLUGINS names no plugin {name}");
-        return exit::USAGE;
+    let got = if pins.iter().any(|p| p.name == name) {
+        let caller = login.map_or(call::Caller::Host, call::Caller::Login);
+        call::call(&mut exec::Host, home, get, name, tool, args, &caller)
+    } else {
+        Err(call::Failed::Args(format!(
+            "TEHAS_PLUGINS names no plugin {name}"
+        )))
+    };
+    let (rc, out, err) = call_said(&got, json_out);
+    if let Some(line) = out {
+        outln!("{line}");
     }
-    let caller = login.map_or(call::Caller::Host, call::Caller::Login);
-    match call::call(&mut exec::Host, home, get, name, tool, args, &caller) {
-        Ok(answer) => {
-            if json_out {
-                outln!(r#"{{"api":1,"answer":{answer}}}"#);
-            } else {
-                outln!("{answer}");
-            }
-            exit::OK
+    if let Some(why) = err {
+        eprintln!("tehas plugin call: {name}/{tool}: {why}");
+    }
+    rc
+}
+
+/// What a call came to as its exit, its line on stdout and its reason on
+/// stderr. With `--json` every outcome is one object on stdout, so a host
+/// reads a refusal as it reads a failure.
+fn call_said(
+    got: &Result<Value, call::Failed>,
+    json_out: bool,
+) -> (u8, Option<String>, Option<String>) {
+    let (rc, why, said) = match got {
+        Ok(answer) if json_out => {
+            return (
+                exit::OK,
+                Some(format!(r#"{{"api":1,"answer":{answer}}}"#)),
+                None,
+            )
         }
-        Err(call::Failed::Tool(why)) => {
-            if json_out {
-                outln!(r#"{{"api":1,"error":{}}}"#, Value::String(why));
-            } else {
-                eprintln!("{what}: {name}/{tool}: {why}");
-            }
-            exit::FAILED
-        }
-        Err(call::Failed::Refused(why)) => {
-            eprintln!("{what}: {name}/{tool}: refused: {why}");
-            exit::NO
-        }
-        Err(call::Failed::Args(why)) => {
-            eprintln!("{what}: {name}/{tool}: the arguments: {why}");
-            exit::USAGE
-        }
+        Ok(answer) => return (exit::OK, Some(answer.to_string()), None),
+        Err(call::Failed::Tool(why)) => (exit::FAILED, why, why.clone()),
+        Err(call::Failed::Refused(why)) => (exit::NO, why, format!("refused: {why}")),
+        Err(call::Failed::Args(why)) => (exit::USAGE, why, why.clone()),
+    };
+    if json_out {
+        let line = format!(r#"{{"api":1,"error":{}}}"#, Value::String(why.clone()));
+        (rc, Some(line), None)
+    } else {
+        (rc, None, Some(said))
     }
 }
 
@@ -669,6 +681,37 @@ mod tests {
         );
         assert_eq!(words_of(&["check"]), Err(64));
         assert_eq!(words_of(&["check", "a", "b"]), Err(64));
+    }
+
+    #[test]
+    fn with_json_every_outcome_of_a_call_is_one_object_on_stdout() {
+        use call::Failed;
+        let one = |got: Result<Value, Failed>| call_said(&got, true);
+        let o = |s: &str| Some(s.to_string());
+        assert_eq!(
+            one(Ok(serde_json::json!({"doc": "x"}))),
+            (0, o(r#"{"api":1,"answer":{"doc":"x"}}"#), None)
+        );
+        assert_eq!(
+            one(Err(Failed::Tool("the tool exited 2".into()))),
+            (1, o(r#"{"api":1,"error":"the tool exited 2"}"#), None)
+        );
+        assert_eq!(
+            one(Err(Failed::Refused("busy".into()))),
+            (3, o(r#"{"api":1,"error":"busy"}"#), None)
+        );
+        assert_eq!(
+            one(Err(Failed::Args("q: expected a string".into()))),
+            (64, o(r#"{"api":1,"error":"q: expected a string"}"#), None)
+        );
+        assert_eq!(
+            call_said(&Err(Failed::Refused("busy".into())), false),
+            (3, None, o("refused: busy"))
+        );
+        assert_eq!(
+            call_said(&Ok(serde_json::json!({})), false),
+            (0, o("{}"), None)
+        );
     }
 
     #[test]
