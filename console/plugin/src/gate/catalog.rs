@@ -19,6 +19,9 @@ pub struct Facts {
     pub kit: bool,
     /// The ids of the actions asked for and granted.
     pub actions: Vec<String>,
+    /// The folders of the plugin's views, each with whether it is granted:
+    /// `/` for v1's `view`, each view's path of `views`.
+    pub paths: Vec<(String, bool)>,
     /// Kept files to frame at `/_frame/`. `keep:` is not a capability yet,
     /// so no plugin has any.
     pub keep: bool,
@@ -56,8 +59,21 @@ pub fn facts_of(
             .filter(|id| caps.contains(&Cap::Action(id.to_string())))
             .cloned()
             .collect(),
+        paths: Vec::new(),
         keep: false,
     }
+}
+
+/// Whether a path of the view, its segments, is served: the view with the
+/// longest folder that holds it is granted. A shorter view's grant never
+/// serves a path a longer view's folder holds.
+pub fn covered(paths: &[(String, bool)], segs: &[String]) -> bool {
+    let at = format!("/{}/", segs.join("/")).replace("//", "/");
+    paths
+        .iter()
+        .filter(|(p, _)| at.starts_with(p.as_str()))
+        .max_by_key(|(p, _)| p.len())
+        .is_some_and(|(_, granted)| *granted)
 }
 
 /// Whether the text of `state.json` says the plugin is ready at `commit`.
@@ -120,7 +136,18 @@ impl Installed {
             self.grants.get(&pin.name),
             &pin.commit,
         );
-        f.view = f.view && m.view.is_some();
+        let grants = self.grants.get(&pin.name);
+        if plugin::compare(&m.asks, grants, &pin.commit).granted() {
+            let caps = grants.map_or(&[][..], |g| &g.caps);
+            if m.view.is_some() {
+                f.paths.push(("/".to_string(), f.view));
+            }
+            for v in &m.views {
+                f.paths
+                    .push((v.path.clone(), caps.contains(&Cap::ViewOf(v.id.clone()))));
+            }
+        }
+        f.view = f.paths.iter().any(|(_, granted)| *granted);
         f
     }
 }
