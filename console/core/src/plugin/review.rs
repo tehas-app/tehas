@@ -17,8 +17,9 @@ pub struct Row {
 /// release, one manifest"). `tehas plugin review` prints from it, and the
 /// manual's page `host/docs/plugins.md` holds it as [`markdown`] writes it.
 /// A new capability is a new row here.
-pub const TABLE: [Row; 9] = [
+pub const TABLE: [Row; 10] = [
     Row { word: "view", does: "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it" },
+    Row { word: "view:<id>", does: "one of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it" },
     Row { word: "product", does: "reads all of the product's code, read only, in every run" },
     Row { word: "model:<tokens>", does: "chat completions through a socket, up to the tokens of the grant a run" },
     Row { word: "model:images", does: "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model" },
@@ -33,14 +34,15 @@ pub const TABLE: [Row; 9] = [
 pub fn row(cap: &Cap) -> &'static Row {
     let at = match cap {
         Cap::View => 0,
-        Cap::Product => 1,
-        Cap::Model => 2,
-        Cap::ModelImages => 3,
-        Cap::Action(_) => 4,
-        Cap::HookAfterWork => 5,
-        Cap::Skill(_) => 6,
-        Cap::Needs(_) => 7,
-        Cap::Tool(_) => 8,
+        Cap::ViewOf(_) => 1,
+        Cap::Product => 2,
+        Cap::Model => 3,
+        Cap::ModelImages => 4,
+        Cap::Action(_) => 5,
+        Cap::HookAfterWork => 6,
+        Cap::Skill(_) => 7,
+        Cap::Needs(_) => 8,
+        Cap::Tool(_) => 9,
     };
     &TABLE[at]
 }
@@ -189,6 +191,7 @@ mod tests {
     fn every_capability_has_one_row_of_the_table_and_every_row_one_capability() {
         let caps = [
             Cap::View,
+            Cap::ViewOf("map".into()),
             Cap::Product,
             Cap::Model,
             Cap::ModelImages,
