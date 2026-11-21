@@ -197,6 +197,8 @@ pub enum Cap {
     ModelImages,
     /// A tool the chats may call, a run of its own each call.
     Tool(String),
+    /// One view of `views`, by its id (the v2 menu part).
+    ViewOf(String),
 }
 
 impl Cap {
@@ -210,6 +212,7 @@ impl Cap {
             Cap::HookAfterWork => "hook:after:work".to_string(),
             Cap::Skill(id) => format!("skill:{id}"),
             Cap::Needs(name) => format!("needs:{name}"),
+            Cap::ViewOf(id) => format!("view:{id}"),
             Cap::ModelImages => "model:images".to_string(),
             Cap::Tool(id) => format!("tool:{id}"),
         }
@@ -276,6 +279,15 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
         } else {
             Err(format!(
                 "{word}: an action's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
+    if let Some(id) = word.strip_prefix("view:") {
+        return if is_action_id(id) {
+            Ok((Cap::ViewOf(id.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a view's id is 1 to 16 characters of a-z and -"
             ))
         };
     }

@@ -33,11 +33,14 @@ list of their own.
 | --- | --- |
 | `id` | `a-z` and `-`, 1 to 16, unique |
 | `label` | 1 to 24 characters |
-| `path` | A directory of the view, starting and ending with `/`, none inside another view's path |
+| `path` | A directory of the view, starting and ending with `/`, each view its own; a path may be inside another view's |
 | `open` | `dock` or `page` |
 
 At most 4. Each needs `view:<id>`; v1's `view` grant is a single view at
-`/`. A path no granted view covers is 404 at the gate.
+`/`. A request belongs to the view with the longest path that holds it. If
+that view is not granted, the request is 404: it never falls back to a view
+with a shorter path, so a grant left out of `/health/` is not served through
+`/`. A path no view holds is 404 at the gate.
 
 ## Widgets
 
@@ -52,7 +55,7 @@ industry.
 
 | Capability | What it gives | What a person should weigh |
 | --- | --- | --- |
-| `serve` | The plugin's container runs while it is ready, and the gate sends its views' requests to it | The plugin's code runs all the time, not only in a run, answers every signed-in person, and learns each one's login |
+| `serve` | The plugin's container runs while it is ready, and the gate sends its views' requests to it | The plugin's code runs all the time, not only in a run, and answers every signed-in person. It is not told who they are |
 
 - The manifest gives `port` (1024 to 65535) and `health` (a path). `serve`
   needs `build`.
@@ -61,17 +64,24 @@ industry.
   systemd restarts it, not Docker. The service listens on a unix socket,
   `/run/tehas/serve/http.sock`, in a directory bind-mounted from
   `~/tehas/plugins/<name>/serve/`, as the model's socket is, and the gate
-  connects to that socket. `test/fixtures/argv/plugin-service` pins it.
-- The gate proxies the service's view paths to it. It removes any
-  `X-Tehas-Login` the browser sent and adds its own, and adds no other
-  header of the person. Every rule of the v1 web part holds: the session,
+  connects to that socket. The directory is setgid, mode 2770, with the host
+  user's group, and the container gets `--group-add` of that group, so the
+  service can make the socket and the gate can reach it. `test/fixtures/argv/plugin-service` pins it.
+- The gate proxies the service's view paths to it, and sends no login and
+  nothing else of the person: it strips every `X-Tehas-*`, `Authorization`,
+  `Cookie`, `Proxy-*`, `Forwarded` and `X-Forwarded-*` header the browser
+  sent and adds none. Who pressed is known to the gate's own session, as for
+  a filed record (`record-file --by-id`). A later `identity` grant may give a
+  service the login. Every rule of the v1 web part holds: the session,
   the headers, the request rules and the policy. A server's pages cannot be
   hashed ahead, so a service's documents get `script-src 'self'` with no
   hashes, which the browser already holds to no inline script.
 - In v2 a service gets no `product`, `model` or `net`: tehas makes those for
   each run, and a service has no run. A later version adds each behind a
   grant of its own and says how it is counted.
-- Its memory and CPU count against `TEHAS_PLUGIN_LIMITS` all the time, and in
-  admission by room, so a factory sees what a service costs.
+- It has memory and pids limits of its own, smaller than a run's, set in
+  `sandbox.rs` and pinned by the fixture. They count against
+  `TEHAS_PLUGIN_LIMITS` all the time, and in admission by room, so a factory
+  sees what a service costs.
 - `/state` is read and write. `/out` is not used.
 - `tehas plugin` shows the service's state, its restarts and its health.

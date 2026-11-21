@@ -98,6 +98,8 @@ fn facts(kit: bool) -> Facts {
         view: true,
         kit,
         actions: vec!["refresh".to_string()],
+        paths: vec![("/".to_string(), true)],
+        keep: kit,
     }
 }
 
@@ -564,6 +566,85 @@ fn a_file_of_the_view_is_served_and_nothing_outside_it() {
 }
 
 #[test]
+fn a_kept_file_is_framed_sandboxed_and_only_by_its_own_view() {
+    let f = fixture();
+    let c = sign_in(&f, P, T0);
+    let keep = f.dir.join("plugins/floorplan/keep/p-1");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(
+        keep.join("v2.html"),
+        "<p onclick=\"x()\">proto</p><script>steal()</script>",
+    )
+    .unwrap();
+    std::fs::write(keep.join("shot.png"), "png").unwrap();
+    std::fs::write(keep.join("run.js"), "x()").unwrap();
+    std::fs::write(f.dir.join("plugins/floorplan/secret.html"), "no").unwrap();
+    std::os::unix::fs::symlink(
+        f.dir.join("plugins/floorplan/secret.html"),
+        keep.join("link.html"),
+    )
+    .unwrap();
+    let mut r = f.gate.answer(&fetch(P, "/_frame/p-1/v2.html", &c), T0);
+    assert_eq!(r.status, 200);
+    assert_eq!(r.header("Content-Type"), Some("text/html; charset=utf-8"));
+    let policy = r.header("Content-Security-Policy").unwrap().to_string();
+    // Whatever the page holds runs nothing: sandboxed without scripts.
+    assert!(policy.ends_with("sandbox allow-same-origin"), "{policy}");
+    assert!(!policy.contains("script-src"), "{policy}");
+    assert!(
+        policy.contains(&format!("frame-ancestors https://{P}")),
+        "{policy}"
+    );
+    assert_eq!(r.header("Cache-Control"), Some("private, no-store"));
+    assert_eq!(
+        r.header("Cross-Origin-Resource-Policy"),
+        Some("same-origin")
+    );
+    assert!(String::from_utf8(r.bytes()).unwrap().contains("proto"));
+    let img = f.gate.answer(&fetch(P, "/_frame/p-1/shot.png", &c), T0);
+    assert_eq!(img.header("Content-Type"), Some("image/png"));
+    for t in [
+        "/_frame/p-1/run.js",
+        "/_frame/p-1/link.html",
+        "/_frame/p-1",
+        "/_frame/p-1/../../secret.html",
+        "/_frame/p-1/none.html",
+    ] {
+        assert_eq!(f.gate.answer(&fetch(P, t, &c), T0).status, 404, "{t}");
+    }
+    // No session: no frame.
+    assert_eq!(
+        f.gate
+            .answer(&fetch(P, "/_frame/p-1/v2.html", ""), T0)
+            .status,
+        401
+    );
+    // Another site's fetch: refused before anything is read.
+    let mut cross = fetch(P, "/_frame/p-1/v2.html", &c);
+    cross.headers.retain(|(k, _)| k != "Sec-Fetch-Site");
+    cross
+        .headers
+        .push(("Sec-Fetch-Site".into(), "cross-site".into()));
+    assert_eq!(f.gate.answer(&cross, T0).status, 403);
+}
+
+#[test]
+fn a_plugin_without_kept_files_frames_nothing() {
+    let f = fixture();
+    let host = f.gate.plugin_host("specs");
+    let c = sign_in(&f, &host, T0);
+    let keep = f.dir.join("plugins/specs/keep/p-1");
+    std::fs::create_dir_all(&keep).unwrap();
+    std::fs::write(keep.join("v2.html"), "<p>x</p>").unwrap();
+    assert_eq!(
+        f.gate
+            .answer(&fetch(&host, "/_frame/p-1/v2.html", &c), T0)
+            .status,
+        404
+    );
+}
+
+#[test]
 fn paths_of_underscore_are_the_gates_whatever_the_view_holds() {
     let f = fixture();
     let c = sign_in(&f, P, T0);
@@ -573,6 +654,7 @@ fn paths_of_underscore_are_the_gates_whatever_the_view_holds() {
     assert_eq!(s.bytes(), br#"{"signed": true}"#.to_vec());
     for t in [
         "/_frame/x",
+        "/_frame",
         "/_relay/a",
         "/_console/a",
         "/_x",
@@ -1182,7 +1264,9 @@ fn a_plugin_is_granted_by_its_manifest_and_its_grants_line() {
         Facts {
             view: true,
             kit: true,
-            actions: vec!["refresh".into()]
+            actions: vec!["refresh".into()],
+            paths: Vec::new(),
+            keep: false,
         }
     );
     // Another commit's grants grant nothing.
@@ -1245,4 +1329,49 @@ fn the_listener_writes_the_answer_and_closes() {
         out.starts_with("HTTP/1.1 413 ") && out.contains("X-Content-Type-Options: nosniff\r\n"),
         "{out}"
     );
+}
+
+#[test]
+fn a_path_is_served_only_inside_a_granted_views_folder() {
+    let seg = |p: &str| -> Vec<String> {
+        p.split('/')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
+    };
+    let views = |v: &[(&str, bool)]| -> Vec<(String, bool)> {
+        v.iter().map(|(p, g)| (p.to_string(), *g)).collect()
+    };
+    let v1 = views(&[("/", true)]);
+    for p in ["", "index.html", "health/", "a/b.js"] {
+        assert!(catalog::covered(&v1, &seg(p)), "{p}");
+    }
+    let health = views(&[("/health/", true)]);
+    for (p, yes) in [
+        ("health", true),
+        ("health/index.html", true),
+        ("health/a/b.js", true),
+        ("", false),
+        ("index.html", false),
+        ("healthy/x", false),
+        ("other/health/x", false),
+    ] {
+        assert_eq!(catalog::covered(&health, &seg(p)), yes, "{p}");
+    }
+    // The longest folder decides: / granted and /health/ not leaves
+    // /health/ 404, never served by the grant of /.
+    let both = views(&[("/", true), ("/health/", false)]);
+    for (p, yes) in [
+        ("index.html", true),
+        ("map/x.js", true),
+        ("health", false),
+        ("health/x", false),
+        ("healthy/x", true),
+    ] {
+        assert_eq!(catalog::covered(&both, &seg(p)), yes, "{p}");
+    }
+    let inner = views(&[("/", false), ("/health/", true)]);
+    assert!(catalog::covered(&inner, &seg("health/x")));
+    assert!(!catalog::covered(&inner, &seg("index.html")));
+    assert!(!catalog::covered(&[], &seg("index.html")));
 }

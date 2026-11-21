@@ -143,9 +143,11 @@ pub enum Route {
     Signout,
     /// `/_auth/<step>` of the hand-off on a plugin's name: `ask`, `take`.
     Auth(String),
-    /// A path of `/_` the gate does not answer. v3's `/_frame/<path>` and
-    /// uploads, and the WebSocket paths `/_relay/<id>` and `/_console/<id>`,
-    /// are matched here when they are built.
+    /// `/_frame/<path>`: a file the plugin kept, its segments.
+    Frame(Vec<String>),
+    /// A path of `/_` the gate does not answer. v3's uploads, and the
+    /// WebSocket paths `/_relay/<id>` and `/_console/<id>`, are matched here
+    /// when they are built.
     Reserved,
     /// A file of `view/`, its segments.
     File(Vec<String>),
@@ -158,6 +160,9 @@ pub fn route(path: &Path) -> Route {
         [first, ..] if !first.starts_with('_') => Route::File(path.0.clone()),
         [] => Route::File(Vec::new()),
         ["_kit", rest @ ..] if !rest.is_empty() => Route::Kit(rest.join("/")),
+        ["_frame", rest @ ..] if !rest.is_empty() => {
+            Route::Frame(rest.iter().map(|s| s.to_string()).collect())
+        }
         ["_actions"] => Route::Actions,
         ["_actions", id] if tehas_core::plugin::is_action_id(id) => Route::Action(id.to_string()),
         ["_hooks", pr] => match pr.parse::<u64>() {

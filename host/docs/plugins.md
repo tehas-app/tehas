@@ -22,6 +22,7 @@ the line of this table. Read it before you write the grant.
 | Capability | What it lets the plugin do |
 | --- | --- |
 | `view` | Its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it |
+| `view:<id>` | One of its views, the part of its /out at that view's path, is served behind the sign-in and opens from the plugins menu: everyone the sign-in lets in sees it |
 | `product` | Reads all of the product's code, read only, in every run |
 | `model:<tokens>` | Chat completions through a socket, up to the tokens of the grant a run |
 | `model:images` | Images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model |
