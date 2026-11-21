@@ -109,7 +109,8 @@ fn walk(
         if kind.is_dir() {
             walk(&from, &dst.join(&name), &path, depth + 1, out, used)?;
             // The folder read is the one checked, not a link put in its place.
-            let read = fs::metadata(&from).map_err(|_| format!("{path} changed while it was copied"))?;
+            let read =
+                fs::metadata(&from).map_err(|_| format!("{path} changed while it was copied"))?;
             if read.dev() != meta.dev() || read.ino() != meta.ino() {
                 return Err(format!("{path} changed while it was copied"));
             }
