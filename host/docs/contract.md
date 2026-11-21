@@ -182,6 +182,12 @@ A command tehas adds in 1.x may take a word that is not kept for the family,
 and then wins over a part of that word. A part that wants its word for good
 asks for it to be kept.
 
+`tehas <part>` is an addition beside each part's own command, which keeps
+working through 1.x (v1.2.0 included) as it did before: `industry <words>`
+on the host runs as it always has, and nothing warns that it is old. 2.0 may
+retire the separate commands, leaving `tehas <part>` the one way in, and take
+them out of the code and the docs.
+
 ## Settings and the knob rule
 
 A ruled setting keeps its name and its meaning through 1.x, and a missing or
