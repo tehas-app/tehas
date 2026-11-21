@@ -116,7 +116,14 @@ wait "$s""#
     assert_eq!(count_in(&gh, "--remove-label tehas:running"), 1);
     assert_eq!(count_lines(&gh, "pr list "), 1);
     assert_eq!(w.calls("fake-status"), "");
-    has(&r.out, "WARN: label change on #7 failed");
+    // A call cut at its bound is a write that failed, or one GitHub may have
+    // taken that no read could settle (the read hangs too): under load either.
+    assert!(
+        r.out.contains("WARN: label change on #7 failed")
+            || r.out.contains("WARN: a write on #7 may have been posted"),
+        "{}",
+        r.out
+    );
 }
 
 #[test]
