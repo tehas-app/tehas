@@ -220,7 +220,8 @@ t_contains "$t_out" "passed already"
 t_case "a tsc that arrives runs the gate again"
 fresh
 t_eq "$(runs_cargo)" 1
-t_stub tsc 'echo "Version 7.0.2"'
+# A version no real tsc prints: the sandbox image has a tsc on PATH already.
+t_stub tsc 'echo "Version 0.0.0-test"'
 t_eq "$(runs_cargo)" 2
 
 t_done
