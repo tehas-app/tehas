@@ -26,8 +26,8 @@ It waits for nothing.
 
 No hook is asked for when:
 
-- the cycle was stopped by a signal, refused at start, or parked with no
-  pull request;
+- the cycle was stopped by a signal, refused at start (`tehas work` refused
+  it before the runner ran), or parked with no pull request;
 - the pull request is merged or closed;
 - the plugin is refused, off, or not granted the hook.
 
@@ -47,7 +47,8 @@ refresh of the same plugin to end, so it reads a whole `/state`.
 
 When it ends, tehas asks GitHub for the pull request's head. A head that moved
 while the hook ran makes the verdict stale: it is posted for the commit it
-read, and a new request for the new head follows.
+read, and a new request for the new head follows. If reading the head fails,
+the verdict is posted for the head the hook read and no new request is made.
 
 ## The verdict
 
@@ -74,13 +75,19 @@ the schema, a hook that fails or runs out of time: tehas posts the status
 `error` with "the plugin's hook did not finish".
 
 The verdict read is kept as `~/tehas/plugins/<name>/hooks/<pr>.verdict.json`
-until the pull request is merged or closed, for the gate's findings page.
+for the gate's findings page. A new hook on the pull request deletes the old
+one when it starts. `tehasbot plugin tick` asks GitHub nothing, so it removes a
+verdict when its head commit is an ancestor of the default branch in the
+product's mirror (merged), or when the file is older than 30 days. After a
+squash merge the head is not an ancestor, so that verdict stays up to 30 days,
+behind the sign-in.
 
 ## What tehas posts
 
-One commit status, and nothing else on GitHub. Through the report's action
-journal, so a write that may have reached GitHub is not sent twice
-(`host/docs/operating.md`, "The report in Rust").
+One commit status, and nothing else on GitHub. Not through the action
+journal: the store has no status kind, and a status posted twice is harmless,
+since GitHub keeps the newest per context. A failed post is retried once and
+logged.
 
 - Context `tehas/plugin/<name>`, on the head commit the hook read.
 - State `success` for `pass` and for `note`, `error` when the hook did not
@@ -93,8 +100,10 @@ journal, so a write that may have reached GitHub is not sent twice
   shows the findings behind the sign-in, as plain text in a page tehas makes.
   With no `view` granted, no target URL.
 - It needs the App's "Commit statuses: Read and write", an adopter action.
-  Without it, the status is not written and `tehas plugin` says so; the
-  findings are still at the target address.
+  `tehas setup --new-app` asks for it; a cycle's narrowed token is unchanged.
+  Without it, GitHub answers 403, the status is not written, and
+  `tehas plugin --json` sets `status_unwritten`; the findings are still at the
+  target address.
 
 No comment, on purpose. A cycle's agents read the pull request with their own
 token inside the container, where tehas cannot filter what they read, so a
