@@ -149,7 +149,9 @@ impl Run<'_> {
         if self.kind == Kind::Hook && !has(Cap::HookAfterWork) {
             return Err("a hook without hook:after:work".to_string());
         }
-        let tokens = if has(Cap::Model) {
+        // A hook has no model in v1 (docs/specs/2026-11-21-plugins-hooks.md,
+        // "The run"), whatever is granted.
+        let tokens = if has(Cap::Model) && self.kind == Kind::Refresh {
             Some(
                 self.grants
                     .tokens
@@ -355,10 +357,26 @@ pub(crate) mod tests {
                 "trigger": "cycle",
                 "commit": C,
                 "head": H,
-                "model": {"id": "plugin", "tokens": 2000000},
                 "pr": {"number": 42, "base": B, "head": H},
             })
         );
+        assert_eq!(
+            context(&run(&m, &g, Kind::Refresh)).unwrap()["model"],
+            json!({"id": "plugin", "tokens": 2000000})
+        );
+    }
+
+    #[test]
+    fn a_hook_has_no_model_whatever_is_granted() {
+        let m = manifest(&["model", "hook:after:work"]);
+        let g = granted("model:2000 hook:after:work");
+        assert_eq!(run(&m, &g, Kind::Hook).given().unwrap().tokens, None);
+        assert_eq!(
+            run(&m, &g, Kind::Refresh).given().unwrap().tokens,
+            Some(2000)
+        );
+        let w = crate::sandbox::plugin_run(&run(&m, &g, Kind::Hook)).unwrap();
+        assert!(!w.iter().any(|a| a.contains("dst=/run/tehas")), "{w:?}");
     }
 
     #[test]
@@ -400,5 +418,8 @@ pub(crate) mod tests {
         let mut refresh = api("plugin-context.hook.json");
         refresh["kind"] = json!("refresh");
         assert!(!fits(&refresh, &s), "only a hook names a pull request");
+        let mut model = api("plugin-context.hook.json");
+        model["model"] = json!({"id": "plugin", "tokens": 5});
+        assert!(!fits(&model, &s), "a hook has no model");
     }
 }

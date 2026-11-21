@@ -374,11 +374,28 @@ fn swap_view(new: &Path, view: &Path) -> Result<(), String> {
     fs::remove_dir_all(new).map_err(fail)
 }
 
+/// What a request's content may hold: images too only with `model:images`
+/// asked and granted.
+pub fn content(m: &Manifest, g: &Grants) -> Content {
+    let cap = Cap::ModelImages;
+    if m.asks.contains(&cap.ask()) && g.caps.contains(&cap) {
+        Content::TextAndImages
+    } else {
+        Content::Text
+    }
+}
+
 struct Socket {
     server: Option<Server>,
 }
 
-fn model_socket(s: &Setup, dir: &Path, id: &str, tokens: u64) -> Result<Socket, String> {
+fn model_socket(
+    s: &Setup,
+    dir: &Path,
+    id: &str,
+    tokens: u64,
+    content: Content,
+) -> Result<Socket, String> {
     let get = s.get;
     let provider = get("PI_ENSEMBLE_SUBAGENT_PROVIDER");
     let up = upstream::read(s.models, &provider, id)?;
@@ -391,8 +408,7 @@ fn model_socket(s: &Setup, dir: &Path, id: &str, tokens: u64) -> Result<Socket, 
         day: Arc::new(day),
         upstream: up,
         curl: "curl".into(),
-        // TODO: Content::TextAndImages once a grant of model:images exists.
-        content: Content::Text,
+        content,
     };
     Server::start(dir, run)
         .map(|server| Socket {
@@ -542,7 +558,7 @@ fn run_in(
         {
             return Came::Failed(format!("{}: {e}", at.display()));
         }
-        socket = match model_socket(s, &at, &model_id, budget) {
+        socket = match model_socket(s, &at, &model_id, budget, content(&p.manifest, &p.grants)) {
             Ok(sock) => sock,
             Err(why) => return Came::Failed(why),
         };
