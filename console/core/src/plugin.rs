@@ -1,9 +1,14 @@
 //! Plugins, a feature still being built (docs/specs/2026-11-21-plugins.md):
 //! programs from pinned git repositories. Here are the grammar of their
 //! settings and the capabilities, which the settings' rules, the manifest's
-//! reader and `tehas plugin` share. Nothing here reads a file or the network.
+//! reader and `tehas plugin` share, and the parts of a run that are rules:
+//! the Dockerfile's, the reader of `/out` and a run as data. Only that
+//! reader writes files; nothing here reaches the network.
 
+pub mod dockerfile;
 pub mod manifest;
+pub mod out;
+pub mod run;
 #[cfg(test)]
 mod schema;
 
@@ -134,6 +139,35 @@ pub fn pins(value: &str) -> Result<Vec<Pin>, String> {
         return Err(format!("at most {MAX} plugins"));
     }
     Ok(pins)
+}
+
+/// TEHAS_PLUGIN_LIMITS: the most one run may have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    /// GiB of memory, and of memory and swap together.
+    pub memory: u32,
+    pub cpus: u32,
+    /// GiB of its volumes together.
+    pub disk: u32,
+}
+
+/// `memory=<GiB> cpus=<n> disk=<GiB>`, in that order, each a whole number
+/// from 1 to 999. None: not that.
+pub fn limits(value: &str) -> Option<Limits> {
+    let mut n = [0u32; 3];
+    let mut parts = value.split(' ');
+    for (slot, name) in n.iter_mut().zip(["memory", "cpus", "disk"]) {
+        let v = parts.next()?.strip_prefix(name)?.strip_prefix('=')?;
+        let whole = (1..=3).contains(&v.len())
+            && !v.starts_with('0')
+            && v.bytes().all(|b| b.is_ascii_digit());
+        *slot = whole.then(|| v.parse().ok())??;
+    }
+    parts.next().is_none().then_some(Limits {
+        memory: n[0],
+        cpus: n[1],
+        disk: n[2],
+    })
 }
 
 /// A capability of v1, as a grant or an ask names it.
@@ -373,6 +407,26 @@ mod tests {
 
     fn floorplan() -> String {
         format!("floorplan=https://github.com/tehas-app/tehas-plugin-floorplan@{C}")
+    }
+
+    #[test]
+    fn the_limits_are_read_in_their_order() {
+        assert_eq!(
+            limits("memory=2 cpus=3 disk=999"),
+            Some(Limits {
+                memory: 2,
+                cpus: 3,
+                disk: 999
+            })
+        );
+        for bad in [
+            "",
+            "memory=2 cpus=2",
+            "cpus=2 memory=2 disk=4",
+            "memory=+2 cpus=2 disk=4",
+        ] {
+            assert_eq!(limits(bad), None, "{bad}");
+        }
     }
 
     #[test]

@@ -480,8 +480,9 @@ with exit 78 and says `plugins` is still being built.
   gives one a value stops every command with exit 78 and names `plugins`.
 - `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
-- `api/plugin.schema.json` and `api/plugin-manifest.schema.json` and their
-  samples are not contract until the release that ships the feature.
+- `api/plugin.schema.json`, `api/plugin-manifest.schema.json` and
+  `api/plugin-context.schema.json` and their samples are not contract until
+  the release that ships the feature.
 - No label, no `--json` field of another command, no MCP tool, no unit, no
   file under `live/`.
 
