@@ -202,6 +202,35 @@ fn the_samples_of_tehas_plugin_review_fit_its_schema() {
 }
 
 #[test]
+fn the_samples_of_tehas_plugin_skills_fit_its_schema() {
+    let s = api("plugin-skills.schema.json");
+    assert_eq!(s["$schema"], "https://json-schema.org/draft/2020-12/schema");
+    assert_eq!(
+        s["$id"],
+        "https://github.com/tehas-app/tehas/api/plugin-skills.schema.json"
+    );
+    closed(&s);
+    let sample = api("plugin-skills.sample.json");
+    for name in ["sample", "empty"] {
+        assert!(
+            fits(&api(&format!("plugin-skills.{name}.json")), &s),
+            "{name}"
+        );
+    }
+    let broken: [(&str, Value); 4] = [
+        ("label", json!(null)),
+        ("chats", json!([])),
+        ("sha256", json!("abc")),
+        ("text", json!("x".repeat(2049))),
+    ];
+    for (field, v) in broken {
+        let mut b = sample.clone();
+        b["skills"][0][field] = v;
+        assert!(!fits(&b, &s), "{field}");
+    }
+}
+
+#[test]
 fn a_keyword_the_check_does_not_know_fails() {
     let got = std::panic::catch_unwind(|| fits(&json!(1), &json!({"oneOf": []})));
     assert!(got.is_err());
