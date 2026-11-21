@@ -1,6 +1,7 @@
 //! What is left of `tehas update` once install.sh has run: its answer read, the
-//! follow-ups it asked for run in order, the pi-rukas commit followed, and the
-//! tag of the image a release ran with.
+//! follow-ups it asked for run in order, the plugins fetched and built
+//! (crate::plugin::update), the pi-rukas commit followed, and the tag of the
+//! image a release ran with.
 //!
 //! Whether a service runs is a question put to Docker or to systemd, and only
 //! their answer means anything, never their exit status on its own. Only silence
@@ -598,6 +599,13 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
             break;
         }
     }
+    // A refused plugin is skipped, not fatal: the rest of the update goes
+    // on, and it exits 1 at the end.
+    let plugins_refused = plan.mode == Mode::Update && ran == steps.len() && {
+        let said = crate::plugin::update_step(&run.host.home);
+        said.lines.iter().for_each(|l| say(l));
+        said.refused
+    };
     if ran < steps.len() {
         tell(&format!(
             "update: {} of {} follow-up(s) are not done, recorded in {}; tehas update runs them again",
@@ -642,7 +650,7 @@ fn follow_ups(run: &mut Run, plan: &Plan, out: &str) -> u8 {
     if drained {
         say(DRAINED_LINE);
     }
-    0
+    u8::from(plugins_refused)
 }
 
 /// `console update finish --plan <file> --install-out <file> --install-err

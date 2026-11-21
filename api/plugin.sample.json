@@ -13,7 +13,10 @@
         "hook:after:work"
       ],
       "state": "unbuilt",
-      "refusal": null
+      "refusal": null,
+      "image": null,
+      "manifest_sha256": null,
+      "bases": []
     }
   ]
 }

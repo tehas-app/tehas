@@ -484,11 +484,13 @@ with exit 78 and says `plugins` is still being built.
   `TEHAS_PLUGIN_ACCESS`, `TEHAS_PLUGIN_LIMITS` and `TEHAS_PLUGIN_MODEL_DAY`
   are in `api/settings-rules.json`, but they are not contract: a line that
   gives one a value stops every command with exit 78 and names `plugins`.
-- `tehas plugin` exits 78 and reads nothing more. `tehas help plugin` prints
+- `tehas plugin` and `tehas plugin review` exit 78 and read nothing more,
+  and `tehas update` fetches and builds no plugin. `tehas help plugin` prints
   its text, and the list of `tehas help` does not name it.
-- `api/plugin.schema.json`, `api/plugin-manifest.schema.json` and
-  `api/plugin-context.schema.json` and their samples are not contract until
-  the release that ships the feature.
+- `api/plugin.schema.json`, `api/plugin-review.schema.json`,
+  `api/plugin-manifest.schema.json` and `api/plugin-context.schema.json` and
+  their samples are not contract until the release that ships the feature.
+- The state store has the table `plugin_runs` from schema 19, empty.
 - No label, no `--json` field of another command, no MCP tool, no unit, no
   file under `live/`.
 
