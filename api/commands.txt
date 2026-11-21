@@ -53,6 +53,7 @@ panel set --label --url
 pause --reason
 plan --answer --brief --comment --keep --kind --out --session internal=--answer,--brief,--comment,--keep,--kind,--out,--session
 plugin --json building=plugins
+plugin call --args --json --login building=plugins
 plugin check --json building=plugins
 plugin hook building=plugins
 plugin log --hook building=plugins
