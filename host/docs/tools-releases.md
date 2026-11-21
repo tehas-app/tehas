@@ -437,7 +437,7 @@ A polyfill of the feature `<f>` is three things, and nothing else may use it:
   such as the `polyfill)` arm of a `case` on the mode
 
 A polyfill gives the container nothing a cycle does not already get: the
-mounts and variables of `tehas work` stay as `test/work_test.sh` pins them.
+mounts and variables of `tehas work` stay as `console/cycle/tests/work_container.rs` pins them.
 What cannot be done that way is not a polyfill; it waits for pi-rukas.
 
 `install.sh` installs every `lib/polyfill-*.sh` of the tree it runs from into
