@@ -9,12 +9,14 @@
 //! `plugin_runs`, the run's directory with its context and `call.json`, the
 //! container attached at the tool's timeout, its answer read, then the row
 //! ended and the directory removed. Nothing of the call is kept but the
-//! row's time, size and result.
+//! row's time, size and result, and the directory of a row the store did
+//! not end.
 
-use super::exec::{Called, Exec};
+use super::exec::{Called, Cmd, Exec};
 use super::prepare;
 use super::ready::{ready, Ready};
 use super::runs;
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::path::Path;
@@ -166,8 +168,13 @@ pub fn call(
         tool: Some(&t.id),
     };
     let (got, result, size) = run_in(x, &run, &t, args);
+    // A row left open keeps its directory, for a sweep to find.
+    end(home, id, result, size).map_err(|line| {
+        Failed::Tool(format!(
+            "the store did not end run {id}, so {dir_text} is kept: {line}"
+        ))
+    })?;
     let _ = fs::remove_dir_all(&dir);
-    end(home, id, result, size);
     got
 }
 
@@ -253,11 +260,19 @@ fn run_in(
         }
     }
     let limit = Duration::from_secs(t.timeout);
-    match x.attached(&argv, limit, ANSWER_MAX, Path::new(&run.path("cid"))) {
+    let called = x.attached(&argv, limit, ANSWER_MAX, Path::new(&run.path("cid")));
+    if !matches!(called, Called::Out(_) | Called::Exit(_)) {
+        // A killed client leaves its container running, and the cid file
+        // may not be written yet: its name finds it. One gone is fine.
+        let rm = ["rm", "-f", &run.container()].map(String::from).to_vec();
+        let _ = x.run(&Cmd::new("docker", rm));
+    }
+    match called {
         Called::Out(b) => {
             let v = std::str::from_utf8(&b)
                 .ok()
-                .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                .and_then(|s| serde_json::from_str::<Strict>(s).ok())
+                .map(|v| v.0)
                 .filter(Value::is_object);
             match v {
                 Some(v) => (Ok(v), "done", Some(b.len())),
@@ -282,20 +297,71 @@ fn run_in(
     }
 }
 
-/// The row ended with what the call came to.
-fn end(home: &Path, id: u64, result: &str, size: Option<usize>) {
+/// A JSON value with no key twice in an object at any depth: serde_json
+/// keeps the last, and a host's parser may keep another.
+struct Strict(Value);
+
+impl<'de> Deserialize<'de> for Strict {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Strict, D::Error> {
+        d.deserialize_any(Strict(Value::Null))
+    }
+}
+
+impl<'de> Visitor<'de> for Strict {
+    type Value = Strict;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("JSON")
+    }
+    fn visit_unit<E>(self) -> Result<Strict, E> {
+        Ok(Strict(Value::Null))
+    }
+    fn visit_bool<E>(self, b: bool) -> Result<Strict, E> {
+        Ok(Strict(b.into()))
+    }
+    fn visit_i64<E>(self, n: i64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_u64<E>(self, n: u64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_f64<E>(self, n: f64) -> Result<Strict, E> {
+        Ok(Strict(n.into()))
+    }
+    fn visit_str<E>(self, s: &str) -> Result<Strict, E> {
+        Ok(Strict(s.into()))
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut a: A) -> Result<Strict, A::Error> {
+        let mut v = Vec::new();
+        while let Some(Strict(e)) = a.next_element()? {
+            v.push(e);
+        }
+        Ok(Strict(v.into()))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Strict, A::Error> {
+        let mut m = serde_json::Map::new();
+        while let Some(k) = a.next_key::<String>()? {
+            if m.contains_key(&k) {
+                return Err(de::Error::custom(format!("{k} twice")));
+            }
+            let Strict(v) = a.next_value()?;
+            m.insert(k, v);
+        }
+        Ok(Strict(m.into()))
+    }
+}
+
+/// The row ended with what the call came to, or the store's refusal.
+fn end(home: &Path, id: u64, result: &str, size: Option<usize>) -> Result<(), String> {
     let id = id.to_string();
     let size = size.map(|n| n.to_string());
     let mut args = vec!["plugin-run-end", "--run", &id, "--result", result];
     if let Some(n) = &size {
         args.extend(["--size", n.as_str()]);
     }
-    if let Err(no) = crate::store::try_call(home, 3, &args) {
-        eprintln!(
-            "plugin call: run {id}: the store did not end it: {}",
-            no.line
-        );
-    }
+    crate::store::try_call(home, 3, &args)
+        .map(drop)
+        .map_err(|no| no.line)
 }
 
 #[cfg(test)]
