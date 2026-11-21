@@ -42,6 +42,7 @@ pub mod out;
 pub mod outcome;
 pub mod pause;
 pub mod plan;
+pub mod plugin;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod queue_lists;

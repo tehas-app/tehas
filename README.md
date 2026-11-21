@@ -214,3 +214,7 @@ host.
 Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The pixel
 typeface in `host/fun/` is third-party work under its own terms and is credited
 in the footer of every page.
+
+The files in `api/`, the schemas and samples of what tehas prints and reads,
+are dedicated to the public domain under CC0-1.0: see [`api/LICENSE`](api/LICENSE).
+A program may copy them freely.

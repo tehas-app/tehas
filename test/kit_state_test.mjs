@@ -80,6 +80,61 @@ test("a second definition of a name with other actions is refused", () => {
   });
 });
 
+test("a second definition whose actions read the state while made gets the store", () => {
+  // The actions of both read the state as they are made, as a store that
+  // keeps a count from its start does. The second one is compared with the
+  // first by its actions' names, made against the store's own state.
+  const spec = () => ({
+    state: () => ({ items: [3] }),
+    actions: (set, state) => {
+      const start = state.items.length;
+      return { add() { set((d) => { d.items.push(start); }); } };
+    },
+  });
+  const one = pageStore("counted", spec());
+  const two = pageStore("counted", spec());
+  createRoot(() => {
+    const store = one();
+    assert.equal(two(), store);
+    store.actions.add();
+    flush();
+    assert.deepEqual([...store.state.items], [3, 1]);
+  });
+  const other = pageStore("counted", {
+    state: () => ({ items: [] }),
+    actions: (set, state) => ({ [`drop${state.items.length}`]() {} }),
+  });
+  createRoot(() => assert.throws(() => other(), /defined twice/));
+});
+
+test("a second definition used in a memo does not subscribe it to the state", () => {
+  // The comparison makes the second definition's actions against the store's
+  // state. Its reads there are not the memo's: a write must not rerun it.
+  const spec = () => ({
+    state: () => ({ items: [3] }),
+    actions: (set, state) => {
+      const start = state.items.length;
+      return { add() { set((d) => { d.items.push(start); }); } };
+    },
+  });
+  const one = pageStore("tracked", spec());
+  const two = pageStore("tracked", spec());
+  createRoot(() => {
+    const store = one();
+    let runs = 0;
+    const got = createMemo(() => {
+      runs++;
+      return two();
+    });
+    assert.equal(got(), store);
+    store.actions.add();
+    flush();
+    assert.equal(got(), store);
+    assert.deepEqual([...store.state.items], [3, 1]);
+    assert.equal(runs, 1);
+  });
+});
+
 test("shared() makes a value once per key, and resetPage() disposes it", () => {
   let made = 0;
   const one = shared("k", () => ++made);
