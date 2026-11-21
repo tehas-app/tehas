@@ -599,5 +599,3 @@ field order.starts.issues[].reason.code
 field order.starts.issues[].reason.text
 field order.starts.issues[].start
 flag blockers --json
-flag setup --app-client-id
-flag setup --app-secret-file
