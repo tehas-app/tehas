@@ -71,8 +71,8 @@ skill beside it is not, so a person weighs the two together.
 
 ### Read from the commit, granted by its text
 
-- A skill's text is read from the git tree at the pinned commit, `git show
-  <commit>:<path>` in `~/tehas/plugins/<name>/repo.git`, which the update
+- A skill's text is read from the git tree at the pinned commit, `git
+  cat-file blob <commit>:<path>` (no textconv), in `~/tehas/plugins/<name>/repo.git`, which the update
   already fetches. No run makes it, so no run can change it: the text
   `tehas plugin review` shows is the text the grant pins and the text a chat
   gets. What a run writes is never instructions.
