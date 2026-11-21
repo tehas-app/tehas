@@ -287,10 +287,24 @@ being built in this release, so every subcommand exits 78. See
 
 ```
 tehas plugin [--json]
+tehas plugin review <name> [<commit>] [--json]
 ```
 
 The plugins of this factory, as its settings set them: each one's pin, what
-is granted at the pin, and its state. Plugins are still being built in this
-release, so the command exits 78. See the `TEHAS_PLUGIN` rows of
+is granted at the pin, and its state: `unbuilt`, `building`, `ready` or
+`refused` with why, as the last `tehas update` left it. With the feature on,
+`tehas update` fetches each pin into `~/tehas/plugins/<name>/repo.git`,
+checks its manifest, skills and Dockerfile, pulls its base images by digest
+and builds its image with no network. A plugin that breaks a rule is refused
+and left off, and the update exits 1 at the end. A plugin taken out of
+`TEHAS_PLUGINS` loses its images and its directory.
+
+`review` fetches a commit, the pin by default, and prints what it asks, what
+each ask lets it do and whether it is granted, the base images and their
+ONBUILD triggers, where the model runs, what changed since the pin and the
+lines to write. It writes nothing but the fetched objects and the base images.
+Exit 0; 1 the fetch or the read failed; 3 refused, with why; 64; 78.
+Plugins are still being built in this release, so both exit 78. See the
+`TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).
