@@ -1,7 +1,7 @@
 # Spec: the product's needs, what a project asks of a factory's host
 
-**Status**: Draft 2026-11-21. Nothing is built. The file's name, its format
-and every field below are open for discussion.
+**Status**: Draft 2026-11-21, with the owner's decisions the same day (see
+"Decided"). Nothing is built.
 
 ## Purpose
 
@@ -43,7 +43,7 @@ Then:
 ## The file
 
 `.tehas/needs.toml` at the root of the product repository, on the default
-branch. TOML, as tehas-industry's settings are; open.
+branch. TOML, as tehas-industry's settings are.
 
 ```toml
 needs = 1                       # the format's version
@@ -146,12 +146,38 @@ app, `new-app.html`. A simple plugin builder could sit on the same page
 later: pick what the plugin adds, see the grants it will ask for, get a
 repository with its manifest (see `2026-11-21-plugins.md`).
 
+## Decided
+
+1. **Name and place**: `.tehas/needs.toml`, a file of its own. `.tehas/`
+   is already where tools beside the factory keep a product's files, and a
+   section of `AGENTS.md` or `.pi/` would mix what people write for agents
+   with what tehas parses.
+2. **Services are declared now and refused** until tehas can run one, so
+   the file describes the product as it is and `tehas check-product` says
+   which need is not met.
+3. **`room` is the product's ask; the instance caps it.** A product that
+   asks for more than the cap is a `FAIL room` line naming both numbers.
+4. **Placement reads `platform` and `room` only** in the first version.
+   More fields come when a backend needs them.
+5. **`tehas scope` is a tehas command**, in the release, running with no
+   settings, so it works on a laptop before any host exists.
+6. **The JSON Schema is `api/needs.schema.json`**, under the same licence
+   as the rest of `api/`.
+
 ## Open points
 
-1. Name and place: `.tehas/needs.toml`, or a section of an existing file?
-2. Services: declared now and refused, or left out until tehas can run one?
-3. Should `room` be the product's ask or the operator's grant? Proposed: the
-   product asks, the instance caps.
-4. Does the industry need more for placement than `platform` and `room`?
-5. Mobile previews (`kind = "mobile"`): what a factory would need to build
-   and show one.
+1. Mobile previews (`kind = "mobile"`): what a factory would need to build
+   and show one. The value is accepted; nothing reads it yet.
+
+## Work
+
+1. The schema and its reader in Rust, with tests: unknown fields and
+   malformed values exit 78.
+2. `tehas scope`: the readers of each file listed above, each a pure
+   function of a checkout's files, with fixtures; `--json`, `--write`,
+   `--check`.
+3. `tehas check-product`: a `needs` line per table.
+4. `tehas init-product`: propose the file with the other contract files.
+5. `tehas setup`: the toolchain layer of the sandbox image, the room, the
+   egress list and the secret names, from the file.
+6. The manual: the contract table on the new project page, Start.
