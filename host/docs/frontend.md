@@ -748,8 +748,10 @@ does not take stays out, and so does one that a package which stays does not
 accept. Such a package stays at the version it has, even when an older 2.x
 would do. A 3.x is held back
 ([Pinned tools move with the release](/tools-releases#pinned-tools-move-with-the-release)).
-The move changes nothing else. When the new bundle breaks the gate, the pins
-pull request fails its gate, and a person makes the steps below in it.
+The move changes nothing else. When the new bundle breaks the gate, the gate
+that `scripts/tag-release.sh` runs before it pushes fails: the release stops
+with exit 1 and opens no pins pull request. A person then makes the move by
+hand, with the steps below, or tags with `--no-pins`.
 
 By hand, edit the entry of `PINS`: the version, the `dist.tarball` and the
 `dist.integrity` of `https://registry.npmjs.org/<package>` for that version.
