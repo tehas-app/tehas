@@ -28,6 +28,14 @@ use std::time::{Duration, Instant};
 pub const SOCKET: &str = "model.sock";
 /// The largest request body of text, [`Content::Text`].
 pub const MAX_BODY: usize = 1 << 20;
+/// The largest request body that carries an image part, with `model:images`.
+pub const MAX_BODY_IMAGES: usize = 20 << 20;
+/// The most image parts in one request.
+pub const MAX_IMAGES: usize = 4;
+/// The largest image, decoded.
+pub const MAX_IMAGE: usize = 4 << 20;
+/// The tokens reserved for one image part, in place of its bytes.
+pub const IMAGE_TOKENS: u64 = 2000;
 /// The largest answer passed back.
 pub const MAX_ANSWER: usize = 4 << 20;
 /// The largest `max_tokens`.
@@ -270,8 +278,8 @@ fn chat(body: &[u8], shared: &Shared) -> Answer {
         Ok(v) => v,
         Err(why) => return Answer::error(400, &why),
     };
+    let reserve = reserve(&sent, max_tokens);
     let sent = sent.to_string();
-    let reserve = sent.len() as u64 / 3 + max_tokens;
     let mut counts = lock(&shared.counts);
     if shared.stop.load(Ordering::SeqCst) {
         return Answer::error(503, "the run has ended");
@@ -298,6 +306,24 @@ fn chat(body: &[u8], shared: &Shared) -> Answer {
         Err(Fail::NotJson) => Answer::error(502, "the model's answer is not JSON"),
         Err(Fail::NoAnswer) => Answer::error(502, "the model could not be asked"),
     }
+}
+
+/// The tokens held before a request is sent: its bytes as sent, without the
+/// data of its images, divided by 3, then [`IMAGE_TOKENS`] for each image and
+/// its `max_tokens`. The answer's usage replaces it.
+fn reserve(sent: &Value, max_tokens: u64) -> u64 {
+    let urls: Vec<usize> = sent
+        .get("messages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|p| p.pointer("/image_url/url").and_then(Value::as_str))
+        .map(str::len)
+        .collect();
+    let bytes = sent.to_string().len() - urls.iter().sum::<usize>();
+    bytes as u64 / 3 + IMAGE_TOKENS * urls.len() as u64 + max_tokens
 }
 
 /// The request to send, the model rewritten to the endpoint's own, and its
@@ -340,7 +366,12 @@ fn check(body: &[u8], id: &str, model: &str, content: Content) -> Result<(Value,
                 .filter_map(|m| m.get("content").and_then(Value::as_array))
                 .flatten()
                 .collect();
-            content.parts(&parts)?;
+            let images = content.parts(&parts)?;
+            if images == 0 && body.len() > MAX_BODY {
+                return Err(format!(
+                    "a request with no image part is at most {MAX_BODY} bytes"
+                ));
+            }
         }
         _ => return Err("messages must be a list of at least one message".into()),
     }
@@ -415,32 +446,139 @@ fn message(m: &Value) -> Result<(), String> {
     }
 }
 
-/// What the grant lets a request's content hold. v1 has text alone. A later
-/// grant adds a kind here, with its parts and its body bound, and nothing
-/// else changes.
+/// What the grant lets a request's content hold: text alone, or with
+/// `model:images` text and images, each image carried in the request as a
+/// `data:` URL and never an address, so the model is never asked to fetch.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Content {
     #[default]
     Text,
+    TextAndImages,
 }
 
 impl Content {
-    /// The largest request body.
+    /// The largest request body read. A body over [`MAX_BODY`] with no image
+    /// part is still refused once it is read.
     pub fn max_body(self) -> usize {
         match self {
             Content::Text => MAX_BODY,
+            Content::TextAndImages => MAX_BODY_IMAGES,
         }
     }
 
-    /// Every content part of the request, of all its messages at once, or
-    /// why they are refused. No image or file part in text: the model is
-    /// never asked to fetch an address.
-    fn parts(self, parts: &[&Value]) -> Result<(), String> {
-        match self {
-            Content::Text if parts.iter().all(|p| text_part(p)) => Ok(()),
-            Content::Text => Err("content parts must be of type text".into()),
+    /// Every content part of the request, of all its messages at once: the
+    /// number of image parts, or why they are refused.
+    fn parts(self, parts: &[&Value]) -> Result<usize, String> {
+        let mut images = 0;
+        for p in parts {
+            if text_part(p) {
+                continue;
+            }
+            if self == Content::Text {
+                return Err("content parts must be of type text".into());
+            }
+            image_part(p)?;
+            images += 1;
         }
+        if images > MAX_IMAGES {
+            return Err(format!("at most {MAX_IMAGES} image parts in a request"));
+        }
+        Ok(images)
     }
+}
+
+/// An image part: `{"type": "image_url", "image_url": {"url": "data:..."}}`,
+/// with an optional `detail`. The URL is `data:image/<png|jpeg|webp>;base64,`
+/// and the bytes are what the media type says, by their first bytes.
+fn image_part(p: &Value) -> Result<(), String> {
+    let bad = || "a content part must be text or an image_url".to_string();
+    let p = p.as_object().ok_or_else(bad)?;
+    if only(p, &["type", "image_url"]).is_err()
+        || p.get("type").and_then(Value::as_str) != Some("image_url")
+    {
+        return Err(bad());
+    }
+    let img = p
+        .get("image_url")
+        .and_then(Value::as_object)
+        .ok_or_else(bad)?;
+    only(img, &["url", "detail"])?;
+    if img
+        .get("detail")
+        .is_some_and(|d| !matches!(d.as_str(), Some("auto" | "low" | "high")))
+    {
+        return Err("detail must be auto, low or high".into());
+    }
+    let url = img.get("url").and_then(Value::as_str).unwrap_or("");
+    let Some(rest) = url.strip_prefix("data:") else {
+        return Err("an image is a data: URL, never an address".into());
+    };
+    let (kind, data) = rest
+        .split_once(";base64,")
+        .ok_or("an image is base64 in a data: URL")?;
+    let magic: &[&[u8]] = match kind {
+        "image/png" => &[b"\x89PNG\r\n\x1a\n"],
+        "image/jpeg" => &[b"\xff\xd8\xff"],
+        "image/webp" => &[b"RIFF", b"WEBP"],
+        _ => return Err("an image is image/png, image/jpeg or image/webp".into()),
+    };
+    let size = base64_len(data).ok_or("an image's data is not base64")?;
+    if size > MAX_IMAGE {
+        return Err(format!("an image is at most {MAX_IMAGE} bytes"));
+    }
+    let head = base64_head(data).ok_or("an image's data is not base64")?;
+    let fits = match magic {
+        [one] => head.starts_with(one),
+        [riff, webp] => head.starts_with(riff) && head.get(8..12) == Some(*webp),
+        _ => false,
+    };
+    if !fits {
+        return Err(format!("the image's bytes are not {kind}"));
+    }
+    Ok(())
+}
+
+fn b64(c: u8) -> Option<u8> {
+    match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
+}
+
+/// The decoded length of padded base64, or None when it is not base64.
+fn base64_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    if b.is_empty() || !b.len().is_multiple_of(4) {
+        return None;
+    }
+    let pad = b.iter().rev().take_while(|&&c| c == b'=').count();
+    if pad > 2 || b[..b.len() - pad].iter().any(|&c| b64(c).is_none()) {
+        return None;
+    }
+    Some(b.len() / 4 * 3 - pad)
+}
+
+/// The first 12 bytes of padded base64, decoded: enough for a file's magic.
+fn base64_head(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    for quad in s.as_bytes().chunks(4).take(4) {
+        let mut n: u32 = 0;
+        let mut have: usize = 0;
+        for &c in quad {
+            if c == b'=' {
+                break;
+            }
+            n |= u32::from(b64(c)?) << (18 - 6 * have as u32);
+            have += 1;
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        out.extend_from_slice(&bytes[..have.saturating_sub(1)]);
+    }
+    Some(out)
 }
 
 fn text_part(p: &Value) -> bool {
