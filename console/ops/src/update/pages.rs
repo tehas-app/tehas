@@ -28,8 +28,8 @@
 //! `.render.js` file. The kit's manifest and the
 //! lints of the code that draws with Solid are in `kit.rs`.
 
-use super::assets::{address, spans, PAGES as STAGED};
-use super::kit::{self, DRAWS, LIBRARY};
+use super::assets::{address, in_comment, served, spans, PAGES as STAGED};
+use super::kit::{self, DRAWS, LIBRARY, TYPES};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -77,7 +77,9 @@ pub(super) fn normal(path: &Path) -> Option<PathBuf> {
 }
 
 /// The addresses a module imports: `import … from "x"`, `export … from "x"`,
-/// `import "x"` and `import("x")`, in the order they stand.
+/// `import "x"` and `import("x")`, in the order they stand. An address of a
+/// `.d.ts` file in a `/* */` comment is a type JSDoc names, which no browser
+/// loads, so it is left out.
 pub(super) fn imports(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for word in ["import", "from"] {
@@ -96,7 +98,9 @@ pub(super) fn imports(text: &str) -> Vec<String> {
             };
             let value = &rest[1..];
             if let Some(end) = value.find(quote) {
-                if !value[..end].contains('\n') {
+                if !value[..end].contains('\n')
+                    && (served(&value[..end]) || !in_comment(text, start))
+                {
                     found.push((start, value[..end].to_string()));
                 }
             }
@@ -319,6 +323,12 @@ fn check(host: &Path, max: &str) -> Vec<String> {
     if host.join("fun/kit").is_dir() {
         wrong.extend(kit::manifest(&host.join("fun/kit")));
     }
+    if let Ok(library) = fs::read_to_string(host.join(LIBRARY)) {
+        match fs::read_to_string(host.join(TYPES)) {
+            Ok(dts) => wrong.extend(kit::types(&library, &dts)),
+            Err(e) => wrong.push(format!("{TYPES}: {e}; the library has its types")),
+        }
+    }
 
     let mut files = Vec::new();
     modules(host, Path::new("fun"), &mut files);
@@ -348,6 +358,17 @@ fn check(host: &Path, max: &str) -> Vec<String> {
     }
 
     wrong.extend(kit::lint(host, &files));
+    for f in &files {
+        let Ok(text) = fs::read_to_string(host.join(f)) else {
+            continue;
+        };
+        for spec in imports(&text).into_iter().filter(|s| !served(s)) {
+            wrong.push(format!(
+                "{}: imports {spec:?}, a type file no home has; name it in a JSDoc comment",
+                f.display()
+            ));
+        }
+    }
     for f in &files {
         let name = f.to_string_lossy();
         if name.ends_with(".render.js") || DRAWS.contains(&name.as_ref()) {
@@ -625,6 +646,10 @@ mod tests {
             "var a;export{a as For,b as html};",
         );
         d.file(
+            "host/fun/kit/vendor/solid.d.ts",
+            "export const For: any;\nexport function html(s: TemplateStringsArray): any;\n",
+        );
+        d.file(
             "host/fun/kit/parts.js",
             "import { html } from \"./vendor/solid.js\";",
         );
@@ -644,7 +669,12 @@ mod tests {
         };
         d.file(
             "host/fun/kit/MANIFEST",
-            &format!("kit 1\n{}{}", line("parts.js"), line("vendor/solid.js")),
+            &format!(
+                "kit 1\n{}{}{}",
+                line("parts.js"),
+                line("vendor/solid.d.ts"),
+                line("vendor/solid.js")
+            ),
         );
         d
     }
@@ -707,6 +737,144 @@ mod tests {
             wrong
                 .iter()
                 .any(|w| w.starts_with("fun/kit/MANIFEST: no line")),
+            "{wrong:?}"
+        );
+    }
+
+    #[test]
+    fn a_type_file_is_in_the_manifest_and_in_no_page_and_its_address_is_no_import() {
+        let d = with_kit("pages-kit-types");
+        let host = host_of(&d);
+        d.file(
+            "host/fun/kit/vendor/solid.d.ts",
+            "export const For: any;\nexport function html(s: TemplateStringsArray): any;\n",
+        );
+        // A kit module that draws nothing and one that draws name types in the
+        // .d.ts from JSDoc, and the business page loads both.
+        d.file(
+            "host/fun/kit/island.js",
+            "/** @import { For } from \"./vendor/solid.d.ts\" */\n\
+             /** @typedef {import(\"./vendor/solid.d.ts\").Accessor<number>} N */\n",
+        );
+        d.file(
+            "host/fun/kit/parts.js",
+            "import { html } from \"./vendor/solid.js\";\n\
+             /** @typedef {import(\"./vendor/solid.d.ts\").Owner} O */\n",
+        );
+        d.file(
+            "host/fun/view.js",
+            "import { x } from \"./data.js\";\nimport \"./one.js\";\n\
+             import \"./kit/parts.js\";\nimport \"./kit/island.js\";",
+        );
+        let kit = host.join("fun/kit");
+        let line = |f: &str| {
+            let bytes = fs::read(kit.join(f)).unwrap();
+            let hex: String = sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!("file {hex} {} {f}\n", bytes.len())
+        };
+        let manifest = [
+            "island.js",
+            "parts.js",
+            "vendor/solid.d.ts",
+            "vendor/solid.js",
+        ]
+        .map(line)
+        .concat();
+        d.file("host/fun/kit/MANIFEST", &format!("kit 1\n{manifest}"));
+
+        let script: u64 = [
+            "fun/one.js",
+            "fun/view.js",
+            "fun/data.js",
+            "fun/kit/parts.js",
+            "fun/kit/island.js",
+        ]
+        .iter()
+        .map(|f| len(&d, f))
+        .sum();
+        assert_eq!(size(&d, &["fun/business.html"]).script, script);
+        let max = format!(
+            "{}library solid {}\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        assert_eq!(check(&host, &max), Vec::<String>::new());
+
+        // The manifest names the .d.ts as it names every file of the kit.
+        d.file(
+            "host/fun/kit/vendor/solid.d.ts",
+            "export const For: 1;\nexport function html(): 1;\n",
+        );
+        let wrong = check(&host, &max);
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.starts_with("fun/kit/MANIFEST: no line") && w.contains("solid.d.ts")),
+            "{wrong:?}"
+        );
+    }
+
+    #[test]
+    fn the_imports_of_a_module_leave_out_type_addresses() {
+        let text = "/** @import { A } from \"./kit.d.ts\" */\n\
+                    /** @type {import('../kit/vendor/solid.d.ts').Owner} */\nimport \"./a.js\";";
+        assert_eq!(imports(text), ["./a.js"]);
+        assert_eq!(
+            imports("import \"./kit.d.ts\";\nconst m = import('./b.d.ts');"),
+            ["./kit.d.ts", "./b.d.ts"]
+        );
+    }
+
+    #[test]
+    fn a_type_file_imported_in_code_is_refused() {
+        let d = with_kit("pages-kit-type-import");
+        let host = host_of(&d);
+        d.file(
+            "host/fun/one.js",
+            "/** @import { For } from \"./kit/vendor/solid.d.ts\" */\n\
+             import \"./kit/vendor/solid.d.ts\";\n",
+        );
+        let max = format!(
+            "{}library solid {}\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        assert_eq!(
+            check(&host, &max)
+                .iter()
+                .filter(|w| w.contains("a type file no home has"))
+                .collect::<Vec<_>>(),
+            ["fun/one.js: imports \"./kit/vendor/solid.d.ts\", a type file no home has; name it in a JSDoc comment"]
+        );
+    }
+
+    #[test]
+    fn a_library_without_its_type_file_is_refused() {
+        let d = with_kit("pages-kit-no-types");
+        let host = host_of(&d);
+        fs::remove_file(host.join(TYPES)).unwrap();
+        let kit = host.join("fun/kit/MANIFEST");
+        let manifest: String = fs::read_to_string(&kit)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.ends_with("vendor/solid.d.ts"))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        fs::write(&kit, manifest).unwrap();
+        let max = format!(
+            "{}library solid {}\n",
+            exact(&d),
+            len(&d, "fun/kit/vendor/solid.js")
+        );
+        let wrong = check(&host, &max);
+        assert!(
+            wrong
+                .iter()
+                .any(|w| w.starts_with("fun/kit/vendor/solid.d.ts: ")
+                    && w.ends_with("; the library has its types")),
             "{wrong:?}"
         );
     }
