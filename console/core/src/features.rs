@@ -121,6 +121,16 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &[],
     },
+    // docs/specs/2026-11-21-wiki.md. The build's units come with the build.
+    Feature {
+        name: "wiki",
+        stage: Stage::Building,
+        setting: "TEHAS_WIKI",
+        settings: &[],
+        since: "v1.3.0",
+        programs: &[],
+        units: &["tehas-wiki-status.service", "tehas-wiki-status.timer"],
+    },
 ];
 
 /// The internal variable that lets a test turn building features on: their
@@ -815,7 +825,9 @@ mod tests {
             [
                 "tehas-outsource-proxy.service",
                 "tehas-review.service",
-                "tehas-review.timer"
+                "tehas-review.timer",
+                "tehas-wiki-status.service",
+                "tehas-wiki-status.timer"
             ]
         );
     }

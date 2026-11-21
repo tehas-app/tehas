@@ -68,7 +68,7 @@ fn script(which: &str, command: &str) -> Option<&'static str> {
 
 /// The verbs of `tehas`. work and index are tehas-cycle's, which takes their
 /// lock (src/run.rs).
-const VERBS: [&str; 35] = [
+const VERBS: [&str; 36] = [
     "work",
     "index",
     "dispatch",
@@ -104,6 +104,7 @@ const VERBS: [&str; 35] = [
     "plugin",
     "wake",
     "blockers",
+    "wiki",
 ];
 
 fn tehas(words: &[String]) -> Go {
@@ -138,7 +139,7 @@ fn tehasbot(words: &[String]) -> Go {
         None | Some("help" | "-h" | "--help") => Go::Usage,
         Some(
             "health" | "status" | "top" | "refresh" | "clean" | "preview" | "protolab" | "dispatch"
-            | "review" | "github-token" | "cycle" | "outsource-proxy",
+            | "review" | "github-token" | "cycle" | "outsource-proxy" | "wiki",
         ) => Go::Run,
         Some("mcp") if words.get(1).map(String::as_str) == Some("serve") => Go::Run,
         Some("mcp" | "github-writes") => Go::Verb,
@@ -798,7 +799,8 @@ mod tests {
             [
                 ("outsource", "outsource"),
                 ("plugin", "plugins"),
-                ("prototype", "prototype-file")
+                ("prototype", "prototype-file"),
+                ("wiki", "wiki")
             ]
         );
         for (command, name) in marked {
