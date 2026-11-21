@@ -34,8 +34,10 @@ program.
 
 The rules, in order: a held plugin's crossing is `block`; a size or shape
 over its part's cap is `block`; text with a secret's shape (the patterns of
-`console/core/src/mask.rs`, used to find, never to rewrite) leaving the
-factory is `block`.
+`console/core/src/mask.rs`, used to find, never to rewrite) in a fetch's
+request or a tool's arguments is `block`. Model requests are not checked
+for it: a plugin granted `product` and `model` sends the code to the model
+by design, and the code may hold strings that look like keys.
 
 An LLM detector of prompt injection may be one more rule. It is tehas's or
 industry's, never a plugin's, and v2 does not ship one.
@@ -51,7 +53,9 @@ program reads it on each crossing, so a hold takes effect without a restart.
 - `tehas plugin release <name>` takes away a hold this host made. A hold made
   by industry (`--by industry`) is released by industry.
 - A hold covers the name, across pins. A new pin does not release it.
-- `tehas plugin` shows who held it, when and why.
+- `--by industry` is a label of who asked, not a lock: anyone who runs
+  commands as the factory's user can give it, as with `--login`.
+- `tehas plugin` shows the state `held`, who held it, when and why.
 
 ## What is kept
 
@@ -70,5 +74,5 @@ With `TEHAS_PLUGIN_INSPECT=on`:
 - `tehas plugin crossings [<name>] [--since <t>] [--json]` lists the rows.
   Industry reads them for a review across factories.
 
-Where inspection is on, the model socket answers whole, as v1 does, so an
-answer is checked before it is delivered.
+The model socket answers whole, as v1's does, so an answer is checked
+before it is delivered.

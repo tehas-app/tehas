@@ -32,7 +32,10 @@ writes "people should be able to import their contacts". Then:
 - The card says **Shaped with Spec interview**. The person files it with the
   card's button, as today. A "yes" in the chat never files.
 - A big idea comes back as three or four pieces, each usable on its own, and
-  the person picks the size before any is drafted.
+  the person picks the size before any is drafted. Obeya drafts them as one
+  epic with sub-tickets. The wizard proposes one ticket at a time, so it
+  drafts the first piece and names the rest under "Out of scope" as the
+  tickets that follow.
 - The person can leave and come back: the draft and every earlier version are
   kept (see "Specs are kept").
 
@@ -61,10 +64,10 @@ well-meant. None of them adds a step to the path above.
 | `path` | A Markdown file in the repository at the pinned commit, no `..`, at most 2 KiB |
 | `chats` | 1 or more of `obeya`, `wizard`, `assistant` |
 
-A skill names no tool of its own. A plugin whose skill asks a chat to call a
-plugin tool is refused at review: a skill that steers and a tool that answers
-together would put untrusted text one step from the instructions. Tools come
-from `tool:` alone.
+A plugin granted both `skill:` and `tool:` puts text that steers and text
+that answers into the same chat. `review` says so for that pair, as v1's
+review does for `view` with `product`: a tool's answer is untrusted, and the
+skill beside it is not, so a person weighs the two together.
 
 ### Read from the commit, granted by its text
 
@@ -120,16 +123,17 @@ the assistant's `propose_change` and `propose` (`assistant.rs:293-526`); the
 wizard's `propose_ticket`. In a chat shaped by a plugin skill, or a turn that
 holds a plugin tool's answer:
 
-- The proposal's card says **Shaped with <label>**, naming the plugin.
-- The card shows the whole text the press would write, never a summary. The
-  wizard and `draft_ticket` do so already; `propose_text` and a hold's reason
-  show their full words on the button, which is the whole text.
+- The proposal says **Shaped with <label>**, naming the plugin.
+- The person sees the whole text the press would write, never a summary.
+  The wizard's card, `draft_ticket` and the assistant's `propose_change`
+  card show it already. `propose_text`'s button reads "Add to the ticket",
+  so the host shows the point it adds beside the button.
 - Links in the chat's reply in that turn are not live.
 - The press stays the person's, as today. Nothing is written without it.
 
 A turn that holds a plugin tool's answer, as against a granted skill, also
-refuses `propose_change` and hold reasons, since those write in one press
-with no card.
+refuses the proposals that write a reason in one press: Obeya's hold
+(`propose_press` with a reason) and the assistant's `propose` hold.
 
 ## Tools
 
@@ -152,7 +156,10 @@ The function name a host gives the model is `plugin_<name>_<id>` with each
 
 ### A call
 
-`tehas plugin call <name> <tool> --args-file <f> --json` runs one call:
+`tehas plugin call <name> <tool> --args <json> --json` runs one call. The
+arguments come in the command line, since industry reaches the factory
+through `incus exec` with no stdin and no way to place a file
+(`backend.rs:291-341`):
 
 - The arguments are checked against `params` and are at most 2 KiB.
 - A container from the plugin's image, with v1's arguments for a run of kind
@@ -160,7 +167,8 @@ The function name a host gives the model is `plugin_<name>_<id>` with each
   tmpfs of 1 MiB. The arguments are at `/run/call.json`. Its argument list is
   `test/fixtures/argv/plugin-call`.
 - The answer is `/out/_tehas/answer.json`, at most 16 KiB, UTF-8 text. Over
-  it, or past `timeout`: exit 4, and the host says the tool did not answer.
+  it, or past `timeout`: exit 1 with the reason in `--json`, and the host
+  says the tool did not answer.
 - The container's stdout and stderr are discarded. Nothing of the call is
   kept: its run row holds the time, the size and the result, and no login.
 - At most 2 calls of a plugin at once, and 1 per person, so a slow tool slows
@@ -174,10 +182,13 @@ turn, `crates/wizard/src/turn.rs:22`).
 ### What a call costs in time
 
 Obeya, industry, the factory's `tehas` and `docker run` sit between the model
-and the tool. The hosts' model calls allow 120 seconds and Obeya's calls to
-industry 60 (`gateway.rs:20`, `industry.rs:32-33`). A tool's 10 seconds fits
-inside them. A call reaches the factory as the industry daemon reaches it
-today, `incus exec ... tehas ... --json` (`backend.rs:291-305`).
+and the tool. A call reaches the factory as the industry daemon reaches it
+today, `incus exec ... tehas ... --json`, and that path is cut at 20 seconds
+(`RUN_TIMEOUT`, `backend.rs:171`, used at `:304`). The whole call fits in
+them: the `--login` check, the container's start, and the tool's `timeout`
+of at most 10 seconds. tehas keeps the image built and checks the login
+from the gate's cache of access when it has one, so the start and the check
+take a few seconds, not the budget.
 
 ### Who called
 
