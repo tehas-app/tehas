@@ -1,0 +1,11 @@
+{
+  "plugin": 1,
+  "name": "specs",
+  "label": "Spec interview",
+  "license": "Apache-2.0 AND MIT",
+  "asks": ["skill:grill", "skill:spec"],
+  "skills": [
+    {"id": "grill", "about": "Interview the person until the ticket has no open decision", "path": "skills/grill.md", "chats": ["obeya", "wizard"]},
+    {"id": "spec", "about": "Write the agreed ticket as a specification", "path": "skills/spec.md", "chats": ["obeya", "wizard", "assistant"]}
+  ]
+}

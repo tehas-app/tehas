@@ -11,6 +11,7 @@ pub mod out;
 pub mod run;
 #[cfg(test)]
 mod schema;
+pub mod skill;
 
 /// The front of the grants settings, one per plugin:
 /// `TEHAS_PLUGIN_GRANTS_<NAME>`, the name in upper case.
@@ -59,7 +60,7 @@ pub fn is_name(s: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
-/// An action's id: `a-z` and `-`, 1 to 16 characters.
+/// An action's or a skill's id: `a-z` and `-`, 1 to 16 characters.
 pub fn is_action_id(s: &str) -> bool {
     (1..=ACTION_MAX).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
 }
@@ -170,7 +171,7 @@ pub fn limits(value: &str) -> Option<Limits> {
     })
 }
 
-/// A capability of v1, as a grant or an ask names it.
+/// A capability, as a grant or an ask names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cap {
     View,
@@ -178,6 +179,8 @@ pub enum Cap {
     Model,
     Action(String),
     HookAfterWork,
+    /// A skill's text in the chats, read from the pinned commit.
+    Skill(String),
 }
 
 impl Cap {
@@ -189,13 +192,20 @@ impl Cap {
             Cap::Model => "model".to_string(),
             Cap::Action(id) => format!("action:{id}"),
             Cap::HookAfterWork => "hook:after:work".to_string(),
+            Cap::Skill(id) => format!("skill:{id}"),
         }
+    }
+
+    /// Whether the capability needs a run, and so an image. A skill is text
+    /// tehas reads from the commit.
+    pub fn needs_run(&self) -> bool {
+        !matches!(self, Cap::Skill(_))
     }
 }
 
 /// Whether a word is a capability of a later tehas.
 fn reserved(word: &str) -> bool {
-    ["gate:", "skill:", "tool:", "net:", "hook:"]
+    ["gate:", "tool:", "net:", "hook:"]
         .iter()
         .any(|front| word.starts_with(front))
         || matches!(word, "factory-read" | "factory-sessions")
@@ -244,6 +254,15 @@ fn cap(word: &str, granted: bool) -> Result<(Cap, Option<u64>), String> {
         } else {
             Err(format!(
                 "{word}: an action's id is 1 to 16 characters of a-z and -"
+            ))
+        };
+    }
+    if let Some(id) = word.strip_prefix("skill:") {
+        return if is_action_id(id) {
+            Ok((Cap::Skill(id.to_string()), None))
+        } else {
+            Err(format!(
+                "{word}: a skill's id is 1 to 16 characters of a-z and -"
             ))
         };
     }
@@ -594,12 +613,43 @@ mod tests {
     }
 
     #[test]
+    fn a_skill_is_granted_and_asked_by_its_id_and_needs_no_run() {
+        let g = grants(&format!("{C} skill:grill skill:to-spec")).unwrap();
+        assert_eq!(
+            g.caps,
+            [Cap::Skill("grill".into()), Cap::Skill("to-spec".into())]
+        );
+        assert_eq!(ask("skill:grill"), Ok(Cap::Skill("grill".into())));
+        assert_eq!(Cap::Skill("grill".into()).ask(), "skill:grill");
+        for bad in [
+            "skill:",
+            "skill:Grill",
+            "skill:a_b",
+            "skill:abcdefghijklmnopq",
+        ] {
+            assert_eq!(
+                ask(bad).unwrap_err(),
+                format!("{bad}: a skill's id is 1 to 16 characters of a-z and -")
+            );
+        }
+        assert!(!Cap::Skill("grill".into()).needs_run());
+        for cap in [
+            Cap::View,
+            Cap::Product,
+            Cap::Model,
+            Cap::Action("refresh".into()),
+            Cap::HookAfterWork,
+        ] {
+            assert!(cap.needs_run(), "{cap:?}");
+        }
+    }
+
+    #[test]
     fn a_grant_of_a_later_tehas_is_refused_naming_the_word() {
         for word in [
             "gate:verify",
             "hook:before:work",
             "hook:after:merge",
-            "skill:map",
             "tool:read",
             "net:api.example.org",
             "factory-read",
