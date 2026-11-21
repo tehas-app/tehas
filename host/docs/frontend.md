@@ -954,7 +954,8 @@ The budgets for new work:
   when `CI` or `TEHAS_TEST_STRICT` is set to anything, `false` too, where it
   fails, as a missing shellcheck fails the shell tests. The gate's workflows
   install npm's `@typescript/typescript-linux-x64` at that pin, checked by its
-  `TSC_SHA256` on every run, and name it. The sandbox image has it on `PATH`. By hand, in `console/`:
+  `TSC_SHA256` on every run, and name it. The sandbox image has it on `PATH`,
+  and `bootstrap.sh user` links it into `~/tehas/bin`. By hand, in `console/`:
   `TEHAS_TSC=/path/to/tsc cargo test --locked -p tehas-ops update::types`.
   `scripts/verify.sh` prints no line for that skip, and a pass it keeps for
   a tree is run again once a `tsc` arrives or its version changes.

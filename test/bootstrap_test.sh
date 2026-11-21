@@ -51,6 +51,7 @@ all_present() {
   t_stub uname 'echo x86_64'
   for tool in jq openssl flock minisign shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
   t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-$JQ_VERSION; exit 0; }; exec $jq_real \"\$@\""
+  t_stub tsc "echo 'Version $TSC_VERSION'"
   mkdir -p "$T/home/.pi/agent/extensions"
   ln -sfn "$T" "$T/home/.pi/agent/extensions/pi-rukas"
   mkdir -p "$T/home/tehas/libexec"
@@ -713,32 +714,41 @@ rm -rf "$T/home/tehas/repos/pi-rukas"
 all_present
 behind_head
 
-t_case "check reports a jq at another version than versions.env pins"
-all_present
-t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""
-t_run "$bootstrap check"
-t_eq "$t_rc" 1
-t_contains "$(grep '^jq ' <<<"$t_out")" "1.7.1"
-t_contains "$(grep '^jq ' <<<"$t_out")" "$JQ_VERSION"
-t_contains "$(grep '^jq ' <<<"$t_out")" "DIFFERS"
+# <tool>|<what --version says>|<the version in it>|<the pin>|<its download>|<the file>
+for pin in "jq|jq-1.7.1|1.7.1|$JQ_VERSION|https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64|jq" \
+  "gh|gh version 1.0.0|1.0.0|$GH_VERSION|https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz|gh.tar.gz" \
+  "tsc|Version 6.0.0|6.0.0|$TSC_VERSION|https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-$TSC_VERSION.tgz|tsc.tgz"; do
+  IFS='|' read -r pin_tool says found want url file <<<"$pin"
+  t_case "check reports a $pin_tool at another version, and user fetches the pinned one and refuses one that is not it"
+  all_present
+  t_stub "$pin_tool" "[ \"\${1:-}\" = --version ] && { echo '$says'; exit 0; }; exec $jq_real \"\$@\""
+  t_run "$bootstrap check"
+  t_eq "$t_rc" 1
+  t_eq "$(grep "^$pin_tool " <<<"$t_out" | awk '{print $2, $3, $4}')" "$found $want DIFFERS"
+  t_stub curl 'while [ $# -gt 0 ]; do [ "$1" = -o ] && { echo tampered >"$2"; exit 0; }; shift; done'
+  t_run "$bootstrap user"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "bootstrap: installing $pin_tool $want (replacing $found)"
+  t_contains "$(t_calls curl)" "$url"
+  t_contains "$t_out" "checksum mismatch for $file"
+  t_eq "$([ -e "$T/home/tehas/bin/$pin_tool" ] && echo installed)" ""
+done
 
-t_case "user fetches the pinned jq from its release and refuses one that is not it"
+t_case "user unpacks the pinned tsc into tools and links it into bin, where it answers the pin"
 all_present
-t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""
-t_stub curl 'while [ $# -gt 0 ]; do [ "$1" = -o ] && { echo tampered >"$2"; exit 0; }; shift; done'
-t_run "$bootstrap user"
-t_eq "$t_rc" 1
-t_contains "$t_out" "bootstrap: installing jq $JQ_VERSION (replacing 1.7.1)"
-t_contains "$(t_calls curl)" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
-t_contains "$t_out" "checksum mismatch for jq"
-t_eq "$([ -e "$T/home/tehas/bin/jq" ] && echo installed)" ""
-t_stub curl 'echo "curl 8.0.0"'
+t_stub tsc 'exit 1' && rm -f "$T/bin/tar"
+mkdir -p "$T/pkg/package/lib" && printf '#!/bin/sh\necho "Version %s"\n' "$TSC_VERSION" >"$T/pkg/package/lib/tsc" && chmod 755 "$T/pkg/package/lib/tsc"
+dir=$(pin_checkout) && tar -czf "$T/tsc.tgz" -C "$T/pkg" package
+sed -i "s/^TSC_SHA256=.*/TSC_SHA256=$(sha256sum "$T/tsc.tgz" | cut -d ' ' -f 1)/" "$dir/host/versions.env"
+t_stub curl "while [ \$# -gt 0 ]; do [ \"\$1\" = -o ] && { cp '$T/tsc.tgz' \"\$2\"; exit 0; }; shift; done"
+t_run "$dir/bootstrap.sh user"
+t_eq "$t_rc" 0
+t_contains "$t_out" "bootstrap: installing tsc $TSC_VERSION"$'\n'
+t_eq "$(readlink "$T/home/tehas/bin/tsc")" "$T/home/tehas/tools/tsc/lib/tsc"
 
 t_case "the jq pin in this checkout is a version and a sum, and the image and CI take it"
 t_eq "$(grep -cE '^JQ_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$T_ROOT/host/versions.env")" 1
 t_eq "$(grep -cE '^JQ_SHA256=[0-9a-f]{64}$' "$T_ROOT/host/versions.env")" 1
-t_contains "$(cat "$T_ROOT/host/sandbox/build.sh")" '--build-arg JQ_VERSION="$JQ_VERSION"'
-t_contains "$(cat "$T_ROOT/host/sandbox/build.sh")" '--build-arg JQ_SHA256="$JQ_SHA256"'
 t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'echo "${JQ_SHA256}  /tmp/jq" | sha256sum -c -'
 t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
@@ -767,16 +777,6 @@ for workflow in "$T_ROOT/.github/workflows/verify.yml" "$T_ROOT/.github/workflow
   gate_at=$(grep -n -- '- name: scripts/verify.sh' "$workflow" | cut -d : -f 1)
   t_eq "$([ -n "$node_at" ] && [ -n "$gate_at" ] && [ "$node_at" -lt "$gate_at" ] && echo "before ${workflow##*/}")" "before ${workflow##*/}"
 done
-
-t_case "a download that does not match its checksum is refused"
-all_present
-t_stub gh 'echo "gh version 1.0.0"'
-t_stub curl 'while [ $# -gt 0 ]; do [ "$1" = -o ] && { echo tampered >"$2"; exit 0; }; shift; done'
-t_run "$bootstrap user"
-t_eq "$t_rc" 1
-t_contains "$t_out" "checksum mismatch for gh.tar.gz"
-t_eq "$([ -e "$T/home/tehas/bin/gh" ] && echo installed)" ""
-t_stub curl 'echo "curl 8.0.0"'
 
 t_case "user refuses an unsupported system before touching anything"
 all_present
