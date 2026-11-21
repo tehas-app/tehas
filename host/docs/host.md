@@ -1073,12 +1073,13 @@ model has; spread the roles over models that different machines serve.
 ## Limits and concurrency
 
 Every sandbox container tehas starts runs in one systemd slice,
-[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session
-and the indexer. The slice's `MemoryMax` bounds
+[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session,
+the indexer and the containers of `tehas check-product --sandbox`. The slice's `MemoryMax` bounds
 them all together. No setting describes the machine.
 
-A cycle, a planning turn, a dev session and the indexer each get the same
-seven limits, fourteen words on the `docker run` line:
+A cycle, a planning turn, a dev session, the indexer and the install and
+gates containers of `tehas check-product --sandbox` each get the same seven
+limits, fourteen words on the `docker run` line:
 
 | Option | Value | What it does |
 | --- | --- | --- |

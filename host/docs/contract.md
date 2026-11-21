@@ -788,7 +788,7 @@ its result, and has statuses of its own beside them. Here 3 is tehas's own
 | 1 | The sandbox could not be run |
 | 3 | A check failed; each failure is a `FAIL` line |
 | 64 | A bad argument |
-| 78 | The settings are missing or malformed |
+| 78 | The settings are missing or malformed, or with `--sandbox` the slice cannot be used |
 
 ### tehas init-product
 
