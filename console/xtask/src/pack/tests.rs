@@ -329,6 +329,17 @@ fn the_proxy_and_the_contractor_go_to_libexec_by_their_names() {
 }
 
 #[test]
+fn the_plugins_gate_goes_to_libexec_by_its_name() {
+    let t = Tree::new();
+    program(&t.path("gate"), X86, "gate");
+    let gate = t.path("gate").display().to_string();
+    let p = t.pack(&["--plugin-gate", &gate]).unwrap();
+    assert!(t
+        .unpacked(&p.tarball, "libexec/tehas-plugin-gate")
+        .contains("gate"));
+}
+
+#[test]
 fn the_pins_are_the_last_lines_in_lower_case() {
     let t = Tree::new();
     let digest = format!("sha256:{}", "A".repeat(64));

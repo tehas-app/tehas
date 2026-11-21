@@ -418,11 +418,13 @@ mod tests {
     }
 
     #[test]
-    fn a_first_install_enables_the_plugins_timer_and_no_template() {
+    fn a_first_install_enables_the_plugins_timer_and_gate_and_no_template() {
+        let base = "tehas-dispatch.timer tehas-dispatch.path";
+        assert_eq!(units(&[("TEHAS_PLUGIN", "on")], None), base);
         let on = [("TEHAS_PLUGIN", "on"), ("TEHAS_TEST_FEATURES", "plugins")];
         assert_eq!(
             units(&on, None),
-            "tehas-dispatch.timer tehas-dispatch.path tehas-plugin.timer"
+            format!("{base} tehas-plugin.timer tehas-plugin-gate.service")
         );
     }
 

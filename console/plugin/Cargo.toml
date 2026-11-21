@@ -1,7 +1,7 @@
 # The plugins' programs (docs/specs/2026-11-21-plugins-security.md and
-# -web.md): the run of a plugin's container with its model socket, the
-# timer's tick, and the gate of the views, tehas-plugin-gate. A member of the
-# workspace in ../Cargo.toml.
+# -web.md): the run of a plugin's container with its model socket and the
+# timer's tick, and the rules of the gate of the views, whose program is
+# ../plugin-gate. A member of the workspace in ../Cargo.toml.
 [package]
 name = "tehas-plugin"
 version = "0.1.0"
@@ -17,10 +17,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "tehas-plugin"
 path = "src/main.rs"
-
-[[bin]]
-name = "tehas-plugin-gate"
-path = "src/gate_main.rs"
 
 [dependencies]
 # The swap of a view into place, one rename that exchanges two directories.

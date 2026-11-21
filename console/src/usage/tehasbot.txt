@@ -20,6 +20,8 @@ Usage:
                                 (the timer), while plugins are on
   tehasbot plugin run <name> --kind refresh|hook
                                 one run of a plugin (its units)
+  tehasbot plugin-gate          the gate of the plugins' views, while plugins
+                                are on (the service)
   tehasbot github-token [--cycle]
                                 the GitHub App's token, or the cycle's (the gh shim);
                                 --check is tehas github check, by its old name

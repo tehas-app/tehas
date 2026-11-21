@@ -1,4 +1,4 @@
-//! tehas-plugin-gate: the plugins' gate (src/gate.rs,
+//! tehas-plugin-gate: the plugins' gate (../plugin/src/gate.rs,
 //! docs/specs/2026-11-21-plugins-web.md).
 //!
 //!   tehas-plugin-gate
@@ -64,7 +64,7 @@ fn client(home: &std::path::Path, name: &str) -> String {
     }
     let text = std::fs::read_to_string(&at).unwrap_or_default();
     let value = text.trim_end_matches('\n');
-    if value.is_empty() || value.contains('\n') || !value.bytes().all(|b| b.is_ascii_graphic()) {
+    if !tehas_core::plugin::is_client_value(value) {
         stop(&format!(
             "{} is not one line of the App's client",
             at.display()
@@ -115,8 +115,8 @@ fn main() {
         grants.insert(pin.name.clone(), g);
     }
     let user_home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
-    let client_id = client(&user_home, "github-app.client-id");
-    let client_secret = client(&user_home, "github-app.client-secret");
+    let client_id = client(&user_home, tehas_core::plugin::CLIENT_ID_FILE);
+    let client_secret = client(&user_home, tehas_core::plugin::CLIENT_SECRET_FILE);
     let api = Some(env("TEHAS_GITHUB_API"))
         .filter(|a| !a.is_empty())
         .unwrap_or_else(|| "https://api.github.com".to_string());
