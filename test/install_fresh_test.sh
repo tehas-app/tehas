@@ -207,7 +207,7 @@ t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt -regextype posix-exte
 t_eq "$(cd "$th/fun" && find . -name '*.d.ts')" ""
 # Two pages name some of these files, so the copies are fewer than the tags.
 t_eq "$(cd "$th/fun" && find . -type f -regextype posix-extended \
-      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 29
+      -regex '.*/[A-Za-z0-9_.-]+\.[0-9a-f]{12}\.(js|css)' | wc -l)" 31
 
 t_case "a tag of a dashboard page names the hashed copy, which is installed"
 # The name holds the first 12 hex digits of the sha256 of the file's bytes, the

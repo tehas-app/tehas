@@ -991,7 +991,7 @@ had_versions=0
 # --check changes nothing, so it makes neither.
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-    "$TEHAS_HOME/preview"
+    "$TEHAS_HOME/preview" "$TEHAS_HOME/wiki"
   # A home with no env.sh has never been installed.
   [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
   if ! bashrc_ok; then
