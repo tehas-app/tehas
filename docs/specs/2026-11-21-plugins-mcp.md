@@ -70,8 +70,10 @@ It answers two requests and nothing else:
 
 A call is the call of `tehas plugin call`: the same function, the same
 `inspect` check, the same container (`test/fixtures/argv/plugin-call`, kind
-`call`: no `product`, no `model`, no `net`, `/state` read only, `/out` a
-tmpfs of 1 MiB), the same `timeout`, the same 16 KiB answer. The broker
+`call`: no `product`, no `model`, no `net`, `/state` read only, no `/out`,
+`--pids-limit 64`, attached with `--log-driver none`), the same `timeout`,
+the same answer of exactly one JSON object on stdout, at most 16 KiB, and the
+same failed call (v2 chats part, "A call"). The broker
 starts nothing but that container. A tool not granted `mcp:` at the current
 pin, a held plugin, or any other path is refused with 403 and one line on
 stderr naming the plugin and the tool.

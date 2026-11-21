@@ -163,14 +163,23 @@ through `incus exec` with no stdin and no way to place a file
 
 - The arguments are checked against `params` and are at most 2 KiB.
 - A container from the plugin's image, with v1's arguments for a run of kind
-  `call`: no `product`, no `model`, no `net`, `/state` read only, `/out` a
-  tmpfs of 1 MiB. The arguments are at `/run/call.json`. Its argument list is
-  `test/fixtures/argv/plugin-call`.
-- The answer is `/out/_tehas/answer.json`, at most 16 KiB, UTF-8 text. Over
-  it, or past `timeout`: exit 1 with the reason in `--json`, and the host
-  says the tool did not answer.
-- The container's stdout and stderr are discarded. Nothing of the call is
-  kept: its run row holds the time, the size and the result, and no login.
+  `call`: no `product`, no `model`, no `net`, `/state` read only, no `/out`,
+  `--pids-limit 64`, and `/tmp` a tmpfs as for every run. The arguments are
+  at `/run/call.json`, read only, beside `/run/context.json`. Its argument
+  list is `test/fixtures/argv/plugin-call`.
+- It runs attached, with `--log-driver none`, so nothing of it is kept on the
+  host. The answer is what the tool writes to stdout: exactly one JSON
+  object, UTF-8, at most 16 KiB, read through a reader that stops at 16 KiB.
+  stderr is discarded.
+- A failed call: an answer over 16 KiB, not exactly one JSON object, not
+  UTF-8, a container that exits other than 0, or one past `timeout` (then
+  `docker kill`). It exits 1, and `--json` gives the reason tehas names,
+  such as "the answer is over 16 KiB" or "the tool ran past 5 seconds", and
+  none of the tool's output. The host says the tool did not answer.
+- A tool's author learns why a call failed from that reason only: stderr is
+  gone, by design, so a tool reports what it means in its answer.
+- Nothing of the call is kept: its run row holds the time, the size and the
+  result, and no login.
 - At most 2 calls of a plugin at once, and 1 per person, so a slow tool slows
   only the person who called it.
 
