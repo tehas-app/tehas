@@ -121,7 +121,7 @@ when a person pulls and runs `install.sh` there.
 ```
 scripts/verify.sh --changed  # what your change can affect: the lint, shellcheck and tests of the changed files
 scripts/verify.sh            # the whole gate: lint, shellcheck, every shell test, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node, shellcheck or tsc fails
 ```
 
 Each prints one line per step and exits non-zero on failure. In a work cycle,
