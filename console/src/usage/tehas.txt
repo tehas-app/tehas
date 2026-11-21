@@ -36,3 +36,6 @@ Usage:
   tehas freeze <issue> [--reason R] hold a running cycle still, its clocks stopped
   tehas thaw <issue>               let a frozen cycle go on
   tehas help [command]             this text, or the text of one command
+
+A part of the tehas family installed beside tehas is a command too:
+tehas <part> [words] runs the program tehas-<part> on PATH with the words.

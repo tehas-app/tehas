@@ -13,17 +13,25 @@
 //! token, and `console tehas dev-login` is what the sudo rule of `bootstrap.sh
 //! dev` names: neither has a script of its own.
 //!
+//! A word that is no command of `tehas` is a part's when the program
+//! `tehas-<word>` is on `PATH`: it is run by exec with the remaining words,
+//! and `tehas help <word>` runs it with `--help` (tehas_core::parts).
+//! `tehasbot` runs no part.
+//!
 //! `tehas refresh`, `tehas github check` and `tehas github writes` are the
 //! public names of `tehasbot refresh`, `tehasbot github-token --check` and
 //! `tehasbot github-writes`, which stay as aliases through 1.x.
 //!
-//! Exit: the command's; 64 a command this does not know.
+//! Exit: the command's, a part's its own; 64 a command this does not know
+//! and no part has; 1 a part that could not be run.
 
 use crate::{commands, energy, run};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use tehas_core::parts;
 
 const TEHAS: &str = include_str!("usage/tehas.txt");
 const TEHASBOT: &str = include_str!("usage/tehasbot.txt");
@@ -164,7 +172,8 @@ fn unknown(which: &str, command: &str, usage: &str) -> u8 {
 
 fn text(libexec: &str, command: &str) -> u8 {
     if !VERBS.contains(&command) && script("tehas", command).is_none() {
-        return unknown("tehas", command, TEHAS);
+        return part(libexec, command, &[OsStr::new("--help")])
+            .unwrap_or_else(|| unknown("tehas", command, TEHAS));
     }
     if let Some(t) = commands::text(command) {
         say(t);
@@ -181,6 +190,36 @@ fn text(libexec: &str, command: &str) -> u8 {
         }
         None => 64,
     }
+}
+
+/// The directories of tehas's own programs: never searched for a part.
+fn own_dirs(libexec: &str) -> Vec<PathBuf> {
+    let libexec = Path::new(libexec);
+    let mut dirs = vec![libexec.to_path_buf()];
+    if let Some(home) = libexec.parent() {
+        dirs.push(home.join("bin"));
+    }
+    dirs
+}
+
+/// Run the part `word` with `args`, by exec: None when no part has the word.
+fn part<S: AsRef<OsStr>>(libexec: &str, word: &str, args: &[S]) -> Option<u8> {
+    let path = std::env::var_os("PATH");
+    let program = parts::find(word, path.as_deref(), &own_dirs(libexec))?;
+    let failed = Command::new(&program).args(args).exec();
+    eprintln!("tehas {word}: {}: {failed}", program.display());
+    Some(1)
+}
+
+/// The usage, and the parts this machine has.
+fn usage_with_parts(libexec: &str) -> String {
+    let path = std::env::var_os("PATH");
+    let found = parts::list(path.as_deref(), &own_dirs(libexec));
+    let mut text = TEHAS.to_string();
+    if !found.is_empty() {
+        text.push_str(&format!("\nParts on this machine: {}\n", found.join(", ")));
+    }
+    text
 }
 
 /// The words `console run` is given. `tehas dispatch` is the poll the units
@@ -217,11 +256,18 @@ pub fn main(given: &[OsString]) -> u8 {
     };
     let rest = || words.get(1..).unwrap_or_default();
     match go {
+        Go::Usage if which == "tehas" => {
+            say(&usage_with_parts(libexec));
+            0
+        }
         Go::Usage => {
             say(usage);
             0
         }
         Go::Text(command) => text(libexec, &command),
+        Go::Unknown(command) if which == "tehas" => {
+            part(libexec, &command, &given[5..]).unwrap_or_else(|| unknown(which, &command, usage))
+        }
         Go::Unknown(command) => unknown(which, &command, usage),
         Go::Script(name) => {
             let file = format!("{libexec}/{name}");
@@ -887,6 +933,26 @@ mod tests {
         assert_eq!(
             got.keys().collect::<Vec<_>>(),
             [&None, &Some("file".into())]
+        );
+    }
+
+    #[test]
+    fn no_command_of_tehas_takes_a_word_of_the_family() {
+        for w in parts::FAMILY {
+            assert!(!VERBS.contains(&w), "{w}");
+            assert!(script("tehas", w).is_none(), "{w}");
+            assert_eq!(t(&[w, "status"]), Go::Unknown(w.into()), "{w}");
+        }
+    }
+
+    #[test]
+    fn the_directories_of_tehas_programs_are_libexec_and_bin_beside_it() {
+        assert_eq!(
+            own_dirs("/home/t/tehas/libexec"),
+            [
+                PathBuf::from("/home/t/tehas/libexec"),
+                PathBuf::from("/home/t/tehas/bin")
+            ]
         );
     }
 

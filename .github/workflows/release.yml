@@ -17,6 +17,10 @@
 #   tehas-vX.Y.Z-linux-x86_64.tar.gz.minisig   its signature
 #   install, install.minisig                   the installer, when the tag
 #                                              has host/release/install
+#   tehas-front-vX.Y.Z-linux-x86_64            the front of a machine with no
+#   ... .sha256, ... .minisig                  factory (console/front), static,
+#                                              which a part of the family installs
+#                                              as tehas where no tehas is
 #
 # Secrets, in the environment `release` and nowhere else: MINISIGN_SECRET_KEY,
 # the whole secret key file; MINISIGN_PASSWORD, its password, only when the key
@@ -129,11 +133,12 @@ jobs:
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store -p attach -p tehas-dispatch -p tehas-cycle \
             -p tehas-proxy -p tehas-contractor
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
-            --target x86_64-unknown-linux-musl -p tehas-mcp
+            --target x86_64-unknown-linux-musl -p tehas-mcp -p tehas-front
           mkdir -p "$RUNNER_TEMP/programs"
           cp "$target/release/console" "$target/release/analytics" "$target/release/store" "$target/release/attach" "$target/release/tehas-dispatch" "$target/release/tehas-cycle" \
             "$target/release/tehas-proxy" "$target/release/tehas-contractor" \
-            "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/"
+            "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$target/x86_64-unknown-linux-musl/release/tehas-front" \
+            "$RUNNER_TEMP/programs/"
           # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
           for p in "$RUNNER_TEMP"/programs/*; do
             [ "$(od -An -tx1 -j18 -N2 "$p" | tr -d ' ')" = 3e00 ] || { echo "$p is not an x86_64 program" >&2; exit 1; }
@@ -159,6 +164,13 @@ jobs:
             --commit "$(git rev-parse HEAD)" --rukas-commit "${rukas%% *}"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
+      - name: the front, an asset of its own
+        run: |
+          # Not in the tarball: a part's install takes it alone, onto a
+          # machine that runs no factory (docs/specs/2026-11-21-part-commands.md).
+          front=tehas-front-$TAG-linux-x86_64
+          install -m 0755 "$RUNNER_TEMP/programs/tehas-front" "$DIST/$front"
+          (cd "$DIST" && sha256sum "$front" >"$front.sha256")
       - name: sign, and check the signature with the key in the tree
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
@@ -169,7 +181,7 @@ jobs:
           key=$(mktemp "$RUNNER_TEMP/key.XXXXXX")
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$MINISIGN_SECRET_KEY" >"$key"
-          for f in "$DIST/tehas-$TAG-linux-x86_64.tar.gz" "$DIST/install"; do
+          for f in "$DIST/tehas-$TAG-linux-x86_64.tar.gz" "$DIST/install" "$DIST/tehas-front-$TAG-linux-x86_64"; do
             [ -f "$f" ] || continue
             # A key with a password reads it from standard input; one without
             # reads nothing.
