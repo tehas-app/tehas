@@ -156,8 +156,8 @@ check, from [`.github/workflows/verify.yml`](.github/workflows/verify.yml). A
 pull request onto another branch, such as a release train, runs no gate: its
 author quotes `scripts/verify.sh --changed` in it, and the train's own pull
 request gates the batch. It runs on the
-organisation's own runner, installs shellcheck and jq at the versions in
-`host/versions.env` and checks each against a published checksum, scans the
+organisation's own runner, installs shellcheck, jq and `tsc` at the versions
+in `host/versions.env` and checks each against its checksum there, scans the
 repository's lockfiles against published advisories with OSV-Scanner at its
 pinned version, and uses the runner's bash, git, jq and cargo. A runner
 without cargo, rustc, rustfmt or clippy fails the job before the gate runs,

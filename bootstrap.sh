@@ -438,6 +438,7 @@ version_of() { "$@" 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 
 found_node() { version_of node --version; }
 found_gh() { version_of gh --version; }
 found_jq() { version_of jq --version; }
+found_tsc() { version_of tsc --version; }
 found_bun() { version_of bun --version; }
 found_pi() { version_of pi --version; }
 found_ctx7() { version_of ctx7 --version; }
@@ -515,6 +516,7 @@ do_check() {
 node found_node $NODE_VERSION
 gh found_gh $GH_VERSION
 jq found_jq $JQ_VERSION
+tsc found_tsc $TSC_VERSION
 bun found_bun $BUN_VERSION
 pi found_pi_tree $PI_VERSION
 ctx7 found_ctx7_tree $CTX7_VERSION
@@ -610,6 +612,16 @@ install_gh() {
 install_jq() {
   fetch "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" "$JQ_SHA256" "$dl/jq"
   install -m 755 "$dl/jq" "$TEHAS_HOME/bin/jq"
+}
+# The kit's type check runs the tsc it finds on PATH at the pinned version. The
+# tarball holds tsc and the lib files it reads beside it, so the package is
+# kept whole under tools/tsc and tsc is linked into bin.
+install_tsc() {
+  fetch "https://registry.npmjs.org/@typescript/typescript-linux-x64/-/typescript-linux-x64-$TSC_VERSION.tgz" "$TSC_SHA256" "$dl/tsc.tgz"
+  rm -rf "$TEHAS_HOME/tools/tsc"
+  mkdir -p "$TEHAS_HOME/tools/tsc"
+  tar -xzf "$dl/tsc.tgz" -C "$TEHAS_HOME/tools/tsc" --strip-components=1
+  ln -sfn "$TEHAS_HOME/tools/tsc/lib/tsc" "$TEHAS_HOME/bin/tsc"
 }
 install_bun() {
   fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" "$BUN_SHA256" "$dl/bun.zip"
@@ -816,6 +828,7 @@ do_user() {
   step node found_node "$NODE_VERSION" install_node
   step gh found_gh "$GH_VERSION" install_gh
   step jq found_jq "$JQ_VERSION" install_jq
+  step tsc found_tsc "$TSC_VERSION" install_tsc
   step bun found_bun "$BUN_VERSION" install_bun
   step_npm pi found_pi "$PI_VERSION" "$PI_LOCK_SHA256" install_pi
   step_npm ctx7 found_ctx7 "$CTX7_VERSION" "$CTX7_LOCK_SHA256" install_ctx7
