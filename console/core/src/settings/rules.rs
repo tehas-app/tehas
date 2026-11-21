@@ -677,16 +677,10 @@ fn verdict(rule: Rule, v: &str) -> Result<(), String> {
         ),
         Rule::Plugins => crate::plugin::pins(v).map(|_| ()),
         Rule::PluginGrants => crate::plugin::grants(v).map(|_| ()),
-        Rule::PluginLimits => {
-            let parts: Vec<Option<(&str, &str)>> =
-                v.split(' ').map(|p| p.split_once('=')).collect();
-            let names: Vec<&str> = parts.iter().flatten().map(|(n, _)| *n).collect();
-            refuse(
-                parts.iter().all(|p| p.is_some_and(|(_, n)| leading(n, 3)))
-                    && names == ["memory", "cpus", "disk"],
-                "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999",
-            )
-        }
+        Rule::PluginLimits => refuse(
+            crate::plugin::limits(v).is_some(),
+            "expected memory=<GiB> cpus=<n> disk=<GiB>, each a whole number from 1 to 999",
+        ),
     }
 }
 

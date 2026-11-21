@@ -785,19 +785,18 @@ exec '{}' "$@""#,
             ],
             &to,
         );
-        for m in [
-            "analytics",
-            "attach",
-            "contractor",
-            "core",
-            "cycle",
-            "dispatch",
-            "mcp",
-            "ops",
-            "proxy",
-            "store",
-            "xtask",
-        ] {
+        // The workspace's own list, so a new member is copied with no
+        // change here.
+        let manifest = fs::read_to_string(from.join("Cargo.toml")).unwrap();
+        let members = manifest
+            .lines()
+            .find_map(|l| l.strip_prefix("members = ["))
+            .expect("the workspace names its members")
+            .trim_end_matches(']')
+            .split(',')
+            .map(|m| m.trim().trim_matches('"'))
+            .filter(|m| !m.is_empty());
+        for m in members {
             let d = to.join(m);
             fs::create_dir_all(&d).unwrap();
             cp(
