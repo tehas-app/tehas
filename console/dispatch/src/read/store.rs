@@ -770,9 +770,9 @@ mod tests {
     }
 
     /// The store of a case: the one shell script that records a call and hands
-    /// the request to the real store. `test/dispatch_lib.sh`'s `store_refuses`
-    /// writes the same script for the shell's cases; this is the one the Rust
-    /// cases use, so the batch's request is handled in one place and one shell
+    /// the request to the real store. `store_refuses` in the poll tests
+    /// (tests/common) writes the same script; this is the one these cases use,
+    /// so the batch's request is handled in one place and one shell
     /// dialect. With `busy_for` the wrapper answers that call's JSON text busy
     /// on its error stream and runs nothing, which is how a case makes the store
     /// refuse one read of a batch.

@@ -1,5 +1,5 @@
 {
- "suite": "test/dispatch_start_test.sh",
+ "suite": "console/dispatch/tests/dispatch_start.rs",
  "later": [
   "the starts, the analytics, the lock and the wait (the rest of the suite): the start itself, #254, and the poll's I/O, PR 4"
  ],
