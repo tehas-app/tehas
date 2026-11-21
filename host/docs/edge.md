@@ -363,6 +363,83 @@ App's installation writes, and only that App can push a branch here and open
 a pull request under its name, so its pull requests are built like a
 member's. Any other bot's are not. Before the login is recorded, none is.
 
+## Plugins' views
+
+Plugins are still being built in this release. With the feature on, two more
+kinds of name reach the router:
+
+| Name | What answers |
+| --- | --- |
+| `plugin-<name>.tehas.app` | That plugin's view, behind a GitHub sign-in |
+| `plugins.tehas.app` | The sign-in: GitHub's callback, the hand-off, sign-out |
+
+With `TEHAS_EDGE_ONE_LEVEL=on` they are `plugin-<name>-<sub>.<domain>` and
+`plugins-<sub>.<domain>`.
+
+The router matches them before anything else and sends them only to the
+gate, `tehas-plugin-gate` ([the gate of the views](/tools-control#the-gate-of-the-views)),
+with the `Host` as it came: the gate checks the whole name against its
+settings. A name that starts `plugin` and is no plugin's name answers 404 with
+"No plugin is set at this address.", and so does the gate for a plugin that
+is not set. When the gate does not answer, the name answers 503 with "The
+plugins' gate is not answering.", never a preview's or the Protolab's page.
+
+### The gate's address
+
+The router runs in a container, and the gate runs on the host. The container
+reaches the host's own addresses through its network, but `127.0.0.1` in the
+container is the container itself. So the gate listens on the address of
+`TEHAS_HOST_ADDR`, which the docs server binds too, on port 8095:
+`TEHAS_PLUGIN_GATE_ADDR` is `<TEHAS_HOST_ADDR>:8095` unless the instance names
+another (an IPv6 address in brackets, as `[::1]:8095`). The router reaches
+it there with nothing to set. A `TEHAS_HOST_ADDR` the gate may not listen on,
+a host name, `0.0.0.0` or a public address, gives `127.0.0.1:8095`, which
+the router cannot reach: then the plugins' names answer 503, and the gate
+says so when it starts, in its journal:
+`tehas-plugin-gate: TEHAS_HOST_ADDR is <value>, which the gate cannot listen
+on; listening on 127.0.0.1:8095, so the edge cannot reach the plugins' views
+(503)`.
+
+`router.compose.yaml` passes the address to the router, so restart the router
+after `TEHAS_HOST_ADDR` changes: `. ~/tehas/env.sh` and the `docker compose`
+line of step 8. A firewall on the host has to let the router's Docker network
+reach port 8095.
+
+### The proxy in front and Cloudflare
+
+The proxy's matcher of step 4 names each kind of name by hand. Add the two:
+
+```
+@edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main|plugin-[a-z][a-z0-9]*|plugins)\.tehas\.app$
+```
+
+With `TEHAS_EDGE_ONE_LEVEL=on`, send the plugins' names on with their `Host`
+as it is. The gate checks the whole name, so the rewrite of
+[a domain that is itself a subdomain](#a-domain-that-is-itself-a-subdomain)
+must not apply to them:
+
+```
+@demoplugins header_regexp Host ^(plugin-[a-z][a-z0-9]*|plugins)-demo\.example\.org$
+handle @demoplugins {
+    reverse_proxy <host>:8081
+}
+```
+
+In Cloudflare, add a cache rule that bypasses the cache for both names: **Caching**,
+**Cache Rules**, **Create rule**, a custom filter expression such as
+
+```
+(starts_with(http.host, "plugin-") or starts_with(http.host, "plugins."))
+```
+
+(`"plugins-"` for the one-level form) and **Bypass cache**. The gate's answers
+say `Cache-Control: private, no-store`, and a page behind a sign-in must never
+be kept by a cache that is shared.
+
+Not seen on a host: the router's routes were run in its pinned Caddy with a
+stand-in gate on a development machine, and the gate itself has not served a
+view.
+
 ## Limits
 
 - A preview is public. A pull request that an owner, member or collaborator

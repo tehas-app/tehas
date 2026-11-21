@@ -1879,6 +1879,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-plugin-gate"
+version = "0.1.0"
+dependencies = [
+ "tehas-core",
+ "tehas-plugin",
+]
+
+[[package]]
 name = "tehas-proxy"
 version = "0.1.0"
 dependencies = [

@@ -104,8 +104,8 @@ pub const FEATURES: &[Feature] = &[
         programs: &[],
         units: &["tehas-review.service", "tehas-review.timer"],
     },
-    // docs/specs/2026-11-21-plugins.md. The gate's program and unit come with
-    // the gate.
+    // docs/specs/2026-11-21-plugins.md: the runner's program and units, and
+    // the gate's.
     Feature {
         name: "plugins",
         stage: Stage::Building,
@@ -119,12 +119,13 @@ pub const FEATURES: &[Feature] = &[
             "TEHAS_PLUGIN_GATE_ADDR",
         ],
         since: "v1.2.0",
-        programs: &["tehas-plugin"],
+        programs: &["tehas-plugin", "tehas-plugin-gate"],
         units: &[
             "tehas-plugin@.service",
             "tehas-plugin-hook@.service",
             "tehas-plugin.service",
             "tehas-plugin.timer",
+            "tehas-plugin-gate.service",
         ],
     },
     // docs/specs/2026-11-21-wiki.md. The build's units come with the build.
@@ -641,7 +642,14 @@ mod tests {
         assert!(flags().contains(&(name, false)));
         let tested = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, name)]);
         assert!(on_in(name, &tested));
-        assert_eq!(installs_in(&tested).0, ["tehas-plugin"]);
+        assert_eq!(
+            installs_in(&tested).0,
+            ["tehas-plugin", "tehas-plugin-gate"]
+        );
+        assert!(installs_in(&tested)
+            .1
+            .contains(&"tehas-plugin-gate.service"));
+        assert_eq!(installs_in(&vars(&[("TEHAS_PLUGIN", "on")])).0.len(), 0);
         assert_eq!(
             refuse_building(&vars(&[("TEHAS_PLUGIN", "on")])),
             Err("TEHAS_PLUGIN is on and plugins is still being built in this release: set it to off or take the line out".to_string())
@@ -844,6 +852,7 @@ mod tests {
                 "tehas-plugin-hook@.service",
                 "tehas-plugin.service",
                 "tehas-plugin.timer",
+                "tehas-plugin-gate.service",
                 "tehas-wiki-status.service",
                 "tehas-wiki-status.timer"
             ]
@@ -854,8 +863,11 @@ mod tests {
     fn plugins_install_their_program_runs_and_timer_only_while_on() {
         let on = vars(&[("TEHAS_PLUGIN", "on"), (TEST_VAR, "plugins")]);
         let (programs, units) = installs_in(&on);
-        assert_eq!(programs, ["tehas-plugin"]);
-        assert_eq!(units.len(), 4);
+        assert_eq!(programs, ["tehas-plugin", "tehas-plugin-gate"]);
+        assert_eq!(units.len(), 5);
+        // The gate is a service of its own: neither a timer's nor a template.
+        assert!(!timed("tehas-plugin-gate.service", &units));
+        assert!(!template("tehas-plugin-gate.service"));
         assert_eq!(installs_in(&vars(&[("TEHAS_PLUGIN", "on")])).0.len(), 0);
         // The timer's service is the timer's; the runs are templates.
         assert!(timed("tehas-plugin.service", &units));

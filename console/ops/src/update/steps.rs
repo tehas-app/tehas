@@ -52,6 +52,7 @@ pub(crate) const UNITS: &[&str] = &[
 const SERVERS: &[(&str, &str)] = &[
     ("tehas-mcp", "tehas-mcp.service"),
     ("tehas-proxy", "tehas-outsource-proxy.service"),
+    ("tehas-plugin-gate", "tehas-plugin-gate.service"),
 ];
 
 /// Units an earlier version named and this one no longer installs. A record
@@ -514,6 +515,24 @@ mod tests {
     }
 
     #[test]
+    fn a_new_gate_or_its_unit_restarts_the_gate_and_not_for_the_runner() {
+        let one = ["units tehas-plugin-gate.service"];
+        assert_eq!(asked(&["libexec/tehas-plugin-gate"]), one);
+        let all = format!("units {}", UNITS.join(" "));
+        assert_eq!(
+            asked(&[
+                "systemd/tehas-top.service",
+                "systemd/tehas-plugin-gate.service"
+            ]),
+            [format!("{all} tehas-plugin-gate.service")]
+        );
+        assert!(asked(&["libexec/tehas-plugin"]).is_empty());
+        for step in asked(&["libexec/tehas-plugin-gate"]) {
+            assert!(valid(&step), "{step}");
+        }
+    }
+
+    #[test]
     fn a_change_to_one_server_asks_for_that_server_only() {
         assert_eq!(asked(&["edge/docs.Caddyfile"]), ["docs --force-recreate"]);
         assert_eq!(
@@ -607,7 +626,11 @@ mod tests {
             }
             .to_string()
         };
-        let all = format!("units {} tehas-plugin.timer", UNITS.join(" "));
+        // The gate is a server of the feature, on as the feature is.
+        let all = format!(
+            "units {} tehas-plugin.timer tehas-plugin-gate.service",
+            UNITS.join(" ")
+        );
         let files = [
             "systemd/tehas-plugin@.service",
             "systemd/tehas-plugin-hook@.service",

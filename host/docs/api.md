@@ -1374,7 +1374,7 @@ as the schema names it, so a field of an item of the list is named under
 | --- | --- |
 | `api` | The API version, 1 |
 | `panels` | The panels, in the order they were set: at most 4, empty when none is set |
-| `panels.id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place |
+| `panels.id` | `a-z`, `0-9` and `-`, 1 to 32 characters. `set` on an `id` that is there replaces it, in its place. An id that starts `p-` is a plugin's view, which `tehas update` sets and clears ([the gate of the views](/tools-control#the-gate-of-the-views)): `set` refuses it with 64 |
 | `panels.label` | One line, 1 to 24 characters. Control characters become spaces, as in `tehas pause` |
 | `panels.url` | `https://` or `http://`, a host, no user or password, at most 512 characters. Its host is not `TEHAS_DOMAIN`: the frame is given `allow-same-origin`, which is safe only on another origin. A sibling name such as `support.<domain>` is another origin and is allowed |
 

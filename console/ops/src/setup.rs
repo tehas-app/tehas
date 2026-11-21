@@ -10,8 +10,9 @@
 //! control issue, and writes instance.env, models.json, ~/.config/tehas/env,
 //! the app's key and its login. The app's token is made by src/github.rs.
 //! Nothing is written before every check passed, except what --new-app
-//! writes as soon as GitHub made the app (setup/manifest.rs): its key and
-//! TEHAS_GITHUB_APP_ID. What this half says goes to standard error.
+//! writes as soon as GitHub made the app (setup/manifest.rs): its key,
+//! TEHAS_GITHUB_APP_ID and the client id and secret of the plugins' sign-in.
+//! What this half says goes to standard error.
 //!
 //! Then the steps: git's helper and identity, the clone, the install, the
 //! labels, the sandbox, the units. What they say goes to standard output, a
@@ -44,7 +45,7 @@ use tehas_core::settings::{
 };
 use tehas_core::{call, exit};
 
-const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labelers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
+const USAGE: &str = "usage: tehas setup [--repo owner/name] [--labelers \"a b\"] [--new-app [--app-owner login] [--app-name name] | --app-id id --app-key-file f] [--app-client-id id --app-secret-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]";
 
 const CONTROL_BODY: &str = "The control issue of this repository's tehas factory. The label tehas:pause here stops it starting work. Keep this issue open; it is never worked on.";
 
@@ -113,6 +114,8 @@ struct Given {
     new_app: bool,
     app_owner: String,
     app_name: String,
+    app_client_id: String,
+    app_secret_file: String,
     endpoint: String,
     model: String,
     key_file: String,
@@ -160,6 +163,8 @@ fn parse(args: &[String]) -> Result<Given, Fail> {
             "--labelers" => &mut g.labelers,
             "--app-id" => &mut g.app_id,
             "--app-key-file" => &mut g.app_key_file,
+            "--app-client-id" => &mut g.app_client_id,
+            "--app-secret-file" => &mut g.app_secret_file,
             "--endpoint" => &mut g.endpoint,
             "--model" => &mut g.model,
             "--model-key-file" => &mut g.key_file,
@@ -415,15 +420,38 @@ fn app_settings(owner: &str, is_org: bool, slug: &str) -> String {
     }
 }
 
+/// The App's client, for the plugins' sign-in: its id and its secret, each in
+/// its file beside the key, mode 600.
+fn keep_client(config: &Path, id: &str, secret: &str) -> io::Result<()> {
+    manifest::write_client(&config.join(tehas_core::plugin::CLIENT_ID_FILE), id)?;
+    manifest::write_client(&config.join(tehas_core::plugin::CLIENT_SECRET_FILE), secret)
+}
+
+/// The one line of a file of the App's client, or none.
+fn client_in(file: &Path) -> Option<String> {
+    let text = fs::read_to_string(file).ok()?;
+    Some(text.trim_end_matches('\n').to_string())
+}
+
+/// The callback of the plugins' sign-in, when instance.env names a domain.
+fn callback(inst: &Path) -> Result<Option<String>, Fail> {
+    let domain = used_in(inst, "TEHAS_DOMAIN")?;
+    let one_level =
+        tehas_core::settings::rules::switch(&used_in(inst, "TEHAS_EDGE_ONE_LEVEL")?) == Some(true);
+    Ok((!domain.is_empty()).then(|| tehas_core::plugin::callback_url(&domain, one_level)))
+}
+
 /// Steps 1 to 6 of "The wizard": the manifest goes to GitHub in the owner's
 /// browser, the code comes back pasted, and GitHub's conversion gives the
-/// app's ID and key. The key and TEHAS_GITHUB_APP_ID are written together,
-/// as soon as the app is made: a code works once, and a second run then finds
-/// the app and only checks it. Then waits for the app to be installed.
+/// app's ID, key and client. The key and TEHAS_GITHUB_APP_ID are written
+/// together, as soon as the app is made: a code works once, and a second run
+/// then finds the app and only checks it. Then waits for the app to be
+/// installed. With a `callback`, the plugins' sign-in returns there.
 fn make_app(
     owner: &str,
     name: &str,
     repo: &str,
+    callback: Option<&str>,
     paths: (&Path, &Path, &Path),
 ) -> Result<github::App, Fail> {
     let (dir, config, app_key) = paths;
@@ -433,7 +461,7 @@ fn make_app(
         ))
     })?;
     let owner_url = format!("https://github.com/{owner}");
-    let manifest = manifest::json(name, &owner_url, &owner_url);
+    let manifest = manifest::json(name, &owner_url, &owner_url, callback);
     let action = manifest::form_url(owner, is_org);
     let state = manifest::new_state().map_err(|e| Die(format!("no random source: {e}")))?;
     made_dir(dir)
@@ -524,8 +552,10 @@ fn make_app(
 }
 
 /// GitHub's answer to the conversion, kept: the key at `app_key` (a new file,
-/// mode 600) and TEHAS_GITHUB_APP_ID in the instance, in one step. The key is
-/// never printed. The app's ID and slug.
+/// mode 600) and TEHAS_GITHUB_APP_ID in the instance, in one step, then the
+/// client beside the key. The key and the secret are never printed. A client
+/// that is missing or not written is said, not a failure: the app is made.
+/// The app's ID and slug.
 fn keep_new_app(
     answer: &[u8],
     dir: &Path,
@@ -535,7 +565,12 @@ fn keep_new_app(
     let made = manifest::made(answer).ok_or_else(|| {
         Die("GitHub's answer for the new app held no ID, name and key; find the app among your GitHub Apps, make a private key for it and run tehas setup --app-id <id> --app-key-file <key>".to_string())
     })?;
-    let manifest::Made { id, slug, pem } = made;
+    let manifest::Made {
+        id,
+        slug,
+        pem,
+        client,
+    } = made;
     manifest::write_key(app_key, &pem).map_err(|e| {
         Die(format!(
             "the app {slug} (ID {id}) was made, but its key could not be written to {}: {e}. Make a new private key at {} and run tehas setup --app-id {id} --app-key-file <key>",
@@ -555,6 +590,24 @@ fn keep_new_app(
         ))
     })?;
     let _ = fs::set_permissions(&inst, fs::Permissions::from_mode(0o600));
+    let config = app_key.parent().unwrap_or(Path::new("."));
+    let later = format!(
+        "the plugins' sign-in needs it: make a client secret at {} and run tehas setup --app-client-id <id> --app-secret-file <file>",
+        settings_page(&slug)
+    );
+    match client {
+        Some((client_id, secret)) => {
+            if let Err(e) = keep_client(config, &client_id, &secret) {
+                say(&format!(
+                    "the app's client could not be written to {} ({e}); {later}",
+                    config.display()
+                ));
+            }
+        }
+        None => say(&format!(
+            "GitHub's answer for the new app held no client id and secret; {later}"
+        )),
+    }
     Ok((id, slug))
 }
 
@@ -634,6 +687,15 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         say("--app-owner and --app-name go with --new-app");
         return Err(Fail::Usage);
     }
+    let given_client = !(g.app_client_id.is_empty() && g.app_secret_file.is_empty());
+    if given_client && (g.app_client_id.is_empty() || g.app_secret_file.is_empty()) {
+        say("--app-client-id and --app-secret-file go together");
+        return Err(Fail::Usage);
+    }
+    if given_client && g.new_app {
+        say("--app-client-id and --app-secret-file name the client of an app made before; --new-app keeps the new app's. Not both");
+        return Err(Fail::Usage);
+    }
 
     let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let config = home.join(".config/tehas");
@@ -667,6 +729,29 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     }
     let kept_id = used_in(&inst, "TEHAS_GITHUB_APP_ID")?;
     let configured = !kept_id.is_empty() && app_key.exists();
+    let sign_in = callback(&inst)?;
+    let client = if given_client {
+        if !tehas_core::plugin::is_client_value(&g.app_client_id) {
+            return Err(Bad(format!(
+                "the App's client id is one word with no space, not: {}",
+                g.app_client_id
+            )));
+        }
+        let secret = read_secret(&g.app_secret_file, "the App's client secret")?;
+        if !tehas_core::plugin::is_client_value(&secret) {
+            return Err(Bad(format!(
+                "the App's client secret in {} is not one word with no space",
+                g.app_secret_file
+            )));
+        }
+        Some((g.app_client_id.clone(), secret))
+    } else {
+        None
+    };
+    let client_files = [
+        config.join(tehas_core::plugin::CLIENT_ID_FILE),
+        config.join(tehas_core::plugin::CLIENT_SECRET_FILE),
+    ];
     if g.key_file == "-" && g.new_app {
         return Err(Bad(
             "--new-app reads GitHub's code on standard input: give --model-key-file a file".into(),
@@ -844,6 +929,15 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
     if !key.is_empty() {
         conflicts.differs(&env_file, &key_name, &key);
     }
+    if let Some((id, secret)) = &client {
+        for (file, value) in client_files.iter().zip([id, secret]) {
+            if client_in(file).is_some_and(|old| old != *value) {
+                conflicts
+                    .list
+                    .push(format!("the App's client in {}", file.display()));
+            }
+        }
+    }
     let old_models = if fs::File::open(&models).is_ok() {
         let m =
             read_json(&models).ok_or_else(|| Bad(format!("{} is not JSON", models.display())))?;
@@ -920,7 +1014,13 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
             "nothing was written".to_string(),
         ),
         Way::New { owner, name } => (
-            make_app(owner, name, &g.repo, (dir, &config, &app_key))?,
+            make_app(
+                owner,
+                name,
+                &g.repo,
+                sign_in.as_deref(),
+                (dir, &config, &app_key),
+            )?,
             "the app's ID and key are written; fix that and run tehas setup again".to_string(),
         ),
     };
@@ -1008,6 +1108,25 @@ fn files(dir: &Path, args: &[String]) -> Result<Written, Fail> {
         }
     }
     let _ = fs::set_permissions(&app_key, fs::Permissions::from_mode(0o600));
+    if let Some((id, secret)) = &client {
+        let same = client_files
+            .iter()
+            .zip([id, secret])
+            .all(|(file, value)| client_in(file).as_deref() == Some(value.as_str()));
+        if !same {
+            keep_client(&config, id, secret).map_err(|e| {
+                Die(format!(
+                    "could not write the App's client to {}: {e}",
+                    config.display()
+                ))
+            })?;
+            say(&format!(
+                "the App's client id and secret written to {} and {}",
+                client_files[0].display(),
+                client_files[1].display()
+            ));
+        }
+    }
     // What was kept for another app, or made with the key before this one.
     for name in stale {
         let _ = fs::remove_file(lookups.join(name));
@@ -1578,6 +1697,8 @@ mod tests {
             0o600
         );
         assert!(!fs::read_to_string(&inst).unwrap().contains("BEGIN"));
+        // A secret alone is no client: nothing of it is written.
+        assert!(!d.join(tehas_core::plugin::CLIENT_SECRET_FILE).exists());
         // A key that is there is never written over, and no ID is written.
         let other = scratch("conversion-again");
         let there = other.join("github-app.pem");
@@ -1591,6 +1712,98 @@ mod tests {
                 .to_string()),
             Err(Die(_))
         ));
+    }
+
+    #[test]
+    fn conversion_keeps_the_client_beside_the_key_600() {
+        let d = scratch("conversion-client");
+        let key = d.join("github-app.pem");
+        let answer = br#"{"id":9,"slug":"acme-factory","pem":"-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\n","client_id":"Iv23li0123","client_secret":"0123abcd","webhook_secret":"ws"}"#;
+        keep_new_app(answer, d.path(), &key, |s| s.to_string())
+            .ok()
+            .unwrap();
+        for (name, value) in [
+            (tehas_core::plugin::CLIENT_ID_FILE, "Iv23li0123\n"),
+            (tehas_core::plugin::CLIENT_SECRET_FILE, "0123abcd\n"),
+        ] {
+            let f = d.join(name);
+            assert_eq!(fs::read_to_string(&f).unwrap(), value, "{name}");
+            assert_eq!(
+                fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+                0o600,
+                "{name}"
+            );
+        }
+        let inst = fs::read_to_string(d.join("instance.env")).unwrap();
+        assert!(!inst.contains("0123abcd") && !inst.contains("ws"));
+    }
+
+    #[test]
+    fn the_sign_ins_callback_is_made_from_the_instances_domain() {
+        let d = scratch("callback");
+        let inst = d.join("instance.env");
+        assert_eq!(callback(&inst).ok().unwrap(), None);
+        fs::write(&inst, "TEHAS_DOMAIN=example.org\n").unwrap();
+        assert_eq!(
+            callback(&inst).ok().unwrap().as_deref(),
+            Some("https://plugins.example.org/_auth/callback")
+        );
+        fs::write(
+            &inst,
+            "TEHAS_DOMAIN=demo.example.org\nTEHAS_EDGE_ONE_LEVEL=on\n",
+        )
+        .unwrap();
+        assert_eq!(
+            callback(&inst).ok().unwrap().as_deref(),
+            Some("https://plugins-demo.example.org/_auth/callback")
+        );
+    }
+
+    #[test]
+    fn the_client_of_an_app_made_before_is_two_options_together() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let g = parse(&a(&[
+            "--app-client-id",
+            "Iv1.ab",
+            "--app-secret-file",
+            "/s",
+        ]))
+        .ok()
+        .unwrap();
+        assert_eq!(
+            (g.app_client_id.as_str(), g.app_secret_file.as_str()),
+            ("Iv1.ab", "/s")
+        );
+        let none = Path::new("/nonexistent/instance");
+        for alone in [
+            &["--app-client-id", "Iv1.ab"][..],
+            &["--app-secret-file", "/s"],
+            &[
+                "--new-app",
+                "--app-client-id",
+                "Iv1.ab",
+                "--app-secret-file",
+                "/s",
+            ],
+        ] {
+            assert!(
+                matches!(files(none, &a(alone)), Err(Fail::Usage)),
+                "{alone:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_client_file_is_read_as_its_one_line() {
+        let d = scratch("client-in");
+        let f = d.join(tehas_core::plugin::CLIENT_ID_FILE);
+        assert_eq!(client_in(&f), None);
+        keep_client(d.path(), "Iv1.ab", "s3cret").unwrap();
+        assert_eq!(client_in(&f).as_deref(), Some("Iv1.ab"));
+        assert_eq!(
+            client_in(&d.join(tehas_core::plugin::CLIENT_SECRET_FILE)).as_deref(),
+            Some("s3cret")
+        );
     }
 
     #[test]

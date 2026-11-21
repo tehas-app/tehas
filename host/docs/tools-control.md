@@ -422,3 +422,32 @@ Plugins are still being built in this release, so every subcommand but
 `TEHAS_PLUGIN` rows of
 [the settings table](/tools#instance-settings) and [what the feature leaves
 visible](/contract#plugins).
+
+### The gate of the views
+
+A plugin's view is served at `plugin-<name>.<domain>`, and the sign-in at
+`plugins.<domain>`, only by `tehas-plugin-gate`, behind a GitHub sign-in. Its
+unit, `tehas-plugin-gate.service`, runs `tehasbot plugin-gate` with the
+settings loaded. `install.sh` builds the program and installs the unit only
+while `TEHAS_PLUGIN` is on, and a first install enables it. It listens on
+`TEHAS_PLUGIN_GATE_ADDR`. It reads the GitHub App's client from
+`~/.config/tehas/github-app.client-id` and `github-app.client-secret`, which
+must be mode 600. Off, it says so and ends 0. A setting or a client file
+missing or malformed ends it with 78, and systemd does not start it again;
+any other end is restarted after 5 seconds. A restart signs everyone out.
+The edge router sends the two names to it: see
+[Plugins' views](/edge#plugins-views) for the address the router reaches.
+
+The client comes from `tehas setup --new-app`, which keeps it beside the
+app's key, or, for an app made before, from `tehas setup --app-client-id <id>
+--app-secret-file <file>` ([A GitHub App](/github-app#the-client-for-the-plugins-sign-in)).
+
+`tehas update` docks each view: for each plugin that is ready at its pin, has
+`view` granted and a `view` in its manifest, it sets the panel `p-<name>`
+with the manifest's `view.label` and the URL `https://plugin-<name>.<domain>/`
+(`plugin-<name>-<sub>.<domain>` with `TEHAS_EDGE_ONE_LEVEL=on`), as
+[`tehas panel set`](/api#tehas-panel) does. A plugin that goes or is refused
+loses its panel, and so does every plugin while the feature is off. Ids that
+start `p-` are kept for this: `tehas panel set p-...` exits 64. A view that
+would be a fifth panel is left out of the dock with a line that says so; the
+update goes on and does not exit 1 for it.

@@ -4,14 +4,19 @@
 //! plugin taken out of the settings removed
 //! (docs/specs/2026-11-21-plugins.md, guarantees 4 and 9). A plugin that is
 //! refused is skipped, never the update; the caller exits 1 at the end.
-//! With the feature off it does nothing.
+//! Then the dock: a panel `p-<name>` for each plugin ready with `view`
+//! granted and a view in its manifest, and none for any other
+//! (docs/specs/2026-11-21-plugins-web.md, "The panel"). With the feature off
+//! it runs nothing, and only takes away a plugin's panel left from before.
 
 use super::exec::Exec;
-use super::prepare::{self, prepare};
+use super::prepare::{self, prepare_view};
+use crate::panel::{self, Panel};
 use std::fs;
 use std::path::Path;
 use tehas_core::plugin::state::Word;
 use tehas_core::plugin::{self, is_name, needs, Cap, Pin};
+use tehas_core::settings::rules::switch;
 
 /// What the step said, and whether a plugin was refused.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -62,8 +67,12 @@ fn weighed(
 pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said {
     let mut said = Said::default();
     if !tehas_core::features::on_in("plugins", get) {
+        docked(home, &[], &mut said);
         return said;
     }
+    let domain = get("TEHAS_DOMAIN");
+    let one_level = switch(&get("TEHAS_EDGE_ONE_LEVEL")) == Some(true);
+    let mut views = Vec::new();
     let pins = plugin::pins(&get("TEHAS_PLUGINS")).unwrap_or_default();
     // Dependencies first, by the needs of each manifest a fetch already
     // brought; then the needs weighed again on what the builds came to.
@@ -77,15 +86,16 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
             continue;
         };
         let grants = plugin::grants(&get(&plugin::grants_setting(&pin.name))).ok();
-        let s = prepare(x, home, pin, grants.as_ref());
+        let (s, view) = prepare_view(x, home, pin, grants.as_ref());
         if let Err(why) = prepare::prune(x, home, pin) {
             said.lines.push(format!("plugin {}: {why}", pin.name));
         }
-        states.push((pin, s));
+        let granted = grants.as_ref().is_some_and(|g| g.caps.contains(&Cap::View));
+        states.push((pin, s, view.filter(|_| granted)));
     }
     let built: Vec<needs::Plugin> = states
         .iter()
-        .map(|(pin, s)| {
+        .map(|(pin, s, _)| {
             let state = if s.state == Word::Ready {
                 needs::State::Ready
             } else {
@@ -95,7 +105,7 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         })
         .collect();
     let whys = needs::resolve(&built);
-    for (pin, mut s) in states {
+    for (pin, mut s, view) in states {
         let why = whys
             .iter()
             .find(|(n, _)| *n == pin.name)
@@ -107,6 +117,15 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
                 said.lines
                     .push(format!("plugin {}: state.json: {e}", pin.name));
             }
+        }
+        // A view docks only for a plugin still ready once its needs are
+        // weighed.
+        if let (Word::Ready, Some(label), false) = (s.state, view, domain.is_empty()) {
+            views.push(Panel {
+                id: format!("{}{}", plugin::PANEL_PREFIX, pin.name),
+                label,
+                url: plugin::view_url(&pin.name, &domain, one_level),
+            });
         }
         let line = match (s.state, &s.image, &s.refusal) {
             (Word::Ready, Some(id), _) => format!("plugin {}: ready, image {id}", pin.name),
@@ -122,6 +141,7 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         };
         said.lines.push(line);
     }
+    docked(home, &views, &mut said);
     let Ok(dirs) = fs::read_dir(prepare::root(home)) else {
         return said;
     };
@@ -140,6 +160,23 @@ pub fn step(x: &mut dyn Exec, home: &Path, get: &dyn Fn(&str) -> String) -> Said
         });
     }
     said
+}
+
+/// The plugins' panels set to `views`. A view left off is said, and the
+/// update goes on: it refuses the view, not the plugin.
+fn docked(home: &Path, views: &[Panel], said: &mut Said) {
+    match panel::set_views(home, views) {
+        Ok(left) => {
+            for (id, why) in left {
+                let name = id.strip_prefix(plugin::PANEL_PREFIX).unwrap_or(id.as_str());
+                said.lines
+                    .push(format!("plugin {name}: its view is not in the dock: {why}"));
+            }
+        }
+        Err(why) => said
+            .lines
+            .push(format!("plugins: the views' panels were not set: {why}")),
+    }
 }
 
 #[cfg(test)]
@@ -258,5 +295,78 @@ mod tests {
         assert!(!said.refused);
         assert!(!prepare::dir(&home, "floorplan").exists());
         assert!(prepare::root(&home).join("not-a-name").exists());
+    }
+
+    fn panels(home: &Path) -> Vec<Panel> {
+        match fs::read_to_string(home.join("state/panels.json")) {
+            Ok(text) => panel::parse(&text).unwrap(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_ready_view_granted_is_a_panel_and_goes_when_it_is_refused() {
+        let m = manifest(r#""view""#).replace(
+            r#""timeout": 3600}"#,
+            r#""timeout": 3600, "view": {"label": "Map"}}"#,
+        );
+        let d = dockerfile();
+        let (home, mut x) = good(
+            "plugin-update-view",
+            &[("tehas-plugin.json", &m), ("Dockerfile", &d)],
+        );
+        x.on("{{.Id}}", ok(&format!("{ID}\n")));
+        x.on("for-each-ref", ok(&format!("refs/tehas/{C}\n")));
+        x.on("gc --prune=now", ok(""));
+        let domain = ("TEHAS_DOMAIN", "demo.example.org".to_string());
+        let get = on(&[
+            ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
+            ("TEHAS_PLUGIN_GRANTS_FLOORPLAN", format!("{C} view")),
+            domain.clone(),
+            ("TEHAS_EDGE_ONE_LEVEL", "1".to_string()),
+        ]);
+        let said = step(&mut x, &home, &get);
+        assert_eq!(said.lines, [format!("plugin floorplan: ready, image {ID}")]);
+        assert_eq!(
+            panels(&home),
+            [Panel {
+                id: "p-floorplan".into(),
+                label: "Map".into(),
+                url: "https://plugin-floorplan-demo.example.org/".into(),
+            }]
+        );
+        // Not granted at the pin: refused, and its panel is taken away.
+        let get = on(&[
+            ("TEHAS_PLUGINS", format!("floorplan={URL}@{C}")),
+            domain.clone(),
+        ]);
+        assert!(step(&mut x, &home, &get).refused);
+        assert!(panels(&home).is_empty());
+    }
+
+    #[test]
+    fn with_the_feature_off_a_views_panel_goes_and_a_persons_stays() {
+        let home = TestDir::new("plugin-update-off-panels");
+        let views = [
+            Panel {
+                id: "support".into(),
+                label: "Ask us".into(),
+                url: "https://support.example.org/".into(),
+            },
+            Panel {
+                id: "p-floorplan".into(),
+                label: "Map".into(),
+                url: "https://plugin-floorplan.example.org/".into(),
+            },
+        ];
+        assert_eq!(panel::set_views(&home, &views[1..]), Ok(vec![]));
+        assert_eq!(
+            panel::run(&home, "example.org", panel::Asked::Set(views[0].clone())),
+            0
+        );
+        let mut x = Fake::new();
+        assert_eq!(step(&mut x, &home, &vars(&[])), Said::default());
+        assert!(x.ran.is_empty());
+        assert_eq!(panels(&home), views[..1]);
     }
 }

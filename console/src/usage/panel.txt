@@ -12,7 +12,8 @@ The dashboard asks the page's host for nothing until a person presses it. tehas
 knows the label and the URL, nothing else.
 
   id     a-z, 0-9 and -, 1 to 32 characters. set on an id that is there
-         replaces it, in its place
+         replaces it, in its place. An id that starts p- is a plugin's
+         view, which tehas update sets: set refuses it
   label  one line, 1 to 24 characters. A control character becomes a space
   url    https:// or http://, a host, no user or password, at most 512
          characters, and not on TEHAS_DOMAIN: the frame shares nothing with
@@ -28,8 +29,8 @@ all of live/ is: a URL holds no secret. With no panels both files are gone.
 set and clear print the list as it then is. Both are safe to repeat, and clear
 of an id that is not there is fine. Reading makes no network call.
 
-Exit: 0 done; 1 the list could not be read or written; 64 a bad argument, a
-fifth panel or a url on TEHAS_DOMAIN, which write nothing; 78 the instance
+Exit: 0 done; 1 the list could not be read or written; 64 a bad argument, an
+id that starts p-, a fifth panel or a url on TEHAS_DOMAIN, which write nothing; 78 the instance
 settings are missing or malformed, which write nothing.
 
 Instance settings (lib/config.sh): TEHAS_DOMAIN, when it is set, is the domain
