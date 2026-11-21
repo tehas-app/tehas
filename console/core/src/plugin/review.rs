@@ -6,18 +6,59 @@
 use super::{ask, grants_setting, Cap, Grants};
 use serde_json::Value;
 
+/// One row of the capability table: the capability as a grant writes it,
+/// and what it lets the plugin do, as a person weighs it.
+pub struct Row {
+    pub word: &'static str,
+    pub does: &'static str,
+}
+
+/// The one capability table (plugin specification 1.0.0, the v3 part, "One
+/// release, one manifest"). `tehas plugin review` prints from it, and the
+/// manual's page `host/docs/plugins.md` holds it as [`markdown`] writes it.
+/// A new capability is a new row here.
+pub const TABLE: [Row; 8] = [
+    Row { word: "view", does: "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it" },
+    Row { word: "product", does: "reads all of the product's code, read only, in every run" },
+    Row { word: "model:<tokens>", does: "chat completions through a socket, up to the tokens of the grant a run" },
+    Row { word: "model:images", does: "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model" },
+    Row { word: "action:<id>", does: "a button in the view: a signed-in person asks for a refresh" },
+    Row { word: "hook:after:work", does: "a run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository" },
+    Row { word: "skill:<id>", does: "its text from the pinned commit goes into the chats' instructions" },
+    Row { word: "needs:<name>", does: "runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing" },
+];
+
+/// The row of a capability.
+pub fn row(cap: &Cap) -> &'static Row {
+    let at = match cap {
+        Cap::View => 0,
+        Cap::Product => 1,
+        Cap::Model => 2,
+        Cap::ModelImages => 3,
+        Cap::Action(_) => 4,
+        Cap::HookAfterWork => 5,
+        Cap::Skill(_) => 6,
+        Cap::Needs(_) => 7,
+    };
+    &TABLE[at]
+}
+
 /// What a capability lets the plugin do, as a person weighs it.
 pub fn does(cap: &Cap) -> &'static str {
-    match cap {
-        Cap::View => "its /out is served behind the sign-in, and a panel in the dock: everyone the sign-in lets in sees it",
-        Cap::Product => "reads all of the product's code, read only, in every run",
-        Cap::Model => "chat completions through a socket, up to the tokens of the grant a run",
-        Cap::Action(_) => "a button in the view: a signed-in person asks for a refresh",
-        Cap::HookAfterWork => "a run on each pull request a cycle leaves; its summary is on the pull request for every reader of the repository",
-        Cap::Skill(_) => "its text from the pinned commit goes into the chats' instructions",
-        Cap::ModelImages => "images in its model requests, each carried in the request and never fetched: what it sends of the product's pages goes to the model",
-        Cap::Needs(_) => "runs only while the named plugin is ready, and its chat gets the skills that plugin grants to a plugin's chat; it grants the other plugin nothing",
+    row(cap).does
+}
+
+/// The table as the manual holds it.
+pub fn markdown() -> String {
+    let mut out = String::from("| Capability | What it lets the plugin do |\n| --- | --- |\n");
+    for r in &TABLE {
+        let mut does = r.does.to_string();
+        if let Some(first) = does.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        out.push_str(&format!("| `{}` | {does} |\n", r.word));
     }
+    out
 }
 
 /// The warning of a view that shows what came of the code.
@@ -143,17 +184,39 @@ mod tests {
     }
 
     #[test]
-    fn every_capability_says_what_it_lets_the_plugin_do() {
-        for cap in [
+    fn every_capability_has_one_row_of_the_table_and_every_row_one_capability() {
+        let caps = [
             Cap::View,
             Cap::Product,
             Cap::Model,
+            Cap::ModelImages,
             Cap::Action("refresh".into()),
             Cap::HookAfterWork,
             Cap::Skill("grill".into()),
-        ] {
-            assert!(!does(&cap).is_empty());
+            Cap::Needs("specs".into()),
+        ];
+        let words: Vec<&str> = caps.iter().map(|c| row(c).word).collect();
+        assert_eq!(words, TABLE.iter().map(|r| r.word).collect::<Vec<_>>());
+        for cap in &caps {
+            assert!(!does(cap).is_empty());
+            // The row's word is the grant's, with a placeholder for its value.
+            let front = row(cap).word.split('<').next().unwrap();
+            assert!(
+                cap.ask().starts_with(front.trim_end_matches(':')),
+                "{}",
+                cap.ask()
+            );
         }
+    }
+
+    #[test]
+    fn the_manual_holds_the_table_as_review_prints_it() {
+        let page = include_str!("../../../../host/docs/plugins.md");
+        assert!(
+            page.contains(&markdown()),
+            "host/docs/plugins.md: replace its capability table with\n{}",
+            markdown()
+        );
     }
 
     #[test]
